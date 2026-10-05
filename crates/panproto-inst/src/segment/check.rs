@@ -3,8 +3,9 @@
 //! A segment's own contract is checked from the segment and the partition
 //! alone:
 //!
-//! - (a) every owned node is owned by the segment under the partition, and
-//!   every owned edge's source is an owned node;
+//! - (a) every graph/tree node-map key equals its stored node id, every
+//!   owned node is owned by the segment under the partition, and every owned
+//!   edge's source is an owned node;
 //! - (b) every edge target is owned here or is a ghost whose owner is the
 //!   target's owner and another segment, and the ghosts are exactly the
 //!   remote targets of owned edges;
@@ -13,7 +14,9 @@
 //!
 //! A tree segment's fans must also be well formed in their graph form, its
 //! ordinary arcs and `Arc`-keyed in-stubs must not meet reified fan nodes,
-//! and its root, when it has one, must be owned and held.
+//! every owned non-fan node must have at most one ordinary incoming arc
+//! after owned arcs and in-stubs are combined, and its root, when it has
+//! one, must be owned and held.
 //!
 //! The invariants that span segments need every segment: the ghost and
 //! in-stub copies of every crossing edge agree, edge ids are unique, and a
@@ -46,7 +49,7 @@ pub fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
 /// is about, in the order found.
 pub fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
     let me = seg.segment();
-    let mut out = Vec::new();
+    let mut out = node_id_violations(seg);
     // (a) owned nodes.
     for (id, _) in seg.node_anchors() {
         let elem = seg.node_ref(id);
@@ -135,6 +138,32 @@ pub fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef
     out
 }
 
+/// Node-map entries whose key and embedded [`crate::Node::id`] disagree.
+///
+/// This check must precede every local view construction: graph insertion
+/// keys nodes by the embedded id, while segment ownership, edge endpoints
+/// and canonical segment bytes address the map key.
+fn node_id_violations(seg: &AnySegment) -> Vec<(ViewRef, SegmentError)> {
+    let nodes = match seg {
+        AnySegment::Graph(graph) => &graph.nodes,
+        AnySegment::Tree(tree) => &tree.nodes,
+        AnySegment::Table(_) => return Vec::new(),
+    };
+    nodes
+        .iter()
+        .filter(|(key, node)| **key != node.id)
+        .map(|(key, node)| {
+            (
+                ViewRef::Node(*key),
+                SegmentError::NodeIdMismatch {
+                    key: *key,
+                    found: node.id,
+                },
+            )
+        })
+        .collect()
+}
+
 /// The violations of (c): every in-stub's target is owned and held here, and
 /// its source owner is the source's owner and another segment.
 fn in_stub_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
@@ -205,7 +234,7 @@ pub fn fan_edge_label(hyper_edge: &str, target_anchor: &str, child_label: Option
     }
 }
 
-/// The violations of a tree segment's fans and root.
+/// The violations of a tree segment's fans, ordinary parent map and root.
 fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
     let me = tree.segment;
     let mut out = Vec::new();
@@ -249,6 +278,11 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
         }
     }
     out.extend(ordinary_fan_incidences(tree).into_iter().map(not_embedded));
+    out.extend(
+        duplicate_ordinary_parents(tree)
+            .into_iter()
+            .map(|node| not_embedded(ViewRef::Node(node))),
+    );
     if let Some(root) = tree.root {
         let held = tree.nodes.get(&root).is_some_and(|n| !is_fan_node(n));
         if !held || index.owner_of_node(root) != Some(me) {
@@ -257,6 +291,35 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
     }
     out.extend(counter_violations(tree).into_iter().map(not_embedded));
     out
+}
+
+/// Owned nodes with more than one ordinary incoming tree arc, counting
+/// both locally owned arcs and ordinary cross-boundary in-stubs.
+fn duplicate_ordinary_parents(tree: &TreeSegment) -> Vec<u32> {
+    let fan_nodes = tree.fan_node_ids();
+    let fan_edges = tree.fan_edge_ids();
+    let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
+    for (id, (src, tgt, _)) in &tree.arcs {
+        if !fan_edges.contains(id)
+            && !fan_nodes.contains(src)
+            && !fan_nodes.contains(tgt)
+            && tree.nodes.contains_key(tgt)
+        {
+            *counts.entry(*tgt).or_default() += 1;
+        }
+    }
+    for (at, stub) in &tree.boundary.in_stubs {
+        if matches!(at, ViewRef::Arc { .. })
+            && tree.nodes.contains_key(&stub.tgt)
+            && !fan_nodes.contains(&stub.tgt)
+        {
+            *counts.entry(stub.tgt).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter_map(|(node, count)| (count > 1).then_some(node))
+        .collect()
 }
 
 /// Ordinary tree arcs cannot meet reified fan nodes. Such an owned arc has

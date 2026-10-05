@@ -6,11 +6,12 @@
 //! In every shape, ghosts and in-stubs are context only. A report retains
 //! check instances whose subjects are owned by the segment.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use super::body::{AnySegment, is_fan_node};
 use super::check::check_segment;
 use super::error::SegmentError;
+use super::ids::SegmentId;
 use super::partition::Partition;
 use crate::fan_violation::FanViolation;
 use crate::functor::FInstance;
@@ -18,12 +19,14 @@ use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_
 use crate::locality::Locality;
 use crate::metadata::{Node, NodeShape};
 use crate::validation::{
-    CheckCoverage, CheckKey, CheckKind, CheckSpec, Diagnostic, ExternalVerdicts, IncompleteCheck,
-    IncompleteReason, ReportScope, SchemaRef, ValidationBudget, ValidationPlan, ValidationReport,
-    Violation,
+    CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, CheckSpec, Diagnostic,
+    ExternalVerdicts, IncompleteCheck, IncompleteReason, ReportScope, SchemaRef, SubsetBudget,
+    ValidationBudget, ValidationPlan, ValidationReport, Violation,
 };
 use crate::view_ref::{RowId, ViewRef};
 use crate::wtype::WInstance;
+use panproto_gat::Name;
+use panproto_schema::Schema;
 
 /// Validate one segment against `plan`.
 ///
@@ -31,39 +34,56 @@ use crate::wtype::WInstance;
 /// segment are evaluated; each other instance is reported as
 /// [`IncompleteReason::OutsideSegment`]. Remote endpoints are materialized
 /// only as anchor-bearing context, and never become subjects in the report.
+/// Application and external-constraint checks read `external`, the same
+/// verdict projection used by whole-instance validation.
 ///
 /// # Errors
 ///
 /// As [`super::check_segment`]. In particular, violations of the segment's
 /// own contract are returned together, in deterministic element order, as
-/// [`SegmentError::Invalid`].
+/// [`SegmentError::Invalid`]. A graph or tree segment whose owned view edges
+/// and incoming stubs exceed the temporary [`EdgeId`] carrier returns
+/// [`SegmentError::ValidationViewUnrepresentable`] before view construction.
 pub fn validate_segment(
     segment: &AnySegment,
     partition: &Partition,
     plan: &ValidationPlan,
     budget: &ValidationBudget,
+    external: &ExternalVerdicts,
 ) -> Result<ValidationReport, SegmentError> {
     check_segment(segment, partition)?;
+    preflight_validation_view_capacity(segment)?;
 
     let shape = segment.shape();
-    let reports = LocalReports::new(segment, plan);
-    let mut findings = LocalFindings::new(segment, plan, budget);
+    let index = LocalIndex::new(segment);
+    let mut selection = LocalSelection::new(plan);
     for (key, spec) in plan.checks() {
+        if selection.statically_incomplete(key) {
+            continue;
+        }
         let Some(locality) = spec.locality.get(&shape) else {
             continue;
         };
-        let subjects = check_subjects(segment, plan, key, spec);
+        let subjects = check_subjects(&index, plan, key, spec);
         if locality != &Locality::Local {
-            findings.outside_segment(key, spec, locality, subjects);
+            selection.outside_segment(key, spec, locality, subjects);
             continue;
         }
-        if let Some(report) = reports.for_check(segment, key.kind) {
-            findings.local(key, spec, &subjects, report);
-        }
+        selection.local(key, spec, subjects);
     }
 
-    let (diagnostics, incomplete) = findings.finish();
-    let coverage = coverage(segment, plan, &diagnostics, &incomplete);
+    let (mut incomplete, admitted) = selection.finish();
+    let mut diagnostics = Vec::new();
+    let (local_diagnostics, local_incomplete) = match segment {
+        AnySegment::Graph(_) => run_graph_candidates(segment, plan, budget, external, &admitted),
+        AnySegment::Tree(_) => run_tree_candidates(segment, plan, budget, external, &admitted),
+        AnySegment::Table(_) => {
+            run_table_candidates(segment, &index, plan, budget, external, &admitted)
+        }
+    };
+    diagnostics.extend(local_diagnostics);
+    incomplete.extend(local_incomplete);
+    let coverage = coverage(&index, plan, &diagnostics, &incomplete);
     Ok(ValidationReport::new(
         shape,
         ReportScope::Segment {
@@ -76,86 +96,127 @@ pub fn validate_segment(
     ))
 }
 
-struct LocalReports {
-    graph: Option<ValidationReport>,
-    tree: Option<ValidationReport>,
-    table: Option<ValidationReport>,
+/// The cardinality of the temporary [`EdgeId`] carrier used by a local
+/// graph view.
+const VALIDATION_VIEW_EDGE_CAPACITY: u64 = 1_u64 << u32::BITS;
+
+/// Check an already counted local validation-view carrier.
+///
+/// Taking the two counts directly keeps the exact `C`/`C + 1` boundary
+/// test independent of an allocation of either carrier.
+///
+/// # Errors
+///
+/// [`SegmentError::ValidationViewUnrepresentable`] when the combined count
+/// is greater than [`VALIDATION_VIEW_EDGE_CAPACITY`].
+pub(super) fn check_validation_view_capacity(
+    segment: SegmentId,
+    owned_edges: u64,
+    incoming_stubs: u64,
+) -> Result<(), SegmentError> {
+    let edges = owned_edges.saturating_add(incoming_stubs);
+    if edges > VALIDATION_VIEW_EDGE_CAPACITY {
+        return Err(SegmentError::ValidationViewUnrepresentable { segment, edges });
+    }
+    Ok(())
+}
+
+/// Count graph/tree owned view edges and incoming stubs before constructing
+/// the local graph view. Tables are validated without that view.
+fn preflight_validation_view_capacity(segment: &AnySegment) -> Result<(), SegmentError> {
+    let owned_edges = match segment {
+        AnySegment::Graph(graph) => graph.edges.len(),
+        AnySegment::Tree(tree) => tree.arcs.len(),
+        AnySegment::Table(_) => return Ok(()),
+    };
+    let owned_edges = u64::try_from(owned_edges).unwrap_or(u64::MAX);
+    let incoming_stubs = u64::try_from(segment.boundary().in_stubs.len()).unwrap_or(u64::MAX);
+    check_validation_view_capacity(segment.segment(), owned_edges, incoming_stubs)
 }
 
 #[derive(Clone)]
 struct GraphEdgeRef {
     at: ViewRef,
     original: Option<EdgeId>,
+    owned: bool,
 }
 
 type GraphEdgeRefs = BTreeMap<EdgeId, GraphEdgeRef>;
 
-impl LocalReports {
-    fn new(segment: &AnySegment, plan: &ValidationPlan) -> Self {
-        let external = ExternalVerdicts::default();
-        let budget = ValidationBudget::default();
-        let mut reports = Self {
-            graph: None,
-            tree: None,
-            table: None,
-        };
-        match segment {
-            AnySegment::Graph(_) => {
-                let (graph, edge_refs) = graph_view(segment);
-                reports.graph = Some(remap_graph_report(
-                    plan.validate_graph(&graph, &budget, &external),
-                    &edge_refs,
-                ));
-            }
-            AnySegment::Table(_) => {
-                let table = table_view(segment);
-                reports.table = Some(plan.validate_table(&table, &budget, &external));
-            }
-            AnySegment::Tree(_) => {
-                let tree = tree_view(segment);
-                reports.tree = Some(plan.validate_tree(&tree, &budget, &external));
-                let (graph, edge_refs) = graph_view(segment);
-                reports.graph = Some(remap_graph_report(
-                    plan.validate_graph(&graph, &budget, &external),
-                    &edge_refs,
-                ));
-            }
-        }
-        reports
-    }
-
-    fn for_check(&self, segment: &AnySegment, kind: CheckKind) -> Option<&ValidationReport> {
-        match segment {
-            AnySegment::Graph(_) => self.graph.as_ref(),
-            AnySegment::Table(_) => self.table.as_ref(),
-            AnySegment::Tree(_) if kind == CheckKind::FanWellFormed => self.graph.as_ref(),
-            AnySegment::Tree(_) => self.tree.as_ref(),
-        }
-    }
-}
-
-struct LocalFindings<'a> {
+/// One near-linear pass over a segment's logical elements and adjacency.
+/// Subject enumeration and direct table footprints share these indexes
+/// instead of rescanning every edge for every node and compiled check.
+struct LocalIndex<'a> {
     segment: &'a AnySegment,
-    plan: &'a ValidationPlan,
-    bounded: bool,
-    limit: u64,
-    spent: u64,
-    exhausted: bool,
-    diagnostics: Vec<Diagnostic>,
-    incomplete: Vec<IncompleteCheck>,
+    logical_nodes: Vec<(ViewRef, u32, &'a Name, bool)>,
+    ordinary_edges: Vec<(ViewRef, u32, &'a panproto_schema::Edge)>,
+    ordinary_labels: BTreeMap<u32, Vec<&'a panproto_schema::Edge>>,
+    endpoints: BTreeMap<ViewRef, (u32, u32)>,
+    outgoing: BTreeMap<u32, BTreeSet<ViewRef>>,
+    incoming: BTreeMap<u32, BTreeSet<ViewRef>>,
+    boundary_incoming: BTreeMap<u32, BTreeSet<ViewRef>>,
 }
 
-impl<'a> LocalFindings<'a> {
-    fn new(segment: &'a AnySegment, plan: &'a ValidationPlan, budget: &ValidationBudget) -> Self {
+impl<'a> LocalIndex<'a> {
+    fn new(segment: &'a AnySegment) -> Self {
+        let logical_nodes = collect_logical_nodes(segment);
+        let ordinary_edges = collect_ordinary_edges(segment);
+        let context_edges = collect_context_edges(segment);
+        let visible_edges: BTreeSet<ViewRef> = context_edges
+            .iter()
+            .filter(|(at, src, tgt)| edge_visible_in_validation_view(segment, at, *src, *tgt))
+            .map(|(at, _, _)| at.clone())
+            .collect();
+        let mut ordinary_labels: BTreeMap<u32, Vec<&panproto_schema::Edge>> = BTreeMap::new();
+        for (at, src, label) in &ordinary_edges {
+            if visible_edges.contains(at) {
+                ordinary_labels.entry(*src).or_default().push(*label);
+            }
+        }
+
+        let mut endpoints = BTreeMap::new();
+        let mut outgoing: BTreeMap<u32, BTreeSet<ViewRef>> = BTreeMap::new();
+        let mut incoming: BTreeMap<u32, BTreeSet<ViewRef>> = BTreeMap::new();
+        for (at, src, tgt) in context_edges {
+            endpoints.insert(at.clone(), (src, tgt));
+            // Raw adjacency is also the budget carrier for direct table
+            // checks, so it retains malformed pairs omitted from FInstance.
+            outgoing.entry(src).or_default().insert(at.clone());
+            incoming.entry(tgt).or_default().insert(at);
+        }
+        let mut boundary_incoming: BTreeMap<u32, BTreeSet<ViewRef>> = BTreeMap::new();
+        for (at, stub) in &segment.boundary().in_stubs {
+            boundary_incoming
+                .entry(stub.tgt)
+                .or_default()
+                .insert(at.clone());
+        }
+
         Self {
             segment,
+            logical_nodes,
+            ordinary_edges,
+            ordinary_labels,
+            endpoints,
+            outgoing,
+            incoming,
+            boundary_incoming,
+        }
+    }
+}
+
+struct LocalSelection<'a> {
+    plan: &'a ValidationPlan,
+    incomplete: Vec<IncompleteCheck>,
+    admitted: BTreeSet<CheckInstance>,
+}
+
+impl<'a> LocalSelection<'a> {
+    fn new(plan: &'a ValidationPlan) -> Self {
+        Self {
             plan,
-            bounded: budget.max_reads.is_some(),
-            limit: budget.max_reads.unwrap_or(u64::MAX),
-            spent: 0,
-            exhausted: false,
-            diagnostics: Vec::new(),
             incomplete: Vec::new(),
+            admitted: BTreeSet::new(),
         }
     }
 
@@ -178,74 +239,358 @@ impl<'a> LocalFindings<'a> {
             }));
     }
 
-    fn local(
-        &mut self,
-        key: &CheckKey,
-        spec: &CheckSpec,
-        subjects: &[Option<ViewRef>],
-        report: &ValidationReport,
-    ) {
-        let statically_incomplete = self
-            .plan
-            .static_findings()
-            .iter()
-            .any(|entry| entry.check == *key);
-        let mut evaluated = BTreeSet::new();
-        let mut cut = None;
-        if !statically_incomplete {
-            for subject in subjects {
-                let reads = local_reads(self.segment, key.kind, subject.as_ref());
-                if self.exhausted || (self.bounded && self.spent.saturating_add(reads) > self.limit)
-                {
-                    self.exhausted = true;
-                    cut.get_or_insert_with(|| subject.clone());
-                } else {
-                    self.spent = self.spent.saturating_add(reads);
-                    evaluated.insert(subject.clone());
-                }
-            }
+    /// Retain the plan's static explanation before locality can replace it
+    /// with a weaker segment-boundary unknown.
+    fn statically_incomplete(&mut self, key: &CheckKey) -> bool {
+        let incomplete = self.plan.is_statically_incomplete(key);
+        if incomplete {
+            self.incomplete.extend(
+                self.plan
+                    .static_findings()
+                    .iter()
+                    .filter(|entry| entry.check == *key)
+                    .cloned(),
+            );
         }
-        self.diagnostics.extend(
-            report
-                .diagnostics
-                .iter()
-                .filter(|entry| entry.check == *key && evaluated.contains(&entry.subject))
-                .cloned(),
-        );
-        self.incomplete
-            .extend(report.incomplete.iter().filter_map(|entry| {
-                if entry.check != *key {
-                    return None;
-                }
-                if self.plan.static_findings().contains(entry) {
-                    return Some(entry.clone());
-                }
-                evaluated.contains(&entry.subject).then(|| entry.clone())
-            }));
-        if let Some(from) = cut {
-            self.incomplete.push(IncompleteCheck {
-                check: key.clone(),
-                class: spec.class,
-                requirement: spec.requirement,
-                subject: None,
-                reason: IncompleteReason::Budget {
-                    limit: self.limit,
-                    spent: self.spent,
-                    from,
-                },
-            });
-        }
+        incomplete
     }
 
-    fn finish(self) -> (Vec<Diagnostic>, Vec<IncompleteCheck>) {
-        (self.diagnostics, self.incomplete)
+    fn local(&mut self, key: &CheckKey, spec: &CheckSpec, subjects: Vec<Option<ViewRef>>) {
+        // Static checks were settled while compiling the plan. A successful
+        // static check therefore needs no carrier view and consumes no read.
+        if spec.class == CheckClass::Static {
+            return;
+        }
+        self.admitted
+            .extend(subjects.into_iter().map(|subject| CheckInstance {
+                check: key.clone(),
+                subject,
+            }));
+    }
+
+    fn finish(self) -> (Vec<IncompleteCheck>, BTreeSet<CheckInstance>) {
+        (self.incomplete, self.admitted)
     }
 }
 
+fn segment_scope(segment: &AnySegment) -> ReportScope {
+    ReportScope::Segment {
+        segment: segment.segment(),
+    }
+}
+
+/// Retain only findings produced by the selected carrier instances. Every
+/// subset report repeats the plan's static findings; the segment selector
+/// has already inserted the applicable ones exactly once.
+fn append_subset_report(
+    report: ValidationReport,
+    plan: &ValidationPlan,
+    diagnostics: &mut Vec<Diagnostic>,
+    incomplete: &mut Vec<IncompleteCheck>,
+) {
+    diagnostics.extend(report.diagnostics);
+    incomplete.extend(
+        report
+            .incomplete
+            .into_iter()
+            .filter(|entry| !plan.is_statically_incomplete(&entry.check)),
+    );
+}
+
+/// Record the selected suffix after an earlier slice exhausted the shared
+/// cursor, without constructing another carrier context or discovering any
+/// skipped footprint.
+fn record_exhausted_suffix(
+    cursor: &mut SubsetBudget,
+    instances: impl IntoIterator<Item = CheckInstance>,
+) {
+    debug_assert!(cursor.is_exhausted());
+    for instance in instances {
+        let charged = cursor.charge_direct(&instance, 0);
+        debug_assert!(!charged);
+    }
+}
+
+fn run_graph_candidates(
+    segment: &AnySegment,
+    plan: &ValidationPlan,
+    budget: &ValidationBudget,
+    external: &ExternalVerdicts,
+    admitted: &BTreeSet<CheckInstance>,
+) -> (Vec<Diagnostic>, Vec<IncompleteCheck>) {
+    if admitted.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let (graph, edge_refs) = graph_view(segment);
+    let admitted = graph_instances(admitted, &edge_refs);
+    let mut cursor = SubsetBudget::new(budget);
+    let report = plan.validate_graph_subset_cursor(
+        &graph,
+        &admitted,
+        &mut cursor,
+        external,
+        segment_scope(segment),
+    );
+    let report = remap_graph_report(report, &edge_refs);
+    let mut diagnostics = Vec::new();
+    let mut incomplete = Vec::new();
+    append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+    let mut cuts = cursor.incomplete(plan);
+    remap_incomplete(&mut cuts, &edge_refs);
+    incomplete.extend(cuts);
+    (diagnostics, incomplete)
+}
+
+fn run_tree_candidates(
+    segment: &AnySegment,
+    plan: &ValidationPlan,
+    budget: &ValidationBudget,
+    external: &ExternalVerdicts,
+    admitted: &BTreeSet<CheckInstance>,
+) -> (Vec<Diagnostic>, Vec<IncompleteCheck>) {
+    if admitted.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let before_fan: BTreeSet<CheckInstance> = admitted
+        .iter()
+        .filter(|instance| instance.check.kind < CheckKind::FanWellFormed)
+        .cloned()
+        .collect();
+    let fan: BTreeSet<CheckInstance> = admitted
+        .iter()
+        .filter(|instance| instance.check.kind == CheckKind::FanWellFormed)
+        .cloned()
+        .collect();
+    let after_fan: BTreeSet<CheckInstance> = admitted
+        .iter()
+        .filter(|instance| instance.check.kind > CheckKind::FanWellFormed)
+        .cloned()
+        .collect();
+
+    let tree = tree_view(segment);
+    let mut cursor = SubsetBudget::new(budget);
+    let mut diagnostics = Vec::new();
+    let mut incomplete = Vec::new();
+    if !before_fan.is_empty() {
+        let report = plan.validate_tree_subset_cursor(
+            &tree,
+            &before_fan,
+            &mut cursor,
+            external,
+            segment_scope(segment),
+        );
+        append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+    }
+    if !fan.is_empty() {
+        if cursor.is_exhausted() {
+            record_exhausted_suffix(&mut cursor, fan);
+        } else {
+            let (graph, edge_refs) = graph_view(segment);
+            let report = plan.validate_graph_subset_cursor(
+                &graph,
+                &fan,
+                &mut cursor,
+                external,
+                segment_scope(segment),
+            );
+            let report = remap_graph_report(report, &edge_refs);
+            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+        }
+    }
+    if !after_fan.is_empty() {
+        if cursor.is_exhausted() {
+            record_exhausted_suffix(&mut cursor, after_fan);
+        } else {
+            let report = plan.validate_tree_subset_cursor(
+                &tree,
+                &after_fan,
+                &mut cursor,
+                external,
+                segment_scope(segment),
+            );
+            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+        }
+    }
+    incomplete.extend(cursor.incomplete(plan));
+    (diagnostics, incomplete)
+}
+
+struct TableCandidateSlices {
+    prefix: BTreeSet<CheckInstance>,
+    structural: Vec<CheckInstance>,
+    middle: BTreeSet<CheckInstance>,
+    external: Vec<CheckInstance>,
+}
+
+impl TableCandidateSlices {
+    fn new(admitted: &BTreeSet<CheckInstance>) -> Self {
+        Self {
+            prefix: admitted
+                .iter()
+                .filter(|instance| instance.check.kind < CheckKind::EdgeDeclared)
+                .cloned()
+                .collect(),
+            structural: admitted
+                .iter()
+                .filter(|instance| {
+                    matches!(
+                        instance.check.kind,
+                        CheckKind::EdgeDeclared | CheckKind::EndpointCoherence
+                    )
+                })
+                .cloned()
+                .collect(),
+            middle: admitted
+                .iter()
+                .filter(|instance| {
+                    instance.check.kind > CheckKind::EndpointCoherence
+                        && instance.check.kind < CheckKind::External
+                })
+                .cloned()
+                .collect(),
+            external: admitted
+                .iter()
+                .filter(|instance| instance.check.kind == CheckKind::External)
+                .cloned()
+                .collect(),
+        }
+    }
+}
+
+fn run_table_candidates(
+    segment: &AnySegment,
+    index: &LocalIndex<'_>,
+    plan: &ValidationPlan,
+    budget: &ValidationBudget,
+    external: &ExternalVerdicts,
+    admitted: &BTreeSet<CheckInstance>,
+) -> (Vec<Diagnostic>, Vec<IncompleteCheck>) {
+    if admitted.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let slices = TableCandidateSlices::new(admitted);
+
+    let table = table_view(segment);
+    let mut cursor = SubsetBudget::new(budget);
+    let mut diagnostics = Vec::new();
+    let mut incomplete = Vec::new();
+    if !slices.prefix.is_empty() {
+        let report = plan.validate_table_subset_cursor(
+            &table,
+            &slices.prefix,
+            &mut cursor,
+            external,
+            segment_scope(segment),
+        );
+        append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+    }
+
+    // A malformed pair cannot inhabit `FInstance`, so its structural checks
+    // must be charged directly. Charging every structural pair here keeps
+    // those synthetic instances interleaved with representable pairs in the
+    // canonical `CheckInstance` order.
+    let mut manual = BTreeSet::new();
+    for instance in slices.structural {
+        let reads = if cursor.is_exhausted() {
+            0
+        } else {
+            direct_reads(index, &instance, residual_reads(&cursor))
+        };
+        if cursor.charge_direct(&instance, reads) {
+            manual.insert(instance);
+        }
+    }
+    if !slices.middle.is_empty() {
+        if cursor.is_exhausted() {
+            record_exhausted_suffix(&mut cursor, slices.middle);
+        } else {
+            let report = plan.validate_table_subset_cursor(
+                &table,
+                &slices.middle,
+                &mut cursor,
+                external,
+                segment_scope(segment),
+            );
+            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+        }
+    }
+    // Table in-stubs are absent from the owned `FInstance` view, but they
+    // remain incident context for External. Charge the exact union of owned
+    // pairs and boundary stubs before evaluating the admitted verdicts.
+    for instance in slices.external {
+        let reads = if cursor.is_exhausted() {
+            0
+        } else {
+            direct_reads(index, &instance, residual_reads(&cursor))
+        };
+        if cursor.charge_direct(&instance, reads) {
+            manual.insert(instance);
+        }
+    }
+
+    if !manual.is_empty() {
+        // The subset evaluator is a trusted selected-subject path. Do not
+        // submit the malformed synthetic pair subjects that `table_view`
+        // deliberately omits: their two structural checks are implemented
+        // directly below. Representable pairs and External row subjects
+        // still use the ordinary evaluator.
+        let concrete: BTreeSet<CheckInstance> = manual
+            .iter()
+            .filter(|instance| table_instance_representable(segment, instance))
+            .cloned()
+            .collect();
+        if !concrete.is_empty() {
+            let mut evaluation_cursor = SubsetBudget::new(&ValidationBudget::default());
+            let report = plan.validate_table_subset_cursor(
+                &table,
+                &concrete,
+                &mut evaluation_cursor,
+                external,
+                segment_scope(segment),
+            );
+            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
+        }
+        if manual.iter().any(|instance| {
+            matches!(
+                instance.check.kind,
+                CheckKind::EdgeDeclared | CheckKind::EndpointCoherence
+            )
+        }) {
+            diagnostics.extend(table_direct_diagnostics(segment, plan, &manual));
+        }
+    }
+    incomplete.extend(cursor.incomplete(plan));
+    (diagnostics, incomplete)
+}
+
+fn graph_instances(
+    admitted: &BTreeSet<CheckInstance>,
+    edge_refs: &GraphEdgeRefs,
+) -> BTreeSet<CheckInstance> {
+    let owned_edges: BTreeMap<ViewRef, ViewRef> = edge_refs
+        .iter()
+        .filter(|(_, edge)| edge.owned)
+        .map(|(id, edge)| (edge.at.clone(), ViewRef::Edge(*id)))
+        .collect();
+    admitted
+        .iter()
+        .map(|instance| CheckInstance {
+            check: instance.check.clone(),
+            subject: instance.subject.as_ref().map(|subject| {
+                owned_edges
+                    .get(subject)
+                    .cloned()
+                    .unwrap_or_else(|| subject.clone())
+            }),
+        })
+        .collect()
+}
+
 /// A graph view of a graph segment or of a tree segment's stored reified
-/// graph. Edge ids are made dense so a malformed cross-segment allocation
-/// cannot collide with an in-stub; `edge_refs` restores global references in
-/// the report.
+/// graph. Every in-stub is context for incident-edge footprints, but never a
+/// segment-owned check subject. Edge ids are made dense so a malformed
+/// cross-segment allocation cannot collide with an in-stub; `edge_refs`
+/// restores global references in the report.
 fn graph_view(segment: &AnySegment) -> (GInstance, GraphEdgeRefs) {
     let mut nodes: BTreeMap<u32, Node> = match segment {
         AnySegment::Graph(graph) => graph.nodes.clone(),
@@ -258,16 +603,11 @@ fn graph_view(segment: &AnySegment) -> (GInstance, GraphEdgeRefs) {
             .or_insert_with(|| Node::new(ghost.node, ghost.anchor.clone()));
     }
 
-    let fan_nodes: BTreeSet<u32> = nodes
-        .iter()
-        .filter(|(_, node)| is_fan_node(node))
-        .map(|(id, _)| *id)
-        .collect();
-    let mut edges: Vec<(ViewRef, Option<EdgeId>, GEdge)> = match segment {
+    let mut edges: Vec<(ViewRef, Option<EdgeId>, bool, GEdge)> = match segment {
         AnySegment::Graph(graph) => graph
             .edges
             .iter()
-            .map(|(id, edge)| (ViewRef::Edge(*id), Some(*id), edge.clone()))
+            .map(|(id, edge)| (ViewRef::Edge(*id), Some(*id), true, edge.clone()))
             .collect(),
         AnySegment::Tree(tree) => {
             let fan_edges = tree.fan_edge_ids();
@@ -282,16 +622,13 @@ fn graph_view(segment: &AnySegment) -> (GInstance, GraphEdgeRefs) {
                             child: *tgt,
                         }
                     };
-                    (at, Some(*id), GEdge::new(*src, *tgt, edge.clone()))
+                    (at, Some(*id), true, GEdge::new(*src, *tgt, edge.clone()))
                 })
                 .collect()
         }
         AnySegment::Table(_) => Vec::new(),
     };
     for (at, stub) in &segment.boundary().in_stubs {
-        if !fan_nodes.contains(&stub.tgt) {
-            continue;
-        }
         nodes
             .entry(stub.src)
             .or_insert_with(|| Node::new(stub.src, stub.src_anchor.clone()));
@@ -301,12 +638,13 @@ fn graph_view(segment: &AnySegment) -> (GInstance, GraphEdgeRefs) {
                 ViewRef::Edge(id) => Some(*id),
                 _ => None,
             },
+            false,
             GEdge::new(stub.src, stub.tgt, stub.label.clone()),
         ));
     }
-    edges.sort_by(|(at_a, id_a, a), (at_b, id_b, b)| {
-        (at_a, id_a, a.src, a.tgt, &a.edge, a.position)
-            .cmp(&(at_b, id_b, b.src, b.tgt, &b.edge, b.position))
+    edges.sort_by(|(at_a, id_a, owned_a, a), (at_b, id_b, owned_b, b)| {
+        (at_a, id_a, owned_a, a.src, a.tgt, &a.edge, a.position)
+            .cmp(&(at_b, id_b, owned_b, b.src, b.tgt, &b.edge, b.position))
     });
 
     let mut graph = GInstance::new();
@@ -314,12 +652,22 @@ fn graph_view(segment: &AnySegment) -> (GInstance, GraphEdgeRefs) {
         graph = graph.with_node(node);
     }
     let mut edge_refs = BTreeMap::new();
-    for (index, (at, original, edge)) in edges.into_iter().enumerate() {
-        let id = EdgeId(u32::try_from(index).unwrap_or(u32::MAX));
+    for (index, (at, original, owned, edge)) in edges.into_iter().enumerate() {
+        let Ok(index) = u32::try_from(index) else {
+            unreachable!("the validation-view edge carrier was preflighted");
+        };
+        let id = EdgeId(index);
         if graph.insert_edge(id, edge).is_err() {
             unreachable!("a checked segment makes a well-formed local graph view");
         }
-        edge_refs.insert(id, GraphEdgeRef { at, original });
+        edge_refs.insert(
+            id,
+            GraphEdgeRef {
+                at,
+                original,
+                owned,
+            },
+        );
     }
     (graph, edge_refs)
 }
@@ -393,9 +741,236 @@ fn table_view(segment: &AnySegment) -> FInstance {
     let pairs = table
         .pairs
         .iter()
+        .filter(|(edge, src, tgt)| table_pair_representable(table, edge, *src, *tgt))
         .map(|(edge, src, tgt)| (edge.clone(), vec![(*src, *tgt)]));
     FInstance::from_parts(tables, pairs)
         .unwrap_or_else(|_| unreachable!("a checked segment makes a well-formed local table view"))
+}
+
+/// The table anchor of an owned row or remote target ghost.
+fn table_anchor(table: &super::body::TableSegment, row: RowId) -> Option<&Name> {
+    table
+        .rows
+        .get(&row)
+        .map(|(anchor, _)| anchor)
+        .or_else(|| table.boundary.ghosts.get(&row.0).map(|ghost| &ghost.anchor))
+}
+
+fn table_pair_representable(
+    table: &super::body::TableSegment,
+    edge: &panproto_schema::Edge,
+    src: RowId,
+    tgt: RowId,
+) -> bool {
+    table_anchor(table, src).is_some_and(|anchor| anchor == &edge.src)
+        && table_anchor(table, tgt).is_some_and(|anchor| anchor == &edge.tgt)
+}
+
+/// Whether a directly charged table instance also inhabits `table_view`.
+/// Only malformed structural pair subjects are synthetic; the External row
+/// subjects and every representable pair are concrete evaluator subjects.
+fn table_instance_representable(segment: &AnySegment, instance: &CheckInstance) -> bool {
+    let AnySegment::Table(table) = segment else {
+        return false;
+    };
+    match (instance.check.kind, instance.subject.as_ref()) {
+        (
+            CheckKind::EdgeDeclared | CheckKind::EndpointCoherence,
+            Some(ViewRef::Pair { edge, src, tgt }),
+        ) => table_pair_representable(table, edge, *src, *tgt),
+        (CheckKind::External, Some(ViewRef::Row(_))) => true,
+        _ => false,
+    }
+}
+
+/// Endpoint-coherence diagnostics for table pairs which cannot be put in an
+/// [`FInstance`]: that representation requires endpoint tables to equal the
+/// edge's declared endpoints, while validation must retain the malformed
+/// pair long enough to diagnose each endpoint.
+fn table_direct_diagnostics(
+    segment: &AnySegment,
+    plan: &ValidationPlan,
+    admitted: &BTreeSet<CheckInstance>,
+) -> Vec<Diagnostic> {
+    let AnySegment::Table(table) = segment else {
+        return Vec::new();
+    };
+    let checks = DirectTableChecks::new(table, plan, admitted);
+    let malformed: BTreeSet<_> = admitted
+        .iter()
+        .filter_map(
+            |instance| match (instance.check.kind, instance.subject.as_ref()) {
+                (
+                    CheckKind::EdgeDeclared | CheckKind::EndpointCoherence,
+                    Some(ViewRef::Pair { edge, src, tgt }),
+                ) if !table_pair_representable(table, edge, *src, *tgt) => {
+                    Some((edge.clone(), *src, *tgt))
+                }
+                _ => None,
+            },
+        )
+        .collect();
+    malformed
+        .iter()
+        .flat_map(|(edge, src, tgt)| checks.diagnostics(edge, *src, *tgt))
+        .collect()
+}
+
+struct DirectTableChecks<'a> {
+    table: &'a super::body::TableSegment,
+    plan: &'a ValidationPlan,
+    admitted: &'a BTreeSet<CheckInstance>,
+    endpoint: Option<(&'a CheckKey, &'a CheckSpec)>,
+    declared: Option<(&'a CheckKey, &'a CheckSpec)>,
+    families: AnchorFamilies<'a>,
+}
+
+impl<'a> DirectTableChecks<'a> {
+    fn new(
+        table: &'a super::body::TableSegment,
+        plan: &'a ValidationPlan,
+        admitted: &'a BTreeSet<CheckInstance>,
+    ) -> Self {
+        Self {
+            table,
+            plan,
+            admitted,
+            endpoint: plan
+                .checks()
+                .iter()
+                .find(|(key, _)| key.kind == CheckKind::EndpointCoherence),
+            declared: plan
+                .checks()
+                .iter()
+                .find(|(key, _)| key.kind == CheckKind::EdgeDeclared),
+            families: AnchorFamilies::new(plan.schema()),
+        }
+    }
+
+    fn diagnostics(&self, edge: &panproto_schema::Edge, src: RowId, tgt: RowId) -> Vec<Diagnostic> {
+        let at = ViewRef::Pair {
+            edge: edge.clone(),
+            src,
+            tgt,
+        };
+        let declared = self.declared.filter(|(key, _)| {
+            self.admitted.contains(&CheckInstance {
+                check: (*key).clone(),
+                subject: Some(at.clone()),
+            })
+        });
+        let endpoint = self.endpoint.filter(|(key, _)| {
+            self.admitted.contains(&CheckInstance {
+                check: (*key).clone(),
+                subject: Some(at.clone()),
+            })
+        });
+        let mut diagnostics = Vec::new();
+        if !self.plan.schema().edges.contains_key(edge)
+            && let Some((key, spec)) = declared
+        {
+            diagnostics.push(Diagnostic {
+                check: key.clone(),
+                class: spec.class,
+                requirement: spec.requirement,
+                subject: Some(at.clone()),
+                elements: vec![at.clone()],
+                violation: Violation::UndeclaredEdge {
+                    label: edge.clone(),
+                },
+                source: self.plan.source(&key.decl),
+            });
+        }
+        let Some((key, spec)) = endpoint else {
+            return diagnostics;
+        };
+        for (side, row, expected) in [
+            (crate::validation::EndpointSide::Src, src, &edge.src),
+            (crate::validation::EndpointSide::Tgt, tgt, &edge.tgt),
+        ] {
+            let Some(found) = table_anchor(self.table, row) else {
+                continue;
+            };
+            if self.families.accepts(expected, found) {
+                continue;
+            }
+            let mut elements = vec![at.clone(), ViewRef::Row(row)];
+            elements.sort();
+            elements.dedup();
+            diagnostics.push(Diagnostic {
+                check: key.clone(),
+                class: spec.class,
+                requirement: spec.requirement,
+                subject: Some(at.clone()),
+                elements,
+                violation: Violation::IncoherentEndpoint {
+                    side,
+                    expected: expected.clone(),
+                    found: found.clone(),
+                },
+                source: self.plan.source(&key.decl),
+            });
+        }
+        diagnostics
+    }
+}
+
+/// The endpoint-family graph shared by direct table endpoint checks.
+struct AnchorFamilies<'a> {
+    stands_for: HashMap<&'a Name, Vec<&'a Name>>,
+}
+
+impl<'a> AnchorFamilies<'a> {
+    fn new(schema: &'a Schema) -> Self {
+        let mut stands_for: HashMap<&Name, Vec<&Name>> = HashMap::new();
+        let mut link = |placeholder: &'a Name, member: &'a Name| {
+            stands_for.entry(placeholder).or_default().push(member);
+        };
+        for (union_vertex, variants) in &schema.variants {
+            for variant in variants {
+                link(union_vertex, &variant.id);
+                if &variant.parent_vertex != union_vertex {
+                    link(&variant.parent_vertex, &variant.id);
+                }
+            }
+        }
+        for (point, unfolding) in &schema.recursion_points {
+            link(point, &unfolding.target_vertex);
+        }
+        for (id, vertex) in &schema.vertices {
+            if vertex.kind == "ref"
+                && let Some(edges) = schema.outgoing.get(id)
+            {
+                for edge in edges.iter().filter(|edge| edge.kind == "ref") {
+                    link(id, &edge.tgt);
+                }
+            }
+        }
+        Self { stands_for }
+    }
+
+    fn accepts(&self, expected: &Name, anchor: &Name) -> bool {
+        expected == anchor || self.reaches(expected, anchor) || self.reaches(anchor, expected)
+    }
+
+    fn reaches(&self, from: &Name, to: &Name) -> bool {
+        let mut seen: HashSet<&Name> = HashSet::from([from]);
+        let mut queue: VecDeque<&Name> = VecDeque::from([from]);
+        while let Some(current) = queue.pop_front() {
+            let Some(members) = self.stands_for.get(current) else {
+                continue;
+            };
+            for member in members {
+                if *member == to {
+                    return true;
+                }
+                if seen.insert(member) {
+                    queue.push_back(member);
+                }
+            }
+        }
+        false
+    }
 }
 
 fn remap_graph_report(mut report: ValidationReport, edge_refs: &GraphEdgeRefs) -> ValidationReport {
@@ -413,13 +988,17 @@ fn remap_graph_report(mut report: ValidationReport, edge_refs: &GraphEdgeRefs) -
         diagnostic.elements.dedup();
         remap_violation(&mut diagnostic.violation, edge_refs);
     }
-    for entry in &mut report.incomplete {
+    remap_incomplete(&mut report.incomplete, edge_refs);
+    report
+}
+
+fn remap_incomplete(incomplete: &mut [IncompleteCheck], edge_refs: &GraphEdgeRefs) {
+    for entry in incomplete {
         entry.subject = entry.subject.as_ref().map(|at| remap_ref(at, edge_refs));
         if let IncompleteReason::Budget { from, .. } = &mut entry.reason {
             *from = from.as_ref().map(|at| remap_ref(at, edge_refs));
         }
     }
-    report
 }
 
 fn remap_ref(at: &ViewRef, edge_refs: &GraphEdgeRefs) -> ViewRef {
@@ -506,7 +1085,7 @@ fn remap_violation(violation: &mut Violation, edge_refs: &GraphEdgeRefs) {
     }
 }
 
-fn logical_nodes(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_gat::Name, bool)> {
+fn collect_logical_nodes(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_gat::Name, bool)> {
     match segment {
         AnySegment::Graph(graph) => graph
             .nodes
@@ -536,7 +1115,7 @@ fn logical_nodes(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_gat::Name
     }
 }
 
-fn ordinary_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_schema::Edge)> {
+fn collect_ordinary_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_schema::Edge)> {
     match segment {
         AnySegment::Graph(graph) => graph
             .edges
@@ -587,12 +1166,14 @@ fn reserved(edge: &panproto_schema::Edge) -> bool {
 }
 
 fn anchored_subjects(
-    segment: &AnySegment,
+    index: &LocalIndex<'_>,
     plan: &ValidationPlan,
     spec: &CheckSpec,
 ) -> Vec<ViewRef> {
-    logical_nodes(segment)
-        .into_iter()
+    index
+        .logical_nodes
+        .iter()
+        .cloned()
         .filter(|(_, _, anchor, fan)| {
             !fan && plan.schema().has_vertex(anchor.as_ref()) && spec.anchors.contains(*anchor)
         })
@@ -600,10 +1181,11 @@ fn anchored_subjects(
         .collect()
 }
 
-fn value_subjects(segment: &AnySegment, plan: &ValidationPlan, spec: &CheckSpec) -> Vec<ViewRef> {
-    let edges = ordinary_edges(segment);
-    logical_nodes(segment)
-        .into_iter()
+fn value_subjects(index: &LocalIndex<'_>, plan: &ValidationPlan, spec: &CheckSpec) -> Vec<ViewRef> {
+    index
+        .logical_nodes
+        .iter()
+        .cloned()
         .filter(|(_, id, anchor, fan)| {
             !fan && spec
                 .anchors
@@ -621,9 +1203,10 @@ fn value_subjects(segment: &AnySegment, plan: &ValidationPlan, spec: &CheckSpec)
                                     && &edge.tgt == value_vertex
                             })
                             .any(|field| {
-                                edges
-                                    .iter()
-                                    .all(|(_, src, edge)| src != id || *edge != field)
+                                index
+                                    .ordinary_labels
+                                    .get(id)
+                                    .is_none_or(|labels| labels.iter().all(|edge| *edge != field))
                             })
                 })
         })
@@ -632,7 +1215,7 @@ fn value_subjects(segment: &AnySegment, plan: &ValidationPlan, spec: &CheckSpec)
 }
 
 fn check_subjects(
-    segment: &AnySegment,
+    index: &LocalIndex<'_>,
     plan: &ValidationPlan,
     key: &CheckKey,
     spec: &CheckSpec,
@@ -649,27 +1232,32 @@ fn check_subjects(
         | CheckKind::KeyUnique
         | CheckKind::Acyclic => vec![None],
         CheckKind::NodeAnchor => some(
-            logical_nodes(segment)
-                .into_iter()
+            index
+                .logical_nodes
+                .iter()
+                .cloned()
                 .filter(|(_, _, _, fan)| !fan)
                 .map(|(at, _, _, _)| at)
                 .collect(),
         ),
         CheckKind::ReservedVocabulary => {
-            let mut refs: Vec<ViewRef> = logical_nodes(segment)
-                .into_iter()
+            let mut refs: Vec<ViewRef> = index
+                .logical_nodes
+                .iter()
+                .cloned()
                 .map(|(at, _, _, _)| at)
                 .collect();
-            refs.extend(ordinary_edges(segment).into_iter().map(|(at, _, _)| at));
+            refs.extend(index.ordinary_edges.iter().map(|(at, _, _)| at.clone()));
             some(refs)
         }
         CheckKind::EdgeDeclared | CheckKind::EndpointCoherence => some(
-            ordinary_edges(segment)
-                .into_iter()
-                .map(|(at, _, _)| at)
+            index
+                .ordinary_edges
+                .iter()
+                .map(|(at, _, _)| at.clone())
                 .collect(),
         ),
-        CheckKind::FanWellFormed => match segment {
+        CheckKind::FanWellFormed => match index.segment {
             AnySegment::Graph(graph) => {
                 let mut refs: Vec<ViewRef> = graph
                     .nodes
@@ -692,32 +1280,48 @@ fn check_subjects(
             AnySegment::Table(_) => Vec::new(),
         },
         CheckKind::TreeParentMap | CheckKind::TreeReachable => some(
-            logical_nodes(segment)
-                .into_iter()
+            index
+                .logical_nodes
+                .iter()
+                .cloned()
                 .map(|(at, _, _, _)| at)
                 .collect(),
         ),
         CheckKind::RequiredValue if matches!(key.decl, SchemaRef::Key { .. }) => {
-            some(anchored_subjects(segment, plan, spec))
+            some(anchored_subjects(index, plan, spec))
         }
         CheckKind::ValueConstraint | CheckKind::RequiredValue => {
-            some(value_subjects(segment, plan, spec))
+            some(value_subjects(index, plan, spec))
         }
         CheckKind::External if matches!(key.decl, SchemaRef::Constraint { .. }) => {
-            some(value_subjects(segment, plan, spec))
+            some(value_subjects(index, plan, spec))
         }
         CheckKind::RequiredEdge
         | CheckKind::OutDegree
         | CheckKind::PositionDistinct
         | CheckKind::Attribute
         | CheckKind::ReferenceResolves
-        | CheckKind::External => some(anchored_subjects(segment, plan, spec)),
+        | CheckKind::External => some(anchored_subjects(index, plan, spec)),
+    }
+}
+
+/// Whether an owned edge inhabits the concrete validation view. Graph and
+/// tree views carry every edge returned by [`collect_context_edges`]. A
+/// table view cannot carry a pair whose rows are not in the endpoint tables
+/// named by its edge; that pair is retained only for the direct structural
+/// checks.
+fn edge_visible_in_validation_view(segment: &AnySegment, at: &ViewRef, src: u32, tgt: u32) -> bool {
+    match (segment, at) {
+        (AnySegment::Table(table), ViewRef::Pair { edge, .. }) => {
+            table_pair_representable(table, edge, RowId(src), RowId(tgt))
+        }
+        _ => true,
     }
 }
 
 /// The ordinary/native edges visible to checks about logical elements. A
 /// graph keeps its reified fan edges; a tree's native view does not.
-fn context_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, u32)> {
+fn collect_context_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, u32)> {
     match segment {
         AnySegment::Graph(graph) => graph
             .edges
@@ -762,151 +1366,99 @@ fn context_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, u32)> {
     }
 }
 
-const fn subject_id(subject: Option<&ViewRef>) -> Option<u32> {
-    match subject {
-        Some(ViewRef::Node(id)) => Some(*id),
-        Some(ViewRef::Row(id)) => Some(id.0),
-        _ => None,
-    }
+/// The unspent part of the shared segment-validation read budget.
+fn residual_reads(cursor: &SubsetBudget) -> Option<u64> {
+    cursor.limit.map(|limit| limit.saturating_sub(cursor.spent))
 }
 
-/// The number of distinct segment elements one local check instance reads.
-/// This is the validation footprint table restricted to local kinds, over
-/// the same native/reified views used for evaluation.
-fn local_reads(segment: &AnySegment, kind: CheckKind, subject: Option<&ViewRef>) -> u64 {
+/// Count at most the residual budget plus its first unpaid distinct read.
+/// The local adjacency index was built in the segment's one carrier pass;
+/// this bounded merge does not rescan an arbitrarily large incident set for
+/// an instance that cannot be admitted.
+fn direct_reads(index: &LocalIndex<'_>, instance: &CheckInstance, residual: Option<u64>) -> u64 {
     let mut reads = BTreeSet::new();
-    match (kind, subject) {
-        (
-            CheckKind::NodeAnchor
-            | CheckKind::ReservedVocabulary
-            | CheckKind::EdgeDeclared
-            | CheckKind::Attribute,
-            Some(at),
-        ) => {
-            reads.insert(at.clone());
+    let add = |reads: &mut BTreeSet<ViewRef>, candidate: ViewRef| {
+        reads.insert(candidate);
+        let count = u64::try_from(reads.len()).unwrap_or(u64::MAX);
+        residual.is_some_and(|limit| count > limit)
+    };
+    match (instance.check.kind, instance.subject.as_ref()) {
+        (CheckKind::EdgeDeclared, Some(at)) => {
+            let _ = add(&mut reads, at.clone());
         }
         (CheckKind::EndpointCoherence, Some(at)) => {
-            add_endpoint_reads(&mut reads, segment, at);
+            if add(&mut reads, at.clone()) {
+                return u64::try_from(reads.len()).unwrap_or(u64::MAX);
+            }
+            if let Some((src, tgt)) = index.endpoints.get(at) {
+                for endpoint in [*src, *tgt] {
+                    if add(&mut reads, index.segment.node_ref(endpoint)) {
+                        return u64::try_from(reads.len()).unwrap_or(u64::MAX);
+                    }
+                }
+            }
         }
-        (CheckKind::FanWellFormed, Some(at @ ViewRef::Node(id))) => {
-            add_fan_reads(&mut reads, segment, at, *id);
+        (CheckKind::External, Some(at @ ViewRef::Row(row))) => {
+            if add(&mut reads, at.clone()) {
+                return u64::try_from(reads.len()).unwrap_or(u64::MAX);
+            }
+            for candidates in [
+                index.outgoing.get(&row.0),
+                index.incoming.get(&row.0),
+                index.boundary_incoming.get(&row.0),
+            ] {
+                for candidate in candidates.into_iter().flatten() {
+                    if add(&mut reads, candidate.clone()) {
+                        return u64::try_from(reads.len()).unwrap_or(u64::MAX);
+                    }
+                }
+            }
         }
-        (
-            CheckKind::RequiredEdge
-            | CheckKind::OutDegree
-            | CheckKind::PositionDistinct
-            | CheckKind::ValueConstraint
-            | CheckKind::RequiredValue,
-            Some(at),
-        ) => {
-            add_out_reads(&mut reads, segment, at);
-        }
-        (CheckKind::TreeParentMap, Some(at)) => {
-            add_parent_reads(&mut reads, segment, at);
-        }
-        (CheckKind::External, Some(at)) => {
-            add_external_reads(&mut reads, segment, at);
-        }
-        _ => {}
+        _ => unreachable!("only direct table check instances are charged here"),
     }
     u64::try_from(reads.len()).unwrap_or(u64::MAX)
 }
 
-fn add_endpoint_reads(reads: &mut BTreeSet<ViewRef>, segment: &AnySegment, at: &ViewRef) {
-    reads.insert(at.clone());
-    for (_, src, tgt) in context_edges(segment)
-        .into_iter()
-        .filter(|(edge, _, _)| edge == at)
-    {
-        reads.insert(segment.node_ref(src));
-        reads.insert(segment.node_ref(tgt));
-    }
-}
-
-fn add_fan_reads(reads: &mut BTreeSet<ViewRef>, segment: &AnySegment, at: &ViewRef, id: u32) {
-    reads.insert(at.clone());
-    reads.extend(
-        segment
-            .owned_edges()
-            .into_iter()
-            .filter(|edge| edge.src == id || edge.tgt == id)
-            .map(|edge| edge.elem),
-    );
-    reads.extend(
-        segment
-            .boundary()
-            .in_stubs
-            .iter()
-            .filter(|(_, stub)| stub.tgt == id)
-            .map(|(edge, _)| edge.clone()),
-    );
-}
-
-fn add_out_reads(reads: &mut BTreeSet<ViewRef>, segment: &AnySegment, at: &ViewRef) {
-    reads.insert(at.clone());
-    if let Some(id) = subject_id(Some(at)) {
-        reads.extend(
-            context_edges(segment)
-                .into_iter()
-                .filter(|(_, src, _)| *src == id)
-                .map(|(edge, _, _)| edge),
-        );
-    }
-}
-
-fn add_parent_reads(reads: &mut BTreeSet<ViewRef>, segment: &AnySegment, at: &ViewRef) {
-    reads.insert(at.clone());
-    if let Some(id) = subject_id(Some(at)) {
-        reads.extend(
-            context_edges(segment)
-                .into_iter()
-                .filter(|(_, _, tgt)| *tgt == id)
-                .map(|(edge, _, _)| edge),
-        );
-        reads.extend(
-            segment
-                .boundary()
-                .in_stubs
-                .iter()
-                .filter(|(edge, stub)| matches!(edge, ViewRef::Arc { .. }) && stub.tgt == id)
-                .map(|(edge, _)| edge.clone()),
-        );
-    }
-}
-
-fn add_external_reads(reads: &mut BTreeSet<ViewRef>, segment: &AnySegment, at: &ViewRef) {
-    reads.insert(at.clone());
-    if let Some(id) = subject_id(Some(at)) {
-        reads.extend(
-            context_edges(segment)
-                .into_iter()
-                .filter(|(_, src, tgt)| *src == id || *tgt == id)
-                .map(|(edge, _, _)| edge),
-        );
-        reads.extend(
-            segment
-                .boundary()
-                .in_stubs
-                .iter()
-                .filter(|(_, stub)| stub.tgt == id)
-                .map(|(edge, _)| edge.clone()),
-        );
-    }
-}
-
 fn coverage(
-    segment: &AnySegment,
+    index: &LocalIndex<'_>,
     plan: &ValidationPlan,
     diagnostics: &[Diagnostic],
     incomplete: &[IncompleteCheck],
 ) -> BTreeMap<CheckKey, CheckCoverage> {
-    let shape = segment.shape();
+    let shape = index.segment.shape();
+    let mut failed_by_check: BTreeMap<CheckKey, BTreeSet<Option<ViewRef>>> = BTreeMap::new();
+    for entry in diagnostics {
+        failed_by_check
+            .entry(entry.check.clone())
+            .or_default()
+            .insert(entry.subject.clone());
+    }
+    let mut incomplete_by_check: BTreeMap<CheckKey, Vec<&IncompleteCheck>> = BTreeMap::new();
+    for entry in incomplete {
+        incomplete_by_check
+            .entry(entry.check.clone())
+            .or_default()
+            .push(entry);
+    }
     plan.checks()
         .iter()
         .filter_map(|(key, spec)| {
             let locality = spec.locality.get(&shape)?;
-            let subjects = check_subjects(segment, plan, key, spec);
+            let subjects = check_subjects(index, plan, key, spec);
             let instances = subjects.len() as u64;
+            if plan.is_statically_incomplete(key) {
+                return Some((
+                    key.clone(),
+                    CheckCoverage {
+                        class: spec.class,
+                        requirement: spec.requirement,
+                        instances,
+                        passed: 0,
+                        failed: 0,
+                        incomplete: instances,
+                    },
+                ));
+            }
             if locality != &Locality::Local {
                 return Some((
                     key.clone(),
@@ -920,31 +1472,10 @@ fn coverage(
                     },
                 ));
             }
-            if plan
-                .static_findings()
-                .iter()
-                .any(|entry| entry.check == *key)
-            {
-                return Some((
-                    key.clone(),
-                    CheckCoverage {
-                        class: spec.class,
-                        requirement: spec.requirement,
-                        instances,
-                        passed: 0,
-                        failed: 0,
-                        incomplete: instances,
-                    },
-                ));
-            }
 
-            let failed: BTreeSet<Option<ViewRef>> = diagnostics
-                .iter()
-                .filter(|entry| entry.check == *key)
-                .map(|entry| entry.subject.clone())
-                .collect();
+            let failed = failed_by_check.get(key);
             let mut undecided: BTreeSet<Option<ViewRef>> = BTreeSet::new();
-            for entry in incomplete.iter().filter(|entry| entry.check == *key) {
+            for entry in incomplete_by_check.get(key).into_iter().flatten() {
                 match &entry.reason {
                     IncompleteReason::Budget { from, .. } => {
                         undecided
@@ -955,8 +1486,8 @@ fn coverage(
                     }
                 }
             }
-            undecided.retain(|subject| !failed.contains(subject));
-            let failed = failed.len() as u64;
+            undecided.retain(|subject| failed.is_none_or(|subjects| !subjects.contains(subject)));
+            let failed = failed.map_or(0, BTreeSet::len) as u64;
             let incomplete = undecided.len() as u64;
             Some((
                 key.clone(),

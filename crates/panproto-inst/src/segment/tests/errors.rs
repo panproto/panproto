@@ -8,7 +8,9 @@ use super::{TestResult, label};
 use crate::error::RestrictError;
 use crate::error_detail::{ErrorDetail, PutDomainError};
 use crate::ginstance::EdgeId;
-use crate::identity::{Digest, IdentityError, IdentityField};
+use crate::identity::{
+    Digest, IdentityError, IdentityField, SEGMENT_FORMAT_VERSION, SEGMENT_MANIFEST_VERSION,
+};
 use crate::locality::{GlobalReason, SegmentOp};
 use crate::segment::{
     ArtifactKind, ErrorAt, ErrorKey, IdKind, IdRange, PartitionDefect, Phase, Residual, Resource,
@@ -63,6 +65,7 @@ fn range_and_digest_errors(pair: &ViewRef) -> Vec<SegmentError> {
             expected: s(1),
             found: s(0),
         },
+        SegmentError::NodeIdMismatch { key: 3, found: 9 },
         SegmentError::GhostMismatch { node: 3 },
         SegmentError::InStubMismatch {
             elem: ViewRef::Arc {
@@ -160,6 +163,10 @@ fn payload_errors(pair: ViewRef) -> Vec<SegmentError> {
         SegmentError::NotEmbedded {
             elem: ViewRef::Node(0),
         },
+        SegmentError::ValidationViewUnrepresentable {
+            segment: s(3),
+            edges: (1_u64 << u32::BITS) + 1,
+        },
     ]
 }
 
@@ -179,6 +186,59 @@ fn segment_error_round_trips_every_variant() -> TestResult {
         assert_eq!(tag, error.kind());
         assert!(!error.to_string().is_empty());
     }
+    Ok(())
+}
+
+#[test]
+fn validation_view_unrepresentable_is_appended_without_changing_existing_error_bytes() -> TestResult
+{
+    let errors = every_segment_error();
+    let kinds: Vec<_> = errors.iter().map(SegmentError::kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            "inverted_range",
+            "overlapping_ranges",
+            "unowned",
+            "wrong_owner",
+            "node_id_mismatch",
+            "ghost_mismatch",
+            "in_stub_mismatch",
+            "duplicate_edge_id",
+            "cross_mismatch",
+            "digest_mismatch",
+            "schema_mismatch",
+            "shape_mismatch",
+            "no_allocation_range",
+            "allocation_exhausted",
+            "allocation_below_floor",
+            "edge_id_outside_allocation",
+            "invalid",
+            "restrict",
+            "put_domain",
+            "edit",
+            "identity",
+            "decode",
+            "malformed_partition",
+            "dangling_endpoint",
+            "not_embedded",
+            "validation_view_unrepresentable",
+        ]
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[4])?,
+        br#"{"node_id_mismatch":{"key":3,"found":9}}"#
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[24])?,
+        br#"{"not_embedded":{"elem":{"node":0}}}"#
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[25])?,
+        br#"{"validation_view_unrepresentable":{"segment":3,"edges":4294967297}}"#
+    );
+    assert_eq!(SEGMENT_FORMAT_VERSION, 1);
+    assert_eq!(SEGMENT_MANIFEST_VERSION, 1);
     Ok(())
 }
 

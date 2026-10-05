@@ -263,6 +263,18 @@ pub enum SegmentError {
         found: SegmentId,
     },
 
+    /// A graph or tree segment's node map stores a node under a key other
+    /// than the id carried by the node. Map keys are the segment's node ids;
+    /// accepting a different embedded id would make canonical encoding and
+    /// local validation address different elements.
+    #[error("node map key {key} stores node id {found}")]
+    NodeIdMismatch {
+        /// The key in the segment's node map.
+        key: u32,
+        /// The id carried by the stored node.
+        found: u32,
+    },
+
     /// A ghost does not match the remote node it stands for: it names the
     /// wrong owner or anchor, no owned edge reaches it, or an owned edge
     /// reaches a remote node without one.
@@ -446,6 +458,16 @@ pub enum SegmentError {
         /// The element.
         elem: ViewRef,
     },
+
+    /// A graph or tree segment's local validation view needs more temporary
+    /// edge ids than [`EdgeId`] can represent.
+    #[error("the validation view of {segment} needs {edges} edge ids")]
+    ValidationViewUnrepresentable {
+        /// The segment whose local validation view is too large.
+        segment: SegmentId,
+        /// The number of owned view edges and incoming stubs.
+        edges: u64,
+    },
 }
 
 impl SegmentError {
@@ -457,6 +479,7 @@ impl SegmentError {
             Self::OverlappingRanges { .. } => "overlapping_ranges",
             Self::Unowned { .. } => "unowned",
             Self::WrongOwner { .. } => "wrong_owner",
+            Self::NodeIdMismatch { .. } => "node_id_mismatch",
             Self::GhostMismatch { .. } => "ghost_mismatch",
             Self::InStubMismatch { .. } => "in_stub_mismatch",
             Self::DuplicateEdgeId { .. } => "duplicate_edge_id",
@@ -477,6 +500,7 @@ impl SegmentError {
             Self::MalformedPartition { .. } => "malformed_partition",
             Self::DanglingEndpoint { .. } => "dangling_endpoint",
             Self::NotEmbedded { .. } => "not_embedded",
+            Self::ValidationViewUnrepresentable { .. } => "validation_view_unrepresentable",
         }
     }
 }
