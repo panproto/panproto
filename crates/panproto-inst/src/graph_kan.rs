@@ -939,13 +939,50 @@ fn choose_edge_id(
     Ok(id)
 }
 
+/// The image of the laid-out inner edge `original` out of the new anchor
+/// `source`: an inner edge of the side out of `source` with the kind of
+/// `original` that the fold reads the same way. An unpositioned edge is a
+/// record field, which the fold reads by its field name ([`column_name`],
+/// which for an unnamed edge is its target vertex), so its image has that
+/// field name. A positioned edge is a list element, which the fold reads by
+/// position alone, so its image has the raw name of `original` (both
+/// unnamed, or both of one name) whatever its target vertex. Among those
+/// candidates the one with the target vertex of `original` is the image;
+/// failing that, the only candidate is; otherwise (none, or several with
+/// renamed targets, where the column map does not say which one the edge
+/// moves to) there is no image.
+fn inner_edge_image<'a>(original: &GEdge, source: &Name, side: &'a SideData) -> Option<&'a Edge> {
+    let field = column_name(&original.edge);
+    let candidates: Vec<&Edge> = side
+        .inner_edges
+        .iter()
+        .filter(|candidate| {
+            candidate.src == *source
+                && candidate.kind == original.edge.kind
+                && if original.position.is_some() {
+                    candidate.name == original.edge.name
+                } else {
+                    column_name(candidate) == field
+                }
+        })
+        .collect();
+    if let Some(same) = candidates
+        .iter()
+        .find(|candidate| candidate.tgt == original.edge.tgt)
+    {
+        return Some(same);
+    }
+    match candidates.as_slice() {
+        [only] => Some(only),
+        _ => None,
+    }
+}
+
 /// The layout `cell` moved onto the column `arrow`: each inner edge of the
-/// subtree is relabelled to the inner edge of the side out of its source's
-/// new anchor with the same kind and the same field name ([`column_name`],
-/// which for an unnamed edge is its target vertex). Returns the moved layout
-/// when every edge has such an image, the anchors are coherent, and the
-/// moved subtree folds to `value`; otherwise `None`, and the cell is decoded
-/// without the layout.
+/// subtree is relabelled to its [`inner_edge_image`] out of its source's new
+/// anchor. Returns the moved layout when every edge has an image, the
+/// anchors are coherent, and the moved subtree folds to `value`; otherwise
+/// `None`, and the cell is decoded without the layout.
 fn relabel_cell_layout(
     cell: &CellLayout,
     value: &Value,
@@ -958,12 +995,7 @@ fn relabel_cell_layout(
     for id in edge_order {
         let original = cell.edges.get(&id)?;
         let source = anchors.get(&original.src)?;
-        let field = column_name(&original.edge);
-        let mapped = side.inner_edges.iter().find(|candidate| {
-            candidate.src == *source
-                && candidate.kind == original.edge.kind
-                && column_name(candidate) == field
-        })?;
+        let mapped = inner_edge_image(original, source, side)?;
         match anchors.entry(original.tgt) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(mapped.tgt.clone());

@@ -904,6 +904,176 @@ fn graph_kan_provenance_names_every_contributor() {
     );
 }
 
+/// A one-column table `a` (renamed `A` when `rename` holds) whose column
+/// `x` holds a list of ints, one element vertex per entry of `elements`,
+/// each reached by an inner edge called `name` (empty for unnamed), the
+/// identity-shaped functor between the two, and a graph whose `x` cell is
+/// the list `[1, 2, ...]` with element `i` on element vertex
+/// `placements[i]`.
+fn list_column_fixture(
+    rename: bool,
+    elements: &[&str],
+    name: &str,
+    placements: &[usize],
+) -> (MigrationFunctor, GInstance) {
+    let side = |table: &str| {
+        let value = format!("{table}.x");
+        let element_vertices: Vec<String> = elements
+            .iter()
+            .map(|element| format!("{value}.{element}"))
+            .collect();
+        let column = edge(table, &value, "x");
+        let inner: Vec<Edge> = element_vertices
+            .iter()
+            .map(|vertex| inner_edge(&value, vertex, name))
+            .collect();
+        let mut vertices = vec![(table.to_owned(), "record"), (value.clone(), "value")];
+        vertices.extend(
+            element_vertices
+                .iter()
+                .map(|vertex| (vertex.clone(), "int")),
+        );
+        let vertex_refs: Vec<(&str, &str)> = vertices
+            .iter()
+            .map(|(id, kind)| (id.as_str(), *kind))
+            .collect();
+        let mut edges = vec![column.clone()];
+        edges.extend(inner.iter().cloned());
+        (
+            schema(&vertex_refs, &edges),
+            column,
+            inner,
+            vertices.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+        )
+    };
+    let (source, x, source_inner, source_vertices) = side("a");
+    let (target, big_x, target_inner, target_vertices) = side(if rename { "A" } else { "a" });
+    let vertex_pairs: Vec<(&str, &str)> = source_vertices
+        .iter()
+        .zip(&target_vertices)
+        .map(|(from, to)| (from.as_str(), to.as_str()))
+        .collect();
+    let mut edge_pairs = vec![(x.clone(), big_x)];
+    edge_pairs.extend(source_inner.iter().cloned().zip(target_inner));
+    let functor = MigrationFunctor::new(
+        &source,
+        &protocol(),
+        &target,
+        &protocol(),
+        &migration(&vertex_pairs, &edge_pairs, &[], &[]),
+    )
+    .unwrap();
+    let mut graph = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "a.x").with_shape(NodeShape::List))
+        .with_edge_id(EdgeId(10), 0, 1, x);
+    for (index, &placement) in placements.iter().enumerate() {
+        let node = u32::try_from(index).unwrap() + 2;
+        let value = i64::try_from(index).unwrap() + 1;
+        let element = &source_inner[placement];
+        graph = graph
+            .with_node(
+                Node::new(node, element.tgt.clone())
+                    .with_value(FieldPresence::Present(Value::Int(value))),
+            )
+            .with_edge_id(EdgeId(20 + node), 1, node, element.clone());
+        graph
+            .set_edge_position(EdgeId(20 + node), Some(u32::try_from(index).unwrap()))
+            .unwrap();
+    }
+    (functor, graph)
+}
+
+/// The element edges out of the value node at `column_vertex` in `graph`,
+/// as (element vertex, position, value), ascending by position.
+fn list_elements(graph: &GInstance, column_vertex: &str) -> Vec<(String, Option<u32>, Value)> {
+    let list = graph
+        .nodes()
+        .values()
+        .find(|node| node.anchor == column_vertex)
+        .unwrap()
+        .id;
+    let mut elements: Vec<_> = graph
+        .edges()
+        .values()
+        .filter(|edge| edge.src == list)
+        .map(|edge| {
+            let target = graph.node(edge.tgt).unwrap();
+            let value = match target.value.as_ref() {
+                Some(FieldPresence::Present(value)) => value.clone(),
+                other => panic!("element without a value: {other:?}"),
+            };
+            (target.anchor.to_string(), edge.position, value)
+        })
+        .collect();
+    elements.sort_by_key(|(_, position, _)| *position);
+    elements
+}
+
+#[test]
+fn graph_sigma_keeps_an_unnamed_list_layout_across_a_vertex_rename() {
+    let (functor, graph) = list_column_fixture(true, &["item"], "", &[0, 0]);
+    let sigma = g_sigma_along(&graph, &functor).unwrap();
+    assert_eq!((sigma.node_count(), sigma.edge_count()), (4, 3));
+    assert_eq!(
+        list_elements(&sigma, "A.x"),
+        vec![
+            ("A.x.item".to_owned(), Some(0), Value::Int(1)),
+            ("A.x.item".to_owned(), Some(1), Value::Int(2)),
+        ]
+    );
+}
+
+#[test]
+fn graph_sigma_keeps_a_named_list_layout_across_a_vertex_rename() {
+    let (functor, graph) = list_column_fixture(true, &["item"], "item", &[0, 0]);
+    let sigma = g_sigma_along(&graph, &functor).unwrap();
+    assert_eq!((sigma.node_count(), sigma.edge_count()), (4, 3));
+    assert_eq!(
+        list_elements(&sigma, "A.x"),
+        vec![
+            ("A.x.item".to_owned(), Some(0), Value::Int(1)),
+            ("A.x.item".to_owned(), Some(1), Value::Int(2)),
+        ]
+    );
+}
+
+#[test]
+fn graph_sigma_keeps_unnamed_list_elements_on_their_own_element_vertices() {
+    let (functor, graph) = list_column_fixture(false, &["i", "j"], "", &[1, 0]);
+    let sigma = g_sigma_along(&graph, &functor).unwrap();
+    assert_eq!((sigma.node_count(), sigma.edge_count()), (4, 3));
+    assert_eq!(
+        list_elements(&sigma, "a.x"),
+        vec![
+            ("a.x.j".to_owned(), Some(0), Value::Int(1)),
+            ("a.x.i".to_owned(), Some(1), Value::Int(2)),
+        ]
+    );
+}
+
+#[test]
+fn graph_sigma_decodes_an_ambiguous_renamed_list_without_its_layout() {
+    // Two unnamed int element edges leave `A.x`, and the functor renames
+    // the element vertices, so the column map does not say which target
+    // edge an element edge moves to: the cell is decoded as one leaf.
+    let (functor, graph) = list_column_fixture(true, &["i", "j"], "", &[1, 0]);
+    let sigma = g_sigma_along(&graph, &functor).unwrap();
+    assert_eq!((sigma.node_count(), sigma.edge_count()), (2, 1));
+    let leaf = sigma
+        .nodes()
+        .values()
+        .find(|node| node.anchor == "A.x")
+        .unwrap();
+    assert_eq!(
+        leaf.value,
+        Some(FieldPresence::Present(Value::List(vec![
+            Value::Int(1),
+            Value::Int(2)
+        ])))
+    );
+}
+
 #[test]
 fn a_graph_sigma_clash_has_no_hom_into_any_delta_candidate() {
     let x = edge("a", "a.x", "x");
