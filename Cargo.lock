@@ -2172,6 +2172,7 @@ dependencies = [
  "panproto-gat",
  "panproto-grammars",
  "panproto-inst",
+ "panproto-lens",
  "panproto-parse",
  "panproto-protocols",
  "panproto-schema",

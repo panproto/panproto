@@ -30,6 +30,7 @@
 
 use std::collections::BTreeMap;
 
+use panproto_gat::Name;
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
@@ -131,6 +132,24 @@ pub enum SynthKey {
         tgt: u32,
         /// The position along the expansion path.
         hop: u16,
+    },
+    /// An edge synthesized for one resolved reference occurrence.
+    ResolutionReference {
+        /// Source holder of the occurrence.
+        holder: ViewRef,
+        /// Reference declaration.
+        reference: Name,
+        /// Occurrence index at the holder.
+        index: u32,
+    },
+    /// A node synthesized for one standoff span.
+    ResolutionSpan {
+        /// Text carrier indexed by the span.
+        text: ViewRef,
+        /// Inclusive start byte offset.
+        start: u64,
+        /// Exclusive end byte offset.
+        end: u64,
     },
 }
 
@@ -311,6 +330,16 @@ mod tests {
                 tgt: 0,
                 hop: 0,
             },
+            SynthKey::ResolutionReference {
+                holder: ViewRef::Node(3),
+                reference: "alias".into(),
+                index: 2,
+            },
+            SynthKey::ResolutionSpan {
+                text: ViewRef::Row(RowId(4)),
+                start: 5,
+                end: 8,
+            },
         ];
         assert!(keys.windows(2).all(|w| w[0] < w[1]), "{keys:?}");
         let json: Vec<String> = keys
@@ -326,6 +355,9 @@ mod tests {
                 ),
                 r#"{"expand":{"source_edge":0,"hop":0}}"#.to_owned(),
                 r#"{"contract_expand":{"src":0,"tgt":0,"hop":0}}"#.to_owned(),
+                r#"{"resolution_reference":{"holder":{"node":3},"reference":"alias","index":2}}"#
+                    .to_owned(),
+                r#"{"resolution_span":{"text":{"row":4},"start":5,"end":8}}"#.to_owned(),
             ]
         );
         for k in &keys {

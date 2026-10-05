@@ -68,11 +68,15 @@ use std::str::FromStr;
 
 use panproto_expr::{Expr, Literal, Pattern};
 use panproto_gat::{CoercionClass, Name};
-use panproto_schema::{CanonicalWriter, Edge, InstanceShapeKind, Schema};
+use panproto_schema::{
+    CanonicalWriter, Cardinality, Edge, InstanceShapeKind, OffsetUnit, OnUnresolved, PathSyntax,
+    RefSource, RefTextSource, Reference, ResolveMode, Schema,
+};
 use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::complement::Complement;
+use crate::resolution_complement::{ResolutionComplement, ResolutionKind, ResolutionSpec};
 use crate::table_complement::TableComplement;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
@@ -200,6 +204,10 @@ pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
 /// protocol, the resolution kind and the syntactic and semantic schema
 /// digests.
 pub const RESOLUTION_CONTEXT: &str = "panproto 2026-09 resolution identity v1";
+
+/// The blake3 key-derivation context for a provider's canonical resolution
+/// specification.
+pub const RESOLUTION_SPEC_CONTEXT: &str = "panproto 2026-09 resolution spec v1";
 
 /// The theory and theory-composition contexts. They are defined beside
 /// their encoders in [`panproto_schema::canonical_theory`] and re-exported
@@ -643,6 +651,205 @@ pub fn schema_digest(schema: &Schema) -> Digest {
 #[must_use]
 pub fn lens_digest(src: &Schema, tgt: &Schema, compiled: &CompiledMigration) -> Digest {
     lens_digest_over(&schema_digest(src), &schema_digest(tgt), compiled)
+}
+
+/// The identity of every semantic input carried by a [`ResolutionSpec`].
+///
+/// The semantic schema contributes its canonical schema digest. All other
+/// fields are encoded in declaration order, with ordered collections in
+/// their stored order and sum types behind fixed discriminants.
+#[must_use]
+pub fn resolution_spec_digest(spec: &ResolutionSpec) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_SPEC_CONTEXT);
+    hasher.tag(resolution_kind_tag(spec.kind));
+    hasher.name(&spec.provider.name);
+    hasher.u32(u32::from(spec.provider.version));
+    hasher.write(&schema_digest(&spec.semantic_schema).0);
+    hasher.len(spec.protocol_references.len());
+    for (name, reference) in &spec.protocol_references {
+        hasher.name(name);
+        write_reference(&mut hasher, reference);
+    }
+    hasher.len(spec.structural_edges.len());
+    for edge in &spec.structural_edges {
+        hasher.edge(edge);
+    }
+    hasher.len(spec.reference_writers.len());
+    for (edge, reference) in &spec.reference_writers {
+        hasher.edge(edge);
+        hasher.name(reference);
+    }
+    hasher.len(spec.context_requirements.len());
+    for requirement in &spec.context_requirements {
+        hasher.tag(match requirement {
+            crate::ResolutionContextKind::ExternalText => 0,
+            crate::ResolutionContextKind::TokenBoundaries => 1,
+        });
+    }
+    match &spec.assembly {
+        None => hasher.tag(0),
+        Some(plan) => {
+            hasher.tag(1);
+            hasher.name(&plan.grammar);
+            hasher.u32(u32::from(plan.version));
+        }
+    }
+    hasher.finalize()
+}
+
+/// The identity of a compiled resolution.
+///
+/// `protocol` is the registry's canonical protocol name. The two schema
+/// arguments are already-computed schema digests and `spec` is the result of
+/// [`resolution_spec_digest`].
+#[must_use]
+pub fn resolution_digest(
+    protocol: &str,
+    kind: ResolutionKind,
+    syntactic: &Digest,
+    semantic: &Digest,
+    spec: &Digest,
+) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_CONTEXT);
+    hasher.str(protocol);
+    hasher.tag(resolution_kind_tag(kind));
+    hasher.write(&syntactic.0);
+    hasher.write(&semantic.0);
+    hasher.write(&spec.0);
+    hasher.finalize()
+}
+
+/// The envelope stamped on complements produced by one resolution.
+#[must_use]
+pub fn resolution_identity(
+    protocol: &str,
+    syntactic: &Schema,
+    spec: &ResolutionSpec,
+) -> IdentityEnvelope {
+    let source_schema = schema_digest(syntactic);
+    let target_schema = schema_digest(&spec.semantic_schema);
+    let spec_digest = resolution_spec_digest(spec);
+    IdentityEnvelope {
+        version: IDENTITY_ENVELOPE_VERSION,
+        source_schema,
+        target_schema,
+        lens: resolution_digest(
+            protocol,
+            spec.kind,
+            &source_schema,
+            &target_schema,
+            &spec_digest,
+        ),
+        complement_format: ComplementShape::Resolution.current_format(),
+    }
+}
+
+const fn resolution_kind_tag(kind: ResolutionKind) -> u8 {
+    match kind {
+        ResolutionKind::TreeToGraph => 0,
+        ResolutionKind::TableToGraph => 1,
+        ResolutionKind::TreeToTable => 2,
+        ResolutionKind::TableToTree => 3,
+    }
+}
+
+fn write_path<S: CanonicalSink + ?Sized>(sink: &mut S, path: &[Edge]) {
+    sink.len(path.len());
+    for edge in path {
+        sink.edge(edge);
+    }
+}
+
+fn write_path_syntax<S: CanonicalSink + ?Sized>(sink: &mut S, syntax: &PathSyntax) {
+    match syntax {
+        PathSyntax::JsonPointer => sink.tag(0),
+        PathSyntax::XPath => sink.tag(1),
+        PathSyntax::Uri { base } => {
+            sink.tag(2);
+            match base {
+                None => sink.tag(0),
+                Some(path) => {
+                    sink.tag(1);
+                    write_path(sink, path);
+                }
+            }
+        }
+        PathSyntax::IdRef => sink.tag(3),
+    }
+}
+
+fn write_reference<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Reference) {
+    sink.name(&reference.id);
+    sink.name(&reference.holder);
+    match &reference.source {
+        RefSource::KeyValue { parts } => {
+            sink.tag(0);
+            sink.len(parts.len());
+            for path in parts {
+                write_path(sink, path);
+            }
+        }
+        RefSource::Path { field, syntax } => {
+            sink.tag(1);
+            write_path(sink, field);
+            write_path_syntax(sink, syntax);
+        }
+        RefSource::Standoff {
+            text,
+            start,
+            end,
+            unit,
+            end_inclusive,
+        } => {
+            sink.tag(2);
+            match text {
+                RefTextSource::Local(path) => {
+                    sink.tag(0);
+                    write_path(sink, path);
+                }
+                RefTextSource::External(path) => {
+                    sink.tag(1);
+                    write_path(sink, path);
+                }
+            }
+            write_path(sink, start);
+            write_path(sink, end);
+            sink.tag(match unit {
+                OffsetUnit::Byte => 0,
+                OffsetUnit::Utf8Char => 1,
+                OffsetUnit::Utf16 => 2,
+                OffsetUnit::Token => 3,
+            });
+            sink.bool(*end_inclusive);
+        }
+        RefSource::Variable { field, binder_key } => {
+            sink.tag(3);
+            write_path(sink, field);
+            sink.name(binder_key);
+        }
+    }
+    sink.name(&reference.target_vertex);
+    sink.opt_name(reference.target_key.as_ref());
+    match &reference.edge {
+        None => sink.tag(0),
+        Some(edge) => {
+            sink.tag(1);
+            sink.edge(edge);
+        }
+    }
+    sink.tag(match reference.cardinality {
+        Cardinality::One => 0,
+        Cardinality::Many => 1,
+    });
+    sink.bool(reference.nullable);
+    sink.tag(match reference.on_unresolved {
+        OnUnresolved::Error => 0,
+        OnUnresolved::Complement => 1,
+    });
+    sink.tag(match reference.mode {
+        ResolveMode::AddEdge => 0,
+        ResolveMode::Redirect => 1,
+    });
 }
 
 /// [`lens_digest`] from schema digests already in hand.
@@ -1788,6 +1995,8 @@ pub enum AnyComplement {
     WType(Box<Complement>),
     /// A table complement.
     Functor(Box<TableComplement>),
+    /// A reference-resolution complement.
+    Resolution(Box<ResolutionComplement>),
 }
 
 impl AnyComplement {
@@ -1797,6 +2006,7 @@ impl AnyComplement {
         match self {
             Self::WType(_) => ComplementShape::WType,
             Self::Functor(_) => ComplementShape::Functor,
+            Self::Resolution(_) => ComplementShape::Resolution,
         }
     }
 
@@ -1806,6 +2016,7 @@ impl AnyComplement {
         match self {
             Self::WType(c) => c.identity.as_ref(),
             Self::Functor(c) => c.identity.as_ref(),
+            Self::Resolution(c) => c.identity.as_ref(),
         }
     }
 }
@@ -1861,7 +2072,11 @@ fn decode_shape(
             decode_as::<TableComplement>(bytes, encoding)
                 .map(|c| AnyComplement::Functor(Box::new(c))),
         ),
-        ComplementShape::Graph | ComplementShape::Resolution => None,
+        ComplementShape::Resolution => Some(
+            decode_as::<ResolutionComplement>(bytes, encoding)
+                .map(|c| AnyComplement::Resolution(Box::new(c))),
+        ),
+        ComplementShape::Graph => None,
     }
 }
 
@@ -1887,7 +2102,14 @@ fn decode_shape_seq(
                     .collect()
             },
         )),
-        ComplementShape::Graph | ComplementShape::Resolution => None,
+        ComplementShape::Resolution => Some(
+            decode_as::<Vec<ResolutionComplement>>(bytes, encoding).map(|cs| {
+                cs.into_iter()
+                    .map(|c| AnyComplement::Resolution(Box::new(c)))
+                    .collect()
+            }),
+        ),
+        ComplementShape::Graph => None,
     }
 }
 

@@ -77,6 +77,8 @@ pub mod query;
 pub mod reachability;
 /// The relation-ified schema of a table schema.
 pub mod rel_schema;
+/// Serializable carriers for reference-resolution lenses.
+pub mod resolution_complement;
 pub mod restrict_boundary;
 pub mod restrict_plan;
 pub mod segment;
@@ -155,7 +157,10 @@ pub use graph_restrict::{
     graph_restrict_with_plan,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
-pub use identity::{CanonicalSink, DigestHasher};
+pub use identity::{
+    CanonicalSink, DigestHasher, RESOLUTION_CONTEXT, RESOLUTION_SPEC_CONTEXT, resolution_digest,
+    resolution_identity, resolution_spec_digest,
+};
 pub use identity::{
     ComplementShape, Digest, IdentityEnvelope, IdentityError, IdentityPolicy, IdentityStatus,
 };
@@ -184,11 +189,17 @@ pub use reachability::{
     ReachabilityIndex, graph_components, reachable_from, strongly_connected_components,
 };
 pub use rel_schema::{RelSchema, RelSchemaError};
+pub use resolution_complement::{
+    AnyInstance, AssemblyPlanId, AssemblyResidue, AssemblyTrace, DefinitionKey, RedirectedArc,
+    RedirectedAttachment, RedirectedFragment, RefOccurrence, ResolutionComplement,
+    ResolutionContextKind, ResolutionKind, ResolutionProviderId, ResolutionSpan, ResolutionSpec,
+    UnresolvedReason as ResolutionUnresolvedReason, UnresolvedRef,
+};
 pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
 pub use restrict_plan::{
     BoundaryPlan, CellFate, CellPlan, EdgeFate, EdgeImage, RestrictPlan, SurvivalElement,
 };
-pub use segment::{IdAllocator, IdRange, SegmentId};
+pub use segment::{IdAllocator, IdKind, IdRange, SegmentId};
 pub use table_complement::{DroppedRow, TableComplement};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;

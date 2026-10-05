@@ -47,6 +47,10 @@ pub enum ParseInstanceError {
     /// JSON parsing failed.
     #[error("JSON parse error: {0}")]
     Json(String),
+
+    /// Semantic resolution failed after syntactic parsing.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when emitting an instance to raw format bytes.
@@ -87,6 +91,10 @@ pub enum EmitInstanceError {
     /// JSON serialization failed.
     #[error("JSON emit error: {0}")]
     Json(String),
+
+    /// Semantic put failed before syntactic emission.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when constructing a [`UnifiedCodec`](super::unified_codec::UnifiedCodec).

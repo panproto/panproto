@@ -6,15 +6,38 @@
 //! protocols without compile-time knowledge of which protocol is being used.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use panproto_inst::{FInstance, GInstance, WInstance};
-use panproto_schema::Schema;
+use panproto_inst::{AnyInstance, FInstance, GInstance, ResolutionComplement, WInstance};
+use panproto_schema::{InstanceShapeKind, Protocol, Schema};
 
 use crate::error::{EmitInstanceError, ParseInstanceError};
+use crate::resolution::{
+    Resolution, ResolutionFeature, ResolutionProvider, ResolveContext, ResolveError, ResolveOptions,
+};
 use crate::traits::{
     GraphInstanceEmitter, GraphInstanceParser, InstanceEmitter, InstanceParser, NativeRepr,
     TableInstanceEmitter, TableInstanceParser,
 };
+
+/// Presentation state retained independently of semantic resolution state.
+#[derive(Clone, Debug)]
+pub enum PresentationComplement {
+    /// Exact layout of a delimiter-oriented byte format.
+    ByteTabular(crate::byte_tabular::ByteTabularComplement),
+    /// Concrete-syntax-tree state of a grammar-backed format.
+    #[cfg(feature = "tree-sitter")]
+    Cst(crate::cst_extract::CstComplement),
+}
+
+/// Product state of a preserving semantic route.
+#[derive(Clone, Debug)]
+pub struct ResolvedState {
+    /// Optional byte/CST presentation state.
+    pub presentation: Option<PresentationComplement>,
+    /// Mandatory semantic resolution state.
+    pub resolution: ResolutionComplement,
+}
 
 /// A combined parser + emitter for a single protocol.
 ///
@@ -24,6 +47,41 @@ use crate::traits::{
 /// When the `tree-sitter` feature is enabled, codecs may override the
 /// format-preserving methods to support lossless round-trips.
 pub trait ProtocolCodec: InstanceParser + InstanceEmitter {
+    /// Parse a table while retaining presentation state when supported.
+    ///
+    /// # Errors
+    ///
+    /// Returns the codec's typed parse error.
+    fn parse_functor_preserving(
+        &self,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
+        self.parse_functor(schema, input).map(|value| (value, None))
+    }
+
+    /// Emit a table while replaying presentation state when supported.
+    ///
+    /// # Errors
+    ///
+    /// Returns the codec's typed emit error. The default accepts only absent
+    /// state, since silently discarding a complement would violate the
+    /// preserving contract.
+    fn emit_functor_preserving(
+        &self,
+        schema: &Schema,
+        instance: &FInstance,
+        complement: Option<&PresentationComplement>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        if complement.is_some() {
+            return Err(EmitInstanceError::Emit {
+                protocol: InstanceParser::protocol_name(self).to_owned(),
+                message: "presentation complement is not supported by this codec".to_owned(),
+            });
+        }
+        self.emit_functor(schema, instance)
+    }
+
     /// Parse with format preservation, returning a CST complement.
     ///
     /// The default implementation falls back to canonical parsing with
@@ -76,6 +134,14 @@ fn registry_key(protocol: &str) -> String {
         .map_or_else(|| protocol.replace('_', "-"), |d| d.name.to_owned())
 }
 
+fn parse_resolution(error: ResolveError) -> ParseInstanceError {
+    ParseInstanceError::Resolution(Box::new(error))
+}
+
+fn emit_resolution(error: ResolveError) -> EmitInstanceError {
+    EmitInstanceError::Resolution(Box::new(error))
+}
+
 /// A combined graph parser and emitter for a single protocol, stored in the
 /// graph table of the [`ProtocolRegistry`].
 pub trait GraphCodec: GraphInstanceParser + GraphInstanceEmitter {}
@@ -98,10 +164,68 @@ impl ProtocolCodec for crate::xml_codec::XmlCodec {}
 #[allow(deprecated)]
 impl ProtocolCodec for crate::tabular_codec::TabularCodec {}
 impl ProtocolCodec for crate::annotation::conllu::ConlluCodec {}
-impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {}
+impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
+    fn parse_functor_preserving(
+        &self,
+        _schema: &Schema,
+        input: &[u8],
+    ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
+        self.parse(input).map(|(table, complement)| {
+            (table, Some(PresentationComplement::ByteTabular(complement)))
+        })
+    }
+
+    fn emit_functor_preserving(
+        &self,
+        schema: &Schema,
+        instance: &FInstance,
+        complement: Option<&PresentationComplement>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        match complement {
+            Some(PresentationComplement::ByteTabular(complement)) => {
+                self.emit(instance, complement)
+            }
+            None => self.emit_functor(schema, instance),
+            #[cfg(feature = "tree-sitter")]
+            Some(PresentationComplement::Cst(_)) => Err(EmitInstanceError::Emit {
+                protocol: InstanceParser::protocol_name(self).to_owned(),
+                message: "CST complement supplied to a byte-tabular codec".to_owned(),
+            }),
+        }
+    }
+}
 
 #[cfg(feature = "tree-sitter")]
 impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
+    fn parse_functor_preserving(
+        &self,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
+        crate::unified_codec::UnifiedCodec::parse_functor_preserving(self, schema, input)
+            .map(|(table, complement)| (table, Some(PresentationComplement::Cst(complement))))
+    }
+
+    fn emit_functor_preserving(
+        &self,
+        schema: &Schema,
+        instance: &FInstance,
+        complement: Option<&PresentationComplement>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        match complement {
+            Some(PresentationComplement::Cst(complement)) => {
+                crate::unified_codec::UnifiedCodec::emit_functor_preserving(
+                    self, schema, instance, complement,
+                )
+            }
+            Some(PresentationComplement::ByteTabular(_)) => Err(EmitInstanceError::Emit {
+                protocol: InstanceParser::protocol_name(self).to_owned(),
+                message: "byte-tabular complement supplied to a CST codec".to_owned(),
+            }),
+            None => self.emit_functor(schema, instance),
+        }
+    }
+
     fn parse_wtype_preserving(
         &self,
         schema: &Schema,
@@ -189,6 +313,7 @@ pub struct ProtocolRegistry {
     codecs: HashMap<String, Box<dyn ProtocolCodec>>,
     graph_codecs: HashMap<String, Box<dyn GraphCodec>>,
     table_codecs: HashMap<String, Box<dyn TableCodec>>,
+    resolution_providers: HashMap<String, Arc<dyn ResolutionProvider>>,
 }
 
 impl ProtocolRegistry {
@@ -199,6 +324,7 @@ impl ProtocolRegistry {
             codecs: HashMap::new(),
             graph_codecs: HashMap::new(),
             table_codecs: HashMap::new(),
+            resolution_providers: HashMap::new(),
         }
     }
 
@@ -293,6 +419,22 @@ impl ProtocolRegistry {
         );
     }
 
+    /// Register the resolution provider for its canonical protocol name.
+    ///
+    /// A second provider for the same name replaces the first. Registration
+    /// checks the provider id immediately; its schema-dependent spec is
+    /// checked by [`supports_semantic_for`](Self::supports_semantic_for) and
+    /// every semantic operation.
+    pub fn register_resolution_provider(&mut self, provider: Arc<dyn ResolutionProvider>) {
+        let key = registry_key(&provider.protocol().name);
+        assert_eq!(
+            provider.id().name.as_ref(),
+            key,
+            "a resolution provider id must equal its canonical protocol name"
+        );
+        self.resolution_providers.insert(key, provider);
+    }
+
     /// Look up the native representation for a protocol.
     ///
     /// This is the representation of the protocol's main codec, the one
@@ -321,7 +463,12 @@ impl ProtocolRegistry {
     /// [`emit_graph`](Self::emit_graph) have a codec for `protocol`.
     #[must_use]
     pub fn supports_graph(&self, protocol: &str) -> bool {
-        self.graph_codecs.contains_key(&registry_key(protocol))
+        let key = registry_key(protocol);
+        self.graph_codecs.contains_key(&key)
+            || self
+                .resolution_providers
+                .get(&key)
+                .is_some_and(|p| p.kind().semantic_shape() == InstanceShapeKind::Graph)
     }
 
     /// Whether [`parse_table`](Self::parse_table) and
@@ -336,6 +483,423 @@ impl ProtocolRegistry {
                 .codecs
                 .get(&key)
                 .is_some_and(|c| c.native_repr() == NativeRepr::Table)
+            || self
+                .resolution_providers
+                .get(&key)
+                .is_some_and(|p| p.kind().semantic_shape() == InstanceShapeKind::Table)
+    }
+
+    /// Whether a native codec or registered provider exposes a semantic tree.
+    #[must_use]
+    pub fn supports_tree(&self, protocol: &str) -> bool {
+        let key = registry_key(protocol);
+        self.codecs
+            .get(&key)
+            .is_some_and(|c| c.native_repr() == NativeRepr::Tree)
+            || self
+                .resolution_providers
+                .get(&key)
+                .is_some_and(|p| p.kind().semantic_shape() == InstanceShapeKind::Tree)
+    }
+
+    /// Compile the protocol's semantic route for `syntactic`.
+    ///
+    /// Unlike schema-free support queries, this checks the full provider
+    /// specification and thus is authoritative.
+    pub fn supports_semantic_for(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+    ) -> Result<bool, ResolveError> {
+        let key = registry_key(protocol);
+        if let Some(provider) = self.resolution_providers.get(&key) {
+            Resolution::for_protocol(provider.protocol(), syntactic, Arc::clone(provider))?;
+            return Ok(true);
+        }
+        let descriptor = panproto_protocols::registry::descriptor(&key);
+        let Some(descriptor) = descriptor else {
+            return Ok(false);
+        };
+        let protocol = (descriptor.protocol)();
+        if protocol.syntactic_shape != protocol.semantic_shape {
+            return Err(ResolveError::ProviderUnavailable { protocol: key });
+        }
+        Ok(self.has_native_shape(&key, protocol.syntactic_shape))
+    }
+
+    /// Parse through the protocol's syntactic codec and, when necessary,
+    /// its registered resolution provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns the syntactic parse error, or a boxed typed resolution error.
+    pub fn parse_semantic(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+        input: &[u8],
+        options: &ResolveOptions,
+        context: &ResolveContext<'_>,
+    ) -> Result<AnyInstance, ParseInstanceError> {
+        let descriptor = self.route_protocol(protocol).map_err(parse_resolution)?;
+        let source = self.parse_native(protocol, descriptor.syntactic_shape, syntactic, input)?;
+        if descriptor.syntactic_shape == descriptor.semantic_shape {
+            return Ok(source);
+        }
+        let resolution = self
+            .compiled_resolution(protocol, syntactic)
+            .map_err(parse_resolution)?;
+        resolution
+            .get(&source, options, context)
+            .map(|(view, _)| view)
+            .map_err(parse_resolution)
+    }
+
+    /// Parse a genuinely resolved route and retain its mandatory resolution
+    /// state.
+    ///
+    /// # Errors
+    ///
+    /// Native same-shape routes return
+    /// [`ResolutionFeature::ResolutionState`].
+    pub fn parse_semantic_with_complement(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+        input: &[u8],
+        options: &ResolveOptions,
+        context: &ResolveContext<'_>,
+    ) -> Result<(AnyInstance, ResolutionComplement), ParseInstanceError> {
+        let descriptor = self.route_protocol(protocol).map_err(parse_resolution)?;
+        if descriptor.syntactic_shape == descriptor.semantic_shape {
+            return Err(parse_resolution(ResolveError::UnsupportedFeature {
+                provider: None,
+                feature: ResolutionFeature::ResolutionState,
+            }));
+        }
+        let source = self.parse_native(protocol, descriptor.syntactic_shape, syntactic, input)?;
+        let resolution = self
+            .compiled_resolution(protocol, syntactic)
+            .map_err(parse_resolution)?;
+        resolution
+            .get(&source, options, context)
+            .map_err(parse_resolution)
+    }
+
+    /// Emit a semantic instance through a supplied resolution complement or
+    /// the resolution's partial canonical inverse.
+    ///
+    /// # Errors
+    ///
+    /// Returns typed resolution errors without stringification, followed by
+    /// the syntactic codec's emit error when put succeeds.
+    pub fn emit_semantic(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+        view: &AnyInstance,
+        complement: Option<&ResolutionComplement>,
+        context: &ResolveContext<'_>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        let descriptor = self.route_protocol(protocol).map_err(emit_resolution)?;
+        if descriptor.syntactic_shape == descriptor.semantic_shape {
+            if complement.is_some() {
+                return Err(emit_resolution(ResolveError::UnsupportedFeature {
+                    provider: None,
+                    feature: ResolutionFeature::ResolutionState,
+                }));
+            }
+            return self.emit_native(protocol, descriptor.syntactic_shape, syntactic, view);
+        }
+        let resolution = self
+            .compiled_resolution(protocol, syntactic)
+            .map_err(emit_resolution)?;
+        let source = match complement {
+            Some(complement) => resolution
+                .put(view, complement, context)
+                .map_err(emit_resolution)?,
+            None => resolution
+                .put_canonical(view, context)
+                .map(|(source, _)| source)
+                .map_err(emit_resolution)?,
+        };
+        self.emit_native(protocol, descriptor.syntactic_shape, syntactic, &source)
+    }
+
+    /// Parse a resolved route while retaining both presentation and
+    /// resolution state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed unsupported-state error for native routes.
+    pub fn parse_semantic_preserving(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+        input: &[u8],
+        options: &ResolveOptions,
+        context: &ResolveContext<'_>,
+    ) -> Result<(AnyInstance, ResolvedState), ParseInstanceError> {
+        let descriptor = self.route_protocol(protocol).map_err(parse_resolution)?;
+        if descriptor.syntactic_shape == descriptor.semantic_shape {
+            return Err(parse_resolution(ResolveError::UnsupportedFeature {
+                provider: None,
+                feature: ResolutionFeature::ResolutionState,
+            }));
+        }
+        let (source, presentation) =
+            self.parse_native_preserving(protocol, descriptor.syntactic_shape, syntactic, input)?;
+        let resolution = self
+            .compiled_resolution(protocol, syntactic)
+            .map_err(parse_resolution)?;
+        let (view, resolution) = resolution
+            .get(&source, options, context)
+            .map_err(parse_resolution)?;
+        Ok((
+            view,
+            ResolvedState {
+                presentation,
+                resolution,
+            },
+        ))
+    }
+
+    /// Emit a resolved route by applying semantic put before replaying its
+    /// presentation complement.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed put error or the presentation codec's emit error.
+    pub fn emit_semantic_preserving(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+        view: &AnyInstance,
+        state: &ResolvedState,
+        context: &ResolveContext<'_>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        let descriptor = self.route_protocol(protocol).map_err(emit_resolution)?;
+        if descriptor.syntactic_shape == descriptor.semantic_shape {
+            return Err(emit_resolution(ResolveError::UnsupportedFeature {
+                provider: None,
+                feature: ResolutionFeature::ResolutionState,
+            }));
+        }
+        let resolution = self
+            .compiled_resolution(protocol, syntactic)
+            .map_err(emit_resolution)?;
+        let source = resolution
+            .put(view, &state.resolution, context)
+            .map_err(emit_resolution)?;
+        self.emit_native_preserving(
+            protocol,
+            descriptor.syntactic_shape,
+            syntactic,
+            &source,
+            state.presentation.as_ref(),
+        )
+    }
+
+    fn route_protocol(&self, protocol: &str) -> Result<Protocol, ResolveError> {
+        let key = registry_key(protocol);
+        if let Some(provider) = self.resolution_providers.get(&key) {
+            return Ok(provider.protocol().clone());
+        }
+        panproto_protocols::registry::descriptor(&key)
+            .map(|descriptor| (descriptor.protocol)())
+            .ok_or(ResolveError::ProviderUnavailable { protocol: key })
+    }
+
+    fn compiled_resolution(
+        &self,
+        protocol: &str,
+        syntactic: &Schema,
+    ) -> Result<Resolution, ResolveError> {
+        let key = registry_key(protocol);
+        let provider = self.resolution_providers.get(&key).ok_or_else(|| {
+            ResolveError::ProviderUnavailable {
+                protocol: key.clone(),
+            }
+        })?;
+        Resolution::for_protocol(provider.protocol(), syntactic, Arc::clone(provider))
+    }
+
+    fn has_native_shape(&self, protocol: &str, shape: InstanceShapeKind) -> bool {
+        match shape {
+            InstanceShapeKind::Tree => self
+                .codecs
+                .get(protocol)
+                .is_some_and(|codec| codec.native_repr() == NativeRepr::Tree),
+            InstanceShapeKind::Table => {
+                self.table_codecs.contains_key(protocol)
+                    || self
+                        .codecs
+                        .get(protocol)
+                        .is_some_and(|codec| codec.native_repr() == NativeRepr::Table)
+            }
+            InstanceShapeKind::Graph => self.graph_codecs.contains_key(protocol),
+        }
+    }
+
+    fn parse_native(
+        &self,
+        protocol: &str,
+        shape: InstanceShapeKind,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<AnyInstance, ParseInstanceError> {
+        let key = registry_key(protocol);
+        match shape {
+            InstanceShapeKind::Tree => self
+                .codecs
+                .get(&key)
+                .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_owned()))?
+                .parse_wtype(schema, input)
+                .map(AnyInstance::Tree),
+            InstanceShapeKind::Table => {
+                if let Some(codec) = self.table_codecs.get(&key) {
+                    codec.parse_table(schema, input).map(AnyInstance::Table)
+                } else {
+                    self.codecs
+                        .get(&key)
+                        .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_owned()))?
+                        .parse_functor(schema, input)
+                        .map(AnyInstance::Table)
+                }
+            }
+            InstanceShapeKind::Graph => self
+                .graph_codecs
+                .get(&key)
+                .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_owned()))?
+                .parse_graph(schema, input)
+                .map(AnyInstance::Graph),
+        }
+    }
+
+    fn emit_native(
+        &self,
+        protocol: &str,
+        shape: InstanceShapeKind,
+        schema: &Schema,
+        instance: &AnyInstance,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        let key = registry_key(protocol);
+        match (shape, instance) {
+            (InstanceShapeKind::Tree, AnyInstance::Tree(tree)) => self
+                .codecs
+                .get(&key)
+                .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_owned()))?
+                .emit_wtype(schema, tree),
+            (InstanceShapeKind::Table, AnyInstance::Table(table)) => {
+                if let Some(codec) = self.table_codecs.get(&key) {
+                    codec.emit_table(schema, table)
+                } else {
+                    self.codecs
+                        .get(&key)
+                        .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_owned()))?
+                        .emit_functor(schema, table)
+                }
+            }
+            (InstanceShapeKind::Graph, AnyInstance::Graph(graph)) => self
+                .graph_codecs
+                .get(&key)
+                .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_owned()))?
+                .emit_graph(schema, graph),
+            (expected, found) => Err(emit_resolution(ResolveError::ShapeMismatch {
+                expected,
+                found: found.shape(),
+            })),
+        }
+    }
+
+    fn parse_native_preserving(
+        &self,
+        protocol: &str,
+        shape: InstanceShapeKind,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(AnyInstance, Option<PresentationComplement>), ParseInstanceError> {
+        match shape {
+            InstanceShapeKind::Tree => {
+                let (tree, complement) =
+                    self.parse_wtype_preserving_or_canonical(protocol, schema, input)?;
+                #[cfg(feature = "tree-sitter")]
+                let complement = complement.map(PresentationComplement::Cst);
+                #[cfg(not(feature = "tree-sitter"))]
+                let complement = {
+                    let _ = complement;
+                    None
+                };
+                Ok((AnyInstance::Tree(tree), complement))
+            }
+            InstanceShapeKind::Table => {
+                let codec = self
+                    .codecs
+                    .get(&registry_key(protocol))
+                    .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_owned()))?;
+                codec
+                    .parse_functor_preserving(schema, input)
+                    .map(|(table, complement)| (AnyInstance::Table(table), complement))
+            }
+            InstanceShapeKind::Graph => self
+                .parse_native(protocol, shape, schema, input)
+                .map(|graph| (graph, None)),
+        }
+    }
+
+    fn emit_native_preserving(
+        &self,
+        protocol: &str,
+        shape: InstanceShapeKind,
+        schema: &Schema,
+        instance: &AnyInstance,
+        complement: Option<&PresentationComplement>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        match (shape, instance) {
+            (InstanceShapeKind::Tree, AnyInstance::Tree(tree)) => {
+                #[cfg(feature = "tree-sitter")]
+                let cst = match complement {
+                    Some(PresentationComplement::Cst(cst)) => Some(cst),
+                    Some(PresentationComplement::ByteTabular(_)) => {
+                        return Err(EmitInstanceError::Emit {
+                            protocol: protocol.to_owned(),
+                            message: "byte-tabular complement supplied to a tree codec".to_owned(),
+                        });
+                    }
+                    None => None,
+                };
+                #[cfg(not(feature = "tree-sitter"))]
+                let cst: Option<&crate::cst_extract::CstComplement> = {
+                    if complement.is_some() {
+                        return Err(EmitInstanceError::Emit {
+                            protocol: protocol.to_owned(),
+                            message: "presentation complement is unavailable in this build"
+                                .to_owned(),
+                        });
+                    }
+                    None
+                };
+                self.emit_wtype_preserving_or_canonical(protocol, schema, tree, cst)
+            }
+            (InstanceShapeKind::Table, AnyInstance::Table(table)) => self
+                .codecs
+                .get(&registry_key(protocol))
+                .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_owned()))?
+                .emit_functor_preserving(schema, table, complement),
+            (InstanceShapeKind::Graph, AnyInstance::Graph(_)) => {
+                if complement.is_some() {
+                    return Err(EmitInstanceError::Emit {
+                        protocol: protocol.to_owned(),
+                        message: "graph codec has no presentation complement".to_owned(),
+                    });
+                }
+                self.emit_native(protocol, shape, schema, instance)
+            }
+            (expected, found) => Err(emit_resolution(ResolveError::ShapeMismatch {
+                expected,
+                found: found.shape(),
+            })),
+        }
     }
 
     /// Parse raw bytes into a graph instance for the named protocol,
@@ -353,13 +917,42 @@ impl ProtocolRegistry {
         schema: &Schema,
         input: &[u8],
     ) -> Result<GInstance, ParseInstanceError> {
-        match self.graph_codecs.get(&registry_key(protocol)) {
-            Some(codec) => codec.parse_graph(schema, input),
-            None => Err(ParseInstanceError::UnsupportedRepresentation {
+        if let Some(codec) = self.graph_codecs.get(&registry_key(protocol)) {
+            return codec.parse_graph(schema, input);
+        }
+        match self.parse_semantic(
+            protocol,
+            schema,
+            input,
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )? {
+            AnyInstance::Graph(graph) => Ok(graph),
+            _ => Err(ParseInstanceError::UnsupportedRepresentation {
                 protocol: protocol.to_string(),
                 requested: NativeRepr::Graph,
                 native: self.native_repr(protocol)?,
             }),
+        }
+    }
+
+    /// Parse a resolved graph and retain its resolution state.
+    pub fn parse_graph_with_complement(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        input: &[u8],
+        options: &ResolveOptions,
+        context: &ResolveContext<'_>,
+    ) -> Result<(GInstance, ResolutionComplement), ParseInstanceError> {
+        let (view, complement) =
+            self.parse_semantic_with_complement(protocol, schema, input, options, context)?;
+        match view {
+            AnyInstance::Graph(graph) => Ok((graph, complement)),
+            other => Err(parse_resolution(ResolveError::ShapeMismatch {
+                expected: InstanceShapeKind::Graph,
+                found: other.shape(),
+            })),
         }
     }
 
@@ -378,14 +971,16 @@ impl ProtocolRegistry {
         schema: &Schema,
         instance: &GInstance,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        match self.graph_codecs.get(&registry_key(protocol)) {
-            Some(codec) => codec.emit_graph(schema, instance),
-            None => Err(EmitInstanceError::UnsupportedRepresentation {
-                protocol: protocol.to_string(),
-                requested: NativeRepr::Graph,
-                native: self.emit_native_repr(protocol)?,
-            }),
+        if let Some(codec) = self.graph_codecs.get(&registry_key(protocol)) {
+            return codec.emit_graph(schema, instance);
         }
+        self.emit_semantic(
+            protocol,
+            schema,
+            &AnyInstance::Graph(instance.clone()),
+            None,
+            &ResolveContext::empty(),
+        )
     }
 
     /// Parse raw bytes into a table instance for the named protocol.
@@ -412,11 +1007,40 @@ impl ProtocolRegistry {
             NativeRepr::Table if self.codecs.contains_key(&registry_key(protocol)) => {
                 self.parse_functor(protocol, schema, input)
             }
-            native => Err(ParseInstanceError::UnsupportedRepresentation {
-                protocol: protocol.to_string(),
-                requested: NativeRepr::Table,
-                native,
-            }),
+            native => match self.parse_semantic(
+                protocol,
+                schema,
+                input,
+                &ResolveOptions::default(),
+                &ResolveContext::empty(),
+            )? {
+                AnyInstance::Table(table) => Ok(table),
+                _ => Err(ParseInstanceError::UnsupportedRepresentation {
+                    protocol: protocol.to_string(),
+                    requested: NativeRepr::Table,
+                    native,
+                }),
+            },
+        }
+    }
+
+    /// Parse a resolved table and retain its resolution state.
+    pub fn parse_table_with_complement(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        input: &[u8],
+        options: &ResolveOptions,
+        context: &ResolveContext<'_>,
+    ) -> Result<(FInstance, ResolutionComplement), ParseInstanceError> {
+        let (view, complement) =
+            self.parse_semantic_with_complement(protocol, schema, input, options, context)?;
+        match view {
+            AnyInstance::Table(table) => Ok((table, complement)),
+            other => Err(parse_resolution(ResolveError::ShapeMismatch {
+                expected: InstanceShapeKind::Table,
+                found: other.shape(),
+            })),
         }
     }
 
@@ -444,11 +1068,13 @@ impl ProtocolRegistry {
             NativeRepr::Table if self.codecs.contains_key(&registry_key(protocol)) => {
                 self.emit_functor(protocol, schema, instance)
             }
-            native => Err(EmitInstanceError::UnsupportedRepresentation {
-                protocol: protocol.to_string(),
-                requested: NativeRepr::Table,
-                native,
-            }),
+            _ => self.emit_semantic(
+                protocol,
+                schema,
+                &AnyInstance::Table(instance.clone()),
+                None,
+                &ResolveContext::empty(),
+            ),
         }
     }
 
@@ -544,7 +1170,10 @@ impl ProtocolRegistry {
     /// Returns `true` if no protocols are registered.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.codecs.is_empty() && self.graph_codecs.is_empty() && self.table_codecs.is_empty()
+        self.codecs.is_empty()
+            && self.graph_codecs.is_empty()
+            && self.table_codecs.is_empty()
+            && self.resolution_providers.is_empty()
     }
 
     /// Returns the names of the registered protocols in ascending order,
@@ -559,6 +1188,7 @@ impl ProtocolRegistry {
             .keys()
             .chain(self.graph_codecs.keys())
             .chain(self.table_codecs.keys())
+            .chain(self.resolution_providers.keys())
             .map(String::as_str)
             .collect()
     }
