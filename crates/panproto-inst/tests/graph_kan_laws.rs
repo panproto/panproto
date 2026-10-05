@@ -6,13 +6,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use panproto_gat::Name;
 use panproto_inst::{
     AdjunctionError, BoundaryProtocols, CellLayout, CompiledMigration, EdgeId, EdgeLayout,
-    EncodingSide, FInstance, FieldPresence, GInstance, GraphKanError, GraphKanHom, GraphLayout,
-    MigrationFunctor, Node, NodeShape, NotEncodableReason, RelSchema, RelSchemaError,
+    EncodingSide, FInstance, FInstanceHom, FieldPresence, GInstance, GraphKanError, GraphKanHom,
+    GraphLayout, MigrationFunctor, Node, NodeShape, NotEncodableReason, RelSchema, RelSchemaError,
     RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, g_counit, g_delta,
-    g_delta_along, g_delta_with_provenance, g_pi, g_pi_along, g_pi_along_with_provenance,
-    g_pi_counit, g_pi_restricted, g_pi_transpose_left, g_pi_transpose_right, g_pi_unit,
-    g_sigma_along, g_sigma_along_with_provenance, g_sigma_restricted, g_transpose_left,
-    g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
+    g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi, g_pi_along,
+    g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
+    g_pi_transpose_right, g_pi_unit, g_sigma_along, g_sigma_along_with_provenance,
+    g_sigma_restricted, g_transpose_left, g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use proptest::prelude::*;
@@ -771,6 +771,15 @@ fn graph_delta_copies_a_node_per_fibre_vertex_including_shared_value_vertices() 
         .with_edge_id(EdgeId(0), 0, 1, p_name);
     let (delta, provenance) =
         g_delta_with_provenance(&graph, &src, &protocol(), &tgt, &protocol(), &migration).unwrap();
+    let copies: BTreeSet<(Name, RowId)> = provenance.table.copies.values().cloned().collect();
+    assert_eq!(
+        copies,
+        BTreeSet::from([(Name::from("A"), RowId(0)), (Name::from("B"), RowId(0))])
+    );
+    for (copy, (table, _)) in &provenance.table.copies {
+        assert_eq!(delta.node(copy.0).unwrap().anchor, *table);
+        assert_eq!(delta.out_edges(copy.0).len(), 1, "one cell per kept column");
+    }
     let leaves: Vec<_> = delta
         .nodes()
         .values()
@@ -778,6 +787,13 @@ fn graph_delta_copies_a_node_per_fibre_vertex_including_shared_value_vertices() 
         .collect();
     assert_eq!(leaves.len(), 2);
     assert_ne!(leaves[0].id, leaves[1].id);
+    let rows: Vec<u32> = provenance.table.copies.keys().map(|row| row.0).collect();
+    assert!(
+        leaves
+            .iter()
+            .all(|leaf| !rows.contains(&leaf.id) && leaf.id != 0),
+        "each value subtree has its own id, distinct from every copy row"
+    );
     assert!(
         leaves
             .iter()
@@ -1357,17 +1373,24 @@ proptest! {
         prop_assert_eq!(again, tables);
     }
 
+    /// The five-pass domain, both halves: a graph of the encoding family
+    /// with at most three table nodes, changed by up to three mutations
+    /// (most of which leave `Enc(X)`), is accepted by `encode_graph` exactly
+    /// when the oracle's passes accept it, and is otherwise refused with the
+    /// oracle's first reason; an accepted graph encodes to the oracle's table
+    /// and decodes back identically.
     #[test]
-    fn encoding_accepts_exactly_the_five_pass_domain(id in 0u32..100, value in any::<i64>()) {
-        let (schema, name) = one_cell_schema();
-        let rel = RelSchema::new(&schema, &protocol()).unwrap();
-        let graph = GInstance::new()
-            .with_node(Node::new(id, "person"))
-            .with_node(Node::new(id + 100, "person.name").with_value(FieldPresence::Present(Value::Int(value))))
-            .with_edge_id(EdgeId(id + 200), id, id + 100, name);
-        let (tables, layout) = encode_graph(&graph, EncodingSide::Whole(&rel)).unwrap();
-        let decoded = decode_graph(&tables, EncodingSide::Whole(&rel), &layout).unwrap();
-        prop_assert!(GInstance::identical(&graph, &decoded));
+    fn encoding_accepts_exactly_the_five_pass_domain(
+        base in any::<proptest::sample::Index>(),
+        mutations in proptest::collection::vec((0..MUTATIONS, 0usize..16), 0..=3),
+    ) {
+        static BASES: std::sync::OnceLock<Vec<GInstance>> = std::sync::OnceLock::new();
+        let bases = BASES.get_or_init(|| encoding_graphs(3));
+        let mut graph = bases[base.index(bases.len())].clone();
+        for (kind, pick) in mutations {
+            graph = mutate(&graph, kind, pick);
+        }
+        assert_encoding_matches_the_oracle(&graph).ok();
     }
 
     #[test]
@@ -1593,5 +1616,2706 @@ proptest! {
         let first_decoded = decode_graph(&first_tables, EncodingSide::Whole(&rel), &first_layout).unwrap();
         let second_decoded = decode_graph(&second_tables, EncodingSide::Whole(&rel), &second_layout).unwrap();
         prop_assert!(GInstance::identical(&first_decoded, &second_decoded));
+    }
+}
+
+/// Brute-force oracles for the encoding, the graph Kan homomorphisms and the
+/// graph Kan adjunctions.
+///
+/// Nothing in this module calls `encode_graph`, `decode_graph`, a `g_*`
+/// function or `GraphKanHom::check`: each side is written out by hand from
+/// its test schema, membership of `Enc(X)` is decided by the five passes as
+/// the contract states them, cells are read by a recursive fold written here,
+/// and homomorphisms are enumerated from the graphs alone. The tests compare
+/// the code under test with these answers.
+///
+/// Every enumerator here produces labelled instances: nodes carry the ids
+/// `0..n` in table order, so two instances that differ only by a renaming of
+/// ids are distinct when their ids differ, and every count asserted against an
+/// enumerator is a labelled count, given by a closed formula over labelled
+/// structures (never a count of isomorphism classes).
+mod oracle {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_gat::Name;
+    use panproto_inst::{
+        EdgeId, FInstance, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
+        Node, NodeShape, NotEncodableReason, Row, RowId, Value,
+    };
+    use panproto_schema::{Edge, Schema};
+
+    use super::{edge, schema};
+
+    /// A test schema written out by hand: its tables in order, each with its
+    /// columns `(column, kind of the column's value vertex)`, its relations,
+    /// and its inner value edges `(source vertex, target vertex, name, target
+    /// kind)`. The value vertex of column `c` of table `t` is `t.c`.
+    #[derive(Clone, Debug, Default)]
+    pub struct Spec {
+        pub tables: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+        pub relations: Vec<Edge>,
+        pub inner: Vec<(&'static str, &'static str, &'static str, &'static str)>,
+    }
+
+    impl Spec {
+        /// The attribute arrow of column `column` of `table`.
+        pub fn column_edge(table: &str, column: &str) -> Edge {
+            edge(table, &format!("{table}.{column}"), column)
+        }
+
+        /// The inner value edges as schema edges.
+        pub fn inner_edges(&self) -> Vec<Edge> {
+            self.inner
+                .iter()
+                .map(|(src, tgt, name, _)| edge(src, tgt, name))
+                .collect()
+        }
+
+        /// The schema the code under test classifies.
+        pub fn schema(&self) -> Schema {
+            let mut vertices: Vec<(String, &str)> = Vec::new();
+            let mut edges = Vec::new();
+            for (table, columns) in &self.tables {
+                vertices.push(((*table).to_owned(), "record"));
+                for (column, kind) in columns {
+                    vertices.push((format!("{table}.{column}"), kind));
+                    edges.push(Self::column_edge(table, column));
+                }
+            }
+            for (_, tgt, _, kind) in &self.inner {
+                if vertices.iter().all(|(id, _)| id != tgt) {
+                    vertices.push(((*tgt).to_owned(), kind));
+                }
+            }
+            edges.extend(self.relations.iter().cloned());
+            edges.extend(self.inner_edges());
+            let named: Vec<(&str, &str)> = vertices
+                .iter()
+                .map(|(id, kind)| (id.as_str(), *kind))
+                .collect();
+            schema(&named, &edges)
+        }
+
+        /// The side the oracle reads, built from this description alone.
+        pub fn side(&self) -> Side {
+            let mut side = Side::default();
+            for (table, columns) in &self.tables {
+                let mut arrows = BTreeMap::new();
+                for (column, _) in columns {
+                    let arrow = Self::column_edge(table, column);
+                    side.value_vertices.insert(arrow.tgt.clone());
+                    arrows.insert((*column).to_owned(), arrow);
+                }
+                side.tables.insert(Name::from(*table), arrows);
+            }
+            side.relations = self.relations.iter().cloned().collect();
+            for inner in self.inner_edges() {
+                side.value_vertices.insert(inner.src.clone());
+                side.value_vertices.insert(inner.tgt.clone());
+                side.inner.insert(inner);
+            }
+            side
+        }
+    }
+
+    /// The objects and arrows of one encoding side.
+    #[derive(Clone, Debug, Default)]
+    pub struct Side {
+        pub tables: BTreeMap<Name, BTreeMap<String, Edge>>,
+        pub relations: BTreeSet<Edge>,
+        pub value_vertices: BTreeSet<Name>,
+        pub inner: BTreeSet<Edge>,
+    }
+
+    impl Side {
+        fn is_attribute(&self, label: &Edge) -> bool {
+            self.tables
+                .get(&label.src)
+                .is_some_and(|columns| columns.values().any(|arrow| arrow == label))
+        }
+
+        fn has_label(&self, label: &Edge) -> bool {
+            self.relations.contains(label) || self.is_attribute(label) || self.inner.contains(label)
+        }
+    }
+
+    fn in_edges(graph: &GInstance, node: u32) -> Vec<EdgeId> {
+        let mut edges: Vec<EdgeId> = graph
+            .edges()
+            .iter()
+            .filter(|(_, edge)| edge.tgt == node)
+            .map(|(id, _)| *id)
+            .collect();
+        edges.sort_unstable();
+        edges
+    }
+
+    fn out_edges(graph: &GInstance, node: u32) -> Vec<(EdgeId, &GEdge)> {
+        let mut edges: Vec<(EdgeId, &GEdge)> = graph
+            .edges()
+            .iter()
+            .filter(|(_, edge)| edge.src == node)
+            .map(|(id, edge)| (*id, edge))
+            .collect();
+        edges.sort_unstable_by_key(|(id, _)| *id);
+        edges
+    }
+
+    fn sorted_nodes(graph: &GInstance) -> Vec<&Node> {
+        let mut nodes: Vec<&Node> = graph.nodes().values().collect();
+        nodes.sort_unstable_by_key(|node| node.id);
+        nodes
+    }
+
+    fn sorted_edges(graph: &GInstance) -> Vec<(EdgeId, &GEdge)> {
+        let mut edges: Vec<(EdgeId, &GEdge)> = graph.edges().iter().map(|(i, e)| (*i, e)).collect();
+        edges.sort_unstable_by_key(|(id, _)| *id);
+        edges
+    }
+
+    /// Whether `value` holds a labelled null anywhere, itself included.
+    pub fn any_null(value: &Value) -> bool {
+        match value {
+            Value::LabeledNull(_) => true,
+            Value::List(items) => items.iter().any(any_null),
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields.values().any(any_null),
+            _ => false,
+        }
+    }
+
+    /// Whether `value` holds a labelled null strictly below its top level.
+    pub fn nested_null(value: &Value) -> bool {
+        match value {
+            Value::List(items) => items.iter().any(any_null),
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields.values().any(any_null),
+            _ => false,
+        }
+    }
+
+    fn is_fan(graph: &GInstance, node: &Node) -> bool {
+        node.shape == NodeShape::HyperEdge
+            || out_edges(graph, node.id).iter().any(|(_, edge)| {
+                edge.edge.kind.as_ref() == HYPER_PARENT_KIND
+                    || edge.edge.kind.as_ref() == HYPER_LABEL_KIND
+            })
+    }
+
+    fn pass_nodes(graph: &GInstance, side: &Side) -> Result<(), NotEncodableReason> {
+        for node in sorted_nodes(graph) {
+            if is_fan(graph, node) {
+                return Err(NotEncodableReason::FanNode { node: node.id });
+            }
+            if !side.tables.contains_key(&node.anchor)
+                && !side.value_vertices.contains(&node.anchor)
+            {
+                return Err(NotEncodableReason::AnchorOutsideSide { node: node.id });
+            }
+        }
+        Ok(())
+    }
+
+    fn pass_edges(graph: &GInstance, side: &Side) -> Result<(), NotEncodableReason> {
+        for (id, edge) in sorted_edges(graph) {
+            if !side.has_label(&edge.edge) {
+                return Err(NotEncodableReason::EdgeOutsideSide { edge: id });
+            }
+            let anchor = |node: u32| graph.node(node).map(|n| n.anchor.clone());
+            if anchor(edge.src) != Some(edge.edge.src.clone())
+                || anchor(edge.tgt) != Some(edge.edge.tgt.clone())
+            {
+                return Err(NotEncodableReason::IncoherentEndpoints { edge: id });
+            }
+        }
+        Ok(())
+    }
+
+    fn pass_parallel(graph: &GInstance) -> Result<(), NotEncodableReason> {
+        let mut groups: BTreeMap<(Edge, u32, u32), Vec<EdgeId>> = BTreeMap::new();
+        for (id, edge) in sorted_edges(graph) {
+            groups
+                .entry((edge.edge.clone(), edge.src, edge.tgt))
+                .or_default()
+                .push(id);
+        }
+        let mut parallel: Vec<Vec<EdgeId>> = groups
+            .into_values()
+            .filter(|group| group.len() > 1)
+            .collect();
+        parallel.sort_unstable_by_key(|group| group[0]);
+        parallel.into_iter().next().map_or(Ok(()), |edges| {
+            Err(NotEncodableReason::ParallelEdges { edges })
+        })
+    }
+
+    fn pass_cells(graph: &GInstance, side: &Side) -> Result<(), NotEncodableReason> {
+        for node in sorted_nodes(graph) {
+            let Some(columns) = side.tables.get(&node.anchor) else {
+                continue;
+            };
+            for (column, arrow) in columns {
+                let edges: Vec<EdgeId> = out_edges(graph, node.id)
+                    .into_iter()
+                    .filter(|(_, edge)| edge.edge == *arrow)
+                    .map(|(id, _)| id)
+                    .collect();
+                match edges.len() {
+                    0 if node.extra_fields.contains_key(column) => {
+                        return Err(NotEncodableReason::CellAsExtraField {
+                            node: node.id,
+                            column: column.clone(),
+                        });
+                    }
+                    0 => {
+                        return Err(NotEncodableReason::MissingCell {
+                            node: node.id,
+                            column: column.clone(),
+                        });
+                    }
+                    1 => {}
+                    _ => {
+                        return Err(NotEncodableReason::RepeatedCell {
+                            node: node.id,
+                            column: column.clone(),
+                            edges,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether following in-edges up from `node` (the least in-edge at each
+    /// step) reaches a table node before it revisits a node or stops.
+    fn rooted(graph: &GInstance, side: &Side, node: u32) -> bool {
+        let mut seen = BTreeSet::new();
+        let mut current = node;
+        loop {
+            if !seen.insert(current) {
+                return false;
+            }
+            let Some(first) = in_edges(graph, current).first().copied() else {
+                return false;
+            };
+            let parent = graph.edges()[&first].src;
+            let Some(anchor) = graph.node(parent).map(|n| &n.anchor) else {
+                return false;
+            };
+            if side.tables.contains_key(anchor) {
+                return true;
+            }
+            current = parent;
+        }
+    }
+
+    fn check_value_node(
+        graph: &GInstance,
+        side: &Side,
+        node: &Node,
+    ) -> Result<(), NotEncodableReason> {
+        let incoming = in_edges(graph, node.id);
+        match incoming.len() {
+            0 => return Err(NotEncodableReason::UnrootedValue { node: node.id }),
+            1 => {}
+            _ => {
+                return Err(NotEncodableReason::SharedValue {
+                    node: node.id,
+                    edges: incoming,
+                });
+            }
+        }
+        if !rooted(graph, side, node.id) {
+            return Err(NotEncodableReason::UnrootedValue { node: node.id });
+        }
+        let below_top = side.inner.contains(&graph.edges()[&incoming[0]].edge);
+        let outgoing = out_edges(graph, node.id);
+        if outgoing.is_empty() {
+            return match &node.value {
+                Some(FieldPresence::Present(value)) => {
+                    if nested_null(value) || (below_top && any_null(value)) {
+                        Err(NotEncodableReason::NestedLabeledNull { node: node.id })
+                    } else {
+                        Ok(())
+                    }
+                }
+                Some(FieldPresence::Null) => Ok(()),
+                None | Some(FieldPresence::Absent) => {
+                    Err(NotEncodableReason::MissingValue { node: node.id })
+                }
+            };
+        }
+        let positions: Vec<Option<u32>> = outgoing.iter().map(|(_, e)| e.position).collect();
+        let names: BTreeSet<Option<String>> = outgoing
+            .iter()
+            .map(|(_, e)| e.edge.name.as_ref().map(ToString::to_string))
+            .collect();
+        let record = positions.iter().all(Option::is_none) && names.len() == outgoing.len();
+        let list = positions.iter().all(Option::is_some)
+            && positions.iter().collect::<BTreeSet<_>>().len() == outgoing.len();
+        if node.value.is_some() || !(record || list) {
+            return Err(NotEncodableReason::InnerValueShape { node: node.id });
+        }
+        Ok(())
+    }
+
+    /// Membership of `Enc(X)`: the five passes in order, each returning its
+    /// least offender.
+    pub fn classify(graph: &GInstance, side: &Side) -> Result<(), NotEncodableReason> {
+        pass_nodes(graph, side)?;
+        pass_edges(graph, side)?;
+        pass_parallel(graph)?;
+        pass_cells(graph, side)?;
+        for node in sorted_nodes(graph) {
+            if side.value_vertices.contains(&node.anchor) {
+                check_value_node(graph, side, node)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The cell a value node folds to: its value at a leaf, a list of its
+    /// children's cells by ascending position when its out-edges carry
+    /// positions, and a record keyed by edge name otherwise.
+    pub fn fold(graph: &GInstance, node: u32) -> Value {
+        let outgoing = out_edges(graph, node);
+        if outgoing.is_empty() {
+            return match &graph.nodes()[&node].value {
+                Some(FieldPresence::Present(value)) => value.clone(),
+                _ => Value::Null,
+            };
+        }
+        if outgoing.iter().all(|(_, e)| e.position.is_some()) {
+            let mut items: Vec<(u32, u32)> = outgoing
+                .iter()
+                .map(|(_, e)| (e.position.unwrap_or(0), e.tgt))
+                .collect();
+            items.sort_unstable();
+            return Value::List(items.into_iter().map(|(_, t)| fold(graph, t)).collect());
+        }
+        Value::Unknown(
+            outgoing
+                .iter()
+                .map(|(_, e)| {
+                    let name = e
+                        .edge
+                        .name
+                        .as_ref()
+                        .map_or_else(String::new, ToString::to_string);
+                    (name, fold(graph, e.tgt))
+                })
+                .collect(),
+        )
+    }
+
+    /// The relational content of an encodable graph, read from the graph
+    /// alone: each table node with its table and its folded cells, and each
+    /// relation edge as a labelled pair.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Content {
+        pub rows: BTreeMap<u32, (Name, BTreeMap<String, Value>)>,
+        pub pairs: BTreeSet<(Edge, u32, u32)>,
+    }
+
+    impl Content {
+        /// The content of `graph`, which must lie in `Enc(side)`.
+        pub fn of_graph(graph: &GInstance, side: &Side) -> Self {
+            let mut content = Self::default();
+            for node in sorted_nodes(graph) {
+                let Some(columns) = side.tables.get(&node.anchor) else {
+                    continue;
+                };
+                let cells = columns
+                    .iter()
+                    .filter_map(|(column, arrow)| {
+                        out_edges(graph, node.id)
+                            .into_iter()
+                            .find(|(_, e)| e.edge == *arrow)
+                            .map(|(_, e)| (column.clone(), fold(graph, e.tgt)))
+                    })
+                    .collect();
+                content.rows.insert(node.id, (node.anchor.clone(), cells));
+            }
+            for (_, e) in sorted_edges(graph) {
+                if side.relations.contains(&e.edge) {
+                    content.pairs.insert((e.edge.clone(), e.src, e.tgt));
+                }
+            }
+            content
+        }
+
+        /// The content of a table instance.
+        pub fn of_table(table: &FInstance) -> Self {
+            let mut content = Self::default();
+            for id in table.row_ids() {
+                let Some(name) = table.table_of(id) else {
+                    continue;
+                };
+                let cells = table
+                    .row(id)
+                    .map(|row| row.iter().map(|(c, v)| (c.clone(), v.clone())).collect())
+                    .unwrap_or_default();
+                content.rows.insert(id.0, (name.clone(), cells));
+            }
+            for (relation, pairs) in table.foreign_keys() {
+                for (src, tgt) in pairs {
+                    content.pairs.insert((relation.clone(), src.0, tgt.0));
+                }
+            }
+            content
+        }
+
+        /// The table instance with this content: one row per table node,
+        /// keyed by the node's id, and one pair per relation edge.
+        pub fn table(&self) -> FInstance {
+            let mut table = FInstance::new();
+            for (id, (name, cells)) in &self.rows {
+                let row: Row = cells.iter().map(|(c, v)| (c.clone(), v.clone())).collect();
+                table
+                    .insert_row(name.clone(), RowId(*id), row)
+                    .unwrap_or_else(|error| panic!("{error}"));
+            }
+            for (relation, src, tgt) in &self.pairs {
+                table
+                    .insert_foreign_key(relation.clone(), RowId(*src), RowId(*tgt))
+                    .unwrap_or_else(|error| panic!("{error}"));
+            }
+            table
+        }
+
+        /// The labelled nulls held at the top level of a cell.
+        pub fn nulls(&self) -> BTreeSet<u64> {
+            self.rows
+                .values()
+                .flat_map(|(_, cells)| cells.values())
+                .filter_map(|value| match value {
+                    Value::LabeledNull(null) => Some(*null),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    /// The canonical bytes of a value, the equality every oracle uses.
+    pub fn bytes(value: &Value) -> Vec<u8> {
+        value.canonical_bytes()
+    }
+
+    /// Whether `table` conforms to `side`: every row lies at a table of the
+    /// side with exactly its columns, no cell holds a nested labelled null,
+    /// and every pair lies at a relation of the side between rows of its two
+    /// tables. Returns the first violation found, in words.
+    pub fn conformance(table: &FInstance, side: &Side) -> Result<(), String> {
+        for id in table.row_ids() {
+            let name = table.table_of(id).cloned().unwrap_or_default();
+            let Some(columns) = side.tables.get(&name) else {
+                return Err(format!("row {} lies at {name}, outside the side", id.0));
+            };
+            let row = table.row(id).cloned().unwrap_or_default();
+            let held: BTreeSet<&String> = row.keys().collect();
+            let wanted: BTreeSet<&String> = columns.keys().collect();
+            if held != wanted {
+                return Err(format!("row {} holds {held:?}, not {wanted:?}", id.0));
+            }
+            if let Some((column, _)) = row.iter().find(|(_, value)| nested_null(value)) {
+                return Err(format!("row {} holds a nested null at {column}", id.0));
+            }
+        }
+        for (relation, pairs) in table.foreign_keys() {
+            if pairs.is_empty() {
+                continue;
+            }
+            if !side.relations.contains(relation) {
+                return Err(format!("pairs at {relation:?}, outside the side"));
+            }
+            for (src, tgt) in pairs {
+                if table.table_of(*src) != Some(&relation.src)
+                    || table.table_of(*tgt) != Some(&relation.tgt)
+                {
+                    return Err(format!("pair ({}, {}) at {relation:?}", src.0, tgt.0));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A homomorphism between contents: the image of every table node of the
+    /// domain, and the value of every labelled null of the domain that does
+    /// not go to itself, by canonical bytes.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Hom {
+        pub nodes: BTreeMap<u32, u32>,
+        pub nulls: BTreeMap<u64, Vec<u8>>,
+    }
+
+    impl Hom {
+        /// The identity on `content`.
+        pub fn identity(content: &Content) -> Self {
+            Self {
+                nodes: content.rows.keys().map(|id| (*id, *id)).collect(),
+                nulls: BTreeMap::new(),
+            }
+        }
+
+        /// A hom with node map `nodes` and the null map `nulls` restricted to
+        /// the nulls of `domain`, without identity entries.
+        pub fn normalised(
+            nodes: &BTreeMap<u32, u32>,
+            nulls: &BTreeMap<u64, Value>,
+            domain: &Content,
+        ) -> Self {
+            let held = domain.nulls();
+            Self {
+                nodes: nodes
+                    .iter()
+                    .filter(|(node, _)| domain.rows.contains_key(node))
+                    .map(|(a, b)| (*a, *b))
+                    .collect(),
+                nulls: nulls
+                    .iter()
+                    .filter(|(null, value)| {
+                        held.contains(null) && bytes(value) != bytes(&Value::LabeledNull(**null))
+                    })
+                    .map(|(null, value)| (*null, bytes(value)))
+                    .collect(),
+            }
+        }
+
+        /// `self: A -> B` followed by `other: B -> C`, where `domain` is `A`:
+        /// node maps compose, and each null of `A` goes where `other` sends
+        /// its image under `self` (a constant stays a constant).
+        pub fn then(&self, other: &Self, domain: &Content) -> Self {
+            let nodes = self
+                .nodes
+                .iter()
+                .filter_map(|(a, b)| other.nodes.get(b).map(|c| (*a, *c)))
+                .collect();
+            let mut nulls = BTreeMap::new();
+            for null in domain.nulls() {
+                let own = bytes(&Value::LabeledNull(null));
+                let middle = self
+                    .nulls
+                    .get(&null)
+                    .cloned()
+                    .unwrap_or_else(|| own.clone());
+                let image = other
+                    .nulls
+                    .iter()
+                    .find(|(m, _)| bytes(&Value::LabeledNull(**m)) == middle)
+                    .map_or(middle, |(_, value)| value.clone());
+                if image != own {
+                    nulls.insert(null, image);
+                }
+            }
+            Self { nodes, nulls }
+        }
+    }
+
+    /// Extend `nulls` by sending the cells of `cells` to those of `image`:
+    /// the key sets must be equal, the first occurrence of a null fixes its
+    /// value, and every later occurrence and every constant must agree by
+    /// canonical bytes.
+    fn extend_nulls(
+        cells: &BTreeMap<String, Value>,
+        image: &BTreeMap<String, Value>,
+        nulls: &mut BTreeMap<u64, Vec<u8>>,
+    ) -> bool {
+        if cells.len() != image.len() {
+            return false;
+        }
+        for (column, value) in cells {
+            let Some(target) = image.get(column) else {
+                return false;
+            };
+            let target = bytes(target);
+            match value {
+                Value::LabeledNull(null) => match nulls.get(null) {
+                    Some(fixed) if *fixed != target => return false,
+                    Some(_) => {}
+                    None => {
+                        nulls.insert(*null, target);
+                    }
+                },
+                other if bytes(other) != target => return false,
+                _ => {}
+            }
+        }
+        true
+    }
+
+    fn pairs_kept(dom: &Content, cod: &Content, nodes: &BTreeMap<u32, u32>, row: u32) -> bool {
+        dom.pairs
+            .iter()
+            .filter(|(_, src, tgt)| *src == row || *tgt == row)
+            .all(
+                |(relation, src, tgt)| match (nodes.get(src), nodes.get(tgt)) {
+                    (Some(a), Some(b)) => cod.pairs.contains(&(relation.clone(), *a, *b)),
+                    _ => true,
+                },
+            )
+    }
+
+    fn search(
+        dom: &Content,
+        cod: &Content,
+        order: &[u32],
+        partial: &mut (BTreeMap<u32, u32>, BTreeMap<u64, Vec<u8>>),
+        out: &mut Vec<Hom>,
+    ) {
+        let Some((&row, rest)) = order.split_first() else {
+            let nulls = partial
+                .1
+                .iter()
+                .filter(|(null, value)| **value != bytes(&Value::LabeledNull(**null)))
+                .map(|(null, value)| (*null, value.clone()))
+                .collect();
+            out.push(Hom {
+                nodes: partial.0.clone(),
+                nulls,
+            });
+            return;
+        };
+        let (table, cells) = &dom.rows[&row];
+        for (candidate, (image_table, image_cells)) in &cod.rows {
+            if image_table != table {
+                continue;
+            }
+            let mut nulls = partial.1.clone();
+            if !extend_nulls(cells, image_cells, &mut nulls) {
+                continue;
+            }
+            partial.0.insert(row, *candidate);
+            if pairs_kept(dom, cod, &partial.0, row) {
+                let saved = std::mem::replace(&mut partial.1, nulls);
+                search(dom, cod, rest, partial, out);
+                partial.1 = saved;
+            }
+            partial.0.remove(&row);
+        }
+    }
+
+    /// Every homomorphism `dom -> cod`: every function on table nodes that
+    /// keeps each node's table, keeps its cells (nulls fixed at their first
+    /// occurrence) and sends relation pairs to relation pairs. Nodes are
+    /// assigned in ascending id, and a partial map that already fails is not
+    /// extended, which gives exactly the maps a scan of every complete map
+    /// accepts.
+    pub fn homs(dom: &Content, cod: &Content) -> Vec<Hom> {
+        let order: Vec<u32> = dom.rows.keys().copied().collect();
+        let mut out = Vec::new();
+        search(
+            dom,
+            cod,
+            &order,
+            &mut (BTreeMap::new(), BTreeMap::new()),
+            &mut out,
+        );
+        out
+    }
+
+    /// Whether `hom` is a homomorphism `dom -> cod`, read off the definition.
+    pub fn is_hom(dom: &Content, cod: &Content, hom: &Hom) -> bool {
+        if hom.nodes.keys().copied().collect::<BTreeSet<_>>()
+            != dom.rows.keys().copied().collect::<BTreeSet<_>>()
+        {
+            return false;
+        }
+        let image = |value: &Value| match value {
+            Value::LabeledNull(null) => {
+                hom.nulls.get(null).cloned().unwrap_or_else(|| bytes(value))
+            }
+            other => bytes(other),
+        };
+        dom.rows.iter().all(|(row, (table, cells))| {
+            cod.rows
+                .get(&hom.nodes[row])
+                .is_some_and(|(image_table, image_cells)| {
+                    image_table == table
+                        && cells.len() == image_cells.len()
+                        && cells.iter().all(|(column, value)| {
+                            image_cells
+                                .get(column)
+                                .is_some_and(|target| bytes(target) == image(value))
+                        })
+                })
+        }) && dom.pairs.iter().all(|(relation, src, tgt)| {
+            cod.pairs
+                .contains(&(relation.clone(), hom.nodes[src], hom.nodes[tgt]))
+        })
+    }
+
+    /// Whether `a` and `b` are isomorphic: some homomorphism `a -> b` is a
+    /// bijection on table nodes and sends the nulls of `a` bijectively onto
+    /// those of `b`, and its inverse is a homomorphism `b -> a`.
+    pub fn isomorphic(a: &Content, b: &Content) -> bool {
+        if a.rows.len() != b.rows.len() || a.pairs.len() != b.pairs.len() {
+            return false;
+        }
+        let b_nulls = b.nulls();
+        homs(a, b).into_iter().any(|hom| {
+            let inverse_nodes: BTreeMap<u32, u32> =
+                hom.nodes.iter().map(|(x, y)| (*y, *x)).collect();
+            if inverse_nodes.len() != hom.nodes.len() {
+                return false;
+            }
+            let mut inverse_nulls = BTreeMap::new();
+            for null in a.nulls() {
+                let image = hom
+                    .nulls
+                    .get(&null)
+                    .cloned()
+                    .unwrap_or_else(|| bytes(&Value::LabeledNull(null)));
+                let Some(target) = b_nulls
+                    .iter()
+                    .find(|n| bytes(&Value::LabeledNull(**n)) == image)
+                else {
+                    return false;
+                };
+                if inverse_nulls
+                    .insert(*target, bytes(&Value::LabeledNull(null)))
+                    .is_some()
+                {
+                    return false;
+                }
+            }
+            if inverse_nulls.len() != b_nulls.len() {
+                return false;
+            }
+            inverse_nulls.retain(|n, v| *v != bytes(&Value::LabeledNull(*n)));
+            is_hom(
+                b,
+                a,
+                &Hom {
+                    nodes: inverse_nodes,
+                    nulls: inverse_nulls,
+                },
+            )
+        })
+    }
+
+    /// The graph form of one cell: a leaf value node, or a value node whose
+    /// children are leaves along named inner edges, unpositioned for a record
+    /// and positioned `0, 1, ..` for a list. A child is `(edge name, target
+    /// vertex, value)`.
+    #[derive(Clone, Debug)]
+    pub enum Form {
+        Leaf(FieldPresence),
+        Record(Vec<(&'static str, &'static str, Value)>),
+        List(Vec<(&'static str, &'static str, Value)>),
+    }
+
+    /// Every element of the cartesian product of `choices`, the first
+    /// coordinate varying slowest.
+    pub fn product<T: Clone>(choices: &[Vec<T>]) -> Vec<Vec<T>> {
+        let mut out: Vec<Vec<T>> = vec![Vec::new()];
+        for options in choices {
+            out = out
+                .into_iter()
+                .flat_map(|prefix| {
+                    options.iter().map(move |option| {
+                        let mut next = prefix.clone();
+                        next.push(option.clone());
+                        next
+                    })
+                })
+                .collect();
+        }
+        out
+    }
+
+    /// Every vector of per-table node counts with sum at most `max`.
+    pub fn compositions(tables: usize, max: usize) -> Vec<Vec<usize>> {
+        product(&vec![(0..=max).collect::<Vec<_>>(); tables])
+            .into_iter()
+            .filter(|counts| counts.iter().sum::<usize>() <= max)
+            .collect()
+    }
+
+    fn add_cell(
+        graph: &mut GInstance,
+        next: &mut (u32, u32),
+        owner: u32,
+        arrow: &Edge,
+        form: &Form,
+    ) {
+        let root = next.0;
+        next.0 += 1;
+        let (value, children, positioned) = match form {
+            Form::Leaf(presence) => (Some(presence.clone()), &[][..], false),
+            Form::Record(children) => (None, &children[..], false),
+            Form::List(children) => (None, &children[..], true),
+        };
+        let mut node = Node::new(root, arrow.tgt.clone());
+        node.value = value;
+        graph.insert_node(node).unwrap_or_else(|e| panic!("{e}"));
+        graph
+            .insert_edge(EdgeId(next.1), GEdge::new(owner, root, arrow.clone()))
+            .unwrap_or_else(|e| panic!("{e}"));
+        next.1 += 1;
+        for (position, (name, vertex, value)) in children.iter().enumerate() {
+            let child = next.0;
+            next.0 += 1;
+            graph
+                .insert_node(
+                    Node::new(child, *vertex).with_value(FieldPresence::Present(value.clone())),
+                )
+                .unwrap_or_else(|e| panic!("{e}"));
+            let label = edge(&arrow.tgt, vertex, name);
+            let position = positioned.then(|| u32::try_from(position).unwrap_or(u32::MAX));
+            graph
+                .insert_edge(
+                    EdgeId(next.1),
+                    GEdge::new(root, child, label).with_position(position),
+                )
+                .unwrap_or_else(|e| panic!("{e}"));
+            next.1 += 1;
+        }
+    }
+
+    /// Every labelled graph of `Enc(spec)` with at most `max` table nodes:
+    /// the table nodes carry ids `0..n` in table order, every cell takes
+    /// every form `forms(table, column)` lists, and every relation takes
+    /// every subset of the pairs between its tables' nodes. Value nodes and
+    /// edges take ids in order after them.
+    pub fn every_graph(
+        spec: &Spec,
+        forms: &dyn Fn(&str, &str) -> Vec<Form>,
+        max: usize,
+    ) -> Vec<GInstance> {
+        let mut out = Vec::new();
+        for counts in compositions(spec.tables.len(), max) {
+            let mut slots: Vec<(u32, &str, &str)> = Vec::new();
+            let mut owners: BTreeMap<&str, Vec<u32>> = BTreeMap::new();
+            let mut id = 0u32;
+            for ((table, columns), count) in spec.tables.iter().zip(&counts) {
+                for _ in 0..*count {
+                    owners.entry(table).or_default().push(id);
+                    for (column, _) in columns {
+                        slots.push((id, table, column));
+                    }
+                    id += 1;
+                }
+            }
+            let nodes = id;
+            let cell_choices: Vec<Vec<Form>> = slots.iter().map(|(_, t, c)| forms(t, c)).collect();
+            let pair_choices: Vec<Vec<Vec<(u32, u32)>>> = spec
+                .relations
+                .iter()
+                .map(|relation| {
+                    let none = Vec::new();
+                    let possible: Vec<(u32, u32)> = product(&[
+                        owners.get(relation.src.as_ref()).unwrap_or(&none).clone(),
+                        owners.get(relation.tgt.as_ref()).unwrap_or(&none).clone(),
+                    ])
+                    .into_iter()
+                    .map(|pair| (pair[0], pair[1]))
+                    .collect();
+                    (0u32..(1u32 << possible.len()))
+                        .map(|mask| {
+                            possible
+                                .iter()
+                                .enumerate()
+                                .filter(|(k, _)| mask & (1 << k) != 0)
+                                .map(|(_, pair)| *pair)
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect();
+            for cells in product(&cell_choices) {
+                for pairs in product(&pair_choices) {
+                    let mut graph = GInstance::new();
+                    for (table, _) in &spec.tables {
+                        for node in owners.get(table).into_iter().flatten() {
+                            graph
+                                .insert_node(Node::new(*node, *table))
+                                .unwrap_or_else(|e| panic!("{e}"));
+                        }
+                    }
+                    let mut next = (nodes, 0u32);
+                    for ((owner, table, column), form) in slots.iter().zip(&cells) {
+                        add_cell(
+                            &mut graph,
+                            &mut next,
+                            *owner,
+                            &Spec::column_edge(table, column),
+                            form,
+                        );
+                    }
+                    for (relation, chosen) in spec.relations.iter().zip(&pairs) {
+                        for (src, tgt) in chosen {
+                            graph
+                                .insert_edge(
+                                    EdgeId(next.1),
+                                    GEdge::new(*src, *tgt, relation.clone()),
+                                )
+                                .unwrap_or_else(|e| panic!("{e}"));
+                            next.1 += 1;
+                        }
+                    }
+                    out.push(graph);
+                }
+            }
+        }
+        out
+    }
+
+    /// The labelled count of [`every_graph`], by the closed formula: the sum,
+    /// over every vector `k` of per-table node counts with `|k| <= max`, of
+    /// `prod_t (prod_c |forms(t, c)|)^(k_t) * 2^(sum over relations e: s -> t
+    /// of k_s * k_t)`.
+    pub fn labelled_count(spec: &Spec, forms: &dyn Fn(&str, &str) -> usize, max: usize) -> usize {
+        let index = |name: &str| spec.tables.iter().position(|(t, _)| *t == name);
+        compositions(spec.tables.len(), max)
+            .into_iter()
+            .map(|counts| {
+                let cells: usize = spec
+                    .tables
+                    .iter()
+                    .zip(&counts)
+                    .map(|((table, columns), k)| {
+                        columns
+                            .iter()
+                            .map(|(column, _)| forms(table, column))
+                            .product::<usize>()
+                            .pow(u32::try_from(*k).unwrap_or(u32::MAX))
+                    })
+                    .product();
+                let pairs: usize = spec
+                    .relations
+                    .iter()
+                    .map(|r| {
+                        index(r.src.as_ref()).map_or(0, |s| counts[s])
+                            * index(r.tgt.as_ref()).map_or(0, |t| counts[t])
+                    })
+                    .sum();
+                cells << pairs
+            })
+            .sum()
+    }
+
+    /// `graph` with every node id `n` renamed to `node(n)` and every edge id
+    /// `e` to `edge(e)`.
+    pub fn relabel(
+        graph: &GInstance,
+        node: impl Fn(u32) -> u32,
+        edge: impl Fn(u32) -> u32,
+    ) -> GInstance {
+        let mut out = GInstance::new();
+        for old in sorted_nodes(graph) {
+            let mut renamed = old.clone();
+            renamed.id = node(old.id);
+            out.insert_node(renamed).unwrap_or_else(|e| panic!("{e}"));
+        }
+        for (id, old) in sorted_edges(graph) {
+            let renamed = GEdge::new(node(old.src), node(old.tgt), old.edge.clone())
+                .with_position(old.position);
+            out.insert_edge(EdgeId(edge(id.0)), renamed)
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        out
+    }
+
+    /// `graph` with a decoration on every node (discriminator, position,
+    /// annotation and an extra field that names no column) and a position on
+    /// every edge that is not an inner edge.
+    pub fn decorate(graph: &GInstance, side: &Side) -> GInstance {
+        let mut out = GInstance::new();
+        for old in sorted_nodes(graph) {
+            let mut node = old.clone();
+            node.discriminator = Some(node.anchor.clone());
+            node.position = Some(node.id % 5);
+            node.annotations
+                .insert("seen".into(), Value::Int(i64::from(node.id)));
+            node.extra_fields
+                .insert("note".into(), Value::Str(format!("n{}", node.id)));
+            out.insert_node(node).unwrap_or_else(|e| panic!("{e}"));
+        }
+        for (id, old) in sorted_edges(graph) {
+            let position = if side.inner.contains(&old.edge) {
+                old.position
+            } else {
+                Some(id.0 + 2)
+            };
+            let renamed = GEdge::new(old.src, old.tgt, old.edge.clone()).with_position(position);
+            out.insert_edge(id, renamed)
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        out
+    }
+
+    /// A functor `F: S' -> T` given by its maps on kept tables, kept columns
+    /// `(table, column) -> column` and kept relations.
+    #[derive(Clone, Debug, Default)]
+    pub struct Map {
+        pub tables: BTreeMap<Name, Name>,
+        pub columns: BTreeMap<(Name, String), String>,
+        pub relations: BTreeMap<Edge, Edge>,
+    }
+
+    /// The Delta oracle: for each table node `r` of `target` and each table
+    /// `s` of `kept` that `map` sends to `r`'s table, one copy of `r` at `s`
+    /// holding, at each column `c` of `s`, the cell of `r` at `F(c)`; and for
+    /// each kept relation `e` and each pair of `F(e)`, the pair of copies at
+    /// `e`'s endpoints. Returns the content and each copy's `(s, r)`.
+    pub fn delta(
+        target: &Content,
+        map: &Map,
+        kept: &Side,
+    ) -> (Content, BTreeMap<u32, (Name, u32)>) {
+        let mut content = Content::default();
+        let mut copies = BTreeMap::new();
+        let mut index = BTreeMap::new();
+        let mut next = 0u32;
+        for (row, (table, cells)) in &target.rows {
+            for (source, columns) in &kept.tables {
+                if map.tables.get(source) != Some(table) {
+                    continue;
+                }
+                let held = columns
+                    .keys()
+                    .map(|column| {
+                        let image = &map.columns[&(source.clone(), column.clone())];
+                        (column.clone(), cells[image].clone())
+                    })
+                    .collect();
+                content.rows.insert(next, (source.clone(), held));
+                copies.insert(next, (source.clone(), *row));
+                index.insert((source.clone(), *row), next);
+                next += 1;
+            }
+        }
+        for relation in &kept.relations {
+            let image = &map.relations[relation];
+            for (label, src, tgt) in &target.pairs {
+                if label != image {
+                    continue;
+                }
+                if let (Some(a), Some(b)) = (
+                    index.get(&(relation.src.clone(), *src)),
+                    index.get(&(relation.tgt.clone(), *tgt)),
+                ) {
+                    content.pairs.insert((relation.clone(), *a, *b));
+                }
+            }
+        }
+        (content, copies)
+    }
+
+    /// Delta on a homomorphism `k: J1 -> J2`, given each copy's `(s, r)` in
+    /// `Delta J1` and in `Delta J2`: the copy of `r` at `s` goes to the copy
+    /// of `k(r)` at `s`, and the nulls go where `k` sends them.
+    pub fn delta_on_hom(
+        hom: &Hom,
+        from: &BTreeMap<u32, (Name, u32)>,
+        to: &BTreeMap<u32, (Name, u32)>,
+    ) -> Hom {
+        let index: BTreeMap<(Name, u32), u32> =
+            to.iter().map(|(copy, key)| (key.clone(), *copy)).collect();
+        Hom {
+            nodes: from
+                .iter()
+                .map(|(copy, (table, row))| (*copy, index[&(table.clone(), hom.nodes[row])]))
+                .collect(),
+            nulls: hom.nulls.clone(),
+        }
+    }
+}
+
+/// Run `check` on every element of `items`, spread over the machine's
+/// threads.
+fn par<T: Sync>(items: &[T], check: impl Fn(&T) + Sync) {
+    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let chunk = items.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        for part in items.chunks(chunk) {
+            let check = &check;
+            scope.spawn(move || part.iter().for_each(check));
+        }
+    });
+}
+
+/// The encoding family: a table `a` with one structured column `x`, a table
+/// `b` without columns and a relation `f: a -> b`.
+fn encoding_spec() -> oracle::Spec {
+    oracle::Spec {
+        tables: vec![("a", vec![("x", "value")]), ("b", vec![])],
+        relations: vec![edge("a", "b", "f")],
+        inner: vec![
+            ("a.x", "a.x.k", "k", "str"),
+            ("a.x", "a.x.item", "item", "int"),
+        ],
+    }
+}
+
+/// The seven graph forms of the encoding family's cell: a constant leaf,
+/// both null forms, a record subtree, a list subtree, a leaf holding the
+/// list that subtree folds to, and a top-level labelled null.
+fn encoding_forms() -> Vec<oracle::Form> {
+    use oracle::Form;
+    vec![
+        Form::Leaf(FieldPresence::Present(Value::Int(0))),
+        Form::Leaf(FieldPresence::Null),
+        Form::Leaf(FieldPresence::Present(Value::Null)),
+        Form::Record(vec![("k", "a.x.k", Value::Str("s".into()))]),
+        Form::List(vec![
+            ("item", "a.x.item", Value::Int(0)),
+            ("item", "a.x.item", Value::Int(1)),
+        ]),
+        Form::Leaf(FieldPresence::Present(Value::List(vec![
+            Value::Int(0),
+            Value::Int(1),
+        ]))),
+        Form::Leaf(FieldPresence::Present(Value::LabeledNull(0))),
+    ]
+}
+
+/// Every graph of the encoding family with at most four table nodes, in four
+/// presentations each: as enumerated, with node and edge ids reversed and
+/// spread out (value nodes then precede table nodes), and both of these
+/// decorated.
+fn encoding_graphs(max: usize) -> Vec<GInstance> {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let plain = oracle::every_graph(&spec, &|_, _| encoding_forms(), max);
+    let mut out = Vec::with_capacity(plain.len() * 4);
+    for graph in plain {
+        let top_node = graph.max_node_id().unwrap_or(0);
+        let top_edge = graph.max_edge_id().map_or(0, |edge| edge.0);
+        let spread = oracle::relabel(
+            &graph,
+            |node| 3 * (top_node - node) + 1,
+            |edge| 5 * (top_edge - edge) + 2,
+        );
+        out.push(oracle::decorate(&graph, &side));
+        out.push(oracle::decorate(&spread, &side));
+        out.push(graph);
+        out.push(spread);
+    }
+    out
+}
+
+#[test]
+fn the_oracle_enumerators_give_their_labelled_counts() {
+    let spec = encoding_spec();
+    let count = oracle::every_graph(&spec, &|_, _| encoding_forms(), 4).len();
+    assert_eq!(count, oracle::labelled_count(&spec, &|_, _| 7, 4));
+    // sum over k + m <= 4 of 7^k * 2^(k m), written out.
+    let by_hand: usize = (0..=4usize)
+        .flat_map(|k| (0..=4 - k).map(move |m| (k, m)))
+        .map(|(k, m)| 7usize.pow(u32::try_from(k).unwrap()) << (k * m))
+        .sum();
+    assert_eq!(count, by_hand);
+    assert_eq!(count, 6627);
+    for (spec, cells, expected) in [(relation_spec(), 1, 51), (shared_column_spec(), 2, 129)] {
+        let forms = |_: &str, _: &str| cells;
+        let enumerated = oracle::every_graph(&spec, &|_, _| leaf_forms(&small_cells(cells)), 4);
+        assert_eq!(enumerated.len(), oracle::labelled_count(&spec, &forms, 4));
+        assert_eq!(enumerated.len(), expected);
+    }
+}
+
+/// Encoding law one, read against the oracle: every enumerated graph lies in
+/// `Enc(X)`, `E` gives the table the oracle reads off the graph, and `D`
+/// after `E` rebuilds the graph identically.
+#[test]
+fn decoding_inverts_encoding_on_every_small_graph() {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+    let graphs = encoding_graphs(4);
+    assert_eq!(graphs.len(), 4 * 6627);
+    par(&graphs, |graph| {
+        assert_eq!(oracle::classify(graph, &side), Ok(()), "{graph:?}");
+        let (tables, layout) = encode_graph(graph, EncodingSide::Whole(&rel)).unwrap();
+        assert_eq!(
+            tables,
+            oracle::Content::of_graph(graph, &side).table(),
+            "{graph:?}"
+        );
+        let decoded = decode_graph(&tables, EncodingSide::Whole(&rel), &layout).unwrap();
+        assert!(
+            GInstance::identical(graph, &decoded),
+            "{graph:?} -> {decoded:?}"
+        );
+    });
+}
+
+/// The first `count` cells of the family alphabet: `0`, `1`, then the
+/// labelled null `0`.
+fn small_cells(count: usize) -> Vec<Value> {
+    [Value::Int(0), Value::Int(1), Value::LabeledNull(0)]
+        .into_iter()
+        .take(count)
+        .collect()
+}
+
+/// One leaf form per value.
+fn leaf_forms(cells: &[Value]) -> Vec<oracle::Form> {
+    cells
+        .iter()
+        .map(|value| oracle::Form::Leaf(FieldPresence::Present(value.clone())))
+        .collect()
+}
+
+/// Two tables without columns and one relation between them.
+fn relation_spec() -> oracle::Spec {
+    oracle::Spec {
+        tables: vec![("a", vec![]), ("b", vec![])],
+        relations: vec![edge("a", "b", "f")],
+        inner: vec![],
+    }
+}
+
+/// Two tables with one integer column each.
+fn shared_column_spec() -> oracle::Spec {
+    oracle::Spec {
+        tables: vec![("a", vec![("x", "int")]), ("b", vec![("x", "int")])],
+        relations: vec![],
+        inner: vec![],
+    }
+}
+
+/// Every conforming table of the encoding family with at most four rows,
+/// its cells drawn from a constant, `Null`, a record, a list and a labelled
+/// null, read through the oracle from the graphs that hold them as leaves.
+fn encoding_tables() -> Vec<FInstance> {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let cells = vec![
+        oracle::Form::Leaf(FieldPresence::Present(Value::Int(0))),
+        oracle::Form::Leaf(FieldPresence::Null),
+        oracle::Form::Leaf(FieldPresence::Present(Value::Unknown(HashMap::from([(
+            "k".to_owned(),
+            Value::Str("s".into()),
+        )])))),
+        oracle::Form::Leaf(FieldPresence::Present(Value::List(vec![
+            Value::Int(0),
+            Value::Int(1),
+        ]))),
+        oracle::Form::Leaf(FieldPresence::Present(Value::LabeledNull(0))),
+    ];
+    oracle::every_graph(&spec, &|_, _| cells.clone(), 4)
+        .iter()
+        .map(|graph| oracle::Content::of_graph(graph, &side).table())
+        .collect()
+}
+
+/// The layouts the second encoding law is run with: the record-free layout
+/// and the layout of every graph of the encoding family with at most two
+/// table nodes, as enumerated and decorated with spread ids.
+fn encoding_layouts() -> Vec<GraphLayout> {
+    let spec = encoding_spec();
+    let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+    let mut layouts = vec![GraphLayout::default()];
+    for (index, graph) in encoding_graphs(2).iter().enumerate() {
+        if index % 4 == 1 || index % 4 == 2 {
+            layouts.push(encode_graph(graph, EncodingSide::Whole(&rel)).unwrap().1);
+        }
+    }
+    layouts
+}
+
+/// Encoding law two, read against the oracle: for every conforming table and
+/// every layout of the family, `D` lands in `Enc(X)` and the table component
+/// of `E` after `D` is the table.
+#[test]
+fn encoding_inverts_decoding_on_every_small_table_and_layout() {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+    let tables = encoding_tables();
+    assert_eq!(tables.len(), oracle::labelled_count(&spec, &|_, _| 5, 4));
+    let layouts = encoding_layouts();
+    assert_eq!(layouts.len(), 1 + 2 * 73);
+    par(&tables, |table| {
+        assert_eq!(oracle::conformance(table, &side), Ok(()));
+        for layout in &layouts {
+            let graph = decode_graph(table, EncodingSide::Whole(&rel), layout).unwrap();
+            assert_eq!(oracle::classify(&graph, &side), Ok(()), "{graph:?}");
+            assert_eq!(oracle::Content::of_graph(&graph, &side).table(), *table);
+            let (again, _) = encode_graph(&graph, EncodingSide::Whole(&rel)).unwrap();
+            assert_eq!(again, *table);
+        }
+    });
+}
+
+/// Layout isomorphism: for every conforming table `T` of the family and every
+/// layout `L` of it, the identity on table nodes is a homomorphism
+/// `D(T, default) -> D(T, L)` and back, both by `GraphKanHom::check` and by
+/// the oracle. So graphs that differ only in layout are isomorphic, and the
+/// layout selection of the Kan functions is a choice of representative.
+#[test]
+fn graphs_that_differ_only_in_layout_are_isomorphic() {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+    let tables = encoding_tables();
+    let layouts = encoding_layouts();
+    let differing = std::sync::atomic::AtomicUsize::new(0);
+    par(&tables, |table| {
+        let plain =
+            decode_graph(table, EncodingSide::Whole(&rel), &GraphLayout::default()).unwrap();
+        let plain_content = oracle::Content::of_graph(&plain, &side);
+        let identity = GraphKanHom {
+            node_map: table
+                .row_ids()
+                .into_iter()
+                .map(|row| (row.0, row.0))
+                .collect(),
+            null_map: BTreeMap::new(),
+        };
+        let oracle_identity = oracle::Hom::identity(&plain_content);
+        for layout in &layouts {
+            let other = decode_graph(table, EncodingSide::Whole(&rel), layout).unwrap();
+            if !GInstance::identical(&plain, &other) {
+                differing.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            let other_content = oracle::Content::of_graph(&other, &side);
+            identity
+                .check(&plain, &other, EncodingSide::Whole(&rel))
+                .unwrap();
+            identity
+                .check(&other, &plain, EncodingSide::Whole(&rel))
+                .unwrap();
+            assert!(oracle::is_hom(
+                &plain_content,
+                &other_content,
+                &oracle_identity
+            ));
+            assert!(oracle::is_hom(
+                &other_content,
+                &plain_content,
+                &oracle_identity
+            ));
+        }
+    });
+    assert!(differing.into_inner() > 0, "some layout changes the graph");
+}
+
+/// A table `p` with one structured column `x` holding a record `{k}`.
+fn record_spec() -> oracle::Spec {
+    oracle::Spec {
+        tables: vec![("p", vec![("x", "value")])],
+        relations: vec![],
+        inner: vec![("p.x", "p.x.k", "k", "str")],
+    }
+}
+
+fn record_value() -> Value {
+    Value::Unknown(HashMap::from([("k".to_owned(), Value::Str("s".into()))]))
+}
+
+/// The hom families, each over at most four table nodes: the record table
+/// over two of its cell forms at a time (a constant and a labelled null, two
+/// labelled nulls, a constant and a record subtree, a record subtree and a
+/// leaf holding the record it folds to), and the relation family.
+fn hom_families() -> Vec<(&'static str, oracle::Spec, Vec<oracle::Form>)> {
+    use oracle::Form;
+    let constant = Form::Leaf(FieldPresence::Present(Value::Int(0)));
+    let null = |n| Form::Leaf(FieldPresence::Present(Value::LabeledNull(n)));
+    let subtree = Form::Record(vec![("k", "p.x.k", Value::Str("s".into()))]);
+    let leaf = Form::Leaf(FieldPresence::Present(record_value()));
+    vec![
+        (
+            "constant and null",
+            record_spec(),
+            vec![constant.clone(), null(0)],
+        ),
+        ("two nulls", record_spec(), vec![null(0), null(1)]),
+        (
+            "constant and record subtree",
+            record_spec(),
+            vec![constant, subtree.clone()],
+        ),
+        (
+            "record subtree and record leaf",
+            record_spec(),
+            vec![subtree, leaf],
+        ),
+        ("relation", relation_spec(), vec![]),
+    ]
+}
+
+/// Every map from the rows of `dom` to the rows of `cod` that keeps each
+/// row's table.
+fn table_respecting_maps(dom: &FInstance, cod: &FInstance) -> Vec<BTreeMap<u32, u32>> {
+    let rows = dom.row_ids();
+    let choices: Vec<Vec<u32>> = rows
+        .iter()
+        .map(|row| {
+            cod.row_ids()
+                .into_iter()
+                .filter(|image| cod.table_of(*image) == dom.table_of(*row))
+                .map(|image| image.0)
+                .collect()
+        })
+        .collect();
+    oracle::product(&choices)
+        .into_iter()
+        .map(|images| rows.iter().map(|row| row.0).zip(images).collect())
+        .collect()
+}
+
+/// Every `FInstanceHom` from `dom` to `cod` that `FInstanceHom::check`
+/// accepts, over every table-respecting row map and every null map sending
+/// each null of `dom` to itself or to a cell value of `cod`.
+fn table_homs(dom: &FInstance, cod: &FInstance) -> BTreeSet<oracle::Hom> {
+    let dom_content = oracle::Content::of_table(dom);
+    let cod_content = oracle::Content::of_table(cod);
+    let values: Vec<Value> = cod_content
+        .rows
+        .values()
+        .flat_map(|(_, cells)| cells.values().cloned())
+        .collect();
+    let nulls: Vec<u64> = dom_content.nulls().into_iter().collect();
+    let null_choices: Vec<Vec<Value>> = nulls
+        .iter()
+        .map(|null| {
+            std::iter::once(Value::LabeledNull(*null))
+                .chain(values.iter().cloned())
+                .collect()
+        })
+        .collect();
+    let mut out = BTreeSet::new();
+    for rows in table_respecting_maps(dom, cod) {
+        for images in oracle::product(&null_choices) {
+            let null_map: BTreeMap<u64, Value> = nulls.iter().copied().zip(images).collect();
+            let hom = FInstanceHom::new(rows.iter().map(|(a, b)| (RowId(*a), RowId(*b))).collect())
+                .with_null_map(null_map.clone());
+            if hom.check(dom, cod).is_ok() {
+                out.insert(oracle::Hom::normalised(&rows, &null_map, &dom_content));
+            }
+        }
+    }
+    out
+}
+
+/// The null map a node map fixes, nulls taken at their first occurrence in
+/// `(node, column)` order; a null whose cell has no image is left out.
+fn first_occurrence_nulls(
+    dom: &oracle::Content,
+    cod: &oracle::Content,
+    nodes: &BTreeMap<u32, u32>,
+) -> BTreeMap<u64, Value> {
+    let mut nulls = BTreeMap::new();
+    for (row, (_, cells)) in &dom.rows {
+        let Some((_, image)) = nodes.get(row).and_then(|target| cod.rows.get(target)) else {
+            continue;
+        };
+        for (column, value) in cells {
+            if let (Value::LabeledNull(null), Some(target)) = (value, image.get(column)) {
+                nulls.entry(*null).or_insert_with(|| target.clone());
+            }
+        }
+    }
+    nulls
+}
+
+/// Full faithfulness of `E`, against the oracle: for every pair of graphs of
+/// each hom family with at most four table nodes, the graph homomorphisms
+/// the oracle enumerates from the graphs alone are exactly the
+/// `FInstanceHom`s between their encodings (`E(h)` keeps the node and null
+/// maps), and `GraphKanHom::check` accepts a table-respecting node map, with
+/// the null map its first occurrences fix, exactly when the oracle does.
+#[test]
+fn graph_kan_homs_are_exactly_the_table_homs_of_the_encodings() {
+    for (name, spec, forms) in hom_families() {
+        let side = spec.side();
+        let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+        let graphs = oracle::every_graph(&spec, &|_, _| forms.clone(), 4);
+        let count = forms.len().max(1);
+        assert_eq!(
+            graphs.len(),
+            oracle::labelled_count(&spec, &|_, _| count, 4),
+            "{name}"
+        );
+        let prepared: Vec<(GInstance, oracle::Content, FInstance)> = graphs
+            .into_iter()
+            .map(|graph| {
+                let content = oracle::Content::of_graph(&graph, &side);
+                let (table, _) = encode_graph(&graph, EncodingSide::Whole(&rel)).unwrap();
+                (graph, content, table)
+            })
+            .collect();
+        let homs_found = std::sync::atomic::AtomicUsize::new(0);
+        par(&prepared, |(g, g_content, g_table)| {
+            for (h, h_content, h_table) in &prepared {
+                let found: BTreeSet<oracle::Hom> =
+                    oracle::homs(g_content, h_content).into_iter().collect();
+                homs_found.fetch_add(found.len(), std::sync::atomic::Ordering::Relaxed);
+                assert_eq!(
+                    found,
+                    table_homs(g_table, h_table),
+                    "{name}: {g:?} -> {h:?}"
+                );
+                for nodes in table_respecting_maps(g_table, h_table) {
+                    let null_map = first_occurrence_nulls(g_content, h_content, &nodes);
+                    let candidate = oracle::Hom::normalised(&nodes, &null_map, g_content);
+                    let hom = GraphKanHom {
+                        node_map: nodes,
+                        null_map,
+                    };
+                    assert_eq!(
+                        hom.check(g, h, EncodingSide::Whole(&rel)).is_ok(),
+                        found.contains(&candidate),
+                        "{name}: {hom:?} on {g:?} -> {h:?}"
+                    );
+                }
+            }
+        });
+        assert!(homs_found.into_inner() > 0, "{name}");
+    }
+}
+
+/// Identities and composites of `GraphKanHom`, against the oracle: on every
+/// graph of each hom family with at most four table nodes
+/// `GraphKanHom::identity` is the oracle's identity, and for every three
+/// graphs `G`, `H`, `K` of the family with at most three table nodes each and
+/// every oracle homomorphisms `h: G -> H` and `k: H -> K`, `h.compose(k)` is
+/// the oracle's composite and a homomorphism `G -> K`.
+#[test]
+fn graph_kan_hom_identities_and_composites_match_the_oracle() {
+    for (name, spec, forms) in hom_families() {
+        let side = spec.side();
+        let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+        let graphs = |max| -> Vec<(GInstance, oracle::Content)> {
+            oracle::every_graph(&spec, &|_, _| forms.clone(), max)
+                .into_iter()
+                .map(|graph| {
+                    let content = oracle::Content::of_graph(&graph, &side);
+                    (graph, content)
+                })
+                .collect()
+        };
+        par(&graphs(4), |(g, g_content)| {
+            let identity = GraphKanHom::identity(g, &EncodingSide::Whole(&rel)).unwrap();
+            assert_eq!(
+                oracle::Hom::normalised(&identity.node_map, &identity.null_map, g_content),
+                oracle::Hom::identity(g_content),
+                "{name}: {g:?}"
+            );
+        });
+        let small = graphs(3);
+        let composites = std::sync::atomic::AtomicUsize::new(0);
+        par(&small, |(g, g_content)| {
+            for (h, h_content) in &small {
+                for first in oracle::homs(g_content, h_content) {
+                    let first_kan = to_kan(&first, h_content);
+                    for (k, k_content) in &small {
+                        for second in oracle::homs(h_content, k_content) {
+                            let composite = first_kan.compose(&to_kan(&second, k_content)).unwrap();
+                            let composite = oracle::Hom::normalised(
+                                &composite.node_map,
+                                &composite.null_map,
+                                g_content,
+                            );
+                            assert_eq!(
+                                composite,
+                                first.then(&second, g_content),
+                                "{name}: {g:?} -> {h:?} -> {k:?}"
+                            );
+                            assert!(oracle::is_hom(g_content, k_content, &composite));
+                            composites.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+        });
+        assert!(composites.into_inner() > 0, "{name}");
+    }
+}
+
+/// The `GraphKanHom` of an oracle homomorphism into `cod`: its node map, and
+/// each null's value read back from the cell of `cod` with those canonical
+/// bytes.
+fn to_kan(hom: &oracle::Hom, cod: &oracle::Content) -> GraphKanHom {
+    let values: Vec<Value> = cod
+        .rows
+        .values()
+        .flat_map(|(_, cells)| cells.values().cloned())
+        .collect();
+    GraphKanHom {
+        node_map: hom.nodes.clone(),
+        null_map: hom
+            .nulls
+            .iter()
+            .map(|(null, bytes)| {
+                let value = values
+                    .iter()
+                    .find(|value| oracle::bytes(value) == *bytes)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("null {null} goes to no cell of the codomain"));
+                (*null, value)
+            })
+            .collect(),
+    }
+}
+
+/// One functor of the adjunction family: the whole source `S`, its kept part
+/// `S'` and the target `T` written out by hand, the map `F: S' -> T`, the
+/// cell alphabet, and whether `F` is attribute-surjective (so that `Pi`
+/// exists).
+struct KanCase {
+    name: &'static str,
+    source: oracle::Spec,
+    kept: oracle::Spec,
+    target: oracle::Spec,
+    map: oracle::Map,
+    cells: Vec<Value>,
+    pi: bool,
+}
+
+/// The largest product a family Pi may build.
+const FAMILY_PI_MAX: usize = 81;
+
+impl KanCase {
+    fn new(
+        name: &'static str,
+        (source, kept, target): (oracle::Spec, oracle::Spec, oracle::Spec),
+        tables: &[(&str, &str)],
+        columns: &[(&str, &str, &str)],
+        relations: &[(Edge, Edge)],
+    ) -> Self {
+        let map = oracle::Map {
+            tables: tables
+                .iter()
+                .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                .collect(),
+            columns: columns
+                .iter()
+                .map(|(s, c, t)| ((Name::from(*s), (*c).to_owned()), (*t).to_owned()))
+                .collect(),
+            relations: relations.iter().cloned().collect(),
+        };
+        Self {
+            name,
+            source,
+            kept,
+            target,
+            map,
+            cells: small_cells(2),
+            pi: true,
+        }
+    }
+
+    fn with_cells(mut self, cells: Vec<Value>) -> Self {
+        self.cells = cells;
+        self
+    }
+
+    const fn without_pi(mut self) -> Self {
+        self.pi = false;
+        self
+    }
+
+    /// The migration the code under test receives: each kept table and
+    /// column vertex to its image, each kept column arrow and relation to
+    /// its image.
+    fn migration(&self) -> CompiledMigration {
+        let mut vertices = Vec::new();
+        let mut edges = Vec::new();
+        for (source, target) in &self.map.tables {
+            vertices.push((source.to_string(), target.to_string()));
+        }
+        for ((table, column), image) in &self.map.columns {
+            let target = &self.map.tables[table];
+            vertices.push((format!("{table}.{column}"), format!("{target}.{image}")));
+            edges.push((
+                oracle::Spec::column_edge(table, column),
+                oracle::Spec::column_edge(target, image),
+            ));
+        }
+        edges.extend(
+            self.map
+                .relations
+                .iter()
+                .map(|(a, b)| (a.clone(), b.clone())),
+        );
+        let named: Vec<(&str, &str)> = vertices
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        migration(&named, &edges, &[], &[])
+    }
+
+    fn functor(&self) -> MigrationFunctor {
+        MigrationFunctor::new(
+            &self.source.schema(),
+            &protocol(),
+            &self.target.schema(),
+            &protocol(),
+            &self.migration(),
+        )
+        .unwrap_or_else(|error| panic!("{}: {error}", self.name))
+    }
+
+    fn graphs(&self, spec: &oracle::Spec) -> Vec<GInstance> {
+        let forms = leaf_forms(&self.cells);
+        oracle::every_graph(spec, &|_, _| forms.clone(), 4)
+    }
+}
+
+const fn spec(
+    tables: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+    relations: Vec<Edge>,
+) -> oracle::Spec {
+    oracle::Spec {
+        tables,
+        relations,
+        inner: vec![],
+    }
+}
+
+/// The adjunction family: [`merge_cases`] and [`column_cases`].
+fn kan_family() -> Vec<KanCase> {
+    let mut cases = merge_cases();
+    cases.extend(column_cases());
+    cases
+}
+
+/// The merges of the family: two tables with a shared column (over
+/// constants, and over a constant and a labelled null), tables carrying two
+/// relations to one, and two parallel relations.
+fn merge_cases() -> Vec<KanCase> {
+    let merge = || {
+        (
+            shared_column_spec(),
+            shared_column_spec(),
+            spec(vec![("t", vec![("x", "int")])], vec![]),
+        )
+    };
+    let (f, h) = (edge("a", "c", "f"), edge("b", "c", "h"));
+    let relations = spec(
+        vec![("a", vec![]), ("b", vec![]), ("c", vec![])],
+        vec![f.clone(), h.clone()],
+    );
+    let g = edge("A", "C", "g");
+    let (f2, h2, g2) = (
+        edge("a", "b", "f"),
+        edge("a", "b", "h"),
+        edge("a", "b", "g"),
+    );
+    let parallel = spec(
+        vec![("a", vec![]), ("b", vec![])],
+        vec![f2.clone(), h2.clone()],
+    );
+    vec![
+        KanCase::new(
+            "a merge with a shared column",
+            merge(),
+            &[("a", "t"), ("b", "t")],
+            &[("a", "x", "x"), ("b", "x", "x")],
+            &[],
+        ),
+        KanCase::new(
+            "a merge with a shared column over a null",
+            merge(),
+            &[("a", "t"), ("b", "t")],
+            &[("a", "x", "x"), ("b", "x", "x")],
+            &[],
+        )
+        .with_cells(vec![Value::Int(0), Value::LabeledNull(0)]),
+        KanCase::new(
+            "a merge of tables carrying two relations to one",
+            (
+                relations.clone(),
+                relations,
+                spec(vec![("A", vec![]), ("C", vec![])], vec![g.clone()]),
+            ),
+            &[("a", "A"), ("b", "A"), ("c", "C")],
+            &[],
+            &[(f, g.clone()), (h, g)],
+        ),
+        KanCase::new(
+            "two parallel relations merged",
+            (
+                parallel.clone(),
+                parallel,
+                spec(vec![("a", vec![]), ("b", vec![])], vec![g2.clone()]),
+            ),
+            &[("a", "a"), ("b", "b")],
+            &[],
+            &[(f2, g2.clone()), (h2, g2)],
+        ),
+    ]
+}
+
+/// The column cases of the family: a target column outside the image (Pi
+/// refuses), two columns sent to one (Sigma may clash), and a source table
+/// and column outside the kept part.
+fn column_cases() -> Vec<KanCase> {
+    let one_column = || spec(vec![("a", vec![("x", "int")])], vec![]);
+    let two_columns = spec(vec![("t", vec![("x", "int"), ("y", "int")])], vec![]);
+    let dropped = spec(
+        vec![("a", vec![("x", "int"), ("w", "int")]), ("q", vec![])],
+        vec![],
+    );
+    vec![
+        KanCase::new(
+            "a target column outside the image",
+            (
+                one_column(),
+                one_column(),
+                spec(vec![("a", vec![("x", "int"), ("y", "int")])], vec![]),
+            ),
+            &[("a", "a")],
+            &[("a", "x", "x")],
+            &[],
+        )
+        .without_pi(),
+        KanCase::new(
+            "two columns sent to one",
+            (
+                two_columns.clone(),
+                two_columns,
+                spec(vec![("t", vec![("z", "int")])], vec![]),
+            ),
+            &[("t", "t")],
+            &[("t", "x", "z"), ("t", "y", "z")],
+            &[],
+        ),
+        KanCase::new(
+            "a source table and column outside the kept part",
+            (
+                dropped,
+                one_column(),
+                spec(vec![("A", vec![("x", "int")])], vec![]),
+            ),
+            &[("a", "A")],
+            &[("a", "x", "x")],
+            &[],
+        ),
+    ]
+}
+
+/// What the adjunction checks read about one target graph `H`.
+struct TargetFacts {
+    graph: GInstance,
+    content: oracle::Content,
+    delta: GInstance,
+    delta_content: oracle::Content,
+    copies: BTreeMap<u32, (Name, u32)>,
+    naive_delta: oracle::Content,
+}
+
+fn copies_of(provenance: &panproto_inst::GraphDeltaProvenance) -> BTreeMap<u32, (Name, u32)> {
+    provenance
+        .table
+        .copies
+        .iter()
+        .map(|(copy, (table, row))| (copy.0, (table.clone(), row.0)))
+        .collect()
+}
+
+/// `g_delta` on `H`, checked against the Delta oracle: it lies in
+/// `Enc(S')`, it is isomorphic to the oracle's Delta, and each copy its
+/// provenance names holds exactly the oracle's cells and pairs for that copy.
+fn target_facts(case: &KanCase, functor: &MigrationFunctor, graph: GInstance) -> TargetFacts {
+    let (target_side, kept_side) = (case.target.side(), case.kept.side());
+    assert_eq!(oracle::classify(&graph, &target_side), Ok(()));
+    let content = oracle::Content::of_graph(&graph, &target_side);
+    let (delta, provenance) = g_delta_along_with_provenance(&graph, functor).unwrap();
+    assert_eq!(
+        oracle::classify(&delta, &kept_side),
+        Ok(()),
+        "{}: {delta:?}",
+        case.name
+    );
+    let delta_content = oracle::Content::of_graph(&delta, &kept_side);
+    let (naive_delta, naive_copies) = oracle::delta(&content, &case.map, &kept_side);
+    assert!(
+        oracle::isomorphic(&delta_content, &naive_delta),
+        "{}: {graph:?}",
+        case.name
+    );
+    let copies = copies_of(&provenance);
+    let naive_index: BTreeMap<(Name, u32), u32> = naive_copies
+        .iter()
+        .map(|(copy, key)| (key.clone(), *copy))
+        .collect();
+    assert_eq!(copies.len(), naive_copies.len());
+    let rename = |copy: &u32| naive_index[&copies[copy]];
+    for (copy, row) in &delta_content.rows {
+        assert_eq!(naive_delta.rows[&rename(copy)], *row, "{}", case.name);
+    }
+    let renamed: BTreeSet<(Edge, u32, u32)> = delta_content
+        .pairs
+        .iter()
+        .map(|(e, a, b)| (e.clone(), rename(a), rename(b)))
+        .collect();
+    assert_eq!(renamed, naive_delta.pairs, "{}", case.name);
+    TargetFacts {
+        graph,
+        content,
+        delta,
+        delta_content,
+        copies,
+        naive_delta,
+    }
+}
+
+fn normal(hom: &GraphKanHom, domain: &oracle::Content) -> oracle::Hom {
+    oracle::Hom::normalised(&hom.node_map, &hom.null_map, domain)
+}
+
+fn kan_identity(content: &oracle::Content) -> GraphKanHom {
+    to_kan(&oracle::Hom::identity(content), content)
+}
+
+/// The counit of Sigma -| Delta at `H` and both triangle identities through
+/// it: the counit is a homomorphism `Sigma Delta H -> H`, its transpose is
+/// the identity of `Delta H`, and `Delta(counit) . unit_(Delta H)` is that
+/// identity too.
+fn sigma_triangles_at_target(case: &KanCase, functor: &MigrationFunctor, facts: &TargetFacts) {
+    let (target_side, kept_side) = (case.target.side(), case.kept.side());
+    let sigma_delta = g_sigma_restricted(&facts.delta, functor).unwrap();
+    let sigma_delta_content = oracle::Content::of_graph(&sigma_delta, &target_side);
+    let counit = g_counit(&facts.graph, functor).unwrap();
+    let counit = normal(&counit, &sigma_delta_content);
+    assert!(
+        oracle::is_hom(&sigma_delta_content, &facts.content, &counit),
+        "{}",
+        case.name
+    );
+    let identity = oracle::Hom::identity(&facts.delta_content);
+    let transpose = g_transpose_left(
+        &to_kan(&counit, &facts.content),
+        &facts.delta,
+        &facts.graph,
+        functor,
+    )
+    .unwrap();
+    assert_eq!(
+        normal(&transpose, &facts.delta_content),
+        identity,
+        "{}",
+        case.name
+    );
+
+    let (delta_sigma_delta, provenance) =
+        g_delta_along_with_provenance(&sigma_delta, functor).unwrap();
+    let delta_sigma_delta_content = oracle::Content::of_graph(&delta_sigma_delta, &kept_side);
+    let unit = normal(
+        &g_unit(&facts.delta, functor).unwrap(),
+        &facts.delta_content,
+    );
+    assert!(oracle::is_hom(
+        &facts.delta_content,
+        &delta_sigma_delta_content,
+        &unit
+    ));
+    let delta_counit = oracle::delta_on_hom(&counit, &copies_of(&provenance), &facts.copies);
+    assert!(oracle::is_hom(
+        &delta_sigma_delta_content,
+        &facts.delta_content,
+        &delta_counit
+    ));
+    assert_eq!(
+        unit.then(&delta_counit, &facts.delta_content),
+        identity,
+        "{}",
+        case.name
+    );
+}
+
+/// The unit of Delta -| Pi at `H` and both triangle identities through it:
+/// the unit is a homomorphism `H -> Pi Delta H`, its transpose is the
+/// identity of `Delta H`, and `counit_(Delta H) . Delta(unit)` is that
+/// identity too.
+fn pi_triangles_at_target(case: &KanCase, functor: &MigrationFunctor, facts: &TargetFacts) {
+    let (target_side, kept_side) = (case.target.side(), case.kept.side());
+    let pi_delta = g_pi_restricted(&facts.delta, functor, FAMILY_PI_MAX).unwrap();
+    let pi_delta_content = oracle::Content::of_graph(&pi_delta, &target_side);
+    let unit = normal(
+        &g_pi_unit(&facts.graph, functor, FAMILY_PI_MAX).unwrap(),
+        &facts.content,
+    );
+    assert!(
+        oracle::is_hom(&facts.content, &pi_delta_content, &unit),
+        "{}",
+        case.name
+    );
+    let identity = oracle::Hom::identity(&facts.delta_content);
+    let transpose = g_pi_transpose_right(
+        &to_kan(&unit, &pi_delta_content),
+        &facts.graph,
+        &facts.delta,
+        functor,
+        FAMILY_PI_MAX,
+    )
+    .unwrap();
+    assert_eq!(
+        normal(&transpose, &facts.delta_content),
+        identity,
+        "{}",
+        case.name
+    );
+
+    let (delta_pi_delta, provenance) = g_delta_along_with_provenance(&pi_delta, functor).unwrap();
+    let delta_pi_delta_content = oracle::Content::of_graph(&delta_pi_delta, &kept_side);
+    let delta_unit = oracle::delta_on_hom(&unit, &facts.copies, &copies_of(&provenance));
+    assert!(oracle::is_hom(
+        &facts.delta_content,
+        &delta_pi_delta_content,
+        &delta_unit
+    ));
+    let counit = normal(
+        &g_pi_counit(&facts.delta, functor, FAMILY_PI_MAX).unwrap(),
+        &delta_pi_delta_content,
+    );
+    assert!(oracle::is_hom(
+        &delta_pi_delta_content,
+        &facts.delta_content,
+        &counit
+    ));
+    assert_eq!(
+        delta_unit.then(&counit, &facts.delta_content),
+        identity,
+        "{}",
+        case.name
+    );
+}
+
+/// Sigma -| Delta at a source graph `G` against every target: when Sigma
+/// succeeds, its unit is a homomorphism `G -> Delta Sigma G`, its transpose
+/// is the identity of `Sigma G` and the transpose of that identity is the
+/// unit; and for every `H` the oracle's `Hom(Sigma G, H)`, `Hom(G, Delta H)`
+/// and `Hom(G, Delta_oracle H)` have one size, the transpose sends the first
+/// injectively into the second and the inverse transpose undoes it. When
+/// Sigma refuses with a clash of constants, `Hom(G, Delta H)` is empty for
+/// every `H`. Returns whether Sigma clashed.
+fn sigma_at_source(
+    case: &KanCase,
+    functor: &MigrationFunctor,
+    graph: &GInstance,
+    targets: &[TargetFacts],
+) -> bool {
+    let (target_side, kept_side) = (case.target.side(), case.kept.side());
+    let content = oracle::Content::of_graph(graph, &kept_side);
+    let sigma = match g_sigma_restricted(graph, functor) {
+        Ok(sigma) => sigma,
+        Err(GraphKanError::Adjunction(AdjunctionError::SigmaConstantClash { .. })) => {
+            for target in targets {
+                assert!(
+                    oracle::homs(&content, &target.naive_delta).is_empty(),
+                    "{}",
+                    case.name
+                );
+                assert!(
+                    oracle::homs(&content, &target.delta_content).is_empty(),
+                    "{}",
+                    case.name
+                );
+            }
+            return true;
+        }
+        Err(other) => panic!("{}: {other}", case.name),
+    };
+    assert_eq!(
+        oracle::classify(&sigma, &target_side),
+        Ok(()),
+        "{}",
+        case.name
+    );
+    let sigma_content = oracle::Content::of_graph(&sigma, &target_side);
+    let delta_sigma = g_delta_along(&sigma, functor).unwrap();
+    let delta_sigma_content = oracle::Content::of_graph(&delta_sigma, &kept_side);
+    let unit = normal(&g_unit(graph, functor).unwrap(), &content);
+    assert!(
+        oracle::is_hom(&content, &delta_sigma_content, &unit),
+        "{}",
+        case.name
+    );
+    let back =
+        g_transpose_right(&to_kan(&unit, &delta_sigma_content), graph, &sigma, functor).unwrap();
+    assert_eq!(
+        normal(&back, &sigma_content),
+        oracle::Hom::identity(&sigma_content)
+    );
+    let forth = g_transpose_left(&kan_identity(&sigma_content), graph, &sigma, functor).unwrap();
+    assert_eq!(normal(&forth, &content), unit, "{}", case.name);
+
+    for target in targets {
+        let left = oracle::homs(&sigma_content, &target.content);
+        let right: BTreeSet<oracle::Hom> = oracle::homs(&content, &target.delta_content)
+            .into_iter()
+            .collect();
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "{}: {graph:?} / {:?}",
+            case.name,
+            target.graph
+        );
+        assert_eq!(
+            left.len(),
+            oracle::homs(&content, &target.naive_delta).len()
+        );
+        let mut images = BTreeSet::new();
+        for hom in &left {
+            let transpose =
+                g_transpose_left(&to_kan(hom, &target.content), graph, &target.graph, functor)
+                    .unwrap();
+            let image = normal(&transpose, &content);
+            assert!(
+                right.contains(&image),
+                "{}: {hom:?} -> {image:?}",
+                case.name
+            );
+            let back = g_transpose_right(&transpose, graph, &target.graph, functor).unwrap();
+            assert_eq!(normal(&back, &sigma_content), *hom, "{}", case.name);
+            images.insert(image);
+        }
+        assert_eq!(images.len(), left.len(), "{}", case.name);
+    }
+    false
+}
+
+/// Delta -| Pi at a source graph `G` against every target: Pi's counit is a
+/// homomorphism `Delta Pi G -> G`, its transpose is the identity of `Pi G`
+/// and the inverse transpose of that identity is the counit; and for every
+/// `H` the oracle's `Hom(Delta H, G)`, `Hom(Delta_oracle H, G)` and
+/// `Hom(H, Pi G)` have one size, the transpose sends the first injectively
+/// into the last and the inverse transpose undoes it. Without
+/// attribute-surjectivity Pi refuses with `AttributeOutsideImage`.
+fn pi_at_source(
+    case: &KanCase,
+    functor: &MigrationFunctor,
+    graph: &GInstance,
+    targets: &[TargetFacts],
+) {
+    let (target_side, kept_side) = (case.target.side(), case.kept.side());
+    let content = oracle::Content::of_graph(graph, &kept_side);
+    if !case.pi {
+        assert!(matches!(
+            g_pi_restricted(graph, functor, FAMILY_PI_MAX),
+            Err(GraphKanError::Adjunction(AdjunctionError::Pi(
+                RestrictError::AttributeOutsideImage { .. }
+            )))
+        ));
+        return;
+    }
+    let pi = g_pi_restricted(graph, functor, FAMILY_PI_MAX).unwrap();
+    assert_eq!(oracle::classify(&pi, &target_side), Ok(()), "{}", case.name);
+    let pi_content = oracle::Content::of_graph(&pi, &target_side);
+    let delta_pi = g_delta_along(&pi, functor).unwrap();
+    let delta_pi_content = oracle::Content::of_graph(&delta_pi, &kept_side);
+    let counit = normal(
+        &g_pi_counit(graph, functor, FAMILY_PI_MAX).unwrap(),
+        &delta_pi_content,
+    );
+    assert!(
+        oracle::is_hom(&delta_pi_content, &content, &counit),
+        "{}",
+        case.name
+    );
+    let forth = g_pi_transpose_left(
+        &to_kan(&counit, &content),
+        &pi,
+        graph,
+        functor,
+        FAMILY_PI_MAX,
+    )
+    .unwrap();
+    assert_eq!(
+        normal(&forth, &pi_content),
+        oracle::Hom::identity(&pi_content)
+    );
+    let back = g_pi_transpose_right(
+        &kan_identity(&pi_content),
+        &pi,
+        graph,
+        functor,
+        FAMILY_PI_MAX,
+    )
+    .unwrap();
+    assert_eq!(normal(&back, &delta_pi_content), counit, "{}", case.name);
+
+    for target in targets {
+        let left = oracle::homs(&target.delta_content, &content);
+        let right: BTreeSet<oracle::Hom> = oracle::homs(&target.content, &pi_content)
+            .into_iter()
+            .collect();
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "{}: {graph:?} / {:?}",
+            case.name,
+            target.graph
+        );
+        assert_eq!(
+            left.len(),
+            oracle::homs(&target.naive_delta, &content).len()
+        );
+        let mut images = BTreeSet::new();
+        for hom in &left {
+            let transpose = g_pi_transpose_left(
+                &to_kan(hom, &content),
+                &target.graph,
+                graph,
+                functor,
+                FAMILY_PI_MAX,
+            )
+            .unwrap();
+            let image = normal(&transpose, &target.content);
+            assert!(
+                right.contains(&image),
+                "{}: {hom:?} -> {image:?}",
+                case.name
+            );
+            let back =
+                g_pi_transpose_right(&transpose, &target.graph, graph, functor, FAMILY_PI_MAX)
+                    .unwrap();
+            assert_eq!(normal(&back, &target.delta_content), *hom, "{}", case.name);
+            images.insert(image);
+        }
+        assert_eq!(images.len(), left.len(), "{}", case.name);
+    }
+}
+
+/// Both adjunction transports, the units, counits and triangle identities,
+/// on every source graph of `Enc(S')` and every target graph of `Enc(T)`
+/// with at most four table nodes, for the family functor named `name`,
+/// against the brute-force oracle.
+fn adjunctions_hold_on_every_small_instance(name: &str) {
+    let case = kan_family()
+        .into_iter()
+        .find(|case| case.name == name)
+        .unwrap_or_else(|| panic!("no family functor {name}"));
+    let functor = case.functor();
+    let sources = case.graphs(&case.kept);
+    let targets: Vec<GInstance> = case.graphs(&case.target);
+    let cells = case.cells.len();
+    let forms = |_: &str, _: &str| cells;
+    assert_eq!(sources.len(), oracle::labelled_count(&case.kept, &forms, 4));
+    assert_eq!(
+        targets.len(),
+        oracle::labelled_count(&case.target, &forms, 4)
+    );
+    let facts: Vec<TargetFacts> = targets
+        .into_iter()
+        .map(|graph| target_facts(&case, &functor, graph))
+        .collect();
+    par(&facts, |target| {
+        sigma_triangles_at_target(&case, &functor, target);
+        if case.pi {
+            pi_triangles_at_target(&case, &functor, target);
+        }
+    });
+    let clashes = std::sync::atomic::AtomicUsize::new(0);
+    par(&sources, |graph| {
+        assert_eq!(oracle::classify(graph, &case.kept.side()), Ok(()));
+        if sigma_at_source(&case, &functor, graph, &facts) {
+            clashes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        pi_at_source(&case, &functor, graph, &facts);
+    });
+    assert_eq!(
+        clashes.into_inner() > 0,
+        case.name == "two columns sent to one",
+        "{}",
+        case.name
+    );
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_a_merge_with_a_shared_column() {
+    adjunctions_hold_on_every_small_instance("a merge with a shared column");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_a_merge_with_a_shared_column_over_a_null() {
+    adjunctions_hold_on_every_small_instance("a merge with a shared column over a null");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_a_merge_of_tables_carrying_two_relations_to_one() {
+    adjunctions_hold_on_every_small_instance("a merge of tables carrying two relations to one");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_two_parallel_relations_merged() {
+    adjunctions_hold_on_every_small_instance("two parallel relations merged");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_a_target_column_outside_the_image() {
+    adjunctions_hold_on_every_small_instance("a target column outside the image");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_two_columns_sent_to_one() {
+    adjunctions_hold_on_every_small_instance("two columns sent to one");
+}
+
+#[test]
+fn graph_kan_adjunctions_hold_for_a_source_table_and_column_outside_the_kept_part() {
+    adjunctions_hold_on_every_small_instance("a source table and column outside the kept part");
+}
+
+/// The prerequisite of `E D = id` in the transport: on every instance the
+/// adjunction oracles enumerate (the whole source `S`, its kept part `S'`
+/// and the target `T` of every family functor, at most four table nodes),
+/// every output of `f_sigma`, `f_sigma_restricted`, `f_delta`,
+/// `functor_pi_along` and `functor_pi_restricted` conforms to its side,
+/// with no nested labelled null, as the oracle reads conformance. The only
+/// refusals are a clash of constants in Sigma and `AttributeOutsideImage` in
+/// Pi, each exactly where the family expects it.
+#[test]
+fn every_table_kan_output_on_the_oracle_instances_conforms() {
+    use panproto_inst::{
+        f_delta, f_sigma, f_sigma_restricted, functor_pi_along, functor_pi_restricted,
+    };
+    for case in kan_family() {
+        let functor = case.functor();
+        let (target_side, kept_side) = (case.target.side(), case.kept.side());
+        let tables = |spec: &oracle::Spec| -> Vec<FInstance> {
+            let side = spec.side();
+            case.graphs(spec)
+                .iter()
+                .map(|graph| oracle::Content::of_graph(graph, &side).table())
+                .collect()
+        };
+        let sigma_ok = |result: Result<FInstance, AdjunctionError>| match result {
+            Ok(table) => assert_eq!(
+                oracle::conformance(&table, &target_side),
+                Ok(()),
+                "{}",
+                case.name
+            ),
+            Err(AdjunctionError::SigmaConstantClash { .. }) => {
+                assert_eq!(case.name, "two columns sent to one");
+            }
+            Err(other) => panic!("{}: {other}", case.name),
+        };
+        let pi_ok = |result: Result<FInstance, AdjunctionError>| match result {
+            Ok(table) => {
+                assert!(case.pi, "{}", case.name);
+                assert_eq!(
+                    oracle::conformance(&table, &target_side),
+                    Ok(()),
+                    "{}",
+                    case.name
+                );
+            }
+            Err(AdjunctionError::Pi(RestrictError::AttributeOutsideImage { .. })) => {
+                assert!(!case.pi);
+            }
+            Err(other) => panic!("{}: {other}", case.name),
+        };
+        let whole = tables(&case.source);
+        par(&whole, |instance| {
+            sigma_ok(f_sigma(instance, &functor));
+            pi_ok(functor_pi_along(instance, &functor, FAMILY_PI_MAX));
+        });
+        let kept = tables(&case.kept);
+        par(&kept, |instance| {
+            sigma_ok(f_sigma_restricted(instance, &functor).map(|(table, _)| table));
+            pi_ok(functor_pi_restricted(instance, &functor, FAMILY_PI_MAX).map(|(table, _)| table));
+        });
+        let targets = tables(&case.target);
+        par(&targets, |instance| {
+            let delta = f_delta(instance, &functor).unwrap();
+            assert_eq!(
+                oracle::conformance(&delta, &kept_side),
+                Ok(()),
+                "{}",
+                case.name
+            );
+        });
+    }
+}
+
+/// The number of mutation kinds [`mutate`] knows.
+const MUTATIONS: u8 = 18;
+
+/// The ids a mutation reads: the node and edge `pick` selects (modulo their
+/// counts), the node after that node, and a fresh node and edge id.
+struct Picks {
+    node: Option<u32>,
+    other: Option<u32>,
+    edge: Option<EdgeId>,
+    fresh_node: u32,
+    fresh_edge: EdgeId,
+}
+
+impl Picks {
+    fn of(graph: &GInstance, pick: usize) -> Self {
+        let mut nodes: Vec<u32> = graph.nodes().keys().copied().collect();
+        nodes.sort_unstable();
+        let mut edges: Vec<EdgeId> = graph.edges().keys().copied().collect();
+        edges.sort_unstable();
+        Self {
+            node: nodes.get(pick % nodes.len().max(1)).copied(),
+            other: nodes.get((pick + 1) % nodes.len().max(1)).copied(),
+            edge: edges.get(pick % edges.len().max(1)).copied(),
+            fresh_node: graph.max_node_id().map_or(0, |id| id + 1),
+            fresh_edge: EdgeId(graph.max_edge_id().map_or(0, |id| id.0 + 1)),
+        }
+    }
+}
+
+fn anchor_of(graph: &GInstance, id: u32) -> String {
+    graph
+        .node(id)
+        .map(|n| n.anchor.to_string())
+        .unwrap_or_default()
+}
+
+/// The mutations that add nodes or edges: a fan edge, a node outside the
+/// side, an edge outside the side, an edge with swapped endpoints, a
+/// duplicated edge, a second cell, an orphan value node and a second record
+/// field of one name.
+fn mutate_by_adding(out: &mut GInstance, graph: &GInstance, kind: u8, at: &Picks) {
+    let add = |out: &mut GInstance, src: u32, tgt: u32, label: Edge| {
+        out.insert_edge(at.fresh_edge, panproto_inst::GEdge::new(src, tgt, label))
+            .unwrap();
+    };
+    let leaf = |anchor: &str, value: Value| {
+        Node::new(at.fresh_node, anchor).with_value(FieldPresence::Present(value))
+    };
+    match (kind, at.node) {
+        (1, Some(n)) => {
+            out.insert_node(Node::new(at.fresh_node, "a")).unwrap();
+            let label = Edge {
+                src: anchor_of(graph, n).into(),
+                tgt: "a".into(),
+                kind: panproto_inst::HYPER_PARENT_KIND.into(),
+                name: None,
+            };
+            add(out, n, at.fresh_node, label);
+        }
+        (2, _) => out
+            .insert_node(Node::new(at.fresh_node, "outside"))
+            .unwrap(),
+        (3, Some(n)) => {
+            let m = at.other.unwrap_or(n);
+            add(
+                out,
+                n,
+                m,
+                edge(&anchor_of(graph, n), &anchor_of(graph, m), "nowhere"),
+            );
+        }
+        (4, Some(n)) => add(out, at.other.unwrap_or(n), n, edge("a", "b", "f")),
+        (5, _) => {
+            if let Some(e) = at.edge {
+                out.insert_edge(at.fresh_edge, graph.edge(e).unwrap().clone())
+                    .unwrap();
+            }
+        }
+        (8, Some(n)) if anchor_of(graph, n) == "a" => {
+            out.insert_node(leaf("a.x", Value::Int(5))).unwrap();
+            add(out, n, at.fresh_node, edge("a", "a.x", "x"));
+        }
+        (10, _) => out.insert_node(leaf("a.x", Value::Int(5))).unwrap(),
+        (17, Some(n)) if anchor_of(graph, n) == "a.x" => {
+            out.insert_node(leaf("a.x.k", Value::Str("t".into())))
+                .unwrap();
+            add(out, n, at.fresh_node, edge("a.x", "a.x.k", "k"));
+        }
+        _ => {}
+    }
+}
+
+/// The mutations that change what is there: a fan shape, a removed edge
+/// (with or without an extra field of its name), an edge moved onto another
+/// edge's value node of the same label, a cleared, absent or inner
+/// value, a toggled position, and a nested or top-level labelled null.
+fn mutate_in_place(out: &mut GInstance, graph: &GInstance, kind: u8, at: &Picks) {
+    let set_value = |out: &mut GInstance, n: u32, value: Option<FieldPresence>| {
+        out.node_mut(n).unwrap().value = value;
+    };
+    match (kind, at.node, at.edge) {
+        (0, Some(n), _) => out.node_mut(n).unwrap().shape = NodeShape::HyperEdge,
+        (6, _, Some(e)) => {
+            out.remove_edge(e).unwrap();
+        }
+        (7, _, Some(e)) => {
+            let removed = out.remove_edge(e).unwrap();
+            let name = removed.edge.name.map(|n| n.to_string()).unwrap_or_default();
+            out.node_mut(removed.src)
+                .unwrap()
+                .extra_fields
+                .insert(name, Value::Int(9));
+        }
+        (9, _, Some(e)) => {
+            let moved = graph.edge(e).unwrap();
+            let shared = graph
+                .edges_sorted()
+                .find(|(_, other)| other.edge == moved.edge && other.tgt != moved.tgt)
+                .map(|(_, other)| other.tgt);
+            if let Some(target) = shared {
+                out.set_endpoints(e, moved.src, target).unwrap();
+            }
+        }
+        (11, Some(n), _) => set_value(out, n, None),
+        (12, Some(n), _) => set_value(out, n, Some(FieldPresence::Absent)),
+        (13, Some(n), _) => set_value(out, n, Some(FieldPresence::Present(Value::Int(0)))),
+        (14, _, Some(e)) => {
+            let toggled = if graph.edge(e).unwrap().position.is_some() {
+                None
+            } else {
+                Some(7)
+            };
+            out.set_edge_position(e, toggled).unwrap();
+        }
+        (15, Some(n), _) => {
+            let nested = Value::List(vec![Value::LabeledNull(3)]);
+            set_value(out, n, Some(FieldPresence::Present(nested)));
+        }
+        (16, Some(n), _) => set_value(out, n, Some(FieldPresence::Present(Value::LabeledNull(3)))),
+        _ => {}
+    }
+}
+
+/// `graph` changed by mutation `kind` at the node or edge `pick` selects.
+/// Most kinds move the graph out of `Enc(X)`; some keep it inside (a list
+/// position toggled on a one-child record, a null at the top level of a
+/// cell), and the tests compare the code with the oracle either way.
+fn mutate(graph: &GInstance, kind: u8, pick: usize) -> GInstance {
+    let at = Picks::of(graph, pick);
+    let mut out = graph.clone();
+    mutate_by_adding(&mut out, graph, kind, &at);
+    mutate_in_place(&mut out, graph, kind, &at);
+    out
+}
+
+/// The code's answer for `graph` on the encoding family, as the oracle
+/// states it: `Ok` with the oracle's table, or the oracle's first reason.
+fn assert_encoding_matches_the_oracle(graph: &GInstance) -> Result<(), NotEncodableReason> {
+    let spec = encoding_spec();
+    let side = spec.side();
+    let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
+    let expected = oracle::classify(graph, &side);
+    match (encode_graph(graph, EncodingSide::Whole(&rel)), &expected) {
+        (Ok((tables, layout)), Ok(())) => {
+            assert_eq!(
+                tables,
+                oracle::Content::of_graph(graph, &side).table(),
+                "{graph:?}"
+            );
+            let decoded = decode_graph(&tables, EncodingSide::Whole(&rel), &layout).unwrap();
+            assert!(GInstance::identical(graph, &decoded), "{graph:?}");
+        }
+        (Err(GraphKanError::NotEncodable { reason }), Err(want)) => {
+            assert_eq!(&reason, want, "{graph:?}");
+        }
+        (got, want) => panic!("encode_graph gave {got:?}, the oracle {want:?}, on {graph:?}"),
+    }
+    expected
+}
+
+const fn reason_name(reason: &NotEncodableReason) -> &'static str {
+    match reason {
+        NotEncodableReason::FanNode { .. } => "FanNode",
+        NotEncodableReason::AnchorOutsideSide { .. } => "AnchorOutsideSide",
+        NotEncodableReason::EdgeOutsideSide { .. } => "EdgeOutsideSide",
+        NotEncodableReason::IncoherentEndpoints { .. } => "IncoherentEndpoints",
+        NotEncodableReason::ParallelEdges { .. } => "ParallelEdges",
+        NotEncodableReason::MissingCell { .. } => "MissingCell",
+        NotEncodableReason::CellAsExtraField { .. } => "CellAsExtraField",
+        NotEncodableReason::RepeatedCell { .. } => "RepeatedCell",
+        NotEncodableReason::SharedValue { .. } => "SharedValue",
+        NotEncodableReason::UnrootedValue { .. } => "UnrootedValue",
+        NotEncodableReason::MissingValue { .. } => "MissingValue",
+        NotEncodableReason::InnerValueShape { .. } => "InnerValueShape",
+        NotEncodableReason::NestedLabeledNull { .. } => "NestedLabeledNull",
+        _ => "an unlisted reason",
+    }
+}
+
+/// The refusal half of the encoding domain, exhaustively: every single
+/// mutation of every graph of the encoding family with at most two table
+/// nodes, at each of its first eight picks, is accepted or refused by
+/// `encode_graph` exactly as the oracle's five passes decide, with the
+/// oracle's first reason; and the mutations reach every `NotEncodableReason`.
+#[test]
+fn every_not_encodable_reason_is_reached_and_matches_the_oracle() {
+    let reached = std::sync::Mutex::new(BTreeSet::new());
+    let accepted = std::sync::atomic::AtomicUsize::new(0);
+    par(&encoding_graphs(2), |graph| {
+        for kind in 0..MUTATIONS {
+            for pick in 0..8 {
+                match assert_encoding_matches_the_oracle(&mutate(graph, kind, pick)) {
+                    Ok(()) => {
+                        accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Err(reason) => {
+                        reached.lock().unwrap().insert(reason_name(&reason));
+                    }
+                }
+            }
+        }
+    });
+    let every: BTreeSet<&str> = [
+        "FanNode",
+        "AnchorOutsideSide",
+        "EdgeOutsideSide",
+        "IncoherentEndpoints",
+        "ParallelEdges",
+        "MissingCell",
+        "CellAsExtraField",
+        "RepeatedCell",
+        "SharedValue",
+        "UnrootedValue",
+        "MissingValue",
+        "InnerValueShape",
+        "NestedLabeledNull",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(reached.into_inner().unwrap(), every);
+    assert!(accepted.into_inner() > 0);
+}
+
+/// A hand-computed Pi fibre product: along the merge of `a{x}` and `b{x}`
+/// into `t{x}`, Pi of `a#0{x=0}, a#1{x=1}, b#2{x=0}, b#3{x=0}` holds one
+/// `t` row per pair `(a row, b row)` that agrees on `x`, that is `(0, 2)` and
+/// `(0, 3)`, each with `x = 0`, and its provenance names both rows of each
+/// pair.
+#[test]
+fn graph_pi_keeps_the_agreeing_pairs_of_a_merge() {
+    let case = kan_family()
+        .into_iter()
+        .find(|case| case.name == "a merge with a shared column")
+        .unwrap();
+    let functor = case.functor();
+    let x = |table: &str| oracle::Spec::column_edge(table, "x");
+    let leaf = |id: u32, anchor: &str, value: i64| {
+        Node::new(id, anchor).with_value(FieldPresence::Present(Value::Int(value)))
+    };
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "a"))
+        .with_node(Node::new(2, "b"))
+        .with_node(Node::new(3, "b"))
+        .with_node(leaf(4, "a.x", 0))
+        .with_node(leaf(5, "a.x", 1))
+        .with_node(leaf(6, "b.x", 0))
+        .with_node(leaf(7, "b.x", 0))
+        .with_edge_id(EdgeId(0), 0, 4, x("a"))
+        .with_edge_id(EdgeId(1), 1, 5, x("a"))
+        .with_edge_id(EdgeId(2), 2, 6, x("b"))
+        .with_edge_id(EdgeId(3), 3, 7, x("b"));
+    let (pi, provenance) = g_pi_along_with_provenance(&graph, &functor, FAMILY_PI_MAX).unwrap();
+    let tuples: BTreeSet<Vec<RowId>> = provenance
+        .table
+        .tuples
+        .values()
+        .map(|(_, tuple)| tuple.clone())
+        .collect();
+    assert_eq!(
+        tuples,
+        BTreeSet::from([vec![RowId(0), RowId(2)], vec![RowId(0), RowId(3)]])
+    );
+    let content = oracle::Content::of_graph(&pi, &case.target.side());
+    assert_eq!(content.rows.len(), 2);
+    for (row, (table, cells)) in &content.rows {
+        assert_eq!(table, "t");
+        assert_eq!(cells["x"], Value::Int(0));
+        let (_, tuple) = &provenance.table.tuples[&RowId(*row)];
+        let sources: BTreeSet<u32> = tuple.iter().map(|row| row.0).collect();
+        assert_eq!(provenance.nodes[row], sources);
     }
 }

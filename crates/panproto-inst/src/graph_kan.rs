@@ -6,6 +6,22 @@
 //! shape, and decorations. Graph Sigma, Delta, and Pi run the corresponding
 //! table Kan extension and then decode its result with a deterministically
 //! transported layout.
+//!
+//! The encoding is fully faithful over [`GraphKanHom`] and surjective on
+//! objects onto the conforming table instances, so it is an equivalence of
+//! categories (Leinster 2014, Prop 1.3.18, stated), and not an isomorphism:
+//! graphs that differ only in their layout encode to one table. For a fixed
+//! layout, decoding is a quasi-inverse (Leinster 2014, Ex 1.3.32(b), stated),
+//! and the adjunctions `Sigma -| Delta -| Pi` of the table functors transfer
+//! along the equivalence to the graph functors (Leinster 2014, Rem 2.1.11,
+//! stated). Since graphs that differ only in layout are isomorphic, the layout
+//! a graph Kan function selects is a choice of representative.
+//!
+//! A relation is a set of pairs, so graph Sigma identifies two relation edges
+//! that the table Sigma carries to one pair. This is relationalization
+//! (Spivak and Wisnesky 2015, Def 9.1.6 and Prop 8.3.3, proven) restricted to
+//! relation pairs: rows are never identified. That this image is a reflection
+//! onto the relational instances is inferred.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
