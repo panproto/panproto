@@ -10,7 +10,7 @@
 //! supplied source; it is not a proof over all sources or all edits.
 
 use panproto_inst::resolution_complement::{AnyInstance, ResolutionComplement};
-use panproto_inst::{GInstance, SynthIndex};
+use panproto_inst::{GInstance, SynthIndex, ViewRef};
 use panproto_lens::{FamilyReport, Mutation, SkipReason};
 use serde::{Deserialize, Serialize};
 
@@ -425,9 +425,20 @@ fn congruence(
                     detail: "the renamed complement differs after renaming back".to_owned(),
                 });
             }
-            let left = resolution.check_put_domain(state, complement, ctx).is_ok();
-            let right = resolution.check_put_domain(&witness, &renamed, ctx).is_ok();
-            if left != right {
+            let verdict = resolution.check_put_domain(state, complement, ctx);
+            let left = verdict.is_ok();
+            let mut expected: Vec<ResolveDomainError> = verdict
+                .err()
+                .unwrap_or_default()
+                .iter()
+                .map(|violation| renamed_violation(&renaming, violation))
+                .collect();
+            super::sort_domain_errors(&mut expected);
+            let found = resolution
+                .check_put_domain(&witness, &renamed, ctx)
+                .err()
+                .unwrap_or_default();
+            if expected != found {
                 return Err(ResolutionLawViolation::Congruence {
                     detail: "renamed states have different put-domain verdicts".to_owned(),
                 });
@@ -448,6 +459,61 @@ fn congruence(
         }
     }
     Ok(())
+}
+
+/// A put-domain violation with its carrier renamed.
+fn renamed_violation(renaming: &Renaming, violation: &ResolveDomainError) -> ResolveDomainError {
+    let at = |at: &Option<ViewRef>| at.as_ref().map(|carrier| renaming.view_ref(carrier));
+    match violation {
+        ResolveDomainError::NoPlacement { carrier } => ResolveDomainError::NoPlacement {
+            carrier: renaming.view_ref(carrier),
+        },
+        ResolveDomainError::AmbiguousPlacement {
+            carrier,
+            references,
+        } => ResolveDomainError::AmbiguousPlacement {
+            carrier: renaming.view_ref(carrier),
+            references: references.clone(),
+        },
+        ResolveDomainError::UnrepresentableReference { carrier, reference } => {
+            ResolveDomainError::UnrepresentableReference {
+                carrier: renaming.view_ref(carrier),
+                reference: reference.clone(),
+            }
+        }
+        ResolveDomainError::OffsetOutOfRange { carrier, reference } => {
+            ResolveDomainError::OffsetOutOfRange {
+                carrier: renaming.view_ref(carrier),
+                reference: reference.clone(),
+            }
+        }
+        ResolveDomainError::OffsetUnitViolation {
+            carrier,
+            reference,
+            reason,
+        } => ResolveDomainError::OffsetUnitViolation {
+            carrier: renaming.view_ref(carrier),
+            reference: reference.clone(),
+            reason: *reason,
+        },
+        ResolveDomainError::SynthesizedEdited { carrier } => {
+            ResolveDomainError::SynthesizedEdited {
+                carrier: renaming.view_ref(carrier),
+            }
+        }
+        ResolveDomainError::ContextMismatch { at: carrier } => {
+            ResolveDomainError::ContextMismatch { at: at(carrier) }
+        }
+        ResolveDomainError::Assembly {
+            at: carrier,
+            production,
+            reason,
+        } => ResolveDomainError::Assembly {
+            at: at(carrier),
+            production: production.clone(),
+            reason: *reason,
+        },
+    }
 }
 
 /// Whether two complements agree in every field put reads: everything but
