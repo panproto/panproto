@@ -1,24 +1,70 @@
 //! The serialized forms of the [`Value`](super::Value) payloads whose form
 //! depends on the format: floats and byte strings.
 
-/// A float: a number, or in a human-readable format the string `"NaN"`,
-/// `"Infinity"` or `"-Infinity"` for a non-finite one.
+/// A float: a number, or in a human-readable format a string for a
+/// non-finite one.
+///
+/// The strings are `"Infinity"` and `"-Infinity"` for the infinities,
+/// `"NaN"` for [`CANONICAL_NAN`](panproto_expr::exact::CANONICAL_NAN),
+/// `"-NaN"` for
+/// [`NEGATIVE_CANONICAL_NAN`](panproto_expr::exact::NEGATIVE_CANONICAL_NAN),
+/// and, for every other NaN, `"NaN:0x"` followed by the 16 lowercase
+/// hexadecimal digits of its bits, so a NaN keeps its sign and payload. Each
+/// NaN has exactly one spelling: a `"NaN:0x"` string that is not 16
+/// lowercase hexadecimal digits, whose bits are not a NaN, or whose bits
+/// are those of one of the two named NaNs is refused. Compact formats
+/// write the native float.
 pub mod float {
+    use panproto_expr::exact::{CANONICAL_NAN, NEGATIVE_CANONICAL_NAN};
     use serde::de::{self, Visitor};
     use serde::{Deserializer, Serializer};
 
-    /// The spelling of a non-finite float in a human-readable format.
-    const fn spelling(f: f64) -> Option<&'static str> {
+    /// The prefix of the spelling of a NaN other than the two named ones.
+    const PAYLOAD_PREFIX: &str = "NaN:0x";
+
+    /// The spelling of a non-finite float in a human-readable format, or
+    /// `None` for a finite one.
+    fn spelling(f: f64) -> Option<String> {
         if f.is_nan() {
-            Some("NaN")
-        } else if f.is_infinite() {
-            if f.is_sign_positive() {
-                Some("Infinity")
+            let bits = f.to_bits();
+            Some(if bits == CANONICAL_NAN.to_bits() {
+                "NaN".to_owned()
+            } else if bits == NEGATIVE_CANONICAL_NAN.to_bits() {
+                "-NaN".to_owned()
             } else {
-                Some("-Infinity")
-            }
+                format!("{PAYLOAD_PREFIX}{bits:016x}")
+            })
+        } else if f.is_infinite() {
+            Some(if f.is_sign_positive() {
+                "Infinity".to_owned()
+            } else {
+                "-Infinity".to_owned()
+            })
         } else {
             None
+        }
+    }
+
+    /// The non-finite float `text` spells, or `None` when it spells none:
+    /// the inverse of [`spelling`] on non-finite floats, bit for bit.
+    fn from_spelling(text: &str) -> Option<f64> {
+        match text {
+            "NaN" => Some(CANONICAL_NAN),
+            "-NaN" => Some(NEGATIVE_CANONICAL_NAN),
+            "Infinity" => Some(f64::INFINITY),
+            "-Infinity" => Some(f64::NEG_INFINITY),
+            _ => {
+                let hex = text.strip_prefix(PAYLOAD_PREFIX)?;
+                let lowercase_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+                if hex.len() != 16 || !hex.bytes().all(lowercase_hex) {
+                    return None;
+                }
+                let bits = u64::from_str_radix(hex, 16).ok()?;
+                let f = f64::from_bits(bits);
+                let named =
+                    bits == CANONICAL_NAN.to_bits() || bits == NEGATIVE_CANONICAL_NAN.to_bits();
+                (f.is_nan() && !named).then_some(f)
+            }
         }
     }
 
@@ -34,7 +80,7 @@ pub mod float {
     ) -> Result<S::Ok, S::Error> {
         let f: f64 = (*f).into();
         match spelling(f) {
-            Some(text) if serializer.is_human_readable() => serializer.serialize_str(text),
+            Some(text) if serializer.is_human_readable() => serializer.serialize_str(&text),
             _ => serializer.serialize_f64(f),
         }
     }
@@ -58,7 +104,9 @@ pub mod float {
         type Value = f64;
 
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("a number or one of \"NaN\", \"Infinity\", \"-Infinity\"")
+            f.write_str(
+                "a number or one of \"NaN\", \"-NaN\", \"Infinity\", \"-Infinity\" or \"NaN:0x\" with 16 lowercase hexadecimal digits",
+            )
         }
 
         fn visit_f64<E: de::Error>(self, v: f64) -> Result<f64, E> {
@@ -80,12 +128,7 @@ pub mod float {
         }
 
         fn visit_str<E: de::Error>(self, v: &str) -> Result<f64, E> {
-            match v {
-                "NaN" => Ok(panproto_expr::exact::CANONICAL_NAN),
-                "Infinity" => Ok(f64::INFINITY),
-                "-Infinity" => Ok(f64::NEG_INFINITY),
-                _ => Err(E::invalid_value(de::Unexpected::Str(v), &self)),
-            }
+            from_spelling(v).ok_or_else(|| E::invalid_value(de::Unexpected::Str(v), &self))
         }
     }
 }

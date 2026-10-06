@@ -25,13 +25,18 @@ pub const fn canonical_float(x: f64) -> f64 {
     if x.is_nan() { CANONICAL_NAN } else { x }
 }
 
-/// Safely convert a float to i64, returning an error for NaN, infinity, or out-of-range values.
+/// 2^63, the least float above `i64::MAX`; -2^63 is `i64::MIN` exactly.
+const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+
+/// Convert a float to i64 by truncation toward zero, returning an error for
+/// NaN, infinity, or a value whose truncation lies outside `i64`.
+///
+/// The range is [-2^63, 2^63), compared exactly: both bounds are binary64
+/// values, so a float is in range iff it is at least -2^63 and below 2^63,
+/// and its truncation then lies in `i64` and `as` is exact on it. 2^63
+/// itself is refused rather than saturated to `i64::MAX`.
 fn float_to_i64(f: f64) -> Result<Literal, ExprError> {
-    if !f.is_finite() {
-        return Err(ExprError::FloatNotRepresentable(format!("{f}")));
-    }
-    #[allow(clippy::cast_precision_loss)]
-    if f < i64::MIN as f64 || f > i64::MAX as f64 {
+    if !(-TWO_POW_63..TWO_POW_63).contains(&f) {
         return Err(ExprError::FloatNotRepresentable(format!("{f}")));
     }
     #[allow(clippy::cast_possible_truncation)]
