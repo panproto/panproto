@@ -4188,9 +4188,7 @@ fn same_shape_default_does_not_hide_a_registered_resolution_route() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register_graph(GraphJson("posts"));
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("a dedicated tree route beside the native graph codec");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     let bytes = serde_json::to_vec(&posts_tree()).expect("serializes");
     let (view, complement) = registry
         .parse_semantic_with_complement(
@@ -4218,9 +4216,7 @@ fn native_and_resolved_routes_coexist() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register_graph(GraphJson("posts"));
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("registered");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     let native = GInstance::new().with_node(Node::new(4, "user"));
     let graph_bytes = serde_json::to_vec(&native).expect("serializes");
     let parsed = registry
@@ -4241,9 +4237,7 @@ fn native_repr_ignores_a_dedicated_resolution_codec() {
     let (provider, _) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register_graph(GraphJson("posts"));
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("registered");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     assert_eq!(
         registry.native_repr("posts").expect("registered"),
         panproto_io::NativeRepr::Graph
@@ -4316,16 +4310,19 @@ impl panproto_io::registry::ProtocolCodec for TableStub {}
 fn resolved_route_checks_its_codec_source_shape() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
+    let () = registry.register_resolution_route(TableStub("posts"), provider.clone());
     assert!(matches!(
-        registry.register_resolution_route(TableStub("posts"), provider.clone()),
+        registry.supports_semantic_for("posts", &schema),
         Err(ResolveError::UnsupportedKind {
             syntactic: InstanceShapeKind::Table,
             semantic: InstanceShapeKind::Graph
         })
     ));
+    assert!(!registry.supports_graph("posts"), "a malformed route is not advertised");
+    let () = registry.register_resolution_provider(provider.clone());
     assert!(
         matches!(
-            registry.register_resolution_provider(provider.clone()),
+            registry.supports_semantic_for("posts", &schema),
             Err(ResolveError::UnsupportedKind {
                 syntactic: InstanceShapeKind::Graph,
                 semantic: InstanceShapeKind::Graph
@@ -4333,14 +4330,14 @@ fn resolved_route_checks_its_codec_source_shape() {
         ),
         "a default route reads the protocol's syntactic shape"
     );
+    registry.register_resolution_route(TreeJson("other"), provider);
     assert!(matches!(
-        registry.register_resolution_route(TreeJson("other"), provider),
+        registry.supports_semantic_for("posts", &schema),
         Err(ResolveError::ProviderFailure { code, .. }) if code == "route_name"
     ));
+    assert!(!registry.supports_graph("posts"), "a misnamed route is not advertised");
     let (tree_default, _) = posts_provider((InstanceShapeKind::Tree, InstanceShapeKind::Graph));
-    registry
-        .register_resolution_provider(tree_default)
-        .expect("a default tree route");
+    registry.register_resolution_provider(tree_default);
     assert!(
         matches!(
             registry.supports_semantic_for("posts", &schema),
@@ -4353,15 +4350,60 @@ fn resolved_route_checks_its_codec_source_shape() {
         registry.supports_semantic_for("posts", &schema),
         Ok(true)
     ));
+    assert!(registry.supports_graph("posts"));
+}
+
+#[test]
+fn a_route_is_keyed_by_its_provider_protocol_and_checked_when_compiled() {
+    let (provider, schema) = posts_provider((InstanceShapeKind::Tree, InstanceShapeKind::Graph));
+    let misnamed = Arc::new(Provider {
+        id: provider_id("other"),
+        protocol: provider.protocol.clone(),
+        kind: provider.kind,
+        spec: provider.spec.clone(),
+        paths: BTreeMap::new(),
+        context: None,
+    });
+    let mut registry = panproto_io::ProtocolRegistry::new();
+    registry.register(TreeJson("posts"));
+    registry.register_resolution_provider(misnamed);
+    assert!(matches!(
+        registry.supports_semantic_for("posts", &schema),
+        Err(ResolveError::ProviderFailure { code, .. }) if code == "route_name"
+    ));
+    assert!(matches!(
+        registry.supports_semantic_for("other", &schema),
+        Ok(false)
+    ), "the route is keyed by the provider's protocol, not its id");
+    let wrong_target = Arc::new(Provider {
+        id: provider_id("posts"),
+        protocol: provider.protocol.clone(),
+        kind: ResolutionKind::TreeToTable,
+        spec: provider.spec.clone(),
+        paths: BTreeMap::new(),
+        context: None,
+    });
+    registry.register_resolution_provider(wrong_target);
+    assert!(matches!(
+        registry.supports_semantic_for("posts", &schema),
+        Err(ResolveError::UnsupportedKind {
+            syntactic: InstanceShapeKind::Tree,
+            semantic: InstanceShapeKind::Graph
+        })
+    ));
+    assert!(!registry.supports_table("posts"));
+    registry.register_resolution_provider(provider);
+    assert!(matches!(
+        registry.supports_semantic_for("posts", &schema),
+        Ok(true)
+    ));
 }
 
 #[test]
 fn supports_semantic_for_rejects_an_invalid_dedicated_route() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("registered");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     let foreign = SchemaBuilder::new(&protocol(
         "posts",
         InstanceShapeKind::Tree,
@@ -4469,9 +4511,7 @@ fn a_supplied_resolution_complement_forces_the_resolved_route() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register_graph(GraphJson("posts"));
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("registered");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     let tree_bytes = serde_json::to_vec(&posts_tree()).expect("serializes");
     let (view, complement) = registry
         .parse_semantic_with_complement(
@@ -4496,9 +4536,7 @@ fn complement_free_semantic_io_prefers_the_native_semantic_codec() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register_graph(GraphJson("posts"));
-    registry
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("registered");
+    registry.register_resolution_route(TreeJson("posts"), provider);
     let native = GInstance::new().with_node(Node::new(4, "user"));
     let graph_bytes = serde_json::to_vec(&native).expect("serializes");
     let parsed = registry
@@ -4522,9 +4560,7 @@ fn without_a_native_codec_semantic_io_uses_the_route_and_canonical_put() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Tree, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register(TreeJson("posts"));
-    registry
-        .register_resolution_provider(provider)
-        .expect("a default route");
+    registry.register_resolution_provider(provider);
     let canonical = serde_json::to_vec(&canonical_posts_tree()).expect("serializes");
     let view = registry
         .parse_semantic(
@@ -4584,9 +4620,7 @@ fn table_to_tree_is_reachable_through_the_semantic_entry_points() {
         b'\t',
         Some(b'#'),
     ));
-    registry
-        .register_resolution_provider(Arc::new(provider))
-        .expect("a default table route");
+    registry.register_resolution_provider(Arc::new(provider));
     assert!(registry.supports_tree("entries"));
     let input = b"# names\r\nalpha\r\nbeta";
     let (view, state) = registry
@@ -4978,9 +5012,7 @@ fn from_wtype_stays_structural_and_resolves_nothing() {
     let (provider, schema) = posts_provider((InstanceShapeKind::Tree, InstanceShapeKind::Graph));
     let mut registry = panproto_io::ProtocolRegistry::new();
     registry.register(TreeJson("posts"));
-    registry
-        .register_resolution_provider(provider)
-        .expect("a default route");
+    registry.register_resolution_provider(provider);
     let resolved = registry
         .parse_graph(
             "posts",
@@ -5395,9 +5427,7 @@ fn a_registry_with_only_a_route_or_a_graph_codec_is_not_empty() {
 
     let (provider, _) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
     let mut routed = panproto_io::ProtocolRegistry::new();
-    routed
-        .register_resolution_route(TreeJson("posts"), provider)
-        .expect("a dedicated tree route");
+    routed.register_resolution_route(TreeJson("posts"), provider);
     assert!(!routed.is_empty());
     assert_eq!(routed.len(), 1);
 

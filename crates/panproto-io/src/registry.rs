@@ -451,35 +451,22 @@ impl ProtocolRegistry {
     /// its source with the protocol's default codec of the kind's source
     /// shape.
     ///
-    /// A route for the same protocol is replaced.
-    ///
-    /// # Errors
-    ///
-    /// [`ResolveError::ProviderFailure`] with code `route_name` when the
-    /// provider's id does not name its protocol's canonical name, and
-    /// [`ResolveError::UnsupportedKind`] when the kind's target shape is not
-    /// the protocol's semantic shape or its source shape is not the
-    /// protocol's syntactic shape.
-    pub fn register_resolution_provider(
-        &mut self,
-        provider: Arc<dyn ResolutionProvider>,
-    ) -> Result<(), ResolveError> {
-        let key = route_key(provider.as_ref(), None)?;
-        let kind = provider.kind();
-        if kind.syntactic_shape() != provider.protocol().syntactic_shape {
-            return Err(ResolveError::UnsupportedKind {
-                syntactic: provider.protocol().syntactic_shape,
-                semantic: kind.semantic_shape(),
-            });
-        }
+    /// The route is keyed by the canonical name of `provider.protocol()`,
+    /// and a route for the same protocol is replaced. Registration records
+    /// the route and checks nothing: the route is usable only once
+    /// [`supports_semantic_for`](Self::supports_semantic_for) compiles it,
+    /// which refuses a provider whose id does not name that protocol, a
+    /// kind whose target shape is not the protocol's semantic shape, a
+    /// kind whose source shape is not the protocol's syntactic shape, and a
+    /// protocol with no default codec of that source shape.
+    pub fn register_resolution_provider(&mut self, provider: Arc<dyn ResolutionProvider>) {
         self.routes.insert(
-            key,
+            registry_key(&provider.protocol().name),
             RegisteredResolutionRoute {
                 source: ResolutionSourceCodec::Default,
                 provider,
             },
         );
-        Ok(())
     }
 
     /// Register `provider` as the resolution route of its protocol, reading
@@ -487,41 +474,27 @@ impl ProtocolRegistry {
     ///
     /// The codec serves only this route: it is not the protocol's default
     /// codec, so [`native_repr`](Self::native_repr) and the plain parse and
-    /// emit methods do not see it. A route for the same protocol is
-    /// replaced.
-    ///
-    /// # Errors
-    ///
-    /// [`ResolveError::ProviderFailure`] with code `route_name` when the
-    /// codec's protocol name or the provider's id does not name the
-    /// provider's protocol, and [`ResolveError::UnsupportedKind`] when the
-    /// codec's native shape is not the kind's source shape or the kind's
-    /// target shape is not the protocol's semantic shape.
+    /// emit methods do not see it. The route is keyed by the canonical name
+    /// of `provider.protocol()`, and a route for the same protocol is
+    /// replaced. Registration records the route and checks nothing: the
+    /// route is usable only once
+    /// [`supports_semantic_for`](Self::supports_semantic_for) compiles it,
+    /// which refuses a codec or a provider id that does not name the
+    /// provider's protocol, a codec whose native shape is not the kind's
+    /// source shape, and a kind whose target shape is not the protocol's
+    /// semantic shape.
     pub fn register_resolution_route<C: ProtocolCodec + 'static>(
         &mut self,
         source: C,
         provider: Arc<dyn ResolutionProvider>,
-    ) -> Result<(), ResolveError> {
-        let key = route_key(
-            provider.as_ref(),
-            Some(InstanceParser::protocol_name(&source)),
-        )?;
-        let shape = InstanceShapeKind::from(source.native_repr());
-        let kind = provider.kind();
-        if shape != kind.syntactic_shape() {
-            return Err(ResolveError::UnsupportedKind {
-                syntactic: shape,
-                semantic: kind.semantic_shape(),
-            });
-        }
+    ) {
         self.routes.insert(
-            key,
+            registry_key(&provider.protocol().name),
             RegisteredResolutionRoute {
                 source: ResolutionSourceCodec::Dedicated(Box::new(source)),
                 provider,
             },
         );
-        Ok(())
     }
 
     /// Look up the native representation for a protocol.
@@ -594,8 +567,13 @@ impl ProtocolRegistry {
     ///
     /// # Errors
     ///
-    /// [`ResolveError::UnsupportedKind`] when the route's source codec does
-    /// not read the kind's source shape, and every compilation error of
+    /// [`ResolveError::ProviderFailure`] with code `route_name` when a name
+    /// the route carries (the provider's id, its protocol, a dedicated
+    /// codec's protocol) is not the protocol's canonical name;
+    /// [`ResolveError::UnsupportedKind`] when the kind's target shape is not
+    /// the protocol's semantic shape, a default route's kind does not read
+    /// the protocol's syntactic shape, or the route's source codec does not
+    /// read the kind's source shape; and every compilation error of
     /// [`Resolution::for_protocol`].
     pub fn supports_semantic_for(
         &self,
@@ -1038,17 +1016,22 @@ impl ProtocolRegistry {
     }
 }
 
-/// The registry key of a route, after checking that every name it carries
-/// is that key and that the kind targets the protocol's semantic shape.
-fn route_key(
-    provider: &dyn ResolutionProvider,
-    codec_protocol: Option<&str>,
-) -> Result<String, ResolveError> {
+/// Refuse a route whose names or shapes disagree: every name it carries
+/// (the provider's id, its protocol and, for a dedicated source codec, the
+/// codec's protocol) must be the canonical name `key`, the kind's target
+/// shape must be the protocol's semantic shape, and a default route's kind
+/// must read the protocol's syntactic shape.
+fn check_route_names(key: &str, route: &RegisteredResolutionRoute) -> Result<(), ResolveError> {
+    let provider = route.provider.as_ref();
     let protocol = provider.protocol();
-    let key = registry_key(&protocol.name);
     let id = provider.id();
-    let named =
-        id.name.as_ref() == key && codec_protocol.is_none_or(|name| registry_key(name) == key);
+    let codec_name = match &route.source {
+        ResolutionSourceCodec::Default => None,
+        ResolutionSourceCodec::Dedicated(codec) => Some(InstanceParser::protocol_name(codec.as_ref())),
+    };
+    let named = id.name.as_ref() == key
+        && registry_key(&protocol.name) == key
+        && codec_name.is_none_or(|name| registry_key(name) == key);
     if !named {
         return Err(ResolveError::ProviderFailure {
             provider: id,
@@ -1063,7 +1046,15 @@ fn route_key(
             semantic: protocol.semantic_shape,
         });
     }
-    Ok(key)
+    if matches!(route.source, ResolutionSourceCodec::Default)
+        && kind.syntactic_shape() != protocol.syntactic_shape
+    {
+        return Err(ResolveError::UnsupportedKind {
+            syntactic: protocol.syntactic_shape,
+            semantic: kind.semantic_shape(),
+        });
+    }
+    Ok(())
 }
 
 /// The refusal of resolution state for a protocol with no route.
@@ -1090,32 +1081,40 @@ impl ProtocolRegistry {
         }
     }
 
-    /// Whether the protocol has a resolution route whose target is `shape`.
+    /// Whether the protocol has a well-formed resolution route whose
+    /// target is `shape`.
     fn route_targets(&self, key: &str, shape: InstanceShapeKind) -> bool {
-        self.routes
-            .get(key)
-            .is_some_and(|route| route.provider.kind().semantic_shape() == shape)
+        self.routes.get(key).is_some_and(|route| {
+            route.provider.kind().semantic_shape() == shape
+                && self.check_route_source(key, route).is_ok()
+        })
     }
 
-    /// Refuse a route whose source codec does not read the kind's source
-    /// shape.
+    /// Refuse a route whose names or shapes disagree
+    /// ([`check_route_names`]) or whose source codec does not read the
+    /// kind's source shape.
     fn check_route_source(
         &self,
         key: &str,
         route: &RegisteredResolutionRoute,
     ) -> Result<(), ResolveError> {
+        check_route_names(key, route)?;
         let kind = route.provider.kind();
-        let reads = match &route.source {
-            ResolutionSourceCodec::Default => self.has_native(key, kind.syntactic_shape()),
+        // The shape the source codec reads: a dedicated codec's native
+        // shape, or the kind's source shape when a default codec reads it.
+        let read = match &route.source {
+            ResolutionSourceCodec::Default => self
+                .has_native(key, kind.syntactic_shape())
+                .then_some(kind.syntactic_shape()),
             ResolutionSourceCodec::Dedicated(codec) => {
-                InstanceShapeKind::from(codec.native_repr()) == kind.syntactic_shape()
+                Some(InstanceShapeKind::from(codec.native_repr()))
             }
         };
-        if reads {
+        if read == Some(kind.syntactic_shape()) {
             Ok(())
         } else {
             Err(ResolveError::UnsupportedKind {
-                syntactic: kind.syntactic_shape(),
+                syntactic: read.unwrap_or_else(|| kind.syntactic_shape()),
                 semantic: kind.semantic_shape(),
             })
         }
