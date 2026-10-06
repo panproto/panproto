@@ -8,11 +8,11 @@ use panproto_inst::resolution_complement::{
     DefinitionKey, RedirectedArc, RedirectedAttachment, RedirectedFragment, RefOccurrence,
     ResolutionComplement, ResolutionSpan, UnresolvedReason, UnresolvedRef,
 };
-use panproto_inst::{
-    AnyInstance, EdgeId, FInstance, GEdge, GInstance, IdAllocator, IdRange, InstError,
-    Node, TreeShapeReport, ViewRef, WInstance,
-};
 use panproto_inst::segment::IdKind;
+use panproto_inst::{
+    AnyInstance, EdgeId, FInstance, GEdge, GInstance, IdAllocator, IdRange, InstError, Node,
+    TreeShapeReport, ViewRef, WInstance,
+};
 use panproto_schema::ResolveMode;
 
 use super::error::{ResolutionInstanceError, ResolveError};
@@ -28,25 +28,28 @@ pub type Admitted<'r> = (Occurrence<'r>, Outcome);
 #[derive(Debug)]
 pub struct GetFailure {
     /// The failure.
-    pub error: ResolveError,
+    pub error: Box<ResolveError>,
     /// The pair it is blamed on.
-    pub blame: Option<(ViewRef, Name)>,
+    pub blame: Option<Box<(ViewRef, Name)>>,
 }
 
 impl From<ResolveError> for GetFailure {
     fn from(error: ResolveError) -> Self {
-        Self { error, blame: None }
+        Self {
+            error: Box::new(error),
+            blame: None,
+        }
     }
 }
 
 /// A failure blamed on one occurrence.
 fn blamed(error: ResolveError, occurrence: &Occurrence<'_>) -> GetFailure {
     GetFailure {
-        error,
-        blame: Some((
+        error: Box::new(error),
+        blame: Some(Box::new((
             occurrence.holder.clone(),
             occurrence.compiled.reference.id.clone(),
-        )),
+        ))),
     }
 }
 
@@ -87,15 +90,11 @@ pub fn instance_error(error: &InstError) -> ResolveError {
         | InstError::DuplicateRowId { .. }
         | InstError::RowHasForeignKeys { .. }
         | InstError::HomTableMismatch { .. } => instance(ResolutionInstanceError::NotTable),
-        InstError::VertexNotFound(_)
-        | InstError::EvalHom(_)
-        | InstError::DuplicateNode(_)
-        | InstError::DuplicateEdge(_)
-        | InstError::IncidentEdges { .. }
-        | InstError::NodeLink(_) => instance(ResolutionInstanceError::NotGraph),
-        // `InstError` is non-exhaustive across crates; every variant it has
-        // today is named above, and one it adds later leaves no graph to
-        // read either.
+        // The rest of today's variants (an unknown vertex, a failed hom
+        // evaluation, a duplicate node or edge, incident edges, a node-link
+        // document) leave no graph to read, and so does any variant the
+        // non-exhaustive `InstError` adds later; the wildcard is the only
+        // way to name the latter across crates.
         _ => instance(ResolutionInstanceError::NotGraph),
     }
 }
@@ -137,7 +136,7 @@ impl Resolution {
         ctx: &ResolveContext<'_>,
     ) -> Result<(GInstance, ResolutionComplement), ResolveError> {
         self.get_graph_except(source, options, ctx, &Skipped::new())
-            .map_err(|failure| failure.error)
+            .map_err(|failure| *failure.error)
     }
 
     /// Get for a resolving kind without the occurrences of the pairs in
@@ -384,7 +383,8 @@ fn redirect(
 ) -> Result<BTreeSet<u32>, GetFailure> {
     let mut first: BTreeMap<u32, &Occurrence<'_>> = BTreeMap::new();
     for (occurrence, outcome) in admitted {
-        if let (true, Some(holder)) = (redirects(occurrence, outcome), node_of(&occurrence.holder)) {
+        if let (true, Some(holder)) = (redirects(occurrence, outcome), node_of(&occurrence.holder))
+        {
             first.entry(holder).or_insert(occurrence);
         }
     }
@@ -651,13 +651,6 @@ mod tests {
         use super::instance_error;
         use crate::resolution::error::ResolutionInstanceError;
 
-        let label = panproto_schema::Edge {
-            src: "a".into(),
-            tgt: "b".into(),
-            kind: "fk".into(),
-            name: None,
-        };
-
         let cases: Vec<(InstError, ResolveError)> = vec![
             (
                 InstError::NodeIdsExhausted,
@@ -726,6 +719,30 @@ mod tests {
                 InstError::VertexNotFound("v".to_owned()),
                 ResolveError::Instance(ResolutionInstanceError::NotGraph),
             ),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(
+                format!("{:?}", instance_error(&error)),
+                format!("{expected:?}"),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_other_instance_error_projects_onto_its_shape() {
+        use panproto_inst::{EdgeId, InstError, RowId, ViewRef};
+
+        use super::instance_error;
+        use crate::resolution::error::ResolutionInstanceError;
+
+        let label = panproto_schema::Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "fk".into(),
+            name: None,
+        };
+        let cases: Vec<(InstError, ResolveError)> = vec![
             (
                 InstError::EvalHom("h".to_owned()),
                 ResolveError::Instance(ResolutionInstanceError::NotGraph),

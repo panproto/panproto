@@ -401,11 +401,26 @@ impl Resolution {
             .map(|node| node.anchor.clone())
             .ok_or(ResolveError::Instance(ResolutionInstanceError::NotTree))?;
         let tree = WInstance::new(nodes, arcs, base.fans.clone(), root, anchor);
+        self.write_holders(&tree, holders, &base, graph, ctx)
+    }
+
+    /// `tree` with the literal of every canonical holder written: for each
+    /// holder, the first of its reference's written forms (the canonical
+    /// literal, then for a key or path reference the provider's more
+    /// qualified forms) that resolves back to its target.
+    fn write_holders(
+        &self,
+        tree: &WInstance,
+        holders: Vec<(EdgeId, u32, u32)>,
+        base: &WInstance,
+        graph: &GInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<WInstance, ResolveError> {
         let mut written = Vec::new();
         for (edge, id, target) in holders {
             let (writer, _) = self.holder_writer(graph, edge)?;
             let first = self
-                .canonical_literal(writer, id, target, &base, graph, ctx)
+                .canonical_literal(writer, id, target, base, graph, ctx)
                 .map_err(|error| match error {
                     ResolveError::PutDomain(ResolveDomainError::UnrepresentableReference {
                         reference,
@@ -443,9 +458,9 @@ impl Resolution {
             let mut candidate = tree.clone();
             let mut failures = Vec::new();
             for ((edge, id, writer, _, forms), choice) in written.iter().zip(chosen) {
-                let written = forms
-                    .get(*choice)
-                    .is_some_and(|literal| write_literal(&mut candidate, *id, writer, 0, literal).is_ok());
+                let written = forms.get(*choice).is_some_and(|literal| {
+                    write_literal(&mut candidate, *id, writer, 0, literal).is_ok()
+                });
                 if !written {
                     failures.push(ResolveDomainError::UnrepresentableReference {
                         carrier: ViewRef::Edge(*edge),

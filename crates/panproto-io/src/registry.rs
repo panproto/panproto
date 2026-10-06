@@ -1027,7 +1027,9 @@ fn check_route_names(key: &str, route: &RegisteredResolutionRoute) -> Result<(),
     let id = provider.id();
     let codec_name = match &route.source {
         ResolutionSourceCodec::Default => None,
-        ResolutionSourceCodec::Dedicated(codec) => Some(InstanceParser::protocol_name(codec.as_ref())),
+        ResolutionSourceCodec::Dedicated(codec) => {
+            Some(InstanceParser::protocol_name(codec.as_ref()))
+        }
     };
     let named = id.name.as_ref() == key
         && registry_key(&protocol.name) == key

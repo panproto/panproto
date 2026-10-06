@@ -1221,7 +1221,7 @@ fn an_alias_of_an_unanchored_node_is_unrepresentable_at_its_edge() {
     let source = AnyInstance::Tree(unanchored_tree(&fixture));
     let (mut view, complement) = get(&resolution, &source);
     let fresh = panproto_inst::EdgeId(view.edges().keys().map(|id| id.0 + 1).max().unwrap_or(0));
-    view.insert_edge(fresh, panproto_inst::GEdge::new(0, 4, fixture.alias_of.clone()))
+    view.insert_edge(fresh, panproto_inst::GEdge::new(0, 4, fixture.alias_of))
         .expect("an alias of the unanchored node");
     assert_eq!(
         violations_of(&resolution, &view, &complement, &ctx()),
@@ -2027,18 +2027,26 @@ impl ResolutionProvider for Catalog {
                 .map(|node| ViewRef::Node(node.id))
                 .collect()
         };
-        let candidates = if let Some(absolute) = path.strip_prefix('/') {
-            let (title, name) = absolute.split_once('/').unwrap_or((absolute, ""));
-            tree.nodes
-                .values()
-                .filter(|node| node.anchor == "shelf" && text_field(node, "title") == Some(title))
-                .flat_map(|shelf| books(Some(shelf.id), name))
-                .collect()
-        } else {
-            let own = books(parent_in(tree, holder), path);
-            if own.is_empty() { books(None, path) } else { own }
-        };
-        let mut candidates = candidates;
+        let mut candidates: Vec<ViewRef> = path.strip_prefix('/').map_or_else(
+            || {
+                let own = books(parent_in(tree, holder), path);
+                if own.is_empty() {
+                    books(None, path)
+                } else {
+                    own
+                }
+            },
+            |absolute| {
+                let (title, name) = absolute.split_once('/').unwrap_or((absolute, ""));
+                tree.nodes
+                    .values()
+                    .filter(|node| {
+                        node.anchor == "shelf" && text_field(node, "title") == Some(title)
+                    })
+                    .flat_map(|shelf| books(Some(shelf.id), name))
+                    .collect()
+            },
+        );
         candidates.sort();
         Ok(PathResolution {
             candidates,
@@ -2234,10 +2242,10 @@ fn a_written_reference_takes_the_first_form_that_re_resolves() {
     let restored = put_tree(&resolution, &reconnected, &complement).expect("admitted");
     assert_eq!(link_literal(&restored), Some(&Value::Str("/b/x".into())));
     // A new link from shelf a to shelf b's "x" is written the same way.
-    let mut added = view.clone();
+    let mut added = view;
     let fresh = panproto_inst::EdgeId(40);
     added
-        .insert_edge(fresh, panproto_inst::GEdge::new(1, 6, fixture.see.clone()))
+        .insert_edge(fresh, panproto_inst::GEdge::new(1, 6, fixture.see))
         .expect("a new link");
     let restored = put_tree(&resolution, &added, &complement).expect("admitted");
     let holder = restored
@@ -2336,9 +2344,11 @@ fn a_kept_reference_is_never_respelled() {
         }),
         "{violations:?}"
     );
-    assert!(resolution
-        .put(&AnyInstance::Graph(renamed), &complement, &ctx())
-        .is_err());
+    assert!(
+        resolution
+            .put(&AnyInstance::Graph(renamed), &complement, &ctx())
+            .is_err()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3902,11 +3912,9 @@ fn check_put_domain_reports_the_violations_of_independent_edits_together() {
     let (resolution, _) = posts_resolution(|_| {});
     let (view, complement) = get(&resolution, &AnyInstance::Tree(posts_tree()));
     let mut rekeyed = view.clone();
-    rekeyed
-        .node_mut(4)
-        .expect("user 3's id")
-        .value = Some(FieldPresence::Present(Value::Str("u1".into())));
-    let mut stray = view.clone();
+    rekeyed.node_mut(4).expect("user 3's id").value =
+        Some(FieldPresence::Present(Value::Str("u1".into())));
+    let mut stray = view;
     stray
         .insert_node(Node::new(100, "user"))
         .expect("a stray user");
@@ -3952,8 +3960,22 @@ fn check_put_domain_reports_the_violations_of_independent_edits_together() {
 fn check_put_domain_reports_an_unreadable_occurrence_beside_other_violations() {
     let resolution = notes(&[Standoff::local("mention", OffsetUnit::Byte)], &[]);
     let source = AnyInstance::Tree(notes_tree(vec![
-        note(1, &[("text", text("hello world")), ("start", int(0)), ("end", int(5))]),
-        note(2, &[("text", text("good night")), ("start", int(0)), ("end", int(4))]),
+        note(
+            1,
+            &[
+                ("text", text("hello world")),
+                ("start", int(0)),
+                ("end", int(5)),
+            ],
+        ),
+        note(
+            2,
+            &[
+                ("text", text("good night")),
+                ("start", int(0)),
+                ("end", int(4)),
+            ],
+        ),
     ]));
     let (view, complement) = get(&resolution, &source);
     let mut short = view.clone();
@@ -3968,7 +3990,7 @@ fn check_put_domain_reports_an_unreadable_occurrence_beside_other_violations() {
         .expect("note 2")
         .extra_fields
         .insert("end".to_owned(), int(3));
-    let mut stray = view.clone();
+    let mut stray = view;
     stray
         .insert_node(Node::new(100, "note"))
         .expect("a stray note");
@@ -4877,7 +4899,10 @@ fn resolved_route_checks_its_codec_source_shape() {
             semantic: InstanceShapeKind::Graph
         })
     ));
-    assert!(!registry.supports_graph("posts"), "a malformed route is not advertised");
+    assert!(
+        !registry.supports_graph("posts"),
+        "a malformed route is not advertised"
+    );
     let () = registry.register_resolution_provider(provider.clone());
     assert!(
         matches!(
@@ -4894,7 +4919,10 @@ fn resolved_route_checks_its_codec_source_shape() {
         registry.supports_semantic_for("posts", &schema),
         Err(ResolveError::ProviderFailure { code, .. }) if code == "route_name"
     ));
-    assert!(!registry.supports_graph("posts"), "a misnamed route is not advertised");
+    assert!(
+        !registry.supports_graph("posts"),
+        "a misnamed route is not advertised"
+    );
     let (tree_default, _) = posts_provider((InstanceShapeKind::Tree, InstanceShapeKind::Graph));
     registry.register_resolution_provider(tree_default);
     assert!(
@@ -4930,10 +4958,10 @@ fn a_route_is_keyed_by_its_provider_protocol_and_checked_when_compiled() {
         registry.supports_semantic_for("posts", &schema),
         Err(ResolveError::ProviderFailure { code, .. }) if code == "route_name"
     ));
-    assert!(matches!(
-        registry.supports_semantic_for("other", &schema),
-        Ok(false)
-    ), "the route is keyed by the provider's protocol, not its id");
+    assert!(
+        matches!(registry.supports_semantic_for("other", &schema), Ok(false)),
+        "the route is keyed by the provider's protocol, not its id"
+    );
     let wrong_target = Arc::new(Provider {
         id: provider_id("posts"),
         protocol: provider.protocol.clone(),
@@ -6696,10 +6724,8 @@ fn picks_table(picked: &BTreeSet<u8>) -> FInstance {
 /// The pick row node of customer `target`, as a view holds it.
 fn pick_node(target: u8) -> Node {
     let mut node = Node::new(pick_row(target), "pick");
-    node.extra_fields.insert(
-        "customer".to_owned(),
-        text(CUSTOMERS[usize::from(target)]),
-    );
+    node.extra_fields
+        .insert("customer".to_owned(), text(CUSTOMERS[usize::from(target)]));
     node
 }
 
@@ -6845,7 +6871,7 @@ mod model {
             .collect()
     }
 
-    /// Run the five laws, PutTwice in both forms, over every source and
+    /// Run the five laws, `PutTwice` in both forms, over every source and
     /// candidate, panicking at the first law that fails.
     pub fn check() -> Counts {
         let mut counts = Counts::default();
@@ -6931,12 +6957,7 @@ fn production_edit(
     let mut edited = view.clone();
     match edit {
         model::Edit::Add(target) => {
-            let fresh = view
-                .edges()
-                .keys()
-                .map(|id| id.0 + 1)
-                .max()
-                .unwrap_or(0);
+            let fresh = view.edges().keys().map(|id| id.0 + 1).max().unwrap_or(0);
             edited.insert_node(pick_node(target)).expect("a new pick");
             edited
                 .insert_edge(
@@ -7040,6 +7061,140 @@ fn renamed_picks(
     (renamed, complement)
 }
 
+/// A put-domain violation with its edge carrier renamed.
+fn renamed_violation(
+    violation: &ResolveDomainError,
+    renaming: &BTreeMap<u32, u32>,
+) -> ResolveDomainError {
+    let rename = |carrier: &ViewRef| match carrier {
+        ViewRef::Edge(id) => ViewRef::Edge(panproto_inst::EdgeId(
+            renaming.get(&id.0).copied().unwrap_or(id.0),
+        )),
+        other => other.clone(),
+    };
+    match violation {
+        ResolveDomainError::SynthesizedEdited { carrier } => {
+            ResolveDomainError::SynthesizedEdited {
+                carrier: rename(carrier),
+            }
+        }
+        ResolveDomainError::UnrepresentableReference { carrier, reference } => {
+            ResolveDomainError::UnrepresentableReference {
+                carrier: rename(carrier),
+                reference: reference.clone(),
+            }
+        }
+        ResolveDomainError::NoPlacement { carrier } => ResolveDomainError::NoPlacement {
+            carrier: rename(carrier),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Congruence at one picks state: renaming the occurrence edges of the
+/// view and the complement together, by every injective renaming of them
+/// into five fresh ids, renames the put-domain verdict and leaves the put.
+fn picks_congruence(
+    resolution: &Resolution,
+    picked: &Edge,
+    candidate: &GInstance,
+    complement: &ResolutionComplement,
+    verdict: &[ResolveDomainError],
+) {
+    let ids: Vec<u32> = pick_edges(candidate, picked)
+        .into_values()
+        .chain(
+            complement
+                .occurrences
+                .keys()
+                .filter_map(|carrier| match carrier {
+                    ViewRef::Edge(id) => Some(*id),
+                    _ => None,
+                }),
+        )
+        .map(|id| id.0)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let floor = ids.iter().max().copied().unwrap_or(0) + 1;
+    for renaming in model::renamings(&ids, 5) {
+        let renaming: BTreeMap<u32, u32> = renaming
+            .into_iter()
+            .map(|(id, image)| (id, floor + image))
+            .collect();
+        let (renamed, renamed_complement) = renamed_picks(candidate, complement, &renaming);
+        let found = violations_of(resolution, &renamed, &renamed_complement, &ctx());
+        let expected = union_of(
+            &verdict
+                .iter()
+                .map(|violation| renamed_violation(violation, &renaming))
+                .collect::<Vec<_>>(),
+            &[],
+        );
+        assert_eq!(found, expected, "Congruence verdicts");
+        if verdict.is_empty() {
+            let a = resolution
+                .put(&AnyInstance::Graph(candidate.clone()), complement, &ctx())
+                .expect("admitted");
+            let b = resolution
+                .put(&AnyInstance::Graph(renamed), &renamed_complement, &ctx())
+                .expect("admitted when renamed");
+            assert!(same(&a, &b), "Congruence puts");
+        }
+    }
+}
+
+/// `PutGet`, `Totality` and `PutTwice` at one admitted picks candidate,
+/// against the model's candidate and put: whether get of the put is the
+/// candidate exactly (asserted to agree with the model), whether the gated
+/// second put fails, and whether the raw one fails (asserted wherever the
+/// model's raw form fails).
+fn picks_admitted(
+    resolution: &Resolution,
+    picked: &Edge,
+    candidate: &GInstance,
+    complement: &ResolutionComplement,
+    (model_candidate, model_once): (&model::View, &model::Source),
+    edit: model::Edit,
+) -> (bool, bool, bool) {
+    let once = resolution
+        .put(&AnyInstance::Graph(candidate.clone()), complement, &ctx())
+        .expect("Totality");
+    let (again, next) = get(resolution, &once);
+    assert_eq!(
+        pick_pairs(&again, picked),
+        pick_pairs(candidate, picked),
+        "PutGet up to presentation, {edit:?}"
+    );
+    let (model_again, model_next) = model::get(model_once);
+    let exact = GInstance::identical(&again, candidate);
+    assert_eq!(
+        exact,
+        model_again == *model_candidate,
+        "exact PutGet agrees, {edit:?}"
+    );
+    let rekeyed = rekeyed_picks(&next, candidate, picked);
+    let gated_fails = !matches!(
+        resolution
+            .put(&AnyInstance::Graph(candidate.clone()), &rekeyed, &ctx())
+            .map(|twice| same(&twice, &once)),
+        Ok(true)
+    );
+    let raw_fails = !matches!(
+        resolution
+            .put(&AnyInstance::Graph(candidate.clone()), &next, &ctx())
+            .map(|raw| same(&raw, &once)),
+        Ok(true)
+    );
+    if model::put(model_candidate, &model_next).as_ref() != Ok(model_once) {
+        assert!(
+            raw_fails,
+            "the raw form fails where the model's does, {edit:?}"
+        );
+    }
+    (exact, gated_fails, raw_fails)
+}
+
 #[test]
 fn resolution_laws_agree_with_the_model_on_three_targets() {
     let counts = model::check();
@@ -7080,84 +7235,31 @@ fn resolution_laws_agree_with_the_model_on_three_targets() {
             match &model_verdict {
                 Ok(_) => assert!(verdict.is_empty(), "{edit:?}: {verdict:?}"),
                 Err(model::Refusal::SynthesizedEdited(_)) => assert!(
-                    verdict
-                        .iter()
-                        .any(|violation| matches!(violation, ResolveDomainError::SynthesizedEdited { .. })),
+                    verdict.iter().any(|violation| matches!(
+                        violation,
+                        ResolveDomainError::SynthesizedEdited { .. }
+                    )),
                     "{edit:?}: {verdict:?}"
                 ),
                 Err(model::Refusal::Repeated(_)) => assert!(!verdict.is_empty(), "{edit:?}"),
             }
-            // Congruence: renaming the occurrence edges of the view and the
-            // complement together leaves the verdict, up to the renaming,
-            // and the put.
-            let ids: Vec<u32> = pick_edges(&candidate, &picked)
-                .into_values()
-                .chain(complement.occurrences.keys().filter_map(|carrier| match carrier {
-                    ViewRef::Edge(id) => Some(*id),
-                    _ => None,
-                }))
-                .map(|id| id.0)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            let floor = ids.iter().min().copied().unwrap_or(0);
-            for renaming in model::renamings(&ids, 5) {
-                let renaming: BTreeMap<u32, u32> = renaming
-                    .into_iter()
-                    .map(|(id, image)| (id, floor + 10 + image))
-                    .collect();
-                let (renamed, renamed_complement) = renamed_picks(&candidate, &complement, &renaming);
-                let found = violations_of(&resolution, &renamed, &renamed_complement, &ctx());
-                assert_eq!(found.is_empty(), verdict.is_empty(), "Congruence {edit:?}");
-                if verdict.is_empty() {
-                    let a = resolution
-                        .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
-                        .expect("admitted");
-                    let b = resolution
-                        .put(&AnyInstance::Graph(renamed), &renamed_complement, &ctx())
-                        .expect("admitted when renamed");
-                    assert!(same(&a, &b), "Congruence {edit:?}");
-                }
-            }
+            picks_congruence(&resolution, &picked, &candidate, &complement, &verdict);
             if !verdict.is_empty() {
                 continue;
             }
             production.admitted += 1;
-            let once = resolution
-                .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
-                .expect("Totality");
-            let (again, next) = get(&resolution, &once);
-            assert_eq!(
-                pick_pairs(&again, &picked),
-                pick_pairs(&candidate, &picked),
-                "PutGet up to presentation, {edit:?}"
+            let model_once = model_verdict.expect("the model admits it too");
+            let (exact, gated_fails, raw_fails) = picks_admitted(
+                &resolution,
+                &picked,
+                &candidate,
+                &complement,
+                (&model_candidate, &model_once),
+                edit,
             );
-            let model_once = model_verdict.clone().expect("the model admits it too");
-            let (model_again, model_next) = model::get(&model_once);
-            let exact = GInstance::identical(&again, &candidate);
-            assert_eq!(exact, model_again == model_candidate, "exact PutGet agrees, {edit:?}");
-            if exact {
-                production.exact += 1;
-            }
-            let rekeyed = rekeyed_picks(&next, &candidate, &picked);
-            let twice = resolution
-                .put(&AnyInstance::Graph(candidate.clone()), &rekeyed, &ctx())
-                .map(|twice| same(&twice, &once));
-            if !matches!(twice, Ok(true)) {
-                production.gated_put_twice_failures += 1;
-            }
-            let raw_fails = !matches!(
-                resolution
-                    .put(&AnyInstance::Graph(candidate.clone()), &next, &ctx())
-                    .map(|raw| same(&raw, &once)),
-                Ok(true)
-            );
-            if model::put(&model_candidate, &model_next) != Ok(model_once) {
-                assert!(raw_fails, "the raw form fails where the model's does, {edit:?}");
-            }
-            if raw_fails {
-                raw_refused += 1;
-            }
+            production.exact += usize::from(exact);
+            production.gated_put_twice_failures += usize::from(gated_fails);
+            raw_refused += usize::from(raw_fails);
         }
     }
     println!(
@@ -7215,16 +7317,16 @@ fn put_twice_is_checked_where_put_get_holds_up_to_presentation() {
 /// How a [`Faulty`] assembly provider breaks its put.
 #[derive(Clone, Copy, Debug)]
 enum Fault {
-    /// Put drops the cells the view does not show: GetPut fails.
+    /// Put drops the cells the view does not show: `GetPut` fails.
     DropsResidue,
-    /// Put of an edited view writes every name upper-cased: PutGet fails.
+    /// Put of an edited view writes every name upper-cased: `PutGet` fails.
     Garbles,
     /// Put of an edited view fails although the domain admits it: Totality
     /// fails.
     Fails,
     /// Put of an edited view, or of any view over a source it wrote,
     /// shifts every note cell: the second put moves them again, so
-    /// PutTwice fails.
+    /// `PutTwice` fails.
     Drifts,
 }
 
@@ -7275,7 +7377,11 @@ impl ResolutionProvider for Faulty {
         self.inner.protocol()
     }
 
-    fn spec(&self, protocol: &Protocol, syntactic: &Schema) -> Result<ResolutionSpec, ResolveError> {
+    fn spec(
+        &self,
+        protocol: &Protocol,
+        syntactic: &Schema,
+    ) -> Result<ResolutionSpec, ResolveError> {
         self.inner.spec(protocol, syntactic)
     }
 
@@ -7295,7 +7401,8 @@ impl ResolutionProvider for Faulty {
         residue: &panproto_io::resolution::AssemblyResidue,
         ctx: &ResolveContext<'_>,
     ) -> Vec<ResolveDomainError> {
-        self.inner.assembly_check_put_domain(plan, view, residue, ctx)
+        self.inner
+            .assembly_check_put_domain(plan, view, residue, ctx)
     }
 
     fn assembly_put(
@@ -7314,15 +7421,21 @@ impl ResolutionProvider for Faulty {
             Fault::DropsResidue => {
                 let mut dropped = FInstance::new();
                 for (id, cells) in table.rows("entry") {
-                    let kept = cells.iter().filter(|(cell, _)| *cell == "name").map(|(cell, value)| (cell.clone(), value.clone())).collect();
+                    let kept = cells
+                        .iter()
+                        .filter(|(cell, _)| *cell == "name")
+                        .map(|(cell, value)| (cell.clone(), value.clone()))
+                        .collect();
                     dropped.insert_row("entry", id, kept).expect("a row");
                 }
                 dropped
             }
-            Fault::Garbles if !unchanged => table_edited(table, |cell, value| match (cell, value) {
-                ("name", Value::Str(name)) => Value::Str(name.to_uppercase()),
-                _ => value.clone(),
-            }),
+            Fault::Garbles if !unchanged => {
+                table_edited(table, |cell, value| match (cell, value) {
+                    ("name", Value::Str(name)) => Value::Str(name.to_uppercase()),
+                    _ => value.clone(),
+                })
+            }
             Fault::Fails if !unchanged => {
                 return Err(ResolveError::ProviderFailure {
                     provider: self.id(),
@@ -7370,7 +7483,11 @@ impl ResolutionProvider for Parity {
         self.0.protocol()
     }
 
-    fn spec(&self, protocol: &Protocol, syntactic: &Schema) -> Result<ResolutionSpec, ResolveError> {
+    fn spec(
+        &self,
+        protocol: &Protocol,
+        syntactic: &Schema,
+    ) -> Result<ResolutionSpec, ResolveError> {
         self.0.spec(protocol, syntactic)
     }
 
@@ -7438,7 +7555,12 @@ fn each_law_gate_rejects_its_exact_negative() {
     use panproto_io::resolution::ResolutionLawViolation;
 
     let source = AnyInstance::Table(entries_table(&["a", "b"]));
-    for fault in [Fault::DropsResidue, Fault::Garbles, Fault::Fails, Fault::Drifts] {
+    for fault in [
+        Fault::DropsResidue,
+        Fault::Garbles,
+        Fault::Fails,
+        Fault::Drifts,
+    ] {
         let (inner, syntactic) = Entries::new();
         let protocol = inner.protocol.clone();
         let resolution =
@@ -7477,8 +7599,9 @@ fn each_law_gate_rejects_its_exact_negative() {
         paths: BTreeMap::new(),
         context: None,
     };
-    let resolution = Resolution::for_protocol(&protocol, &fixture.schema, Arc::new(Parity(provider)))
-        .expect("compiles");
+    let resolution =
+        Resolution::for_protocol(&protocol, &fixture.schema, Arc::new(Parity(provider)))
+            .expect("compiles");
     let source = AnyInstance::Tree(links_tree("#i1"));
     let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
     assert!(

@@ -192,8 +192,9 @@ impl Resolution {
                         Ok(found) => found,
                         Err(Refusal::Domain(found)) => found.into_vec(),
                         Err(Refusal::Operational(error)) => {
-                            return Err(violations
-                                .map_or(Refusal::Operational(error), Refusal::Domain));
+                            return Err(
+                                violations.map_or(Refusal::Operational(error), Refusal::Domain)
+                            );
                         }
                     };
                     return match (refuse(found), violations) {

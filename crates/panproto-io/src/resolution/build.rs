@@ -771,7 +771,10 @@ impl Resolution {
     ) -> Result<Vec<Value>, Refusal> {
         let first = self.render(on, compiled, holder, target, span)?;
         let mut forms = vec![first];
-        if matches!(compiled.form, RefForm::KeyValue { .. } | RefForm::Path { .. }) {
+        if matches!(
+            compiled.form,
+            RefForm::KeyValue { .. } | RefForm::Path { .. }
+        ) {
             forms.extend(
                 self.provider
                     .qualified_forms(

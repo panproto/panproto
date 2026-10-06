@@ -378,24 +378,24 @@ impl Resolution {
             .collect();
         let lenient = ResolveOptions { lenient: true };
         let (regotten, recomplement) = loop {
-            match self.get_graph_except(source, lenient, ctx, &skip) {
-                Ok(result) => break result,
-                Err(GetFailure {
-                    error:
-                        ResolveError::Instance(
-                            super::ResolutionInstanceError::DanglingCarrier { carrier }
-                            | super::ResolutionInstanceError::MissingCarrier { carrier },
-                        ),
-                    blame,
-                }) => {
+            let GetFailure { error, blame } =
+                match self.get_graph_except(source, lenient, ctx, &skip) {
+                    Ok(result) => break result,
+                    Err(failure) => failure,
+                };
+            match *error {
+                ResolveError::Instance(
+                    super::ResolutionInstanceError::DanglingCarrier { carrier }
+                    | super::ResolutionInstanceError::MissingCarrier { carrier },
+                ) => {
                     violations.push(ResolveDomainError::NoPlacement {
                         carrier: view_carrier(&carrier),
                     });
-                    if !blame.is_some_and(|pair| skip.insert(pair)) {
+                    if !blame.is_some_and(|pair| skip.insert(*pair)) {
                         return Ok(violations);
                     }
                 }
-                Err(GetFailure { error, .. }) => {
+                error => {
                     return if violations.is_empty() {
                         Err(Refusal::Operational(error))
                     } else {
@@ -619,11 +619,12 @@ impl Unread {
             for (holder, _) in skip {
                 if let ViewRef::Node(holder) = holder {
                     if regotten.node(*holder).is_some() {
-                        unread
-                            .right_nodes
-                            .extend(tree_source.subtree(*holder).into_iter().filter(|node| {
-                                regotten.node(*node).is_some()
-                            }));
+                        unread.right_nodes.extend(
+                            tree_source
+                                .subtree(*holder)
+                                .into_iter()
+                                .filter(|node| regotten.node(*node).is_some()),
+                        );
                     }
                 }
             }
