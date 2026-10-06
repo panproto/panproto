@@ -216,13 +216,17 @@ impl DecimalValue {
     /// not finite.
     ///
     /// This is the decimal Rust's float formatting writes (`{:e}`): among
-    /// the decimals with the fewest significant digits that read back to
-    /// exactly `x` under round-to-nearest-even, the one closest to `x`,
-    /// and at an exact tie between two such decimals the one farther from
-    /// zero (so the binary32 value `52401.3125`, between `52401.312` and
-    /// `52401.313`, is written `52401.313`; `x` here is a binary64 value,
-    /// where the same rule applies). So `0.1` gives `1 × 10^-1`, not the
-    /// float's exact binary expansion. A negative zero gives zero.
+    /// the decimals with the fewest significant digits (the minimal
+    /// significand) that read back to exactly `x` under
+    /// round-to-nearest-even, the one closest to `x`, with ties broken
+    /// away from zero, so of two such decimals equally close to `x` the one of
+    /// larger magnitude (`2229016984128891.25` gives `2229016984128891.3`;
+    /// at 32 bits the same rule writes the binary32 value `52401.3125` as
+    /// `52401.313`). ECMA-262's `Number::toString` recommends ties to even
+    /// instead (Ecma International TC39, ECMAScript Language Specification,
+    /// Sec 6.1.6.1.20, Note 2, stated); that recommendation is not
+    /// followed. So `0.1` gives `1 × 10^-1`, not the float's exact binary
+    /// expansion. A negative zero gives zero.
     #[must_use]
     pub fn from_f64_shortest(x: f64) -> Option<Self> {
         if !x.is_finite() {

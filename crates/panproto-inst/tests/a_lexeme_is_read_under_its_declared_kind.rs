@@ -798,7 +798,7 @@ fn every_non_finite_spelling_reads_by_its_word_on_a_bounded_scope() {
 /// float kind accepts exactly that candidate: the binary32 value
 /// 52401.3125 lies midway between `52401.312` and `52401.313`.
 #[test]
-fn a_float_kind_accepts_the_tie_candidate_its_shortest_text_names() {
+fn a_closest_shortest_tie_breaks_away_from_zero() {
     let f32_ = spec(ScalarKind::Float { bits: 32 });
     assert_eq!(52_401.312_5_f32.to_string(), "52401.313");
     assert_eq!(format!("{:e}", -52_401.312_5_f32), "-5.2401313e4");
@@ -819,4 +819,65 @@ fn a_float_kind_accepts_the_tie_candidate_its_shortest_text_names() {
             want.to_bits()
         );
     }
+    // A binary64 tie: 2229016984128891.25 lies midway between two 17-digit
+    // texts that both read back to it, and is written with the larger.
+    let x = f64::from_bits(0x431f_ad1d_d626_35ed);
+    assert_eq!(format!("{x:.2}"), "2229016984128891.25");
+    assert_eq!(x.to_string(), "2229016984128891.3");
+    let f64_ = spec(ScalarKind::Float { bits: 64 });
+    assert_eq!(float_bits(number("2229016984128891.3", &f64_)), x.to_bits());
+    assert_eq!(
+        reason(number("2229016984128891.2", &f64_)),
+        FidelityReason::PrecisionExceeded { max: 17 }
+    );
+    // `Display` writes a float positionally.
+    let big = 1e300_f64.to_string();
+    assert_eq!(big, format!("1{}", "0".repeat(300)));
+}
+
+#[test]
+fn an_exponent_numeral_expanding_past_4096_zeros_overflows_under_bigint() {
+    let big_int = spec(ScalarKind::BigInt);
+    let digits = |v: Value| match v {
+        Value::BigInt(b) => b.digits,
+        other => panic!("expected a big integer, got {other:?}"),
+    };
+    let expanded = digits(number("1e4096", &big_int).unwrap());
+    assert_eq!(expanded, format!("1{}", "0".repeat(4096)));
+    assert_eq!(expanded.len(), 4097);
+    assert_eq!(
+        digits(number("10e4096", &big_int).unwrap()),
+        format!("1{}", "0".repeat(4097))
+    );
+    assert_eq!(
+        digits(number("0.1e4097", &big_int).unwrap()),
+        format!("1{}", "0".repeat(4096))
+    );
+    assert_eq!(
+        digits(number("-1.5e4096", &big_int).unwrap()),
+        format!("15{}", "0".repeat(4095))
+    );
+    // The stored exponent, not the written one, is bounded: "10.0e4097"
+    // stores the digits 100 with exponent 4096.
+    assert_eq!(
+        digits(number("10.0e4097", &big_int).unwrap()),
+        format!("1{}", "0".repeat(4098))
+    );
+    for text in ["1e4097", "1e5000", "10e4097", "1e2147483647"] {
+        assert_eq!(
+            reason(number(text, &big_int)),
+            FidelityReason::Overflow,
+            "{text}"
+        );
+    }
+    let written = format!("1{}", "0".repeat(5000));
+    assert_eq!(digits(number(&written, &big_int).unwrap()), written);
+    let int = spec(ScalarKind::Int {
+        bits: 64,
+        signed: true,
+    });
+    assert_eq!(reason(number("1e4097", &int)), FidelityReason::Overflow);
+    assert_eq!(reason(number("1e4096", &int)), FidelityReason::Overflow);
+    // A zero with a large exponent is zero.
+    assert_eq!(number("0e5000", &big_int).unwrap(), Value::Int(0));
 }

@@ -276,15 +276,29 @@ fn new_value_variants_take_tags_thirteen_to_fifteen() {
         expected
     );
 
-    // A local date-time: tag 15, form 2, date, time, offset 0 (local).
+    // A local date-time: tag 15, form 2, date, time (with a fraction digit
+    // count of zero), offset 0 (local).
     let mut expected = vec![15, 2];
     expected.extend_from_slice(&2026_i64.to_le_bytes());
     expected.extend_from_slice(&[1, 2, 3, 4, 5]);
-    expected.extend_from_slice(&0_u32.to_le_bytes());
-    expected.extend_from_slice(&[0, 0]);
+    expected.extend_from_slice(&0_u64.to_le_bytes());
+    expected.push(0);
     assert_eq!(
         canonical(&Value::Temporal(
             Temporal::parse("2026-01-02T03:04:05").unwrap()
+        )),
+        expected
+    );
+    // A fraction is its digit count and its digits; `Z` is offset 1.
+    let mut expected = vec![15, 2];
+    expected.extend_from_slice(&2026_i64.to_le_bytes());
+    expected.extend_from_slice(&[1, 2, 3, 4, 5]);
+    expected.extend_from_slice(&2_u64.to_le_bytes());
+    expected.extend_from_slice(b"50");
+    expected.push(1);
+    assert_eq!(
+        canonical(&Value::Temporal(
+            Temporal::parse("2026-01-02T03:04:05.50Z").unwrap()
         )),
         expected
     );

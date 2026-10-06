@@ -141,6 +141,13 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 /// v1.0.0, Float, stated); no sign or payload is read from a lexeme. The
 /// infinity spellings give the signed infinities.
 ///
+/// Under `Int` and `BigInt` an integer numeral of any length is read, while
+/// a non-zero numeral with a fraction or an exponent whose stored exponent
+/// (its written exponent less its number of fractional digits) exceeds
+/// 4096 is refused with [`FidelityReason::Overflow`] rather than expanded:
+/// `1e4096` is read, `1e4097` is refused, and the integer `1` followed by
+/// 5000 zeros, written out, is read.
+///
 /// A null lexeme is [`Value::Null`] under every kind: whether the vertex
 /// may be null is a validation question, not a fidelity one. The error's
 /// site is unknown; the codec sets it with [`ValueFidelityError::at`] (or
@@ -805,7 +812,7 @@ pub fn coerce_value(
                 Err(refuse(site, *x, FidelityReason::NonFinite))
             };
         }
-        (Value::Float(x), _) => (x.to_string(), LexClass::Number),
+        (Value::Float(x), _) => (float_text(*x), LexClass::Number),
         (Value::Bool(b), _) => (b.to_string(), LexClass::Bool),
         (Value::Int(n), _) => (n.to_string(), LexClass::Number),
         (Value::BigInt(n), _) => (n.to_string(), LexClass::Number),
@@ -825,6 +832,26 @@ pub fn coerce_value(
         ) => return Ok(value.clone()),
     };
     coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
+}
+
+/// The lexeme of a finite float: its closest-shortest binary64 text, which
+/// is Rust's `Display` of an `f64`.
+///
+/// Among the decimals with the fewest significant digits (the minimal
+/// significand) that read back to `x` under round-to-nearest-even, it is
+/// the one closest to `x`, with ties broken away from zero: of two
+/// candidates equally close, the one of larger magnitude
+/// (`2229016984128891.25` is written `2229016984128891.3`, not `.2`). The
+/// same rule at 32 bits names the shortest text of a binary32 value
+/// (`52401.3125` is written `52401.313`). ECMA-262's `Number::toString`
+/// requires only the minimal significand and recommends the closest
+/// candidate with ties to even (Ecma International TC39, ECMAScript
+/// Language Specification, Sec 6.1.6.1.20, Note 2, stated); that tie-break
+/// is not followed here. `Display` writes the digits positionally
+/// (`1e300` as a 1 and 300 zeros), which denote the same number as the
+/// scientific form.
+fn float_text(x: f64) -> String {
+    x.to_string()
 }
 
 /// The fraction bits of a binary64 value that a binary32 value, widened,
