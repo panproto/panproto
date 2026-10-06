@@ -126,13 +126,15 @@
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
-use panproto_gat::Name;
+use panproto_gat::{CheckStatus, Name};
 use panproto_schema::{CanonicalWriter, Cardinality, Edge, Key, KeyPart, RefSource, Reference};
+use serde::{Deserialize, Serialize};
 
 use crate::attributes::AttributeViolation;
 use crate::fan_violation::FanViolation;
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, FanDomain, GInstance};
+use crate::identity::{CanonicalSink, Digest};
 use crate::value::Value;
 use crate::view_ref::{RowId, ViewRef};
 use crate::wtype::WInstance;
@@ -140,9 +142,383 @@ use crate::wtype::WInstance;
 use super::checks::{
     AnchorFamilies, Context, EdgeRec, InstanceView, TreeArcs, edges_at, evaluate, instances,
 };
-use super::plan::{Compiled, ExternalVerdicts, ValidationPlan};
-use super::report::{CheckKind, Diagnostic, EndpointSide, FanRecord, Violation, write_violation};
-use super::state::{key_values, part_name, part_value, path_values, scope_of};
+use super::plan::{Compiled, ExternalVerdicts, ValidationBudget, ValidationPlan};
+use super::report::{
+    CheckInstance, CheckKind, Diagnostic, EndpointSide, FanRecord, IncompleteReason, Requirement,
+    Violation, write_check_key, write_kind, write_reason, write_status, write_view_ref,
+    write_violation,
+};
+use super::state::{
+    AdmissionPolicy, Prepared, ValidatedShape, ValidationState, admitted, check_state, key_values,
+    part_name, part_value, path_values, prepare_delta, scope_of,
+};
+
+/// Optional O(n) instance commitments carried by an edit witness.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WitnessOptions {
+    /// Include prior and result instance digests.
+    pub digests: bool,
+}
+
+/// One failed result of an evaluated check instance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RunFinding {
+    /// Elements named by the violation, ascending without repeats.
+    pub elements: Vec<ViewRef>,
+    /// The typed violation.
+    pub violation: Violation,
+}
+
+/// What happened when one scheduled check instance was considered.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunVerdict {
+    /// The check was evaluated, retaining every finding and incomplete reason.
+    Evaluated {
+        /// Findings in canonical order.
+        findings: Vec<RunFinding>,
+        /// Incomplete reasons in canonical order.
+        incomplete: Vec<IncompleteReason>,
+    },
+    /// The scheduler did not evaluate the check.
+    Skipped {
+        /// Why it was skipped.
+        reason: IncompleteReason,
+    },
+}
+
+/// One scheduled check and its certified dependencies and outcome.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CheckRun {
+    /// The check instance.
+    pub instance: CheckInstance,
+    /// Dependencies read, ascending without repeats.
+    pub reads: Vec<ViewRef>,
+    /// Evaluated outcome or scheduler disposition.
+    pub verdict: RunVerdict,
+}
+
+/// Replayable certificate of one admitted edit.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EditWitness {
+    /// Validation plan identity.
+    pub plan: Digest,
+    /// Baseline sequence number.
+    pub baseline_seq: u64,
+    /// Baseline aggregate status.
+    pub baseline_status: CheckStatus,
+    /// Canonical normalized-delta digest.
+    pub delta: Digest,
+    /// Result aggregate status.
+    pub result_status: CheckStatus,
+    /// Scheduled checks, ascending by check instance.
+    pub runs: Vec<CheckRun>,
+    /// Compiled kinds whose trigger rows the edit did not meet.
+    pub not_triggered: BTreeSet<CheckKind>,
+    /// Embedded commitment policy.
+    pub options: WitnessOptions,
+    /// Prior instance digest when requested.
+    pub prior: Option<Digest>,
+    /// Result instance digest when requested.
+    pub result: Option<Digest>,
+}
+
+/// Every trusted input of [`EditWitness::verify`]: the replay context of
+/// one admitted transition.
+pub struct WitnessReplay<'a, I: ValidatedShape> {
+    /// The plan the transition was validated against.
+    pub plan: &'a ValidationPlan,
+    /// The trusted committed state paired with `prior`.
+    pub baseline: &'a ValidationState,
+    /// The instance before the transition.
+    pub prior: &'a I,
+    /// The normalized delta.
+    pub delta: &'a I::Delta,
+    /// The admission policy.
+    pub policy: AdmissionPolicy,
+    /// The transition budget.
+    pub budget: &'a ValidationBudget,
+    /// The target external projection.
+    pub external: &'a ExternalVerdicts,
+    /// The witness options the verifier expects.
+    pub expected_options: WitnessOptions,
+}
+
+/// A field of an edit witness did not replay.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[error("edit witness mismatch in {field}")]
+pub struct WitnessMismatch {
+    /// The mismatching field.
+    pub field: String,
+    /// The affected run, when one can be named (boxed, so that the error
+    /// stays small; its serialized form is the instance's).
+    pub instance: Option<Box<CheckInstance>>,
+}
+
+impl EditWitness {
+    /// Canonical bytes of the complete replay certificate.
+    #[must_use]
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let mut writer = CanonicalWriter::new();
+        write_edit_witness(&mut writer, self);
+        writer.into_bytes()
+    }
+
+    /// Replay the transition from its trusted paired baseline.
+    ///
+    /// `replay` carries every input the replay needs, each as admission
+    /// used it: the plan, the trusted baseline state paired with the prior
+    /// instance, the normalized delta, the policy, the budget, the target
+    /// external projection and the trusted expected witness options. The
+    /// expected options prevent a verifier from accepting a digest-bearing
+    /// witness after both its commitments and its embedded option bit have
+    /// been stripped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WitnessMismatch`] naming the first scalar, replay input, or
+    /// scheduled run that differs from the recomputed transition.
+    pub fn verify<I: ValidatedShape>(
+        &self,
+        replay: &WitnessReplay<'_, I>,
+    ) -> Result<(), WitnessMismatch> {
+        let &WitnessReplay {
+            plan,
+            baseline,
+            prior,
+            delta,
+            policy,
+            budget,
+            external,
+            expected_options,
+        } = replay;
+        if self.plan != *plan.digest() || baseline.plan != *plan.digest() {
+            return Err(witness_mismatch("plan", None));
+        }
+        check_state(plan, prior, baseline).map_err(|_| witness_mismatch("baseline_state", None))?;
+        if self.baseline_seq != baseline.seq || baseline.seq == u64::MAX {
+            return Err(witness_mismatch("baseline_seq", None));
+        }
+        if self.baseline_status != baseline.status {
+            return Err(witness_mismatch("baseline_status", None));
+        }
+        if self.delta != I::delta_digest(delta) {
+            return Err(witness_mismatch("delta", None));
+        }
+        if self.options != expected_options {
+            return Err(witness_mismatch("options", None));
+        }
+        if self.options.digests != self.prior.is_some()
+            || self.options.digests != self.result.is_some()
+        {
+            return Err(witness_mismatch("options", None));
+        }
+        if self.options.digests && self.prior != Some(prior.instance_digest()) {
+            return Err(witness_mismatch("prior", None));
+        }
+        let prepared = prepare_delta(plan, baseline, prior, delta, budget, external)
+            .map_err(|_| witness_mismatch("apply", None))?;
+        if !admitted(plan, baseline, &prepared.state, policy) {
+            return Err(witness_mismatch("admission", None));
+        }
+        let expected = build_witness(plan, baseline, prior, delta, self.options, &prepared);
+        if self.result_status != expected.result_status {
+            return Err(witness_mismatch("result_status", None));
+        }
+        if self.not_triggered != expected.not_triggered {
+            return Err(witness_mismatch("not_triggered", None));
+        }
+        if self.result != expected.result {
+            return Err(witness_mismatch("result", None));
+        }
+        if self.runs.len() != expected.runs.len() {
+            return Err(witness_mismatch("runs", None));
+        }
+        for (actual, wanted) in self.runs.iter().zip(&expected.runs) {
+            if run_bytes(actual) != run_bytes(wanted) {
+                return Err(witness_mismatch("run", Some(wanted.instance.clone())));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The witness of the prepared transition from the baseline `(prior,
+/// baseline)` by `delta`: one run per scheduled check instance with its
+/// post-state trace, as the transition discovered it, and its committed
+/// disposition and outcome.
+pub fn build_witness<I: ValidatedShape>(
+    plan: &ValidationPlan,
+    baseline: &ValidationState,
+    prior: &I,
+    delta: &I::Delta,
+    options: WitnessOptions,
+    prepared: &Prepared<I>,
+) -> EditWitness {
+    let footprint = &prepared.validation.footprint;
+    let runs = footprint
+        .rerun
+        .union(&footprint.created)
+        .map(|instance| CheckRun {
+            instance: instance.clone(),
+            reads: prepared
+                .traces
+                .get(instance)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect(),
+            verdict: run_verdict(plan, &prepared.state, instance),
+        })
+        .collect();
+    let met: BTreeSet<CheckKind> = I::change_kinds(delta)
+        .into_iter()
+        .flat_map(|change| plan.triggers().kinds(change).into_iter().flatten().copied())
+        .collect();
+    let compiled: BTreeSet<CheckKind> = plan.checks().keys().map(|key| key.kind).collect();
+    let not_triggered = compiled.difference(&met).copied().collect();
+    EditWitness {
+        plan: *plan.digest(),
+        baseline_seq: baseline.seq,
+        baseline_status: baseline.status,
+        delta: I::delta_digest(delta),
+        result_status: prepared.state.status,
+        runs,
+        not_triggered,
+        options,
+        prior: options.digests.then(|| prior.instance_digest()),
+        result: options.digests.then(|| prepared.instance.instance_digest()),
+    }
+}
+
+fn run_verdict(
+    plan: &ValidationPlan,
+    state: &ValidationState,
+    instance: &CheckInstance,
+) -> RunVerdict {
+    if plan.is_statically_incomplete(&instance.check)
+        && let Some(finding) = plan
+            .static_findings()
+            .iter()
+            .find(|finding| finding.check == instance.check)
+    {
+        return RunVerdict::Skipped {
+            reason: finding.reason.clone(),
+        };
+    }
+    if let Some(cut) = state.budget_cuts.get(&instance.check)
+        && cut.skipped.binary_search(instance).is_ok()
+    {
+        return RunVerdict::Skipped {
+            reason: IncompleteReason::Budget {
+                limit: cut.limit,
+                spent: cut.spent,
+                from: cut.from.clone(),
+            },
+        };
+    }
+    let open = state.open.get(instance);
+    RunVerdict::Evaluated {
+        findings: open
+            .into_iter()
+            .flat_map(|verdict| &verdict.diagnostics)
+            .map(|diagnostic| RunFinding {
+                elements: diagnostic.elements.clone(),
+                violation: diagnostic.violation.clone(),
+            })
+            .collect(),
+        incomplete: open
+            .into_iter()
+            .flat_map(|verdict| &verdict.incomplete)
+            .map(|incomplete| incomplete.reason.clone())
+            .collect(),
+    }
+}
+
+fn witness_mismatch(field: &str, instance: Option<CheckInstance>) -> WitnessMismatch {
+    WitnessMismatch {
+        field: field.to_owned(),
+        instance: instance.map(Box::new),
+    }
+}
+
+fn run_bytes(run: &CheckRun) -> Vec<u8> {
+    let mut writer = CanonicalWriter::new();
+    write_run(&mut writer, run);
+    writer.into_bytes()
+}
+
+fn write_edit_witness<W: CanonicalSink + ?Sized>(w: &mut W, witness: &EditWitness) {
+    w.write(&witness.plan.0);
+    w.u64(witness.baseline_seq);
+    write_status(w, witness.baseline_status);
+    w.write(&witness.delta.0);
+    write_status(w, witness.result_status);
+    w.len(witness.runs.len());
+    for run in &witness.runs {
+        write_run(w, run);
+    }
+    w.len(witness.not_triggered.len());
+    for kind in &witness.not_triggered {
+        write_kind(w, *kind);
+    }
+    w.bool(witness.options.digests);
+    write_opt_digest(w, witness.prior.as_ref());
+    write_opt_digest(w, witness.result.as_ref());
+}
+
+fn write_run<W: CanonicalSink + ?Sized>(w: &mut W, run: &CheckRun) {
+    write_check_key(w, &run.instance.check);
+    write_opt_view(w, run.instance.subject.as_ref());
+    w.len(run.reads.len());
+    for read in &run.reads {
+        write_view_ref(w, read);
+    }
+    match &run.verdict {
+        RunVerdict::Evaluated {
+            findings,
+            incomplete,
+        } => {
+            w.tag(0);
+            w.len(findings.len());
+            for finding in findings {
+                w.len(finding.elements.len());
+                for element in &finding.elements {
+                    write_view_ref(w, element);
+                }
+                write_violation(w, &finding.violation);
+            }
+            w.len(incomplete.len());
+            for reason in incomplete {
+                write_reason(w, reason);
+            }
+        }
+        RunVerdict::Skipped { reason } => {
+            w.tag(1);
+            write_reason(w, reason);
+        }
+    }
+}
+
+fn write_opt_view<W: CanonicalSink + ?Sized>(w: &mut W, value: Option<&ViewRef>) {
+    match value {
+        None => w.tag(0),
+        Some(value) => {
+            w.tag(1);
+            write_view_ref(w, value);
+        }
+    }
+}
+
+fn write_opt_digest<W: CanonicalSink + ?Sized>(w: &mut W, value: Option<&Digest>) {
+    match value {
+        None => w.tag(0),
+        Some(value) => {
+            w.tag(1);
+            w.write(&value.0);
+        }
+    }
+}
 
 mod sealed {
     use super::InstanceView;
@@ -267,13 +643,21 @@ fn verify_in(
     if plan.is_statically_incomplete(&d.check)
         || !spec.applies_to(view.shape())
         || spec.class != d.class
-        || spec.requirement != d.requirement
+        || d.requirement
+            != if d.violation.refutes() {
+                spec.requirement
+            } else {
+                Requirement::Advisory
+            }
         || plan.options.sources.0.get(&d.check.decl) != d.source.as_ref()
     {
         return false;
     }
     let none = ExternalVerdicts::default();
     let ctx = Context::new(plan, view, external.unwrap_or(&none));
+    if let Violation::OutsideKeyScope { key, scope } = &d.violation {
+        return outside_key_scope(&ctx, d, key, scope);
+    }
     if !instances(&ctx, &d.check).contains(&d.subject) {
         return false;
     }
@@ -326,7 +710,8 @@ fn expected_elements(ctx: &Context<'_>, d: &Diagnostic) -> Option<Vec<ViewRef>> 
         | Violation::MistypedAttribute { .. }
         | Violation::DanglingReference { .. }
         | Violation::Unreachable
-        | Violation::ExternalRejected { .. } => with_subject(Vec::new()),
+        | Violation::ExternalRejected { .. }
+        | Violation::OutsideKeyScope { .. } => with_subject(Vec::new()),
         Violation::IncoherentEndpoint { side, .. } => {
             let e = subject.clone()?;
             with_subject(vec![endpoint(view, &e, *side)?])
@@ -369,6 +754,29 @@ fn expected_elements(ctx: &Context<'_>, d: &Diagnostic) -> Option<Vec<ViewRef>> 
             )
         }
     }
+}
+
+/// An element outside a `Within` key's domain: the diagnostic's check is a
+/// compiled `KeyUnique` of a key scoped within `scope`, its subject is the
+/// one element it names, anchored at the key's vertex with a complete key
+/// value, and no ancestor of the subject is anchored at `scope`.
+fn outside_key_scope(ctx: &Context<'_>, d: &Diagnostic, key_id: &Name, scope: &Name) -> bool {
+    let Some(Compiled::KeyUnique { vertex, key }) = ctx.plan.compiled.get(&d.check) else {
+        return false;
+    };
+    let Some(subject) = d.subject.as_ref() else {
+        return false;
+    };
+    let view = ctx.view;
+    d.check.kind == CheckKind::KeyUnique
+        && key.id == *key_id
+        && matches!(&key.scope, panproto_schema::KeyScope::Within(v) if v == scope)
+        && d.elements == [subject.clone()]
+        && view
+            .node(subject)
+            .is_some_and(|node| !node.fan && node.anchor == vertex)
+        && key_values(view, subject, key).is_some()
+        && scope_of(view, subject, &key.scope).is_none()
 }
 
 /// Whether `refs` is strictly ascending.
@@ -509,7 +917,7 @@ fn global_holds(ctx: &Context<'_>, d: &Diagnostic) -> bool {
         ) => {
             r.id == *reference
                 && holder_names(ctx, h, r, target, key)
-                && target_elements(ctx, r, target, key).is_empty()
+                && target_elements(ctx, h, r, target, key).is_empty()
         }
         (
             Some(Compiled::Reference {
@@ -526,7 +934,7 @@ fn global_holds(ctx: &Context<'_>, d: &Diagnostic) -> bool {
             r.id == *reference
                 && candidates.len() > 1
                 && holder_names(ctx, h, r, target, key)
-                && target_elements(ctx, r, target, key) == *candidates
+                && target_elements(ctx, h, r, target, key) == *candidates
         }
         (Some(Compiled::Acyclic { labels }), Violation::Cycle { scc, witness }, None) => {
             cycle(ctx, labels, scc, witness)
@@ -866,6 +1274,11 @@ fn duplicate_key(
             .all(|((name, _), part)| *name == part_name(part));
     let values: Vec<Value> = named.iter().map(|(_, v)| v.clone()).collect();
     let scope = scope_of(view, first, &key.scope);
+    if scope.is_none() && matches!(key.scope, panproto_schema::KeyScope::Within(_)) {
+        // An element with no ancestor at a `Within` key's scope vertex is
+        // outside the key's domain and duplicates nothing.
+        return false;
+    }
     let carries = |element: &ViewRef| {
         key_values(view, element, key).is_some_and(|vs| same_values(&vs, &values))
             && scope_of(view, element, &key.scope) == scope
@@ -941,17 +1354,27 @@ fn holder_names(
 }
 
 /// The elements of the reference's target vertex whose value of the target
-/// key is `key`, ascending.
+/// key is `key` in the holder's scope under the key, ascending: under a
+/// `Within(v)` key, those whose nearest v-ancestor is the holder's, and none
+/// when the holder has no v-ancestor.
 fn target_elements(
     ctx: &Context<'_>,
+    holder: &ViewRef,
     reference: &Reference,
     target: &Key,
     key: &[Value],
 ) -> Vec<ViewRef> {
+    let scope = scope_of(ctx.view, holder, &target.scope);
+    if scope.is_none() && matches!(target.scope, panproto_schema::KeyScope::Within(_)) {
+        return Vec::new();
+    }
     ctx.view
         .anchored(&reference.target_vertex)
         .into_iter()
-        .filter(|e| key_values(ctx.view, e, target).is_some_and(|vs| same_values(&vs, key)))
+        .filter(|e| {
+            key_values(ctx.view, e, target).is_some_and(|vs| same_values(&vs, key))
+                && scope_of(ctx.view, e, &target.scope) == scope
+        })
         .collect()
 }
 

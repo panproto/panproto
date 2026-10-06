@@ -6,7 +6,9 @@
 //! shape: nodes are graph nodes, tree nodes or table rows; edges are graph
 //! edges, tree arcs or foreign-key pairs.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, InstanceShapeKind, Schema};
@@ -29,6 +31,148 @@ pub enum InstanceView<'a> {
     Table(&'a FInstance),
 }
 
+thread_local! {
+    /// Per-evaluation carrier reads. A stack makes nested diagnostic
+    /// verification independent while keeping validation thread-safe.
+    static ACTIVE_TRACE: RefCell<Vec<Trace>> = const { RefCell::new(Vec::new()) };
+    #[cfg(test)]
+    static SEMANTIC_EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[derive(Debug)]
+struct Trace {
+    reads: BTreeSet<ViewRef>,
+    limit: Option<usize>,
+    overflowed: bool,
+}
+
+#[cfg(test)]
+pub(super) fn reset_semantic_evaluations() {
+    SEMANTIC_EVALUATIONS.set(0);
+}
+
+#[cfg(test)]
+pub(super) fn semantic_evaluations() -> usize {
+    SEMANTIC_EVALUATIONS.get()
+}
+
+/// Record one carrier read. Under bounded dependency discovery, `false`
+/// means that `at` is the first unpaid distinct read. Callers must stop
+/// before inspecting the carrier element itself.
+fn record_read(at: ViewRef) -> bool {
+    ACTIVE_TRACE.with(|traces| {
+        if let Some(active) = traces.borrow_mut().last_mut() {
+            if active.reads.contains(&at) {
+                return true;
+            }
+            if active
+                .limit
+                .is_some_and(|limit| active.reads.len() >= limit)
+            {
+                active.overflowed = true;
+                return false;
+            }
+            active.reads.insert(at);
+        }
+        true
+    })
+}
+
+fn record_reads(reads: impl IntoIterator<Item = ViewRef>) -> bool {
+    for read in reads {
+        if !record_read(read) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Record every element of `reads`. Under an unbounded trace the set is
+/// merged at once; under a bounded trace it is recorded element by element,
+/// so overflow is decided exactly as by [`record_read`]: a trace overflows
+/// iff its distinct reads would exceed the limit, whatever their order.
+fn record_read_set(reads: &BTreeSet<ViewRef>) -> bool {
+    ACTIVE_TRACE.with(|traces| {
+        let mut traces = traces.borrow_mut();
+        let Some(active) = traces.last_mut() else {
+            return true;
+        };
+        if active.limit.is_some() {
+            for read in reads {
+                if active.reads.contains(read) {
+                    continue;
+                }
+                if active
+                    .limit
+                    .is_some_and(|limit| active.reads.len() >= limit)
+                {
+                    active.overflowed = true;
+                    return false;
+                }
+                active.reads.insert(read.clone());
+            }
+            return true;
+        }
+        if active.reads.len() < reads.len() {
+            let mut merged = reads.clone();
+            merged.append(&mut active.reads);
+            active.reads = merged;
+        } else {
+            active.reads.extend(reads.iter().cloned());
+        }
+        true
+    })
+}
+
+/// Whether the innermost active trace has a read limit.
+fn active_trace_is_bounded() -> bool {
+    ACTIVE_TRACE.with(|traces| {
+        traces
+            .borrow()
+            .last()
+            .is_some_and(|active| active.limit.is_some())
+    })
+}
+
+fn trace_overflowed() -> bool {
+    ACTIVE_TRACE.with(|traces| {
+        traces
+            .borrow()
+            .last()
+            .is_some_and(|active| active.overflowed)
+    })
+}
+
+fn traced<T>(f: impl FnOnce() -> T) -> (T, BTreeSet<ViewRef>) {
+    ACTIVE_TRACE.with(|traces| {
+        traces.borrow_mut().push(Trace {
+            reads: BTreeSet::new(),
+            limit: None,
+            overflowed: false,
+        });
+    });
+    let value = f();
+    let Some(trace) = ACTIVE_TRACE.with(|traces| traces.borrow_mut().pop()) else {
+        unreachable!("an evaluation trace was started")
+    };
+    (value, trace.reads)
+}
+
+fn traced_bounded<T>(limit: usize, f: impl FnOnce() -> T) -> (T, Trace) {
+    ACTIVE_TRACE.with(|traces| {
+        traces.borrow_mut().push(Trace {
+            reads: BTreeSet::new(),
+            limit: Some(limit),
+            overflowed: false,
+        });
+    });
+    let value = f();
+    let Some(trace) = ACTIVE_TRACE.with(|traces| traces.borrow_mut().pop()) else {
+        unreachable!("a bounded dependency trace was started")
+    };
+    (value, trace)
+}
+
 /// A tree's arcs indexed by parent and by child: the positions in
 /// `WInstance::arcs` of the arcs leaving and entering each node, in arc
 /// order.
@@ -36,6 +180,7 @@ pub enum InstanceView<'a> {
 pub struct TreeArcs {
     out: HashMap<u32, Vec<usize>>,
     inn: HashMap<u32, Vec<usize>>,
+    fan_parents: HashSet<u32>,
 }
 
 impl TreeArcs {
@@ -46,6 +191,8 @@ impl TreeArcs {
             arcs.out.entry(*p).or_default().push(i);
             arcs.inn.entry(*c).or_default().push(i);
         }
+        arcs.fan_parents
+            .extend(tree.fans.iter().map(|fan| fan.parent));
         arcs
     }
 }
@@ -135,43 +282,59 @@ impl<'a> InstanceView<'a> {
 
     /// Every node, ascending.
     pub(crate) fn nodes(self) -> Vec<NodeRec<'a>> {
-        let mut out: Vec<NodeRec<'a>> = match self {
-            Self::Graph(g) => g
-                .nodes()
-                .values()
-                .map(|n| NodeRec {
-                    at: ViewRef::Node(n.id),
-                    anchor: &n.anchor,
-                    fan: n.shape == NodeShape::HyperEdge,
-                })
-                .collect(),
-            Self::Tree(t, _) => t
-                .nodes
-                .iter()
-                .map(|(id, n)| NodeRec {
-                    at: ViewRef::Node(*id),
-                    anchor: &n.anchor,
-                    fan: false,
-                })
-                .collect(),
-            Self::Table(f) => f
-                .tables()
-                .into_iter()
-                .flat_map(|(name, table)| {
-                    table.ids().into_iter().map(move |id| NodeRec {
-                        at: ViewRef::Row(id),
-                        anchor: name,
+        let mut out = Vec::new();
+        match self {
+            Self::Graph(g) => {
+                for node in g.nodes().values() {
+                    let at = ViewRef::Node(node.id);
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(NodeRec {
+                        at,
+                        anchor: &node.anchor,
+                        fan: node.shape == NodeShape::HyperEdge,
+                    });
+                }
+            }
+            Self::Tree(tree, _) => {
+                for (id, node) in &tree.nodes {
+                    let at = ViewRef::Node(*id);
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(NodeRec {
+                        at,
+                        anchor: &node.anchor,
                         fan: false,
-                    })
-                })
-                .collect(),
-        };
+                    });
+                }
+            }
+            Self::Table(instance) => {
+                'tables: for (name, table) in instance.tables() {
+                    for id in table.ids() {
+                        let at = ViewRef::Row(id);
+                        if !record_read(at.clone()) {
+                            break 'tables;
+                        }
+                        out.push(NodeRec {
+                            at,
+                            anchor: name,
+                            fan: false,
+                        });
+                    }
+                }
+            }
+        }
         out.sort_by(|a, b| a.at.cmp(&b.at));
         out
     }
 
     /// The node at `at`, if the instance holds it.
     pub(crate) fn node(self, at: &ViewRef) -> Option<NodeRec<'a>> {
+        if !record_read(at.clone()) {
+            return None;
+        }
         match (self, at) {
             (Self::Graph(g), ViewRef::Node(id)) => g.node(*id).map(|n| NodeRec {
                 at: at.clone(),
@@ -195,59 +358,75 @@ impl<'a> InstanceView<'a> {
     /// The typed nodes anchored at `vertex`: every node anchored there that
     /// is not a fan node, ascending.
     pub(crate) fn anchored(self, vertex: &Name) -> Vec<ViewRef> {
-        self.nodes()
+        let anchored: Vec<ViewRef> = self
+            .nodes()
             .into_iter()
             .filter(|n| !n.fan && n.anchor == vertex)
             .map(|n| n.at)
-            .collect()
+            .collect();
+        anchored
     }
 
     /// Every edge, ascending, tree arcs in their arc order within one
     /// `(parent, child)`.
     pub(crate) fn edges(self) -> Vec<EdgeRec<'a>> {
-        let mut out: Vec<EdgeRec<'a>> = match self {
-            Self::Graph(g) => g
-                .edges_sorted()
-                .map(|(id, e)| EdgeRec {
-                    at: ViewRef::Edge(id),
-                    src: ViewRef::Node(e.src),
-                    tgt: ViewRef::Node(e.tgt),
-                    label: &e.edge,
-                    position: e.position,
-                })
-                .collect(),
-            Self::Tree(t, _) => t
-                .arcs
-                .iter()
-                .map(|(p, c, e)| EdgeRec {
-                    at: ViewRef::Arc {
-                        parent: *p,
-                        child: *c,
-                    },
-                    src: ViewRef::Node(*p),
-                    tgt: ViewRef::Node(*c),
-                    label: e,
-                    position: None,
-                })
-                .collect(),
-            Self::Table(f) => f
-                .foreign_keys()
-                .into_iter()
-                .flat_map(|(edge, pairs)| {
-                    pairs.iter().map(move |&(s, t)| EdgeRec {
-                        at: ViewRef::Pair {
-                            edge: edge.clone(),
-                            src: s,
-                            tgt: t,
-                        },
-                        src: ViewRef::Row(s),
-                        tgt: ViewRef::Row(t),
-                        label: edge,
+        let mut out = Vec::new();
+        match self {
+            Self::Graph(graph) => {
+                for (id, edge) in graph.edges_sorted() {
+                    let at = ViewRef::Edge(id);
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(EdgeRec {
+                        at,
+                        src: ViewRef::Node(edge.src),
+                        tgt: ViewRef::Node(edge.tgt),
+                        label: &edge.edge,
+                        position: edge.position,
+                    });
+                }
+            }
+            Self::Tree(tree, _) => {
+                for (parent, child, label) in &tree.arcs {
+                    let at = ViewRef::Arc {
+                        parent: *parent,
+                        child: *child,
+                    };
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(EdgeRec {
+                        at,
+                        src: ViewRef::Node(*parent),
+                        tgt: ViewRef::Node(*child),
+                        label,
                         position: None,
-                    })
-                })
-                .collect(),
-        };
+                    });
+                }
+            }
+            Self::Table(instance) => {
+                'keys: for (edge, pairs) in instance.foreign_keys() {
+                    for &(source, target) in pairs {
+                        let at = ViewRef::Pair {
+                            edge: edge.clone(),
+                            src: source,
+                            tgt: target,
+                        };
+                        if !record_read(at.clone()) {
+                            break 'keys;
+                        }
+                        out.push(EdgeRec {
+                            at,
+                            src: ViewRef::Row(source),
+                            tgt: ViewRef::Row(target),
+                            label: edge,
+                            position: None,
+                        });
+                    }
+                }
+            }
+        }
         out.sort_by(|a, b| a.at.cmp(&b.at));
         out
     }
@@ -255,36 +434,50 @@ impl<'a> InstanceView<'a> {
     /// The out-edges of `node`: ascending for graphs and tables, in arc
     /// order for trees.
     pub(crate) fn out_edges(self, node: &ViewRef) -> Vec<EdgeRec<'a>> {
+        if !record_read(node.clone()) {
+            return Vec::new();
+        }
         match (self, node) {
-            (Self::Graph(g), ViewRef::Node(id)) => g
-                .out_edges(*id)
-                .iter()
-                .filter_map(|e| g.edge(*e).map(|ge| (*e, ge)))
-                .map(|(id, e)| EdgeRec {
-                    at: ViewRef::Edge(id),
-                    src: ViewRef::Node(e.src),
-                    tgt: ViewRef::Node(e.tgt),
-                    label: &e.edge,
-                    position: e.position,
-                })
-                .collect(),
-            (Self::Tree(t, arcs), ViewRef::Node(id)) => arcs
-                .out
-                .get(id)
-                .into_iter()
-                .flatten()
-                .map(|&i| &t.arcs[i])
-                .map(|(p, c, e)| EdgeRec {
-                    at: ViewRef::Arc {
-                        parent: *p,
-                        child: *c,
-                    },
-                    src: ViewRef::Node(*p),
-                    tgt: ViewRef::Node(*c),
-                    label: e,
-                    position: None,
-                })
-                .collect(),
+            (Self::Graph(g), ViewRef::Node(id)) => {
+                let mut out = Vec::new();
+                for edge_id in g.out_edges(*id) {
+                    let at = ViewRef::Edge(*edge_id);
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    if let Some(edge) = g.edge(*edge_id) {
+                        out.push(EdgeRec {
+                            at,
+                            src: ViewRef::Node(edge.src),
+                            tgt: ViewRef::Node(edge.tgt),
+                            label: &edge.edge,
+                            position: edge.position,
+                        });
+                    }
+                }
+                out
+            }
+            (Self::Tree(t, arcs), ViewRef::Node(id)) => {
+                let mut out = Vec::new();
+                for &index in arcs.out.get(id).into_iter().flatten() {
+                    let (parent, child, label) = &t.arcs[index];
+                    let at = ViewRef::Arc {
+                        parent: *parent,
+                        child: *child,
+                    };
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(EdgeRec {
+                        at,
+                        src: ViewRef::Node(*parent),
+                        tgt: ViewRef::Node(*child),
+                        label,
+                        position: None,
+                    });
+                }
+                out
+            }
             (Self::Table(f), ViewRef::Row(id)) => Self::table_pairs(f, *id)
                 .into_iter()
                 .filter(|e| e.src == ViewRef::Row(*id))
@@ -295,36 +488,50 @@ impl<'a> InstanceView<'a> {
 
     /// The in-edges of `node`, in the order of [`Self::out_edges`].
     pub(crate) fn in_edges(self, node: &ViewRef) -> Vec<EdgeRec<'a>> {
+        if !record_read(node.clone()) {
+            return Vec::new();
+        }
         match (self, node) {
-            (Self::Graph(g), ViewRef::Node(id)) => g
-                .in_edges(*id)
-                .iter()
-                .filter_map(|e| g.edge(*e).map(|ge| (*e, ge)))
-                .map(|(id, e)| EdgeRec {
-                    at: ViewRef::Edge(id),
-                    src: ViewRef::Node(e.src),
-                    tgt: ViewRef::Node(e.tgt),
-                    label: &e.edge,
-                    position: e.position,
-                })
-                .collect(),
-            (Self::Tree(t, arcs), ViewRef::Node(id)) => arcs
-                .inn
-                .get(id)
-                .into_iter()
-                .flatten()
-                .map(|&i| &t.arcs[i])
-                .map(|(p, c, e)| EdgeRec {
-                    at: ViewRef::Arc {
-                        parent: *p,
-                        child: *c,
-                    },
-                    src: ViewRef::Node(*p),
-                    tgt: ViewRef::Node(*c),
-                    label: e,
-                    position: None,
-                })
-                .collect(),
+            (Self::Graph(g), ViewRef::Node(id)) => {
+                let mut out = Vec::new();
+                for edge_id in g.in_edges(*id) {
+                    let at = ViewRef::Edge(*edge_id);
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    if let Some(edge) = g.edge(*edge_id) {
+                        out.push(EdgeRec {
+                            at,
+                            src: ViewRef::Node(edge.src),
+                            tgt: ViewRef::Node(edge.tgt),
+                            label: &edge.edge,
+                            position: edge.position,
+                        });
+                    }
+                }
+                out
+            }
+            (Self::Tree(t, arcs), ViewRef::Node(id)) => {
+                let mut out = Vec::new();
+                for &index in arcs.inn.get(id).into_iter().flatten() {
+                    let (parent, child, label) = &t.arcs[index];
+                    let at = ViewRef::Arc {
+                        parent: *parent,
+                        child: *child,
+                    };
+                    if !record_read(at.clone()) {
+                        break;
+                    }
+                    out.push(EdgeRec {
+                        at,
+                        src: ViewRef::Node(*parent),
+                        tgt: ViewRef::Node(*child),
+                        label,
+                        position: None,
+                    });
+                }
+                out
+            }
             (Self::Table(f), ViewRef::Row(id)) => Self::table_pairs(f, *id)
                 .into_iter()
                 .filter(|e| e.tgt == ViewRef::Row(*id))
@@ -353,15 +560,29 @@ impl<'a> InstanceView<'a> {
         };
         let mut out = Vec::new();
         for (edge, _) in f.foreign_keys() {
-            if edge.src == *table {
-                out.extend(f.targets_of(edge, id).map(|t| pair(edge, id, t)));
+            if trace_overflowed() {
+                break;
             }
-            if edge.tgt == *table {
-                out.extend(
-                    f.sources_of(edge, id)
-                        .filter(|s| !(edge.src == *table && *s == id))
-                        .map(|s| pair(edge, s, id)),
-                );
+            if edge.src == *table {
+                for target in f.targets_of(edge, id) {
+                    let record = pair(edge, id, target);
+                    if !record_read(record.at.clone()) {
+                        break;
+                    }
+                    out.push(record);
+                }
+            }
+            if !trace_overflowed() && edge.tgt == *table {
+                for source in f.sources_of(edge, id) {
+                    if edge.src == *table && source == id {
+                        continue;
+                    }
+                    let record = pair(edge, source, id);
+                    if !record_read(record.at.clone()) {
+                        break;
+                    }
+                    out.push(record);
+                }
             }
         }
         out.sort_by(|a, b| a.at.cmp(&b.at));
@@ -372,6 +593,9 @@ impl<'a> InstanceView<'a> {
 impl<'a> InstanceView<'a> {
     /// The node's own value: a graph or tree node's `value`; a row has none.
     pub(crate) fn own_value(self, node: &ViewRef) -> Presence<'a> {
+        if !record_read(node.clone()) {
+            return Presence::Absent;
+        }
         match (self, node) {
             (Self::Graph(g), ViewRef::Node(id)) => {
                 Presence::of_field(g.node(*id).and_then(|n| n.value.as_ref()))
@@ -386,6 +610,9 @@ impl<'a> InstanceView<'a> {
     /// A named field of the node: a graph or tree node's extra field, a
     /// row's cell.
     pub(crate) fn field(self, node: &ViewRef, name: &str) -> Presence<'a> {
+        if !record_read(node.clone()) {
+            return Presence::Absent;
+        }
         match (self, node) {
             (Self::Graph(g), ViewRef::Node(id)) => {
                 Presence::of_value(g.node(*id).and_then(|n| n.extra_fields.get(name)))
@@ -398,6 +625,37 @@ impl<'a> InstanceView<'a> {
             }
             _ => Presence::Absent,
         }
+    }
+
+    /// Every stored named value of `node`, ascending by field name.
+    pub(crate) fn fields(self, node: &ViewRef) -> Vec<(&'a str, &'a Value)> {
+        if !record_read(node.clone()) {
+            return Vec::new();
+        }
+        let mut fields: Vec<(&str, &Value)> = match (self, node) {
+            (Self::Graph(g), ViewRef::Node(id)) => g
+                .node(*id)
+                .into_iter()
+                .flat_map(|node| &node.extra_fields)
+                .map(|(key, value)| (key.as_str(), value))
+                .collect(),
+            (Self::Tree(t, _), ViewRef::Node(id)) => t
+                .nodes
+                .get(id)
+                .into_iter()
+                .flat_map(|node| &node.extra_fields)
+                .map(|(key, value)| (key.as_str(), value))
+                .collect(),
+            (Self::Table(f), ViewRef::Row(id)) => f
+                .row(*id)
+                .into_iter()
+                .flat_map(|row| row.iter())
+                .map(|(key, value)| (key.as_str(), value))
+                .collect(),
+            _ => Vec::new(),
+        };
+        fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        fields
     }
 
     /// The value sites of `vertex`, one rule for every shape, by subject and
@@ -472,16 +730,22 @@ impl<'a> InstanceView<'a> {
             return Some(p);
         }
         match self {
-            Self::Graph(g) => {
-                let parent = node_id(&into.src)?;
+            Self::Graph(_) => {
                 let ViewRef::Edge(id) = into.at else {
                     return None;
                 };
-                let index = g
-                    .ordered_out_edges(parent)
+                let mut siblings = self.out_edges(&into.src);
+                siblings.sort_by_key(|edge| {
+                    let edge_id = match edge.at {
+                        ViewRef::Edge(id) => id,
+                        _ => EdgeId(u32::MAX),
+                    };
+                    (edge.position, edge_id)
+                });
+                let index = siblings
                     .into_iter()
-                    .filter(|e| g.edge(*e).is_some_and(|ge| &ge.edge == within))
-                    .position(|e| e == id)?;
+                    .filter(|edge| edge.label == within)
+                    .position(|edge| edge.at == ViewRef::Edge(id))?;
                 u32::try_from(index).ok()
             }
             Self::Tree(..) => {
@@ -592,21 +856,15 @@ impl<'a> AnchorFamilies<'a> {
     }
 }
 
-/// The attribute key a violation names.
-fn attribute_key(v: &AttributeViolation) -> &str {
-    match v {
-        AttributeViolation::Undeclared { key, .. } | AttributeViolation::Mistyped { key, .. } => {
-            key
-        }
-    }
-}
-
-use super::plan::{Bound, Compiled, ExternalVerdicts, ValidationPlan, ValueFormat, ValueTest};
-use super::report::{
-    CheckKey, CheckKind, EndpointSide, FanRecord, IncompleteReason, SchemaRef, Violation,
+use super::plan::{
+    Bound, CheckSpec, Compiled, ExternalVerdicts, ValidationPlan, ValueFormat, ValueTest,
 };
-use super::state::{KeyIndex, key_bytes, part_name, part_value, path_values};
-use crate::attributes::AttributeViolation;
+use super::report::{
+    CheckKey, CheckKind, Diagnostic, EndpointSide, FanRecord, IncompleteReason, Requirement,
+    SchemaRef, SourceLocation, Violation,
+};
+use super::state::{KeyIndex, key_bytes, part_name, part_value, path_values, scope_of};
+use crate::attributes::kind_accepts;
 use crate::fan_violation::FanViolation;
 
 /// One violation an instance of a check found: the elements it names and
@@ -630,6 +888,34 @@ impl Finding {
     }
 }
 
+/// The diagnostic one finding of the instance of `check` about `subject`
+/// reports. A [`Violation::OutsideKeyScope`] finding records an element
+/// outside the key's domain rather than a refutation: its diagnostic is
+/// advisory whatever the check's requirement, and its subject is that
+/// element.
+pub fn diagnostic_of(
+    check: &CheckKey,
+    spec: &CheckSpec,
+    subject: Option<&ViewRef>,
+    finding: Finding,
+    source: Option<SourceLocation>,
+) -> Diagnostic {
+    let (requirement, subject) = if finding.violation.refutes() {
+        (spec.requirement, subject.cloned())
+    } else {
+        (Requirement::Advisory, finding.elements.first().cloned())
+    };
+    Diagnostic {
+        check: check.clone(),
+        class: spec.class,
+        requirement,
+        subject,
+        elements: finding.elements,
+        violation: finding.violation,
+        source,
+    }
+}
+
 /// The verdict of one check instance: failed when it found anything,
 /// otherwise incomplete when part of it could not be decided, otherwise
 /// passed.
@@ -639,6 +925,17 @@ pub struct Outcome {
     pub findings: Vec<Finding>,
     /// What it could not decide, and why.
     pub incomplete: Vec<IncompleteReason>,
+}
+
+/// One check execution and the exact carrier elements read by that same
+/// execution.
+#[cfg(test)]
+#[derive(Clone, Debug, Default)]
+pub struct Evaluation {
+    /// The complete vector-valued outcome.
+    pub outcome: Outcome,
+    /// The instrumented carrier trace, ascending without repeats.
+    pub reads: BTreeSet<ViewRef>,
 }
 
 impl Outcome {
@@ -658,17 +955,29 @@ impl Outcome {
 }
 
 /// What every check instance of one validation reads besides the instance:
-/// the plan, the anchor families, and the indexes and traversals computed
-/// once per validation.
+/// the plan and the anchor families.
+///
+/// A context also memoizes each key index it builds without a read limit,
+/// with the exact reads that building it records. Every later check
+/// instance of the same context that consults the index records those same
+/// reads into its own trace, so an instance's dependency trace is the one
+/// an uncached build would record, while the index itself is built once per
+/// instance view instead of once per reference holder.
 pub struct Context<'a> {
     pub plan: &'a ValidationPlan,
     pub view: InstanceView<'a>,
     pub external: &'a ExternalVerdicts,
     families: AnchorFamilies<'a>,
-    attributes: BTreeMap<ViewRef, Vec<AttributeViolation>>,
-    reachable: Option<HashSet<u32>>,
-    reserved: BTreeSet<ViewRef>,
-    target_indexes: BTreeMap<(Name, Name), KeyIndex>,
+    indexes: RefCell<Vec<CachedIndex>>,
+}
+
+/// One memoized key index of a [`Context`].
+struct CachedIndex {
+    vertex: Name,
+    key: panproto_schema::Key,
+    scoped: bool,
+    index: Rc<KeyIndex>,
+    reads: Rc<BTreeSet<ViewRef>>,
 }
 
 impl<'a> Context<'a> {
@@ -677,75 +986,53 @@ impl<'a> Context<'a> {
         view: InstanceView<'a>,
         external: &'a ExternalVerdicts,
     ) -> Self {
-        let attrs = &plan.attributes;
-        let violations = match view {
-            InstanceView::Graph(g) => attrs.validate_ginstance(g),
-            InstanceView::Tree(t, _) => attrs.validate_wtype(t),
-            InstanceView::Table(f) => attrs.validate_finstance(f),
-        };
-        let mut attributes: BTreeMap<ViewRef, Vec<AttributeViolation>> = BTreeMap::new();
-        for v in violations {
-            let id = match &v {
-                AttributeViolation::Undeclared { node_id, .. }
-                | AttributeViolation::Mistyped { node_id, .. } => *node_id,
-            };
-            let at = match view {
-                InstanceView::Table(_) => ViewRef::Row(RowId(id)),
-                _ => ViewRef::Node(id),
-            };
-            attributes.entry(at).or_default().push(v);
-        }
-        for found in attributes.values_mut() {
-            found.sort_by(|a, b| attribute_key(a).cmp(attribute_key(b)));
-        }
-        let reachable = view.tree().map(reachable_from_root);
-        let reserved = view
-            .tree()
-            .map(|t| {
-                crate::wtype_check::reserved_vocabulary(t)
-                    .into_iter()
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut target_indexes = BTreeMap::new();
-        for compiled in plan.compiled.values() {
-            if let Compiled::Reference { reference, target } = compiled {
-                target_indexes
-                    .entry((reference.target_vertex.clone(), target.id.clone()))
-                    .or_insert_with(|| {
-                        KeyIndex::build(view, &reference.target_vertex, target, false)
-                    });
-            }
-        }
         Self {
             plan,
             view,
             external,
             families: AnchorFamilies::new(&plan.schema),
-            attributes,
-            reachable,
-            reserved,
-            target_indexes,
+            indexes: RefCell::new(Vec::new()),
         }
     }
-}
 
-/// The nodes of a tree reachable from its root along arcs.
-fn reachable_from_root(tree: &WInstance) -> HashSet<u32> {
-    let mut reachable = HashSet::new();
-    let mut queue = VecDeque::new();
-    if tree.nodes.contains_key(&tree.root) {
-        reachable.insert(tree.root);
-        queue.push_back(tree.root);
-    }
-    while let Some(current) = queue.pop_front() {
-        for &child in tree.children(current) {
-            if reachable.insert(child) {
-                queue.push_back(child);
-            }
+    /// The index of the elements of `vertex` by `key` (scoped when
+    /// `scoped`), recording into the active trace exactly the reads that
+    /// [`KeyIndex::build`] records.
+    ///
+    /// Under a read limit an unmemoized index is built inside the bounded
+    /// trace itself, so discovery still stops at the first unpaid read, and
+    /// the partial result is not memoized. `None` means that the bounded
+    /// trace overflowed while recording a memoized index's reads.
+    pub(crate) fn key_index(
+        &self,
+        vertex: &Name,
+        key: &panproto_schema::Key,
+        scoped: bool,
+    ) -> Option<Rc<KeyIndex>> {
+        let cached = self
+            .indexes
+            .borrow()
+            .iter()
+            .find(|entry| entry.scoped == scoped && entry.vertex == *vertex && entry.key == *key)
+            .map(|entry| (Rc::clone(&entry.index), Rc::clone(&entry.reads)));
+        if let Some((index, reads)) = cached {
+            return record_read_set(&reads).then_some(index);
         }
+        if active_trace_is_bounded() {
+            let index = KeyIndex::build(self.view, vertex, key, scoped);
+            return (!trace_overflowed()).then(|| Rc::new(index));
+        }
+        let (index, reads) = traced(|| KeyIndex::build(self.view, vertex, key, scoped));
+        let (index, reads) = (Rc::new(index), Rc::new(reads));
+        self.indexes.borrow_mut().push(CachedIndex {
+            vertex: vertex.clone(),
+            key: key.clone(),
+            scoped,
+            index: Rc::clone(&index),
+            reads: Rc::clone(&reads),
+        });
+        record_read_set(&reads).then_some(index)
     }
-    reachable
 }
 
 /// The nodes anchored at any of `anchors` that the schema declares, ascending.
@@ -837,6 +1124,79 @@ pub fn instances(ctx: &Context<'_>, key: &CheckKey) -> Vec<Option<ViewRef>> {
     }
 }
 
+/// Whether one caller-supplied local candidate is an instance of `key`.
+/// Unlike [`instances`], this inspects only `subject` and its indexed
+/// neighborhood; delta-local validation therefore need not enumerate the
+/// carrier to recover the full check-instance set.
+pub fn is_instance_subject(ctx: &Context<'_>, key: &CheckKey, subject: &ViewRef) -> bool {
+    let Some(spec) = ctx.plan.checks().get(key) else {
+        return false;
+    };
+    let view = ctx.view;
+    let anchored = || {
+        view.node(subject)
+            .is_some_and(|node| !node.fan && spec.anchors.contains(node.anchor))
+    };
+    match key.kind {
+        CheckKind::SchemaWellFormed
+        | CheckKind::DeclarationInterpretable
+        | CheckKind::TreeRoot
+        | CheckKind::KeyUnique
+        | CheckKind::Acyclic => false,
+        CheckKind::NodeAnchor => view.node(subject).is_some_and(|node| !node.fan),
+        CheckKind::ReservedVocabulary => {
+            view.node(subject).is_some() || !edges_at(view, subject).is_empty()
+        }
+        CheckKind::EdgeDeclared | CheckKind::EndpointCoherence => edges_at(view, subject)
+            .into_iter()
+            .any(|edge| !view.is_fan_edge(&edge)),
+        CheckKind::FanWellFormed => match view {
+            InstanceView::Graph(_) => {
+                view.node(subject).is_some_and(|node| node.fan)
+                    || view
+                        .out_edges(subject)
+                        .into_iter()
+                        .any(|edge| FanDomain::is_reserved(edge.label))
+            }
+            InstanceView::Tree(tree, _) => matches!(subject, ViewRef::Node(parent) if tree
+                .fans
+                .iter()
+                .any(|fan| fan.parent == *parent)),
+            InstanceView::Table(_) => false,
+        },
+        CheckKind::TreeParentMap | CheckKind::TreeReachable => view.node(subject).is_some(),
+        CheckKind::ValueConstraint => spec.anchors.iter().any(|anchor| {
+            ctx.plan.schema.has_vertex(anchor)
+                && !view
+                    .value_sites_at(&ctx.plan.schema, anchor, subject)
+                    .is_empty()
+        }),
+        CheckKind::RequiredValue => match &key.decl {
+            SchemaRef::Key { .. } => anchored(),
+            _ => spec.anchors.iter().any(|anchor| {
+                ctx.plan.schema.has_vertex(anchor)
+                    && !view
+                        .value_sites_at(&ctx.plan.schema, anchor, subject)
+                        .is_empty()
+            }),
+        },
+        CheckKind::External => match &key.decl {
+            SchemaRef::Constraint { .. } => spec.anchors.iter().any(|anchor| {
+                ctx.plan.schema.has_vertex(anchor)
+                    && !view
+                        .value_sites_at(&ctx.plan.schema, anchor, subject)
+                        .is_empty()
+            }),
+            _ => anchored(),
+        },
+        CheckKind::RequiredEdge
+        | CheckKind::OutDegree
+        | CheckKind::PositionDistinct
+        | CheckKind::Attribute
+        | CheckKind::ReferenceResolves => anchored(),
+    }
+}
+
 /// The elements holding a value site of one of `anchors` that the schema
 /// declares (see [`InstanceView::value_sites`]).
 fn value_subjects(ctx: &Context<'_>, anchors: &BTreeSet<Name>) -> Vec<ViewRef> {
@@ -850,15 +1210,53 @@ fn value_subjects(ctx: &Context<'_>, anchors: &BTreeSet<Name>) -> Vec<ViewRef> {
 
 /// The verdict of the instance of check `key` about `subject`.
 pub fn evaluate(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) -> Outcome {
+    #[cfg(test)]
+    SEMANTIC_EVALUATIONS.set(SEMANTIC_EVALUATIONS.get().saturating_add(1));
     let Some(compiled) = ctx.plan.compiled.get(key) else {
         return Outcome::default();
     };
+    match key.kind {
+        CheckKind::NodeAnchor
+        | CheckKind::ReservedVocabulary
+        | CheckKind::EdgeDeclared
+        | CheckKind::EndpointCoherence
+        | CheckKind::FanWellFormed => evaluate_element(ctx, key, subject),
+        CheckKind::RequiredEdge
+        | CheckKind::OutDegree
+        | CheckKind::PositionDistinct
+        | CheckKind::ValueConstraint
+        | CheckKind::RequiredValue
+        | CheckKind::Attribute => evaluate_local(ctx, key, compiled, subject),
+        CheckKind::TreeRoot | CheckKind::TreeParentMap | CheckKind::TreeReachable => {
+            evaluate_tree(ctx, key, subject)
+        }
+        CheckKind::KeyUnique
+        | CheckKind::ReferenceResolves
+        | CheckKind::Acyclic
+        | CheckKind::External => evaluate_global(ctx, key, compiled, subject),
+        CheckKind::SchemaWellFormed | CheckKind::DeclarationInterpretable => Outcome::default(),
+    }
+}
+
+/// The anchor, reserved-vocabulary, edge, endpoint and fan kinds.
+fn evaluate_element(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) -> Outcome {
     let schema = &ctx.plan.schema;
     let view = ctx.view;
     match (key.kind, subject) {
         (CheckKind::NodeAnchor, Some(n)) => node_anchor(ctx, n),
         (CheckKind::ReservedVocabulary, Some(x)) => {
-            if ctx.reserved.contains(x) {
+            record_read(x.clone());
+            let reserved = match (view, x) {
+                (InstanceView::Tree(tree, _), ViewRef::Node(id)) => tree
+                    .nodes
+                    .get(id)
+                    .is_some_and(|node| node.shape == NodeShape::HyperEdge),
+                (InstanceView::Tree(..), ViewRef::Arc { .. }) => edges_at(view, x)
+                    .iter()
+                    .any(|edge| FanDomain::is_reserved(edge.label)),
+                _ => false,
+            };
+            if reserved {
                 Outcome::fail(vec![x.clone()], Violation::ReservedVocabulary)
             } else {
                 Outcome::default()
@@ -878,6 +1276,19 @@ pub fn evaluate(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) ->
             }),
         (CheckKind::EndpointCoherence, Some(e)) => endpoint_coherence(ctx, e),
         (CheckKind::FanWellFormed, Some(f)) => fan_well_formed(ctx, f),
+        _ => Outcome::default(),
+    }
+}
+
+/// The kinds of one element's out-edges, values and attributes.
+fn evaluate_local(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    compiled: &Compiled,
+    subject: Option<&ViewRef>,
+) -> Outcome {
+    let view = ctx.view;
+    match (key.kind, subject) {
         (CheckKind::RequiredEdge, Some(n)) => match compiled {
             Compiled::Required { edge } => required_edge(view, n, edge),
             _ => Outcome::default(),
@@ -906,19 +1317,55 @@ pub fn evaluate(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) ->
             _ => Outcome::default(),
         },
         (CheckKind::Attribute, Some(n)) => attribute(ctx, n),
-        (CheckKind::TreeRoot, None) => match view.tree() {
-            Some(t) if !t.nodes.contains_key(&t.root) => {
+        _ => Outcome::default(),
+    }
+}
+
+/// The tree-only kinds.
+fn evaluate_tree(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) -> Outcome {
+    let view = ctx.view;
+    match (key.kind, subject) {
+        (CheckKind::TreeRoot, None) => view.tree().map_or_else(Outcome::default, |t| {
+            record_read(ViewRef::Node(t.root));
+            if t.nodes.contains_key(&t.root) {
+                Outcome::default()
+            } else {
                 Outcome::fail(Vec::new(), Violation::MissingRoot)
             }
-            _ => Outcome::default(),
-        },
+        }),
         (CheckKind::TreeParentMap, Some(n)) => tree_parent_map(view, n),
-        (CheckKind::TreeReachable, Some(ViewRef::Node(id))) => match &ctx.reachable {
-            Some(reachable) if !reachable.contains(id) => {
+        (CheckKind::TreeReachable, Some(n @ ViewRef::Node(id))) => {
+            record_read(n.clone());
+            let mut at = n.clone();
+            let mut seen = BTreeSet::from([at.clone()]);
+            while let Some(parent) = view.in_edges(&at).into_iter().next() {
+                if !seen.insert(parent.src.clone()) {
+                    break;
+                }
+                at = parent.src;
+            }
+            let reached = view
+                .tree()
+                .is_some_and(|tree| at == ViewRef::Node(tree.root));
+            if reached {
+                Outcome::default()
+            } else {
                 Outcome::fail(vec![ViewRef::Node(*id)], Violation::Unreachable)
             }
-            _ => Outcome::default(),
-        },
+        }
+        _ => Outcome::default(),
+    }
+}
+
+/// The key, reference, cycle and external kinds.
+fn evaluate_global(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    compiled: &Compiled,
+    subject: Option<&ViewRef>,
+) -> Outcome {
+    let view = ctx.view;
+    match (key.kind, subject) {
         (CheckKind::KeyUnique, None) => match compiled {
             Compiled::KeyUnique { vertex, key } => key_unique(ctx, vertex, key),
             _ => Outcome::default(),
@@ -934,30 +1381,313 @@ pub fn evaluate(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) ->
             _ => Outcome::default(),
         },
         (CheckKind::External, Some(n)) => match compiled {
-            Compiled::External { name } => match ctx.external.get(name, n) {
-                None => Outcome::undecided(IncompleteReason::MissingExternalWitness {
-                    name: name.clone(),
-                }),
-                Some(v) if !v.passed => Outcome::fail(
-                    vec![n.clone()],
-                    Violation::ExternalRejected { witness: v.witness },
-                ),
-                Some(_) => Outcome::default(),
-            },
+            Compiled::External { name } => {
+                let _ = view.node(n);
+                let _ = view.out_edges(n);
+                let _ = view.in_edges(n);
+                match ctx.external.get(name, n) {
+                    None => Outcome::undecided(IncompleteReason::MissingExternalWitness {
+                        name: name.clone(),
+                    }),
+                    Some(v) if !v.passed => Outcome::fail(
+                        vec![n.clone()],
+                        Violation::ExternalRejected { witness: v.witness },
+                    ),
+                    Some(_) => Outcome::default(),
+                }
+            }
             _ => Outcome::default(),
         },
         _ => Outcome::default(),
     }
 }
 
+/// Discover the exact dependency snapshot of one check instance without
+/// producing a semantic outcome. A budget scheduler charges this snapshot
+/// atomically before calling [`evaluate_with_trace`].
+///
+/// The trace premise (T), on which incremental validation rests: for every
+/// check kind, evaluation is a deterministic function of the plan, the
+/// external verdicts of its subject and the values at the elements it reads;
+/// the sequence of its reads is determined by the values read so far; and no
+/// check reads another check's outcome. Footprint soundness and edit
+/// agreement are proved from (T), which is a hypothesis of those proofs, not
+/// a result of them, as it is of the published proofs of build-system
+/// correctness: the determinism clause is the assumption Spall et al. 2022
+/// state for the build tool Rattle and do not check (Sec 2.2, stated), and
+/// their proofs take it as the hypothesis `CmdProof` of Sec 3.2, which is
+/// also the closest precedent of the read-sequence clause (inferred);
+/// Erdweg et al. 2015's stability assumption (Assumption 4.2, Sec 4.4) is a
+/// further analogue (inferred). Debug and test builds check (T)'s trace
+/// half on every evaluation: [`evaluate_with_trace`] compares the reads
+/// evaluation makes with this discovered snapshot.
+pub fn dependency_trace(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    subject: Option<&ViewRef>,
+) -> BTreeSet<ViewRef> {
+    let ((), reads) = traced(|| discover_dependencies(ctx, key, subject));
+    reads
+}
+
+/// Discover one dependency snapshot while admitting at most `limit`
+/// distinct carrier reads. `None` means discovery encountered the first
+/// read beyond that residual budget. Accessors stop at that element, so a
+/// rejected instance never scans the unpaid suffix of an adjacency/index
+/// range and is never evaluated semantically.
+pub fn dependency_trace_bounded(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    subject: Option<&ViewRef>,
+    limit: usize,
+) -> Option<BTreeSet<ViewRef>> {
+    let ((), trace) = traced_bounded(limit, || discover_dependencies(ctx, key, subject));
+    (!trace.overflowed).then_some(trace.reads)
+}
+
+/// Evaluate against a dependency snapshot that was already admitted by the
+/// scheduler. Debug and test builds check that the semantic execution reads
+/// exactly the supplied snapshot.
+pub fn evaluate_with_trace(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    subject: Option<&ViewRef>,
+    reads: &BTreeSet<ViewRef>,
+) -> Outcome {
+    let (outcome, observed) = traced(|| evaluate(ctx, key, subject));
+    debug_assert_eq!(
+        &observed, reads,
+        "dependency discovery drifted from evaluation"
+    );
+    outcome
+}
+
+/// Evaluate one check instance whose trace nothing consumes. Release builds
+/// evaluate it untraced; debug and test builds also discover its trace and
+/// check that the evaluation reads exactly that trace.
+pub fn evaluate_untraced(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) -> Outcome {
+    if cfg!(debug_assertions) {
+        let reads = dependency_trace(ctx, key, subject);
+        evaluate_with_trace(ctx, key, subject, &reads)
+    } else {
+        evaluate(ctx, key, subject)
+    }
+}
+
+/// Discover and evaluate one unbudgeted check instance.
+#[cfg(test)]
+pub fn evaluate_traced(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) -> Evaluation {
+    let reads = dependency_trace(ctx, key, subject);
+    let outcome = evaluate_with_trace(ctx, key, subject, &reads);
+    Evaluation { outcome, reads }
+}
+
+/// Discover the reads of one check instance into the active trace, in the
+/// order its evaluation makes them, without evaluating it.
+fn discover_dependencies(ctx: &Context<'_>, key: &CheckKey, subject: Option<&ViewRef>) {
+    let Some(compiled) = ctx.plan.compiled.get(key) else {
+        return;
+    };
+    match key.kind {
+        CheckKind::KeyUnique
+        | CheckKind::ReferenceResolves
+        | CheckKind::Acyclic
+        | CheckKind::External => discover_global(ctx, key, compiled, subject),
+        _ => discover_local(ctx, key, compiled, subject),
+    }
+}
+
+/// [`discover_dependencies`] for every kind but the key, reference, cycle
+/// and external kinds.
+fn discover_local(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    compiled: &Compiled,
+    subject: Option<&ViewRef>,
+) {
+    let view = ctx.view;
+    match (key.kind, subject) {
+        (
+            CheckKind::NodeAnchor
+            | CheckKind::ReservedVocabulary
+            | CheckKind::EdgeDeclared
+            | CheckKind::Attribute,
+            Some(at),
+        ) => {
+            if !record_read(at.clone()) {
+                return;
+            }
+            if key.kind == CheckKind::Attribute
+                && let Some(node) = view.node(at)
+                && !ctx.plan.attributes.for_vertex(node.anchor).is_empty()
+            {
+                let _ = view.fields(at);
+            }
+        }
+        (CheckKind::EndpointCoherence, Some(edge)) => {
+            for record in edges_at(view, edge) {
+                let _ = view.node(&record.src);
+                let _ = view.node(&record.tgt);
+            }
+        }
+        (CheckKind::FanWellFormed, Some(fan)) => {
+            if !record_read(fan.clone()) {
+                return;
+            }
+            match view {
+                InstanceView::Tree(tree, _) => {
+                    for record in tree.fans.iter().filter(
+                        |record| matches!(fan, ViewRef::Node(parent) if record.parent == *parent),
+                    ) {
+                        if !record_reads(record.children.values().copied().map(ViewRef::Node)) {
+                            break;
+                        }
+                    }
+                }
+                InstanceView::Graph(_) => {
+                    let _ = view.out_edges(fan);
+                    let _ = view.in_edges(fan);
+                }
+                InstanceView::Table(_) => {}
+            }
+        }
+        (
+            CheckKind::RequiredEdge | CheckKind::OutDegree | CheckKind::PositionDistinct,
+            Some(node),
+        ) => {
+            let _ = view.out_edges(node);
+        }
+        (CheckKind::ValueConstraint, Some(node)) => {
+            if let Compiled::Value { vertex, .. } = compiled {
+                let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
+            }
+        }
+        (CheckKind::RequiredValue, Some(node)) => {
+            if let Compiled::RequiredValue { vertex, parts } = compiled {
+                match parts {
+                    None => {
+                        let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
+                    }
+                    Some(parts) => {
+                        for part in parts {
+                            if matches!(view, InstanceView::Table(_))
+                                && matches!(part, panproto_schema::KeyPart::Position { .. })
+                            {
+                                continue;
+                            }
+                            let _ = part_value(view, node, part);
+                        }
+                    }
+                }
+            }
+        }
+        (CheckKind::TreeRoot, None) => {
+            if let Some(tree) = view.tree() {
+                let _ = record_read(ViewRef::Node(tree.root));
+            }
+        }
+        (CheckKind::TreeParentMap, Some(node)) => {
+            let _ = view.in_edges(node);
+        }
+        (CheckKind::TreeReachable, Some(node)) => {
+            let mut at = node.clone();
+            let mut seen = BTreeSet::from([at.clone()]);
+            if !record_read(at.clone()) {
+                return;
+            }
+            while let Some(parent) = view.in_edges(&at).into_iter().next() {
+                if !seen.insert(parent.src.clone()) {
+                    break;
+                }
+                at = parent.src;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// [`discover_dependencies`] for the key, reference, cycle and external
+/// kinds.
+fn discover_global(
+    ctx: &Context<'_>,
+    key: &CheckKey,
+    compiled: &Compiled,
+    subject: Option<&ViewRef>,
+) {
+    let view = ctx.view;
+    match (key.kind, subject) {
+        (CheckKind::KeyUnique, None) => {
+            if let Compiled::KeyUnique { vertex, key } = compiled {
+                if !(matches!(view, InstanceView::Table(_)) && has_position_part(key).is_some()) {
+                    let _ = ctx.key_index(vertex, key, true);
+                }
+            }
+        }
+        (CheckKind::ReferenceResolves, Some(holder)) => {
+            if let Compiled::Reference { reference, target } = compiled
+                && let panproto_schema::RefSource::KeyValue { parts } = &reference.source
+                && parts.len() == target.parts.len()
+            {
+                if !record_read(holder.clone()) {
+                    return;
+                }
+                let source_keys: Vec<Vec<Value>> = match reference.cardinality {
+                    panproto_schema::Cardinality::One => {
+                        let values: Option<Vec<Value>> = parts
+                            .iter()
+                            .map(|path| {
+                                path_values(view, holder, path)
+                                    .first()
+                                    .map(|v| (*v).clone())
+                            })
+                            .collect();
+                        values.into_iter().collect()
+                    }
+                    panproto_schema::Cardinality::Many => parts
+                        .first()
+                        .into_iter()
+                        .flat_map(|path| path_values(view, holder, path))
+                        .map(|value| vec![value.clone()])
+                        .collect(),
+                };
+                for source_key in source_keys {
+                    let _ = candidates(ctx, holder, reference, target, &source_key);
+                }
+            }
+        }
+        (CheckKind::Acyclic, None) => {
+            if let (Compiled::Acyclic { labels }, Some(graph)) = (compiled, view.graph()) {
+                for (id, edge) in graph.edges_sorted() {
+                    if !record_read(ViewRef::Edge(id)) {
+                        break;
+                    }
+                    if labels.contains(&edge.edge)
+                        && !record_reads([ViewRef::Node(edge.src), ViewRef::Node(edge.tgt)])
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        (CheckKind::External, Some(node)) => {
+            let _ = view.node(node);
+            let _ = view.out_edges(node);
+            let _ = view.in_edges(node);
+        }
+        _ => {}
+    }
+}
+
 /// The edges at reference `e` (a tree may hold two arcs with one parent
 /// and child).
-pub fn edges_at<'a>(view: InstanceView<'a>, e: &ViewRef) -> Vec<EdgeRec<'a>> {
-    match e {
-        ViewRef::Edge(id) => view
-            .graph()
-            .and_then(|g| g.edge(*id).map(|ge| (g, ge)))
-            .map(|(_, ge)| {
+pub fn edges_at<'a>(view: InstanceView<'a>, e: &'a ViewRef) -> Vec<EdgeRec<'a>> {
+    if !record_read(e.clone()) {
+        return Vec::new();
+    }
+    match (view, e) {
+        (InstanceView::Graph(graph), ViewRef::Edge(id)) => graph
+            .edge(*id)
+            .map(|ge| {
                 vec![EdgeRec {
                     at: e.clone(),
                     src: ViewRef::Node(ge.src),
@@ -967,17 +1697,30 @@ pub fn edges_at<'a>(view: InstanceView<'a>, e: &ViewRef) -> Vec<EdgeRec<'a>> {
                 }]
             })
             .unwrap_or_default(),
-        ViewRef::Arc { parent, .. } => view
-            .out_edges(&ViewRef::Node(*parent))
-            .into_iter()
-            .filter(|rec| &rec.at == e)
+        (InstanceView::Tree(tree, _), ViewRef::Arc { parent, child }) => tree
+            .arcs
+            .iter()
+            .filter(|(p, c, _)| p == parent && c == child)
+            .map(|(p, c, label)| EdgeRec {
+                at: e.clone(),
+                src: ViewRef::Node(*p),
+                tgt: ViewRef::Node(*c),
+                label,
+                position: None,
+            })
             .collect(),
-        ViewRef::Pair { src, .. } => view
-            .out_edges(&ViewRef::Row(*src))
+        (InstanceView::Table(table), ViewRef::Pair { edge, src, tgt }) => table
+            .contains_pair(edge, *src, *tgt)
+            .then(|| EdgeRec {
+                at: e.clone(),
+                src: ViewRef::Row(*src),
+                tgt: ViewRef::Row(*tgt),
+                label: edge,
+                position: None,
+            })
             .into_iter()
-            .filter(|rec| &rec.at == e)
             .collect(),
-        ViewRef::Node(_) | ViewRef::Row(_) => Vec::new(),
+        _ => Vec::new(),
     }
 }
 
@@ -1054,8 +1797,11 @@ fn fan_violation_edges(reason: &FanViolation) -> Vec<ViewRef> {
 /// fan multiset and give one diagnostic per reason.
 fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
     let schema = &ctx.plan.schema;
+    record_read(f.clone());
     match (ctx.view, f) {
         (InstanceView::Graph(g), ViewRef::Node(id)) => {
+            let _ = ctx.view.out_edges(f);
+            let _ = ctx.view.in_edges(f);
             let mut out = Outcome::default();
             for reason in FanDomain::violations_at(g, *id, Some(schema)) {
                 let mut elements = fan_violation_edges(&reason);
@@ -1071,6 +1817,12 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
             let mut out = Outcome::default();
             for fan in t.fans.iter().filter(|fan| fan.parent == *parent) {
                 let record = FanRecord::of(fan);
+                record_reads(
+                    record
+                        .children
+                        .iter()
+                        .map(|(_, child)| ViewRef::Node(*child)),
+                );
                 let mut elements = vec![f.clone()];
                 elements.extend(
                     record
@@ -1459,21 +2211,24 @@ fn position_in_table(part: &panproto_schema::KeyPart) -> IncompleteReason {
 
 fn attribute(ctx: &Context<'_>, n: &ViewRef) -> Outcome {
     let mut out = Outcome::default();
-    for v in ctx.attributes.get(n).into_iter().flatten() {
-        let violation = match v {
-            AttributeViolation::Undeclared { key, .. } => {
-                Violation::UndeclaredAttribute { key: key.clone() }
-            }
-            AttributeViolation::Mistyped {
-                key,
-                expected,
-                found,
-                ..
-            } => Violation::MistypedAttribute {
-                key: key.clone(),
-                expected: expected.clone(),
-                found: found.clone(),
+    let Some(node) = ctx.view.node(n) else {
+        return out;
+    };
+    let declarations = ctx.plan.attributes.for_vertex(node.anchor);
+    if declarations.is_empty() {
+        return out;
+    }
+    for (key, value) in ctx.view.fields(n) {
+        let violation = match declarations.iter().find(|decl| decl.name == key) {
+            None => Violation::UndeclaredAttribute {
+                key: key.to_owned(),
             },
+            Some(decl) if !kind_accepts(&decl.kind, value) => Violation::MistypedAttribute {
+                key: key.to_owned(),
+                expected: decl.kind.clone(),
+                found: value.type_name().to_owned(),
+            },
+            Some(_) => continue,
         };
         out.findings.push(Finding::new(vec![n.clone()], violation));
     }
@@ -1517,8 +2272,21 @@ fn key_unique(ctx: &Context<'_>, vertex: &Name, key: &panproto_schema::Key) -> O
     {
         return Outcome::undecided(position_in_table(part));
     }
-    let index = KeyIndex::build(ctx.view, vertex, key, true);
+    let Some(index) = ctx.key_index(vertex, key, true) else {
+        return Outcome::default();
+    };
     let mut out = Outcome::default();
+    if let panproto_schema::KeyScope::Within(scope) = &key.scope {
+        for element in &index.outside {
+            out.findings.push(Finding::new(
+                vec![element.clone()],
+                Violation::OutsideKeyScope {
+                    key: key.id.clone(),
+                    scope: scope.clone(),
+                },
+            ));
+        }
+    }
     for elems in index.buckets.values().filter(|elems| elems.len() > 1) {
         let values = index.values.get(&elems[0]).cloned().unwrap_or_default();
         let named: Vec<(String, Value)> = key.parts.iter().map(part_name).zip(values).collect();
@@ -1543,6 +2311,7 @@ fn holder_keys(
     reference: &panproto_schema::Reference,
     target: &panproto_schema::Key,
 ) -> Result<Vec<Vec<Value>>, Outcome> {
+    record_read(holder.clone());
     let panproto_schema::RefSource::KeyValue { parts } = &reference.source else {
         return Err(Outcome::default());
     };
@@ -1595,30 +2364,26 @@ fn holder_keys(
     }
 }
 
-/// The elements of the target vertex whose key value is `key`.
+/// The elements of the target vertex whose key value is `key` in the
+/// holder's scope: the bucket of `(scope_of(holder), key)` of the target
+/// key's scoped index. Under a `Global` or `Document` key that is every
+/// element with the value; under a `Within(v)` key, only those whose
+/// nearest v-ancestor is the holder's, so a holder with no v-ancestor, or a
+/// target only in another (for instance a nested) v-context, finds none.
 fn candidates(
     ctx: &Context<'_>,
+    holder: &ViewRef,
     reference: &panproto_schema::Reference,
     target: &panproto_schema::Key,
     key: &[Value],
 ) -> Vec<ViewRef> {
-    ctx.target_indexes
-        .get(&(reference.target_vertex.clone(), target.id.clone()))
-        .map(|i| i.lookup(&key_bytes(key)).to_vec())
-        .unwrap_or_default()
-}
-
-/// What `ReferenceResolves` about `holder` reads besides the holder: the
-/// elements of the index bucket each of its key values names.
-pub fn reference_reads(ctx: &Context<'_>, holder: &ViewRef, key: &CheckKey) -> Vec<ViewRef> {
-    let Some(Compiled::Reference { reference, target }) = ctx.plan.compiled.get(key) else {
+    let scope = scope_of(ctx.view, holder, &target.scope);
+    if trace_overflowed() {
         return Vec::new();
-    };
-    holder_keys(ctx, holder, reference, target)
+    }
+    ctx.key_index(&reference.target_vertex, target, true)
+        .and_then(|index| index.buckets.get(&(scope, key_bytes(key))).cloned())
         .unwrap_or_default()
-        .iter()
-        .flat_map(|k| candidates(ctx, reference, target, k))
-        .collect()
 }
 
 fn reference_resolves(
@@ -1633,7 +2398,7 @@ fn reference_resolves(
     };
     let mut out = Outcome::default();
     for key in keys {
-        let candidates = candidates(ctx, reference, target, &key);
+        let candidates = candidates(ctx, holder, reference, target, &key);
         match candidates.len() {
             1 => {}
             0 => out.findings.push(Finding::new(
@@ -1767,7 +2532,9 @@ fn cycle_witness(adj: &BTreeMap<u32, Vec<(EdgeId, u32)>>, scc: &BTreeSet<u32>) -
 fn acyclic(g: &GInstance, labels: &BTreeSet<Edge>) -> Outcome {
     let mut adj: BTreeMap<u32, Vec<(EdgeId, u32)>> = BTreeMap::new();
     for (id, e) in g.edges_sorted() {
+        let _ = record_read(ViewRef::Edge(id));
         if labels.contains(&e.edge) {
+            let _ = record_reads([ViewRef::Node(e.src), ViewRef::Node(e.tgt)]);
             adj.entry(e.src).or_default().push((id, e.tgt));
             adj.entry(e.tgt).or_default();
         }

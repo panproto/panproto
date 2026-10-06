@@ -144,6 +144,11 @@ impl CheckKind {
     /// | `GraphLocal` | `NodeAnchor` through `TreeParentMap` |
     /// | `MaintainedGlobal` | `KeyUnique`, `ReferenceResolves`, `Acyclic`, `TreeReachable` |
     /// | `BoundedExternal` | `External` |
+    ///
+    /// This is the kind-level default. A compiled primary-key
+    /// `RequiredValue` whose key contains a nonempty path or a position part
+    /// is `MaintainedGlobal`, because its value may depend on a remote target
+    /// or on siblings of a remote parent.
     #[must_use]
     pub const fn class(self) -> CheckClass {
         match self {
@@ -196,6 +201,9 @@ impl CheckKind {
     /// `TreeRoot` is a fold of per-segment scalars; `KeyUnique` and
     /// `ReferenceResolves` are a sorted merge of per-segment key runs;
     /// `Acyclic` and `TreeReachable` are reachability over the boundary.
+    /// This is the kind-level default: a compiled primary-key
+    /// `RequiredValue` with a nonempty path or position part is also a sorted
+    /// merge, while an empty path remains local to its owner.
     #[must_use]
     pub const fn locality(self) -> Locality {
         match self {
@@ -425,7 +433,15 @@ impl fmt::Display for FanRecord {
     }
 }
 
-/// A typed refutation: what one check found wrong with an instance.
+/// The typed, locally checkable finding of one diagnostic: what one check
+/// found about an instance.
+///
+/// Every variant but one is a refutation: it says what is wrong with the
+/// instance. [`Violation::OutsideKeyScope`] is an observation instead: it
+/// records an element outside the key's domain, not a refutation, so that a
+/// report names the element a `Within` key leaves unconstrained rather than
+/// dropping it silently. Its diagnostic is always advisory, changes no
+/// coverage count and never changes the status.
 ///
 /// Each variant carries what a checker needs to confirm it without
 /// rerunning validation.
@@ -562,6 +578,25 @@ pub enum Violation {
         /// The digest of the verdict's witness.
         witness: Digest,
     },
+    /// The element is outside the key's domain: the key is unique within
+    /// the nearest ancestor anchored at `scope`, and the element has no such
+    /// ancestor. This records an element outside the key, not a refutation.
+    OutsideKeyScope {
+        /// The key's id.
+        key: Name,
+        /// The vertex whose elements scope the key.
+        scope: Name,
+    },
+}
+
+impl Violation {
+    /// Whether this finding refutes the instance. Every variant does except
+    /// [`Violation::OutsideKeyScope`], which records an element outside the
+    /// key's domain.
+    #[must_use]
+    pub const fn refutes(&self) -> bool {
+        !matches!(self, Self::OutsideKeyScope { .. })
+    }
 }
 
 fn write_list<T: fmt::Display>(f: &mut fmt::Formatter<'_>, items: &[T]) -> fmt::Result {
@@ -749,6 +784,10 @@ impl Violation {
             Self::ExternalRejected { witness } => {
                 write!(f, "rejected by an external verdict (witness {witness})")
             }
+            Self::OutsideKeyScope { key, scope } => write!(
+                f,
+                "outside key {key}: no ancestor anchored at {scope}, so the key does not constrain it"
+            ),
             _ => Ok(()),
         }
     }
@@ -770,7 +809,9 @@ pub struct Diagnostic {
     pub subject: Option<ViewRef>,
     /// Every element the violation names, ascending, the subject included.
     pub elements: Vec<ViewRef>,
-    /// What is wrong.
+    /// What is wrong, for every violation but
+    /// [`Violation::OutsideKeyScope`]; that one records an element outside
+    /// the key's domain, not a refutation, and its diagnostic is advisory.
     pub violation: Violation,
     /// Where the checked declaration was written, if the plan's source map
     /// says.
@@ -1545,6 +1586,11 @@ fn write_violation_tail<W: CanonicalSink + ?Sized>(w: &mut W, v: &Violation) {
             w.tag(19);
             w.write(&witness.0);
         }
+        Violation::OutsideKeyScope { key, scope } => {
+            w.tag(20);
+            w.name(key);
+            w.name(scope);
+        }
         _ => {}
     }
 }
@@ -1593,7 +1639,7 @@ pub fn write_locality<W: CanonicalSink + ?Sized>(w: &mut W, l: &Locality) {
     }
 }
 
-fn write_reason<W: CanonicalSink + ?Sized>(w: &mut W, r: &IncompleteReason) {
+pub fn write_reason<W: CanonicalSink + ?Sized>(w: &mut W, r: &IncompleteReason) {
     match r {
         IncompleteReason::Budget { limit, spent, from } => {
             w.tag(0);

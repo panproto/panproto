@@ -200,11 +200,14 @@ pub use table_restrict::{
 pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};
 pub use validation::{
-    CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, CheckSpec, DeltaElementKind,
-    Diagnostic, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, FanRecord,
-    IncompleteCheck, IncompleteReason, ReportScope, Requirement, SchemaRef, SchemaSourceMap,
-    SourceLocation, TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan,
-    ValidationReport, Violation, validate_graph, validate_table,
+    AdmissionPolicy, BudgetCut, CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind,
+    CheckRun, CheckSpec, DeltaElementKind, Diagnostic, EditRejection, EditValidation, EditWitness,
+    EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, FanRecord, Footprint,
+    IncompleteCheck, IncompleteReason, KeyIndexState, OpenVerdict, ReportScope, Requirement,
+    RunFinding, RunVerdict, SchemaRef, SchemaSourceMap, SourceLocation, StateField, StateMismatch,
+    TriggerTable, Validated, ValidatedGraph, ValidatedShape, ValidatedTable, ValidatedTree,
+    ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport, ValidationState,
+    Violation, WitnessMismatch, WitnessOptions, WitnessReplay, validate_graph, validate_table,
 };
 pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};
