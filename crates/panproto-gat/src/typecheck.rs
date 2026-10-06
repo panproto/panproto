@@ -1377,6 +1377,16 @@ pub enum SignatureDefect {
         /// Their shared name.
         name: Arc<str>,
     },
+    /// A sort parameter, or an operation input, binds a name that an
+    /// earlier parameter of the same sort, or an earlier input of the same
+    /// operation, already binds.
+    DuplicateBinder {
+        /// The later declaration: `SortParam { sort, index }` or
+        /// `OpInput { op, index }`.
+        site: SignatureSite,
+        /// The repeated binder name.
+        name: Arc<str>,
+    },
 }
 
 impl SignatureDefect {
@@ -1425,6 +1435,10 @@ impl std::fmt::Display for SignatureDefect {
             Self::DuplicateSymbol { kind, name } => {
                 write!(f, "{kind} `{name}` is declared more than once")
             }
+            Self::DuplicateBinder { site, name } => write!(
+                f,
+                "{site}: binder `{name}` is already bound by an earlier declaration"
+            ),
         }
     }
 }
@@ -1451,7 +1465,15 @@ impl std::fmt::Display for SignatureDefect {
 ///   ([`SignatureDefect::ParamIllTyped`]);
 /// - every variable in an argument is bound by an earlier parameter of the
 ///   sort, or by an earlier input of the operation, or for the output by
-///   any input ([`SignatureDefect::UnboundParamVar`]).
+///   any input ([`SignatureDefect::UnboundParamVar`]);
+/// - the parameter names of one sort, and the input names of one
+///   operation, are pairwise distinct: one
+///   [`SignatureDefect::DuplicateBinder`] is reported per parameter or
+///   input whose name an earlier one of the same telescope binds, at that
+///   later declaration. This is the freshness condition of contexts:
+///   palmgren2019categories Def 4.1 takes `x_k` from a set disjoint from
+///   `{x_1, ..., x_(k-1)}`, and rule R2 extends a context only by a
+///   variable in `Fresh(Γ)` (stated).
 ///
 /// These rules are the equation-free core of the well-formedness
 /// judgements for generalized algebraic theories: the context, sort and
@@ -1490,12 +1512,13 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
             let head = param.sort.head();
             if theory.has_sort(head) && !ordered.contains(head) {
                 defects.push(SignatureDefect::UndeclaredSort {
-                    site,
+                    site: site.clone(),
                     sort: Arc::clone(head),
                 });
             } else {
                 check_sort_expr(&param.sort, &site, &ctx, theory, &mut defects);
             }
+            fresh_binder(&param.name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(&param.name), param.sort.clone());
         }
     }
@@ -1508,6 +1531,7 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
                 index,
             };
             check_sort_expr(sort, &site, &ctx, theory, &mut defects);
+            fresh_binder(name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(name), sort.clone());
         }
         let site = SignatureSite::OpOutput {
@@ -1520,6 +1544,23 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
         Ok(())
     } else {
         Err(defects)
+    }
+}
+
+/// Report `name` as a [`SignatureDefect::DuplicateBinder`] at `site` when
+/// `bound`, the binders of the earlier declarations of the telescope,
+/// already binds it.
+fn fresh_binder(
+    name: &Arc<str>,
+    site: SignatureSite,
+    bound: &VarContext,
+    defects: &mut Vec<SignatureDefect>,
+) {
+    if bound.contains_key(name) {
+        defects.push(SignatureDefect::DuplicateBinder {
+            site,
+            name: Arc::clone(name),
+        });
     }
 }
 
@@ -4053,6 +4094,13 @@ mod tests {
                 kind: SymKind::Op,
                 name: "f".into(),
             },
+            SignatureDefect::DuplicateBinder {
+                site: SignatureSite::OpInput {
+                    op: "f".into(),
+                    index: 1,
+                },
+                name: "z".into(),
+            },
         ];
         let tags = [
             "undeclared_sort",
@@ -4060,6 +4108,7 @@ mod tests {
             "param_ill_typed",
             "unbound_param_var",
             "duplicate_symbol",
+            "duplicate_binder",
         ];
         for (defect, tag) in defects.iter().zip(tags) {
             let json = serde_json::to_value(defect)?;
