@@ -460,14 +460,13 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
             other => Err(type_err("string", other)),
         },
         BuiltinOp::StrToFloat => match &args[0] {
-            Literal::Str(s) => {
-                s.parse::<f64>()
-                    .map(|x| Literal::Float(canonical_float(x)))
-                    .map_err(|_| ExprError::ParseError {
-                        value: s.clone(),
-                        target_type: "float".into(),
-                    })
-            }
+            Literal::Str(s) => s
+                .parse::<f64>()
+                .map(|x| Literal::Float(canonical_float(x)))
+                .map_err(|_| ExprError::ParseError {
+                    value: s.clone(),
+                    target_type: "float".into(),
+                }),
             other => Err(type_err("string", other)),
         },
         _ => Err(ExprError::InternalDispatch {
@@ -556,13 +555,13 @@ fn numeric_binop(
             Ok(Literal::Float(canonical_float(float_op(*x, *y))))
         }
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Int(x), Literal::Float(y)) => Ok(Literal::Float(canonical_float(float_op(
-            *x as f64, *y,
-        )))),
+        (Literal::Int(x), Literal::Float(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x as f64, *y))))
+        }
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Float(x), Literal::Int(y)) => Ok(Literal::Float(canonical_float(float_op(
-            *x, *y as f64,
-        )))),
+        (Literal::Float(x), Literal::Int(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x, *y as f64))))
+        }
         _ => Err(type_err("int|float", a)),
     }
 }

@@ -37,22 +37,52 @@ fn every_computed_nan_is_the_canonical_nan() {
     let env = Env::new().extend(Arc::from("x"), Literal::Float(odd_nan()));
     let x = Expr::Var(Arc::from("x"));
     let cases = [
-        ("inf - inf", call(BuiltinOp::Sub, vec![float(f64::INFINITY), float(f64::INFINITY)])),
-        ("0 * inf", call(BuiltinOp::Mul, vec![float(0.0), float(f64::INFINITY)])),
-        ("inf + -inf", call(BuiltinOp::Add, vec![float(f64::INFINITY), float(f64::NEG_INFINITY)])),
-        ("inf / inf", call(BuiltinOp::Div, vec![float(f64::INFINITY), float(f64::INFINITY)])),
+        (
+            "inf - inf",
+            call(
+                BuiltinOp::Sub,
+                vec![float(f64::INFINITY), float(f64::INFINITY)],
+            ),
+        ),
+        (
+            "0 * inf",
+            call(BuiltinOp::Mul, vec![float(0.0), float(f64::INFINITY)]),
+        ),
+        (
+            "inf + -inf",
+            call(
+                BuiltinOp::Add,
+                vec![float(f64::INFINITY), float(f64::NEG_INFINITY)],
+            ),
+        ),
+        (
+            "inf / inf",
+            call(
+                BuiltinOp::Div,
+                vec![float(f64::INFINITY), float(f64::INFINITY)],
+            ),
+        ),
         ("neg nan", call(BuiltinOp::Neg, vec![float(f64::NAN)])),
         ("neg x", call(BuiltinOp::Neg, vec![x.clone()])),
         ("abs x", call(BuiltinOp::Abs, vec![x.clone()])),
         ("x + 1", call(BuiltinOp::Add, vec![x.clone(), float(1.0)])),
-        ("clamp x", call(BuiltinOp::Clamp, vec![x, float(0.0), float(1.0)])),
+        (
+            "clamp x",
+            call(BuiltinOp::Clamp, vec![x, float(0.0), float(1.0)]),
+        ),
         (
             "str_to_float -nan",
-            call(BuiltinOp::StrToFloat, vec![Expr::Lit(Literal::Str("-nan".into()))]),
+            call(
+                BuiltinOp::StrToFloat,
+                vec![Expr::Lit(Literal::Str("-nan".into()))],
+            ),
         ),
         (
             "str_to_float NaN",
-            call(BuiltinOp::StrToFloat, vec![Expr::Lit(Literal::Str("NaN".into()))]),
+            call(
+                BuiltinOp::StrToFloat,
+                vec![Expr::Lit(Literal::Str("NaN".into()))],
+            ),
         ),
     ];
     for (name, expr) in &cases {
@@ -82,7 +112,10 @@ fn cell_bits(node: &Node, key: &str) -> u64 {
 fn a_field_transform_writes_the_canonical_nan() {
     let produce = FieldTransform::ApplyExpr {
         key: "a".into(),
-        expr: call(BuiltinOp::Mul, vec![Expr::Var(Arc::from("a")), float(f64::INFINITY)]),
+        expr: call(
+            BuiltinOp::Mul,
+            vec![Expr::Var(Arc::from("a")), float(f64::INFINITY)],
+        ),
         inverse: None,
         coercion_class: panproto_gat::CoercionClass::Opaque,
     };
@@ -126,11 +159,17 @@ fn two_computed_nan_cells_are_equal_values_with_equal_bytes() {
     };
     let first = transformed(
         0.0,
-        &transforms(call(BuiltinOp::Sub, vec![float(f64::INFINITY), float(f64::INFINITY)])),
+        &transforms(call(
+            BuiltinOp::Sub,
+            vec![float(f64::INFINITY), float(f64::INFINITY)],
+        )),
     );
     let second = transformed(
         0.0,
-        &transforms(call(BuiltinOp::Mul, vec![float(0.0), float(f64::NEG_INFINITY)])),
+        &transforms(call(
+            BuiltinOp::Mul,
+            vec![float(0.0), float(f64::NEG_INFINITY)],
+        )),
     );
     let (a, b) = (&first.extra_fields["n"], &second.extra_fields["n"]);
     assert_eq!(a.canonical_bytes(), b.canonical_bytes());
@@ -186,8 +225,14 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
                 checked += 1;
             }
         }
-        assert_eq!(evaluated_bits(&call(BuiltinOp::Neg, vec![float(a)]), &env), expect(-a));
-        assert_eq!(evaluated_bits(&call(BuiltinOp::Abs, vec![float(a)]), &env), expect(a.abs()));
+        assert_eq!(
+            evaluated_bits(&call(BuiltinOp::Neg, vec![float(a)]), &env),
+            expect(-a)
+        );
+        assert_eq!(
+            evaluated_bits(&call(BuiltinOp::Abs, vec![float(a)]), &env),
+            expect(a.abs())
+        );
         let clamp = call(BuiltinOp::Clamp, vec![float(a), float(-1.0), float(1.0)]);
         assert_eq!(evaluated_bits(&clamp, &env), expect(a.clamp(-1.0, 1.0)));
         checked += 3;
@@ -199,14 +244,20 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
     let int = |n: i64| Expr::Lit(Literal::Int(n));
     for &nan in &nans {
         for (op, _) in binary {
-            for expr in [call(op, vec![int(3), float(nan)]), call(op, vec![float(nan), int(3)])] {
+            for expr in [
+                call(op, vec![int(3), float(nan)]),
+                call(op, vec![float(nan), int(3)]),
+            ] {
                 assert_eq!(evaluated_bits(&expr, &env), CANONICAL, "{op:?}");
             }
         }
     }
     // Every NaN spelling `StrToFloat` reads is canonical.
     for text in ["NaN", "nan", "-nan", "+nan", "-NaN", "+NaN"] {
-        let parsed = call(BuiltinOp::StrToFloat, vec![Expr::Lit(Literal::Str(text.into()))]);
+        let parsed = call(
+            BuiltinOp::StrToFloat,
+            vec![Expr::Lit(Literal::Str(text.into()))],
+        );
         assert_eq!(evaluated_bits(&parsed, &env), CANONICAL, "{text}");
     }
 }

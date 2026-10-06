@@ -596,7 +596,11 @@ fn a_negative_zero_lexeme_keeps_its_sign_under_every_float_kind() {
         }
         let site = ValueSite::new("v", None);
         let kept = panproto_inst::value::coerce::coerce_value(&Value::Float(-0.0), &kind, site);
-        assert_eq!(float_bits(kept), negative_zero, "Float(-0.0) as {bits} bits");
+        assert_eq!(
+            float_bits(kept),
+            negative_zero,
+            "Float(-0.0) as {bits} bits"
+        );
     }
     // An open schema reads the fractional and exponent forms as a float,
     // and the integer form as the integer zero, which has no sign.
@@ -673,7 +677,10 @@ fn an_exact_binary_lexeme_is_accepted_under_its_float_kind() {
         );
     }
     assert_eq!(
-        reason(number("0.100000000000000005551115123125782702118158340454101562", &f64_)),
+        reason(number(
+            "0.100000000000000005551115123125782702118158340454101562",
+            &f64_
+        )),
         FidelityReason::PrecisionExceeded { max: 17 }
     );
     assert_eq!(
@@ -691,7 +698,9 @@ fn every_nan_spelling_reads_as_the_canonical_nan() {
         spec(ScalarKind::Any),
     ];
     for kind in &kinds {
-        for text in ["NaN", "nan", "+nan", "-nan", "-NaN", ".nan", "+NaN", "-.NaN"] {
+        for text in [
+            "NaN", "nan", "+nan", "-nan", "-NaN", ".nan", "+NaN", "-.NaN",
+        ] {
             assert_eq!(
                 float_bits(number(text, kind)),
                 CANONICAL,
@@ -719,4 +728,95 @@ fn every_nan_spelling_reads_as_the_canonical_nan() {
         site,
     );
     assert_eq!(float_bits(kept), 0xfff8_0000_0000_0000);
+}
+
+/// Every way of writing `s` with each letter in either case.
+fn case_variants(s: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    for c in s.chars() {
+        out = out
+            .iter()
+            .flat_map(|prefix| {
+                let (lower, upper) = (c.to_ascii_lowercase(), c.to_ascii_uppercase());
+                [format!("{prefix}{lower}"), format!("{prefix}{upper}")]
+            })
+            .collect();
+    }
+    out
+}
+
+/// Every NaN and infinity spelling in a bounded scope (each letter of
+/// `nan`, `inf` and `infinity` in either case, with no sign, `+` or `-`,
+/// and with or without YAML's leading `.`): a NaN spelling reads as the
+/// canonical NaN and an infinity spelling as the infinity of its sign,
+/// under both float kinds and `Any`; a spelling with another word, or a
+/// sign or dot alone, is no number.
+#[test]
+fn every_non_finite_spelling_reads_by_its_word_on_a_bounded_scope() {
+    const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
+    let kinds = [
+        spec(ScalarKind::Float { bits: 32 }),
+        spec(ScalarKind::Float { bits: 64 }),
+        spec(ScalarKind::Any),
+    ];
+    let mut checked = 0;
+    for (word, nan) in [("nan", true), ("inf", false), ("infinity", false)] {
+        for spelled in case_variants(word) {
+            for sign in ["", "+", "-"] {
+                for dot in ["", "."] {
+                    let text = format!("{sign}{dot}{spelled}");
+                    let want = if nan {
+                        CANONICAL
+                    } else if sign == "-" {
+                        f64::NEG_INFINITY.to_bits()
+                    } else {
+                        f64::INFINITY.to_bits()
+                    };
+                    for kind in &kinds {
+                        assert_eq!(float_bits(number(&text, kind)), want, "{text}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(checked, (8 + 8 + 256) * 3 * 2 * 3);
+    for text in [
+        "nana", "-", ".", "+.", "na", "infinit", "in", "-.-nan", "..nan", "nan.",
+    ] {
+        for kind in &kinds[..2] {
+            assert_eq!(
+                reason(number(text, kind)),
+                FidelityReason::NotANumber,
+                "{text}"
+            );
+        }
+    }
+}
+
+/// The shortest text of a float breaks an exact tie away from zero, and a
+/// float kind accepts exactly that candidate: the binary32 value
+/// 52401.3125 lies midway between `52401.312` and `52401.313`.
+#[test]
+fn a_float_kind_accepts_the_tie_candidate_its_shortest_text_names() {
+    let f32_ = spec(ScalarKind::Float { bits: 32 });
+    assert_eq!(52_401.312_5_f32.to_string(), "52401.313");
+    assert_eq!(format!("{:e}", -52_401.312_5_f32), "-5.2401313e4");
+    for sign in ["", "-"] {
+        let tie = f64::from(52_401.312_5_f32);
+        let want = if sign.is_empty() { tie } else { -tie };
+        assert_eq!(
+            float_bits(number(&format!("{sign}52401.313"), &f32_)),
+            want.to_bits()
+        );
+        assert_eq!(
+            reason(number(&format!("{sign}52401.312"), &f32_)),
+            FidelityReason::PrecisionExceeded { max: 9 }
+        );
+        // The exact value is accepted too.
+        assert_eq!(
+            float_bits(number(&format!("{sign}52401.3125"), &f32_)),
+            want.to_bits()
+        );
+    }
 }

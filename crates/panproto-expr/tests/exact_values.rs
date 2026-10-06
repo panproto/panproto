@@ -311,10 +311,8 @@ mod exact {
             .is_err()
         );
         assert!(
-            serde_json::from_str::<CivilTime>(
-                r#"{"hour":24,"minute":0,"second":0,"fraction":""}"#
-            )
-            .is_err()
+            serde_json::from_str::<CivilTime>(r#"{"hour":24,"minute":0,"second":0,"fraction":""}"#)
+                .is_err()
         );
         assert!(serde_json::from_str::<Offset>(r#"{"fixed":1440}"#).is_err());
         assert_eq!(
@@ -641,7 +639,9 @@ mod exact {
     #[test]
     fn temporal_serde_refuses_the_former_time_shape() {
         let former = r#"{"hour":1,"minute":0,"second":0,"nanos":500000000,"frac_digits":1}"#;
-        let error = serde_json::from_str::<CivilTime>(former).unwrap_err().to_string();
+        let error = serde_json::from_str::<CivilTime>(former)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("missing field `fraction`"), "{error}");
         let time: CivilTime =
             serde_json::from_str(r#"{"hour":1,"minute":0,"second":0,"fraction":"50"}"#).unwrap();
@@ -663,7 +663,11 @@ mod exact {
             ] {
                 let t = Temporal::parse(&text).unwrap();
                 let json = serde_json::to_string(&t).unwrap();
-                assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), t, "{json}");
+                assert_eq!(
+                    serde_json::from_str::<Temporal>(&json).unwrap(),
+                    t,
+                    "{json}"
+                );
             }
         }
     }
@@ -689,15 +693,18 @@ mod exact {
             ("12:00:00.123456789", "12:00:00.1234567890"),
             ("12:00:00", "12:00:00.000000000000000000000000000000"),
         ] {
-            assert_eq!(t(a).cmp_chronological(&t(b)), Some(Ordering::Equal), "{a} {b}");
+            assert_eq!(
+                t(a).cmp_chronological(&t(b)),
+                Some(Ordering::Equal),
+                "{a} {b}"
+            );
         }
         assert_eq!(
             t("12:00:00.1234567891").cmp_chronological(&t("12:00:00.123456789")),
             Some(Ordering::Greater)
         );
         assert_eq!(
-            t("12:00:00.0000000000000000000000000000001")
-                .cmp_chronological(&t("12:00:00")),
+            t("12:00:00.0000000000000000000000000000001").cmp_chronological(&t("12:00:00")),
             Some(Ordering::Greater)
         );
     }
@@ -766,10 +773,23 @@ mod exact {
         for text in ["2229016984128891.2", "2229016984128891.3"] {
             assert_eq!(text.parse::<f64>().unwrap().to_bits(), x.to_bits());
         }
-        assert_eq!(DecimalValue::from_f64_shortest(x).unwrap(), dec("2229016984128891.3"));
-        assert_eq!(DecimalValue::from_f64_shortest(-x).unwrap(), dec("-2229016984128891.3"));
+        assert_eq!(
+            DecimalValue::from_f64_shortest(x).unwrap(),
+            dec("2229016984128891.3")
+        );
+        assert_eq!(
+            DecimalValue::from_f64_shortest(-x).unwrap(),
+            dec("-2229016984128891.3")
+        );
         // A positive power of ten is kept as an exponent.
         let thousand = dec("1e3");
-        assert_eq!((thousand.digits.as_str(), thousand.exponent, thousand.scale()), ("1", 3, 0));
+        assert_eq!(
+            (
+                thousand.digits.as_str(),
+                thousand.exponent,
+                thousand.scale()
+            ),
+            ("1", 3, 0)
+        );
     }
 }
