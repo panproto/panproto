@@ -4179,6 +4179,37 @@ mod tests {
         Ok(())
     }
 
+    /// Two directed equations named alike with different content are two
+    /// classes in explicit-identity mode, and each takes its freshened
+    /// result name, not its source name.
+    #[test]
+    fn clashing_directed_equations_take_their_freshened_names() -> TestResult {
+        let fc = rule(
+            "rule",
+            Term::app("f", vec![Term::constant("c")]),
+            Term::constant("c"),
+        );
+        let ff = rule("rule", Term::app("f", vec![Term::var("x")]), Term::var("x"));
+        let d = TheoryDiagram::discrete(vec![
+            ("T1", with_directed("T1", vec![fc])),
+            ("T2", with_directed("T2", vec![ff])),
+        ]);
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(
+            names(&c.theory.directed_eqs, |e| &e.name),
+            ["T1.rule", "T2.rule"]
+        );
+        for label in ["T1", "T2"] {
+            let result = format!("{label}.rule");
+            assert_eq!(
+                c.provenance.members(SymKind::DirectedEq, &result),
+                [sym(label, "rule")]
+            );
+            assert!(c.theory.find_directed_eq(&result).is_some());
+        }
+        Ok(())
+    }
+
     #[test]
     fn policies_are_transported_with_provenance() -> TestResult {
         use crate::theory::ConflictStrategy::KeepLeft;
