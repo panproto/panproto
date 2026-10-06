@@ -6,14 +6,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use panproto_gat::Name;
 use panproto_inst::{
     AdjunctionError, BoundaryProtocols, CellLayout, CompiledMigration, EdgeId, EdgeLayout,
-    EncodingSide, FInstance, FInstanceHom, FieldPresence, GInstance, GraphKanError, GraphKanHom,
-    GraphLayout, MigrationFunctor, Node, NodeShape, NotEncodableReason, RelSchema, RelSchemaError,
-    RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, g_counit, g_delta,
-    g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi, g_pi_along,
-    g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
-    g_pi_transpose_right, g_pi_unit, g_pi_with_provenance, g_sigma, g_sigma_along,
-    g_sigma_along_with_provenance, g_sigma_restricted, g_sigma_with_provenance, g_transpose_left,
-    g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
+    EncodingSide, FInstance, FInstanceHom, FieldPresence, GInstance, GraphKanError,
+    GraphKanFunctor, GraphKanHom, GraphLayout, MigrationFunctor, Node, NodeShape,
+    NotEncodableReason, RelSchema, RelSchemaError, RestrictError, Row, RowId, Value, WInstance,
+    decode_graph, encode_graph, g_counit, g_delta, g_delta_along, g_delta_along_with_provenance,
+    g_delta_with_provenance, g_pi, g_pi_along, g_pi_along_with_provenance, g_pi_counit,
+    g_pi_restricted, g_pi_transpose_left, g_pi_transpose_right, g_pi_unit, g_pi_with_provenance,
+    g_sigma, g_sigma_along, g_sigma_along_with_provenance, g_sigma_restricted,
+    g_sigma_with_provenance, g_transpose_left, g_transpose_right, g_unit, graph_extend,
+    graph_extend_engine, wtype_extend_engine, wtype_pi,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use proptest::prelude::*;
@@ -906,16 +907,26 @@ fn graph_kan_provenance_names_every_contributor() {
 
 /// A one-column table `a` (renamed `A` when `rename` holds) whose column
 /// `x` holds a list of ints, one element vertex per entry of `elements`,
-/// each reached by an inner edge called `name` (empty for unnamed), the
-/// identity-shaped functor between the two, and a graph whose `x` cell is
-/// the list `[1, 2, ...]` with element `i` on element vertex
-/// `placements[i]`.
-fn list_column_fixture(
+/// each reached by an inner edge called `name` (empty for unnamed); a
+/// migration sending element vertex `k` and its inner edge to element
+/// vertex `image_of[k]` of the target and every other vertex and edge to
+/// its namesake; and a graph whose `x` cell is the list `[1, 2, ...]` with
+/// element `i` on element vertex `placements[i]`.
+struct ListColumn {
+    source: Schema,
+    target: Schema,
+    migration: CompiledMigration,
+    functor: MigrationFunctor,
+    graph: GInstance,
+}
+
+fn list_column(
     rename: bool,
     elements: &[&str],
     name: &str,
+    image_of: &[usize],
     placements: &[usize],
-) -> (MigrationFunctor, GInstance) {
+) -> ListColumn {
     let side = |table: &str| {
         let value = format!("{table}.x");
         let element_vertices: Vec<String> = elements
@@ -927,7 +938,7 @@ fn list_column_fixture(
             .iter()
             .map(|vertex| inner_edge(&value, vertex, name))
             .collect();
-        let mut vertices = vec![(table.to_owned(), "record"), (value.clone(), "value")];
+        let mut vertices = vec![(table.to_owned(), "record"), (value, "value")];
         vertices.extend(
             element_vertices
                 .iter()
@@ -948,21 +959,30 @@ fn list_column_fixture(
     };
     let (source, x, source_inner, source_vertices) = side("a");
     let (target, big_x, target_inner, target_vertices) = side(if rename { "A" } else { "a" });
+    // The first two vertices are the table and the column's value vertex;
+    // element vertex `k` follows at `2 + k`.
+    let vertex_image = |index: usize| {
+        if index < 2 {
+            index
+        } else {
+            2 + image_of[index - 2]
+        }
+    };
     let vertex_pairs: Vec<(&str, &str)> = source_vertices
         .iter()
-        .zip(&target_vertices)
-        .map(|(from, to)| (from.as_str(), to.as_str()))
+        .enumerate()
+        .map(|(index, from)| (from.as_str(), target_vertices[vertex_image(index)].as_str()))
         .collect();
     let mut edge_pairs = vec![(x.clone(), big_x)];
-    edge_pairs.extend(source_inner.iter().cloned().zip(target_inner));
-    let functor = MigrationFunctor::new(
-        &source,
-        &protocol(),
-        &target,
-        &protocol(),
-        &migration(&vertex_pairs, &edge_pairs, &[], &[]),
-    )
-    .unwrap();
+    edge_pairs.extend(
+        source_inner
+            .iter()
+            .enumerate()
+            .map(|(index, from)| (from.clone(), target_inner[image_of[index]].clone())),
+    );
+    let migration = migration(&vertex_pairs, &edge_pairs, &[], &[]);
+    let functor =
+        MigrationFunctor::new(&source, &protocol(), &target, &protocol(), &migration).unwrap();
     let mut graph = GInstance::new()
         .with_node(Node::new(0, "a"))
         .with_node(Node::new(1, "a.x").with_shape(NodeShape::List))
@@ -981,7 +1001,25 @@ fn list_column_fixture(
             .set_edge_position(EdgeId(20 + node), Some(u32::try_from(index).unwrap()))
             .unwrap();
     }
-    (functor, graph)
+    ListColumn {
+        source,
+        target,
+        migration,
+        functor,
+        graph,
+    }
+}
+
+/// [`list_column`] along the identity map on element vertices.
+fn list_column_fixture(
+    rename: bool,
+    elements: &[&str],
+    name: &str,
+    placements: &[usize],
+) -> (MigrationFunctor, GInstance) {
+    let identity: Vec<usize> = (0..elements.len()).collect();
+    let fixture = list_column(rename, elements, name, &identity, placements);
+    (fixture.functor, fixture.graph)
 }
 
 /// The element edges out of the value node at `column_vertex` in `graph`,
@@ -1053,10 +1091,13 @@ fn graph_sigma_keeps_unnamed_list_elements_on_their_own_element_vertices() {
 }
 
 #[test]
-fn graph_sigma_decodes_an_ambiguous_renamed_list_without_its_layout() {
-    // Two unnamed int element edges leave `A.x`, and the functor renames
-    // the element vertices, so the column map does not say which target
-    // edge an element edge moves to: the cell is decoded as one leaf.
+fn graph_sigma_along_a_functor_without_value_remaps_decodes_an_ambiguous_list_as_a_leaf() {
+    // A `MigrationFunctor` is the identity on the value side and records no
+    // remap of an inner value edge. Two unnamed int element edges leave
+    // `A.x`, neither ending at a vertex named as a source element vertex, so
+    // along the bare functor no element edge has an image: the cell is
+    // decoded as one leaf. Along the migration's own remaps it is not (see
+    // `graph_sigma_moves_list_elements_along_the_migrations_edge_map`).
     let (functor, graph) = list_column_fixture(true, &["i", "j"], "", &[1, 0]);
     let sigma = g_sigma_along(&graph, &functor).unwrap();
     assert_eq!((sigma.node_count(), sigma.edge_count()), (2, 1));
@@ -1064,6 +1105,341 @@ fn graph_sigma_decodes_an_ambiguous_renamed_list_without_its_layout() {
         .nodes()
         .values()
         .find(|node| node.anchor == "A.x")
+        .unwrap();
+    assert_eq!(
+        leaf.value,
+        Some(FieldPresence::Present(Value::List(vec![
+            Value::Int(1),
+            Value::Int(2)
+        ])))
+    );
+}
+
+/// Every two-element list column of [`list_column`] whose migration is a
+/// bijection on element vertices: unnamed and `item`-named element edges,
+/// with and without a table rename, and the element swap without one.
+fn bijective_list_columns() -> Vec<(String, ListColumn)> {
+    let mut fixtures = Vec::new();
+    for name in ["", "item"] {
+        for (rename, image_of) in [(true, [0, 1]), (true, [1, 0]), (false, [1, 0])] {
+            fixtures.push((
+                format!("name {name:?}, rename {rename}, images {image_of:?}"),
+                list_column(rename, &["i", "j"], name, &image_of, &[0, 1]),
+            ));
+        }
+    }
+    fixtures
+}
+
+/// The list `[1, 2]` of [`list_column`] with element `k` on the element
+/// vertex its migration sends `k`'s source element vertex to, as
+/// [`list_elements`] reads it.
+fn moved_elements(fixture: &ListColumn) -> Vec<(String, Option<u32>, Value)> {
+    ["a.x.i", "a.x.j"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, element)| {
+            let image = fixture
+                .migration
+                .edge_remap
+                .iter()
+                .find(|(source, _)| source.src == "a.x" && source.tgt == element)
+                .map(|(_, image)| image)
+                .unwrap();
+            (
+                image.tgt.to_string(),
+                Some(u32::try_from(index).unwrap()),
+                Value::Int(i64::try_from(index).unwrap() + 1),
+            )
+        })
+        .collect()
+}
+
+/// The total graph extension of [`list_column`]'s graph along its
+/// migration. It refuses the element swap that keeps the table's name: the
+/// swapped edges' images are named as source edges too, which the plan of
+/// total extension reads as an incoherent image.
+fn extended(fixture: &ListColumn) -> Result<GInstance, RestrictError> {
+    graph_extend_engine(
+        &fixture.graph,
+        &fixture.source,
+        &fixture.target,
+        &fixture.migration,
+        BoundaryProtocols {
+            src: &protocol(),
+            tgt: &protocol(),
+        },
+    )
+}
+
+/// Graph Sigma of [`list_column`]'s graph along its migration.
+fn list_sigma(fixture: &ListColumn) -> GInstance {
+    g_sigma(
+        &fixture.graph,
+        &fixture.source,
+        &protocol(),
+        &fixture.target,
+        &protocol(),
+        &fixture.migration,
+    )
+    .unwrap()
+}
+
+/// The value vertex of `x` in [`list_column`]'s target.
+fn target_column_vertex(fixture: &ListColumn) -> &'static str {
+    if fixture.target.vertices.contains_key("A") {
+        "A.x"
+    } else {
+        "a.x"
+    }
+}
+
+#[test]
+fn graph_sigma_moves_list_elements_along_the_migrations_edge_map() {
+    for (case, fixture) in bijective_list_columns() {
+        let column = target_column_vertex(&fixture);
+        let sigma = list_sigma(&fixture);
+        assert_eq!(
+            list_elements(&sigma, column),
+            moved_elements(&fixture),
+            "{case}"
+        );
+        match extended(&fixture) {
+            Ok(extend) => {
+                assert_eq!(
+                    list_elements(&extend, column),
+                    moved_elements(&fixture),
+                    "{case}"
+                );
+                assert!(
+                    GInstance::identical(&sigma, &extend),
+                    "{case}: sigma {sigma:?}, extend {extend:?}"
+                );
+                let validated = graph_extend(
+                    &fixture.graph,
+                    &fixture.source,
+                    &fixture.target,
+                    &fixture.migration,
+                    BoundaryProtocols {
+                        src: &protocol(),
+                        tgt: &protocol(),
+                    },
+                )
+                .unwrap();
+                assert!(GInstance::identical(&sigma, &validated), "{case}");
+            }
+            Err(error) => {
+                assert_eq!(column, "a.x", "{case}: {error:?}");
+                assert!(
+                    matches!(error, RestrictError::IncoherentEdgeImage { .. }),
+                    "{case}: {error:?}"
+                );
+            }
+        }
+        let functor = graph_kan_functor(&fixture);
+        for restricted in [
+            g_sigma_along(&fixture.graph, &functor).unwrap(),
+            g_sigma_restricted(&fixture.graph, &functor).unwrap(),
+        ] {
+            assert!(GInstance::identical(&restricted, &sigma), "{case}");
+        }
+    }
+}
+
+#[test]
+fn graph_pi_moves_list_elements_along_the_migrations_edge_map() {
+    for (case, fixture) in bijective_list_columns() {
+        let pi = g_pi(
+            &fixture.graph,
+            &fixture.source,
+            &protocol(),
+            &fixture.target,
+            &protocol(),
+            &fixture.migration,
+            32,
+        )
+        .unwrap();
+        let column = target_column_vertex(&fixture);
+        assert_eq!(
+            list_elements(&pi, column),
+            moved_elements(&fixture),
+            "{case}"
+        );
+        assert!(
+            GInstance::identical(&pi, &list_sigma(&fixture)),
+            "{case}: pi {pi:?}"
+        );
+        let functor = graph_kan_functor(&fixture);
+        for restricted in [
+            g_pi_along(&fixture.graph, &functor, 32).unwrap(),
+            g_pi_restricted(&fixture.graph, &functor, 32).unwrap(),
+        ] {
+            assert!(GInstance::identical(&restricted, &pi), "{case}");
+        }
+    }
+}
+
+#[test]
+fn graph_delta_moves_list_elements_back_along_the_migrations_edge_map() {
+    for (case, fixture) in bijective_list_columns() {
+        let sigma = list_sigma(&fixture);
+        let delta = g_delta(
+            &sigma,
+            &fixture.source,
+            &protocol(),
+            &fixture.target,
+            &protocol(),
+            &fixture.migration,
+        )
+        .unwrap();
+        assert!(
+            GInstance::identical(&delta, &fixture.graph),
+            "{case}: delta {delta:?}, input {:?}",
+            fixture.graph
+        );
+        let along = g_delta_along(&sigma, &graph_kan_functor(&fixture)).unwrap();
+        assert!(GInstance::identical(&along, &fixture.graph), "{case}");
+        if let Ok(extend) = extended(&fixture) {
+            let back = g_delta_along(&extend, &graph_kan_functor(&fixture)).unwrap();
+            assert!(GInstance::identical(&back, &fixture.graph), "{case}");
+        }
+    }
+}
+
+#[test]
+fn graph_kan_moves_list_elements_along_inner_edge_remaps_alone() {
+    // The migration remaps the element edges but not their target vertices,
+    // so only the edge remaps say where each element goes.
+    for (case, mut fixture) in bijective_list_columns() {
+        fixture
+            .migration
+            .vertex_remap
+            .retain(|vertex, _| vertex.matches('.').count() < 2);
+        let functor = graph_kan_functor(&fixture);
+        assert!(functor.value_vertices().len() == 1, "{case}");
+        let sigma = g_sigma_along(&fixture.graph, &functor).unwrap();
+        let column = target_column_vertex(&fixture);
+        assert_eq!(
+            list_elements(&sigma, column),
+            moved_elements(&fixture),
+            "{case}"
+        );
+        let pi = g_pi_along(&fixture.graph, &functor, 32).unwrap();
+        assert!(GInstance::identical(&pi, &sigma), "{case}");
+        let delta = g_delta_along(&sigma, &functor).unwrap();
+        assert!(GInstance::identical(&delta, &fixture.graph), "{case}");
+    }
+}
+
+/// [`list_column`]'s functor with its migration's value remaps.
+fn graph_kan_functor(fixture: &ListColumn) -> GraphKanFunctor {
+    GraphKanFunctor::new(
+        &fixture.source,
+        &protocol(),
+        &fixture.target,
+        &protocol(),
+        &fixture.migration,
+    )
+    .unwrap()
+}
+
+#[test]
+fn graph_kan_functor_records_the_value_remaps_of_its_migration() {
+    let fixture = list_column(true, &["i", "j"], "", &[1, 0], &[0, 1]);
+    let functor = graph_kan_functor(&fixture);
+    assert_eq!(functor.functor(), &fixture.functor);
+    assert_eq!(
+        functor.inner_edges(),
+        &BTreeMap::from([
+            (
+                inner_edge("a.x", "a.x.i", ""),
+                inner_edge("A.x", "A.x.j", "")
+            ),
+            (
+                inner_edge("a.x", "a.x.j", ""),
+                inner_edge("A.x", "A.x.i", "")
+            ),
+        ])
+    );
+    assert_eq!(
+        functor.value_vertices(),
+        &BTreeMap::from([
+            (Name::from("a.x"), Name::from("A.x")),
+            (Name::from("a.x.i"), Name::from("A.x.j")),
+            (Name::from("a.x.j"), Name::from("A.x.i")),
+        ])
+    );
+}
+
+#[test]
+fn graph_kan_functor_refuses_what_the_migration_functor_refuses() {
+    let fixture = list_column(true, &["i", "j"], "", &[0, 1], &[0, 1]);
+    // The source has no relation-ified form under a protocol that knows no
+    // value kind: the schema error comes first.
+    assert!(matches!(
+        GraphKanFunctor::new(
+            &fixture.source,
+            &Protocol::default(),
+            &fixture.target,
+            &protocol(),
+            &fixture.migration,
+        ),
+        Err(GraphKanError::RelSchema(_))
+    ));
+    // A remap of an inner value edge to an edge of another name changes the
+    // value's structure.
+    let mut renamed = fixture.migration.clone();
+    renamed.edge_remap.insert(
+        inner_edge("a.x", "a.x.i", ""),
+        inner_edge("A.x", "A.x.i", "other"),
+    );
+    let expected = MigrationFunctor::new(
+        &fixture.source,
+        &protocol(),
+        &fixture.target,
+        &protocol(),
+        &renamed,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        expected,
+        RestrictError::ValueStructureRemap { .. }
+    ));
+    match GraphKanFunctor::new(
+        &fixture.source,
+        &protocol(),
+        &fixture.target,
+        &protocol(),
+        &renamed,
+    ) {
+        Err(GraphKanError::Functor(error)) => {
+            assert_eq!(format!("{error:?}"), format!("{expected:?}"));
+        }
+        other => panic!("expected the functor error, got {other:?}"),
+    }
+}
+
+#[test]
+fn graph_delta_decodes_a_list_whose_element_edge_has_two_preimages_as_a_leaf() {
+    // Both source element edges go to the one target element edge, so a
+    // target element edge has two preimages in the copy's fibre and the
+    // copied cell has no layout to take.
+    let fixture = list_column(true, &["i", "j"], "", &[0, 0], &[0, 1]);
+    let functor = graph_kan_functor(&fixture);
+    let sigma = g_sigma_along(&fixture.graph, &functor).unwrap();
+    assert_eq!(
+        list_elements(&sigma, "A.x"),
+        vec![
+            ("A.x.i".to_owned(), Some(0), Value::Int(1)),
+            ("A.x.i".to_owned(), Some(1), Value::Int(2)),
+        ]
+    );
+    let delta = g_delta_along(&sigma, &functor).unwrap();
+    assert_eq!((delta.node_count(), delta.edge_count()), (2, 1));
+    let leaf = delta
+        .nodes()
+        .values()
+        .find(|node| node.anchor == "a.x")
         .unwrap();
     assert_eq!(
         leaf.value,

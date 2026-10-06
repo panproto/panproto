@@ -149,6 +149,7 @@ pub use graph_kan::{
     g_sigma_restricted, g_sigma_restricted_with_provenance, g_sigma_with_provenance,
     g_transpose_left, g_transpose_right, g_unit,
 };
+pub use graph_kan::{GraphKanFunctor, KanFunctor};
 pub use graph_restrict::{
     graph_extend, graph_extend_engine, graph_extend_partial, graph_extend_validated,
     graph_restrict, graph_restrict_validated, graph_restrict_with_complement,
