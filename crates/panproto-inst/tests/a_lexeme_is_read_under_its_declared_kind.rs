@@ -411,7 +411,7 @@ mod coerce_rejects_a_lexeme_its_kind_cannot_hold {
         else {
             panic!("a local date-time")
         };
-        assert_eq!((time.nanos, time.frac_digits), (999_999_000, 6));
+        assert_eq!(time.fraction.as_str(), "999999");
         assert_eq!(
             reason(string("1979-05-27T07:32:00Z", &local)),
             FidelityReason::OffsetForbidden
@@ -429,10 +429,18 @@ mod coerce_rejects_a_lexeme_its_kind_cannot_hold {
             reason(string("2026-09-28", &open)),
             FidelityReason::InvalidTemporal
         );
-        assert_eq!(
-            reason(string("2026-09-28T12:00:00.1234567891", &open)),
-            FidelityReason::PrecisionExceeded { max: 9 }
-        );
+        // A fraction of any number of digits is kept as written.
+        for text in [
+            "2026-09-28T12:00:00.1234567891",
+            "2026-09-28T12:00:00.123456789012345678901234567890Z",
+        ] {
+            let read = string(text, &open).unwrap();
+            assert_eq!(read, Value::Temporal(Temporal::parse(text).unwrap()));
+            let Value::Temporal(t) = read else {
+                panic!("a temporal")
+            };
+            assert_eq!(t.to_string(), text);
+        }
     }
 
     #[test]

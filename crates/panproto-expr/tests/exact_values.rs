@@ -226,10 +226,10 @@ mod exact {
     #[test]
     fn temporal_offsets_and_precision_follow_the_lexeme() {
         let offset = |text: &str| Temporal::parse(text).unwrap().offset();
-        assert_eq!(offset("2026-09-28T12:34:56Z"), Some(Offset::Utc));
-        assert_eq!(offset("2026-09-28T12:34:56z"), Some(Offset::Utc));
+        assert_eq!(offset("2026-09-28T12:34:56Z"), Some(Offset::Zulu));
+        assert_eq!(offset("2026-09-28T12:34:56z"), Some(Offset::Zulu));
         assert_eq!(offset("2026-09-28T12:34:56+00:00"), Some(Offset::Fixed(0)));
-        assert_eq!(offset("2026-09-28T12:34:56-00:00"), Some(Offset::Unknown));
+        assert_eq!(offset("2026-09-28T12:34:56-00:00"), Some(Offset::NegZero));
         assert_eq!(offset("2026-09-28T12:34:56"), Some(Offset::Local));
         assert_eq!(
             offset("2026-09-28 12:34:56-08:00"),
@@ -246,16 +246,17 @@ mod exact {
         assert_eq!(time.second, 60);
 
         // The written precision is kept, trailing zeros included.
-        for (text, nanos, frac_digits) in [
-            ("12:00:00", 0, 0),
-            ("12:00:00.5", 500_000_000, 1),
-            ("12:00:00.500", 500_000_000, 3),
-            ("12:00:00.000000001", 1, 9),
+        for (text, fraction) in [
+            ("12:00:00", ""),
+            ("12:00:00.5", "5"),
+            ("12:00:00.500", "500"),
+            ("12:00:00.000000001", "000000001"),
+            ("12:00:00.1234567891", "1234567891"),
         ] {
             let Temporal::Time(t, Offset::Local) = Temporal::parse(text).unwrap() else {
                 panic!("{text} is a local time")
             };
-            assert_eq!((t.nanos, t.frac_digits), (nanos, frac_digits), "{text}");
+            assert_eq!(t.fraction.as_str(), fraction, "{text}");
             assert_eq!(Temporal::parse(text).unwrap().to_string(), text);
         }
 
@@ -296,18 +297,22 @@ mod exact {
         ] {
             assert_eq!(Temporal::parse(bad), Err(invalid.clone()), "{bad}");
         }
+        // A fraction past nine digits is read, not refused.
         assert_eq!(
-            Temporal::parse("12:00:00.1234567891"),
-            Err(err(
-                ExactKind::Temporal,
-                FidelityReason::PrecisionExceeded { max: 9 }
-            ))
+            Temporal::parse("12:00:00.1234567891").unwrap().to_string(),
+            "12:00:00.1234567891"
         );
         // Deserialization checks the fields.
         assert!(serde_json::from_str::<CivilDate>(r#"{"year":2023,"month":2,"day":29}"#).is_err());
         assert!(
             serde_json::from_str::<CivilTime>(
-                r#"{"hour":1,"minute":0,"second":0,"nanos":5,"frac_digits":3}"#
+                r#"{"hour":1,"minute":0,"second":0,"fraction":"00a"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<CivilTime>(
+                r#"{"hour":24,"minute":0,"second":0,"fraction":""}"#
             )
             .is_err()
         );
@@ -556,5 +561,195 @@ mod exact {
             err_json,
             r#"{"kind":"decimal","reason":{"precision_exceeded":{"max":10}}}"#
         );
+    }
+
+    /// The canonical bytes of a temporal, written here from the layout
+    /// without calling the encoder: a form byte, the date (year as a
+    /// little-endian `i64`, month, day), the time (hour, minute, second,
+    /// the fraction's digit count as a little-endian `u64`, its ASCII
+    /// digits) and the offset tag (0 local, 1 `Z`, 2 fixed with its minutes
+    /// as a little-endian `i64`, 3 `-00:00`).
+    fn layout(
+        date: Option<(i64, u8, u8)>,
+        time: Option<(u8, u8, u8, &str)>,
+        offset: Option<i64>,
+        offset_tag: u8,
+    ) -> Vec<u8> {
+        let mut out = vec![match (date, time) {
+            (Some(_), None) => 0,
+            (None, Some(_)) => 1,
+            _ => 2,
+        }];
+        if let Some((year, month, day)) = date {
+            out.extend_from_slice(&year.to_le_bytes());
+            out.extend_from_slice(&[month, day]);
+        }
+        if let Some((hour, minute, second, fraction)) = time {
+            out.extend_from_slice(&[hour, minute, second]);
+            out.extend_from_slice(&u64::try_from(fraction.len()).unwrap().to_le_bytes());
+            out.extend_from_slice(fraction.as_bytes());
+            out.push(offset_tag);
+            if let Some(minutes) = offset {
+                out.extend_from_slice(&minutes.to_le_bytes());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn temporal_canonical_bytes_follow_the_layout() {
+        let digits = "123456789012345678901234567890";
+        let offsets: [(&str, u8, Option<i64>); 6] = [
+            ("", 0, None),
+            ("Z", 1, None),
+            ("+00:00", 2, Some(0)),
+            ("-08:00", 2, Some(-480)),
+            ("+23:59", 2, Some(1439)),
+            ("-00:00", 3, None),
+        ];
+        for (written, tag, minutes) in offsets {
+            for n in [0, 3, 9, 10, 30] {
+                let fraction = &digits[..n];
+                let dot = if n == 0 { "" } else { "." };
+                let time = format!("07:08:60{dot}{fraction}{written}");
+                assert_eq!(
+                    Temporal::parse(&time).unwrap().canonical_bytes(),
+                    layout(None, Some((7, 8, 60, fraction)), minutes, tag),
+                    "{time}"
+                );
+                let date_time = format!("-0044-03-15T07:08:09{dot}{fraction}{written}");
+                assert_eq!(
+                    Temporal::parse(&date_time).unwrap().canonical_bytes(),
+                    layout(Some((-44, 3, 15)), Some((7, 8, 9, fraction)), minutes, tag),
+                    "{date_time}"
+                );
+            }
+        }
+        assert_eq!(
+            Temporal::parse("2026-09-28").unwrap().canonical_bytes(),
+            layout(Some((2026, 9, 28)), None, None, 0)
+        );
+        // The written precision reaches the bytes.
+        let bytes = |t: &str| Temporal::parse(t).unwrap().canonical_bytes();
+        assert_ne!(bytes("12:00:00.1"), bytes("12:00:00.10"));
+        assert_ne!(bytes("12:00:00"), bytes("12:00:00.0"));
+        // The three zero offsets have three encodings.
+        let zeros = ["12:00:00Z", "12:00:00+00:00", "12:00:00-00:00"].map(bytes);
+        assert!(zeros[0] != zeros[1] && zeros[1] != zeros[2] && zeros[0] != zeros[2]);
+    }
+
+    #[test]
+    fn temporal_serde_refuses_the_former_time_shape() {
+        let former = r#"{"hour":1,"minute":0,"second":0,"nanos":500000000,"frac_digits":1}"#;
+        let error = serde_json::from_str::<CivilTime>(former).unwrap_err().to_string();
+        assert!(error.contains("missing field `fraction`"), "{error}");
+        let time: CivilTime =
+            serde_json::from_str(r#"{"hour":1,"minute":0,"second":0,"fraction":"50"}"#).unwrap();
+        assert_eq!(time.fraction.as_str(), "50");
+        assert_eq!(
+            serde_json::to_string(&time).unwrap(),
+            r#"{"hour":1,"minute":0,"second":0,"fraction":"50"}"#
+        );
+        for bad in ["5.0", "-5", "5 ", "\\u0665"] {
+            let json = format!(r#"{{"hour":1,"minute":0,"second":0,"fraction":"{bad}"}}"#);
+            assert!(serde_json::from_str::<CivilTime>(&json).is_err(), "{json}");
+        }
+        let digits = "123456789012345678901234567890";
+        for n in [0, 3, 9, 10, 30] {
+            let dot = if n == 0 { "" } else { "." };
+            for text in [
+                format!("23:59:60{dot}{}", &digits[..n]),
+                format!("2026-09-28T00:00:00{dot}{}-00:00", &digits[..n]),
+            ] {
+                let t = Temporal::parse(&text).unwrap();
+                let json = serde_json::to_string(&t).unwrap();
+                assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), t, "{json}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_time_keeps_every_fractional_digit() {
+        let t = |s: &str| Temporal::parse(s).unwrap();
+        for text in [
+            "12:00:00.1234567891",
+            "12:00:00.123456789012345678901234567890",
+            "2026-09-28T12:00:00.1234567890Z",
+            "2026-09-28T12:00:00.000000000000000000000000000001+05:30",
+        ] {
+            assert_eq!(t(text).to_string(), text);
+            assert_eq!(t(&t(text).to_string()), t(text));
+        }
+        // Representation equality keeps the written precision; the
+        // chronological comparison compares the instants.
+        assert_ne!(t("12:00:00.1"), t("12:00:00.10"));
+        assert_ne!(t("12:00:00.1234567890"), t("12:00:00.123456789"));
+        for (a, b) in [
+            ("12:00:00.1", "12:00:00.10"),
+            ("12:00:00.123456789", "12:00:00.1234567890"),
+            ("12:00:00", "12:00:00.000000000000000000000000000000"),
+        ] {
+            assert_eq!(t(a).cmp_chronological(&t(b)), Some(Ordering::Equal), "{a} {b}");
+        }
+        assert_eq!(
+            t("12:00:00.1234567891").cmp_chronological(&t("12:00:00.123456789")),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            t("12:00:00.0000000000000000000000000000001")
+                .cmp_chronological(&t("12:00:00")),
+            Some(Ordering::Greater)
+        );
+    }
+
+    /// Every fraction over the digits 0, 1 and 9 of at most four digits.
+    fn small_fractions() -> Vec<String> {
+        let mut all = vec![String::new()];
+        let mut layer = vec![String::new()];
+        for _ in 0..4 {
+            layer = layer
+                .iter()
+                .flat_map(|f| ["0", "1", "9"].map(|d| format!("{f}{d}")))
+                .collect();
+            all.extend(layer.iter().cloned());
+        }
+        all
+    }
+
+    /// The instant of `seconds` past midnight plus `0.fraction`, in units of
+    /// 10^-4 seconds (exact for fractions of at most four digits).
+    fn ten_thousandths(seconds: i64, fraction: &str) -> i64 {
+        let padded = format!("{fraction:0<4}");
+        seconds * 10_000 + padded.parse::<i64>().unwrap()
+    }
+
+    /// The chronological comparison against an oracle on every pair of times
+    /// in a bounded scope: seconds 58 to 60 of one minute, the fractions of
+    /// [`small_fractions`], and the offsets `Z`, `+00:00`, `-00:00` and
+    /// `+00:01` (one minute east, so 12:01:xx there is 12:00:xx in UTC).
+    #[test]
+    fn chronological_order_agrees_with_an_oracle_on_a_bounded_scope() {
+        let fractions = small_fractions();
+        assert_eq!(fractions.len(), 121);
+        let offsets = [("Z", 0), ("+00:00", 0), ("-00:00", 0), ("+00:01", 1)];
+        let mut times = Vec::new();
+        for second in 58..=60 {
+            for fraction in &fractions {
+                for (written, minutes) in offsets {
+                    let dot = if fraction.is_empty() { "" } else { "." };
+                    let text = format!("12:{:02}:{second:02}{dot}{fraction}{written}", minutes);
+                    let instant = ten_thousandths(12 * 3600 + i64::from(second), fraction);
+                    times.push((Temporal::parse(&text).unwrap(), instant));
+                }
+            }
+        }
+        let mut checked = 0_u64;
+        for (a, ia) in &times {
+            for (b, ib) in &times {
+                assert_eq!(a.cmp_chronological(b), Some(ia.cmp(ib)), "{a} {b}");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 1452 * 1452);
     }
 }

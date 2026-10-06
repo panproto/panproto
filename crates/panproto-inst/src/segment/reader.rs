@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use panproto_expr::exact::Fraction;
 use panproto_gat::Name;
 use panproto_schema::Edge;
 
@@ -290,24 +291,31 @@ impl<'a> Reader<'a> {
         CivilDate::new(year, month, day).map_err(|e| self.error(e.to_string()))
     }
 
+    /// A time of day: hour, minute and second bytes, then the fraction's
+    /// digit count as a little-endian `u64` and its ASCII digits. A count
+    /// beyond the bytes left and a byte that is not a digit are refused.
     fn civil_time(&mut self) -> Result<CivilTime, SegmentError> {
         let (hour, minute, second) = (self.u8()?, self.u8()?, self.u8()?);
-        let nanos = self.u32()?;
-        let frac_digits = self.u8()?;
-        CivilTime::new(hour, minute, second, nanos, frac_digits)
-            .map_err(|e| self.error(e.to_string()))
+        let digits = self.byte_string()?;
+        let fraction = std::str::from_utf8(digits)
+            .ok()
+            .and_then(|d| Fraction::new(d).ok())
+            .ok_or_else(|| self.error("a fraction of a second holds a byte that is not a digit"))?;
+        CivilTime::new(hour, minute, second, fraction).map_err(|e| self.error(e.to_string()))
     }
 
+    /// An offset: tag `0` local, `1` `Z`, `2` a fixed offset followed by its
+    /// minutes as a little-endian `i64`, `3` `-00:00`.
     fn offset(&mut self) -> Result<Offset, SegmentError> {
         match self.u8()? {
             0 => Ok(Offset::Local),
-            1 => Ok(Offset::Utc),
+            1 => Ok(Offset::Zulu),
             2 => {
                 let minutes =
                     i16::try_from(self.i64()?).map_err(|_| self.error("an offset leaves i16"))?;
                 Offset::fixed(minutes).map_err(|e| self.error(e.to_string()))
             }
-            3 => Ok(Offset::Unknown),
+            3 => Ok(Offset::NegZero),
             other => Err(self.error(format!("offset tag {other}"))),
         }
     }
@@ -357,5 +365,122 @@ impl<'a> Reader<'a> {
         node.shape = shape;
         node.annotations = annotations;
         Ok(node)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use panproto_schema::CanonicalWriter;
+
+    use super::*;
+    use crate::identity::CanonicalSink;
+
+    /// The canonical bytes of `value`, as a segment writes them.
+    fn written(value: &Value) -> Vec<u8> {
+        let mut out = CanonicalWriter::new();
+        out.value(value);
+        out.into_bytes()
+    }
+
+    /// The value `bytes` decode to, every byte read.
+    fn read(bytes: &[u8]) -> Result<Value, SegmentError> {
+        let mut reader = Reader::new(bytes, ArtifactKind::Segment);
+        let value = reader.value(0)?;
+        reader.finish()?;
+        Ok(value)
+    }
+
+    /// The value of `result`, or a panic naming its error.
+    fn ok<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    /// The message of the decode error `result` must be.
+    fn message(result: Result<Value, SegmentError>) -> String {
+        match result {
+            Err(SegmentError::Decode { message, .. }) => message,
+            other => panic!("expected a decode error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segment_reader_decodes_every_temporal_layout() {
+        let offsets = [
+            ("", Offset::Local),
+            ("Z", Offset::Zulu),
+            ("+00:00", Offset::Fixed(0)),
+            ("-08:00", Offset::Fixed(-480)),
+            ("+05:30", Offset::Fixed(330)),
+            ("-00:00", Offset::NegZero),
+        ];
+        let digits = "123456789012345678901234567890";
+        for (written_offset, offset) in offsets {
+            for n in [0_usize, 3, 9, 10, 30] {
+                let fraction = if n == 0 {
+                    String::new()
+                } else {
+                    format!(".{}", &digits[..n])
+                };
+                for text in [
+                    format!("12:34:56{fraction}{written_offset}"),
+                    format!("2026-09-28T23:59:60{fraction}{written_offset}"),
+                ] {
+                    let temporal = ok(Temporal::parse(&text));
+                    assert_eq!(temporal.offset(), Some(offset), "{text}");
+                    let value = Value::Temporal(temporal);
+                    let bytes = written(&value);
+                    assert_eq!(ok(read(&bytes)), value, "{text}");
+                    assert_eq!(ok(read(&bytes)).canonical_bytes(), value.canonical_bytes());
+                }
+            }
+        }
+        let date = Value::Temporal(ok(Temporal::parse("-0044-03-15")));
+        assert_eq!(ok(read(&written(&date))), date);
+    }
+
+    #[test]
+    fn segment_reader_refuses_a_malformed_fraction() {
+        let value = Value::Temporal(ok(Temporal::parse("12:00:00.25Z")));
+        let bytes = written(&value);
+        // tag 15, form 1, hour, minute, second, then the u64 digit count.
+        let count_at = 5;
+        assert_eq!(bytes[count_at..count_at + 8], 2_u64.to_le_bytes());
+        // A count beyond the bytes left.
+        let mut long = bytes.clone();
+        long[count_at..count_at + 8].copy_from_slice(&5_u64.to_le_bytes());
+        let error = message(read(&long));
+        assert!(error.starts_with("count 5 exceeds the input"), "{error}");
+        let mut huge = bytes.clone();
+        huge[count_at..count_at + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(message(read(&huge)).contains("exceeds the input"));
+        // A byte that is not a digit, ASCII or not.
+        for byte in [b'a', b'.', b'/', b':', 0xff, 0x00] {
+            let mut bad = bytes.clone();
+            bad[count_at + 8] = byte;
+            let error = message(read(&bad));
+            assert!(error.contains("not a digit"), "{byte}: {error}");
+        }
+        // The digits themselves decode.
+        assert_eq!(ok(read(&bytes)), value);
+    }
+
+    #[test]
+    fn segment_reader_refuses_an_unknown_offset_tag() {
+        let value = Value::Temporal(ok(Temporal::parse("12:00:00Z")));
+        let mut bytes = written(&value);
+        let last = bytes.len() - 1;
+        assert_eq!(bytes[last], 1);
+        for (tag, offset) in [(0, Offset::Local), (1, Offset::Zulu), (3, Offset::NegZero)] {
+            bytes[last] = tag;
+            let Value::Temporal(t) = ok(read(&bytes)) else {
+                panic!("a temporal")
+            };
+            assert_eq!(t.offset(), Some(offset));
+        }
+        bytes[last] = 4;
+        assert!(message(read(&bytes)).starts_with("offset tag 4"));
     }
 }

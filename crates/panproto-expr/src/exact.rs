@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 pub use decimal::DecimalValue;
 pub use integer::{BigIntValue, ExactInteger};
-pub use temporal::{CivilDate, CivilTime, Offset, Temporal};
+pub use temporal::{CivilDate, CivilTime, Fraction, Offset, Temporal};
 
 /// The exact kind a parser was reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
