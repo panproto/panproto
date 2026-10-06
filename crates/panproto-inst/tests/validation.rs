@@ -518,6 +518,10 @@ fn all_violations() -> Vec<Violation> {
         Violation::ExternalRejected {
             witness: Digest([7; 32]),
         },
+        Violation::OutsideKeyScope {
+            key: "k".into(),
+            scope: "list".into(),
+        },
     ]
 }
 
@@ -555,7 +559,8 @@ fn violation_serde_tags_are_the_contract_tags_in_order() -> TestResult {
             "missing_root",
             "unreachable",
             "parent_mismatch",
-            "external_rejected"
+            "external_rejected",
+            "outside_key_scope"
         ]
     );
     assert_eq!(serde_json::to_string(&EndpointSide::Src)?, r#""src""#);
@@ -958,10 +963,18 @@ fn rich_protocol() -> Protocol {
 #[test]
 fn a_plan_has_one_check_key_per_compiled_check() {
     let plan = plan(&rich_schema(), &rich_protocol());
+    let mut spec_level_class_overrides = 0;
     for (key, spec) in plan.checks() {
         assert_eq!(&spec.key, key);
-        assert_eq!(spec.class, key.kind.class());
+        if key.kind == CheckKind::RequiredValue && matches!(key.decl, SchemaRef::Key { .. }) {
+            assert_eq!(key.kind.class(), CheckClass::GraphLocal);
+            assert_eq!(spec.class, CheckClass::MaintainedGlobal);
+            spec_level_class_overrides += 1;
+        } else {
+            assert_eq!(spec.class, key.kind.class());
+        }
     }
+    assert_eq!(spec_level_class_overrides, 1);
     let keys: Vec<&CheckKey> = plan.checks().keys().collect();
     let unique: BTreeSet<&CheckKey> = keys.iter().copied().collect();
     assert_eq!(keys.len(), unique.len());
@@ -1062,7 +1075,7 @@ fn check_spec_locality_is_the_contract_table() {
     use panproto_inst::locality::{Locality, SummaryKind};
     let plan = plan(&rich_schema(), &rich_protocol());
     for (key, spec) in plan.checks() {
-        let expected = match key.kind {
+        let kind_default = match key.kind {
             CheckKind::TreeRoot => Locality::Summary(SummaryKind::Fold),
             CheckKind::KeyUnique | CheckKind::ReferenceResolves => {
                 Locality::Summary(SummaryKind::SortedMerge)
@@ -1070,10 +1083,16 @@ fn check_spec_locality_is_the_contract_table() {
             CheckKind::Acyclic | CheckKind::TreeReachable => Locality::Summary(SummaryKind::Reach),
             _ => Locality::Local,
         };
+        let expected =
+            if key.kind == CheckKind::RequiredValue && matches!(key.decl, SchemaRef::Key { .. }) {
+                Locality::Summary(SummaryKind::SortedMerge)
+            } else {
+                kind_default.clone()
+            };
         for locality in spec.locality.values() {
             assert_eq!(locality, &expected, "{key:?}");
         }
-        assert_eq!(key.kind.locality(), expected);
+        assert_eq!(key.kind.locality(), kind_default);
     }
 }
 
@@ -1535,7 +1554,17 @@ fn trigger_table_is_the_rustdoc_table_restricted_to_compiled_kinds() {
     // The rows the rustdoc lists for two changes.
     assert_eq!(
         DeltaElementKind::AttrEdgePosition.triggers(),
-        &[CheckKind::PositionDistinct, CheckKind::KeyUnique]
+        &[
+            CheckKind::PositionDistinct,
+            CheckKind::RequiredValue,
+            CheckKind::KeyUnique,
+            CheckKind::ReferenceResolves,
+        ]
+    );
+    assert!(
+        DeltaElementKind::AttrMeta
+            .triggers()
+            .contains(&CheckKind::ReferenceResolves)
     );
     assert_eq!(
         DeltaElementKind::InsertFan.triggers(),
