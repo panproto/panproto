@@ -11,22 +11,23 @@
 //! no sort equation. The refusal is conservative: it rejects a diagram
 //! whose colimit exists.
 //!
-//! The diagrams below are spans over the apex `S`. Every node declares
-//! `X`, `Y(x : X)`, a constant `a : X` and one constant of sort `Y(a)`:
-//! `h` in `S`, `f` in `L`, `g` in `R`. The left leg renames `a` to `a` and
-//! `h` to `f`, so `S.a` and `L.a` form one class. The right leg sends `a`
-//! to the derived term `a` of `R` and renames `h` to `g`; a derived term
-//! joins no class, so `R.a` is a class of its own, and tier 2 adds the
-//! equation `S.a = R.a`. The class `{S.h, L.f, R.g}` then asks
-//! `Y(class of L.a)` and `Y(class of R.a)` to agree.
+//! The pin `tier1_refuses_agreement_that_holds_only_modulo_term_equations`
+//! uses distinct constants. The apex `S` declares `X`, `Y(x : X)`, `c : X`
+//! and `h : Y(c)`; `L` declares `a : X` and `f : Y(a)`; `R` declares
+//! `b : X` and `g : Y(b)`. The left leg renames `c` to `a` and `h` to `f`.
+//! The right leg sends `c` to the derived term `b()` and renames `h` to
+//! `g`, which is a theory morphism because it sends `h`'s sort `Y(c)` to
+//! `Y(b)`. Tier 2 adds the equation `a = b` (as `S.c = R.b`), and the class
+//! `{S.h, L.f, R.g}` asks `Y(class of a)` and `Y(class of b)` to agree.
 //!
-//! Every node names its constant `a` because the leg check compares the
-//! image of `Y(a)` with the target's declared sort without substituting
-//! the derived-term image of `a` into it. With the right node's constant
-//! named `b` and `g : Y(b)`, the right leg is refused as not a theory
-//! morphism (`InvalidLeg`) before any class is formed, so these spans are
-//! not the fixture with distinct constants `a` and `b`; that fixture does
-//! not reach tier 1 today.
+//! The second pin uses one constant name in every node: `X`, `Y(x : X)`,
+//! `a : X` and a constant of sort `Y(a)`, `h` in `S`, `f` in `L`, `g` in
+//! `R`. The left leg renames `a` to `a` and `h` to `f`, so `S.a` and `L.a`
+//! form one class. The right leg sends `a` to the derived term `a` of `R`
+//! and renames `h` to `g`; a derived term joins no class, so `R.a` is a
+//! class of its own, and tier 2 adds the equation `S.a = R.a`. The class
+//! `{S.h, L.f, R.g}` then asks `Y(class of L.a)` and `Y(class of R.a)` to
+//! agree.
 //!
 //! Besides the single refusal, the family of these spans, over every
 //! choice of each leg's image of the constant (renamed or a derived
@@ -151,6 +152,49 @@ fn options() -> ComposeOptions {
 /// `S.a = R.a`.
 fn agreement_modulo_term_equation() -> TheoryDiagram {
     span(&OpAssignment::Term(Term::constant("a")))
+}
+
+#[test]
+fn tier1_refuses_agreement_that_holds_only_modulo_term_equations() {
+    let diagram = TheoryDiagram::span(
+        ("S", fibred("S", "c", "h")),
+        ("L", fibred("L", "a", "f")),
+        ("R", fibred("R", "b", "g")),
+        leg(
+            "S",
+            "L",
+            vec![("c", OpAssignment::op("a")), ("h", OpAssignment::op("f"))],
+        ),
+        leg(
+            "S",
+            "R",
+            vec![
+                ("c", OpAssignment::Term(Term::constant("b"))),
+                ("h", OpAssignment::op("g")),
+            ],
+        ),
+    );
+    let outcome = compose(&diagram, &options());
+    eprintln!("observed outcome: {outcome:?}");
+    let error = outcome.expect_err("tier 1 compares signatures syntactically");
+    let CompositionError::QuotientNotRepresentable {
+        first,
+        second,
+        reason,
+    } = error
+    else {
+        panic!("expected QuotientNotRepresentable, observed {error:?}");
+    };
+    assert_eq!(reason, NotRepresentableReason::NeedsSortEquation);
+    // The members over the class of `a` are `S.h` and `L.f`; the member
+    // over the class of `b` is `R.g`.
+    let over_a = [SymRef::new("L", "f"), SymRef::new("S", "h")];
+    let over_b = SymRef::new("R", "g");
+    assert!(
+        (over_a.contains(&first) && second == over_b)
+            || (over_a.contains(&second) && first == over_b),
+        "the refused pair is a member over a and the member over b: {first}, {second}"
+    );
 }
 
 #[test]
