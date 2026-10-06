@@ -752,4 +752,24 @@ mod exact {
         }
         assert_eq!(checked, 1452 * 1452);
     }
+
+    /// The shortest text of a float breaks an exact tie between two
+    /// candidates of equal length away from zero, and keeps the scale-free
+    /// form of the digits.
+    #[test]
+    fn shortest_text_breaks_a_tie_away_from_zero() {
+        // 2229016984128891.25 lies exactly between the 17-digit decimals
+        // 2229016984128891.2 and 2229016984128891.3, both of which read back
+        // to it.
+        let x = f64::from_bits(0x431f_ad1d_d626_35ed);
+        assert_eq!(format!("{x:.2}"), "2229016984128891.25");
+        for text in ["2229016984128891.2", "2229016984128891.3"] {
+            assert_eq!(text.parse::<f64>().unwrap().to_bits(), x.to_bits());
+        }
+        assert_eq!(DecimalValue::from_f64_shortest(x).unwrap(), dec("2229016984128891.3"));
+        assert_eq!(DecimalValue::from_f64_shortest(-x).unwrap(), dec("-2229016984128891.3"));
+        // A positive power of ten is kept as an exponent.
+        let thousand = dec("1e3");
+        assert_eq!((thousand.digits.as_str(), thousand.exponent, thousand.scale()), ("1", 3, 0));
+    }
 }

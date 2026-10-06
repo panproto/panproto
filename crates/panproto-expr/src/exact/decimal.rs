@@ -17,6 +17,22 @@ use super::{
 /// different values under `==`; [`cmp_numeric`](Self::cmp_numeric)
 /// compares them as numbers.
 ///
+/// This is the abstract representation of the General Decimal Arithmetic
+/// specification (Cowlishaw 2009), of XSD's precisionDecimal (Peterson and
+/// Sperberg-McQueen 2011, Secs 3.1 to 3.2) and of Java's `BigDecimal`
+/// (Oracle 2023, Java SE 21 API), restricted to finite values without a
+/// negative zero: a coefficient (`digits`) and an exponent, so a number has
+/// one representation per scale. Representation equality (`==`) is GDA's
+/// compare-total identity and `BigDecimal.equals` (`2.0` differs from
+/// `2.00`); [`cmp_numeric`](Self::cmp_numeric) is GDA's compare,
+/// precisionDecimal's equality and order, and `BigDecimal.compareTo`
+/// (`2.0` equals `2.00`), and is also the equality of XSD's `xs:decimal`,
+/// whose value space does not keep the scale (W3C 2012, XML Schema 1.1
+/// Part 2: Datatypes, Sec 3.3.3, stated). [`scale`](Self::scale) is the
+/// number of fractional digits written, clamped at zero, while `exponent`
+/// keeps a positive power of ten (`1e3` has exponent 3, where `BigDecimal`
+/// would record the scale -3).
+///
 /// ```
 /// use std::cmp::Ordering;
 ///
@@ -199,10 +215,14 @@ impl DecimalValue {
     /// The shortest decimal that reads back as `x`, or `None` when `x` is
     /// not finite.
     ///
-    /// This is the decimal Rust's float formatting writes, which is the
-    /// shortest digit string that parses back to exactly `x`; so `0.1`
-    /// gives `1 × 10^-1`, not the float's exact binary expansion. A
-    /// negative zero gives zero.
+    /// This is the decimal Rust's float formatting writes (`{:e}`): among
+    /// the decimals with the fewest significant digits that read back to
+    /// exactly `x` under round-to-nearest-even, the one closest to `x`,
+    /// and at an exact tie between two such decimals the one farther from
+    /// zero (so the binary32 value `52401.3125`, between `52401.312` and
+    /// `52401.313`, is written `52401.313`; `x` here is a binary64 value,
+    /// where the same rule applies). So `0.1` gives `1 × 10^-1`, not the
+    /// float's exact binary expansion. A negative zero gives zero.
     #[must_use]
     pub fn from_f64_shortest(x: f64) -> Option<Self> {
         if !x.is_finite() {
