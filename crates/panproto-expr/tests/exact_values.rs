@@ -744,7 +744,7 @@ mod exact {
             for fraction in &fractions {
                 for (written, minutes) in offsets {
                     let dot = if fraction.is_empty() { "" } else { "." };
-                    let text = format!("12:{:02}:{second:02}{dot}{fraction}{written}", minutes);
+                    let text = format!("12:{minutes:02}:{second:02}{dot}{fraction}{written}");
                     let instant = ten_thousandths(12 * 3600 + i64::from(second), fraction);
                     times.push((Temporal::parse(&text).unwrap(), instant));
                 }

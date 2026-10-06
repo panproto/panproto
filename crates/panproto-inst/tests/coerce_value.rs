@@ -37,10 +37,9 @@ fn normalize(text: &str) -> (bool, String, String) {
         Some(b'+') => (false, &text[1..]),
         _ => (false, text),
     };
-    let (mantissa, exponent) = match rest.find(['e', 'E']) {
-        Some(i) => (&rest[..i], rest[i + 1..].parse::<i64>().unwrap()),
-        None => (rest, 0),
-    };
+    let (mantissa, exponent) = rest.find(['e', 'E']).map_or((rest, 0), |i| {
+        (&rest[..i], rest[i + 1..].parse::<i64>().unwrap())
+    });
     let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     let mut digits = format!("{int}{frac}");
     let mut point = i64::try_from(int.len()).unwrap() + exponent;
@@ -211,7 +210,7 @@ const BINARY64: Width = Width {
     max_biased: 2046,
 };
 
-fn width(bits: u8) -> Width {
+const fn width(bits: u8) -> Width {
     if bits == 32 { BINARY32 } else { BINARY64 }
 }
 
@@ -419,11 +418,8 @@ fn expected_decimal(
         return Err(FidelityReason::ScaleExceeded { max: s });
     }
     if let Some(p) = precision {
-        let fits = match scale {
-            Some(s) => int_len <= p.saturating_sub(s),
-            // The digits the number needs in positional notation.
-            None => int_len + frac_len <= p,
-        };
+        // Without a scale, the digits the number needs in positional notation.
+        let fits = scale.map_or(int_len + frac_len <= p, |s| int_len <= p.saturating_sub(s));
         if !fits {
             return Err(FidelityReason::PrecisionExceeded { max: p });
         }
@@ -526,7 +522,7 @@ fn float_numerals() -> impl Strategy<Value = String> {
     let finite32 = any::<f32>().prop_filter("finite", |x| x.is_finite());
     prop_oneof![
         finite64.clone().prop_map(|x| format!("{x:e}")),
-        finite64.clone().prop_map(|x| format!("{:.1100e}", x)),
+        finite64.clone().prop_map(|x| format!("{x:.1100e}")),
         finite32.clone().prop_map(|x| format!("{x:e}")),
         finite32
             .clone()
@@ -1234,7 +1230,7 @@ fn coerce_value_laws_hold_on_a_bounded_scope() {
                         );
                     }
                     (Ok(got), Ok(want)) => {
-                        assert!(same(got, want), "{value:?} as {spec:?}: {got:?}")
+                        assert!(same(got, want), "{value:?} as {spec:?}: {got:?}");
                     }
                     (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{value:?} as {spec:?}"),
                     _ => panic!("{value:?} as {spec:?}: got {once:?}, expected {expected:?}"),
@@ -1242,13 +1238,13 @@ fn coerce_value_laws_hold_on_a_bounded_scope() {
             }
             // Pass-through outside the domain.
             let passes = match (value, &spec.kind) {
-                (_, ScalarKind::Any) => Some(true),
+                (_, ScalarKind::Any)
+                | (Value::Bytes(_) | Value::List(_) | Value::LabeledNull(_), _) => Some(true),
                 (Value::Float(x), ScalarKind::Float { bits: 32 }) if !x.is_finite() => {
                     Some(is_binary32(*x))
                 }
                 (Value::Float(x), ScalarKind::Float { .. }) if !x.is_finite() => Some(true),
                 (Value::Float(x), _) if !x.is_finite() => Some(false),
-                (Value::Bytes(_) | Value::List(_) | Value::LabeledNull(_), _) => Some(true),
                 _ => None,
             };
             match passes {

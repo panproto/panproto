@@ -800,10 +800,13 @@ fn every_non_finite_spelling_reads_by_its_word_on_a_bounded_scope() {
 #[test]
 fn a_closest_shortest_tie_breaks_away_from_zero() {
     let f32_ = spec(ScalarKind::Float { bits: 32 });
-    assert_eq!(52_401.312_5_f32.to_string(), "52401.313");
-    assert_eq!(format!("{:e}", -52_401.312_5_f32), "-5.2401313e4");
+    // 52401.3125 = 838421 / 16, a binary32 value.
+    let tie32 = 838_421.0_f32 / 16.0;
+    assert_eq!(format!("{tie32:.4}"), "52401.3125");
+    assert_eq!(tie32.to_string(), "52401.313");
+    assert_eq!(format!("{:e}", -tie32), "-5.2401313e4");
     for sign in ["", "-"] {
-        let tie = f64::from(52_401.312_5_f32);
+        let tie = f64::from(tie32);
         let want = if sign.is_empty() { tie } else { -tie };
         assert_eq!(
             float_bits(number(&format!("{sign}52401.313"), &f32_)),

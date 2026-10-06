@@ -788,8 +788,10 @@ pub fn coerce_value(
         target: spec.kind.clone(),
         reason,
     };
+    if spec.kind == ScalarKind::Any {
+        return Ok(value.clone());
+    }
     let (text, class) = match (value, &spec.kind) {
-        (_, ScalarKind::Any) => return Ok(value.clone()),
         (Value::Float(x), ScalarKind::Float { bits: 32 }) => {
             return if holds_binary32(*x) {
                 Ok(value.clone())

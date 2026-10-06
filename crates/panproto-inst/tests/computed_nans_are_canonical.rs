@@ -11,11 +11,14 @@ use panproto_inst::{FieldTransform, Node, TransformContext, Value};
 
 const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
 
-fn float(x: f64) -> Expr {
+/// A binary operation on floats, as IEEE 754 arithmetic computes it.
+type FloatOp = fn(f64, f64) -> f64;
+
+const fn float(x: f64) -> Expr {
     Expr::Lit(Literal::Float(x))
 }
 
-fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
+const fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
     Expr::Builtin(op, args)
 }
 
@@ -28,7 +31,7 @@ fn evaluated_bits(expr: &Expr, env: &Env) -> u64 {
 }
 
 /// A NaN with a sign and a payload no arithmetic needs to produce.
-fn odd_nan() -> f64 {
+const fn odd_nan() -> f64 {
     f64::from_bits(0xfff8_0000_0000_1234)
 }
 
@@ -207,7 +210,7 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
     operands.extend(nans);
     let env = Env::new();
     let expect = |x: f64| if x.is_nan() { CANONICAL } else { x.to_bits() };
-    let binary: [(BuiltinOp, fn(f64, f64) -> f64); 4] = [
+    let binary: [(BuiltinOp, FloatOp); 4] = [
         (BuiltinOp::Add, |a, b| a + b),
         (BuiltinOp::Sub, |a, b| a - b),
         (BuiltinOp::Mul, |a, b| a * b),
