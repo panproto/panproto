@@ -214,7 +214,15 @@ impl Resolution {
         refuse(failures)?;
         let first = self.assemble_written(&parts, &written, &vec![0; written.len()])?;
         written.extend(self.rewrites(&parts, &classified, complement, &first, &canvas)?);
-        written.sort_by_key(|occurrence| occurrence.carrier);
+        // The order is the occurrences' keys in the candidate, which no
+        // renaming of the view's presentation ids moves.
+        written.sort_by_key(|occurrence| {
+            (
+                occurrence.holder,
+                occurrence.compiled.reference.id.clone(),
+                occurrence.index,
+            )
+        });
         self.choose_forms(&parts, &written, ctx)
     }
 
@@ -838,7 +846,8 @@ impl Resolution {
     /// The candidate `build` makes with every written occurrence holding
     /// the first of its forms that resolves back to its target.
     ///
-    /// The occurrences are taken in the order given (ascending carrier);
+    /// The occurrences are taken in the order given (ascending key in the
+    /// candidate);
     /// each keeps its first form when that resolves to its target in the
     /// candidate holding the forms chosen so far, and otherwise takes the
     /// first more qualified form that does. An occurrence of a key, path
