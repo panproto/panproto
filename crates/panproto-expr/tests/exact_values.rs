@@ -912,4 +912,16 @@ mod exact {
         );
         assert_eq!(pairs, 1111 * 1111 + 8191 * 8191);
     }
+
+    /// The canonical NaN is one constant defined by its bits.
+    #[test]
+    fn the_canonical_nan_is_defined_by_its_bits() {
+        use panproto_expr::exact::CANONICAL_NAN;
+        assert_eq!(CANONICAL_NAN.to_bits(), 0x7ff8_0000_0000_0000);
+        assert_eq!(
+            panproto_expr::CANONICAL_NAN.to_bits(),
+            0x7ff8_0000_0000_0000
+        );
+        assert!(CANONICAL_NAN.is_nan());
+    }
 }
