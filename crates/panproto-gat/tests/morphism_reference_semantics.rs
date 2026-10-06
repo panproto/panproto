@@ -417,7 +417,8 @@ fn r_outputs() -> Vec<SortExpr> {
 /// The codomain, with `B` closed over `closure` and `Z(w : Y(z_arg))`:
 /// `c, d : X`, `t, f : B`, `p : Y(c)`, `p2 : Y(d)`,
 /// `r(z : X) : H(z, c)`, `r2(w : X) : H(w, d)`,
-/// `q(z : X, z : X) : H(z, z)` and `q2(a : X, b : X) : H(a, b)`.
+/// `q(z : X, z : X) : H(z, z)`, `q2(a : X, b : X) : H(a, b)` and
+/// `neg(b : B) : B`.
 fn codomain(closure: &[&str], z_arg: &str) -> Theory {
     Theory::new(
         "C",
@@ -449,6 +450,7 @@ fn codomain(closure: &[&str], z_arg: &str) -> Theory {
                 vec![("a".into(), x()), ("b".into(), x())],
                 sort_app("H", vec![v("a"), v("b")]),
             ),
+            Operation::new("neg", vec![("b".into(), "B".into())], "B"),
         ],
         vec![],
     )
@@ -468,7 +470,16 @@ fn candidate_images() -> Vec<(&'static str, Vec<OpAssignment>)> {
     vec![
         ("c", vec![op("c"), op("d"), term(c("c")), term(c("d"))]),
         ("d", vec![op("d"), op("c"), term(c("d"))]),
-        ("t", vec![op("t"), op("f"), term(c("t")), term(c("f"))]),
+        (
+            "t",
+            vec![
+                op("t"),
+                op("f"),
+                term(c("t")),
+                term(c("f")),
+                term(Term::app("neg", vec![c("f")])),
+            ],
+        ),
         ("f", vec![op("f"), op("t"), term(c("f"))]),
         ("p", vec![op("p"), op("p2")]),
         (
@@ -587,7 +598,7 @@ fn check_morphism_agrees_with_the_reference_semantics_on_the_exhaustive_scope() 
     for p_arg in ["c", "d"] {
         for r_out in r_outputs() {
             let dom = domain(p_arg, &r_out);
-            for closure in [&["t", "f"][..], &["t"][..]] {
+            for closure in [&["t", "f"][..], &["t"][..], &["f"][..]] {
                 for z_arg in ["c", "d"] {
                     let cod = codomain(closure, z_arg);
                     for m in &legs {
@@ -604,11 +615,11 @@ fn check_morphism_agrees_with_the_reference_semantics_on_the_exhaustive_scope() 
         }
     }
     eprintln!(
-        "morphism scope: {} legs x 6 domains x 4 codomains = {instances} instances; accepted {accepted} ({accepted_with_a_term_image} with a derived-term image), refused {}",
+        "morphism scope: {} legs x 6 domains x 6 codomains = {instances} instances; accepted {accepted} ({accepted_with_a_term_image} with a derived-term image), refused {}",
         legs.len(),
         instances - accepted
     );
-    assert_eq!(instances, legs.len() * 24);
+    assert_eq!(instances, legs.len() * 36);
     assert!(accepted_with_a_term_image > 0 && accepted < instances);
 }
 
@@ -625,7 +636,7 @@ fn gen_image(vars: &'static [&'static str]) -> impl Strategy<Value = Term> {
     let leaf = proptest::sample::select(leaves);
     leaf.prop_recursive(2, 8, 2, |inner| {
         (
-            proptest::sample::select(vec!["r", "r2", "q", "q2", "c"]),
+            proptest::sample::select(vec!["r", "r2", "q", "q2", "c", "neg"]),
             proptest::collection::vec(inner, 0..=2),
         )
             .prop_map(|(op, args)| Term::app(op, args))
@@ -642,7 +653,7 @@ fn gen_assignment(
     ]
 }
 
-const ALL_OPS: [&str; 10] = ["c", "d", "t", "f", "p", "p2", "r", "r2", "q", "q2"];
+const ALL_OPS: [&str; 11] = ["c", "d", "t", "f", "p", "p2", "r", "r2", "q", "q2", "neg"];
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2048))]

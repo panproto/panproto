@@ -6947,7 +6947,14 @@ mod tests {
 
         fn scope_output_sorts() -> Vec<SortExpr> {
             let mut out = vec![SortExpr::from("X")];
-            for t in atoms().into_iter().chain(binder_terms()) {
+            let extra = [
+                Term::constant("b"),
+                Term::Hole { name: None },
+                Term::Hole {
+                    name: Some(Arc::from("h")),
+                },
+            ];
+            for t in atoms().into_iter().chain(binder_terms()).chain(extra) {
                 out.push(sort_of("Y", vec![t]));
             }
             for t in atoms() {
@@ -6961,8 +6968,9 @@ mod tests {
         /// Every operation of the scope: at most two inputs named from
         /// `x`, `y` (distinct or repeated), each of sort `X`, `Y(x)`,
         /// `Y(y)` or `Y(a)`, and an output `X`, `Y(t)` or `H(t, u)`, `t`
-        /// over `x`, `y`, `a()` and (for `Y`) the terms of
-        /// [`binder_terms`], `u` over `x`, `y`, `a()`.
+        /// over `x`, `y`, `a()` and (for `Y`) `b()`, the holes `?` and
+        /// `?h` and the terms of [`binder_terms`], `u` over `x`, `y`,
+        /// `a()`.
         fn op_scope() -> Vec<Operation> {
             let mut out = Vec::new();
             for k in 0..=2 {

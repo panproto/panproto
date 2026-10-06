@@ -1592,6 +1592,186 @@ mod tests {
         assert!(sort_params_equivalent_modulo_rename(&lhs, &rhs));
     }
 
+    // --- sort_exprs_agree: the name-free comparison ---
+
+    fn hole(name: Option<&str>) -> Term {
+        Term::Hole {
+            name: name.map(Arc::from),
+        }
+    }
+
+    fn let_in(name: &str, bound: Term, body: Term) -> Term {
+        Term::Let {
+            name: name.into(),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        }
+    }
+
+    fn case_of(scrutinee: Term, branches: Vec<(&str, Vec<&str>, Term)>) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: branches
+                .into_iter()
+                .map(|(constructor, binders, body)| crate::eq::CaseBranch {
+                    constructor: constructor.into(),
+                    binders: binders.into_iter().map(Arc::from).collect(),
+                    body,
+                })
+                .collect(),
+        }
+    }
+
+    /// Whether `Y(a)` under the binder `x` agrees with `Y(b)` under the
+    /// binder `x`.
+    fn args_agree(a: Term, b: Term) -> bool {
+        let sig: Vec<Arc<str>> = vec![Arc::from("x")];
+        sort_exprs_agree(
+            &SortExpr::app("Y", vec![a]),
+            &sig,
+            &SortExpr::app("Y", vec![b]),
+            &sig,
+        )
+    }
+
+    #[test]
+    fn name_free_comparison_compares_operations_and_holes_by_name_and_arity() {
+        let (x, a, b) = (Term::var("x"), Term::constant("a"), Term::constant("b"));
+        assert!(args_agree(a.clone(), a.clone()));
+        assert!(!args_agree(a.clone(), b));
+        let s1 = Term::app("s", vec![x.clone()]);
+        let s2 = Term::app("s", vec![x.clone(), x.clone()]);
+        assert!(!args_agree(s1.clone(), s2.clone()));
+        assert!(!args_agree(s2, s1));
+        assert!(args_agree(hole(None), hole(None)));
+        assert!(args_agree(hole(Some("h")), hole(Some("h"))));
+        assert!(!args_agree(hole(Some("h")), hole(Some("k"))));
+        assert!(!args_agree(hole(None), hole(Some("h"))));
+        assert!(!args_agree(x.clone(), a.clone()));
+        assert!(!args_agree(a, hole(None)));
+        assert!(!args_agree(hole(None), x));
+    }
+
+    #[test]
+    fn name_free_comparison_reads_let_binders_by_depth() {
+        let (x, a, b) = (Term::var("x"), Term::constant("a"), Term::constant("b"));
+        let u = Term::var("u");
+        assert!(args_agree(
+            let_in("u", a.clone(), u.clone()),
+            let_in("v", a.clone(), Term::var("v"))
+        ));
+        assert!(!args_agree(
+            let_in("u", a.clone(), u.clone()),
+            let_in("u", b, u.clone())
+        ));
+        // A body that names the local binder is not one that names the
+        // signature binder, even when the names coincide.
+        assert!(!args_agree(
+            let_in("x", a.clone(), x.clone()),
+            let_in("u", a.clone(), x.clone())
+        ));
+        assert!(!args_agree(let_in("u", a.clone(), u), a));
+        assert!(!args_agree(let_in("u", x.clone(), x.clone()), x));
+    }
+
+    #[test]
+    fn name_free_comparison_reads_case_branches_by_constructor_arity_and_depth() {
+        let (x, a) = (Term::var("x"), Term::constant("a"));
+        let u = Term::var("u");
+        let base = || case_of(x.clone(), vec![("k", vec!["u"], u.clone())]);
+        assert!(args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["v"], Term::var("v"))])
+        ));
+        // The scrutinee.
+        assert!(!args_agree(
+            base(),
+            case_of(a.clone(), vec![("k", vec!["u"], u.clone())])
+        ));
+        // The number of branches, either way.
+        let two = case_of(
+            x.clone(),
+            vec![("k", vec!["u"], u.clone()), ("j", vec![], a.clone())],
+        );
+        assert!(!args_agree(base(), two.clone()));
+        assert!(!args_agree(two, base()));
+        // The constructor.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("j", vec!["u"], u.clone())])
+        ));
+        // The number of binders, even when the body reads the same depth.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["u", "w"], u.clone())])
+        ));
+        // The body.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["u"], a.clone())])
+        ));
+        // A later branch reads the signature binder again once the
+        // earlier branch's binders are out of scope.
+        assert!(args_agree(
+            case_of(
+                x.clone(),
+                vec![("k", vec!["x"], x.clone()), ("j", vec![], x.clone())]
+            ),
+            case_of(
+                x.clone(),
+                vec![("k", vec!["u"], u.clone()), ("j", vec![], x.clone())]
+            )
+        ));
+        assert!(!args_agree(base(), a));
+    }
+
+    #[test]
+    fn name_free_comparison_compares_heads_and_argument_counts() {
+        let sig: Vec<Arc<str>> = vec![Arc::from("x")];
+        let a = || Term::constant("a");
+        let y = SortExpr::app("Y", vec![a()]);
+        assert!(!sort_exprs_agree(
+            &y,
+            &sig,
+            &SortExpr::app("Z", vec![a()]),
+            &sig
+        ));
+        assert!(!sort_exprs_agree(
+            &SortExpr::from("X"),
+            &sig,
+            &SortExpr::from("W"),
+            &sig
+        ));
+        assert!(!sort_exprs_agree(
+            &y,
+            &sig,
+            &SortExpr::app("Y", vec![a(), a()]),
+            &sig
+        ));
+        assert!(sort_exprs_agree(
+            &SortExpr::from("X"),
+            &sig,
+            &SortExpr::App {
+                name: Arc::from("X"),
+                args: vec![]
+            },
+            &[]
+        ));
+        // A variable bound in one signature and free in the other.
+        assert!(!sort_exprs_agree(
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &sig,
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[]
+        ));
+        assert!(sort_exprs_agree(
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[],
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[]
+        ));
+    }
+
     #[test]
     fn refined_value_kinds_are_distinct_and_named() {
         // A record-to-theory encoder must be able to recover a
