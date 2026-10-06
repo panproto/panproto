@@ -264,3 +264,20 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
         assert_eq!(evaluated_bits(&parsed, &env), CANONICAL, "{text}");
     }
 }
+
+/// `Clamp` refuses bounds out of order, and bounds that are NaN, with a
+/// typed error rather than computing anything.
+#[test]
+fn clamp_refuses_bounds_that_are_not_ordered() {
+    let env = Env::new();
+    for (lo, hi) in [(1.0, 0.0), (f64::NAN, 1.0), (0.0, f64::NAN)] {
+        let expr = call(BuiltinOp::Clamp, vec![float(0.5), float(lo), float(hi)]);
+        let error = eval(&expr, &env, &EvalConfig::default()).unwrap_err();
+        assert!(
+            matches!(error, panproto_expr::ExprError::TypeError { .. }),
+            "{lo} {hi}: {error:?}"
+        );
+    }
+    let ordered = call(BuiltinOp::Clamp, vec![float(2.0), float(0.0), float(1.0)]);
+    assert_eq!(evaluated_bits(&ordered, &env), 1.0_f64.to_bits());
+}
