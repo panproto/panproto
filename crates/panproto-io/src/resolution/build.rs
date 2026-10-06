@@ -340,7 +340,7 @@ impl Resolution {
             .map_or(Some(0), |id| id.checked_add(1));
         let (Some(node_floor), Some(slot_floor)) = (node_floor, slot_floor) else {
             return Err(Refusal::Operational(ResolveError::IdExhausted {
-                kind: panproto_inst::IdKind::Node,
+                kind: panproto_inst::segment::IdKind::Node,
             }));
         };
         let mut holders = Vec::new();
@@ -583,7 +583,7 @@ impl TreeParts<'_, '_> {
                     .ok()
                     .and_then(|k| self.node_floor.checked_add(k))
                     .ok_or(Refusal::Operational(ResolveError::IdExhausted {
-                        kind: panproto_inst::IdKind::Node,
+                        kind: panproto_inst::segment::IdKind::Node,
                     }))
             })
             .collect()
@@ -648,7 +648,7 @@ impl Resolution {
             );
             let slot = parts.slot_floor.checked_add(k).ok_or(Refusal::Operational(
                 ResolveError::IdExhausted {
-                    kind: panproto_inst::IdKind::Edge,
+                    kind: panproto_inst::segment::IdKind::Edge,
                 },
             ))?;
             arcs.push((slot, holder.parent, *id, holder.arc.clone()));

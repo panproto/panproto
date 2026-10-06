@@ -338,13 +338,13 @@ impl Resolution {
             .max()
             .and_then(|max| max.checked_add(1))
             .ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::IdKind::Node,
+                kind: panproto_inst::segment::IdKind::Node,
             })?;
         let mut holders = Vec::new();
         for (parent, key) in holder_edges {
             let id = next_id;
             next_id = next_id.checked_add(1).ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::IdKind::Node,
+                kind: panproto_inst::segment::IdKind::Node,
             })?;
             holders.push((key.2, id, key.1));
             children

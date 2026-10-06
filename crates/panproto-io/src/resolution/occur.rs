@@ -286,7 +286,7 @@ impl Reader<'_, '_> {
                     holder: holder.clone(),
                     compiled,
                     index: u32::try_from(index).map_err(|_| ResolveError::IdExhausted {
-                        kind: panproto_inst::IdKind::Edge,
+                        kind: panproto_inst::segment::IdKind::Edge,
                     })?,
                     literal,
                     context,

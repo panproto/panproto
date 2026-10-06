@@ -1,8 +1,9 @@
 //! Closed, serializable failures for reference resolution.
 
 use panproto_gat::Name;
+use panproto_inst::segment::IdKind;
 use panproto_inst::{
-    Digest, IdKind, IdentityError, InstanceShapeKind, ResolutionKind, ResolutionProviderId, Value,
+    Digest, IdentityError, InstanceShapeKind, ResolutionKind, ResolutionProviderId, Value,
     ValueFidelityError, ViewRef,
 };
 use panproto_schema::{KeyRefError, OffsetUnit, PathSyntax};

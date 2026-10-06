@@ -5262,7 +5262,7 @@ fn one_resolve_error_of_each_variant() -> Vec<ResolveError> {
             found: None,
         },
         ResolveError::IdExhausted {
-            kind: panproto_inst::IdKind::Node,
+            kind: panproto_inst::segment::IdKind::Node,
         },
         ResolveError::Schema(panproto_schema::KeyRefError::EdgeRequired {
             reference: reference(),
@@ -7153,4 +7153,445 @@ fn put_twice_is_checked_where_put_get_holds_up_to_presentation() {
     assert!(same(&twice, &once));
     laws_hold(&resolution, &source, ResolveOptions::default());
     laws_hold(&resolution, &once, ResolveOptions::default());
+}
+
+// ---------------------------------------------------------------------------
+// One exact negative per law gate: providers broken in one way each, so
+// that the checker reports exactly the gate that law belongs to.
+// ---------------------------------------------------------------------------
+
+/// How a [`Faulty`] assembly provider breaks its put.
+#[derive(Clone, Copy, Debug)]
+enum Fault {
+    /// Put drops the cells the view does not show: GetPut fails.
+    DropsResidue,
+    /// Put of an edited view writes every name upper-cased: PutGet fails.
+    Garbles,
+    /// Put of an edited view fails although the domain admits it: Totality
+    /// fails.
+    Fails,
+    /// Put of an edited view, or of any view over a source it wrote,
+    /// shifts every note cell: the second put moves them again, so
+    /// PutTwice fails.
+    Drifts,
+}
+
+/// The entries provider with one fault in its put.
+struct Faulty {
+    inner: Entries,
+    fault: Fault,
+}
+
+impl Faulty {
+    /// Whether `view` is the view the residue's own source assembles to.
+    fn unchanged(
+        &self,
+        plan: &panproto_io::resolution::AssemblyPlanId,
+        view: &AnyInstance,
+        residue: &panproto_io::resolution::AssemblyResidue,
+        ctx: &ResolveContext<'_>,
+    ) -> bool {
+        self.inner
+            .assembly_get(plan, &residue.source, ctx)
+            .is_ok_and(|(own, _)| same(&own, view))
+    }
+}
+
+/// The table with every cell `cell` of every row rewritten by `edit`.
+fn table_edited(table: &FInstance, edit: impl Fn(&str, &Value) -> Value) -> FInstance {
+    let mut edited = table.clone();
+    for id in table.row_ids() {
+        if let Some(cells) = edited.row_mut(id) {
+            for (cell, value) in cells.iter_mut() {
+                *value = edit(cell, value);
+            }
+        }
+    }
+    edited
+}
+
+impl ResolutionProvider for Faulty {
+    fn id(&self) -> ResolutionProviderId {
+        self.inner.id()
+    }
+
+    fn kind(&self) -> ResolutionKind {
+        self.inner.kind()
+    }
+
+    fn protocol(&self) -> &Protocol {
+        self.inner.protocol()
+    }
+
+    fn spec(&self, protocol: &Protocol, syntactic: &Schema) -> Result<ResolutionSpec, ResolveError> {
+        self.inner.spec(protocol, syntactic)
+    }
+
+    fn assembly_get(
+        &self,
+        plan: &panproto_io::resolution::AssemblyPlanId,
+        source: &AnyInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<(AnyInstance, panproto_io::resolution::AssemblyResidue), ResolveError> {
+        self.inner.assembly_get(plan, source, ctx)
+    }
+
+    fn assembly_check_put_domain(
+        &self,
+        plan: &panproto_io::resolution::AssemblyPlanId,
+        view: &AnyInstance,
+        residue: &panproto_io::resolution::AssemblyResidue,
+        ctx: &ResolveContext<'_>,
+    ) -> Vec<ResolveDomainError> {
+        self.inner.assembly_check_put_domain(plan, view, residue, ctx)
+    }
+
+    fn assembly_put(
+        &self,
+        plan: &panproto_io::resolution::AssemblyPlanId,
+        view: &AnyInstance,
+        residue: &panproto_io::resolution::AssemblyResidue,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<AnyInstance, ResolveError> {
+        let put = self.inner.assembly_put(plan, view, residue, ctx)?;
+        let AnyInstance::Table(table) = &put else {
+            return Ok(put);
+        };
+        let unchanged = self.unchanged(plan, view, residue, ctx);
+        let edited = match self.fault {
+            Fault::DropsResidue => {
+                let mut dropped = FInstance::new();
+                for (id, cells) in table.rows("entry") {
+                    let kept = cells.iter().filter(|(cell, _)| *cell == "name").map(|(cell, value)| (cell.clone(), value.clone())).collect();
+                    dropped.insert_row("entry", id, kept).expect("a row");
+                }
+                dropped
+            }
+            Fault::Garbles if !unchanged => table_edited(table, |cell, value| match (cell, value) {
+                ("name", Value::Str(name)) => Value::Str(name.to_uppercase()),
+                _ => value.clone(),
+            }),
+            Fault::Fails if !unchanged => {
+                return Err(ResolveError::ProviderFailure {
+                    provider: self.id(),
+                    code: "fails".into(),
+                    at: None,
+                });
+            }
+            Fault::Drifts => {
+                let written = table
+                    .row_ids()
+                    .into_iter()
+                    .filter_map(|id| table.row(id).and_then(|cells| cells.get("note")))
+                    .any(|note| matches!(note, Value::Int(note) if *note >= 100));
+                if unchanged && !written {
+                    table.clone()
+                } else {
+                    table_edited(table, |cell, value| match (cell, value) {
+                        ("note", Value::Int(note)) => Value::Int(note + 100),
+                        _ => value.clone(),
+                    })
+                }
+            }
+            Fault::Garbles | Fault::Fails => table.clone(),
+        };
+        Ok(AnyInstance::Table(edited))
+    }
+}
+
+/// A links provider whose path `#name` (or `#name/`) names the items with
+/// that name, and which spells a path `#name/` exactly when the view's
+/// largest edge id is odd: its put depends on presentation ids, so
+/// Congruence fails.
+struct Parity(Provider);
+
+impl ResolutionProvider for Parity {
+    fn id(&self) -> ResolutionProviderId {
+        self.0.id()
+    }
+
+    fn kind(&self) -> ResolutionKind {
+        self.0.kind()
+    }
+
+    fn protocol(&self) -> &Protocol {
+        self.0.protocol()
+    }
+
+    fn spec(&self, protocol: &Protocol, syntactic: &Schema) -> Result<ResolutionSpec, ResolveError> {
+        self.0.spec(protocol, syntactic)
+    }
+
+    fn resolve_path(
+        &self,
+        _reference: &Reference,
+        _holder: ViewRef,
+        literal: &Value,
+        source: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<PathResolution, ResolveError> {
+        let (Value::Str(path), AnyInstance::Tree(tree)) = (literal, source) else {
+            return Ok(PathResolution {
+                candidates: Vec::new(),
+                context: None,
+            });
+        };
+        let name = path.trim_start_matches('#').trim_end_matches('/');
+        let candidates = tree
+            .nodes
+            .values()
+            .filter(|node| node.anchor == "item" && text_field(node, "name") == Some(name))
+            .map(|node| ViewRef::Node(node.id))
+            .collect();
+        Ok(PathResolution {
+            candidates,
+            context: None,
+        })
+    }
+
+    fn render_path(
+        &self,
+        _reference: &Reference,
+        _holder: ViewRef,
+        target: ViewRef,
+        view: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<Value, ResolveError> {
+        let (AnyInstance::Graph(graph), ViewRef::Node(target)) = (view, target) else {
+            return Err(ResolveError::ProviderFailure {
+                provider: self.id(),
+                code: "no_path".into(),
+                at: None,
+            });
+        };
+        let name = graph
+            .node(target)
+            .and_then(|item| text_field(item, "name"))
+            .ok_or_else(|| ResolveError::ProviderFailure {
+                provider: self.id(),
+                code: "no_path".into(),
+                at: None,
+            })?;
+        let odd = graph.edges().keys().map(|id| id.0).max().unwrap_or(0) % 2 == 1;
+        Ok(Value::Str(if odd {
+            format!("#{name}/")
+        } else {
+            format!("#{name}")
+        }))
+    }
+}
+
+#[test]
+fn each_law_gate_rejects_its_exact_negative() {
+    use panproto_io::resolution::ResolutionLawViolation;
+
+    let source = AnyInstance::Table(entries_table(&["a", "b"]));
+    for fault in [Fault::DropsResidue, Fault::Garbles, Fault::Fails, Fault::Drifts] {
+        let (inner, syntactic) = Entries::new();
+        let protocol = inner.protocol.clone();
+        let resolution =
+            Resolution::for_protocol(&protocol, &syntactic, Arc::new(Faulty { inner, fault }))
+                .expect("compiles");
+        let verdict =
+            check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+        let gate = match &verdict {
+            Err(ResolutionLawViolation::GetPut { .. }) => "GetPut",
+            Err(ResolutionLawViolation::PutGet { .. }) => "PutGet",
+            Err(ResolutionLawViolation::Totality { .. }) => "Totality",
+            Err(ResolutionLawViolation::PutTwice { .. }) => "PutTwice",
+            other => panic!("{fault:?}: {other:?}"),
+        };
+        let expected = match fault {
+            Fault::DropsResidue => "GetPut",
+            Fault::Garbles => "PutGet",
+            Fault::Fails => "Totality",
+            Fault::Drifts => "PutTwice",
+        };
+        assert_eq!(gate, expected, "{fault:?}");
+    }
+    let fixture = links_schema(ResolveMode::Redirect, OnUnresolved::Error);
+    let protocol = protocol("links", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let provider = Provider {
+        id: provider_id("links"),
+        protocol: protocol.clone(),
+        kind: ResolutionKind::TreeToGraph,
+        spec: spec_for(
+            "links",
+            ResolutionKind::TreeToGraph,
+            &fixture.schema,
+            &[(&fixture.link_to, "link"), (&fixture.points_to, "pointer")],
+            &[],
+        ),
+        paths: BTreeMap::new(),
+        context: None,
+    };
+    let resolution = Resolution::for_protocol(&protocol, &fixture.schema, Arc::new(Parity(provider)))
+        .expect("compiles");
+    let source = AnyInstance::Tree(links_tree("#i1"));
+    let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+    assert!(
+        matches!(verdict, Err(ResolutionLawViolation::Congruence { .. })),
+        "{verdict:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Property tests of the five laws, beside the exhaustive bounded checks:
+// each property builds random sources of one fixture and runs the checker.
+// ---------------------------------------------------------------------------
+
+mod law_properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// A posts tree with the given users and post authors, users first or
+    /// posts first.
+    fn posts_tree_of(users: &[&str], authors: &[&str], posts_first: bool) -> WInstance {
+        let mut nodes = vec![Node::new(0, "doc")];
+        let mut users_part = Vec::new();
+        let mut posts_part = Vec::new();
+        let mut next = 1u32;
+        for user in users {
+            nodes.push(Node::new(next, "user"));
+            nodes.push(leaf(next + 1, "user_id", text(user)));
+            users_part.push((0, next, prop("doc", "user", "users")));
+            users_part.push((next, next + 1, prop("user", "user_id", "id")));
+            next += 2;
+        }
+        for author in authors {
+            nodes.push(Node::new(next, "post"));
+            nodes.push(leaf(next + 1, "author", text(author)));
+            posts_part.push((0, next, prop("doc", "post", "posts")));
+            posts_part.push((next, next + 1, prop("post", "author", "author")));
+            next += 2;
+        }
+        let arcs = if posts_first {
+            posts_part.into_iter().chain(users_part).collect()
+        } else {
+            users_part.into_iter().chain(posts_part).collect()
+        };
+        tree(nodes, arcs, 0)
+    }
+
+    fn name() -> impl Strategy<Value = &'static str> {
+        prop_oneof![Just("u1"), Just("u2"), Just("u3")]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        #[test]
+        fn the_laws_hold_on_random_posts_trees(
+            users in proptest::collection::vec(name(), 0..4),
+            authors in proptest::collection::vec(prop_oneof![name(), Just("zz")], 0..4),
+            posts_first in any::<bool>(),
+            redirect in any::<bool>(),
+        ) {
+            let mode = if redirect { ResolveMode::Redirect } else { ResolveMode::AddEdge };
+            let (resolution, _) = posts_resolution(|reference| {
+                reference.on_unresolved = OnUnresolved::Complement;
+                reference.mode = mode;
+            });
+            let source = AnyInstance::Tree(posts_tree_of(&users, &authors, posts_first));
+            let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+            prop_assert!(verdict.is_ok(), "{verdict:?}");
+        }
+
+        #[test]
+        fn the_laws_hold_on_random_alias_maps(
+            anchors in proptest::collection::vec(prop_oneof![Just("a"), Just("b")], 0..3),
+            aliases in proptest::collection::vec(prop_oneof![Just("a"), Just("b"), Just("c")], 0..3),
+            aliases_first in any::<bool>(),
+        ) {
+            let fixture = aliases_schema(|reference| reference.on_unresolved = OnUnresolved::Complement);
+            let resolution = compile(
+                "aliases",
+                ResolutionKind::TreeToGraph,
+                &fixture.schema,
+                &[(&fixture.alias_of, "alias_ref")],
+            );
+            let mut all = vec![Node::new(0, "map")];
+            let mut nodes_part = Vec::new();
+            let mut aliases_part = Vec::new();
+            let mut next = 1u32;
+            for anchor in &anchors {
+                all.push(anchored(next, anchor));
+                all.push(leaf(next + 1, "value", text("x")));
+                nodes_part.push((0, next, fixture.item.clone()));
+                nodes_part.push((next, next + 1, fixture.val.clone()));
+                next += 2;
+            }
+            for name in &aliases {
+                all.push(leaf(next, "alias", text(name)));
+                aliases_part.push((0, next, fixture.item_alias.clone()));
+                next += 1;
+            }
+            let arcs = if aliases_first {
+                aliases_part.into_iter().chain(nodes_part).collect()
+            } else {
+                nodes_part.into_iter().chain(aliases_part).collect()
+            };
+            let source = AnyInstance::Tree(tree(all, arcs, 0));
+            let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+            prop_assert!(verdict.is_ok(), "{verdict:?}");
+        }
+
+        #[test]
+        fn the_laws_hold_on_random_picks_tables(
+            picked in proptest::collection::btree_set(0u8..3, 0..4),
+        ) {
+            let (resolution, _) = picks();
+            let source = AnyInstance::Table(picks_table(&picked));
+            let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+            prop_assert!(verdict.is_ok(), "{verdict:?}");
+        }
+
+        #[test]
+        fn the_laws_hold_on_random_spans(
+            body in "[a-c é]{0,6}",
+            start in 0i64..8,
+            length in 0i64..4,
+            redirect in any::<bool>(),
+        ) {
+            let declaration = Standoff {
+                mode: if redirect { ResolveMode::Redirect } else { ResolveMode::AddEdge },
+                ..Standoff::local("mention", OffsetUnit::Utf8Char)
+            };
+            let resolution = notes(&[declaration], &[]);
+            let source = AnyInstance::Tree(notes_tree(vec![note(
+                1,
+                &[("text", text(&body)), ("start", int(start)), ("end", int(start + length))],
+            )]));
+            match resolution.get(&source, &ResolveOptions::default(), &ctx()) {
+                Ok(_) => {
+                    let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+                    prop_assert!(verdict.is_ok(), "{verdict:?}");
+                }
+                Err(error) => prop_assert!(matches!(
+                    error,
+                    ResolveError::OffsetOutOfRange { .. } | ResolveError::OffsetUnitViolation { .. }
+                ), "{error:?}"),
+            }
+        }
+
+        #[test]
+        fn the_laws_hold_on_random_catalogs(
+            link in prop_oneof![Just("x"), Just("w"), Just("y"), Just("/a/x"), Just("/b/x"), Just("/b/y")],
+            second in prop_oneof![Just("a"), Just("b")],
+            third in proptest::option::of(prop_oneof![Just("a"), Just("b")]),
+        ) {
+            let (resolution, _) = catalog();
+            let source = AnyInstance::Tree(catalog_tree(link, second, third));
+            match resolution.get(&source, &ResolveOptions::default(), &ctx()) {
+                Ok(_) => {
+                    let verdict = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx());
+                    prop_assert!(verdict.is_ok(), "{verdict:?}");
+                }
+                Err(error) => prop_assert!(matches!(
+                    error,
+                    ResolveError::DanglingReference { .. } | ResolveError::AmbiguousReference { .. }
+                ), "{error:?}"),
+            }
+        }
+    }
 }

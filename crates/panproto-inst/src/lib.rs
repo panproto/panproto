@@ -202,7 +202,7 @@ pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
 pub use restrict_plan::{
     BoundaryPlan, CellFate, CellPlan, EdgeFate, EdgeImage, RestrictPlan, SurvivalElement,
 };
-pub use segment::{IdAllocator, IdKind, IdRange, SegmentId};
+pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_complement::{DroppedRow, TableComplement};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;

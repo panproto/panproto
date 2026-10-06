@@ -9,9 +9,10 @@ use panproto_inst::resolution_complement::{
     ResolutionComplement, ResolutionSpan, UnresolvedReason, UnresolvedRef,
 };
 use panproto_inst::{
-    AnyInstance, EdgeId, FInstance, GEdge, GInstance, IdAllocator, IdKind, IdRange, InstError,
+    AnyInstance, EdgeId, FInstance, GEdge, GInstance, IdAllocator, IdRange, InstError,
     Node, TreeShapeReport, ViewRef, WInstance,
 };
+use panproto_inst::segment::IdKind;
 use panproto_schema::ResolveMode;
 
 use super::error::{ResolutionInstanceError, ResolveError};
@@ -625,7 +626,8 @@ fn remove_fragments(
 
 #[cfg(test)]
 mod tests {
-    use panproto_inst::{IdAllocator, IdKind, IdRange};
+    use panproto_inst::segment::IdKind;
+    use panproto_inst::{IdAllocator, IdRange};
 
     use super::allocate;
     use crate::resolution::error::ResolveError;
