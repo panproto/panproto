@@ -63,9 +63,23 @@ impl ExactKind {
 pub enum FidelityReason {
     /// The value is outside the range the kind holds.
     Overflow,
-    /// The value has more significant digits than the kind holds.
+    /// The input is not exactly a value of the kind, and the kind does not
+    /// read it as one.
+    ///
+    /// Every input refused with this reason is not exactly a value of the
+    /// kind. Under a decimal kind with a declared `precision` p, the value
+    /// needs more than p significant digits (more than p - s integer digits
+    /// under a declared scale s), and `max` is p. Under a float kind the
+    /// input is a numeral that neither equals the value it rounds to nor is
+    /// numerically that value's shortest text, or, under a 32-bit kind, a
+    /// finite binary64 value in range that is not a binary32 value; `max`
+    /// is 9 for 32 bits and 17 for 64, the significant digits within which
+    /// every value of the width is written by its shortest text. The
+    /// reason does not say the input has more than `max` digits:
+    /// `16777217.0` (eight) is refused under a 32-bit kind.
     PrecisionExceeded {
-        /// The number of significant digits the kind holds.
+        /// The significant digits within which every value of the kind is
+        /// written.
         max: u32,
     },
     /// The value has more digits after the decimal point than the kind
@@ -76,7 +90,10 @@ pub enum FidelityReason {
     },
     /// The lexeme is not a number.
     NotANumber,
-    /// The lexeme is a NaN or an infinity, which the kind cannot hold.
+    /// The input is a NaN or an infinity that the kind cannot hold: any NaN
+    /// or infinity under a kind that is not a float kind, and, under a
+    /// 32-bit float kind, a NaN whose payload uses one of the low 29
+    /// fraction bits of a binary64 value, which no binary32 NaN widens to.
     NonFinite,
     /// The lexeme is not a valid date, time or date-time.
     InvalidTemporal,
@@ -95,10 +112,13 @@ impl std::fmt::Display for FidelityReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Overflow => f.write_str("out of range"),
-            Self::PrecisionExceeded { max } => write!(f, "more than {max} significant digits"),
+            Self::PrecisionExceeded { max } => write!(
+                f,
+                "not exactly a value of the kind, whose values are written in at most {max} significant digits"
+            ),
             Self::ScaleExceeded { max } => write!(f, "more than {max} digits after the point"),
             Self::NotANumber => f.write_str("not a number"),
-            Self::NonFinite => f.write_str("not finite"),
+            Self::NonFinite => f.write_str("a NaN or an infinity the kind cannot hold"),
             Self::InvalidTemporal => f.write_str("not a valid date or time"),
             Self::OffsetRequired => f.write_str("a UTC offset is required"),
             Self::OffsetForbidden => f.write_str("a UTC offset is not allowed"),

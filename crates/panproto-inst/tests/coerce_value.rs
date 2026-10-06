@@ -441,7 +441,7 @@ fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Value, Fidel
             if spec.kind == (ScalarKind::Float { bits: 64 }) {
                 return Some(Ok(value.clone()));
             }
-            format!("{x:e}")
+            format!("{x}")
         }
         Value::Int(n) => n.to_string(),
         Value::BigInt(n) => n.to_string(),
@@ -669,7 +669,7 @@ fn a_precision_refusal_says_what_the_kind_cannot_hold() {
     let error = coerce(&Lexeme::new("16777217.0", LexClass::Number), &f32_).unwrap_err();
     assert_eq!(
         error.reason.to_string(),
-        "not a value of the kind, nor the text of one in at most 9 significant digits"
+        "not exactly a value of the kind, whose values are written in at most 9 significant digits"
     );
     let money = ValueSpec {
         precision: Some(3),
@@ -678,7 +678,7 @@ fn a_precision_refusal_says_what_the_kind_cannot_hold() {
     let error = coerce(&Lexeme::new("1.234", LexClass::Number), &money).unwrap_err();
     assert_eq!(
         error.reason.to_string(),
-        "not a value of the kind, nor the text of one in at most 3 significant digits"
+        "not exactly a value of the kind, whose values are written in at most 3 significant digits"
     );
 }
 

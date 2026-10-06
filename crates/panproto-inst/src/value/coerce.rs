@@ -3,45 +3,62 @@
 //! [`coerce`] is the one coercion every codec calls: a codec that reads a
 //! scalar hands over its [`Lexeme`] (the source text and the lexical class
 //! the format gave it) and the [`ValueSpec`] of the vertex it belongs to,
-//! and receives the exact [`Value`] or a [`ValueFidelityError`].
+//! and receives the [`Value`] the kind reads the lexeme as, or a
+//! [`ValueFidelityError`]. [`coerce_value`] coerces a value that already
+//! exists (a transform's output, a cell moved into a column of another
+//! kind) by reading its lexeme the same way.
 //!
 //! # Declared kinds
 //!
-//! Under a declared kind a lexeme is read by the kind's lexical mapping
-//! or refused with a typed [`FidelityReason`]; it is never silently
-//! rounded to a value no reading gives the lexeme back from. Under
-//! `Float { bits }` a finite numeral denotes its IEEE 754
-//! round-to-nearest-even value at the kind's width (32 or 64 bits), and
-//! the numeral is accepted exactly when that value equals the numeral, or
-//! when the value's shortest round-trip text at that width is numerically
-//! the numeral (so `0.1` is accepted under a 32-bit kind and read as the
-//! binary32 nearest it, while `16777217.0`, which rounds to `16777216`, is
-//! refused with [`FidelityReason::PrecisionExceeded`]). A negative-zero
-//! numeral is the negative zero of the kind. Under `Decimal`, `Int` and
-//! `BigInt` a numeral is accepted when its value lies in the kind's value
-//! space and the spec's `precision`, `scale`, `int_bits` and `unsigned`
-//! facets admit it.
+//! Under a declared kind a lexeme is read by the kind's lexical mapping or
+//! refused with a typed [`FidelityReason`]; nothing is truncated, rounded
+//! to a value whose text is not the lexeme, or replaced by a default.
+//!
+//! - Under `Float { bits }` a finite numeral t denotes `L(t)`, its IEEE 754
+//!   round-to-nearest-even value at the kind's width (32 bits for
+//!   `bits == 32`, 64 bits for every other width), with a negative-zero
+//!   numeral denoting the negative zero. The numeral is accepted exactly
+//!   when `L(t)` is finite and either equals t, or has t (numerically) as
+//!   its shortest text `C(L(t))` at that width: among the decimals with
+//!   the fewest significant digits that the width reads back as `L(t)`,
+//!   the one closest to `L(t)`, the one farther from zero at a tie. So
+//!   `0.1` is accepted under a 32-bit kind and read as the binary32
+//!   nearest it, `0.100000001490116119384765625` (that binary32 exactly)
+//!   and `9007199254740992` are accepted, and `16777217.0`, which rounds
+//!   to `16777216`, is refused with [`FidelityReason::PrecisionExceeded`];
+//!   a numeral that rounds to an infinity is refused with
+//!   [`FidelityReason::Overflow`].
+//! - Under `Decimal`, `Int` and `BigInt` a numeral is accepted when its
+//!   value lies in the kind's value space and the spec's `precision`,
+//!   `scale`, `int_bits` and `unsigned` facets admit it. Under `Int` and
+//!   `BigInt` a non-zero numeral with a fraction or an exponent whose
+//!   stored exponent (the written exponent less the number of fractional
+//!   digits) exceeds 4096 is refused with [`FidelityReason::Overflow`]
+//!   rather than expanded, while an integer numeral of any length is read.
+//! - Under the other kinds a lexeme is accepted when it is of a class and
+//!   form the kind reads (a boolean literal, a string, an encoding of
+//!   bytes, an RFC 3339 date or time).
 //!
 //! # Open schemas
 //!
 //! With [`ScalarKind::Any`] the value is the most exact one the lexeme
 //! allows: an integer that fits `i64` is [`Value::Int`] and a larger one
 //! [`Value::BigInt`]; a number with a fraction or exponent is
-//! [`Value::Float`] exactly when the float is finite and its shortest
-//! decimal is numerically the lexeme, and [`Value::Decimal`] otherwise
-//! (`-0.0` is `Float(-0.0)`, `0.10` is `Float(0.1)`, `4e-324` is a
-//! decimal); strings stay strings.
+//! [`Value::Float`] exactly when its binary64 value is finite and its
+//! shortest decimal is numerically the lexeme, and [`Value::Decimal`]
+//! otherwise (`-0.0` is `Float(-0.0)`, `0.10` is `Float(0.1)`, `4e-324` is
+//! a decimal); strings stay strings.
 //!
 //! # Non-finite floats
 //!
-//! The NaN spellings (`NaN`, `nan`, `+nan`, `-nan`, `.nan`, in any case)
-//! all read as the canonical quiet NaN, bits `0x7ff8000000000000`, under
-//! both float kinds and under `Any`: the float value space has one
-//! notANumber, written without a sign (W3C 2012, XML Schema 1.1 Datatypes,
-//! Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 leaves the encoding of
-//! `-nan` to the implementation (TOML 1.0.0, Float, stated). So no sign or
-//! payload is read from a lexeme. The infinity spellings read as the
-//! signed infinities.
+//! Every NaN spelling (`NaN`, `nan`, `+nan`, `-nan`, `.nan`, in any case)
+//! reads as the canonical quiet NaN, bits `0x7ff8000000000000`, under both
+//! float kinds and under `Any`: the float value space has one notANumber,
+//! written `NaN` without a sign (W3C 2012, XML Schema 1.1 Part 2:
+//! Datatypes, Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 makes `-nan`
+//! valid with an implementation-specific encoding (Preston-Werner 2021,
+//! TOML v1.0.0, Float, stated). So no sign or payload is read from a
+//! lexeme. The infinity spellings read as the signed infinities.
 //!
 //! [`FidelityLog`] collects the errors of a whole document, in document
 //! order, into one [`ParseError::Fidelity`].
@@ -106,6 +123,23 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 }
 
 /// Read `lexeme` as a value of `spec`.
+///
+/// Under a declared kind the lexeme is read by the kind's lexical mapping
+/// and accepted or refused as the [module documentation](self) states:
+/// under `Float { bits }` a finite numeral t gives `Float(L(t))`, its IEEE
+/// 754 round-to-nearest-even value at the kind's width (32 bits for
+/// `bits == 32`, else 64), accepted exactly when `L(t)` is finite and
+/// equals t or has t numerically as its shortest text at that width, and
+/// refused with [`FidelityReason::Overflow`] when `L(t)` is infinite and
+/// with [`FidelityReason::PrecisionExceeded`] otherwise. Every NaN
+/// spelling (`NaN`, `nan`, `+nan`, `-nan`, `-NaN`, `.nan`, in any case)
+/// gives the canonical quiet NaN, bits `0x7ff8000000000000`, under both
+/// float kinds and under `Any`, since the float value space has one
+/// notANumber, written without a sign (W3C 2012, XML Schema 1.1 Part 2:
+/// Datatypes, Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 leaves the
+/// encoding of `-nan` to the implementation (Preston-Werner 2021, TOML
+/// v1.0.0, Float, stated); no sign or payload is read from a lexeme. The
+/// infinity spellings give the signed infinities.
 ///
 /// A null lexeme is [`Value::Null`] under every kind: whether the vertex
 /// may be null is a validation question, not a fidelity one. The error's
@@ -662,31 +696,59 @@ impl FidelityLog {
 /// Coerce an already-built `value` to `spec`, at `site`: the value a column
 /// of kind `spec` holds for it.
 ///
-/// The value is read back through its lexeme: under [`ScalarKind::Any`] it
-/// is returned unchanged; a non-finite [`Value::Float`] is returned
-/// unchanged under a float kind and refused with
-/// [`FidelityReason::NonFinite`] under any other; every other value with a
-/// scalar lexeme is [`coerce`] of that lexeme, which is `true` or `false`
-/// of class [`LexClass::Bool`] for a boolean, the decimal digits of class
-/// [`LexClass::Number`] for an integer, the canonical text of class
-/// `Number` for a decimal, the shortest text that reads back as the same
-/// float (Rust's `Display`) of class `Number` for a finite float (under a
-/// 32-bit float kind, a float that a 32-bit float holds exactly takes
-/// instead the shortest text that reads back as that 32-bit float, the
-/// lexeme its column writes), the text of class [`LexClass::String`] for a
-/// string or a token, the RFC 3339 text of class [`LexClass::DateTime`] for
-/// a date or time, and `null` of class [`LexClass::Null`] for null. Any
-/// other value (bytes, links, blobs,
-/// records, lists, labelled nulls) has no scalar lexeme and is returned
-/// unchanged; validation types it.
+/// The value is read through its lexeme, with these rules:
 ///
-/// So an `Ok` value denotes exactly what the input's lexeme denotes, since
-/// [`coerce`] holds a lexeme exactly or refuses it, and coercing the result
-/// again returns it unchanged.
+/// - Under [`ScalarKind::Any`] every value is returned unchanged.
+/// - A [`Value::Float`] under `Float { bits: 32 }` is returned unchanged
+///   exactly when it is a binary32 value widened to binary64 (decided on
+///   its bits: a finite value that 24 significant bits and the binary32
+///   exponent range hold, `-0.0` included; an infinity; a NaN whose low 29
+///   fraction bits are zero). Otherwise it is refused: a NaN with
+///   [`FidelityReason::NonFinite`], since the kind cannot hold its
+///   payload; a finite value of magnitude above `3.4028234663852886e38`,
+///   the largest binary32, with [`FidelityReason::Overflow`]; and every
+///   other finite value with [`FidelityReason::PrecisionExceeded`] with
+///   `max` 9. So `Float(0.1)` is refused, while `Float(0.10000000149011612)`,
+///   the binary32 nearest 0.1, is kept: a stored value never differs from
+///   its input.
+/// - A non-finite [`Value::Float`] under any other float kind is returned
+///   unchanged, sign and payload included, and refused with
+///   [`FidelityReason::NonFinite`] under a kind that is not a float kind.
+/// - Every other value with a scalar lexeme is [`coerce`] of that lexeme:
+///   `true` or `false` of class [`LexClass::Bool`] for a boolean, the
+///   decimal digits of class [`LexClass::Number`] for an integer, the
+///   canonical text of class `Number` for a decimal, the shortest
+///   round-trip binary64 text (Rust's `Display`) of class `Number` for a
+///   finite float, the text of class [`LexClass::String`] for a string or
+///   a token, the RFC 3339 text of class [`LexClass::DateTime`] for a date
+///   or time, and `null` of class [`LexClass::Null`] for null.
+/// - Any other value (bytes, links, blobs, records, lists, labelled nulls)
+///   has no scalar lexeme and is returned unchanged; validation types it.
+///
+/// An `Ok` result is therefore the kind's reading of the input's lexeme,
+/// and coercing it again returns it unchanged. It need not denote what the
+/// input denotes: `Decimal(0.1)` under a 32-bit float kind gives the
+/// binary32 nearest 0.1, as the lexeme `0.1` does.
+///
+/// The two routes into a 32-bit float agree wherever both succeed: for a
+/// finite numeral t, if `coerce(t, Float { bits: 32 })` and
+/// `coerce_value(coerce(t, Float { bits: 64 })?, Float { bits: 32 })` are
+/// both `Ok`, they are equal. The second is `Ok` only if y, the binary64
+/// nearest t, is a binary32 value, and then it is y. Let z be any other
+/// binary32 value. No two distinct binary32 values are adjacent binary64
+/// values, so some binary64 value w lies strictly between y and z. If z
+/// were no farther from t than y, then, y being the binary64 nearest t, t
+/// would be the midpoint of y and z, and w would be nearer t than y; so z
+/// is farther from t than y, y is the binary32 nearest t with no tie, and
+/// `|t|` stays below the binary32 overflow threshold (t is within half a
+/// binary64 unit of a finite binary32 value). Both routes give zeros the
+/// sign of t. So the first returns y too. Their refusals differ in both
+/// directions: `0.10000000149011612` is refused directly and kept on the
+/// path, and `0.1` is accepted directly and refused on the path.
 ///
 /// ```
 /// use panproto_inst::Value;
-/// use panproto_inst::value::ValueSite;
+/// use panproto_inst::value::{FidelityReason, ValueSite};
 /// use panproto_inst::value::coerce::coerce_value;
 /// use panproto_schema::{ScalarKind, ValueSpec};
 ///
@@ -695,72 +757,110 @@ impl FidelityLog {
 /// assert_eq!(coerce_value(&Value::Float(2.0), &int, site.clone())?, Value::Int(2));
 /// assert!(coerce_value(&Value::Float(2.5), &int, site.clone()).is_err());
 /// let any = ValueSpec::new(ScalarKind::Any);
-/// assert_eq!(coerce_value(&Value::Float(2.0), &any, site)?, Value::Float(2.0));
+/// assert_eq!(coerce_value(&Value::Float(2.0), &any, site.clone())?, Value::Float(2.0));
+/// let narrow = ValueSpec::new(ScalarKind::Float { bits: 32 });
+/// let refused = coerce_value(&Value::Float(0.1), &narrow, site.clone()).unwrap_err();
+/// assert_eq!(refused.reason, FidelityReason::PrecisionExceeded { max: 9 });
+/// let exact = Value::Float(f64::from(0.1_f32));
+/// assert_eq!(coerce_value(&exact, &narrow, site)?, exact);
 /// # Ok::<(), panproto_inst::ValueFidelityError>(())
 /// ```
 ///
 /// # Errors
 ///
-/// A [`ValueFidelityError`] at `site` when the kind cannot hold the value's
-/// lexeme exactly.
+/// A [`ValueFidelityError`] at `site` when the kind refuses the value, for
+/// the reason the rules above give.
 pub fn coerce_value(
     value: &Value,
     spec: &ValueSpec,
     site: ValueSite,
 ) -> Result<Value, ValueFidelityError> {
-    if spec.kind == ScalarKind::Any {
-        return Ok(value.clone());
-    }
-    let (text, class) = match value {
-        Value::Float(f) if !f.is_finite() => {
-            return if matches!(spec.kind, ScalarKind::Float { .. }) {
+    let refuse = |site, x: f64, reason| ValueFidelityError {
+        site,
+        lexeme: x.to_string(),
+        target: spec.kind.clone(),
+        reason,
+    };
+    let (text, class) = match (value, &spec.kind) {
+        (_, ScalarKind::Any) => return Ok(value.clone()),
+        (Value::Float(x), ScalarKind::Float { bits: 32 }) => {
+            return if holds_binary32(*x) {
                 Ok(value.clone())
+            } else if !x.is_finite() {
+                Err(refuse(site, *x, FidelityReason::NonFinite))
+            } else if x.abs() > f64::from(f32::MAX) {
+                Err(refuse(site, *x, FidelityReason::Overflow))
             } else {
-                Err(ValueFidelityError {
+                Err(refuse(
                     site,
-                    lexeme: f.to_string(),
-                    target: spec.kind.clone(),
-                    reason: FidelityReason::NonFinite,
-                })
+                    *x,
+                    FidelityReason::PrecisionExceeded { max: 9 },
+                ))
             };
         }
-        Value::Bool(b) => (b.to_string(), LexClass::Bool),
-        Value::Int(n) => (n.to_string(), LexClass::Number),
-        Value::BigInt(n) => (n.to_string(), LexClass::Number),
-        Value::Decimal(d) => (d.to_string(), LexClass::Number),
-        Value::Float(f) => (float_text(*f, &spec.kind), LexClass::Number),
-        Value::Str(s) | Value::Token(s) => (s.clone(), LexClass::String),
-        Value::Temporal(t) => (t.to_string(), LexClass::DateTime),
-        Value::Null => ("null".to_owned(), LexClass::Null),
-        Value::Bytes(_)
-        | Value::CidLink(_)
-        | Value::Blob { .. }
-        | Value::Opaque { .. }
-        | Value::Unknown(_)
-        | Value::List(_)
-        | Value::LabeledNull(_) => return Ok(value.clone()),
+        (Value::Float(x), kind) if !x.is_finite() => {
+            return if matches!(kind, ScalarKind::Float { .. }) {
+                Ok(value.clone())
+            } else {
+                Err(refuse(site, *x, FidelityReason::NonFinite))
+            };
+        }
+        (Value::Float(x), _) => (x.to_string(), LexClass::Number),
+        (Value::Bool(b), _) => (b.to_string(), LexClass::Bool),
+        (Value::Int(n), _) => (n.to_string(), LexClass::Number),
+        (Value::BigInt(n), _) => (n.to_string(), LexClass::Number),
+        (Value::Decimal(d), _) => (d.to_string(), LexClass::Number),
+        (Value::Str(s) | Value::Token(s), _) => (s.clone(), LexClass::String),
+        (Value::Temporal(t), _) => (t.to_string(), LexClass::DateTime),
+        (Value::Null, _) => ("null".to_owned(), LexClass::Null),
+        (
+            Value::Bytes(_)
+            | Value::CidLink(_)
+            | Value::Blob { .. }
+            | Value::Opaque { .. }
+            | Value::Unknown(_)
+            | Value::List(_)
+            | Value::LabeledNull(_),
+            _,
+        ) => return Ok(value.clone()),
     };
     coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
 }
 
-/// The lexeme of a finite float coerced to `kind`: the shortest text that
-/// reads back as the float, except under a 32-bit float kind, where a float
-/// that a 32-bit float holds exactly reads back through `f32`.
+/// The fraction bits of a binary64 value that a binary32 value, widened,
+/// always leaves zero: binary64 has 52 fraction bits and binary32 23.
+const NARROW_FRACTION_BITS: u32 = 29;
+
+/// Whether the binary64 value with the bits of `x` is a binary32 value
+/// widened, decided on the bits.
 ///
-/// A 32-bit column stores the `f32` nearest its lexeme, widened to `f64`
-/// (`0.1` is stored as `0.100000001490116...`); the `f64` text of that value
-/// would name a number the column cannot hold, so the value is written as
-/// the column writes it.
-fn float_text(f: f64, kind: &ScalarKind) -> String {
-    let text = f.to_string();
-    if matches!(kind, ScalarKind::Float { bits: 32 })
-        && let Ok(narrow) = text.parse::<f32>()
-        && f64::from(narrow).to_bits() == f.to_bits()
-    {
-        // The `f32` nearest the text is the float itself exactly when a
-        // 32-bit float holds it: the text is within half an `f64` unit of
-        // the float, far inside half an `f32` unit.
-        return narrow.to_string();
+/// Widening is exact and keeps the sign, so a binary32 value widens to a
+/// binary64 value of the same number: a NaN or an infinity with the low
+/// 29 fraction bits zero (a binary32 payload has 23 bits, widened into the
+/// high fraction bits); a zero of either sign; and a finite non-zero
+/// value `(1 + f / 2^52) * 2^e` that binary32 holds, which needs `e` in
+/// `-149..=127` and the value to be a multiple of `2^-149` with at most 24
+/// significant bits: for `e >= -126` (binary32's normal range) the low 29
+/// fraction bits are zero, and for `e < -126` (its subnormal range) the
+/// low `-97 - e` bits are, which leaves `e + 150` significant bits. A
+/// binary64 subnormal is below `2^-1022`, far below the least binary32
+/// value `2^-149`, so no non-zero one qualifies; a value with `e <= 127`
+/// and 24 significant bits is at most the largest binary32.
+fn holds_binary32(x: f64) -> bool {
+    let bits = x.to_bits();
+    let fraction = bits & ((1 << 52) - 1);
+    let biased = (bits >> 52) & 0x7ff;
+    let zero_low = |n: u32| fraction & ((1_u64 << n) - 1) == 0;
+    match biased {
+        0x7ff => zero_low(NARROW_FRACTION_BITS),
+        0 => fraction == 0,
+        _ => {
+            let exponent = i64::try_from(biased).map_or(i64::MAX, |b| b - 1023);
+            match exponent {
+                -126..=127 => zero_low(NARROW_FRACTION_BITS),
+                -149..=-127 => u32::try_from(-97 - exponent).is_ok_and(zero_low),
+                _ => false,
+            }
+        }
     }
-    text
 }
