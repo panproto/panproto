@@ -792,4 +792,57 @@ mod exact {
             ("1", 3, 0)
         );
     }
+
+    /// Date-times across day, month, year and leap-day boundaries, at the
+    /// three zero offsets and two others, compared on every pair against
+    /// instants computed here from day numbers written out by hand.
+    #[test]
+    fn chronological_order_spans_days_on_a_bounded_scope() {
+        // Days since 1970-01-01, counted by hand.
+        let days = [
+            ("1969-12-31", -1_i64),
+            ("1970-01-01", 0),
+            ("1970-01-02", 1),
+            ("2024-02-28", 19_781),
+            ("2024-02-29", 19_782),
+            ("2024-03-01", 19_783),
+            ("2026-12-31", 20_818),
+            ("2027-01-01", 20_819),
+        ];
+        let offsets = [
+            ("Z", 0_i64),
+            ("+00:00", 0),
+            ("-00:00", 0),
+            ("+05:30", 330),
+            ("-08:00", -480),
+        ];
+        let times = [
+            ("00:00:00", 0_i64),
+            ("12:00:00.5", 43_200),
+            ("23:59:59.9", 86_399),
+        ];
+        let mut all = Vec::new();
+        for (date, day) in days {
+            for (time, seconds) in times {
+                for (written, minutes) in offsets {
+                    let tenths = if time.ends_with(".5") {
+                        5
+                    } else if time.ends_with(".9") {
+                        9
+                    } else {
+                        0
+                    };
+                    let instant = (day * 86_400 + seconds - minutes * 60) * 10 + tenths;
+                    let value = Temporal::parse(&format!("{date}T{time}{written}")).unwrap();
+                    all.push((value, instant));
+                }
+            }
+        }
+        for (a, ia) in &all {
+            for (b, ib) in &all {
+                assert_eq!(a.cmp_chronological(b), Some(ia.cmp(ib)), "{a} {b}");
+            }
+        }
+        assert_eq!(all.len(), 8 * 3 * 5);
+    }
 }
