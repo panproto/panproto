@@ -874,6 +874,32 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
     }
     let error = coerce_value(&Value::Float(1e39), &f32_, site()).unwrap_err();
     assert_eq!(error.reason, FidelityReason::Overflow);
+    // Powers of two, whose fraction bits are all zero: in range only from
+    // 2^-149 to 2^127.
+    for (power, reason) in [
+        (128, Some(FidelityReason::Overflow)),
+        (200, Some(FidelityReason::Overflow)),
+        (1023, Some(FidelityReason::Overflow)),
+        (127, None),
+        (-126, None),
+        (-140, None),
+        (-149, None),
+        (-150, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+        (-200, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+        (-1074, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+    ] {
+        // 2^power, from its bits (normal, or subnormal below 2^-1022).
+        let x = if power >= -1022 {
+            f64::from_bits(u64::try_from(power + 1023).unwrap() << 52)
+        } else {
+            f64::from_bits(1 << (power + 1074))
+        };
+        let result = coerce_value(&Value::Float(x), &f32_, site());
+        match reason {
+            Some(reason) => assert_eq!(result.unwrap_err().reason, reason, "2^{power}"),
+            None => assert!(same(&result.unwrap(), &Value::Float(x)), "2^{power}"),
+        }
+    }
     for x in [
         0.100_000_001_490_116_12,
         -0.0,
