@@ -1202,7 +1202,7 @@ fn moved_elements(fixture: &ListColumn) -> Vec<(String, Option<u32>, Value)> {
 }
 
 /// Whether [`list_column`]'s migration renames the table, so that the
-/// fixture lies where total graph extension is checked against g_Sigma
+/// fixture lies where total graph extension is checked against graph Sigma
 /// here. The element swap that keeps the table's name lies in the same
 /// agreement domain, but its extension is tested with the extend functions.
 fn renames_the_table(fixture: &ListColumn) -> bool {

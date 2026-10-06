@@ -1225,7 +1225,7 @@ mod tests {
         )?;
         assert_eq!(between, f);
         // A value vertex the migration leaves alone has no entry.
-        let mut unmapped = m.clone();
+        let mut unmapped = m;
         unmapped.vertex_remap.remove("posts.tags.items");
         let f = functor(&src, &tgt, &unmapped)?;
         assert_eq!(f.inner_edges().len(), 1);

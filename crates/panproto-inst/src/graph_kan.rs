@@ -197,7 +197,7 @@ struct ValueEdgeMap<'a> {
 }
 
 impl<'a> ValueEdgeMap<'a> {
-    fn new(functor: &'a MigrationFunctor) -> Self {
+    const fn new(functor: &'a MigrationFunctor) -> Self {
         Self {
             inner_edges: functor.inner_edges(),
             value_vertices: functor.value_vertices(),
