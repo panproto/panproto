@@ -3,6 +3,14 @@
 //! The evaluator is pure, deterministic, and WASM-safe. It tracks a step
 //! counter (decremented on each reduction) and a depth counter (incremented
 //! on each recursive call) to bound computation.
+//!
+//! Every NaN that evaluation computes is the canonical quiet NaN,
+//! `f64::NAN` (bits `0x7ff8000000000000`): each float-valued builtin
+//! returns it in place of any NaN, so the bits of a computed float do not
+//! depend on the platform's arithmetic. A NaN that evaluation only passes
+//! along (a literal, a bound variable, an element of a list) keeps its
+//! bits; `panproto_inst::expr_literal_to_value` canonicalizes those too
+//! where a field transform's result is written into a cell.
 
 use std::sync::Arc;
 

@@ -2,6 +2,14 @@
 //!
 //! Each builtin is a pure function from `&[Literal]` to `Result<Literal, ExprError>`.
 //! Type checking is done at evaluation time; arguments must have the expected types.
+//!
+//! A float a builtin computes is never a NaN other than the canonical quiet
+//! NaN, `f64::NAN` (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
+//! the sign and payload of a NaN result to the platform, and negation and
+//! absolute value change a NaN's sign, so every float-valued builtin
+//! (`Add`, `Sub`, `Mul`, `Div`, `Neg`, `Abs`, `Clamp`, `StrToFloat`,
+//! `DecimalToFloat`) returns the canonical NaN in place of any NaN. Two
+//! computed floats are thus equal bit for bit whenever both are NaN.
 
 use std::sync::Arc;
 
@@ -11,6 +19,11 @@ use crate::error::ExprError;
 use crate::exact::DecimalValue;
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
+
+/// `x`, or the canonical quiet NaN `f64::NAN` when `x` is a NaN.
+const fn canonical_float(x: f64) -> f64 {
+    if x.is_nan() { f64::NAN } else { x }
+}
 
 /// Safely convert a float to i64, returning an error for NaN, infinity, or out-of-range values.
 fn float_to_i64(f: f64) -> Result<Literal, ExprError> {
@@ -168,12 +181,12 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         },
         BuiltinOp::Neg => match &args[0] {
             Literal::Int(n) => n.checked_neg().map(Literal::Int).ok_or(ExprError::Overflow),
-            Literal::Float(f) => Ok(Literal::Float(-f)),
+            Literal::Float(f) => Ok(Literal::Float(canonical_float(-f))),
             other => Err(type_err("int|float", other)),
         },
         BuiltinOp::Abs => match &args[0] {
             Literal::Int(n) => n.checked_abs().map(Literal::Int).ok_or(ExprError::Overflow),
-            Literal::Float(f) => Ok(Literal::Float(f.abs())),
+            Literal::Float(f) => Ok(Literal::Float(canonical_float(f.abs()))),
             other => Err(type_err("int|float", other)),
         },
         BuiltinOp::Floor => match &args[0] {
@@ -449,7 +462,7 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
         BuiltinOp::StrToFloat => match &args[0] {
             Literal::Str(s) => {
                 s.parse::<f64>()
-                    .map(Literal::Float)
+                    .map(|x| Literal::Float(canonical_float(x)))
                     .map_err(|_| ExprError::ParseError {
                         value: s.clone(),
                         target_type: "float".into(),
@@ -491,7 +504,7 @@ fn apply_utility(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> 
                 Ok(Literal::Int((*x).clamp(*lo, *hi)))
             }
             (Literal::Float(x), Literal::Float(lo), Literal::Float(hi)) if lo <= hi => {
-                Ok(Literal::Float(x.clamp(*lo, *hi)))
+                Ok(Literal::Float(canonical_float(x.clamp(*lo, *hi))))
             }
             (Literal::Int(_), Literal::Int(_), Literal::Int(_))
             | (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
@@ -539,11 +552,17 @@ fn numeric_binop(
         (Literal::Int(x), Literal::Int(y)) => {
             int_op(*x, *y).map(Literal::Int).ok_or(ExprError::Overflow)
         }
-        (Literal::Float(x), Literal::Float(y)) => Ok(Literal::Float(float_op(*x, *y))),
+        (Literal::Float(x), Literal::Float(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x, *y))))
+        }
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Int(x), Literal::Float(y)) => Ok(Literal::Float(float_op(*x as f64, *y))),
+        (Literal::Int(x), Literal::Float(y)) => Ok(Literal::Float(canonical_float(float_op(
+            *x as f64, *y,
+        )))),
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Float(x), Literal::Int(y)) => Ok(Literal::Float(float_op(*x, *y as f64))),
+        (Literal::Float(x), Literal::Int(y)) => Ok(Literal::Float(canonical_float(float_op(
+            *x, *y as f64,
+        )))),
         _ => Err(type_err("int|float", a)),
     }
 }
@@ -653,8 +672,8 @@ fn apply_exact(op: BuiltinOp, arg: &Literal) -> Result<Literal, ExprError> {
             }
         }
         BuiltinOp::DecimalToFloat => match arg {
-            Literal::Decimal(d) => Ok(Literal::Float(d.to_f64())),
-            Literal::BigInt(b) => Ok(Literal::Float(b.to_f64())),
+            Literal::Decimal(d) => Ok(Literal::Float(canonical_float(d.to_f64()))),
+            Literal::BigInt(b) => Ok(Literal::Float(canonical_float(b.to_f64()))),
             other => Err(type_err("decimal|bigint", other)),
         },
         _ => Err(ExprError::InternalDispatch {

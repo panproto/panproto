@@ -3279,7 +3279,13 @@ pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotE
 ///
 /// A float stays a float, integral or not: the column a value is written
 /// to decides its kind ([`coerce_value`](crate::value::coerce::coerce_value)),
-/// not the evaluator.
+/// not the evaluator. A NaN, at any depth of a list or record, becomes the
+/// canonical quiet NaN `f64::NAN` (bits `0x7ff8000000000000`), whatever
+/// sign and payload the literal had: this is where a field transform's
+/// result enters a cell, so every NaN a transform writes is canonical,
+/// including one it read from a cell and returned unchanged, and two
+/// computed NaN cells are equal value for value and digest for digest. A
+/// cell no transform evaluates keeps its bits.
 ///
 /// `Literal::Closure` has no instance counterpart and converts to
 /// `Value::Null`: a closure is an intermediate of evaluation, never a
@@ -3290,13 +3296,18 @@ pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotE
 /// use panproto_expr::Literal;
 ///
 /// assert_eq!(expr_literal_to_value(&Literal::Float(2.0)), Value::Float(2.0));
+/// let odd_nan = f64::from_bits(0xfff8_0000_0000_1234);
+/// let Value::Float(x) = expr_literal_to_value(&Literal::Float(odd_nan)) else {
+///     unreachable!()
+/// };
+/// assert_eq!(x.to_bits(), 0x7ff8_0000_0000_0000);
 /// ```
 #[must_use]
 pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
         panproto_expr::Literal::Bool(b) => Value::Bool(*b),
         panproto_expr::Literal::Int(i) => Value::Int(*i),
-        panproto_expr::Literal::Float(f) => Value::Float(*f),
+        panproto_expr::Literal::Float(f) => Value::Float(if f.is_nan() { f64::NAN } else { *f }),
         panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
         panproto_expr::Literal::Bytes(b) => Value::Bytes(b.clone()),
         panproto_expr::Literal::List(items) => {

@@ -136,3 +136,77 @@ fn two_computed_nan_cells_are_equal_values_with_equal_bytes() {
     assert_eq!(a.canonical_bytes(), b.canonical_bytes());
     assert!(a.canonical_cmp(b).is_eq());
 }
+
+/// Every float-valued arithmetic builtin over every pair of operands from a
+/// bounded scope of special values (signed zeros, ones, infinities, the
+/// extremes, and NaNs of both signs with several payloads), against IEEE
+/// arithmetic computed here: a NaN result is the canonical NaN, and every
+/// other result is the IEEE result bit for bit.
+#[test]
+fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
+    let nans = [
+        0x7ff8_0000_0000_0000_u64,
+        0xfff8_0000_0000_0000,
+        0x7ff8_0000_0000_1234,
+        0xfff0_0000_0000_0001,
+        0x7ff0_0000_0000_0001,
+        0x7fff_ffff_ffff_ffff,
+    ]
+    .map(f64::from_bits);
+    let mut operands = vec![
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        0.5,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        f64::from_bits(1),
+    ];
+    operands.extend(nans);
+    let env = Env::new();
+    let expect = |x: f64| if x.is_nan() { CANONICAL } else { x.to_bits() };
+    let binary: [(BuiltinOp, fn(f64, f64) -> f64); 4] = [
+        (BuiltinOp::Add, |a, b| a + b),
+        (BuiltinOp::Sub, |a, b| a - b),
+        (BuiltinOp::Mul, |a, b| a * b),
+        (BuiltinOp::Div, |a, b| a / b),
+    ];
+    let mut checked = 0_u32;
+    for &a in &operands {
+        for (op, ieee) in binary {
+            for &b in &operands {
+                if op == BuiltinOp::Div && b == 0.0 {
+                    continue;
+                }
+                let got = evaluated_bits(&call(op, vec![float(a), float(b)]), &env);
+                assert_eq!(got, expect(ieee(a, b)), "{op:?} {a} {b}");
+                checked += 1;
+            }
+        }
+        assert_eq!(evaluated_bits(&call(BuiltinOp::Neg, vec![float(a)]), &env), expect(-a));
+        assert_eq!(evaluated_bits(&call(BuiltinOp::Abs, vec![float(a)]), &env), expect(a.abs()));
+        let clamp = call(BuiltinOp::Clamp, vec![float(a), float(-1.0), float(1.0)]);
+        assert_eq!(evaluated_bits(&clamp, &env), expect(a.clamp(-1.0, 1.0)));
+        checked += 3;
+    }
+    // Sixteen operands: 16 * 16 * 4 pairs less the 16 * 2 zero divisors,
+    // and three unary checks each.
+    assert_eq!(checked, 16 * 16 * 4 - 32 + 16 * 3);
+    // An integer operand is widened to a float first, on either side.
+    let int = |n: i64| Expr::Lit(Literal::Int(n));
+    for &nan in &nans {
+        for (op, _) in binary {
+            for expr in [call(op, vec![int(3), float(nan)]), call(op, vec![float(nan), int(3)])] {
+                assert_eq!(evaluated_bits(&expr, &env), CANONICAL, "{op:?}");
+            }
+        }
+    }
+    // Every NaN spelling `StrToFloat` reads is canonical.
+    for text in ["NaN", "nan", "-nan", "+nan", "-NaN", "+NaN"] {
+        let parsed = call(BuiltinOp::StrToFloat, vec![Expr::Lit(Literal::Str(text.into()))]);
+        assert_eq!(evaluated_bits(&parsed, &env), CANONICAL, "{text}");
+    }
+}
