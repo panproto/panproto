@@ -56,6 +56,87 @@ struct Removal<'r> {
     index: u32,
 }
 
+/// One occurrence put writes: a new holder's, or a recorded redirecting
+/// occurrence's.
+#[derive(Debug)]
+struct Written<'r> {
+    /// The occurrence's edge in the view.
+    carrier: EdgeId,
+    /// The node holding the literal in the candidate.
+    holder: u32,
+    /// The writer.
+    compiled: &'r CompiledRef,
+    /// The occurrence's index at the holder in the candidate.
+    index: u32,
+    /// The target the view gives the edge.
+    target: u32,
+    /// The written forms, first form first.
+    forms: Vec<Value>,
+    /// Whether the literal replaces a recorded one rather than filling a
+    /// new holder.
+    rewrite: bool,
+}
+
+impl Written<'_> {
+    /// The occurrence as a form choice.
+    fn choice(&self) -> FormChoice {
+        FormChoice {
+            carrier: self.carrier,
+            key: (
+                ViewRef::Node(self.holder),
+                self.compiled.reference.id.clone(),
+                self.index,
+            ),
+            target: self.target,
+            forms: self.forms.len(),
+            checked: !matches!(self.compiled.form, RefForm::Standoff { .. }),
+        }
+    }
+}
+
+/// One written occurrence whose form [`Resolution::choose`] picks.
+#[derive(Debug)]
+pub(super) struct FormChoice {
+    /// The occurrence's edge in the view.
+    pub carrier: EdgeId,
+    /// The key get gives the occurrence in the candidate: holder,
+    /// reference and index.
+    pub key: (ViewRef, Name, u32),
+    /// The target the view gives the edge.
+    pub target: u32,
+    /// The number of written forms.
+    pub forms: usize,
+    /// Whether the occurrence's target is an element whose resolution is
+    /// checked here, rather than a span verification compares by key.
+    pub checked: bool,
+}
+
+/// The target of each resolved occurrence of a resolved view, by holder,
+/// reference and index.
+fn occurrence_targets(
+    regotten: &GInstance,
+    recomplement: &ResolutionComplement,
+) -> BTreeMap<(ViewRef, Name, u32), u32> {
+    recomplement
+        .occurrences
+        .iter()
+        .filter_map(|(carrier, records)| {
+            let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) else {
+                return None;
+            };
+            let edge = regotten.edge(*id)?;
+            Some((
+                (
+                    record.holder.clone(),
+                    record.reference.clone(),
+                    record.index,
+                ),
+                edge.tgt,
+            ))
+        })
+        .collect()
+}
+
 /// What a literal is rendered against: the candidate without new holders,
 /// the view and the run's services.
 struct Canvas<'a> {
@@ -80,6 +161,12 @@ struct TreeParts<'c, 'r> {
 
 impl Resolution {
     /// The tree candidate of a view.
+    ///
+    /// The view's structural part is read as a tree with the live fragments
+    /// spliced in; every occurrence put writes (a new holder's, or a
+    /// recorded redirecting occurrence's whose kept literal no longer names
+    /// its target) then takes the first of its written forms that resolves
+    /// back to its target.
     pub(super) fn tree_candidate(
         &self,
         graph: &GInstance,
@@ -97,35 +184,33 @@ impl Resolution {
         let parts = self.tree_parts(graph, complement, &classified, root, &mut violations)?;
         refuse(violations)?;
         let base = self.assemble(&parts, None, &BTreeMap::new())?;
-        let mut writes = BTreeMap::new();
-        let mut failures = Vec::new();
-        for (holder, id) in parts.holders.iter().zip(parts.holder_ids()?) {
-            let canvas = Canvas {
-                base: &base,
-                view: graph,
-                ctx,
-            };
-            match self.render(&canvas, holder.compiled, id, holder.target, None) {
-                Ok(literal) => {
-                    writes.insert(holder.carrier, literal);
-                }
-                Err(Refusal::Domain(violations)) => failures.extend(violations.into_vec()),
-                Err(refusal) => return Err(refusal),
-            }
-        }
-        refuse(failures)?;
-        let first = self.assemble(&parts, Some(&writes), &BTreeMap::new())?;
         let canvas = Canvas {
             base: &base,
             view: graph,
             ctx,
         };
-        let rewrites = self.rewrites(&parts, &classified, complement, &first, &canvas)?;
-        if rewrites.is_empty() {
-            Ok(first)
-        } else {
-            self.assemble(&parts, Some(&writes), &rewrites)
+        let mut written = Vec::new();
+        let mut failures = Vec::new();
+        for (holder, id) in parts.holders.iter().zip(parts.holder_ids()?) {
+            match self.forms(&canvas, holder.compiled, id, holder.target, None) {
+                Ok(forms) => written.push(Written {
+                    carrier: holder.carrier,
+                    holder: id,
+                    compiled: holder.compiled,
+                    index: 0,
+                    target: holder.target,
+                    forms,
+                    rewrite: false,
+                }),
+                Err(Refusal::Domain(violations)) => failures.extend(violations.into_vec()),
+                Err(refusal) => return Err(refusal),
+            }
         }
+        refuse(failures)?;
+        let first = self.assemble_written(&parts, &written, &vec![0; written.len()])?;
+        written.extend(self.rewrites(&parts, &classified, complement, &first, &canvas)?);
+        written.sort_by_key(|occurrence| occurrence.carrier);
+        self.choose_forms(&parts, &written, ctx)
     }
 
     /// Mark recorded spanning edges structural, promote one new edge into
@@ -596,9 +681,16 @@ impl Resolution {
         Ok(candidate)
     }
 
-    /// The live redirecting occurrences whose kept literal no longer
-    /// resolves to the target the view gives their edge, with the literal
-    /// that does.
+    /// The recorded redirecting occurrences put writes: those whose kept
+    /// literal no longer resolves to the target the view gives their edge
+    /// and is not one of the written forms of that target, that is, those
+    /// the view reconnected or whose target the view respelled.
+    ///
+    /// An occurrence whose kept literal is still one of its target's
+    /// written forms is kept, never respelled, even when it no longer
+    /// resolves to the target: the view did not change it, so its source
+    /// text stays, and verification refuses it if an edit elsewhere
+    /// captured it.
     fn rewrites<'r>(
         &'r self,
         parts: &TreeParts<'_, '_>,
@@ -606,33 +698,16 @@ impl Resolution {
         complement: &ResolutionComplement,
         first: &WInstance,
         canvas: &Canvas<'_>,
-    ) -> Result<BTreeMap<EdgeId, Rewrite<'r>>, Refusal> {
+    ) -> Result<Vec<Written<'r>>, Refusal> {
         let (graph, ctx) = (canvas.view, canvas.ctx);
         let lenient = ResolveOptions { lenient: true };
         let Ok((regotten, recomplement)) =
             self.get_graph(&AnyInstance::Tree(first.clone()), lenient, ctx)
         else {
-            return Ok(BTreeMap::new());
+            return Ok(Vec::new());
         };
-        let targets: BTreeMap<(ViewRef, Name, u32), u32> = recomplement
-            .occurrences
-            .iter()
-            .filter_map(|(carrier, records)| {
-                let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) else {
-                    return None;
-                };
-                let edge = regotten.edge(*id)?;
-                Some((
-                    (
-                        record.holder.clone(),
-                        record.reference.clone(),
-                        record.index,
-                    ),
-                    edge.tgt,
-                ))
-            })
-            .collect();
-        let mut rewrites = BTreeMap::new();
+        let targets = occurrence_targets(&regotten, &recomplement);
+        let mut written = Vec::new();
         let mut failures = Vec::new();
         for (id, record) in &classified.occurrences {
             let (Some(compiled), ViewRef::Node(holder), Some(edge)) = (
@@ -657,16 +732,171 @@ impl Resolution {
                 continue;
             }
             let span = complement.span_nodes.get(&edge.tgt);
-            match self.render(canvas, compiled, *holder, edge.tgt, span) {
-                Ok(literal) => {
-                    rewrites.insert(*id, (*holder, compiled, index, literal));
-                }
+            match self.forms(canvas, compiled, *holder, edge.tgt, span) {
+                Ok(forms) if forms.contains(&record.literal) => {}
+                Ok(forms) => written.push(Written {
+                    carrier: *id,
+                    holder: *holder,
+                    compiled,
+                    index,
+                    target: edge.tgt,
+                    forms,
+                    rewrite: true,
+                }),
                 Err(Refusal::Domain(violations)) => failures.push(at_edge(violations.first, *id)),
                 Err(refusal) => return Err(refusal),
             }
         }
         refuse(failures)?;
-        Ok(rewrites)
+        Ok(written)
+    }
+
+    /// The written forms of a reference from a holder to `target`: the
+    /// first form (the target's key tuple, the provider's canonical
+    /// rendering, the definition's name, the span's declared offsets),
+    /// followed for a key or path reference by the provider's more
+    /// qualified forms.
+    fn forms(
+        &self,
+        on: &Canvas<'_>,
+        compiled: &CompiledRef,
+        holder: u32,
+        target: u32,
+        span: Option<&ResolutionSpan>,
+    ) -> Result<Vec<Value>, Refusal> {
+        let first = self.render(on, compiled, holder, target, span)?;
+        let mut forms = vec![first];
+        if matches!(compiled.form, RefForm::KeyValue { .. } | RefForm::Path { .. }) {
+            forms.extend(
+                self.provider
+                    .qualified_forms(
+                        &compiled.reference,
+                        ViewRef::Node(holder),
+                        ViewRef::Node(target),
+                        &forms[0],
+                        &AnyInstance::Graph(on.view.clone()),
+                        on.ctx,
+                    )
+                    .map_err(Refusal::Operational)?,
+            );
+        }
+        Ok(forms)
+    }
+
+    /// The candidate with each written occurrence holding the form
+    /// `choices` gives it.
+    fn assemble_written(
+        &self,
+        parts: &TreeParts<'_, '_>,
+        written: &[Written<'_>],
+        choices: &[usize],
+    ) -> Result<WInstance, Refusal> {
+        let mut writes = BTreeMap::new();
+        let mut rewrites = BTreeMap::new();
+        for (occurrence, choice) in written.iter().zip(choices) {
+            let Some(literal) = occurrence.forms.get(*choice).cloned() else {
+                continue;
+            };
+            if occurrence.rewrite {
+                rewrites.insert(
+                    occurrence.carrier,
+                    (
+                        occurrence.holder,
+                        occurrence.compiled,
+                        occurrence.index,
+                        literal,
+                    ),
+                );
+            } else {
+                writes.insert(occurrence.carrier, literal);
+            }
+        }
+        self.assemble(parts, Some(&writes), &rewrites)
+    }
+
+    /// The candidate with every written occurrence holding the first of
+    /// its forms that resolves back to its target.
+    fn choose_forms(
+        &self,
+        parts: &TreeParts<'_, '_>,
+        written: &[Written<'_>],
+        ctx: &ResolveContext<'_>,
+    ) -> Result<WInstance, Refusal> {
+        let choices: Vec<FormChoice> = written.iter().map(Written::choice).collect();
+        let build = |chosen: &[usize]| self.assemble_written(parts, written, chosen);
+        self.choose(&choices, &build, ctx)
+    }
+
+    /// The candidate `build` makes with every written occurrence holding
+    /// the first of its forms that resolves back to its target.
+    ///
+    /// The occurrences are taken in the order given (ascending carrier);
+    /// each keeps its first form when that resolves to its target in the
+    /// candidate holding the forms chosen so far, and otherwise takes the
+    /// first more qualified form that does. An occurrence of a key, path
+    /// or variable reference none of whose forms resolves back is
+    /// [`ResolveDomainError::UnrepresentableReference`]; a span's
+    /// occurrence is left to verification, which compares spans by key. A
+    /// candidate get cannot read leaves every remaining choice at the first
+    /// form, for verification to report.
+    pub(super) fn choose(
+        &self,
+        choices: &[FormChoice],
+        build: &dyn Fn(&[usize]) -> Result<WInstance, Refusal>,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<WInstance, Refusal> {
+        let mut chosen = vec![0; choices.len()];
+        let mut candidate = build(&chosen)?;
+        let mut targets = self.written_targets(&candidate, ctx);
+        let mut failures = Vec::new();
+        for (position, choice) in choices.iter().enumerate() {
+            if !choice.checked {
+                continue;
+            }
+            let Some(found) = &targets else {
+                break;
+            };
+            if found.get(&choice.key) == Some(&choice.target) {
+                continue;
+            }
+            let mut resolved = false;
+            for form in 1..choice.forms {
+                chosen[position] = form;
+                let next = build(&chosen)?;
+                let next_targets = self.written_targets(&next, ctx);
+                if next_targets
+                    .as_ref()
+                    .is_some_and(|found| found.get(&choice.key) == Some(&choice.target))
+                {
+                    candidate = next;
+                    targets = next_targets;
+                    resolved = true;
+                    break;
+                }
+            }
+            if !resolved {
+                chosen[position] = 0;
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(choice.carrier),
+                    reference: choice.key.1.clone(),
+                });
+            }
+        }
+        refuse(failures)?;
+        Ok(candidate)
+    }
+
+    /// The target each occurrence of a candidate resolves to, by holder,
+    /// reference and index, or `None` when get cannot read the candidate.
+    fn written_targets(
+        &self,
+        candidate: &WInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Option<BTreeMap<(ViewRef, Name, u32), u32>> {
+        let lenient = ResolveOptions { lenient: true };
+        self.get_graph(&AnyInstance::Tree(candidate.clone()), lenient, ctx)
+            .ok()
+            .map(|(regotten, recomplement)| occurrence_targets(&regotten, &recomplement))
     }
 
     /// The table candidate of a view: its structural part read back as a

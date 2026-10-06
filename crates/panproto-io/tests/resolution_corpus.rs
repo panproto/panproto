@@ -1901,6 +1901,395 @@ fn rendered_paths_resolve_to_their_target() {
 }
 
 // ---------------------------------------------------------------------------
+// The catalog fixture: shelves with a title hold books with a name and
+// links redirected to a book. A link's path is relative, a book's name,
+// looked up on the link's own shelf first and then in the whole document,
+// or absolute, "/title/name". The provider's canonical rendering is the
+// relative form; the absolute form is its one more qualified form.
+// ---------------------------------------------------------------------------
+
+/// The catalog provider, whose path syntax is the fixture's.
+struct Catalog {
+    protocol: Protocol,
+    spec: ResolutionSpec,
+}
+
+/// The parent of a node in a tree.
+fn parent_in(tree: &WInstance, node: u32) -> Option<u32> {
+    tree.arcs
+        .iter()
+        .find(|(_, child, _)| *child == node)
+        .map(|(parent, _, _)| *parent)
+}
+
+/// A string field of a node.
+fn text_field<'n>(node: &'n Node, field: &str) -> Option<&'n str> {
+    match node.extra_fields.get(field) {
+        Some(Value::Str(value)) => Some(value),
+        _ => None,
+    }
+}
+
+impl ResolutionProvider for Catalog {
+    fn id(&self) -> ResolutionProviderId {
+        provider_id("catalog")
+    }
+
+    fn kind(&self) -> ResolutionKind {
+        ResolutionKind::TreeToGraph
+    }
+
+    fn protocol(&self) -> &Protocol {
+        &self.protocol
+    }
+
+    fn spec(
+        &self,
+        _protocol: &Protocol,
+        _syntactic: &Schema,
+    ) -> Result<ResolutionSpec, ResolveError> {
+        Ok(self.spec.clone())
+    }
+
+    fn resolve_path(
+        &self,
+        _reference: &Reference,
+        holder: ViewRef,
+        literal: &Value,
+        source: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<PathResolution, ResolveError> {
+        let (AnyInstance::Tree(tree), Value::Str(path), ViewRef::Node(holder)) =
+            (source, literal, holder)
+        else {
+            return Ok(PathResolution {
+                candidates: Vec::new(),
+                context: None,
+            });
+        };
+        let books = |shelf: Option<u32>, name: &str| -> Vec<ViewRef> {
+            tree.nodes
+                .values()
+                .filter(|node| node.anchor == "book" && text_field(node, "name") == Some(name))
+                .filter(|node| shelf.is_none() || parent_in(tree, node.id) == shelf)
+                .map(|node| ViewRef::Node(node.id))
+                .collect()
+        };
+        let candidates = if let Some(absolute) = path.strip_prefix('/') {
+            let (title, name) = absolute.split_once('/').unwrap_or((absolute, ""));
+            tree.nodes
+                .values()
+                .filter(|node| node.anchor == "shelf" && text_field(node, "title") == Some(title))
+                .flat_map(|shelf| books(Some(shelf.id), name))
+                .collect()
+        } else {
+            let own = books(parent_in(tree, holder), path);
+            if own.is_empty() { books(None, path) } else { own }
+        };
+        let mut candidates = candidates;
+        candidates.sort();
+        Ok(PathResolution {
+            candidates,
+            context: None,
+        })
+    }
+
+    fn render_path(
+        &self,
+        _reference: &Reference,
+        _holder: ViewRef,
+        target: ViewRef,
+        view: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<Value, ResolveError> {
+        let (AnyInstance::Graph(view), ViewRef::Node(target)) = (view, target) else {
+            return Err(ResolveError::ProviderFailure {
+                provider: self.id(),
+                code: "no_path".into(),
+                at: None,
+            });
+        };
+        view.node(target)
+            .and_then(|book| text_field(book, "name"))
+            .map(|name| Value::Str(name.to_owned()))
+            .ok_or_else(|| ResolveError::ProviderFailure {
+                provider: self.id(),
+                code: "no_path".into(),
+                at: Some(Box::new(ViewRef::Node(target))),
+            })
+    }
+
+    fn qualified_forms(
+        &self,
+        _reference: &Reference,
+        _holder: ViewRef,
+        target: ViewRef,
+        first: &Value,
+        view: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<Vec<Value>, ResolveError> {
+        let (AnyInstance::Graph(view), ViewRef::Node(target), Value::Str(name)) =
+            (view, target, first)
+        else {
+            return Ok(Vec::new());
+        };
+        let titles: Vec<Value> = view
+            .in_edges(target)
+            .iter()
+            .filter_map(|edge| view.edge(*edge))
+            .filter(|edge| edge.edge.name.as_deref() == Some("books"))
+            .filter_map(|edge| view.node(edge.src))
+            .filter_map(|shelf| text_field(shelf, "title"))
+            .map(|title| Value::Str(format!("/{title}/{name}")))
+            .collect();
+        Ok(titles)
+    }
+}
+
+struct CatalogFixture {
+    schema: Schema,
+    see: Edge,
+}
+
+fn catalog_schema() -> CatalogFixture {
+    let base = protocol("catalog", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let see = edge("link", "book", "ref", Some("see"));
+    let mut link = reference(
+        "see",
+        "link",
+        RefSource::Path {
+            field: Vec::new(),
+            syntax: PathSyntax::JsonPointer,
+        },
+        "book",
+        see.clone(),
+    );
+    link.mode = ResolveMode::Redirect;
+    let schema = SchemaBuilder::new(&base)
+        .vertex("doc", "object", None)
+        .unwrap()
+        .vertex("shelf", "object", None)
+        .unwrap()
+        .vertex("book", "object", None)
+        .unwrap()
+        .vertex("link", "string", None)
+        .unwrap()
+        .edge("doc", "shelf", "prop", Some("shelves"))
+        .unwrap()
+        .edge("shelf", "book", "prop", Some("books"))
+        .unwrap()
+        .edge("shelf", "link", "prop", Some("links"))
+        .unwrap()
+        .edge("link", "book", "ref", Some("see"))
+        .unwrap()
+        .entry("doc")
+        .reference(link)
+        .build()
+        .unwrap();
+    CatalogFixture { schema, see }
+}
+
+fn catalog() -> (Resolution, CatalogFixture) {
+    let fixture = catalog_schema();
+    let protocol = protocol("catalog", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let provider = Catalog {
+        protocol: protocol.clone(),
+        spec: spec_for(
+            "catalog",
+            ResolutionKind::TreeToGraph,
+            &fixture.schema,
+            &[(&fixture.see, "see")],
+            &[],
+        ),
+    };
+    let resolution = Resolution::for_protocol(&protocol, &fixture.schema, Arc::new(provider))
+        .expect("the catalog compiles");
+    (resolution, fixture)
+}
+
+fn shelf(id: u32, title: &str) -> Node {
+    let mut node = Node::new(id, "shelf");
+    node.extra_fields
+        .insert("title".to_owned(), Value::Str(title.to_owned()));
+    node
+}
+
+fn book(id: u32, name: &str) -> Node {
+    let mut node = Node::new(id, "book");
+    node.extra_fields
+        .insert("name".to_owned(), Value::Str(name.to_owned()));
+    node
+}
+
+/// doc 0; shelf 1 ("a") with link 4 = `link` and books 2 ("x") and 3
+/// ("w"); shelf 5 (`second`) with books 6 ("x") and 7 ("y"); with
+/// `third`, a shelf 8 of that title with book 9 ("x").
+fn catalog_tree(link: &str, second: &str, third: Option<&str>) -> WInstance {
+    let shelves = prop("doc", "shelf", "shelves");
+    let books = prop("shelf", "book", "books");
+    let links = prop("shelf", "link", "links");
+    let mut nodes = vec![
+        Node::new(0, "doc"),
+        shelf(1, "a"),
+        book(2, "x"),
+        book(3, "w"),
+        leaf(4, "link", Value::Str(link.to_owned())),
+        shelf(5, second),
+        book(6, "x"),
+        book(7, "y"),
+    ];
+    // Shelf a lists its link before its books, the canonical child order
+    // (a link's reference label sorts before the books label), so the
+    // view's structural edge ids are the ones canonical emission gives.
+    let mut arcs = vec![
+        (0, 1, shelves.clone()),
+        (1, 4, links),
+        (1, 2, books.clone()),
+        (1, 3, books.clone()),
+        (0, 5, shelves.clone()),
+        (5, 6, books.clone()),
+        (5, 7, books.clone()),
+    ];
+    if let Some(title) = third {
+        nodes.extend([shelf(8, title), book(9, "x")]);
+        arcs.extend([(0, 8, shelves), (8, 9, books)]);
+    }
+    tree(nodes, arcs, 0)
+}
+
+/// The literal of link 4 in a put source.
+fn link_literal(tree: &WInstance) -> Option<&Value> {
+    match tree.nodes.get(&4)?.value.as_ref()? {
+        FieldPresence::Present(value) => Some(value),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_written_reference_takes_the_first_form_that_re_resolves() {
+    let (resolution, fixture) = catalog();
+    let source = AnyInstance::Tree(catalog_tree("y", "b", None));
+    let (view, complement) = get(&resolution, &source);
+    laws_hold(&resolution, &source, ResolveOptions::default());
+    let see = occurrence_edge(&complement, 4);
+    assert_eq!(view.edge(see).map(|edge| edge.tgt), Some(7));
+    // Reconnected to shelf b's "x": the relative form "x" names shelf a's
+    // own "x", so the absolute form is written.
+    let mut reconnected = view.clone();
+    reconnected
+        .set_endpoints(see, 1, 6)
+        .expect("reconnect the link to shelf b's x");
+    let restored = put_tree(&resolution, &reconnected, &complement).expect("admitted");
+    assert_eq!(link_literal(&restored), Some(&Value::Str("/b/x".into())));
+    // A new link from shelf a to shelf b's "x" is written the same way.
+    let mut added = view.clone();
+    let fresh = panproto_inst::EdgeId(40);
+    added
+        .insert_edge(fresh, panproto_inst::GEdge::new(1, 6, fixture.see.clone()))
+        .expect("a new link");
+    let restored = put_tree(&resolution, &added, &complement).expect("admitted");
+    let holder = restored
+        .nodes
+        .values()
+        .find(|node| node.anchor == "link" && node.id != 4)
+        .expect("a new link holder");
+    assert_eq!(
+        holder.value,
+        Some(FieldPresence::Present(Value::Str("/b/x".into())))
+    );
+    // Canonical emission writes the absolute form too.
+    let (canonical, _) = resolution
+        .put_canonical(&AnyInstance::Graph(reconnected), &ctx())
+        .expect("a canonical source");
+    let AnyInstance::Tree(canonical) = canonical else {
+        panic!("a tree source");
+    };
+    let written: Vec<&Value> = canonical
+        .nodes
+        .values()
+        .filter(|node| node.anchor == "link")
+        .filter_map(|node| match &node.value {
+            Some(FieldPresence::Present(value)) => Some(value),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(written, vec![&Value::Str("/b/x".into())]);
+}
+
+#[test]
+fn a_reference_whose_canonical_form_re_resolves_is_written_unchanged() {
+    let (resolution, _) = catalog();
+    let source = AnyInstance::Tree(catalog_tree("w", "b", None));
+    let (mut view, complement) = get(&resolution, &source);
+    let see = occurrence_edge(&complement, 4);
+    assert_eq!(view.edge(see).map(|edge| edge.tgt), Some(3));
+    view.set_endpoints(see, 1, 7)
+        .expect("reconnect the link to shelf b's y");
+    let rendered = resolution
+        .provider()
+        .render_path(
+            &resolution.references()["see"],
+            ViewRef::Node(4),
+            ViewRef::Node(7),
+            &AnyInstance::Graph(view.clone()),
+            &ctx(),
+        )
+        .expect("the canonical rendering");
+    let restored = put_tree(&resolution, &view, &complement).expect("admitted");
+    assert_eq!(link_literal(&restored), Some(&rendered));
+    assert_eq!(rendered, Value::Str("y".into()));
+}
+
+#[test]
+fn a_reference_with_no_re_resolving_form_is_unrepresentable() {
+    let (resolution, _) = catalog();
+    let source = AnyInstance::Tree(catalog_tree("y", "b", Some("b")));
+    let (mut view, complement) = get(&resolution, &source);
+    let see = occurrence_edge(&complement, 4);
+    view.set_endpoints(see, 1, 6)
+        .expect("reconnect the link to the first shelf b's x");
+    let expected = ResolveDomainError::UnrepresentableReference {
+        carrier: ViewRef::Edge(see),
+        reference: "see".into(),
+    };
+    let violations = violations_of(&resolution, &view, &complement, &ctx());
+    assert!(violations.contains(&expected), "{violations:?}");
+    assert!(matches!(
+        resolution.put(&AnyInstance::Graph(view), &complement, &ctx()),
+        Err(ResolveError::PutDomain(_))
+    ));
+}
+
+#[test]
+fn a_kept_reference_is_never_respelled() {
+    let (resolution, _) = catalog();
+    let source = AnyInstance::Tree(catalog_tree("y", "b", None));
+    let (view, complement) = get(&resolution, &source);
+    let see = occurrence_edge(&complement, 4);
+    // Renaming shelf a's "w" to "y" captures the kept link: its relative
+    // form now names the book on its own shelf. The absolute form "/b/y"
+    // would re-resolve, but a kept occurrence is not respelled.
+    let mut renamed = view;
+    renamed
+        .node_mut(3)
+        .expect("book w")
+        .extra_fields
+        .insert("name".to_owned(), Value::Str("y".into()));
+    assert_eq!(renamed.edge(see).map(|edge| edge.tgt), Some(7));
+    let violations = violations_of(&resolution, &renamed, &complement, &ctx());
+    assert!(
+        violations.contains(&ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(see),
+            reference: "see".into(),
+        }),
+        "{violations:?}"
+    );
+    assert!(resolution
+        .put(&AnyInstance::Graph(renamed), &complement, &ctx())
+        .is_err());
+}
+
+// ---------------------------------------------------------------------------
 // The notes fixture: standoff spans over a note's own text field, or over
 // text loaded under a key a note holds, materialized as span nodes.
 // ---------------------------------------------------------------------------
@@ -6163,4 +6552,605 @@ fn a_position_key_is_the_index_among_the_ordered_edge_targets() {
         assert_eq!(into, vec![(4, target, "points_to".to_owned())], "{pointer}");
         laws_hold(&resolution, &source, ResolveOptions::default());
     }
+}
+
+// ---------------------------------------------------------------------------
+// The picks fixture and the reference model of PutTwice: customers a, b and
+// c are rows 0, 1 and 2 keyed by their `cid` cell; the pick of customer t is
+// row 10 + t, whose `customer` cell names t. A source is the set of picked
+// customers, so the holders' order is the targets' order and get allocates
+// the occurrence edges in target order.
+// ---------------------------------------------------------------------------
+
+/// The picks resolution and its reference edge.
+fn picks() -> (Resolution, Edge) {
+    let base = protocol("picks", InstanceShapeKind::Table, InstanceShapeKind::Graph);
+    let picked = edge("pick", "customer", "ref", Some("picked"));
+    let pick = reference(
+        "pick",
+        "pick",
+        RefSource::KeyValue {
+            parts: vec![vec![prop("pick", "label", "customer")]],
+        },
+        "customer",
+        picked.clone(),
+    );
+    let schema = SchemaBuilder::new(&base)
+        .vertex("customer", "table", None)
+        .unwrap()
+        .vertex("pick", "table", None)
+        .unwrap()
+        .vertex("label", "string", None)
+        .unwrap()
+        .edge("customer", "label", "prop", Some("cid"))
+        .unwrap()
+        .edge("pick", "label", "prop", Some("customer"))
+        .unwrap()
+        .edge("pick", "customer", "ref", Some("picked"))
+        .unwrap()
+        .key(
+            "customer",
+            key(
+                "cid",
+                vec![KeyPart::Path(vec![prop("customer", "label", "cid")])],
+                KeyRole::Primary,
+                KeyScope::Document,
+            ),
+        )
+        .reference(pick)
+        .build()
+        .unwrap();
+    let resolution = compile(
+        "picks",
+        ResolutionKind::TableToGraph,
+        &schema,
+        &[(&picked, "pick")],
+    );
+    (resolution, picked)
+}
+
+const CUSTOMERS: [&str; 3] = ["a", "b", "c"];
+
+/// The pick row of customer `target`.
+const fn pick_row(target: u8) -> u32 {
+    10 + target as u32
+}
+
+/// The picks table of a set of customers.
+fn picks_table(picked: &BTreeSet<u8>) -> FInstance {
+    FInstance::new()
+        .with_rows(
+            "customer",
+            (0u8..3).map(|target| {
+                (
+                    RowId(u32::from(target)),
+                    row(&[("cid", text(CUSTOMERS[usize::from(target)]))]),
+                )
+            }),
+        )
+        .expect("customers")
+        .with_rows(
+            "pick",
+            picked.iter().map(|target| {
+                (
+                    RowId(pick_row(*target)),
+                    row(&[("customer", text(CUSTOMERS[usize::from(*target)]))]),
+                )
+            }),
+        )
+        .expect("picks")
+}
+
+/// The pick row node of customer `target`, as a view holds it.
+fn pick_node(target: u8) -> Node {
+    let mut node = Node::new(pick_row(target), "pick");
+    node.extra_fields.insert(
+        "customer".to_owned(),
+        text(CUSTOMERS[usize::from(target)]),
+    );
+    node
+}
+
+/// The reference model of the picks fixture, written from Spec ruling S8's
+/// text and calling nothing of the engine: a source is a set of targets;
+/// get lists them in ascending order and gives the i-th the synthesized id
+/// i, recording each id's target in the complement's index; put admits a
+/// view only when every id the index records names the index's target
+/// (otherwise the synthesized carrier was edited apart from its key,
+/// `SynthesizedEdited`) and no target is named twice, and returns the set
+/// of targets the view names.
+mod model {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    pub type Source = BTreeSet<u8>;
+    pub type View = BTreeMap<u32, u8>;
+    pub type Index = BTreeMap<u32, u8>;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Refusal {
+        SynthesizedEdited(u32),
+        Repeated(u8),
+    }
+
+    pub fn get(source: &Source) -> (View, Index) {
+        let view: View = (0u32..).zip(source.iter().copied()).collect();
+        (view.clone(), view)
+    }
+
+    pub fn put(view: &View, index: &Index) -> Result<Source, Refusal> {
+        for (id, target) in view {
+            if index.get(id).is_some_and(|recorded| recorded != target) {
+                return Err(Refusal::SynthesizedEdited(*id));
+            }
+        }
+        let mut source = Source::new();
+        for target in view.values() {
+            if !source.insert(*target) {
+                return Err(Refusal::Repeated(*target));
+            }
+        }
+        Ok(source)
+    }
+
+    /// One single-step candidate.
+    #[derive(Clone, Copy, Debug)]
+    pub enum Edit {
+        /// A reference to an unreferenced target, with a fresh id.
+        Add(u8),
+        /// The reference with this id removed.
+        Delete(u32),
+        /// The reference with this id pointed at another target.
+        Retarget(u32, u8),
+    }
+
+    pub fn candidates(view: &View) -> Vec<Edit> {
+        let named: BTreeSet<u8> = view.values().copied().collect();
+        let mut edits: Vec<Edit> = (0u8..3)
+            .filter(|target| !named.contains(target))
+            .map(Edit::Add)
+            .collect();
+        for (id, target) in view {
+            edits.push(Edit::Delete(*id));
+            for other in (0u8..3).filter(|other| other != target) {
+                edits.push(Edit::Retarget(*id, other));
+            }
+        }
+        edits
+    }
+
+    pub fn apply(view: &View, edit: Edit) -> View {
+        let mut edited = view.clone();
+        match edit {
+            Edit::Add(target) => {
+                let fresh = view.keys().max().map_or(0, |max| max + 1);
+                edited.insert(fresh, target);
+            }
+            Edit::Delete(id) => {
+                edited.remove(&id);
+            }
+            Edit::Retarget(id, target) => {
+                edited.insert(id, target);
+            }
+        }
+        edited
+    }
+
+    /// The index `next` rekeyed onto `view`'s ids: each id of `next` is
+    /// renamed to the id `view` gives the same target (the producing
+    /// index, keys being targets here).
+    pub fn rekeyed(next: &Index, view: &View) -> Index {
+        next.iter()
+            .map(|(id, target)| {
+                let own = view
+                    .iter()
+                    .find(|(_, named)| *named == target)
+                    .map_or(*id, |(own, _)| *own);
+                (own, *target)
+            })
+            .collect()
+    }
+
+    /// Every injective renaming of `ids` into `0..pool`.
+    pub fn renamings(ids: &[u32], pool: u32) -> Vec<BTreeMap<u32, u32>> {
+        let mut out = vec![BTreeMap::new()];
+        for id in ids {
+            out = out
+                .into_iter()
+                .flat_map(|partial: BTreeMap<u32, u32>| {
+                    (0..pool)
+                        .filter(|image| !partial.values().any(|used| used == image))
+                        .map(|image| {
+                            let mut next = partial.clone();
+                            next.insert(*id, image);
+                            next
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+        }
+        out
+    }
+
+    pub fn rename(map: &BTreeMap<u32, u8>, renaming: &BTreeMap<u32, u32>) -> BTreeMap<u32, u8> {
+        map.iter()
+            .map(|(id, target)| (renaming.get(id).copied().unwrap_or(*id), *target))
+            .collect()
+    }
+
+    /// The counts of the exhaustive run.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        pub admitted: usize,
+        pub raw_put_twice_failures: usize,
+        pub gated_put_twice_failures: usize,
+        pub exact: usize,
+    }
+
+    /// Every source over three targets.
+    pub fn sources() -> Vec<Source> {
+        (0u8..8)
+            .map(|bits| (0u8..3).filter(|t| bits & (1 << t) != 0).collect())
+            .collect()
+    }
+
+    /// Run the five laws, PutTwice in both forms, over every source and
+    /// candidate, panicking at the first law that fails.
+    pub fn check() -> Counts {
+        let mut counts = Counts::default();
+        for source in sources() {
+            let (view, index) = get(&source);
+            assert_eq!(put(&view, &index), Ok(source.clone()), "GetPut");
+            for edit in candidates(&view) {
+                let candidate = apply(&view, edit);
+                let verdict = put(&candidate, &index);
+                let ids: Vec<u32> = candidate
+                    .keys()
+                    .chain(index.keys())
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                for renaming in renamings(&ids, 5) {
+                    let expected = match &verdict {
+                        Err(Refusal::SynthesizedEdited(id)) => {
+                            Err(Refusal::SynthesizedEdited(renaming[id]))
+                        }
+                        other => other.clone(),
+                    };
+                    assert_eq!(
+                        put(&rename(&candidate, &renaming), &rename(&index, &renaming)),
+                        expected,
+                        "Congruence"
+                    );
+                }
+                // Totality: the domain is put's success, so an admitted
+                // candidate's put succeeds by construction.
+                let Ok(once) = verdict else {
+                    continue;
+                };
+                counts.admitted += 1;
+                let (again, next) = get(&once);
+                let mut named: Vec<u8> = candidate.values().copied().collect();
+                named.sort_unstable();
+                assert_eq!(
+                    again.values().copied().collect::<Vec<_>>(),
+                    named,
+                    "PutGet up to renumbering"
+                );
+                if again == candidate {
+                    counts.exact += 1;
+                }
+                if put(&candidate, &next) != Ok(once.clone()) {
+                    counts.raw_put_twice_failures += 1;
+                }
+                if put(&candidate, &rekeyed(&next, &candidate)) != Ok(once.clone()) {
+                    counts.gated_put_twice_failures += 1;
+                }
+            }
+        }
+        counts
+    }
+}
+
+/// The occurrence edge of each pick row in a picks view, by row.
+fn pick_edges(view: &GInstance, picked: &Edge) -> BTreeMap<u32, panproto_inst::EdgeId> {
+    view.edges_sorted()
+        .filter(|(_, edge)| edge.edge == *picked)
+        .map(|(id, edge)| (edge.src, id))
+        .collect()
+}
+
+/// The production view edit of a model edit, through the order-preserving
+/// bijection between the model's ids and the view's occurrence edges.
+fn production_edit(
+    view: &GInstance,
+    model_view: &model::View,
+    picked: &Edge,
+    edit: model::Edit,
+) -> GInstance {
+    let edges: Vec<panproto_inst::EdgeId> = pick_edges(view, picked).into_values().collect();
+    let of_model = |id: u32| {
+        let rank = model_view
+            .keys()
+            .position(|own| *own == id)
+            .expect("a model id of the view");
+        edges[rank]
+    };
+    let mut edited = view.clone();
+    match edit {
+        model::Edit::Add(target) => {
+            let fresh = view
+                .edges()
+                .keys()
+                .map(|id| id.0 + 1)
+                .max()
+                .unwrap_or(0);
+            edited.insert_node(pick_node(target)).expect("a new pick");
+            edited
+                .insert_edge(
+                    panproto_inst::EdgeId(fresh),
+                    panproto_inst::GEdge::new(pick_row(target), u32::from(target), picked.clone()),
+                )
+                .expect("its reference, with a fresh id");
+        }
+        model::Edit::Delete(id) => {
+            let edge = of_model(id);
+            let holder = view.edge(edge).expect("the reference").src;
+            edited.remove_edge(edge).expect("remove the reference");
+            edited.remove_node(holder).expect("and its pick");
+        }
+        model::Edit::Retarget(id, target) => {
+            let edge = of_model(id);
+            let holder = view.edge(edge).expect("the reference").src;
+            edited
+                .set_endpoints(edge, holder, u32::from(target))
+                .expect("retarget the reference");
+        }
+    }
+    edited
+}
+
+/// `next` rekeyed onto `view`'s presentation: each occurrence edge of
+/// `next` renamed to the view's edge of the same pick row, which is the
+/// producing index on this fixture, where each row holds one occurrence.
+fn rekeyed_picks(
+    next: &ResolutionComplement,
+    view: &GInstance,
+    picked: &Edge,
+) -> ResolutionComplement {
+    let edges = pick_edges(view, picked);
+    let mut rekeyed = next.clone();
+    rekeyed.occurrences = next
+        .occurrences
+        .iter()
+        .map(|(carrier, records)| {
+            let renamed = match (&records[0].holder, carrier) {
+                (ViewRef::Row(row), ViewRef::Edge(_)) => edges
+                    .get(&row.0)
+                    .map_or_else(|| carrier.clone(), |edge| ViewRef::Edge(*edge)),
+                _ => carrier.clone(),
+            };
+            (renamed, records.clone())
+        })
+        .collect();
+    rekeyed
+}
+
+/// The occurrence edges of a view as `(source, target)` pairs, sorted: the
+/// view up to the presentation ids of its synthesized edges.
+fn pick_pairs(view: &GInstance, picked: &Edge) -> Vec<(u32, u32)> {
+    let mut pairs: Vec<(u32, u32)> = view
+        .edges_sorted()
+        .filter(|(_, edge)| edge.edge == *picked)
+        .map(|(_, edge)| (edge.src, edge.tgt))
+        .collect();
+    pairs.sort_unstable();
+    pairs
+}
+
+/// The view with its occurrence edges renamed by `renaming`, and the
+/// complement with its occurrence keys renamed alike.
+fn renamed_picks(
+    view: &GInstance,
+    complement: &ResolutionComplement,
+    renaming: &BTreeMap<u32, u32>,
+) -> (GInstance, ResolutionComplement) {
+    let mut renamed = view.clone();
+    let edges: Vec<(panproto_inst::EdgeId, panproto_inst::GEdge)> = renaming
+        .keys()
+        .filter_map(|id| {
+            let id = panproto_inst::EdgeId(*id);
+            view.edge(id).cloned().map(|edge| (id, edge))
+        })
+        .collect();
+    for (id, _) in &edges {
+        renamed.remove_edge(*id).expect("a renamed edge");
+    }
+    for (id, edge) in edges {
+        renamed
+            .insert_edge(panproto_inst::EdgeId(renaming[&id.0]), edge)
+            .expect("an injective renaming");
+    }
+    let mut complement = complement.clone();
+    complement.occurrences = complement
+        .occurrences
+        .into_iter()
+        .map(|(carrier, records)| match carrier {
+            ViewRef::Edge(id) => (
+                ViewRef::Edge(panproto_inst::EdgeId(
+                    renaming.get(&id.0).copied().unwrap_or(id.0),
+                )),
+                records,
+            ),
+            other => (other, records),
+        })
+        .collect();
+    (renamed, complement)
+}
+
+#[test]
+fn resolution_laws_agree_with_the_model_on_three_targets() {
+    let counts = model::check();
+    println!(
+        "model: admitted={} raw_put_twice_failures={} gated_put_twice_failures={} exact={}",
+        counts.admitted,
+        counts.raw_put_twice_failures,
+        counts.gated_put_twice_failures,
+        counts.exact
+    );
+    assert_eq!(
+        counts,
+        model::Counts {
+            admitted: 24,
+            raw_put_twice_failures: 6,
+            gated_put_twice_failures: 0,
+            exact: 14,
+        }
+    );
+    let (resolution, picked) = picks();
+    let mut production = model::Counts::default();
+    let mut raw_refused = 0usize;
+    for picks_set in model::sources() {
+        let source = AnyInstance::Table(picks_table(&picks_set));
+        check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx())
+            .expect("the production gates hold on every source");
+        let (view, complement) = get(&resolution, &source);
+        let restored = resolution
+            .put(&AnyInstance::Graph(view.clone()), &complement, &ctx())
+            .expect("GetPut");
+        assert!(same(&restored, &source), "GetPut");
+        let (model_view, model_index) = model::get(&picks_set);
+        for edit in model::candidates(&model_view) {
+            let model_candidate = model::apply(&model_view, edit);
+            let model_verdict = model::put(&model_candidate, &model_index);
+            let candidate = production_edit(&view, &model_view, &picked, edit);
+            let verdict = violations_of(&resolution, &candidate, &complement, &ctx());
+            match &model_verdict {
+                Ok(_) => assert!(verdict.is_empty(), "{edit:?}: {verdict:?}"),
+                Err(model::Refusal::SynthesizedEdited(_)) => assert!(
+                    verdict
+                        .iter()
+                        .any(|violation| matches!(violation, ResolveDomainError::SynthesizedEdited { .. })),
+                    "{edit:?}: {verdict:?}"
+                ),
+                Err(model::Refusal::Repeated(_)) => assert!(!verdict.is_empty(), "{edit:?}"),
+            }
+            // Congruence: renaming the occurrence edges of the view and the
+            // complement together leaves the verdict, up to the renaming,
+            // and the put.
+            let ids: Vec<u32> = pick_edges(&candidate, &picked)
+                .into_values()
+                .chain(complement.occurrences.keys().filter_map(|carrier| match carrier {
+                    ViewRef::Edge(id) => Some(*id),
+                    _ => None,
+                }))
+                .map(|id| id.0)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let floor = ids.iter().min().copied().unwrap_or(0);
+            for renaming in model::renamings(&ids, 5) {
+                let renaming: BTreeMap<u32, u32> = renaming
+                    .into_iter()
+                    .map(|(id, image)| (id, floor + 10 + image))
+                    .collect();
+                let (renamed, renamed_complement) = renamed_picks(&candidate, &complement, &renaming);
+                let found = violations_of(&resolution, &renamed, &renamed_complement, &ctx());
+                assert_eq!(found.is_empty(), verdict.is_empty(), "Congruence {edit:?}");
+                if verdict.is_empty() {
+                    let a = resolution
+                        .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
+                        .expect("admitted");
+                    let b = resolution
+                        .put(&AnyInstance::Graph(renamed), &renamed_complement, &ctx())
+                        .expect("admitted when renamed");
+                    assert!(same(&a, &b), "Congruence {edit:?}");
+                }
+            }
+            if !verdict.is_empty() {
+                continue;
+            }
+            production.admitted += 1;
+            let once = resolution
+                .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
+                .expect("Totality");
+            let (again, next) = get(&resolution, &once);
+            assert_eq!(
+                pick_pairs(&again, &picked),
+                pick_pairs(&candidate, &picked),
+                "PutGet up to presentation, {edit:?}"
+            );
+            let model_once = model_verdict.clone().expect("the model admits it too");
+            let (model_again, model_next) = model::get(&model_once);
+            let exact = GInstance::identical(&again, &candidate);
+            assert_eq!(exact, model_again == model_candidate, "exact PutGet agrees, {edit:?}");
+            if exact {
+                production.exact += 1;
+            }
+            let rekeyed = rekeyed_picks(&next, &candidate, &picked);
+            let twice = resolution
+                .put(&AnyInstance::Graph(candidate.clone()), &rekeyed, &ctx())
+                .map(|twice| same(&twice, &once));
+            if !matches!(twice, Ok(true)) {
+                production.gated_put_twice_failures += 1;
+            }
+            let raw_fails = !matches!(
+                resolution
+                    .put(&AnyInstance::Graph(candidate.clone()), &next, &ctx())
+                    .map(|raw| same(&raw, &once)),
+                Ok(true)
+            );
+            if model::put(&model_candidate, &model_next) != Ok(model_once) {
+                assert!(raw_fails, "the raw form fails where the model's does, {edit:?}");
+            }
+            if raw_fails {
+                raw_refused += 1;
+            }
+        }
+    }
+    println!(
+        "production: admitted={} gated_put_twice_failures={} exact={} raw_put_twice_failures={}",
+        production.admitted, production.gated_put_twice_failures, production.exact, raw_refused
+    );
+    assert_eq!(production.admitted, 24);
+    assert_eq!(production.exact, 14);
+    assert_eq!(production.gated_put_twice_failures, 0);
+}
+
+#[test]
+fn put_twice_is_checked_where_put_get_holds_up_to_presentation() {
+    let (resolution, picked) = picks();
+    let source = AnyInstance::Table(picks_table(&BTreeSet::from([1])));
+    let (view, complement) = get(&resolution, &source);
+    let (model_view, _) = model::get(&BTreeSet::from([1]));
+    // Add a pick of customer a: its key (row 10) sorts before the existing
+    // pick's (row 11), so get re-allocates the existing occurrence's id.
+    let candidate = production_edit(&view, &model_view, &picked, model::Edit::Add(0));
+    let existing = pick_edges(&view, &picked)[&pick_row(1)];
+    assert!(violations_of(&resolution, &candidate, &complement, &ctx()).is_empty());
+    let once = resolution
+        .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
+        .expect("admitted");
+    let (again, next) = get(&resolution, &once);
+    assert_ne!(
+        pick_edges(&again, &picked)[&pick_row(1)],
+        existing,
+        "get re-allocated the existing occurrence's id"
+    );
+    assert!(!GInstance::identical(&again, &candidate));
+    assert_eq!(pick_pairs(&again, &picked), pick_pairs(&candidate, &picked));
+    // The raw form puts against get's complement as it is stamped: refused.
+    match resolution.put(&AnyInstance::Graph(candidate.clone()), &next, &ctx()) {
+        Err(ResolveError::PutDomain(ResolveDomainError::SynthesizedEdited { .. })) => {}
+        other => panic!("the raw second put is refused as an edited carrier, got {other:?}"),
+    }
+    // The gated form puts against it rekeyed to the candidate's
+    // presentation: the same source.
+    let rekeyed = rekeyed_picks(&next, &candidate, &picked);
+    let twice = resolution
+        .put(&AnyInstance::Graph(candidate), &rekeyed, &ctx())
+        .expect("the gated second put");
+    assert!(same(&twice, &once));
+    laws_hold(&resolution, &source, ResolveOptions::default());
+    laws_hold(&resolution, &once, ResolveOptions::default());
 }

@@ -20,7 +20,7 @@ use panproto_inst::{
     AnyInstance, EdgeId, FInstance, FieldPresence, GInstance, Node, SynthIndex, SynthKey, Value,
     ViewRef, WInstance,
 };
-use panproto_schema::{Edge, OffsetUnit, OnUnresolved, RefTextSource};
+use panproto_schema::{Edge, OffsetUnit, OnUnresolved, RefTextSource, ResolveMode};
 
 use super::compile::RefForm;
 use super::error::{ResolveDomainError, ResolveError};
@@ -499,9 +499,19 @@ impl Resolution {
                 },
             ),
             Diff::LeftEdge { id, target_only } => match record_of(complement, id) {
-                Some(record) if target_only => ResolveDomainError::UnrepresentableReference {
+                // A recorded occurrence that put writes (a redirect's) and
+                // that resolves elsewhere is a reference its writer cannot
+                // write; one whose literal the view holds (an adding
+                // reference's) names another target than its own literal,
+                // a synthesized edge edited apart from its key.
+                Some(record) if target_only && self.writes(&record.reference) => {
+                    ResolveDomainError::UnrepresentableReference {
+                        carrier: ViewRef::Edge(id),
+                        reference: record.reference,
+                    }
+                }
+                Some(_) if target_only => ResolveDomainError::SynthesizedEdited {
                     carrier: ViewRef::Edge(id),
-                    reference: record.reference,
                 },
                 Some(record) => {
                     let produced = recomplement.occurrences.values().flatten().any(|again| {
@@ -844,6 +854,14 @@ fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef) -> bool {
 }
 
 impl Resolution {
+    /// Whether put writes a reference's literal: a redirect's holder is in
+    /// the complement, while an adding reference's literal is view data.
+    fn writes(&self, reference: &Name) -> bool {
+        self.compiled
+            .get(reference)
+            .is_some_and(|compiled| compiled.reference.mode == ResolveMode::Redirect)
+    }
+
     /// Whether a reference's recorded context comes from outside the view:
     /// an external text, or the external state a path provider read.
     fn external_context(&self, reference: &Name) -> bool {

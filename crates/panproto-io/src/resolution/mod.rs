@@ -208,6 +208,39 @@ pub trait ResolutionProvider: Send + Sync {
         Err(unsupported_path(self.id(), reference))
     }
 
+    /// The written forms of a reference from `holder` to `target` that
+    /// are more qualified than `first`, from least to most qualified.
+    ///
+    /// `first` is the form put writes first: the canonical rendering of
+    /// [`Self::render_path`] for a path reference, the target's key tuple
+    /// for a key reference. A format with more than one written form for a
+    /// reference (a relative and an absolute pointer, a compact and a full
+    /// name, an unqualified and a qualified step) lists the others here; a
+    /// form less qualified than `first` is not listed. For every occurrence
+    /// put or canonical put writes, the first form of `first` followed by
+    /// this list that resolves back to exactly `target` is written, and the
+    /// occurrence is refused only when none does; an occurrence put keeps
+    /// is never respelled. The list is a function of the provider's
+    /// versioned identity and the arguments, so put stays deterministic,
+    /// and a name the provider generates inside a form is checked the same
+    /// way. The default lists none.
+    ///
+    /// # Errors
+    ///
+    /// A typed provider failure.
+    fn qualified_forms(
+        &self,
+        reference: &Reference,
+        holder: ViewRef,
+        target: ViewRef,
+        first: &panproto_inst::Value,
+        view: &AnyInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<Vec<panproto_inst::Value>, ResolveError> {
+        let _ = (reference, holder, target, first, view, ctx);
+        Ok(Vec::new())
+    }
+
     /// Assemble `source` through the grammar `plan`.
     ///
     /// # Errors

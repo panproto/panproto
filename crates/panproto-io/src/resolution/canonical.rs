@@ -23,11 +23,12 @@ use panproto_inst::{
 };
 use panproto_schema::{Edge, ResolveMode};
 
-use super::build::write_literal;
+use super::build::{FormChoice, write_literal};
 use super::compile::RefForm;
 use super::error::{ResolutionInstanceError, ResolveDomainError, ResolveError};
 use super::get::instance_error;
 use super::occur::tuple_literal;
+use super::put::{Refusal, refuse};
 use super::rekey::Renaming;
 use super::source::Source;
 use super::verify::{Diff, extend_index, view_diff};
@@ -399,18 +400,56 @@ impl Resolution {
             .get(&root)
             .map(|node| node.anchor.clone())
             .ok_or(ResolveError::Instance(ResolutionInstanceError::NotTree))?;
-        let mut tree = WInstance::new(nodes, arcs, base.fans.clone(), root, anchor);
+        let tree = WInstance::new(nodes, arcs, base.fans.clone(), root, anchor);
+        let mut written = Vec::new();
         for (edge, id, target) in holders {
             let (writer, _) = self.holder_writer(graph, edge)?;
-            let literal = self.canonical_literal(writer, id, target, &base, graph, ctx)?;
-            if write_literal(&mut tree, id, writer, 0, &literal).is_err() {
-                return Err(domain(ResolveDomainError::UnrepresentableReference {
-                    carrier: ViewRef::Edge(edge),
-                    reference: writer.reference.id.clone(),
-                }));
+            let first = self.canonical_literal(writer, id, target, &base, graph, ctx)?;
+            let mut forms = vec![first];
+            if matches!(writer.form, RefForm::KeyValue { .. } | RefForm::Path { .. }) {
+                forms.extend(self.provider.qualified_forms(
+                    &writer.reference,
+                    ViewRef::Node(id),
+                    ViewRef::Node(target),
+                    &forms[0],
+                    &AnyInstance::Graph(graph.clone()),
+                    ctx,
+                )?);
             }
+            written.push((edge, id, writer, target, forms));
         }
-        Ok(tree)
+        let choices: Vec<FormChoice> = written
+            .iter()
+            .map(|(edge, id, writer, target, forms)| FormChoice {
+                carrier: *edge,
+                key: (ViewRef::Node(*id), writer.reference.id.clone(), 0),
+                target: *target,
+                forms: forms.len(),
+                checked: true,
+            })
+            .collect();
+        let build = |chosen: &[usize]| -> Result<WInstance, Refusal> {
+            let mut candidate = tree.clone();
+            let mut failures = Vec::new();
+            for ((edge, id, writer, _, forms), choice) in written.iter().zip(chosen) {
+                let written = forms
+                    .get(*choice)
+                    .is_some_and(|literal| write_literal(&mut candidate, *id, writer, 0, literal).is_ok());
+                if !written {
+                    failures.push(ResolveDomainError::UnrepresentableReference {
+                        carrier: ViewRef::Edge(*edge),
+                        reference: writer.reference.id.clone(),
+                    });
+                }
+            }
+            refuse(failures)?;
+            Ok(candidate)
+        };
+        match self.choose(&choices, &build, ctx) {
+            Ok(tree) => Ok(tree),
+            Err(Refusal::Domain(violations)) => Err(domain(violations.first)),
+            Err(Refusal::Operational(error)) => Err(error),
+        }
     }
 }
 
