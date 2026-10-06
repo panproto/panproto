@@ -13,15 +13,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
-use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement, UnresolvedRef};
+use panproto_inst::resolution_complement::{
+    RefOccurrence, ResolutionComplement, ResolutionTextId, ResolutionValueSite, UnresolvedRef,
+};
 use panproto_inst::{
     AnyInstance, EdgeId, FInstance, FieldPresence, GInstance, Node, SynthIndex, SynthKey, Value,
     ViewRef, WInstance,
 };
-use panproto_schema::{Edge, OnUnresolved, RefTextSource};
+use panproto_schema::{Edge, OffsetUnit, OnUnresolved, RefTextSource};
 
 use super::compile::RefForm;
 use super::error::{ResolveDomainError, ResolveError};
+use super::get::GetFailure;
+use super::occur::Skipped;
 use super::put::Refusal;
 use super::{Resolution, ResolveContext, ResolveOptions};
 
@@ -217,10 +221,12 @@ pub fn view_diff(a: &GInstance, ia: &SynthIndex, b: &GInstance, ib: &SynthIndex)
             continue;
         };
         matched_edges.insert(other);
-        let map = |node: u32| node_map.get(&node).copied().unwrap_or(node);
-        let source_agrees = map(left.src) == right.src;
+        // An endpoint agrees only through the node matching: an endpoint
+        // with no counterpart agrees with nothing, whatever its raw id.
+        let map = |node: u32| node_map.get(&node).copied();
+        let source_agrees = map(left.src) == Some(right.src);
         let rest_agrees = left.edge == right.edge && left.position == right.position;
-        let target_agrees = map(left.tgt) == right.tgt;
+        let target_agrees = map(left.tgt) == Some(right.tgt);
         if !(source_agrees && rest_agrees && target_agrees) {
             diffs.push(Diff::LeftEdge {
                 id,
@@ -340,13 +346,18 @@ pub fn view_carrier(element: &ViewRef) -> ViewRef {
 impl Resolution {
     /// Every reason the candidate source does not resolve back to `view`.
     ///
-    /// The candidate is read again occurrence by occurrence, collecting
-    /// every failure (an offset a text edit left out of range or off a unit
-    /// boundary, a reference whose fields no longer read); when it reads,
-    /// it is resolved, leniently, and its view is compared with `view`,
-    /// carrier by carrier, together with the recorded contexts that do not
-    /// come through the view and the unresolved occurrences of `Error`
-    /// references.
+    /// The candidate is read occurrence by occurrence: each occurrence that
+    /// cannot be read (an offset a text edit left out of range or off a
+    /// unit boundary, a reference whose fields no longer read, a context
+    /// that fails) is a violation, and its `(holder, reference)` pair is
+    /// left unread. The rest is resolved leniently; an occurrence get
+    /// cannot place (a target inside a redirected fragment, a redirect at
+    /// the root) is a violation and is left unread in turn, until get
+    /// succeeds. Its view is then compared with `view`, carrier by carrier,
+    /// leaving out the disagreements the unread pairs account for, together
+    /// with every surviving span a local text edit left out of range or off
+    /// a unit boundary, the recorded contexts that do not come through the
+    /// view and the unresolved occurrences of `Error` references.
     pub(super) fn verify(
         &self,
         view: &GInstance,
@@ -355,26 +366,43 @@ impl Resolution {
         ctx: &ResolveContext<'_>,
     ) -> Result<Vec<ResolveDomainError>, Refusal> {
         let read_failures = self.read_failures(source, ctx)?;
-        if !read_failures.is_empty() {
-            return Ok(read_failures
-                .into_iter()
-                .map(|(holder, reference, error)| {
-                    read_violation(view, complement, &holder, &reference, &error)
-                })
-                .collect());
-        }
+        let mut violations: Vec<ResolveDomainError> = read_failures
+            .iter()
+            .map(|(holder, reference, error)| {
+                read_violation(view, complement, holder, reference, error)
+            })
+            .collect();
+        let mut skip: Skipped = read_failures
+            .into_iter()
+            .map(|(holder, reference, _)| (holder, reference))
+            .collect();
         let lenient = ResolveOptions { lenient: true };
-        let (regotten, recomplement) = match self.get_graph(source, lenient, ctx) {
-            Ok(result) => result,
-            Err(ResolveError::Instance(
-                super::ResolutionInstanceError::DanglingCarrier { carrier }
-                | super::ResolutionInstanceError::MissingCarrier { carrier },
-            )) => {
-                return Ok(vec![ResolveDomainError::NoPlacement {
-                    carrier: view_carrier(&carrier),
-                }]);
+        let (regotten, recomplement) = loop {
+            match self.get_graph_except(source, lenient, ctx, &skip) {
+                Ok(result) => break result,
+                Err(GetFailure {
+                    error:
+                        ResolveError::Instance(
+                            super::ResolutionInstanceError::DanglingCarrier { carrier }
+                            | super::ResolutionInstanceError::MissingCarrier { carrier },
+                        ),
+                    blame,
+                }) => {
+                    violations.push(ResolveDomainError::NoPlacement {
+                        carrier: view_carrier(&carrier),
+                    });
+                    if !blame.is_some_and(|pair| skip.insert(pair)) {
+                        return Ok(violations);
+                    }
+                }
+                Err(GetFailure { error, .. }) => {
+                    return if violations.is_empty() {
+                        Err(Refusal::Operational(error))
+                    } else {
+                        Ok(violations)
+                    };
+                }
             }
-            Err(error) => return Err(Refusal::Operational(error)),
         };
         let reindex = recomplement.synth_index();
         let index = extend_index(
@@ -383,10 +411,14 @@ impl Resolution {
             &regotten,
             &reindex,
         );
-        let mut violations: Vec<ResolveDomainError> = view_diff(view, &index, &regotten, &reindex)
-            .into_iter()
-            .map(|diff| self.diff_violation(view, complement, &recomplement, &regotten, diff))
-            .collect();
+        let unread = Unread::of(view, complement, source, &regotten, &skip);
+        violations.extend(
+            view_diff(view, &index, &regotten, &reindex)
+                .into_iter()
+                .filter(|diff| !unread.accounts_for(*diff))
+                .map(|diff| self.diff_violation(view, complement, &recomplement, &regotten, diff)),
+        );
+        violations.extend(self.span_violations(view, complement, source, ctx));
         violations.extend(self.context_violations(view, complement, &recomplement));
         violations.extend(self.unresolved_violations(complement, &recomplement));
         Ok(violations)
@@ -524,6 +556,124 @@ impl Resolution {
                 },
             },
         }
+    }
+}
+
+/// The disagreements between a view and its candidate's view that the
+/// unread `(holder, reference)` pairs account for.
+///
+/// On the view's side these are the occurrence edges of an unread pair and
+/// the span nodes that only such edges point at: get did not read them, so
+/// their reason is the read failure. On the candidate's side they are the
+/// subtree of an unread redirecting holder, which get did not redirect, with
+/// the fan nodes beside it and every edge that touches either.
+#[derive(Debug, Default)]
+struct Unread {
+    left_nodes: BTreeSet<u32>,
+    left_edges: BTreeSet<EdgeId>,
+    right_nodes: BTreeSet<u32>,
+    right_edges: BTreeSet<EdgeId>,
+}
+
+impl Unread {
+    fn of(
+        view: &GInstance,
+        complement: &ResolutionComplement,
+        source: &AnyInstance,
+        regotten: &GInstance,
+        skip: &Skipped,
+    ) -> Self {
+        let mut unread = Self::default();
+        if skip.is_empty() {
+            return unread;
+        }
+        for (carrier, records) in &complement.occurrences {
+            let ViewRef::Edge(id) = carrier else {
+                continue;
+            };
+            let skipped = records
+                .iter()
+                .any(|record| skip.contains(&(record.holder.clone(), record.reference.clone())));
+            if skipped && view.edge(*id).is_some() {
+                unread.left_edges.insert(*id);
+            }
+        }
+        for &span in complement.span_nodes.keys() {
+            let into = view.in_edges(span);
+            if !into.is_empty() && into.iter().all(|edge| unread.left_edges.contains(edge)) {
+                unread.left_nodes.insert(span);
+            }
+        }
+        if let AnyInstance::Tree(tree) = source {
+            let tree_source = super::source::Source::tree(tree);
+            for (holder, _) in skip {
+                if let ViewRef::Node(holder) = holder {
+                    if regotten.node(*holder).is_some() {
+                        unread
+                            .right_nodes
+                            .extend(tree_source.subtree(*holder).into_iter().filter(|node| {
+                                regotten.node(*node).is_some()
+                            }));
+                    }
+                }
+            }
+            let touching = |node: u32| {
+                regotten
+                    .out_edges(node)
+                    .iter()
+                    .chain(regotten.in_edges(node))
+                    .copied()
+                    .collect::<Vec<_>>()
+            };
+            let fans: Vec<u32> = unread
+                .right_nodes
+                .iter()
+                .flat_map(|node| touching(*node))
+                .filter_map(|edge| regotten.edge(edge))
+                .flat_map(|edge| [edge.src, edge.tgt])
+                .filter(|node| {
+                    regotten
+                        .node(*node)
+                        .is_some_and(|found| found.shape == panproto_inst::NodeShape::HyperEdge)
+                })
+                .collect();
+            unread.right_nodes.extend(fans);
+            unread.right_edges = unread
+                .right_nodes
+                .iter()
+                .flat_map(|node| touching(*node))
+                .collect();
+        }
+        unread
+    }
+
+    /// Whether the unread pairs account for `diff`.
+    fn accounts_for(&self, diff: Diff) -> bool {
+        match diff {
+            Diff::LeftNode(id) => self.left_nodes.contains(&id),
+            Diff::RightNode(id) => self.right_nodes.contains(&id),
+            Diff::LeftEdge { id, .. } => self.left_edges.contains(&id),
+            Diff::RightEdge(id) => self.right_edges.contains(&id),
+        }
+    }
+}
+
+/// The exact bytes of a local text site of a source: a string's UTF-8
+/// bytes or a byte string's bytes.
+fn local_text(source: &AnyInstance, site: &ResolutionValueSite) -> Option<Vec<u8>> {
+    let reader = match source {
+        AnyInstance::Tree(tree) => super::source::Source::tree(tree),
+        AnyInstance::Table(table) => super::source::Source::table(table),
+        AnyInstance::Graph(_) => return None,
+    };
+    let value = match site {
+        ResolutionValueSite::Own(at) => reader.own_value(at),
+        ResolutionValueSite::Field { holder, field } => reader.field(holder, field),
+    }?;
+    match value {
+        Value::Str(text) => Some(text.as_bytes().to_vec()),
+        Value::Bytes(bytes) => Some(bytes.clone()),
+        _ => None,
     }
 }
 
@@ -707,6 +857,102 @@ impl Resolution {
                     }
             )
         })
+    }
+
+    /// An [`ResolveDomainError::OffsetOutOfRange`] or
+    /// [`ResolveDomainError::OffsetUnitViolation`] for every recorded
+    /// occurrence edge of the view whose span, kept by the view, lies over a
+    /// local text that is out of range or off a boundary of the occurrence's
+    /// unit in the candidate's text: a local text edit transports no offset,
+    /// so a span survives the edit only where its byte interval is still an
+    /// interval of the new text in every unit that names it. A text site
+    /// the candidate does not hold, and token boundaries the service does
+    /// not supply, are the read's to report.
+    fn span_violations(
+        &self,
+        view: &GInstance,
+        complement: &ResolutionComplement,
+        source: &AnyInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Vec<ResolveDomainError> {
+        let mut violations = Vec::new();
+        for (&span_node, span) in &complement.span_nodes {
+            if view.node(span_node).is_none() {
+                continue;
+            }
+            let ResolutionTextId::Local(site) = &span.text else {
+                continue;
+            };
+            let Some(bytes) = local_text(source, site) else {
+                continue;
+            };
+            for &edge in view.in_edges(span_node) {
+                let Some((reference, unit, end_inclusive)) = complement
+                    .occurrences
+                    .get(&ViewRef::Edge(edge))
+                    .and_then(|records| records.first())
+                    .and_then(|record| self.compiled.get(&record.reference))
+                    .and_then(|compiled| match &compiled.form {
+                        RefForm::Standoff {
+                            unit,
+                            end_inclusive,
+                            ..
+                        } => Some((&compiled.reference.id, unit, *end_inclusive)),
+                        _ => None,
+                    })
+                else {
+                    continue;
+                };
+                let tokens = match unit {
+                    OffsetUnit::Token => {
+                        let Some(tokens) = ctx.token_boundaries.and_then(|provider| {
+                            provider
+                                .boundaries(span.text.clone(), &bytes)
+                                .ok()
+                                .filter(|tokens| {
+                                    super::standoff::valid_token_boundaries(
+                                        tokens,
+                                        bytes.len() as u64,
+                                    )
+                                })
+                        }) else {
+                            continue;
+                        };
+                        Some(tokens)
+                    }
+                    _ => None,
+                };
+                let carrier = ViewRef::Edge(edge);
+                let failure = super::standoff::unit_boundaries(&bytes, unit, tokens.as_deref())
+                    .map_err(super::standoff::UnitFailure::Violation)
+                    .and_then(|boundaries| {
+                        super::standoff::bytes_to_declared(
+                            &boundaries,
+                            span.start,
+                            span.end,
+                            end_inclusive,
+                        )
+                    })
+                    .err();
+                match failure {
+                    None => {}
+                    Some(super::standoff::UnitFailure::OutOfRange) => {
+                        violations.push(ResolveDomainError::OffsetOutOfRange {
+                            carrier,
+                            reference: reference.clone(),
+                        });
+                    }
+                    Some(super::standoff::UnitFailure::Violation(reason)) => {
+                        violations.push(ResolveDomainError::OffsetUnitViolation {
+                            carrier,
+                            reference: reference.clone(),
+                            reason,
+                        });
+                    }
+                }
+            }
+        }
+        violations
     }
 
     /// A [`ResolveDomainError::ContextMismatch`] for every view occurrence,
@@ -903,6 +1149,46 @@ mod tests {
         let mut right = SynthIndex::default();
         right.edges.insert(EdgeId(4), key(1));
         assert!(!view_diff(&view, &left, &view, &right).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn an_edge_into_an_unmatched_node_differs_whatever_the_raw_ids()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::resolution_complement::{ResolutionTextId, ResolutionValueSite};
+        use panproto_inst::{GEdge, Node};
+
+        let span = |start: u64| SynthKey::ResolutionSpan {
+            text: ResolutionTextId::Local(ResolutionValueSite::Own(ViewRef::Node(1))),
+            start,
+            end: 5,
+        };
+        let label = panproto_schema::Edge {
+            src: "note".into(),
+            tgt: "span".into(),
+            kind: "ref".into(),
+            name: Some("mention".into()),
+        };
+        let mut view = GInstance::new();
+        view.insert_node(Node::new(1, "note"))?;
+        view.insert_node(Node::new(4, "span"))?;
+        view.insert_edge(EdgeId(3), GEdge::new(1, 4, label))?;
+        let mut left = SynthIndex::default();
+        left.nodes.insert(4, span(0));
+        left.edges.insert(EdgeId(3), key(0));
+        let mut right = left.clone();
+        right.nodes.insert(4, span(1));
+        assert_eq!(
+            view_diff(&view, &left, &view, &right),
+            vec![
+                super::Diff::LeftNode(4),
+                super::Diff::RightNode(4),
+                super::Diff::LeftEdge {
+                    id: EdgeId(3),
+                    target_only: true
+                },
+            ]
+        );
         Ok(())
     }
 

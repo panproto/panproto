@@ -45,6 +45,30 @@ impl Violations {
     pub fn into_vec(self) -> Vec<ResolveDomainError> {
         std::iter::once(self.first).chain(self.rest).collect()
     }
+
+    /// Add `more`, keeping canonical order without repeats.
+    pub fn absorb(&mut self, more: Vec<ResolveDomainError>) {
+        let mut all = std::mem::take(&mut self.rest);
+        all.extend(more);
+        all.push(self.first.clone());
+        super::sort_domain_errors(&mut all);
+        let mut all = all.into_iter();
+        if let Some(first) = all.next() {
+            self.first = first;
+        }
+        self.rest = all.collect();
+    }
+}
+
+/// `found` added to the violations of earlier rounds, if any.
+fn joined(earlier: Option<Box<Violations>>, found: Box<Violations>) -> Box<Violations> {
+    match earlier {
+        Some(mut earlier) => {
+            earlier.absorb(found.into_vec());
+            earlier
+        }
+        None => found,
+    }
 }
 
 /// Why a view has no candidate source.
@@ -125,7 +149,20 @@ impl Resolution {
         }
     }
 
-    /// The admitted candidate source of a view, or why there is none.
+    /// The admitted candidate source of a view, or every reason there is
+    /// none.
+    ///
+    /// Building the candidate refuses the carriers that have no place in a
+    /// source; those carriers (a node with its incident edges, an edge) are
+    /// then left out of the view and the rest is built again, until a
+    /// candidate is built or no named carrier is left to leave out. The
+    /// candidate built is verified against the view it was built from. The
+    /// violations of every round are reported together, so a violation of
+    /// one carrier never hides the violation of another; a view is admitted
+    /// only when the first round builds a candidate that verifies.
+    ///
+    /// An operational failure is returned only when no violation was found
+    /// before it.
     pub(super) fn candidate(
         &self,
         view: &AnyInstance,
@@ -138,14 +175,51 @@ impl Resolution {
                 found: view.shape(),
             }));
         };
-        let source = match self.spec.kind {
-            panproto_inst::ResolutionKind::TreeToGraph => {
-                AnyInstance::Tree(self.tree_candidate(graph, complement, ctx)?)
+        let mut violations: Option<Box<Violations>> = None;
+        let mut current = graph.clone();
+        loop {
+            let built = match self.spec.kind {
+                panproto_inst::ResolutionKind::TreeToGraph => self
+                    .tree_candidate(&current, complement, ctx)
+                    .map(AnyInstance::Tree),
+                _ => self
+                    .table_candidate(&current, complement)
+                    .map(AnyInstance::Table),
+            };
+            match built {
+                Ok(source) => {
+                    let found = match self.verify(&current, complement, &source, ctx) {
+                        Ok(found) => found,
+                        Err(Refusal::Domain(found)) => found.into_vec(),
+                        Err(Refusal::Operational(error)) => {
+                            return Err(violations
+                                .map_or(Refusal::Operational(error), Refusal::Domain));
+                        }
+                    };
+                    return match (refuse(found), violations) {
+                        (Err(Refusal::Domain(found)), earlier) => {
+                            Err(Refusal::Domain(joined(earlier, found)))
+                        }
+                        (_, Some(earlier)) => Err(Refusal::Domain(earlier)),
+                        (_, None) => Ok(source),
+                    };
+                }
+                Err(Refusal::Domain(found)) => {
+                    let reduced = without_carriers(&current, &found);
+                    let all = joined(violations, found);
+                    match reduced {
+                        Some(reduced) => {
+                            current = reduced;
+                            violations = Some(all);
+                        }
+                        None => return Err(Refusal::Domain(all)),
+                    }
+                }
+                Err(Refusal::Operational(error)) => {
+                    return Err(violations.map_or(Refusal::Operational(error), Refusal::Domain));
+                }
             }
-            _ => AnyInstance::Table(self.table_candidate(graph, complement)?),
-        };
-        refuse(self.verify(graph, complement, &source, ctx)?)?;
-        Ok(source)
+        }
     }
 
     /// Classify the carriers of `graph` under `complement`.
@@ -258,6 +332,35 @@ impl Resolution {
             },
         })
     }
+}
+
+/// `graph` without the carriers `violations` name that it holds: each named
+/// node with its incident edges, and each named edge; `None` when it holds
+/// none of them.
+fn without_carriers(graph: &GInstance, violations: &Violations) -> Option<GInstance> {
+    let mut reduced = graph.clone();
+    let mut removed = false;
+    for violation in std::iter::once(&violations.first).chain(&violations.rest) {
+        match violation.carrier() {
+            Some(ViewRef::Node(node)) if reduced.node(*node).is_some() => {
+                let incident: BTreeSet<EdgeId> = reduced
+                    .out_edges(*node)
+                    .iter()
+                    .chain(reduced.in_edges(*node))
+                    .copied()
+                    .collect();
+                for edge in incident {
+                    removed |= reduced.remove_edge(edge).is_ok();
+                }
+                removed |= reduced.remove_node(*node).is_ok();
+            }
+            Some(ViewRef::Edge(edge)) if reduced.edge(*edge).is_some() => {
+                removed |= reduced.remove_edge(*edge).is_ok();
+            }
+            _ => {}
+        }
+    }
+    removed.then_some(reduced)
 }
 
 /// The carrier a tree-shape failure names.

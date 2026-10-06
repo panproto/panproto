@@ -15,12 +15,39 @@ use panproto_inst::{
 use panproto_schema::ResolveMode;
 
 use super::error::{ResolutionInstanceError, ResolveError};
-use super::occur::{Occurrence, Outcome, Reader, admit, resolve};
+use super::occur::{Occurrence, Outcome, Reader, Skipped, admit, resolve};
 use super::source::{Source, node_of};
 use super::{Resolution, ResolveContext, ResolveOptions};
 
 /// One occurrence with how it resolved, after the unresolved precedence.
 pub type Admitted<'r> = (Occurrence<'r>, Outcome);
+
+/// A failure of get, with the `(holder, reference)` pair whose occurrence
+/// caused it, when one did.
+#[derive(Debug)]
+pub struct GetFailure {
+    /// The failure.
+    pub error: ResolveError,
+    /// The pair it is blamed on.
+    pub blame: Option<(ViewRef, Name)>,
+}
+
+impl From<ResolveError> for GetFailure {
+    fn from(error: ResolveError) -> Self {
+        Self { error, blame: None }
+    }
+}
+
+/// A failure blamed on one occurrence.
+fn blamed(error: ResolveError, occurrence: &Occurrence<'_>) -> GetFailure {
+    GetFailure {
+        error,
+        blame: Some((
+            occurrence.holder.clone(),
+            occurrence.compiled.reference.id.clone(),
+        )),
+    }
+}
 
 /// An instance error at the resolution boundary, as its serializable
 /// projection: an exhausted id, a dangling carrier, or the shape the
@@ -87,6 +114,7 @@ impl Resolution {
         any: &AnyInstance,
         options: ResolveOptions,
         ctx: &ResolveContext<'_>,
+        skip: &Skipped,
     ) -> Result<Vec<Admitted<'r>>, ResolveError> {
         let reader = Reader {
             source,
@@ -95,7 +123,7 @@ impl Resolution {
             provider_id: &self.spec.provider,
             ctx,
         };
-        let occurrences = reader.read(&self.compiled)?;
+        let occurrences = reader.read(&self.compiled, skip)?;
         let outcomes = resolve(source, &occurrences);
         admit(occurrences, outcomes, options.lenient)
     }
@@ -107,13 +135,28 @@ impl Resolution {
         options: ResolveOptions,
         ctx: &ResolveContext<'_>,
     ) -> Result<(GInstance, ResolutionComplement), ResolveError> {
+        self.get_graph_except(source, options, ctx, &Skipped::new())
+            .map_err(|failure| failure.error)
+    }
+
+    /// Get for a resolving kind without the occurrences of the pairs in
+    /// `skip`, with a failure blamed on the occurrence that caused it.
+    pub(super) fn get_graph_except(
+        &self,
+        source: &AnyInstance,
+        options: ResolveOptions,
+        ctx: &ResolveContext<'_>,
+        skip: &Skipped,
+    ) -> Result<(GInstance, ResolutionComplement), GetFailure> {
         match source {
-            AnyInstance::Tree(tree) => self.get_tree(tree, source, options, ctx),
-            AnyInstance::Table(table) => self.get_table(table, source, options, ctx),
-            AnyInstance::Graph(_) => Err(ResolveError::ShapeMismatch {
+            AnyInstance::Tree(tree) => self.get_tree(tree, source, options, ctx, skip),
+            AnyInstance::Table(table) => self
+                .get_table(table, source, options, ctx, skip)
+                .map_err(GetFailure::from),
+            AnyInstance::Graph(_) => Err(GetFailure::from(ResolveError::ShapeMismatch {
                 expected: self.spec.kind.syntactic_shape(),
                 found: source.shape(),
-            }),
+            })),
         }
     }
 
@@ -123,7 +166,8 @@ impl Resolution {
         any: &AnyInstance,
         options: ResolveOptions,
         ctx: &ResolveContext<'_>,
-    ) -> Result<(GInstance, ResolutionComplement), ResolveError> {
+        skip: &Skipped,
+    ) -> Result<(GInstance, ResolutionComplement), GetFailure> {
         let (mut graph, embedding) =
             GInstance::from_wtype_embedded(tree, Some(&self.syntactic_schema))
                 .map_err(|error| instance_error(&error))?;
@@ -136,10 +180,10 @@ impl Resolution {
             .get(&tree.root)
             .is_some_and(|node| node.anchor == tree.schema_root);
         if !is_tree || !rooted {
-            return Err(ResolveError::Instance(ResolutionInstanceError::NotTree));
+            return Err(ResolveError::Instance(ResolutionInstanceError::NotTree).into());
         }
         let source = Source::tree(tree);
-        let admitted = self.admitted(&source, any, options, ctx)?;
+        let admitted = self.admitted(&source, any, options, ctx, skip)?;
 
         let mut complement = ResolutionComplement::default();
         let inside = redirect(tree, &source, &admitted, &mut complement)?;
@@ -178,10 +222,11 @@ impl Resolution {
                 Outcome::Resolved(target) => {
                     let node = node_of(target).ok_or_else(|| missing(target))?;
                     if inside.contains(&node) {
-                        return Err(ResolveError::Instance(
-                            ResolutionInstanceError::DanglingCarrier {
+                        return Err(blamed(
+                            ResolveError::Instance(ResolutionInstanceError::DanglingCarrier {
                                 carrier: target.clone(),
-                            },
+                            }),
+                            occurrence,
                         ));
                     }
                     node
@@ -216,9 +261,10 @@ impl Resolution {
         any: &AnyInstance,
         options: ResolveOptions,
         ctx: &ResolveContext<'_>,
+        skip: &Skipped,
     ) -> Result<(GInstance, ResolutionComplement), ResolveError> {
         let source = Source::table(table);
-        let admitted = self.admitted(&source, any, options, ctx)?;
+        let admitted = self.admitted(&source, any, options, ctx, skip)?;
         let (mut graph, embedding) =
             GInstance::from_finstance(table).map_err(|error| instance_error(&error))?;
         let mut complement = ResolutionComplement::default();
@@ -334,12 +380,14 @@ fn redirect(
     source: &Source<'_>,
     admitted: &[Admitted<'_>],
     complement: &mut ResolutionComplement,
-) -> Result<BTreeSet<u32>, ResolveError> {
-    let holders: BTreeSet<u32> = admitted
-        .iter()
-        .filter(|(occurrence, outcome)| redirects(occurrence, outcome))
-        .filter_map(|(occurrence, _)| node_of(&occurrence.holder))
-        .collect();
+) -> Result<BTreeSet<u32>, GetFailure> {
+    let mut first: BTreeMap<u32, &Occurrence<'_>> = BTreeMap::new();
+    for (occurrence, outcome) in admitted {
+        if let (true, Some(holder)) = (redirects(occurrence, outcome), node_of(&occurrence.holder)) {
+            first.entry(holder).or_insert(occurrence);
+        }
+    }
+    let holders: BTreeSet<u32> = first.keys().copied().collect();
     let mut inside = BTreeSet::new();
     let mut claimed = BTreeSet::new();
     for &root in holders
@@ -347,9 +395,13 @@ fn redirect(
         .filter(|holder| !has_ancestor_in(tree, **holder, &holders))
     {
         let nodes = source.subtree(root);
-        complement
-            .redirected
-            .insert(root, capture(tree, source, root, &nodes, &mut claimed)?);
+        let fragment = capture(tree, source, root, &nodes, &mut claimed).map_err(|error| {
+            match first.get(&root) {
+                Some(occurrence) => blamed(error, occurrence),
+                None => GetFailure::from(error),
+            }
+        })?;
+        complement.redirected.insert(root, fragment);
         inside.extend(nodes);
     }
     Ok(inside)

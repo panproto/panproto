@@ -3099,21 +3099,17 @@ fn local_text_edit_token_out_of_range() {
 
 #[test]
 fn local_text_edit_token_off_boundary() {
-    // Token offsets index the provider's boundaries, so they are always on
-    // one; an edit that moves the boundaries under a span changes the
-    // span's byte interval, its identity, and is refused.
-    let violations = local_text_edit(
-        OffsetUnit::Token,
-        text("hello world"),
-        (0, 1),
-        text("hi world"),
-    )
-    .expect_err("the span moved");
-    assert!(
-        violations
-            .iter()
-            .any(|violation| matches!(violation, ResolveDomainError::SynthesizedEdited { .. })),
-        "{violations:?}"
+    // The surviving span is the byte interval [0, 5) of "hello world"; the
+    // tokens of "hi world" start at bytes 0 and 3, so the span's end is not
+    // on a token boundary of the edited text.
+    refused_with(
+        local_text_edit(
+            OffsetUnit::Token,
+            text("hello world"),
+            (0, 1),
+            text("hi world"),
+        ),
+        &span_violation(Some(OffsetUnitReason::NotOnBoundary)),
     );
 }
 
@@ -3436,6 +3432,128 @@ fn check_put_domain_reports_every_violation_in_order() {
         other => panic!("put returns the first violation, got {other:?}"),
     }
     let _ = posts;
+}
+
+/// The put-domain violations of `view`, empty when it is admitted.
+fn violations_of(
+    resolution: &Resolution,
+    view: &GInstance,
+    complement: &ResolutionComplement,
+    ctx: &ResolveContext<'_>,
+) -> Vec<ResolveDomainError> {
+    resolution
+        .check_put_domain(&AnyInstance::Graph(view.clone()), complement, ctx)
+        .err()
+        .unwrap_or_default()
+}
+
+/// `a` and `b` together, sorted and without repeats, as the put domain
+/// lists them.
+fn union_of(a: &[ResolveDomainError], b: &[ResolveDomainError]) -> Vec<ResolveDomainError> {
+    let mut union: Vec<ResolveDomainError> = a.iter().chain(b).cloned().collect();
+    union.sort_by(|x, y| x.sort_key().cmp(&y.sort_key()));
+    union.dedup();
+    union
+}
+
+#[test]
+fn check_put_domain_reports_the_violations_of_independent_edits_together() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let (view, complement) = get(&resolution, &AnyInstance::Tree(posts_tree()));
+    let mut rekeyed = view.clone();
+    rekeyed
+        .node_mut(4)
+        .expect("user 3's id")
+        .value = Some(FieldPresence::Present(Value::Str("u1".into())));
+    let mut stray = view.clone();
+    stray
+        .insert_node(Node::new(100, "user"))
+        .expect("a stray user");
+    let mut both = rekeyed.clone();
+    both.insert_node(Node::new(100, "user"))
+        .expect("a stray user");
+    let alone = violations_of(&resolution, &rekeyed, &complement, &ctx());
+    let unplaced = violations_of(&resolution, &stray, &complement, &ctx());
+    assert_eq!(
+        alone,
+        vec![
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Node(5),
+                reference: "post_author".into(),
+            },
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Node(7),
+                reference: "post_author".into(),
+            },
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(8)),
+                reference: "post_author".into(),
+            },
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(9)),
+                reference: "post_author".into(),
+            },
+        ]
+    );
+    assert_eq!(
+        unplaced,
+        vec![ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(100)
+        }]
+    );
+    assert_eq!(
+        violations_of(&resolution, &both, &complement, &ctx()),
+        union_of(&alone, &unplaced)
+    );
+}
+
+#[test]
+fn check_put_domain_reports_an_unreadable_occurrence_beside_other_violations() {
+    let resolution = notes(&[Standoff::local("mention", OffsetUnit::Byte)], &[]);
+    let source = AnyInstance::Tree(notes_tree(vec![
+        note(1, &[("text", text("hello world")), ("start", int(0)), ("end", int(5))]),
+        note(2, &[("text", text("good night")), ("start", int(0)), ("end", int(4))]),
+    ]));
+    let (view, complement) = get(&resolution, &source);
+    let mut short = view.clone();
+    short
+        .node_mut(1)
+        .expect("note 1")
+        .extra_fields
+        .insert("text".to_owned(), text("hi"));
+    let mut moved = view.clone();
+    moved
+        .node_mut(2)
+        .expect("note 2")
+        .extra_fields
+        .insert("end".to_owned(), int(3));
+    let mut stray = view.clone();
+    stray
+        .insert_node(Node::new(100, "note"))
+        .expect("a stray note");
+    let out_of_range = violations_of(&resolution, &short, &complement, &ctx());
+    let respanned = violations_of(&resolution, &moved, &complement, &ctx());
+    let unplaced = violations_of(&resolution, &stray, &complement, &ctx());
+    for found in [&out_of_range, &respanned, &unplaced] {
+        assert!(!found.is_empty());
+    }
+    assert!(
+        out_of_range
+            .iter()
+            .any(|violation| matches!(violation, ResolveDomainError::OffsetOutOfRange { .. })),
+        "{out_of_range:?}"
+    );
+    let mut all = short;
+    all.node_mut(2)
+        .expect("note 2")
+        .extra_fields
+        .insert("end".to_owned(), int(3));
+    all.insert_node(Node::new(100, "note"))
+        .expect("a stray note");
+    assert_eq!(
+        violations_of(&resolution, &all, &complement, &ctx()),
+        union_of(&union_of(&out_of_range, &respanned), &unplaced)
+    );
 }
 
 #[test]

@@ -28,6 +28,9 @@ use super::standoff::{self, UnitFailure};
 use super::{ResolutionProvider, ResolveContext};
 use panproto_schema::Key;
 
+/// The `(holder, reference)` pairs a run leaves unread.
+pub type Skipped = std::collections::BTreeSet<(ViewRef, Name)>;
+
 /// What one occurrence is looked up by.
 #[derive(Clone, Debug)]
 pub enum Lookup {
@@ -189,7 +192,7 @@ pub struct Reader<'s, 'a> {
 
 impl Reader<'_, '_> {
     /// Every occurrence of every reference, sorted by `(holder, reference,
-    /// index)`.
+    /// index)`, except those of the `(holder, reference)` pairs in `skip`.
     ///
     /// # Errors
     ///
@@ -199,9 +202,13 @@ impl Reader<'_, '_> {
     pub fn read<'r>(
         &self,
         references: &'r BTreeMap<Name, CompiledRef>,
+        skip: &Skipped,
     ) -> Result<Vec<Occurrence<'r>>, ResolveError> {
         let mut occurrences = Vec::new();
         for (holder, compiled) in self.holders(references) {
+            if skip.contains(&(holder.clone(), compiled.reference.id.clone())) {
+                continue;
+            }
             occurrences.extend(self.read_at(compiled, &holder)?);
         }
         Ok(occurrences)
