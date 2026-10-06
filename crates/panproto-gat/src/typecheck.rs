@@ -1465,8 +1465,8 @@ impl std::fmt::Display for SignatureDefect {
 /// parameter's sort up to the substitution of earlier arguments, and no
 /// conversion along the theory's equations is applied. Well-formedness of
 /// a generalized algebraic theory can depend on its equations
-/// (jamner2025pyrosome Sec 2, stated), so this check is sound but
-/// incomplete for theories whose typing needs conversion: it reports
+/// (jamner2025pyrosome Sec 2, stated), so this check is incomplete for
+/// theories whose typing needs conversion: it reports
 /// [`SignatureDefect::ParamIllTyped`] for an argument whose sort equals
 /// the parameter's only modulo an equation.
 ///
@@ -3681,6 +3681,120 @@ mod tests {
                 found: "Y(b())".into(),
             }])
         );
+    }
+
+    /// The theory of the conversion test with `u : Y(fibre)` and the given
+    /// equations `e0`, `e1` and directed equation `d0`.
+    fn conversion_theory(fibre: &str, contents: [(&Term, &Term); 3]) -> Theory {
+        let [e0, e1, d0] = contents;
+        Theory::full(
+            "Conv",
+            vec![],
+            vec![
+                Sort::simple("X"),
+                Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                Sort::dependent(
+                    "Z",
+                    vec![SortParam::new(
+                        "y",
+                        SortExpr::app("Y", vec![Term::constant("a")]),
+                    )],
+                ),
+            ],
+            vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("u", vec![], SortExpr::app("Y", vec![Term::constant(fibre)])),
+                Operation::new("w", vec![], SortExpr::app("Z", vec![Term::constant("u")])),
+            ],
+            vec![
+                crate::eq::Equation::new("e0", e0.0.clone(), e0.1.clone()),
+                crate::eq::Equation::new("e1", e1.0.clone(), e1.1.clone()),
+            ],
+            vec![crate::eq::DirectedEquation::new(
+                "d0",
+                d0.0.clone(),
+                d0.1.clone(),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            vec![],
+        )
+    }
+
+    /// The judgement reads no equation's sides: over every choice of the
+    /// sides of `e0`, `e1` and `d0` among `a`, `b` and `x`, the verdict
+    /// on `u : Y(a)` (well formed) and `u : Y(b)` (refused) is the one
+    /// given with every equation reading `a = a`.
+    #[test]
+    fn typecheck_signature_verdict_ignores_every_equation_side() {
+        let terms = [Term::constant("a"), Term::constant("b"), Term::var("x")];
+        let trivial = (&terms[0], &terms[0]);
+        let mut checked = 0;
+        for fibre in ["a", "b"] {
+            let reference = typecheck_signature(&conversion_theory(fibre, [trivial; 3]));
+            assert_eq!(reference.is_ok(), fibre == "a");
+            let sides: Vec<(&Term, &Term)> = terms
+                .iter()
+                .flat_map(|l| terms.iter().map(move |r| (l, r)))
+                .collect();
+            for e0 in &sides {
+                for e1 in &sides {
+                    for d0 in &sides {
+                        assert_eq!(
+                            typecheck_signature(&conversion_theory(fibre, [*e0, *e1, *d0])),
+                            reference,
+                            "{fibre}: {e0:?} {e1:?} {d0:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 2 * 9 * 9 * 9);
+    }
+
+    mod equation_independence {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Terms of depth at most 2 over the variables `x`, `y` and the
+        /// operations `a`, `b`, `u`, `w` and an undeclared `k`.
+        fn arb_side() -> impl Strategy<Value = Term> {
+            let leaf = prop_oneof![
+                Just(Term::var("x")),
+                Just(Term::var("y")),
+                Just(Term::constant("a")),
+                Just(Term::constant("b")),
+                Just(Term::constant("u")),
+                Just(Term::constant("w")),
+            ];
+            leaf.prop_recursive(2, 8, 2, |inner| {
+                (
+                    prop_oneof![Just("a"), Just("u"), Just("k")],
+                    proptest::collection::vec(inner, 0..=2),
+                )
+                    .prop_map(|(op, args)| Term::app(op, args))
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn typecheck_signature_verdict_ignores_equation_sides(
+                fibre in prop_oneof![Just("a"), Just("b")],
+                sides in proptest::collection::vec((arb_side(), arb_side()), 3),
+            ) {
+                let a = Term::constant("a");
+                let reference = typecheck_signature(&conversion_theory(fibre, [(&a, &a); 3]));
+                let contents = [
+                    (&sides[0].0, &sides[0].1),
+                    (&sides[1].0, &sides[1].1),
+                    (&sides[2].0, &sides[2].1),
+                ];
+                prop_assert_eq!(typecheck_signature(&conversion_theory(fibre, contents)), reference);
+            }
+        }
     }
 
     /// A signature that no rule admits: `id : (x : Ob) -> Cell(x, x)` where

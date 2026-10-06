@@ -5973,4 +5973,643 @@ mod tests {
             }
         }
     }
+
+    /// The tier 1 class comparisons against an oracle.
+    ///
+    /// The oracle holds a signature in a name-free form: a variable is the
+    /// position of the input that binds it. Two signatures are
+    /// alpha-equivalent exactly when their name-free forms are equal, and
+    /// they differ only in term arguments exactly when every position
+    /// carries the same head, the same number of arguments and the same
+    /// implicit flag. The oracle renders each form with binder names, which
+    /// are pairwise distinct within one signature, and compares the
+    /// verdicts of [`op_class_mismatch`] and [`sort_class_mismatch`] with
+    /// its own; it calls neither function nor the renaming helpers they use.
+    mod class_agreement {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// An oracle term of sort `X`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum OTerm {
+            /// The variable bound by the input (or parameter) at this
+            /// position.
+            Bound(usize),
+            /// An operation applied to arguments; a constant has none.
+            App(&'static str, Vec<Self>),
+        }
+
+        /// An oracle sort expression: a head and, for an application, its
+        /// arguments (`None` is the bare name).
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OSort {
+            head: &'static str,
+            args: Option<Vec<OTerm>>,
+        }
+
+        /// An oracle operation signature: input sorts with their implicit
+        /// flags, and the output sort.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OOp {
+            inputs: Vec<(OSort, bool)>,
+            output: OSort,
+        }
+
+        /// An oracle sort declaration: parameter sorts, whether its kind is
+        /// a value kind, and whether it is closed.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OSortDecl {
+            params: Vec<OSort>,
+            value_kind: bool,
+            closed: bool,
+        }
+
+        /// The oracle's verdict on two members of one class.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum Verdict {
+            Agree,
+            OnlyTermArguments,
+            Signature,
+        }
+
+        fn arg_count(s: &OSort) -> usize {
+            s.args.as_ref().map_or(0, Vec::len)
+        }
+
+        fn same_shape(a: &OSort, b: &OSort) -> bool {
+            a.head == b.head && arg_count(a) == arg_count(b)
+        }
+
+        fn op_verdict(p: &OOp, q: &OOp) -> Verdict {
+            if p == q {
+                return Verdict::Agree;
+            }
+            let shaped = p.inputs.len() == q.inputs.len()
+                && p.inputs
+                    .iter()
+                    .zip(&q.inputs)
+                    .all(|((a, ia), (b, ib))| ia == ib && same_shape(a, b))
+                && same_shape(&p.output, &q.output);
+            if shaped {
+                Verdict::OnlyTermArguments
+            } else {
+                Verdict::Signature
+            }
+        }
+
+        fn render_term(t: &OTerm, names: &[&'static str]) -> Term {
+            match t {
+                OTerm::Bound(i) => Term::var(names[*i]),
+                OTerm::App(op, args) => {
+                    Term::app(*op, args.iter().map(|a| render_term(a, names)).collect())
+                }
+            }
+        }
+
+        fn render_sort(s: &OSort, names: &[&'static str]) -> SortExpr {
+            s.args.as_ref().map_or_else(
+                || SortExpr::Name(Arc::from(s.head)),
+                |args| SortExpr::App {
+                    name: Arc::from(s.head),
+                    args: args.iter().map(|a| render_term(a, names)).collect(),
+                },
+            )
+        }
+
+        fn render_op(o: &OOp, names: &[&'static str]) -> Operation {
+            Operation::with_implicit(
+                "member",
+                o.inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (s, imp))| {
+                        (
+                            Arc::from(names[i]),
+                            render_sort(s, names),
+                            if *imp {
+                                crate::op::Implicit::Yes
+                            } else {
+                                crate::op::Implicit::No
+                            },
+                        )
+                    })
+                    .collect(),
+                render_sort(&o.output, names),
+            )
+        }
+
+        fn render_sort_decl(d: &OSortDecl, names: &[&'static str]) -> crate::sort::Sort {
+            crate::sort::Sort {
+                name: Arc::from("W"),
+                params: d
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| SortParam::new(names[i], render_sort(s, names)))
+                    .collect(),
+                kind: if d.value_kind {
+                    crate::sort::SortKind::Val(crate::sort::ValueKind::Int)
+                } else {
+                    crate::sort::SortKind::Structural
+                },
+                closure: if d.closed {
+                    crate::sort::SortClosure::Closed(vec![Arc::from("a")])
+                } else {
+                    crate::sort::SortClosure::Open
+                },
+            }
+        }
+
+        /// The theory every rendered signature lives in: `X`,
+        /// `Y(x : X)`, `H(p : X, q : X)`, constants `a, b, c : X`,
+        /// `s : X -> X` and `m : X, X -> X`.
+        fn ambient(extra_ops: Vec<Operation>, extra_sorts: Vec<crate::sort::Sort>) -> Theory {
+            let x = || SortExpr::Name(Arc::from("X"));
+            let mut sorts = vec![
+                crate::sort::Sort::simple("X"),
+                crate::sort::Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                crate::sort::Sort::dependent(
+                    "H",
+                    vec![SortParam::new("p", "X"), SortParam::new("q", "X")],
+                ),
+            ];
+            sorts.extend(extra_sorts);
+            let mut ops = vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("c", vec![], "X"),
+                Operation::new("s", vec![(Arc::from("u"), x())], "X"),
+                Operation::new("m", vec![(Arc::from("u"), x()), (Arc::from("v"), x())], "X"),
+            ];
+            ops.extend(extra_ops);
+            Theory::new("Ambient", sorts, ops, vec![])
+        }
+
+        fn op_oracle(p: &OOp, q: &OOp) -> Option<OpMismatch> {
+            match op_verdict(p, q) {
+                Verdict::Agree => None,
+                Verdict::OnlyTermArguments => Some(OpMismatch::NeedsSortEquation),
+                Verdict::Signature => Some(OpMismatch::Signature),
+            }
+        }
+
+        /// The oracle's verdict on two sort declarations, rendered as `pr`
+        /// and `qr`: arity, then the first parameter whose name-free sort
+        /// differs, then kind, then closure.
+        fn sort_oracle(
+            p: &OSortDecl,
+            q: &OSortDecl,
+            pr: &crate::sort::Sort,
+            qr: &crate::sort::Sort,
+        ) -> Option<SortMismatch> {
+            if p.params.len() != q.params.len() {
+                return Some(SortMismatch::Arity {
+                    first: p.params.len(),
+                    second: q.params.len(),
+                });
+            }
+            if let Some(index) = (0..p.params.len()).find(|&i| p.params[i] != q.params[i]) {
+                return Some(SortMismatch::ParamSort {
+                    index,
+                    first: Arc::from(pr.params[index].sort.to_string()),
+                    second: Arc::from(qr.params[index].sort.to_string()),
+                });
+            }
+            if p.value_kind != q.value_kind {
+                return Some(SortMismatch::Kind);
+            }
+            if p.closed != q.closed {
+                return Some(SortMismatch::Closure);
+            }
+            None
+        }
+
+        /// The positions of a prefix of inputs or parameters whose sort is
+        /// `X`, the ones a term argument may name.
+        fn x_bound(prefix: &[OSort]) -> Vec<usize> {
+            prefix
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.head == "X")
+                .map(|(i, _)| i)
+                .collect()
+        }
+
+        fn constant(name: &'static str) -> OTerm {
+            OTerm::App(name, vec![])
+        }
+
+        /// The sorts of the exhaustive scope over `x_bound`: `X`, the bare
+        /// `Y`, `Y(t)`, and when `with_h` also `H(t, u)`, where `t` and `u`
+        /// range over the constants `a`, `b` and the variables `x_bound`
+        /// names.
+        fn scope_sorts(x_bound: &[usize], with_h: bool) -> Vec<OSort> {
+            let mut atoms = vec![constant("a"), constant("b")];
+            atoms.extend(x_bound.iter().map(|&i| OTerm::Bound(i)));
+            let mut out = vec![
+                OSort {
+                    head: "X",
+                    args: None,
+                },
+                OSort {
+                    head: "Y",
+                    args: None,
+                },
+            ];
+            for t in &atoms {
+                out.push(OSort {
+                    head: "Y",
+                    args: Some(vec![t.clone()]),
+                });
+            }
+            if with_h {
+                for t in &atoms {
+                    for u in &atoms {
+                        out.push(OSort {
+                            head: "H",
+                            args: Some(vec![t.clone(), u.clone()]),
+                        });
+                    }
+                }
+            }
+            out
+        }
+
+        /// The binder names of the exhaustive scope for `k` positions: both
+        /// orders of two distinct names.
+        fn scope_names(k: usize) -> Vec<Vec<&'static str>> {
+            match k {
+                0 => vec![vec![]],
+                1 => vec![vec!["x"], vec!["y"]],
+                _ => vec![vec!["x", "y"], vec!["y", "x"]],
+            }
+        }
+
+        fn extend_ops(prefix: &mut Vec<(OSort, bool)>, out: &mut Vec<OOp>) {
+            let sorts: Vec<OSort> = prefix.iter().map(|(s, _)| s.clone()).collect();
+            let bound = x_bound(&sorts);
+            for output in scope_sorts(&bound, true) {
+                out.push(OOp {
+                    inputs: prefix.clone(),
+                    output,
+                });
+            }
+            if prefix.len() < 2 {
+                for s in scope_sorts(&bound, false) {
+                    for implicit in [false, true] {
+                        prefix.push((s.clone(), implicit));
+                        extend_ops(prefix, out);
+                        prefix.pop();
+                    }
+                }
+            }
+        }
+
+        /// Every operation signature of the exhaustive scope: at most two
+        /// inputs of sort `X`, `Y` or `Y(t)` with either implicit flag, and
+        /// an output `X`, `Y`, `Y(t)` or `H(t, u)`, each rendered under
+        /// every binder naming of [`scope_names`].
+        fn op_scope() -> Vec<(OOp, Operation)> {
+            let mut forms = Vec::new();
+            extend_ops(&mut Vec::new(), &mut forms);
+            let mut out = Vec::new();
+            for form in forms {
+                for names in scope_names(form.inputs.len()) {
+                    let rendered = render_op(&form, &names);
+                    out.push((form.clone(), rendered));
+                }
+            }
+            out
+        }
+
+        fn extend_sorts(prefix: &mut Vec<OSort>, out: &mut Vec<OSortDecl>) {
+            for value_kind in [false, true] {
+                for closed in [false, true] {
+                    out.push(OSortDecl {
+                        params: prefix.clone(),
+                        value_kind,
+                        closed,
+                    });
+                }
+            }
+            if prefix.len() < 2 {
+                for s in scope_sorts(&x_bound(prefix), false) {
+                    prefix.push(s);
+                    extend_sorts(prefix, out);
+                    prefix.pop();
+                }
+            }
+        }
+
+        /// Every sort declaration of the exhaustive scope: at most two
+        /// parameters of sort `X`, `Y` or `Y(t)`, a structural or value
+        /// kind, open or closed, rendered under every binder naming of
+        /// [`scope_names`].
+        fn sort_scope() -> Vec<(OSortDecl, crate::sort::Sort)> {
+            let mut forms = Vec::new();
+            extend_sorts(&mut Vec::new(), &mut forms);
+            let mut out = Vec::new();
+            for form in forms {
+                for names in scope_names(form.params.len()) {
+                    let rendered = render_sort_decl(&form, &names);
+                    out.push((form.clone(), rendered));
+                }
+            }
+            out
+        }
+
+        #[test]
+        fn op_class_comparison_agrees_with_the_oracle_on_the_exhaustive_scope() {
+            let scope = op_scope();
+            for (_, op) in &scope {
+                assert_eq!(
+                    crate::typecheck::typecheck_signature(&ambient(vec![op.clone()], vec![])),
+                    Ok(()),
+                    "the scope holds well-formed signatures only: {op:?}"
+                );
+            }
+            let mut counts = [0_usize; 3];
+            for (p, p_op) in &scope {
+                for (q, q_op) in &scope {
+                    let expected = op_oracle(p, q);
+                    assert_eq!(
+                        op_class_mismatch(p_op, q_op),
+                        expected,
+                        "{p_op:?} against {q_op:?}"
+                    );
+                    counts[match expected {
+                        None => 0,
+                        Some(OpMismatch::NeedsSortEquation) => 1,
+                        Some(OpMismatch::Signature) => 2,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "op scope: {} signatures, {} ordered pairs; agree {}, term arguments only {}, signature {}",
+                scope.len(),
+                scope.len() * scope.len(),
+                counts[0],
+                counts[1],
+                counts[2]
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+        }
+
+        #[test]
+        fn sort_class_comparison_agrees_with_the_oracle_on_the_exhaustive_scope() {
+            let scope = sort_scope();
+            for (_, sort) in &scope {
+                assert_eq!(
+                    crate::typecheck::typecheck_signature(&ambient(vec![], vec![sort.clone()])),
+                    Ok(()),
+                    "the scope holds well-formed sorts only: {sort:?}"
+                );
+            }
+            let mut counts = [0_usize; 5];
+            for (p, p_sort) in &scope {
+                for (q, q_sort) in &scope {
+                    let expected = sort_oracle(p, q, p_sort, q_sort);
+                    assert_eq!(
+                        sort_class_mismatch(p_sort, q_sort, p_sort, q_sort),
+                        expected,
+                        "{p_sort:?} against {q_sort:?}"
+                    );
+                    counts[match expected {
+                        None => 0,
+                        Some(SortMismatch::Arity { .. }) => 1,
+                        Some(SortMismatch::ParamSort { .. }) => 2,
+                        Some(SortMismatch::Kind) => 3,
+                        Some(SortMismatch::Closure) => 4,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "sort scope: {} declarations, {} ordered pairs; agree {}, arity {}, parameter sort {}, kind {}, closure {}",
+                scope.len(),
+                scope.len() * scope.len(),
+                counts[0],
+                counts[1],
+                counts[2],
+                counts[3],
+                counts[4]
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+        }
+
+        /// A stream of choices that drives the generators below.
+        struct Choices<'a> {
+            data: &'a [u32],
+            at: usize,
+        }
+
+        impl Choices<'_> {
+            /// A choice in `0..n`.
+            fn pick(&mut self, n: usize) -> usize {
+                let value = self.data.get(self.at).copied().unwrap_or(0);
+                self.at += 1;
+                usize::try_from(value).unwrap_or(0) % n
+            }
+        }
+
+        /// A term of sort `X` of depth at most `depth`: a constant `a`, `b`
+        /// or `c`, a variable named by `x_bound`, `s(t)` or `m(t, u)`.
+        fn gen_term(ch: &mut Choices<'_>, x_bound: &[usize], depth: usize) -> OTerm {
+            let leaves = 3 + x_bound.len();
+            let k = ch.pick(if depth == 0 { leaves } else { leaves + 2 });
+            if k < 3 {
+                constant(["a", "b", "c"][k])
+            } else if k < leaves {
+                OTerm::Bound(x_bound[k - 3])
+            } else if k == leaves {
+                OTerm::App("s", vec![gen_term(ch, x_bound, depth - 1)])
+            } else {
+                OTerm::App(
+                    "m",
+                    vec![
+                        gen_term(ch, x_bound, depth - 1),
+                        gen_term(ch, x_bound, depth - 1),
+                    ],
+                )
+            }
+        }
+
+        /// `X`, the bare `Y`, `Y(t)` or `H(t, u)` over `x_bound`.
+        fn gen_sort(ch: &mut Choices<'_>, x_bound: &[usize]) -> OSort {
+            match ch.pick(4) {
+                0 => OSort {
+                    head: "X",
+                    args: None,
+                },
+                1 => OSort {
+                    head: "Y",
+                    args: None,
+                },
+                2 => OSort {
+                    head: "Y",
+                    args: Some(vec![gen_term(ch, x_bound, 2)]),
+                },
+                _ => OSort {
+                    head: "H",
+                    args: Some(vec![gen_term(ch, x_bound, 2), gen_term(ch, x_bound, 2)]),
+                },
+            }
+        }
+
+        /// The term-argument context of position `at` of a signature with
+        /// sorts `sorts`; the output is position `sorts.len()`.
+        fn context_at(sorts: &[OSort], at: usize) -> Vec<usize> {
+            x_bound(&sorts[..at])
+        }
+
+        fn gen_op(ch: &mut Choices<'_>) -> OOp {
+            let k = ch.pick(4);
+            let mut inputs: Vec<(OSort, bool)> = Vec::new();
+            for _ in 0..k {
+                let sorts: Vec<OSort> = inputs.iter().map(|(s, _)| s.clone()).collect();
+                let s = gen_sort(ch, &x_bound(&sorts));
+                inputs.push((s, ch.pick(2) == 1));
+            }
+            let sorts: Vec<OSort> = inputs.iter().map(|(s, _)| s.clone()).collect();
+            let output = gen_sort(ch, &x_bound(&sorts));
+            OOp { inputs, output }
+        }
+
+        /// Replace one term argument of `s`, if it has any, by a fresh term
+        /// over `x_bound`.
+        fn perturb_sort(ch: &mut Choices<'_>, s: &OSort, x_bound: &[usize]) -> OSort {
+            let mut out = s.clone();
+            if let Some(args) = out.args.as_mut() {
+                let at = ch.pick(args.len());
+                args[at] = gen_term(ch, x_bound, 2);
+            }
+            out
+        }
+
+        /// The same signature, or one changed at one position: an implicit
+        /// flag flipped, one term argument replaced, or a sort regenerated.
+        fn perturb_op(ch: &mut Choices<'_>, o: &OOp) -> OOp {
+            let mut out = o.clone();
+            let sorts: Vec<OSort> = o.inputs.iter().map(|(s, _)| s.clone()).collect();
+            let at = ch.pick(o.inputs.len() + 1);
+            let context = context_at(&sorts, at);
+            let edit = ch.pick(4);
+            let slot = if at == o.inputs.len() {
+                &mut out.output
+            } else {
+                if edit == 1 {
+                    out.inputs[at].1 = !out.inputs[at].1;
+                }
+                &mut out.inputs[at].0
+            };
+            match edit {
+                2 => *slot = perturb_sort(ch, slot, &context),
+                // Regenerating an input's sort can change which later
+                // positions may name it; only an `X` stays `X`.
+                3 if at == o.inputs.len() || slot.head != "X" => {
+                    let fresh = gen_sort(ch, &context);
+                    if at == o.inputs.len() || fresh.head != "X" {
+                        *slot = fresh;
+                    }
+                }
+                _ => {}
+            }
+            out
+        }
+
+        /// `k` pairwise distinct binder names from `x`, `y`, `z`, `w`.
+        fn gen_names(ch: &mut Choices<'_>, k: usize) -> Vec<&'static str> {
+            let mut pool = vec!["x", "y", "z", "w"];
+            (0..k).map(|_| pool.remove(ch.pick(pool.len()))).collect()
+        }
+
+        fn gen_sort_decl(ch: &mut Choices<'_>) -> OSortDecl {
+            let k = ch.pick(4);
+            let mut params: Vec<OSort> = Vec::new();
+            for _ in 0..k {
+                let s = gen_sort(ch, &x_bound(&params));
+                params.push(s);
+            }
+            OSortDecl {
+                params,
+                value_kind: ch.pick(2) == 1,
+                closed: ch.pick(2) == 1,
+            }
+        }
+
+        /// The same declaration, or one changed in one place: a term
+        /// argument of one parameter, its kind, or its closure.
+        fn perturb_sort_decl(ch: &mut Choices<'_>, d: &OSortDecl) -> OSortDecl {
+            let mut out = d.clone();
+            match ch.pick(4) {
+                0 if !d.params.is_empty() => {
+                    let at = ch.pick(d.params.len());
+                    let context = context_at(&d.params, at);
+                    out.params[at] = perturb_sort(ch, &d.params[at], &context);
+                }
+                1 => out.value_kind = !out.value_kind,
+                2 => out.closed = !out.closed,
+                _ => {}
+            }
+            out
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(2048))]
+
+            #[test]
+            fn op_class_comparison_agrees_with_the_oracle(
+                first in proptest::collection::vec(any::<u32>(), 96),
+                second in proptest::collection::vec(any::<u32>(), 96),
+                relation in 0_usize..4,
+            ) {
+                let mut ch = Choices { data: &first, at: 0 };
+                let p = gen_op(&mut ch);
+                let p_names = gen_names(&mut ch, p.inputs.len());
+                let mut ch2 = Choices { data: &second, at: 0 };
+                let q = match relation {
+                    0 => gen_op(&mut ch2),
+                    1 => p.clone(),
+                    _ => perturb_op(&mut ch2, &p),
+                };
+                let q_names = gen_names(&mut ch2, q.inputs.len());
+                let (p_op, q_op) = (render_op(&p, &p_names), render_op(&q, &q_names));
+                for op in [&p_op, &q_op] {
+                    prop_assert_eq!(
+                        crate::typecheck::typecheck_signature(&ambient(vec![op.clone()], vec![])),
+                        Ok(())
+                    );
+                }
+                prop_assert_eq!(op_class_mismatch(&p_op, &q_op), op_oracle(&p, &q));
+            }
+
+            #[test]
+            fn sort_class_comparison_agrees_with_the_oracle(
+                first in proptest::collection::vec(any::<u32>(), 64),
+                second in proptest::collection::vec(any::<u32>(), 64),
+                relation in 0_usize..4,
+            ) {
+                let mut ch = Choices { data: &first, at: 0 };
+                let p = gen_sort_decl(&mut ch);
+                let p_names = gen_names(&mut ch, p.params.len());
+                let mut ch2 = Choices { data: &second, at: 0 };
+                let q = match relation {
+                    0 => gen_sort_decl(&mut ch2),
+                    1 => p.clone(),
+                    _ => perturb_sort_decl(&mut ch2, &p),
+                };
+                let q_names = gen_names(&mut ch2, q.params.len());
+                let (p_sort, q_sort) = (render_sort_decl(&p, &p_names), render_sort_decl(&q, &q_names));
+                for sort in [&p_sort, &q_sort] {
+                    prop_assert_eq!(
+                        crate::typecheck::typecheck_signature(&ambient(vec![], vec![sort.clone()])),
+                        Ok(())
+                    );
+                }
+                prop_assert_eq!(
+                    sort_class_mismatch(&p_sort, &q_sort, &p_sort, &q_sort),
+                    sort_oracle(&p, &q, &p_sort, &q_sort)
+                );
+            }
+        }
+    }
 }
