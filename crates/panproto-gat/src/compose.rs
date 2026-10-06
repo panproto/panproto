@@ -6699,4 +6699,651 @@ mod tests {
             }
         }
     }
+
+    /// The signature comparisons against a name-free oracle over named
+    /// syntax, repeated binder names and `Let` and `Case` binders inside
+    /// sort arguments included. The oracle replaces each variable by the
+    /// binder it resolves to (the innermost local binder of its name, else
+    /// the last signature binder of its name, else the variable is free)
+    /// and compares the results with `==`; it calls none of the
+    /// comparisons under test, `SortExpr::alpha_eq`, `SortExpr::subst` or
+    /// `Term::substitute`.
+    mod name_free_oracle {
+        use super::*;
+        use crate::eq::CaseBranch;
+        use crate::op::Implicit;
+        use crate::sort::{
+            signatures_equivalent_modulo_param_rename, sort_params_equivalent_modulo_rename,
+        };
+        use proptest::prelude::*;
+
+        /// A term with each variable replaced by the binder it resolves
+        /// to.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum Nf {
+            /// The signature binder at this position.
+            Sig(usize),
+            /// The local binder at this depth of the local stack, outermost
+            /// first.
+            Loc(usize),
+            /// A free variable, by name.
+            Free(String),
+            /// An application.
+            App(String, Vec<Self>),
+            /// A hole, by name.
+            Hole(Option<String>),
+            /// `let _ = bound in body`.
+            Let(Box<Self>, Box<Self>),
+            /// A case analysis: scrutinee, and per branch the constructor,
+            /// the number of binders and the body.
+            Case(Box<Self>, Vec<(String, usize, Self)>),
+        }
+
+        /// The oracle's form of a sort expression: head and arguments.
+        type NfSort = (String, Vec<Nf>);
+
+        fn last_position(names: &[String], x: &str) -> Option<usize> {
+            let mut found = None;
+            for (i, n) in names.iter().enumerate() {
+                if n == x {
+                    found = Some(i);
+                }
+            }
+            found
+        }
+
+        fn nf_term(t: &Term, sig: &[String], local: &mut Vec<String>) -> Nf {
+            match t {
+                Term::Var(x) => last_position(local, x).map_or_else(
+                    || last_position(sig, x).map_or_else(|| Nf::Free(x.to_string()), Nf::Sig),
+                    Nf::Loc,
+                ),
+                Term::App { op, args } => Nf::App(
+                    op.to_string(),
+                    args.iter().map(|a| nf_term(a, sig, local)).collect(),
+                ),
+                Term::Hole { name } => Nf::Hole(name.as_ref().map(ToString::to_string)),
+                Term::Let { name, bound, body } => {
+                    let bound = nf_term(bound, sig, local);
+                    local.push(name.to_string());
+                    let body = nf_term(body, sig, local);
+                    local.pop();
+                    Nf::Let(Box::new(bound), Box::new(body))
+                }
+                Term::Case {
+                    scrutinee,
+                    branches,
+                } => {
+                    let scrutinee = nf_term(scrutinee, sig, local);
+                    let branches = branches
+                        .iter()
+                        .map(|b| {
+                            let depth = local.len();
+                            local.extend(b.binders.iter().map(ToString::to_string));
+                            let body = nf_term(&b.body, sig, local);
+                            local.truncate(depth);
+                            (b.constructor.to_string(), b.binders.len(), body)
+                        })
+                        .collect();
+                    Nf::Case(Box::new(scrutinee), branches)
+                }
+            }
+        }
+
+        fn nf_sort(s: &SortExpr, sig: &[String]) -> NfSort {
+            (
+                s.head().to_string(),
+                s.args()
+                    .iter()
+                    .map(|t| nf_term(t, sig, &mut Vec::new()))
+                    .collect(),
+            )
+        }
+
+        /// An operation's name-free form: each input's sort read under the
+        /// earlier inputs, with its flag, and the output under all inputs.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct NfOp {
+            inputs: Vec<(NfSort, Implicit)>,
+            output: NfSort,
+        }
+
+        fn nf_op(op: &Operation) -> NfOp {
+            let names: Vec<String> = op.inputs.iter().map(|(n, _, _)| n.to_string()).collect();
+            NfOp {
+                inputs: op
+                    .inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, s, imp))| (nf_sort(s, &names[..i]), *imp))
+                    .collect(),
+                output: nf_sort(&op.output, &names),
+            }
+        }
+
+        fn nf_params(params: &[SortParam]) -> Vec<NfSort> {
+            let names: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
+            params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| nf_sort(&p.sort, &names[..i]))
+                .collect()
+        }
+
+        fn shape(s: &NfSort) -> (&str, usize) {
+            (&s.0, s.1.len())
+        }
+
+        fn op_oracle(p: &NfOp, q: &NfOp) -> Option<OpMismatch> {
+            if p == q {
+                return None;
+            }
+            let same_shape = p.inputs.len() == q.inputs.len()
+                && p.inputs
+                    .iter()
+                    .zip(&q.inputs)
+                    .all(|((a, ia), (b, ib))| ia == ib && shape(a) == shape(b))
+                && shape(&p.output) == shape(&q.output);
+            Some(if same_shape {
+                OpMismatch::NeedsSortEquation
+            } else {
+                OpMismatch::Signature
+            })
+        }
+
+        fn sort_oracle(
+            p: &[NfSort],
+            q: &[NfSort],
+            p_sort: &crate::sort::Sort,
+            q_sort: &crate::sort::Sort,
+        ) -> Option<SortMismatch> {
+            if p.len() != q.len() {
+                return Some(SortMismatch::Arity {
+                    first: p.len(),
+                    second: q.len(),
+                });
+            }
+            if let Some(index) = (0..p.len()).find(|&i| p[i] != q[i]) {
+                return Some(SortMismatch::ParamSort {
+                    index,
+                    first: Arc::from(p_sort.params[index].sort.to_string()),
+                    second: Arc::from(q_sort.params[index].sort.to_string()),
+                });
+            }
+            if p_sort.kind != q_sort.kind {
+                return Some(SortMismatch::Kind);
+            }
+            if p_sort.closure != q_sort.closure {
+                return Some(SortMismatch::Closure);
+            }
+            None
+        }
+
+        const SCOPE_NAMES: [&str; 2] = ["x", "y"];
+
+        /// Every list of `k` binder names over `x`, `y`: distinct and
+        /// repeated.
+        fn name_lists(k: usize) -> Vec<Vec<&'static str>> {
+            let mut out = vec![vec![]];
+            for _ in 0..k {
+                out = out
+                    .into_iter()
+                    .flat_map(|prefix: Vec<&'static str>| {
+                        SCOPE_NAMES.iter().map(move |n| {
+                            let mut next = prefix.clone();
+                            next.push(n);
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            out
+        }
+
+        fn sort_of(head: &str, args: Vec<Term>) -> SortExpr {
+            SortExpr::app(head, args)
+        }
+
+        /// The variables `x`, `y` and the constant `a`.
+        fn atoms() -> Vec<Term> {
+            vec![Term::var("x"), Term::var("y"), Term::constant("a")]
+        }
+
+        /// Terms with a local binder: `let n = b in body` for `n` in `u`,
+        /// `x`, `b` in `x`, `a()` and `body` in `u`, `x`, `y`; and
+        /// `case x of s(n) => body` for `n` in `u`, `x` and `body` in `u`,
+        /// `x`, `a()`.
+        fn binder_terms() -> Vec<Term> {
+            let mut out = Vec::new();
+            for n in ["u", "x"] {
+                for bound in [Term::var("x"), Term::constant("a")] {
+                    for body in ["u", "x", "y"] {
+                        out.push(Term::Let {
+                            name: n.into(),
+                            bound: Box::new(bound.clone()),
+                            body: Box::new(Term::var(body)),
+                        });
+                    }
+                }
+                for body in [Term::var("u"), Term::var("x"), Term::constant("a")] {
+                    out.push(Term::Case {
+                        scrutinee: Box::new(Term::var("x")),
+                        branches: vec![CaseBranch {
+                            constructor: "s".into(),
+                            binders: vec![n.into()],
+                            body,
+                        }],
+                    });
+                }
+            }
+            out
+        }
+
+        fn scope_input_sorts() -> Vec<SortExpr> {
+            let mut out = vec![SortExpr::from("X")];
+            out.extend(atoms().into_iter().map(|t| sort_of("Y", vec![t])));
+            out
+        }
+
+        fn scope_output_sorts() -> Vec<SortExpr> {
+            let mut out = vec![SortExpr::from("X")];
+            for t in atoms().into_iter().chain(binder_terms()) {
+                out.push(sort_of("Y", vec![t]));
+            }
+            for t in atoms() {
+                for u in atoms() {
+                    out.push(sort_of("H", vec![t.clone(), u]));
+                }
+            }
+            out
+        }
+
+        /// Every operation of the scope: at most two inputs named from
+        /// `x`, `y` (distinct or repeated), each of sort `X`, `Y(x)`,
+        /// `Y(y)` or `Y(a)`, and an output `X`, `Y(t)` or `H(t, u)`, `t`
+        /// over `x`, `y`, `a()` and (for `Y`) the terms of
+        /// [`binder_terms`], `u` over `x`, `y`, `a()`.
+        fn op_scope() -> Vec<Operation> {
+            let mut out = Vec::new();
+            for k in 0..=2 {
+                for names in name_lists(k) {
+                    let mut sort_lists: Vec<Vec<SortExpr>> = vec![vec![]];
+                    for _ in 0..k {
+                        sort_lists = sort_lists
+                            .into_iter()
+                            .flat_map(|prefix| {
+                                scope_input_sorts().into_iter().map(move |s| {
+                                    let mut next = prefix.clone();
+                                    next.push(s);
+                                    next
+                                })
+                            })
+                            .collect();
+                    }
+                    for sorts in &sort_lists {
+                        for output in scope_output_sorts() {
+                            out.push(Operation::new(
+                                "member",
+                                names
+                                    .iter()
+                                    .zip(sorts)
+                                    .map(|(n, s)| (Arc::from(*n), s.clone()))
+                                    .collect(),
+                                output,
+                            ));
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        fn scope_param_sorts() -> Vec<SortExpr> {
+            let mut out = scope_input_sorts();
+            out.push(sort_of(
+                "Y",
+                vec![Term::Let {
+                    name: "u".into(),
+                    bound: Box::new(Term::var("x")),
+                    body: Box::new(Term::var("u")),
+                }],
+            ));
+            out.push(sort_of(
+                "Y",
+                vec![Term::Let {
+                    name: "x".into(),
+                    bound: Box::new(Term::constant("a")),
+                    body: Box::new(Term::var("x")),
+                }],
+            ));
+            out
+        }
+
+        /// Every sort declaration of the scope: at most three parameters
+        /// named from `x`, `y` (distinct or repeated), each of a sort of
+        /// [`scope_param_sorts`].
+        fn sort_scope() -> Vec<crate::sort::Sort> {
+            let mut out = Vec::new();
+            for k in 0..=3 {
+                for names in name_lists(k) {
+                    let mut sort_lists: Vec<Vec<SortExpr>> = vec![vec![]];
+                    for _ in 0..k {
+                        sort_lists = sort_lists
+                            .into_iter()
+                            .flat_map(|prefix| {
+                                scope_param_sorts().into_iter().map(move |s| {
+                                    let mut next = prefix.clone();
+                                    next.push(s);
+                                    next
+                                })
+                            })
+                            .collect();
+                    }
+                    for sorts in sort_lists {
+                        out.push(crate::sort::Sort::dependent(
+                            "W",
+                            names
+                                .iter()
+                                .zip(sorts)
+                                .map(|(n, s)| SortParam::new(*n, s))
+                                .collect(),
+                        ));
+                    }
+                }
+            }
+            out
+        }
+
+        fn has_repeated_name<'a>(names: impl Iterator<Item = &'a Arc<str>>) -> bool {
+            let mut seen = std::collections::BTreeSet::new();
+            names.into_iter().any(|n| !seen.insert(n))
+        }
+
+        /// Check one ordered pair of operations against the oracle;
+        /// returns the oracle's verdict.
+        fn check_op_pair(p: &Operation, q: &Operation, pn: &NfOp, qn: &NfOp) -> Option<OpMismatch> {
+            let expected = op_oracle(pn, qn);
+            assert_eq!(
+                signatures_equivalent_modulo_param_rename(
+                    &p.inputs, &p.output, &q.inputs, &q.output
+                ),
+                expected.is_none(),
+                "{p:?} against {q:?}"
+            );
+            assert_eq!(op_class_mismatch(p, q), expected, "{p:?} against {q:?}");
+            expected
+        }
+
+        /// Check one ordered pair of sort declarations against the oracle;
+        /// returns the oracle's verdict.
+        fn check_sort_pair(
+            p: &crate::sort::Sort,
+            q: &crate::sort::Sort,
+            pn: &[NfSort],
+            qn: &[NfSort],
+        ) -> Option<SortMismatch> {
+            let expected = sort_oracle(pn, qn, p, q);
+            assert_eq!(
+                sort_params_equivalent_modulo_rename(&p.params, &q.params),
+                pn == qn,
+                "{p:?} against {q:?}"
+            );
+            assert_eq!(
+                sort_class_mismatch(p, q, p, q),
+                expected,
+                "{p:?} against {q:?}"
+            );
+            expected
+        }
+
+        #[test]
+        fn signature_comparisons_agree_with_the_name_free_oracle_on_the_exhaustive_scope() {
+            let ops = op_scope();
+            let op_forms: Vec<NfOp> = ops.iter().map(nf_op).collect();
+            let mut counts = [0_usize; 3];
+            let mut agree_with_repeated = 0_usize;
+            for (p, pn) in ops.iter().zip(&op_forms) {
+                for (q, qn) in ops.iter().zip(&op_forms) {
+                    let verdict = check_op_pair(p, q, pn, qn);
+                    counts[match verdict {
+                        None => 0,
+                        Some(OpMismatch::NeedsSortEquation) => 1,
+                        Some(OpMismatch::Signature) => 2,
+                    }] += 1;
+                    if verdict.is_none()
+                        && (has_repeated_name(p.inputs.iter().map(|(n, _, _)| n))
+                            || has_repeated_name(q.inputs.iter().map(|(n, _, _)| n)))
+                    {
+                        agree_with_repeated += 1;
+                    }
+                }
+            }
+            eprintln!(
+                "op scope: {} signatures, {} ordered pairs; agree {}, term arguments only {}, signature {}; agreeing pairs with a repeated binder {}",
+                ops.len(),
+                ops.len() * ops.len(),
+                counts[0],
+                counts[1],
+                counts[2],
+                agree_with_repeated
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+            assert!(agree_with_repeated > 0);
+
+            let sorts = sort_scope();
+            let sort_forms: Vec<Vec<NfSort>> = sorts.iter().map(|s| nf_params(&s.params)).collect();
+            let mut sort_counts = [0_usize; 3];
+            for (p, pn) in sorts.iter().zip(&sort_forms) {
+                for (q, qn) in sorts.iter().zip(&sort_forms) {
+                    sort_counts[match check_sort_pair(p, q, pn, qn) {
+                        None => 0,
+                        Some(SortMismatch::Arity { .. }) => 1,
+                        Some(_) => 2,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "sort scope: {} declarations, {} ordered pairs; agree {}, arity {}, parameter sort {}",
+                sorts.len(),
+                sorts.len() * sorts.len(),
+                sort_counts[0],
+                sort_counts[1],
+                sort_counts[2]
+            );
+            assert!(
+                sort_counts.iter().all(|&c| c > 0),
+                "every verdict is reached"
+            );
+        }
+
+        /// Names a generated binder or variable may take.
+        const GEN_NAMES: [&str; 4] = ["x", "y", "z", "u"];
+
+        fn gen_term() -> impl Strategy<Value = Term> {
+            let leaf = prop_oneof![
+                proptest::sample::select(&GEN_NAMES[..]).prop_map(Term::var),
+                proptest::sample::select(&["a", "b"][..]).prop_map(Term::constant),
+                Just(Term::Hole { name: None }),
+            ];
+            leaf.prop_recursive(3, 12, 2, |inner| {
+                prop_oneof![
+                    (
+                        proptest::sample::select(&["s", "m"][..]),
+                        proptest::collection::vec(inner.clone(), 1..=2)
+                    )
+                        .prop_map(|(op, args)| Term::app(op, args)),
+                    (
+                        proptest::sample::select(&GEN_NAMES[..]),
+                        inner.clone(),
+                        inner.clone()
+                    )
+                        .prop_map(|(n, bound, body)| Term::Let {
+                            name: n.into(),
+                            bound: Box::new(bound),
+                            body: Box::new(body),
+                        }),
+                    (
+                        inner.clone(),
+                        proptest::collection::vec(proptest::sample::select(&GEN_NAMES[..]), 0..=2),
+                        inner
+                    )
+                        .prop_map(|(scrutinee, binders, body)| Term::Case {
+                            scrutinee: Box::new(scrutinee),
+                            branches: vec![CaseBranch {
+                                constructor: "k".into(),
+                                binders: binders.into_iter().map(Arc::from).collect(),
+                                body,
+                            }],
+                        }),
+                ]
+            })
+        }
+
+        fn gen_sort() -> impl Strategy<Value = SortExpr> {
+            prop_oneof![
+                Just(SortExpr::from("X")),
+                gen_term().prop_map(|t| sort_of("Y", vec![t])),
+                (gen_term(), gen_term()).prop_map(|(t, u)| sort_of("H", vec![t, u])),
+            ]
+        }
+
+        fn gen_op() -> impl Strategy<Value = Operation> {
+            (
+                proptest::collection::vec(
+                    (
+                        proptest::sample::select(&GEN_NAMES[..]),
+                        gen_sort(),
+                        any::<bool>(),
+                    ),
+                    0..=3,
+                ),
+                gen_sort(),
+            )
+                .prop_map(|(inputs, output)| {
+                    Operation::with_implicit(
+                        "member",
+                        inputs
+                            .into_iter()
+                            .map(|(n, s, imp)| {
+                                (
+                                    Arc::from(n),
+                                    s,
+                                    if imp { Implicit::Yes } else { Implicit::No },
+                                )
+                            })
+                            .collect(),
+                        output,
+                    )
+                })
+        }
+
+        /// Rename every signature binder of `op` by `rename`, rewriting the
+        /// variables of its sorts by name without regard to capture; the
+        /// oracle then decides whether the result has the same name-free
+        /// form.
+        fn rename_naively(op: &Operation, rename: &[&'static str; 4]) -> Operation {
+            fn term(t: &Term, f: &dyn Fn(&str) -> Arc<str>) -> Term {
+                match t {
+                    Term::Var(x) => Term::Var(f(x)),
+                    Term::App { op, args } => Term::App {
+                        op: Arc::clone(op),
+                        args: args.iter().map(|a| term(a, f)).collect(),
+                    },
+                    Term::Hole { .. } => t.clone(),
+                    Term::Let { name, bound, body } => Term::Let {
+                        name: Arc::clone(name),
+                        bound: Box::new(term(bound, f)),
+                        body: Box::new(term(body, f)),
+                    },
+                    Term::Case {
+                        scrutinee,
+                        branches,
+                    } => Term::Case {
+                        scrutinee: Box::new(term(scrutinee, f)),
+                        branches: branches
+                            .iter()
+                            .map(|b| CaseBranch {
+                                constructor: Arc::clone(&b.constructor),
+                                binders: b.binders.clone(),
+                                body: term(&b.body, f),
+                            })
+                            .collect(),
+                    },
+                }
+            }
+            let f = |x: &str| -> Arc<str> {
+                GEN_NAMES
+                    .iter()
+                    .position(|n| *n == x)
+                    .map_or_else(|| Arc::from(x), |i| Arc::from(rename[i]))
+            };
+            let sort =
+                |s: &SortExpr| sort_of(s.head(), s.args().iter().map(|t| term(t, &f)).collect());
+            Operation::with_implicit(
+                "member",
+                op.inputs
+                    .iter()
+                    .map(|(n, s, imp)| (f(n), sort(s), *imp))
+                    .collect(),
+                sort(&op.output),
+            )
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(2048))]
+
+            #[test]
+            fn signature_comparisons_agree_with_the_name_free_oracle(
+                p in gen_op(),
+                other in gen_op(),
+                rename in [
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                ],
+                relation in 0_usize..3,
+            ) {
+                let q = match relation {
+                    0 => other,
+                    1 => p.clone(),
+                    _ => rename_naively(&p, &rename),
+                };
+                let (pn, qn) = (nf_op(&p), nf_op(&q));
+                check_op_pair(&p, &q, &pn, &qn);
+                check_op_pair(&q, &p, &qn, &pn);
+            }
+
+            #[test]
+            fn sort_parameter_comparisons_agree_with_the_name_free_oracle(
+                p in gen_op(),
+                other in gen_op(),
+                rename in [
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                ],
+                relation in 0_usize..3,
+            ) {
+                // A sort declaration's parameters are read off an
+                // operation's inputs.
+                let q = match relation {
+                    0 => other,
+                    1 => p.clone(),
+                    _ => rename_naively(&p, &rename),
+                };
+                let as_sort = |o: &Operation| {
+                    crate::sort::Sort::dependent(
+                        "W",
+                        o.inputs.iter().map(|(n, s, _)| SortParam::new(Arc::clone(n), s.clone())).collect(),
+                    )
+                };
+                let (ps, qs) = (as_sort(&p), as_sort(&q));
+                let (pn, qn) = (nf_params(&ps.params), nf_params(&qs.params));
+                check_sort_pair(&ps, &qs, &pn, &qn);
+                check_sort_pair(&qs, &ps, &qn, &pn);
+            }
+        }
+    }
 }
