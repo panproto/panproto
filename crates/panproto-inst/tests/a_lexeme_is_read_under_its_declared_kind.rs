@@ -1163,10 +1163,10 @@ fn positional_17(sign: &str, digits: u128) -> String {
     format!("{sign}{}.{}", &s[..16], &s[16..])
 }
 
-/// On the first 2^20 binary64 values of the binade [2^50, 2^51), x = 2^50
-/// + i / 4 for 0 <= i < 2^20, of either sign, Rust's `{:e}` is the
-/// closest-shortest text of the definition, and at every tie (each n +
-/// 0.25 and n + 0.75) the away-from-zero text reads as the float under
+/// On the first 2^20 binary64 values of the binade [2^50, 2^51), that is
+/// x = 2^50 + i / 4 for 0 <= i < 2^20, of either sign, Rust's `{:e}` is
+/// the closest-shortest text of the definition, and at every tie (each
+/// n + 0.25 and n + 0.75) the away-from-zero text reads as the float under
 /// `Float { bits: 64 }` and `Any`, while the other tie text is refused
 /// with `PrecisionExceeded { max: 17 }` under `Float { bits: 64 }` and read
 /// under `Any` as the decimal it writes. Prints the bound and the ties.
