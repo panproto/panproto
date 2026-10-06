@@ -418,3 +418,80 @@ fn a_case_branch_follows_the_constructor_image_of_a_derived_term() {
     eprintln!("observed: {outcome:?}");
     assert!(outcome.is_ok(), "{outcome:?}");
 }
+
+/// `X`, a constant `a : X`, and `B` closed over the one constructor
+/// `ctor(first : X, second : X) : B`, with `pick(b : B) : X` defined by a
+/// case analysis that binds both inputs.
+fn pairs(name: &str, ctor: &str, first: &str, second: &str) -> Theory {
+    let case = Term::Case {
+        scrutinee: Box::new(Term::var("b")),
+        branches: vec![CaseBranch {
+            constructor: ctor.into(),
+            binders: vec!["p".into(), "q".into()],
+            body: Term::var("p"),
+        }],
+    };
+    Theory::new(
+        name,
+        vec![Sort::simple("X"), Sort::closed("B", vec![], [ctor])],
+        vec![
+            constant("a"),
+            Operation::new(
+                ctor,
+                vec![(first.into(), "X".into()), (second.into(), "X".into())],
+                "B",
+            ),
+            Operation::new("pick", vec![("b".into(), "B".into())], "X"),
+        ],
+        vec![Equation::new(
+            "pick_def",
+            Term::app("pick", vec![Term::var("b")]),
+            case,
+        )],
+    )
+}
+
+#[test]
+fn a_constructor_with_a_repeated_input_name_has_no_image_through_a_term() {
+    // The domain repeats the input name z, so its constructor's generic
+    // term is c(#0, #1) by position and every z reads the later binder.
+    // k(z, z) is then k(#1, #1), not the eta-expanded k(#0, #1).
+    let dom = pairs("S", "c", "z", "z");
+    let cod = pairs("R", "k", "u", "v");
+    let check = |image: OpAssignment| {
+        let m = morphism(
+            "S",
+            "R",
+            &[("X", "X"), ("B", "B")],
+            vec![
+                ("a", OpAssignment::op("a")),
+                ("c", image),
+                ("pick", OpAssignment::op("pick")),
+            ],
+        );
+        (check_morphism(&m, &dom, &cod), m)
+    };
+    let (derived, m) = check(OpAssignment::Term(Term::app(
+        "k",
+        vec![Term::var("z"), Term::var("z")],
+    )));
+    let (renamed, _) = check(OpAssignment::op("k"));
+    eprintln!("observed c -> k(z, z): {derived:?}");
+    eprintln!("observed c -> k: {renamed:?}");
+    let Err(GatError::MorphismClosureMismatch { sort, expected, .. }) = &derived else {
+        panic!("expected MorphismClosureMismatch, observed {derived:?}");
+    };
+    assert_eq!(sort, "B");
+    assert!(
+        expected.iter().any(|e| e == "k(z, z)"),
+        "the constructor with no image is rendered by its term: {expected:?}"
+    );
+    assert!(
+        renamed.is_ok(),
+        "an Op image is always a constructor image: {renamed:?}"
+    );
+    // With no image the branch keeps its constructor's name.
+    let mapped = m.apply_to_term_substituting(&dom.eqs[0].rhs, &dom);
+    eprintln!("observed image of the case under c -> k(z, z): {mapped}");
+    assert_eq!(mapped, dom.eqs[0].rhs);
+}

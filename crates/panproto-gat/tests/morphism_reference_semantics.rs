@@ -8,7 +8,8 @@
 //! two sort expressions agree when their name-free forms are equal (each
 //! variable replaced by the binder it resolves to, the nearest of its
 //! name); a constructor `c`'s image is `k` iff `m^(c(x_1, ..., x_n)) =
-//! k(x_1, ..., x_n)`. A map is a morphism iff every domain sort is mapped
+//! k(x_1, ..., x_n)` with the `x_i` read by position (a name repeated
+//! among `c`'s inputs denotes its last occurrence). A map is a morphism iff every domain sort is mapped
 //! with its arity, kind, parameter sorts (under `F`) and closure (by
 //! constructor images) preserved, and every domain operation is mapped to
 //! an operation with the same signature under `F` or to a term of sort
@@ -193,30 +194,24 @@ fn ref_apply(m: &TheoryMorphism, t: &Term, domain: &Theory) -> Term {
     }
 }
 
-/// The constructor image of `c`, if it has one.
+/// The constructor image of `c`, if it has one. Read name-free: `c`'s
+/// generic term is `c(#0, ..., #(n-1))` by input position, so a `Term`
+/// image `t` gives `k` iff `t`, each variable resolved to the last of
+/// `c`'s inputs of its name, is `k(#0, ..., #(n-1))`. A rename always
+/// gives its target.
 fn ref_constructor_image(m: &TheoryMorphism, c: &Arc<str>, domain: &Theory) -> Option<Arc<str>> {
-    let Some(op) = find_op(domain, c) else {
-        return match m.op_map.get(c) {
-            Some(OpAssignment::Op(k)) => Some(Arc::clone(k)),
-            Some(OpAssignment::Term(_)) => None,
-            None => Some(Arc::clone(c)),
-        };
-    };
-    let vars: Vec<Term> = op
-        .inputs
-        .iter()
-        .map(|(n, _, _)| Term::Var(Arc::clone(n)))
-        .collect();
-    match ref_apply(
-        m,
-        &Term::App {
-            op: Arc::clone(c),
-            args: vars.clone(),
-        },
-        domain,
-    ) {
-        Term::App { op: k, args } if args == vars => Some(k),
-        _ => None,
+    match m.op_map.get(c) {
+        None => Some(Arc::clone(c)),
+        Some(OpAssignment::Op(k)) => Some(Arc::clone(k)),
+        Some(OpAssignment::Term(t)) => {
+            let op = find_op(domain, c)?;
+            let names = names_of(op.inputs.iter().map(|(n, _, _)| n));
+            let Nf::App(k, args) = nf_term(t, &names, &mut Vec::new()) else {
+                return None;
+            };
+            let eta: Vec<Nf> = (0..names.len()).map(Nf::Sig).collect();
+            (args == eta).then(|| Arc::from(k.as_str()))
+        }
     }
 }
 
@@ -569,6 +564,16 @@ fn probe_terms() -> Vec<Term> {
 /// Compare `check_morphism` and the whole action with the reference on
 /// one instance; returns whether the reference accepts.
 fn agree(m: &TheoryMorphism, dom: &Theory, cod: &Theory) -> Result<bool, String> {
+    agree_on(m, dom, cod, &probe_terms())
+}
+
+/// [`agree`], with the whole action compared on the given domain terms.
+fn agree_on(
+    m: &TheoryMorphism,
+    dom: &Theory,
+    cod: &Theory,
+    probes: &[Term],
+) -> Result<bool, String> {
     let expected = ref_accepts(m, dom, cod);
     let observed = check_morphism(m, dom, cod);
     if observed.is_ok() != expected {
@@ -577,8 +582,8 @@ fn agree(m: &TheoryMorphism, dom: &Theory, cod: &Theory) -> Result<bool, String>
             m.op_map, dom.ops, cod.sorts
         ));
     }
-    for t in probe_terms() {
-        let (engine, reference) = (m.apply_to_term_substituting(&t, dom), ref_apply(m, &t, dom));
+    for t in probes {
+        let (engine, reference) = (m.apply_to_term_substituting(t, dom), ref_apply(m, t, dom));
         if engine != reference {
             return Err(format!(
                 "whole action on {t}: engine {engine}, reference {reference}, leg {:?}",
@@ -621,6 +626,135 @@ fn check_morphism_agrees_with_the_reference_semantics_on_the_exhaustive_scope() 
     );
     assert_eq!(instances, legs.len() * 36);
     assert!(accepted_with_a_term_image > 0 && accepted < instances);
+}
+
+// ─── the constructor scope ─────────────────────────────────────────
+
+/// `X`, `a : X`, `B` closed over `c(first : X, second : X) : B`, and
+/// `pick(b : B) : X`.
+fn ctor_domain(first: &str, second: &str) -> Theory {
+    Theory::new(
+        "D",
+        vec![Sort::simple("X"), Sort::closed("B", vec![], ["c"])],
+        vec![
+            Operation::new("a", vec![], "X"),
+            Operation::new("c", vec![(first.into(), x()), (second.into(), x())], "B"),
+            Operation::new("pick", vec![("b".into(), "B".into())], "X"),
+        ],
+        vec![],
+    )
+}
+
+/// `X`, `a : X`, `B` closed over `closure`, `k(u : X, v : X) : B`,
+/// `k1(u : X) : B` and `pick(b : B) : X`.
+fn ctor_codomain(closure: &[&str]) -> Theory {
+    Theory::new(
+        "C",
+        vec![
+            Sort::simple("X"),
+            Sort::closed("B", vec![], closure.iter().copied()),
+        ],
+        vec![
+            Operation::new("a", vec![], "X"),
+            Operation::new("k", vec![("u".into(), x()), ("v".into(), x())], "B"),
+            Operation::new("k1", vec![("u".into(), x())], "B"),
+            Operation::new("pick", vec![("b".into(), "B".into())], "X"),
+        ],
+        vec![],
+    )
+}
+
+/// The input names of `c`: distinct in either order, and repeated.
+const CTOR_INPUTS: [(&str, &str); 3] = [("z", "w"), ("z", "z"), ("w", "z")];
+
+/// The codomain closures of `B`.
+const CTOR_CLOSURES: [&[&str]; 4] = [&["k"], &["k", "k1"], &["k1"], &[]];
+
+/// The candidate images of `c`: both renames, `k1` and `k` applied to
+/// every choice of `z`, `w` and `a()`, an over-applied `k`, and a bare
+/// variable.
+fn ctor_images() -> Vec<OpAssignment> {
+    let leaves = [v("z"), v("w"), c("a")];
+    let mut out = vec![op("k"), op("k1")];
+    for first in &leaves {
+        out.push(term(Term::app("k1", vec![first.clone()])));
+        for second in &leaves {
+            out.push(term(Term::app("k", vec![first.clone(), second.clone()])));
+        }
+    }
+    out.push(term(Term::app("k", vec![v("z"), v("w"), v("z")])));
+    out.push(term(v("z")));
+    out
+}
+
+fn ctor_leg(image: OpAssignment) -> TheoryMorphism {
+    TheoryMorphism::new(
+        "m",
+        "D",
+        "C",
+        ["X", "B"]
+            .into_iter()
+            .map(|s| (Arc::from(s), Arc::from(s)))
+            .collect(),
+        [("a", op("a")), ("c", image), ("pick", op("pick"))]
+            .into_iter()
+            .map(|(o, a)| (Arc::from(o), a))
+            .collect::<HashMap<Arc<str>, OpAssignment>>(),
+    )
+}
+
+/// A case analysis binding both inputs of `c`, and two uses of `c`.
+fn ctor_probes() -> Vec<Term> {
+    vec![
+        Term::Case {
+            scrutinee: Box::new(v("b")),
+            branches: vec![CaseBranch {
+                constructor: "c".into(),
+                binders: vec!["p".into(), "q".into()],
+                body: v("p"),
+            }],
+        },
+        Term::app("c", vec![c("a"), v("y")]),
+        Term::app("pick", vec![Term::app("c", vec![v("y"), c("a")])]),
+    ]
+}
+
+#[test]
+fn constructor_images_agree_with_the_reference_on_the_exhaustive_constructor_scope() {
+    let images = ctor_images();
+    let mut instances = 0_usize;
+    let mut accepted = 0_usize;
+    let mut accepted_by_a_term = 0_usize;
+    let mut accepted_by_a_term_under_repeated_names = 0_usize;
+    for (first, second) in CTOR_INPUTS {
+        let dom = ctor_domain(first, second);
+        for closure in CTOR_CLOSURES {
+            let cod = ctor_codomain(closure);
+            for image in &images {
+                instances += 1;
+                let m = ctor_leg(image.clone());
+                if agree_on(&m, &dom, &cod, &ctor_probes()).unwrap() {
+                    accepted += 1;
+                    if !image.is_op() {
+                        accepted_by_a_term += 1;
+                        if first == second {
+                            accepted_by_a_term_under_repeated_names += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "constructor scope: {} images x {} input namings x {} closures = {instances} instances; accepted {accepted} ({accepted_by_a_term} by a derived term, {accepted_by_a_term_under_repeated_names} of them under a repeated input name), refused {}",
+        images.len(),
+        CTOR_INPUTS.len(),
+        CTOR_CLOSURES.len(),
+        instances - accepted
+    );
+    assert_eq!(instances, images.len() * 12);
+    assert!(accepted_by_a_term > 0 && accepted < instances);
+    assert_eq!(accepted_by_a_term_under_repeated_names, 0);
 }
 
 // ─── the property twin ─────────────────────────────────────────────
@@ -679,6 +813,37 @@ proptest! {
         let dom = domain(p_arg, &r_out);
         let cod = codomain(&closure, z_arg);
         let verdict = agree(&m, &dom, &cod);
+        prop_assert!(verdict.is_ok(), "{}", verdict.unwrap_err());
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    #[test]
+    fn constructor_images_agree_with_the_reference_semantics(
+        inputs in proptest::sample::select(CTOR_INPUTS.to_vec()),
+        closure in proptest::sample::select(CTOR_CLOSURES.to_vec()),
+        image in prop_oneof![
+            proptest::sample::select(vec!["k", "k1", "a", "pick"]).prop_map(op),
+            proptest::sample::select(vec![v("z"), v("w"), v("y"), c("a")])
+                .prop_recursive(2, 8, 3, |inner| {
+                    (
+                        proptest::sample::select(vec!["k", "k1", "a", "pick"]),
+                        proptest::collection::vec(inner, 0..=3),
+                    )
+                        .prop_map(|(o, args)| Term::app(o, args))
+                })
+                .prop_map(term),
+        ],
+    ) {
+        let (first, second) = inputs;
+        let verdict = agree_on(
+            &ctor_leg(image),
+            &ctor_domain(first, second),
+            &ctor_codomain(closure),
+            &ctor_probes(),
+        );
         prop_assert!(verdict.is_ok(), "{}", verdict.unwrap_err());
     }
 }

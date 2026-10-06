@@ -592,31 +592,51 @@ fn map_sort_expr(m: &TheoryMorphism, expr: &SortExpr, domain: &Theory) -> SortEx
 /// operation `k` such that the whole action sends `c`'s generic term
 /// `c(x_1, …, x_n)`, over `c`'s own inputs, to `k(x_1, …, x_n)`.
 ///
-/// An [`OpAssignment::Op`] image always gives one. A derived term gives one
-/// exactly when it is that eta-expanded application. Otherwise there is
-/// none, and the error carries the term the generic term is sent to. A
-/// constructor that `domain` does not declare has no inputs to form the
-/// generic term from, so only a rename gives it an image.
+/// The generic term is read by position, not by name: its `i`th argument
+/// is `c`'s `i`th input, and a variable denotes the last of `c`'s inputs
+/// of its name (the reading of `typecheck_signature` and of the
+/// substitution `m^` performs). So a derived term gives `k` iff it is
+/// `k` applied to `n` variables of which the `i`th resolves to input `i`.
+/// When `c` repeats an input name no derived term does, since no variable
+/// resolves to the earlier binder; a domain with such a constructor has a
+/// [`SignatureDefect::DuplicateBinder`](crate::SignatureDefect::DuplicateBinder).
+///
+/// An [`OpAssignment::Op`] image always gives one, as does an unmapped
+/// constructor (its own name). A derived term gives one exactly when it is
+/// that eta-expanded application. Otherwise there is none, and the error
+/// carries the term the generic term is sent to. A constructor that
+/// `domain` does not declare has no inputs to form the generic term from,
+/// so only a rename gives it an image.
 fn constructor_image(m: &TheoryMorphism, c: &Arc<str>, domain: &Theory) -> Result<Arc<str>, Term> {
-    let Some(op) = domain.find_op(c) else {
-        return match m.op_map.get(c) {
-            Some(OpAssignment::Term(term)) => Err(term.clone()),
-            Some(OpAssignment::Op(k)) => Ok(Arc::clone(k)),
-            None => Ok(Arc::clone(c)),
-        };
+    let assigned = match m.op_map.get(c) {
+        None => return Ok(Arc::clone(c)),
+        Some(OpAssignment::Op(k)) => return Ok(Arc::clone(k)),
+        Some(OpAssignment::Term(term)) => term,
     };
-    let vars: Vec<Term> = op
-        .inputs
-        .iter()
-        .map(|(name, _, _)| Term::Var(Arc::clone(name)))
-        .collect();
+    let Some(op) = domain.find_op(c) else {
+        return Err(assigned.clone());
+    };
     let generic = Term::App {
         op: Arc::clone(c),
-        args: vars.clone(),
+        args: op
+            .inputs
+            .iter()
+            .map(|(name, _, _)| Term::Var(Arc::clone(name)))
+            .collect(),
     };
-    match m.map_term(&generic, domain) {
-        Term::App { op: k, args } if args == vars => Ok(k),
-        other => Err(other),
+    let image = m.map_term(&generic, domain);
+    let resolves_to = |arg: &Term, position: usize| {
+        matches!(arg, Term::Var(x)
+            if op.inputs.iter().rposition(|(name, _, _)| name == x) == Some(position))
+    };
+    match &image {
+        Term::App { op: k, args }
+            if args.len() == op.inputs.len()
+                && args.iter().enumerate().all(|(i, arg)| resolves_to(arg, i)) =>
+        {
+            Ok(Arc::clone(k))
+        }
+        _ => Err(image),
     }
 }
 
