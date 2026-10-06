@@ -513,5 +513,352 @@
         ]
       }
     }
-  ]
+  ],
+  "incremental": {
+    "edit": {
+      "AddEdge": {
+        "id": 2,
+        "edge": {
+          "src": 2,
+          "tgt": 0,
+          "edge": {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          },
+          "position": null
+        }
+      }
+    },
+    "policy": "require_passed",
+    "budget": {
+      "max_reads": null
+    },
+    "external": [],
+    "options": {
+      "digests": true
+    },
+    "outcome": {
+      "not_admitted": {
+        "report": {
+          "shape": "graph",
+          "scope": {
+            "edit": {
+              "baseline_seq": 0,
+              "baseline_status": "passed"
+            }
+          },
+          "plan": "6cd55aa3cf352ffda9f6d4df018aeaa9c6ee97fa985e9e62f3e16022f6700de7",
+          "status": "failed",
+          "diagnostics": [
+            {
+              "check": {
+                "kind": "acyclic",
+                "decl": {
+                  "constraint": {
+                    "vertex": "item",
+                    "constraint": {
+                      "sort": "acyclic",
+                      "value": "next"
+                    }
+                  }
+                }
+              },
+              "class": "maintained_global",
+              "requirement": "required",
+              "subject": null,
+              "elements": [
+                {
+                  "node": 0
+                },
+                {
+                  "node": 1
+                },
+                {
+                  "node": 2
+                },
+                {
+                  "edge": 0
+                },
+                {
+                  "edge": 1
+                },
+                {
+                  "edge": 2
+                }
+              ],
+              "violation": {
+                "cycle": {
+                  "scc": [
+                    {
+                      "node": 0
+                    },
+                    {
+                      "node": 1
+                    },
+                    {
+                      "node": 2
+                    }
+                  ],
+                  "witness": [
+                    0,
+                    1,
+                    2
+                  ]
+                }
+              },
+              "source": null
+            }
+          ],
+          "incomplete": [],
+          "coverage": [
+            [
+              {
+                "kind": "schema_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "declaration_interpretable",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "node_anchor",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 3,
+                "passed": 3,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "edge_declared",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 3,
+                "passed": 3,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 3,
+                "passed": 3,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "fan_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 0,
+                "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "acyclic",
+                "decl": {
+                  "constraint": {
+                    "vertex": "item",
+                    "constraint": {
+                      "sort": "acyclic",
+                      "value": "next"
+                    }
+                  }
+                }
+              },
+              {
+                "class": "maintained_global",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 0,
+                "failed": 1,
+                "incomplete": 0
+              }
+            ]
+          ]
+        },
+        "footprint": {
+          "rerun": [
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 0
+              }
+            },
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 1
+              }
+            },
+            {
+              "check": {
+                "kind": "acyclic",
+                "decl": {
+                  "constraint": {
+                    "vertex": "item",
+                    "constraint": {
+                      "sort": "acyclic",
+                      "value": "next"
+                    }
+                  }
+                }
+              },
+              "subject": null
+            }
+          ],
+          "created": [
+            {
+              "check": {
+                "kind": "edge_declared",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 2
+              }
+            },
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 2
+              }
+            }
+          ],
+          "retired": [],
+          "reads": [
+            {
+              "node": 0
+            },
+            {
+              "node": 1
+            },
+            {
+              "node": 2
+            },
+            {
+              "edge": 0
+            },
+            {
+              "edge": 1
+            },
+            {
+              "edge": 2
+            }
+          ],
+          "touched": [
+            {
+              "node": 0
+            },
+            {
+              "node": 2
+            },
+            {
+              "edge": 2
+            }
+          ]
+        },
+        "affected": [
+          {
+            "node": 0
+          },
+          {
+            "node": 2
+          },
+          {
+            "edge": 0
+          },
+          {
+            "edge": 1
+          },
+          {
+            "edge": 2
+          }
+        ]
+      }
+    }
+  },
+  "expected_violations": {
+    "initial": [],
+    "after_edits": [
+      [
+        {
+          "check": "acyclic",
+          "subject": null,
+          "violation": {
+            "cycle": {
+              "scc": [
+                {
+                  "node": 0
+                },
+                {
+                  "node": 1
+                },
+                {
+                  "node": 2
+                }
+              ],
+              "witness": [
+                0,
+                1,
+                2
+              ]
+            }
+          }
+        }
+      ]
+    ]
+  }
 }

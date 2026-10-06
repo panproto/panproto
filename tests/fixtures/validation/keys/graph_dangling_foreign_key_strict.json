@@ -1174,7 +1174,7 @@
           }
         },
         {
-          "class": "graph_local",
+          "class": "maintained_global",
           "requirement": "required",
           "instances": 2,
           "passed": 2,
@@ -1193,7 +1193,7 @@
           }
         },
         {
-          "class": "graph_local",
+          "class": "maintained_global",
           "requirement": "required",
           "instances": 2,
           "passed": 2,
@@ -1212,7 +1212,7 @@
           }
         },
         {
-          "class": "graph_local",
+          "class": "maintained_global",
           "requirement": "required",
           "instances": 1,
           "passed": 1,
@@ -1231,7 +1231,7 @@
           }
         },
         {
-          "class": "graph_local",
+          "class": "maintained_global",
           "requirement": "required",
           "instances": 3,
           "passed": 3,

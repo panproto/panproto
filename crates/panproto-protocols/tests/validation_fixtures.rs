@@ -8,18 +8,22 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use panproto_gat::CheckStatus;
 use panproto_inst::validation::{
-    CheckKind, EndpointSide, ExternalVerdicts, IncompleteReason, Requirement, SchemaRef,
-    SourceLocation, ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport,
-    Violation,
+    AdmissionPolicy, CheckInstance, CheckKind, EditValidation, EditWitness, EndpointSide,
+    ExternalVerdicts, IncompleteReason, Requirement, RunVerdict, SchemaRef, SourceLocation,
+    ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport, Violation,
+    WitnessOptions,
 };
 use panproto_inst::{
-    EdgeId, EditError, FInstance, GInstance, GraphEdit, TableEdit, TreeEdit, ViewRef, WInstance,
-    from_node_link_json,
+    BoundaryProtocols, BoundarySide, CompiledMigration, EdgeId, EditError, EditRejection,
+    FInstance, GInstance, GraphEdit, RestrictError, TableEdit, TreeEdit, ValidatedGraph, ViewRef,
+    WInstance, WitnessReplay, from_node_link_json, functor_extend, functor_restrict, graph_extend,
+    graph_restrict, wtype_extend, wtype_restrict,
 };
 use panproto_protocols::registry::descriptor;
 use panproto_schema::{Constraint, Edge, InstanceShapeKind, Protocol, Schema};
@@ -156,6 +160,98 @@ enum EditOutcome {
     Rejected(String),
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BoundaryOperation {
+    GraphRestrict,
+    GraphExtend,
+    TreeRestrict,
+    TreeExtend,
+    TableRestrict,
+    TableExtend,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BoundaryOutcome {
+    Passed(Instance),
+    Validation {
+        side: BoundarySide,
+        report: ValidationReport,
+    },
+    Rejected(String),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BoundaryTransition {
+    operation: BoundaryOperation,
+    target_schema: Schema,
+    migration: BoundaryMigration,
+    outcome: BoundaryOutcome,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BoundaryMigration {
+    surviving_verts: std::collections::BTreeSet<panproto_gat::Name>,
+    surviving_edges: std::collections::BTreeSet<Edge>,
+    vertex_remap: BTreeMap<panproto_gat::Name, panproto_gat::Name>,
+    edge_remap: BTreeMap<Edge, Edge>,
+}
+
+impl BoundaryMigration {
+    fn compiled(&self) -> CompiledMigration {
+        CompiledMigration {
+            surviving_verts: self.surviving_verts.iter().cloned().collect(),
+            surviving_edges: self.surviving_edges.iter().cloned().collect(),
+            vertex_remap: self
+                .vertex_remap
+                .iter()
+                .map(|(source, target)| (source.clone(), target.clone()))
+                .collect(),
+            edge_remap: self
+                .edge_remap
+                .iter()
+                .map(|(source, target)| (source.clone(), target.clone()))
+                .collect(),
+            ..CompiledMigration::default()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum IncrementalOutcome {
+    Applied {
+        validation: EditValidation,
+        witness: EditWitness,
+    },
+    NotAdmitted(EditValidation),
+    ApplyError(String),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct IncrementalProbe {
+    edit: GraphEdit,
+    policy: AdmissionPolicy,
+    budget: ValidationBudget,
+    external: ExternalVerdicts,
+    options: WitnessOptions,
+    outcome: IncrementalOutcome,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ViolationTuple {
+    check: CheckKind,
+    subject: Option<ViewRef>,
+    violation: Violation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ViolationSequence {
+    initial: Vec<ViolationTuple>,
+    after_edits: Vec<Vec<ViolationTuple>>,
+}
+
 /// One validation fixture as decoded.
 #[derive(Debug, Deserialize, Serialize)]
 struct Fixture {
@@ -170,6 +266,12 @@ struct Fixture {
     edit_trace: EditTrace,
     report: ValidationReport,
     edit_outcomes: Vec<EditOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    boundary: Option<BoundaryTransition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    incremental: Option<IncrementalProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_violations: Option<ViolationSequence>,
 }
 
 impl Fixture {
@@ -853,6 +955,11 @@ const EXPECTED: &[Expectation] = &[
         &[],
     ),
     (
+        "endpoints/incremental_repair_kept_edge",
+        CheckStatus::Failed,
+        &[(CheckKind::EndpointCoherence, "incoherent_endpoint")],
+    ),
+    (
         "endpoints/self_loop_on_non_self_edge",
         CheckStatus::Failed,
         &[(CheckKind::EndpointCoherence, "incoherent_endpoint")],
@@ -1075,6 +1182,24 @@ const EXPECTED: &[Expectation] = &[
         CheckStatus::Passed,
         &[],
     ),
+    (
+        "keys/graph_within_nested_maps_accept_an_equal_key",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "keys/graph_within_no_enclosing_map_is_outside_the_key",
+        CheckStatus::Passed,
+        &[
+            (CheckKind::KeyUnique, "outside_key_scope"),
+            (CheckKind::KeyUnique, "outside_key_scope"),
+        ],
+    ),
+    (
+        "keys/graph_within_one_map_rejects_a_repeated_key",
+        CheckStatus::Failed,
+        &[(CheckKind::KeyUnique, "duplicate_key")],
+    ),
     ("keys/sakila_composite_key", CheckStatus::Passed, &[]),
     (
         "keys/sakila_composite_key_duplicate",
@@ -1108,6 +1233,21 @@ const EXPECTED: &[Expectation] = &[
         &[],
     ),
     (
+        "keys/within_nested_maps_accept_an_equal_key",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "keys/within_no_enclosing_map_is_outside_the_key",
+        CheckStatus::Passed,
+        &[(CheckKind::KeyUnique, "outside_key_scope")],
+    ),
+    (
+        "keys/within_one_map_rejects_a_repeated_key",
+        CheckStatus::Failed,
+        &[(CheckKind::KeyUnique, "duplicate_key")],
+    ),
+    (
         "ordering/absent_positions_allowed",
         CheckStatus::Passed,
         &[],
@@ -1122,6 +1262,11 @@ const EXPECTED: &[Expectation] = &[
         "ordering/edit_reorder_creates_and_repairs_duplicate",
         CheckStatus::Passed,
         &[],
+    ),
+    (
+        "ordering/incremental_repair_duplicate",
+        CheckStatus::Failed,
+        &[(CheckKind::PositionDistinct, "duplicate_position")],
     ),
     (
         "values/graph_values_and_attributes",
@@ -1158,10 +1303,15 @@ const EXPECTED: &[Expectation] = &[
 #[test]
 fn each_fixture_shows_what_it_is_named_for() {
     let fixtures = fixtures();
+    let ordinary: Vec<&str> = fixtures
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !name.starts_with("boundary/") && !name.starts_with("train_benchmark/"))
+        .collect();
     assert_eq!(
-        fixtures.keys().map(String::as_str).collect::<Vec<_>>(),
+        ordinary,
         EXPECTED.iter().map(|(n, _, _)| *n).collect::<Vec<_>>(),
-        "every fixture has an expectation"
+        "every ordinary fixture has an expectation"
     );
     for (name, status, diagnostics) in EXPECTED {
         let report = &fixtures[*name].report;
@@ -1174,7 +1324,10 @@ fn each_fixture_shows_what_it_is_named_for() {
                 (
                     *k,
                     (*v).to_owned(),
-                    if lenient && *k == CheckKind::ReferenceResolves {
+                    // A lenient reference's failures and an element outside
+                    // a key's scope are reported advisory.
+                    if (lenient && *k == CheckKind::ReferenceResolves) || *v == "outside_key_scope"
+                    {
                         Requirement::Advisory
                     } else {
                         Requirement::Required
@@ -1562,6 +1715,10 @@ const EDITED: &[(&str, &[StepExpectation])] = &[
         &[Err(moves_node_1_under_its_descendant_2)],
     ),
     (
+        "endpoints/incremental_repair_kept_edge",
+        &[Ok((CheckStatus::Passed, &[]))],
+    ),
+    (
         "endpoints/edit_anchor_change_breaks_kept_edge",
         &[Ok((CheckStatus::Failed, ONE_SIDE))],
     ),
@@ -1576,6 +1733,10 @@ const EDITED: &[(&str, &[StepExpectation])] = &[
     (
         "endpoints/tree_edit_relabel_breaks_kept_arc",
         &[Ok((CheckStatus::Failed, BOTH_SIDES))],
+    ),
+    (
+        "ordering/incremental_repair_duplicate",
+        &[Ok((CheckStatus::Passed, &[]))],
     ),
     (
         "ordering/edit_reorder_creates_and_repairs_duplicate",
@@ -1613,6 +1774,10 @@ fn every_fixture_stores_an_edit_trace_of_its_shape() {
             "{name}: one outcome per edit"
         );
         let steps = edited.get(name.as_str()).copied().unwrap_or(&[]);
+        if name.starts_with("train_benchmark/") {
+            assert_eq!(fixture.edits(), 1, "{name}: one inject or repair edit");
+            continue;
+        }
         assert_eq!(fixture.edits(), steps.len(), "{name}: the number of edits");
         for (k, (outcome, step)) in fixture.edit_outcomes.iter().zip(steps).enumerate() {
             match (outcome, step) {
@@ -1747,6 +1912,638 @@ fn edit_traces_replay_to_their_outcomes() {
     );
 }
 
+fn boundary_outcome<T>(
+    result: Result<T, RestrictError>,
+    wrap: impl FnOnce(T) -> Instance,
+) -> BoundaryOutcome {
+    match result {
+        Ok(output) => BoundaryOutcome::Passed(wrap(output)),
+        Err(RestrictError::Validation { side, report }) => BoundaryOutcome::Validation {
+            side,
+            report: *report,
+        },
+        Err(error) => BoundaryOutcome::Rejected(error.to_string()),
+    }
+}
+
+fn recompute_boundary(fixture: &Fixture, transition: &BoundaryTransition) -> BoundaryOutcome {
+    let protocol = fixture.protocol();
+    let migration = transition.migration.compiled();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    match (transition.operation, &fixture.instance) {
+        (BoundaryOperation::GraphRestrict, Instance::Graph(graph)) => boundary_outcome(
+            graph_restrict(
+                graph,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Graph,
+        ),
+        (BoundaryOperation::GraphExtend, Instance::Graph(graph)) => boundary_outcome(
+            graph_extend(
+                graph,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Graph,
+        ),
+        (BoundaryOperation::TreeRestrict, Instance::Tree(tree)) => boundary_outcome(
+            wtype_restrict(
+                tree,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Tree,
+        ),
+        (BoundaryOperation::TreeExtend, Instance::Tree(tree)) => boundary_outcome(
+            wtype_extend(
+                tree,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Tree,
+        ),
+        (BoundaryOperation::TableRestrict, Instance::Table(table)) => boundary_outcome(
+            functor_restrict(
+                table,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Table,
+        ),
+        (BoundaryOperation::TableExtend, Instance::Table(table)) => boundary_outcome(
+            functor_extend(
+                table,
+                &fixture.schema,
+                &transition.target_schema,
+                &migration,
+                protocols,
+            ),
+            Instance::Table,
+        ),
+        pair => panic!("{}: mismatched boundary operation {pair:?}", fixture.name),
+    }
+}
+
+fn assert_boundary_outcome(name: &str, stored: &BoundaryOutcome, now: &BoundaryOutcome) {
+    match (stored, now) {
+        (BoundaryOutcome::Passed(stored), BoundaryOutcome::Passed(now)) => assert_eq!(
+            serde_json::to_value(stored).unwrap(),
+            serde_json::to_value(now).unwrap(),
+            "{name}: boundary output"
+        ),
+        (
+            BoundaryOutcome::Validation {
+                side: stored_side,
+                report: stored_report,
+            },
+            BoundaryOutcome::Validation {
+                side: now_side,
+                report: now_report,
+            },
+        ) => {
+            assert_eq!(stored_side, now_side, "{name}: boundary side");
+            assert_eq!(
+                stored_report.canonical_bytes(),
+                now_report.canonical_bytes(),
+                "{name}: boundary report"
+            );
+        }
+        (BoundaryOutcome::Rejected(stored), BoundaryOutcome::Rejected(now)) => {
+            assert_eq!(stored, now, "{name}: boundary rejection");
+        }
+        pair => panic!("{name}: boundary outcome changed: {pair:?}"),
+    }
+}
+
+#[test]
+fn boundary_fixtures_replay_restrict_and_extend_for_every_shape() {
+    let fixtures = fixtures();
+    let boundary: Vec<_> = fixtures
+        .iter()
+        .filter(|(name, _)| name.starts_with("boundary/"))
+        .collect();
+    assert_eq!(boundary.len(), 6);
+    for (name, fixture) in boundary {
+        let transition = fixture.boundary.as_ref().expect("a boundary transition");
+        let now = recompute_boundary(fixture, transition);
+        assert_boundary_outcome(name, &transition.outcome, &now);
+        let BoundaryOutcome::Validation { side, report } = &transition.outcome else {
+            panic!("{name}: this corpus pins an output validation failure");
+        };
+        assert_eq!(*side, BoundarySide::Output, "{name}");
+        assert_ne!(report.status, CheckStatus::Passed, "{name}");
+    }
+}
+
+fn violation_tuples(report: &ValidationReport) -> Vec<(CheckKind, Option<ViewRef>, Violation)> {
+    report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.check.kind,
+                diagnostic.subject.clone(),
+                diagnostic.violation.clone(),
+            )
+        })
+        .collect()
+}
+
+fn stored_tuples(tuples: &[ViolationTuple]) -> Vec<(CheckKind, Option<ViewRef>, Violation)> {
+    tuples
+        .iter()
+        .map(|tuple| (tuple.check, tuple.subject.clone(), tuple.violation.clone()))
+        .collect()
+}
+
+fn replay_incremental_probe<'a>(name: &str, fixture: &'a Fixture) -> &'a EditWitness {
+    let probe = fixture.incremental.as_ref().expect("incremental probe");
+    let Instance::Graph(graph) = &fixture.instance else {
+        panic!("{name}: incremental corpus probes are graphs");
+    };
+    let plan = Arc::new(fixture.plan());
+    let (mut validated, _) = ValidatedGraph::new(
+        plan.clone(),
+        graph.clone(),
+        &fixture.budget,
+        &fixture.external,
+    );
+    let baseline = validated.state().clone();
+    let prior = validated.instance().clone();
+    let delta = probe.edit.to_delta().expect("stored edit lowers");
+    let dry = validated
+        .check_edit(&probe.edit, &probe.budget, &probe.external)
+        .expect("stored edit applies");
+    let actual = validated.apply_edit_with_options(
+        &probe.edit,
+        probe.policy,
+        &probe.budget,
+        &probe.external,
+        &probe.options,
+    );
+    let IncrementalOutcome::Applied {
+        validation,
+        witness,
+    } = &probe.outcome
+    else {
+        panic!("{name}: stored edit is admitted");
+    };
+    assert_eq!(
+        rmp_serde::to_vec_named(validation).unwrap(),
+        rmp_serde::to_vec_named(&dry).unwrap(),
+        "{name}: dry-run validation"
+    );
+    let actual = actual.expect("stored edit remains admitted");
+    assert_eq!(
+        actual.canonical_bytes(),
+        witness.canonical_bytes(),
+        "{name}"
+    );
+    witness
+        .verify(&WitnessReplay {
+            plan: &plan,
+            baseline: &baseline,
+            prior: &prior,
+            delta: &delta,
+            policy: probe.policy,
+            budget: &probe.budget,
+            external: &probe.external,
+            expected_options: probe.options,
+        })
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+    witness
+}
+
+fn replay_rejected_incremental_probe<'a>(name: &str, fixture: &'a Fixture) -> &'a EditValidation {
+    let probe = fixture.incremental.as_ref().expect("incremental probe");
+    let Instance::Graph(graph) = &fixture.instance else {
+        panic!("{name}: incremental corpus probes are graphs");
+    };
+    let plan = Arc::new(fixture.plan());
+    let (mut validated, _) =
+        ValidatedGraph::new(plan, graph.clone(), &fixture.budget, &fixture.external);
+    let dry = validated
+        .check_edit(&probe.edit, &probe.budget, &probe.external)
+        .expect("stored edit applies");
+    let actual = validated.apply_edit_with_options(
+        &probe.edit,
+        probe.policy,
+        &probe.budget,
+        &probe.external,
+        &probe.options,
+    );
+    let IncrementalOutcome::NotAdmitted(stored) = &probe.outcome else {
+        panic!("{name}: stored edit is rejected by admission");
+    };
+    assert_eq!(
+        rmp_serde::to_vec_named(&dry).unwrap(),
+        rmp_serde::to_vec_named(stored).unwrap(),
+        "{name}: stored dry-run validation"
+    );
+    let Err(EditRejection::NotAdmitted { validation }) = actual else {
+        panic!("{name}: replayed edit is rejected by admission");
+    };
+    assert_eq!(
+        rmp_serde::to_vec_named(&validation).unwrap(),
+        rmp_serde::to_vec_named(stored).unwrap(),
+        "{name}: replayed rejected validation"
+    );
+    stored
+}
+
+fn fixture_check_instance(
+    fixture: &Fixture,
+    kind: CheckKind,
+    subject: Option<ViewRef>,
+) -> CheckInstance {
+    let plan = fixture.plan();
+    let mut checks = plan.checks().keys().filter(|check| check.kind == kind);
+    let check = checks
+        .next()
+        .cloned()
+        .unwrap_or_else(|| panic!("{}: plan contains {kind:?}", fixture.name));
+    assert!(
+        checks.next().is_none(),
+        "{}: plan contains one {kind:?} check",
+        fixture.name
+    );
+    CheckInstance { check, subject }
+}
+
+#[test]
+fn endpoint_ordering_and_cycle_repairs_have_replayable_incremental_witnesses() {
+    let fixtures = fixtures();
+    for name in [
+        "endpoints/incremental_repair_kept_edge",
+        "ordering/incremental_repair_duplicate",
+        "ordering/edit_reorder_creates_and_repairs_duplicate",
+        "cycles/edit_breaks_cycle",
+    ] {
+        let witness = replay_incremental_probe(name, &fixtures[name]);
+        assert!(witness.prior.is_some(), "{name}: prior digest");
+        assert!(witness.result.is_some(), "{name}: result digest");
+        assert!(!witness.runs.is_empty(), "{name}: scheduled runs");
+    }
+}
+
+#[test]
+fn ordering_witnesses_retain_the_complete_position_run() {
+    let fixtures = fixtures();
+    for name in [
+        "ordering/incremental_repair_duplicate",
+        "ordering/edit_reorder_creates_and_repairs_duplicate",
+    ] {
+        let fixture = &fixtures[name];
+        let expected =
+            fixture_check_instance(fixture, CheckKind::PositionDistinct, Some(ViewRef::Node(0)));
+        let witness = replay_incremental_probe(name, fixture);
+        let [run] = witness.runs.as_slice() else {
+            panic!("{name}: ordering edit schedules exactly one run");
+        };
+        assert_eq!(
+            run.instance, expected,
+            "{name}: exact PositionDistinct run identity"
+        );
+        assert_eq!(
+            run.reads,
+            vec![
+                ViewRef::Node(0),
+                ViewRef::Edge(EdgeId(0)),
+                ViewRef::Edge(EdgeId(1)),
+            ],
+            "{name}: canonical ordering dependencies"
+        );
+        let RunVerdict::Evaluated {
+            findings,
+            incomplete,
+        } = &run.verdict
+        else {
+            panic!("{name}: ordering run is evaluated");
+        };
+        assert!(findings.is_empty(), "{name}: repaired ordering findings");
+        assert!(
+            incomplete.is_empty(),
+            "{name}: repaired ordering incomplete reasons"
+        );
+    }
+}
+
+fn assert_cycle_close_footprint(
+    name: &str,
+    fixture: &Fixture,
+    close: &EditValidation,
+    acyclic: &CheckInstance,
+) {
+    let endpoint_0 = fixture_check_instance(
+        fixture,
+        CheckKind::EndpointCoherence,
+        Some(ViewRef::Edge(EdgeId(0))),
+    );
+    let endpoint_1 = fixture_check_instance(
+        fixture,
+        CheckKind::EndpointCoherence,
+        Some(ViewRef::Edge(EdgeId(1))),
+    );
+    let endpoint_2 = fixture_check_instance(
+        fixture,
+        CheckKind::EndpointCoherence,
+        Some(ViewRef::Edge(EdgeId(2))),
+    );
+    let declared_2 = fixture_check_instance(
+        fixture,
+        CheckKind::EdgeDeclared,
+        Some(ViewRef::Edge(EdgeId(2))),
+    );
+    assert_eq!(
+        close.footprint.rerun,
+        BTreeSet::from([endpoint_0, endpoint_1, acyclic.clone()]),
+        "{name}: exact rerun set"
+    );
+    assert_eq!(
+        close.footprint.created,
+        BTreeSet::from([declared_2, endpoint_2]),
+        "{name}: exact created set"
+    );
+    assert!(
+        close.footprint.retired.is_empty(),
+        "{name}: no retired checks"
+    );
+    let all_cycle_elements = BTreeSet::from([
+        ViewRef::Node(0),
+        ViewRef::Node(1),
+        ViewRef::Node(2),
+        ViewRef::Edge(EdgeId(0)),
+        ViewRef::Edge(EdgeId(1)),
+        ViewRef::Edge(EdgeId(2)),
+    ]);
+    assert_eq!(
+        close.footprint.reads, all_cycle_elements,
+        "{name}: exact whole-instance dependency union"
+    );
+    assert_eq!(
+        close.footprint.touched,
+        BTreeSet::from([ViewRef::Node(0), ViewRef::Node(2), ViewRef::Edge(EdgeId(2)),]),
+        "{name}: exact delta support"
+    );
+    assert_eq!(
+        close.affected,
+        BTreeSet::from([
+            ViewRef::Node(0),
+            ViewRef::Node(2),
+            ViewRef::Edge(EdgeId(0)),
+            ViewRef::Edge(EdgeId(1)),
+            ViewRef::Edge(EdgeId(2)),
+        ]),
+        "{name}: exact affected carrier"
+    );
+}
+
+fn assert_cycle_close_report(
+    name: &str,
+    fixture: &Fixture,
+    close: &EditValidation,
+    acyclic: &CheckInstance,
+) {
+    assert_eq!(
+        close.report.status,
+        CheckStatus::Failed,
+        "{name}: closing a cycle fails"
+    );
+    assert!(
+        close.report.incomplete.is_empty(),
+        "{name}: cycle result is complete"
+    );
+    let [diagnostic] = close.report.diagnostics.as_slice() else {
+        panic!("{name}: exactly one cycle diagnostic");
+    };
+    assert_eq!(
+        diagnostic.check, acyclic.check,
+        "{name}: exact Acyclic diagnostic identity"
+    );
+    assert_eq!(
+        diagnostic.subject, None,
+        "{name}: Acyclic is a whole-instance check"
+    );
+    assert_eq!(
+        diagnostic.elements,
+        vec![
+            ViewRef::Node(0),
+            ViewRef::Node(1),
+            ViewRef::Node(2),
+            ViewRef::Edge(EdgeId(0)),
+            ViewRef::Edge(EdgeId(1)),
+            ViewRef::Edge(EdgeId(2)),
+        ],
+        "{name}: canonical cycle elements"
+    );
+    assert_eq!(
+        diagnostic.violation,
+        Violation::Cycle {
+            scc: vec![ViewRef::Node(0), ViewRef::Node(1), ViewRef::Node(2)],
+            witness: vec![EdgeId(0), EdgeId(1), EdgeId(2)],
+        },
+        "{name}: exact cycle witness"
+    );
+
+    let probe = fixture
+        .incremental
+        .as_ref()
+        .expect("cycle-closing incremental probe");
+    let Instance::Graph(graph) = &fixture.instance else {
+        panic!("{name}: graph fixture");
+    };
+    let mut target = graph.clone();
+    probe.edit.apply(&mut target).unwrap();
+    let mut full = fixture
+        .plan()
+        .validate_graph(&target, &probe.budget, &probe.external);
+    full.scope = close.report.scope.clone();
+    assert_eq!(
+        close.report.canonical_bytes(),
+        full.canonical_bytes(),
+        "{name}: rejected incremental report equals full validation"
+    );
+}
+
+fn assert_cycle_break(name: &str, fixture: &Fixture) {
+    let expected = fixture_check_instance(fixture, CheckKind::Acyclic, None);
+    let witness = replay_incremental_probe(name, fixture);
+    let [run] = witness.runs.as_slice() else {
+        panic!("{name}: breaking a cycle schedules exactly one run");
+    };
+    assert_eq!(run.instance, expected, "{name}: exact Acyclic run identity");
+    assert_eq!(
+        run.reads,
+        vec![
+            ViewRef::Node(0),
+            ViewRef::Node(1),
+            ViewRef::Node(2),
+            ViewRef::Edge(EdgeId(0)),
+            ViewRef::Edge(EdgeId(1)),
+        ],
+        "{name}: complete post-edit Acyclic trace"
+    );
+    let RunVerdict::Evaluated {
+        findings,
+        incomplete,
+    } = &run.verdict
+    else {
+        panic!("{name}: Acyclic run is evaluated");
+    };
+    assert!(findings.is_empty(), "{name}: cycle is repaired");
+    assert!(
+        incomplete.is_empty(),
+        "{name}: repaired cycle result is complete"
+    );
+}
+
+#[test]
+fn cycle_edits_retain_complete_whole_instance_results() {
+    let fixtures = fixtures();
+    let close_name = "cycles/edit_closes_cycle";
+    let close_fixture = &fixtures[close_name];
+    let acyclic = fixture_check_instance(close_fixture, CheckKind::Acyclic, None);
+    let close = replay_rejected_incremental_probe(close_name, close_fixture);
+    assert_cycle_close_footprint(close_name, close_fixture, close, &acyclic);
+    assert_cycle_close_report(close_name, close_fixture, close, &acyclic);
+    assert_cycle_break(
+        "cycles/edit_breaks_cycle",
+        &fixtures["cycles/edit_breaks_cycle"],
+    );
+}
+
+#[test]
+fn endpoint_and_cycle_breaking_directions_store_incremental_results() {
+    let fixtures = fixtures();
+    for (name, kind) in [
+        (
+            "endpoints/edit_anchor_change_breaks_kept_edge",
+            CheckKind::EndpointCoherence,
+        ),
+        (
+            "endpoints/edit_relabel_breaks_kept_edge",
+            CheckKind::EndpointCoherence,
+        ),
+        ("cycles/edit_closes_cycle", CheckKind::Acyclic),
+    ] {
+        let probe = fixtures[name]
+            .incremental
+            .as_ref()
+            .expect("breaking direction has an incremental result");
+        let IncrementalOutcome::NotAdmitted(validation) = &probe.outcome else {
+            panic!("{name}: breaking edit is rejected by admission");
+        };
+        assert!(
+            validation
+                .report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.check.kind == kind),
+            "{name}: rejected target reports {kind:?}"
+        );
+        assert!(
+            validation
+                .footprint
+                .reads
+                .iter()
+                .any(|read| matches!(read, ViewRef::Edge(_))),
+            "{name}: incremental footprint retains edge dependencies"
+        );
+    }
+}
+
+#[test]
+fn train_benchmark_sequences_retain_multiplicity_and_replay_witnesses() {
+    let fixtures = fixtures();
+    let train: Vec<_> = fixtures
+        .iter()
+        .filter(|(name, _)| name.starts_with("train_benchmark/"))
+        .collect();
+    assert_eq!(train.len(), 6);
+    for (name, fixture) in train {
+        let expected = fixture
+            .expected_violations
+            .as_ref()
+            .expect("train cases store violation tuples");
+        assert_eq!(
+            stored_tuples(&expected.initial),
+            violation_tuples(&fixture.report),
+            "{name}"
+        );
+        assert_eq!(
+            expected.after_edits.len(),
+            fixture.edit_outcomes.len(),
+            "{name}"
+        );
+        for (stored, outcome) in expected.after_edits.iter().zip(&fixture.edit_outcomes) {
+            let now = match outcome {
+                EditOutcome::Applied(report) => violation_tuples(report),
+                EditOutcome::Rejected(_) => Vec::new(),
+            };
+            assert_eq!(stored_tuples(stored), now, "{name}");
+        }
+        if name.ends_with("_inject") {
+            let EditOutcome::Applied(report) = &fixture.edit_outcomes[0] else {
+                panic!("{name}: injection applies in the raw sequence");
+            };
+            assert_eq!(
+                report
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.check.kind == CheckKind::ValueConstraint)
+                    .count(),
+                2,
+                "{name}: repeated violations retain multiplicity"
+            );
+            for kind in [CheckKind::RequiredEdge, CheckKind::Acyclic] {
+                assert!(
+                    report
+                        .diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.check.kind == kind),
+                    "{name}: injected sequence exercises {kind:?}"
+                );
+            }
+            assert!(fixture.incremental.is_none());
+            continue;
+        }
+
+        let witness = replay_incremental_probe(name, fixture);
+        assert!(
+            witness
+                .runs
+                .iter()
+                .any(|run| matches!(run.verdict, RunVerdict::Evaluated { .. })),
+            "{name}"
+        );
+        assert!(
+            witness
+                .runs
+                .iter()
+                .any(|run| matches!(run.verdict, RunVerdict::Skipped { .. })),
+            "{name}"
+        );
+        assert!(
+            witness.runs.iter().all(|run| !run.reads.is_empty()),
+            "{name}: full dependency reads"
+        );
+    }
+}
+
 /// Each case of the corpus by the shapes that write it: its graph, tree and
 /// table cases, `None` where the shape cannot express the case. Tables
 /// hold no edge positions, cycles or fans, and construction refuses a pair
@@ -1789,6 +2586,7 @@ const SHAPES: &[[Option<&str>; 3]] = &[
         None,
     ],
     [Some("endpoints/self_loop_on_non_self_edge"), None, None],
+    [Some("endpoints/incremental_repair_kept_edge"), None, None],
     [
         Some("endpoints/edit_anchor_change_breaks_kept_edge"),
         Some("endpoints/tree_edit_anchor_change_breaks_kept_arc"),
@@ -1838,6 +2636,7 @@ const SHAPES: &[[Option<&str>; 3]] = &[
     [Some("ordering/duplicate_positions"), None, None],
     [Some("ordering/absent_positions_allowed"), None, None],
     [Some("ordering/distinct_positions"), None, None],
+    [Some("ordering/incremental_repair_duplicate"), None, None],
     [
         Some("ordering/edit_reorder_creates_and_repairs_duplicate"),
         None,
@@ -1916,6 +2715,21 @@ const SHAPES: &[[Option<&str>; 3]] = &[
         Some("keys/dangling_foreign_key_lenient"),
     ],
     [
+        Some("keys/graph_within_nested_maps_accept_an_equal_key"),
+        Some("keys/within_nested_maps_accept_an_equal_key"),
+        None,
+    ],
+    [
+        Some("keys/graph_within_one_map_rejects_a_repeated_key"),
+        Some("keys/within_one_map_rejects_a_repeated_key"),
+        None,
+    ],
+    [
+        Some("keys/graph_within_no_enclosing_map_is_outside_the_key"),
+        Some("keys/within_no_enclosing_map_is_outside_the_key"),
+        None,
+    ],
+    [
         Some("incomplete/acyclic_budget"),
         Some("incomplete/tree_budget"),
         Some("incomplete/table_budget"),
@@ -1977,7 +2791,11 @@ fn every_case_is_written_in_every_shape_that_can_express_it() {
     }
     let unlisted: Vec<&String> = fixtures
         .keys()
-        .filter(|n| !listed.contains(n.as_str()))
+        .filter(|name| {
+            !listed.contains(name.as_str())
+                && !name.starts_with("boundary/")
+                && !name.starts_with("train_benchmark/")
+        })
         .collect();
     assert!(unlisted.is_empty(), "fixtures in no case: {unlisted:?}");
 }

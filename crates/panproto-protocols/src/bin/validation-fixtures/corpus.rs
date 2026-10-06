@@ -1,18 +1,21 @@
 //! The validation corpus: its cases, and writing them out.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use panproto_gat::Name;
 use panproto_inst::validation::{
-    ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, Requirement, SchemaRef, SourceLocation,
-    ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport,
+    AdmissionPolicy, EditValidation, EditWitness, ExternalCheckDecl, ExternalVerdict,
+    ExternalVerdicts, Requirement, SchemaRef, SourceLocation, ValidationBudget, ValidationOptions,
+    ValidationPlan, ValidationReport, Violation, WitnessOptions,
 };
 use panproto_inst::{
-    Digest, EdgeId, FInstance, Fan, FieldPresence, GEdge, GInstance, GraphEdit, HYPER_LABEL_KIND,
-    HYPER_PARENT_KIND, Node, NodeShape, RowId, TableEdit, TreeEdit, Value, ViewRef, WInstance,
-    from_node_link_json, to_node_link_json,
+    BoundaryProtocols, BoundarySide, CompiledMigration, Digest, EdgeId, EditRejection, FInstance,
+    Fan, FieldPresence, GEdge, GInstance, GraphEdit, HYPER_LABEL_KIND, HYPER_PARENT_KIND, Node,
+    NodeShape, RestrictError, RowId, TableEdit, TreeEdit, ValidatedGraph, ValidatedShape, Value,
+    ViewRef, WInstance, from_node_link_json, functor_extend, functor_restrict, graph_extend,
+    graph_restrict, to_node_link_json, wtype_extend, wtype_restrict,
 };
 use panproto_schema::{
     Cardinality, Constraint, ConstraintSemantics, Edge, HyperEdge, InstanceShapeKind, Key, KeyPart,
@@ -92,6 +95,106 @@ enum EditOutcome {
     Rejected(String),
 }
 
+/// A restrict or extend operation represented by a boundary fixture.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BoundaryOperation {
+    GraphRestrict,
+    GraphExtend,
+    TreeRestrict,
+    TreeExtend,
+    TableRestrict,
+    TableExtend,
+}
+
+/// The expected result of one boundary operation.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BoundaryOutcome {
+    Passed(Instance),
+    Validation {
+        side: BoundarySide,
+        report: ValidationReport,
+    },
+    Rejected(String),
+}
+
+/// The target side and expected result of one boundary operation. The
+/// fixture's top-level schema and instance are its source side and input.
+#[derive(Serialize)]
+struct BoundaryTransition {
+    operation: BoundaryOperation,
+    target_schema: Schema,
+    migration: BoundaryMigration,
+    outcome: BoundaryOutcome,
+}
+
+/// The canonical subset of a migration used by the boundary corpus.
+#[derive(Serialize)]
+struct BoundaryMigration {
+    surviving_verts: BTreeSet<Name>,
+    surviving_edges: BTreeSet<Edge>,
+    vertex_remap: BTreeMap<Name, Name>,
+    edge_remap: BTreeMap<Edge, Edge>,
+}
+
+impl BoundaryMigration {
+    fn from_compiled(migration: &CompiledMigration) -> Self {
+        Self {
+            surviving_verts: migration.surviving_verts.iter().cloned().collect(),
+            surviving_edges: migration.surviving_edges.iter().cloned().collect(),
+            vertex_remap: migration
+                .vertex_remap
+                .iter()
+                .map(|(source, target)| (source.clone(), target.clone()))
+                .collect(),
+            edge_remap: migration
+                .edge_remap
+                .iter()
+                .map(|(source, target)| (source.clone(), target.clone()))
+                .collect(),
+        }
+    }
+}
+
+/// The expected incremental result of one Train-Benchmark repair.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum IncrementalOutcome {
+    Applied {
+        validation: EditValidation,
+        witness: EditWitness,
+    },
+    NotAdmitted(EditValidation),
+    ApplyError(String),
+}
+
+/// A fully replayable incremental probe stored beside a raw edit trace.
+#[derive(Serialize)]
+struct IncrementalProbe {
+    edit: GraphEdit,
+    policy: AdmissionPolicy,
+    budget: ValidationBudget,
+    external: ExternalVerdicts,
+    options: WitnessOptions,
+    outcome: IncrementalOutcome,
+}
+
+/// One expected violation tuple. A vector of these retains multiplicity.
+#[derive(Serialize)]
+struct ViolationTuple {
+    check: panproto_inst::validation::CheckKind,
+    subject: Option<ViewRef>,
+    violation: Violation,
+}
+
+/// Initial and per-edit violation tuples for one generated sequence.
+#[derive(Serialize)]
+struct ViolationSequence {
+    initial: Vec<ViolationTuple>,
+    after_edits: Vec<Vec<ViolationTuple>>,
+}
+
 /// One validation case as it is written to disk.
 #[derive(Serialize)]
 struct Fixture {
@@ -119,6 +222,15 @@ struct Fixture {
     /// What each edit of the trace did, in order: the report validating the
     /// instance after it gives, or the error applying it gives.
     edit_outcomes: Vec<EditOutcome>,
+    /// Restrict or extend boundary operation, only for boundary fixtures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boundary: Option<BoundaryTransition>,
+    /// Incremental repair and witness, only for Train-Benchmark fixtures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    incremental: Option<IncrementalProbe>,
+    /// Expected diagnostic tuples with multiplicity, only for the train corpus.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected_violations: Option<ViolationSequence>,
 }
 
 /// One instance that decoding rejects, as one encoding's file holds it.
@@ -361,6 +473,66 @@ struct Case {
     external: ExternalVerdicts,
     instance: Instance,
     edits: Option<EditTrace>,
+    boundary: Option<BoundaryTransition>,
+    incremental: Option<IncrementalRequest>,
+    record_violation_tuples: bool,
+    protocol: Option<Protocol>,
+}
+
+/// Inputs from which the generator computes an incremental probe.
+struct IncrementalRequest {
+    edit: GraphEdit,
+    policy: AdmissionPolicy,
+    budget: ValidationBudget,
+    external: ExternalVerdicts,
+    options: WitnessOptions,
+}
+
+fn make_incremental_probe(
+    plan: &ValidationPlan,
+    instance: &Instance,
+    initial_budget: &ValidationBudget,
+    initial_external: &ExternalVerdicts,
+    request: Option<&IncrementalRequest>,
+) -> R<Option<IncrementalProbe>> {
+    let Some(request) = request else {
+        return Ok(None);
+    };
+    let Instance::Graph(graph) = instance else {
+        return Err("incremental fixture probe is not a graph".into());
+    };
+    let (mut validated, _) = ValidatedGraph::new(
+        std::sync::Arc::new(plan.clone()),
+        graph.clone(),
+        initial_budget,
+        initial_external,
+    );
+    let validation = validated.check_edit(&request.edit, &request.budget, &request.external);
+    let outcome = match validated.apply_edit_with_options(
+        &request.edit,
+        request.policy,
+        &request.budget,
+        &request.external,
+        &request.options,
+    ) {
+        Ok(witness) => IncrementalOutcome::Applied {
+            validation: validation?,
+            witness,
+        },
+        Err(EditRejection::NotAdmitted { validation }) => {
+            IncrementalOutcome::NotAdmitted(*validation)
+        }
+        Err(EditRejection::Apply(error)) => IncrementalOutcome::ApplyError(error.to_string()),
+        Err(error) => IncrementalOutcome::ApplyError(error.to_string()),
+    };
+    Ok(Some(IncrementalProbe {
+        edit: request.edit.clone(),
+        policy: request.policy,
+        budget: request.budget,
+        external: request.external.clone(),
+        options: request.options,
+        outcome,
+    }))
 }
 
 impl Case {
@@ -381,6 +553,10 @@ impl Case {
             external: ExternalVerdicts::default(),
             instance,
             edits: None,
+            boundary: None,
+            incremental: None,
+            record_violation_tuples: false,
+            protocol: None,
         }
     }
 
@@ -390,11 +566,32 @@ impl Case {
         self
     }
 
+    /// Attach a generated restrict or extend boundary result.
+    fn with_boundary(mut self, boundary: BoundaryTransition) -> Self {
+        self.boundary = Some(boundary);
+        self
+    }
+
+    /// Attach a generated incremental probe and explicit violation tuples.
+    fn with_incremental(mut self, incremental: IncrementalRequest) -> Self {
+        self.incremental = Some(incremental);
+        self.record_violation_tuples = true;
+        self
+    }
+
+    /// Use a case-specific protocol instead of the ordinary fixture protocol.
+    fn with_protocol(mut self, protocol: Protocol) -> Self {
+        self.protocol = Some(protocol);
+        self
+    }
+
     /// The fixture: the case, the report validation gives, and what each
     /// edit of its trace does. An edit that fails leaves the instance as it
     /// was for the edits after it.
     fn validate(self) -> R<Fixture> {
-        let protocol = fixture_protocol(self.syntactic);
+        let protocol = self
+            .protocol
+            .unwrap_or_else(|| fixture_protocol(self.syntactic));
         let plan = ValidationPlan::compile(&self.schema, &protocol, &self.options);
         let validate = |instance: &Instance| match instance {
             Instance::Graph(g) => plan.validate_graph(g, &self.budget, &self.external),
@@ -402,6 +599,13 @@ impl Case {
             Instance::Table(f) => plan.validate_table(f, &self.budget, &self.external),
         };
         let report = validate(&self.instance);
+        let incremental = make_incremental_probe(
+            &plan,
+            &self.instance,
+            &self.budget,
+            &self.external,
+            self.incremental.as_ref(),
+        )?;
         let edit_trace = self
             .edits
             .unwrap_or_else(|| EditTrace::none_for(&self.instance));
@@ -417,6 +621,27 @@ impl Case {
                 Err(error) => EditOutcome::Rejected(error),
             });
         }
+        let tuples = |report: &ValidationReport| {
+            report
+                .diagnostics
+                .iter()
+                .map(|diagnostic| ViolationTuple {
+                    check: diagnostic.check.kind,
+                    subject: diagnostic.subject.clone(),
+                    violation: diagnostic.violation.clone(),
+                })
+                .collect()
+        };
+        let expected_violations = self.record_violation_tuples.then(|| ViolationSequence {
+            initial: tuples(&report),
+            after_edits: edit_outcomes
+                .iter()
+                .map(|outcome| match outcome {
+                    EditOutcome::Applied(report) => tuples(report),
+                    EditOutcome::Rejected(_) => Vec::new(),
+                })
+                .collect(),
+        });
         Ok(Fixture {
             name: self.name,
             protocol: protocol.name.clone(),
@@ -429,6 +654,9 @@ impl Case {
             instance: self.instance,
             report,
             edit_outcomes,
+            boundary: self.boundary,
+            incremental,
+            expected_violations,
         })
     }
 }
@@ -459,6 +687,407 @@ fn tree(nodes: Vec<Node>, arcs: &[(u32, u32, &Edge)], fans: Vec<Fan>) -> WInstan
         0,
         root_anchor,
     )
+}
+
+fn boundary_outcome<T>(
+    result: Result<T, RestrictError>,
+    wrap: impl FnOnce(T) -> Instance,
+) -> BoundaryOutcome {
+    match result {
+        Ok(output) => BoundaryOutcome::Passed(wrap(output)),
+        Err(RestrictError::Validation { side, report }) => BoundaryOutcome::Validation {
+            side,
+            report: *report,
+        },
+        Err(error) => BoundaryOutcome::Rejected(error.to_string()),
+    }
+}
+
+fn boundary_transition(
+    operation: BoundaryOperation,
+    source: &Schema,
+    target: &Schema,
+    migration: &CompiledMigration,
+    input: &Instance,
+    protocol: &Protocol,
+) -> R<BoundaryTransition> {
+    let protocols = BoundaryProtocols {
+        src: protocol,
+        tgt: protocol,
+    };
+    let outcome = match (operation, input) {
+        (BoundaryOperation::GraphRestrict, Instance::Graph(graph)) => boundary_outcome(
+            graph_restrict(graph, source, target, migration, protocols),
+            Instance::Graph,
+        ),
+        (BoundaryOperation::GraphExtend, Instance::Graph(graph)) => boundary_outcome(
+            graph_extend(graph, source, target, migration, protocols),
+            Instance::Graph,
+        ),
+        (BoundaryOperation::TreeRestrict, Instance::Tree(tree)) => boundary_outcome(
+            wtype_restrict(tree, source, target, migration, protocols),
+            Instance::Tree,
+        ),
+        (BoundaryOperation::TreeExtend, Instance::Tree(tree)) => boundary_outcome(
+            wtype_extend(tree, source, target, migration, protocols),
+            Instance::Tree,
+        ),
+        (BoundaryOperation::TableRestrict, Instance::Table(table)) => boundary_outcome(
+            functor_restrict(table, source, target, migration, protocols),
+            Instance::Table,
+        ),
+        (BoundaryOperation::TableExtend, Instance::Table(table)) => boundary_outcome(
+            functor_extend(table, source, target, migration, protocols),
+            Instance::Table,
+        ),
+        _ => return Err("boundary operation and input shape disagree".into()),
+    };
+    Ok(BoundaryTransition {
+        operation,
+        target_schema: target.clone(),
+        migration: BoundaryMigration::from_compiled(migration),
+        outcome,
+    })
+}
+
+fn structural_boundary_cases(
+    child: &Edge,
+    source: &Schema,
+    target: &Schema,
+    drop_child: CompiledMigration,
+    keep_all: CompiledMigration,
+) -> R<Vec<Case>> {
+    let graph_with_child = Instance::Graph(graph(
+        vec![Node::new(0, "root"), Node::new(1, "child")],
+        &[(0, 1, child)],
+    ));
+    let graph_lone = Instance::Graph(GInstance::new().with_node(Node::new(0, "root")));
+    let tree_with_child = Instance::Tree(tree(
+        vec![Node::new(0, "root"), Node::new(1, "child")],
+        &[(0, 1, child)],
+        Vec::new(),
+    ));
+    let tree_lone = Instance::Tree(tree(vec![Node::new(0, "root")], &[], Vec::new()));
+    let mut cases = Vec::new();
+    for (name, operation, input, migration) in [
+        (
+            "boundary/graph_restrict_output",
+            BoundaryOperation::GraphRestrict,
+            graph_with_child,
+            drop_child.clone(),
+        ),
+        (
+            "boundary/graph_extend_output",
+            BoundaryOperation::GraphExtend,
+            graph_lone,
+            keep_all.clone(),
+        ),
+    ] {
+        let protocol = fixture_protocol(InstanceShapeKind::Graph);
+        let transition =
+            boundary_transition(operation, source, target, &migration, &input, &protocol)?;
+        cases.push(Case::new(name, source.clone(), input).with_boundary(transition));
+    }
+    for (name, operation, input, migration) in [
+        (
+            "boundary/tree_restrict_output",
+            BoundaryOperation::TreeRestrict,
+            tree_with_child,
+            drop_child,
+        ),
+        (
+            "boundary/tree_extend_output",
+            BoundaryOperation::TreeExtend,
+            tree_lone,
+            keep_all,
+        ),
+    ] {
+        let protocol = fixture_protocol(InstanceShapeKind::Tree);
+        let transition =
+            boundary_transition(operation, source, target, &migration, &input, &protocol)?;
+        cases.push(Case::new(name, source.clone(), input).with_boundary(transition));
+    }
+    Ok(cases)
+}
+
+fn table_boundary_cases() -> R<Vec<Case>> {
+    let table_relation = edge("record", "child", "fk", "child");
+    let table_source = S::default()
+        .vertex("record", "table")
+        .vertex("child", "table")
+        .edge(&table_relation)
+        .build();
+    let table_target = S::default()
+        .vertex("record", "table")
+        .vertex("child", "table")
+        .edge(&table_relation)
+        .required("record", &table_relation)
+        .build();
+    let table = Instance::Table(
+        FInstance::new()
+            .with_rows("record", [(RowId(0), HashMap::new())])?
+            .with_rows("child", [(RowId(1), HashMap::new())])?,
+    );
+    let mut keep_table = CompiledMigration::default();
+    keep_table
+        .surviving_verts
+        .extend([Name::from("record"), Name::from("child")]);
+    keep_table.surviving_edges.insert(table_relation);
+    let table_protocol = Protocol {
+        name: "validation-fixtures-table-boundary".into(),
+        syntactic_shape: InstanceShapeKind::Table,
+        semantic_shape: InstanceShapeKind::Graph,
+        non_value_kinds: BTreeSet::from(["table".into()]),
+        ..Protocol::default()
+    };
+
+    let mut cases = Vec::new();
+    for (name, operation) in [
+        (
+            "boundary/table_restrict_output",
+            BoundaryOperation::TableRestrict,
+        ),
+        (
+            "boundary/table_extend_output",
+            BoundaryOperation::TableExtend,
+        ),
+    ] {
+        let transition = boundary_transition(
+            operation,
+            &table_source,
+            &table_target,
+            &keep_table,
+            &table,
+            &table_protocol,
+        )?;
+        cases.push(
+            Case::new(name, table_source.clone(), table.clone())
+                .with_boundary(transition)
+                .with_protocol(table_protocol.clone()),
+        );
+    }
+    Ok(cases)
+}
+
+/// Restrict and extend boundary failures in every instance shape. Each input
+/// passes its source plan and the generated output fails the target plan.
+fn boundary() -> R<Vec<Case>> {
+    let child = prop("root", "child", "child");
+    let source = S::default()
+        .vertex("root", "object")
+        .vertex("child", "object")
+        .edge(&child)
+        .build();
+    let target = S::default()
+        .vertex("root", "object")
+        .vertex("child", "object")
+        .edge(&child)
+        .required("root", &child)
+        .build();
+    let mut drop_child = CompiledMigration::default();
+    drop_child.surviving_verts.insert("root".into());
+    let mut keep_all = CompiledMigration::default();
+    keep_all
+        .surviving_verts
+        .extend([Name::from("root"), Name::from("child")]);
+    keep_all.surviving_edges.insert(child.clone());
+
+    let mut cases = structural_boundary_cases(&child, &source, &target, drop_child, keep_all)?;
+    cases.extend(table_boundary_cases()?);
+    Ok(cases)
+}
+
+/// Train-Benchmark-shaped fault injection and repair sequences. The repair
+/// additionally records an admitted finite-budget witness with evaluated
+/// and skipped external runs.
+fn witness_cut_budget(
+    plan: &ValidationPlan,
+    invalid: &GInstance,
+    repair: &GraphEdit,
+    external: &ExternalVerdicts,
+) -> R<ValidationBudget> {
+    let (validated, _) = ValidatedGraph::new(
+        std::sync::Arc::new(plan.clone()),
+        invalid.clone(),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    let validation = validated.check_edit(repair, &ValidationBudget::default(), external)?;
+    let delta = repair.to_delta()?;
+    let mut post = invalid.clone();
+    delta.apply(&mut post)?;
+    let scheduled: Vec<_> = validation
+        .footprint
+        .rerun
+        .union(&validation.footprint.created)
+        .collect();
+    let Some(last) = scheduled.last() else {
+        return Err("the Train-Benchmark repair schedules no checks".into());
+    };
+    if last.check.kind != panproto_inst::validation::CheckKind::External {
+        return Err("the Train-Benchmark cut must end in an external check".into());
+    }
+    let max_reads = scheduled[..scheduled.len() - 1]
+        .iter()
+        .map(|instance| post.reads(plan, external, instance).len() as u64)
+        .sum();
+    Ok(ValidationBudget {
+        max_reads: Some(max_reads),
+    })
+}
+
+fn train_graph(size: u32, child: &Edge, next: &Edge) -> (GInstance, GEdge, EdgeId, GEdge) {
+    let present = |text: &str| FieldPresence::Present(Value::Str(text.into()));
+    let mut valid = GInstance::new();
+    for id in 0..size {
+        valid = valid
+            .with_node(Node::new(id, "item").with_value(present("ok")))
+            .with_node(Node::new(size + id, "child"));
+    }
+    for id in 0..size {
+        valid = valid.with_edge_id(EdgeId(id), id, size + id, child.clone());
+        if id + 1 < size {
+            valid = valid.with_edge_id(EdgeId(size + id), id, id + 1, next.clone());
+        }
+    }
+    (
+        valid,
+        GEdge::new(0, size, child.clone()),
+        EdgeId(size.saturating_mul(2)),
+        GEdge::new(size - 1, 0, next.clone()),
+    )
+}
+
+fn train_edits(
+    required_edge: &GEdge,
+    closing_id: EdgeId,
+    closing_edge: &GEdge,
+) -> (GraphEdit, GraphEdit) {
+    let present = |text: &str| FieldPresence::Present(Value::Str(text.into()));
+    (
+        GraphEdit::Batch(vec![
+            GraphEdit::SetValue {
+                node: 0,
+                old: Some(present("ok")),
+                new: Some(present("broken")),
+            },
+            GraphEdit::SetValue {
+                node: 1,
+                old: Some(present("ok")),
+                new: Some(present("broken")),
+            },
+            GraphEdit::RemoveEdge {
+                id: EdgeId(0),
+                edge: required_edge.clone(),
+            },
+            GraphEdit::AddEdge {
+                id: closing_id,
+                edge: closing_edge.clone(),
+            },
+        ]),
+        GraphEdit::Batch(vec![
+            GraphEdit::SetValue {
+                node: 0,
+                old: Some(present("broken")),
+                new: Some(present("ok")),
+            },
+            GraphEdit::SetValue {
+                node: 1,
+                old: Some(present("broken")),
+                new: Some(present("ok")),
+            },
+            GraphEdit::AddEdge {
+                id: EdgeId(0),
+                edge: required_edge.clone(),
+            },
+            GraphEdit::RemoveEdge {
+                id: closing_id,
+                edge: closing_edge.clone(),
+            },
+        ]),
+    )
+}
+
+fn train_external() -> ExternalVerdicts {
+    let mut external = ExternalVerdicts::default();
+    for (name, passed, byte) in [("audit", false, 7), ("tail", true, 8)] {
+        external.insert(
+            name.into(),
+            ViewRef::Node(0),
+            ExternalVerdict {
+                passed,
+                witness: Digest([byte; 32]),
+            },
+        );
+    }
+    external
+}
+
+fn train_benchmark() -> R<Vec<Case>> {
+    let child = prop("item", "child", "child");
+    let next = prop("item", "item", "next");
+    let schema = S::default()
+        .vertex("item", "object")
+        .vertex("child", "object")
+        .edge(&child)
+        .edge(&next)
+        .required("item", &child)
+        .constraint("item", "maxLength", "3")
+        .constraint("item", "acyclic", "next")
+        .build();
+    let options = ValidationOptions {
+        external: ["audit", "tail"]
+            .into_iter()
+            .map(|name| {
+                (
+                    name.into(),
+                    ExternalCheckDecl {
+                        name: name.into(),
+                        anchors: BTreeSet::from(["item".into()]),
+                        requirement: Requirement::Advisory,
+                    },
+                )
+            })
+            .collect(),
+        ..ValidationOptions::default()
+    };
+    let mut cases = Vec::new();
+    for size in [4_u32, 32, 256] {
+        let (valid, required_edge, closing_id, closing_edge) = train_graph(size, &child, &next);
+        let (inject, repair) = train_edits(&required_edge, closing_id, &closing_edge);
+        let mut inject_case = Case::new(
+            format!("train_benchmark/{size}_inject"),
+            schema.clone(),
+            Instance::Graph(valid.clone()),
+        )
+        .with_edits(EditTrace::Graph(vec![inject.clone()]));
+        inject_case.options = options.clone();
+        inject_case.record_violation_tuples = true;
+        cases.push(inject_case);
+
+        let mut invalid = valid.clone();
+        inject.apply(&mut invalid)?;
+        let external = train_external();
+        let protocol = fixture_protocol(InstanceShapeKind::Graph);
+        let plan = ValidationPlan::compile(&schema, &protocol, &options);
+        let budget = witness_cut_budget(&plan, &invalid, &repair, &external)?;
+        let mut repair_case = Case::new(
+            format!("train_benchmark/{size}_repair"),
+            schema.clone(),
+            Instance::Graph(invalid),
+        )
+        .with_edits(EditTrace::Graph(vec![repair.clone()]))
+        .with_incremental(IncrementalRequest {
+            edit: repair,
+            policy: AdmissionPolicy::RequirePassed,
+            budget,
+            external,
+            options: WitnessOptions { digests: true },
+        });
+        repair_case.options = options.clone();
+        cases.push(repair_case);
+    }
+    Ok(cases)
 }
 
 /// The probe schema: a person works at an organization, must, and has a
@@ -538,6 +1167,18 @@ fn anchors() -> R<Vec<Case>> {
     ])
 }
 
+/// The incremental probe of `edit` under `RequirePassed`, an unlimited
+/// budget, no external verdicts and both instance digests.
+fn passing_digest_probe(edit: GraphEdit) -> IncrementalRequest {
+    IncrementalRequest {
+        edit,
+        policy: AdmissionPolicy::RequirePassed,
+        budget: ValidationBudget::default(),
+        external: ExternalVerdicts::default(),
+        options: WitnessOptions { digests: true },
+    }
+}
+
 /// Edits that break a kept edge or arc, by changing its target's anchor or
 /// its label, in graphs and trees.
 fn endpoint_edits() -> R<Vec<Case>> {
@@ -566,7 +1207,22 @@ fn endpoint_edits() -> R<Vec<Case>> {
             vec![],
         )
     };
+    let endpoint_repair = GraphEdit::RelabelNode {
+        node: 1,
+        old_anchor: "a".into(),
+        new_anchor: "b".into(),
+    };
     Ok(vec![
+        Case::new(
+            "endpoints/incremental_repair_kept_edge",
+            schema.clone(),
+            Instance::Graph(graph(
+                vec![Node::new(0, "a"), Node::new(1, "a")],
+                &[(0, 1, &ab)],
+            )),
+        )
+        .with_edits(EditTrace::Graph(vec![endpoint_repair.clone()]))
+        .with_incremental(passing_digest_probe(endpoint_repair)),
         Case::new(
             "endpoints/edit_anchor_change_breaks_kept_edge",
             schema.clone(),
@@ -576,7 +1232,12 @@ fn endpoint_edits() -> R<Vec<Case>> {
             node: 1,
             old_anchor: "b".into(),
             new_anchor: "a".into(),
-        }])),
+        }]))
+        .with_incremental(passing_digest_probe(GraphEdit::RelabelNode {
+            node: 1,
+            old_anchor: "b".into(),
+            new_anchor: "a".into(),
+        })),
         Case::new(
             "endpoints/edit_relabel_breaks_kept_edge",
             both_ways.clone(),
@@ -586,7 +1247,12 @@ fn endpoint_edits() -> R<Vec<Case>> {
             id: kept,
             old: ab.clone(),
             new: ba.clone(),
-        }])),
+        }]))
+        .with_incremental(passing_digest_probe(GraphEdit::RelabelEdge {
+            id: kept,
+            old: ab.clone(),
+            new: ba.clone(),
+        })),
         Case::new(
             "endpoints/tree_edit_anchor_change_breaks_kept_arc",
             schema,
@@ -841,13 +1507,38 @@ fn ordering() -> R<Vec<Case>> {
             new: Some(1),
         },
     ];
+    let repair = GraphEdit::SetEdgePosition {
+        id: second,
+        old: Some(0),
+        new: Some(1),
+    };
     Ok(vec![
+        Case::new(
+            "ordering/incremental_repair_duplicate",
+            schema.clone(),
+            Instance::Graph(positioned([Some(0), Some(0)])?),
+        )
+        .with_edits(EditTrace::Graph(vec![repair.clone()]))
+        .with_incremental(IncrementalRequest {
+            edit: repair,
+            policy: AdmissionPolicy::RequirePassed,
+            budget: ValidationBudget::default(),
+            external: ExternalVerdicts::default(),
+            options: WitnessOptions { digests: true },
+        }),
         Case::new(
             "ordering/edit_reorder_creates_and_repairs_duplicate",
             schema.clone(),
             Instance::Graph(distinct),
         )
-        .with_edits(EditTrace::Graph(reorder)),
+        .with_edits(EditTrace::Graph(reorder.clone()))
+        .with_incremental(IncrementalRequest {
+            edit: GraphEdit::Batch(reorder),
+            policy: AdmissionPolicy::RequirePassed,
+            budget: ValidationBudget::default(),
+            external: ExternalVerdicts::default(),
+            options: WitnessOptions { digests: true },
+        }),
         Case::new(
             "ordering/duplicate_positions",
             schema.clone(),
@@ -903,13 +1594,32 @@ fn cycle_edits() -> R<Vec<Case>> {
         .with_edits(EditTrace::Graph(vec![GraphEdit::AddEdge {
             id: EdgeId(free_id),
             edge: GEdge::new(2, 0, next.clone()),
-        }])),
-        Case::new("cycles/edit_breaks_cycle", acyclic, Instance::Graph(closed)).with_edits(
-            EditTrace::Graph(vec![GraphEdit::RemoveEdge {
+        }]))
+        .with_incremental(IncrementalRequest {
+            edit: GraphEdit::AddEdge {
+                id: EdgeId(free_id),
+                edge: GEdge::new(2, 0, next.clone()),
+            },
+            policy: AdmissionPolicy::RequirePassed,
+            budget: ValidationBudget::default(),
+            external: ExternalVerdicts::default(),
+            options: WitnessOptions { digests: true },
+        }),
+        Case::new("cycles/edit_breaks_cycle", acyclic, Instance::Graph(closed))
+            .with_edits(EditTrace::Graph(vec![GraphEdit::RemoveEdge {
                 id: closing,
-                edge: closing_edge,
-            }]),
-        ),
+                edge: closing_edge.clone(),
+            }]))
+            .with_incremental(IncrementalRequest {
+                edit: GraphEdit::RemoveEdge {
+                    id: closing,
+                    edge: closing_edge,
+                },
+                policy: AdmissionPolicy::RequirePassed,
+                budget: ValidationBudget::default(),
+                external: ExternalVerdicts::default(),
+                options: WitnessOptions { digests: true },
+            }),
         Case::new(
             "cycles/tree_edit_moves_subtree_under_its_own_descendant",
             free_tree_schema(),
@@ -1466,7 +2176,126 @@ fn keys() -> R<Vec<Case>> {
         ));
         out.push(Case::new(name(""), schema, Instance::Table(table)));
     }
+    out.extend(within_map_keys());
     Ok(out)
+}
+
+/// A self-embedding map-in-map schema whose entry key is unique within the
+/// nearest enclosing map: maps hold entries, and an entry holds its key and
+/// may hold a nested map as its value.
+fn map_in_map() -> (Schema, Edge, Edge, Edge) {
+    let entries = prop("map", "entry", "entries");
+    let value = prop("entry", "map", "value");
+    let key = prop("entry", "key", "key");
+    let mut schema = S::default()
+        .vertex("map", "object")
+        .vertex("entry", "object")
+        .vertex("key", "string")
+        .edge(&entries)
+        .edge(&value)
+        .edge(&key)
+        .build();
+    schema.declarations.insert_key(
+        "entry".into(),
+        Key {
+            id: "entry_key".into(),
+            parts: vec![KeyPart::Path(vec![key.clone()])],
+            role: KeyRole::Unique,
+            scope: KeyScope::Within("map".into()),
+        },
+    );
+    (schema, entries, value, key)
+}
+
+/// Keys scoped within the nearest enclosing map, as trees and graphs: an
+/// equal key in an inner and an outer map (accepted), the same key twice in
+/// one map (rejected), and entries with no enclosing map, which are outside
+/// the key and reported by an advisory observation each (accepted).
+fn within_map_keys() -> Vec<Case> {
+    let (schema, entries, value, key) = map_in_map();
+    let text = |id: u32| valued(id, "key", Value::Str("a".into()));
+    let nested_nodes = || {
+        vec![
+            Node::new(0, "map"),
+            Node::new(1, "entry"),
+            text(2),
+            Node::new(3, "map"),
+            Node::new(4, "entry"),
+            text(5),
+        ]
+    };
+    let nested_arcs = [
+        (0, 1, &entries),
+        (1, 2, &key),
+        (1, 3, &value),
+        (3, 4, &entries),
+        (4, 5, &key),
+    ];
+    let twice_nodes = || {
+        vec![
+            Node::new(0, "map"),
+            Node::new(1, "entry"),
+            text(2),
+            Node::new(3, "entry"),
+            text(4),
+        ]
+    };
+    let twice_arcs = [
+        (0, 1, &entries),
+        (1, 2, &key),
+        (0, 3, &entries),
+        (3, 4, &key),
+    ];
+    // The root entry has no enclosing map; its nested map holds an entry
+    // with the same key, which is in scope.
+    let outside_nodes = || {
+        vec![
+            Node::new(0, "entry"),
+            text(1),
+            Node::new(2, "map"),
+            Node::new(3, "entry"),
+            text(4),
+        ]
+    };
+    let outside_arcs = [(0, 1, &key), (0, 2, &value), (2, 3, &entries), (3, 4, &key)];
+    let mut outside_graph = graph(outside_nodes(), &outside_arcs);
+    // A second entry outside every map, with the same key as the root.
+    outside_graph = outside_graph
+        .with_node(Node::new(5, "entry"))
+        .with_node(text(6))
+        .with_edge(5, 6, key.clone());
+    vec![
+        Case::new(
+            "keys/within_nested_maps_accept_an_equal_key",
+            schema.clone(),
+            Instance::Tree(tree(nested_nodes(), &nested_arcs, vec![])),
+        ),
+        Case::new(
+            "keys/graph_within_nested_maps_accept_an_equal_key",
+            schema.clone(),
+            Instance::Graph(graph(nested_nodes(), &nested_arcs)),
+        ),
+        Case::new(
+            "keys/within_one_map_rejects_a_repeated_key",
+            schema.clone(),
+            Instance::Tree(tree(twice_nodes(), &twice_arcs, vec![])),
+        ),
+        Case::new(
+            "keys/graph_within_one_map_rejects_a_repeated_key",
+            schema.clone(),
+            Instance::Graph(graph(twice_nodes(), &twice_arcs)),
+        ),
+        Case::new(
+            "keys/within_no_enclosing_map_is_outside_the_key",
+            schema.clone(),
+            Instance::Tree(tree(outside_nodes(), &outside_arcs, vec![])),
+        ),
+        Case::new(
+            "keys/graph_within_no_enclosing_map_is_outside_the_key",
+            schema,
+            Instance::Graph(outside_graph),
+        ),
+    ]
 }
 
 /// The application check `audit`, about every item.
@@ -2198,6 +3027,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         tree_and_table_cardinality()?,
         tree_incomplete(),
         table_incomplete()?,
+        boundary()?,
+        train_benchmark()?,
     ];
     for case in cases.into_iter().flatten() {
         let fixture = case.validate()?;

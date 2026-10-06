@@ -1,0 +1,590 @@
+{
+  "name": "keys/graph_within_no_enclosing_map_is_outside_the_key",
+  "protocol": "validation-fixtures-graph",
+  "protocol_definition": {
+    "name": "validation-fixtures-graph",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "graph",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "entry": {
+        "id": "entry",
+        "kind": "object",
+        "nsid": null
+      },
+      "key": {
+        "id": "key",
+        "kind": "string",
+        "nsid": null
+      },
+      "map": {
+        "id": "map",
+        "kind": "object",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "entry",
+          "tgt": "key",
+          "kind": "prop",
+          "name": "key"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "entry",
+          "tgt": "map",
+          "kind": "prop",
+          "name": "value"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "map",
+          "tgt": "entry",
+          "kind": "prop",
+          "name": "entries"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "entry": [
+        {
+          "src": "entry",
+          "tgt": "map",
+          "kind": "prop",
+          "name": "value"
+        },
+        {
+          "src": "entry",
+          "tgt": "key",
+          "kind": "prop",
+          "name": "key"
+        }
+      ],
+      "map": [
+        {
+          "src": "map",
+          "tgt": "entry",
+          "kind": "prop",
+          "name": "entries"
+        }
+      ]
+    },
+    "incoming": {
+      "entry": [
+        {
+          "src": "map",
+          "tgt": "entry",
+          "kind": "prop",
+          "name": "entries"
+        }
+      ],
+      "key": [
+        {
+          "src": "entry",
+          "tgt": "key",
+          "kind": "prop",
+          "name": "key"
+        }
+      ],
+      "map": [
+        {
+          "src": "entry",
+          "tgt": "map",
+          "kind": "prop",
+          "name": "value"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "entry",
+          "key"
+        ],
+        [
+          {
+            "src": "entry",
+            "tgt": "key",
+            "kind": "prop",
+            "name": "key"
+          }
+        ]
+      ],
+      [
+        [
+          "entry",
+          "map"
+        ],
+        [
+          {
+            "src": "entry",
+            "tgt": "map",
+            "kind": "prop",
+            "name": "value"
+          }
+        ]
+      ],
+      [
+        [
+          "map",
+          "entry"
+        ],
+        [
+          {
+            "src": "map",
+            "tgt": "entry",
+            "kind": "prop",
+            "name": "entries"
+          }
+        ]
+      ]
+    ],
+    "declarations": {
+      "keys": {
+        "entry": [
+          {
+            "id": "entry_key",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "entry",
+                    "tgt": "key",
+                    "kind": "prop",
+                    "name": "key"
+                  }
+                ]
+              }
+            ],
+            "role": "unique",
+            "scope": {
+              "within": "map"
+            }
+          }
+        ]
+      },
+      "references": {}
+    }
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "graph": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "entry",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "1": {
+          "id": 1,
+          "anchor": "key",
+          "value": {
+            "Present": {
+              "Str": "a"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "2": {
+          "id": 2,
+          "anchor": "map",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "3": {
+          "id": 3,
+          "anchor": "entry",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "4": {
+          "id": 4,
+          "anchor": "key",
+          "value": {
+            "Present": {
+              "Str": "a"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "5": {
+          "id": 5,
+          "anchor": "entry",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "6": {
+          "id": 6,
+          "anchor": "key",
+          "value": {
+            "Present": {
+              "Str": "a"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "edges": {
+        "0": {
+          "src": 0,
+          "tgt": 1,
+          "edge": {
+            "src": "entry",
+            "tgt": "key",
+            "kind": "prop",
+            "name": "key"
+          },
+          "position": null
+        },
+        "1": {
+          "src": 0,
+          "tgt": 2,
+          "edge": {
+            "src": "entry",
+            "tgt": "map",
+            "kind": "prop",
+            "name": "value"
+          },
+          "position": null
+        },
+        "2": {
+          "src": 2,
+          "tgt": 3,
+          "edge": {
+            "src": "map",
+            "tgt": "entry",
+            "kind": "prop",
+            "name": "entries"
+          },
+          "position": null
+        },
+        "3": {
+          "src": 3,
+          "tgt": 4,
+          "edge": {
+            "src": "entry",
+            "tgt": "key",
+            "kind": "prop",
+            "name": "key"
+          },
+          "position": null
+        },
+        "4": {
+          "src": 5,
+          "tgt": 6,
+          "edge": {
+            "src": "entry",
+            "tgt": "key",
+            "kind": "prop",
+            "name": "key"
+          },
+          "position": null
+        }
+      }
+    }
+  },
+  "edit_trace": {
+    "graph": []
+  },
+  "report": {
+    "shape": "graph",
+    "scope": "instance",
+    "plan": "2a7e342dc304ad4e86e41bac8c02c0a6a681d2d525f6b13423b245bf0a030848",
+    "status": "passed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "entry",
+              "key": "entry_key"
+            }
+          }
+        },
+        "class": "maintained_global",
+        "requirement": "advisory",
+        "subject": {
+          "node": 0
+        },
+        "elements": [
+          {
+            "node": 0
+          }
+        ],
+        "violation": {
+          "outside_key_scope": {
+            "key": "entry_key",
+            "scope": "map"
+          }
+        },
+        "source": null
+      },
+      {
+        "check": {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "entry",
+              "key": "entry_key"
+            }
+          }
+        },
+        "class": "maintained_global",
+        "requirement": "advisory",
+        "subject": {
+          "node": 5
+        },
+        "elements": [
+          {
+            "node": 5
+          }
+        ],
+        "violation": {
+          "outside_key_scope": {
+            "key": "entry_key",
+            "scope": "map"
+          }
+        },
+        "source": null
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 7,
+          "passed": 7,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 5,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 5,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "entry"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "entry",
+              "key": "entry_key"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

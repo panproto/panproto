@@ -1,0 +1,525 @@
+{
+  "name": "boundary/table_restrict_output",
+  "protocol": "validation-fixtures-table-boundary",
+  "protocol_definition": {
+    "name": "validation-fixtures-table-boundary",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "table",
+    "semantic_shape": "graph",
+    "constraint_semantics": {},
+    "value_kinds": {},
+    "non_value_kinds": [
+      "table"
+    ]
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "child": {
+        "id": "child",
+        "kind": "table",
+        "nsid": null
+      },
+      "record": {
+        "id": "record",
+        "kind": "table",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "record",
+          "tgt": "child",
+          "kind": "fk",
+          "name": "child"
+        },
+        "fk"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "record": [
+        {
+          "src": "record",
+          "tgt": "child",
+          "kind": "fk",
+          "name": "child"
+        }
+      ]
+    },
+    "incoming": {
+      "child": [
+        {
+          "src": "record",
+          "tgt": "child",
+          "kind": "fk",
+          "name": "child"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "record",
+          "child"
+        ],
+        [
+          {
+            "src": "record",
+            "tgt": "child",
+            "kind": "fk",
+            "name": "child"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "table": {
+      "tables": {
+        "child": {
+          "1": {}
+        },
+        "record": {
+          "0": {}
+        }
+      },
+      "foreign_keys": []
+    }
+  },
+  "edit_trace": {
+    "table": []
+  },
+  "report": {
+    "shape": "table",
+    "scope": "instance",
+    "plan": "692394a4b0e204244fe334e4c9d3225b7129786288f98ac47a83fa751f9338e3",
+    "status": "passed",
+    "diagnostics": [],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "record"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": [],
+  "boundary": {
+    "operation": "table_restrict",
+    "target_schema": {
+      "protocol": "",
+      "vertices": {
+        "child": {
+          "id": "child",
+          "kind": "table",
+          "nsid": null
+        },
+        "record": {
+          "id": "record",
+          "kind": "table",
+          "nsid": null
+        }
+      },
+      "edges": [
+        [
+          {
+            "src": "record",
+            "tgt": "child",
+            "kind": "fk",
+            "name": "child"
+          },
+          "fk"
+        ]
+      ],
+      "hyper_edges": {},
+      "constraints": {},
+      "required": {
+        "record": [
+          {
+            "src": "record",
+            "tgt": "child",
+            "kind": "fk",
+            "name": "child"
+          }
+        ]
+      },
+      "nsids": {},
+      "entries": [],
+      "variants": {},
+      "orderings": [],
+      "recursion_points": {},
+      "spans": {},
+      "usage_modes": [],
+      "nominal": {},
+      "coercions": [],
+      "mergers": {},
+      "defaults": {},
+      "policies": {},
+      "outgoing": {
+        "record": [
+          {
+            "src": "record",
+            "tgt": "child",
+            "kind": "fk",
+            "name": "child"
+          }
+        ]
+      },
+      "incoming": {
+        "child": [
+          {
+            "src": "record",
+            "tgt": "child",
+            "kind": "fk",
+            "name": "child"
+          }
+        ]
+      },
+      "between": [
+        [
+          [
+            "record",
+            "child"
+          ],
+          [
+            {
+              "src": "record",
+              "tgt": "child",
+              "kind": "fk",
+              "name": "child"
+            }
+          ]
+        ]
+      ]
+    },
+    "migration": {
+      "surviving_verts": [
+        "child",
+        "record"
+      ],
+      "surviving_edges": [
+        {
+          "src": "record",
+          "tgt": "child",
+          "kind": "fk",
+          "name": "child"
+        }
+      ],
+      "vertex_remap": {},
+      "edge_remap": {}
+    },
+    "outcome": {
+      "validation": {
+        "side": "output",
+        "report": {
+          "shape": "table",
+          "scope": "instance",
+          "plan": "cfa1e4017d822546765a658611baac8c24789e630dbbaa5d1665325c346e3ad8",
+          "status": "failed",
+          "diagnostics": [
+            {
+              "check": {
+                "kind": "required_edge",
+                "decl": {
+                  "required": {
+                    "vertex": "record",
+                    "edge": {
+                      "src": "record",
+                      "tgt": "child",
+                      "kind": "fk",
+                      "name": "child"
+                    }
+                  }
+                }
+              },
+              "class": "graph_local",
+              "requirement": "required",
+              "subject": {
+                "row": 0
+              },
+              "elements": [
+                {
+                  "row": 0
+                }
+              ],
+              "violation": {
+                "missing_required_edge": {
+                  "edge": {
+                    "src": "record",
+                    "tgt": "child",
+                    "kind": "fk",
+                    "name": "child"
+                  }
+                }
+              },
+              "source": null
+            }
+          ],
+          "incomplete": [],
+          "coverage": [
+            [
+              {
+                "kind": "schema_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "declaration_interpretable",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "node_anchor",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 2,
+                "passed": 2,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "edge_declared",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 0,
+                "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 0,
+                "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "fan_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 0,
+                "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "required_edge",
+                "decl": {
+                  "required": {
+                    "vertex": "record",
+                    "edge": {
+                      "src": "record",
+                      "tgt": "child",
+                      "kind": "fk",
+                      "name": "child"
+                    }
+                  }
+                }
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 0,
+                "failed": 1,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "attribute",
+                "decl": {
+                  "vertex": "record"
+                }
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ]
+          ]
+        }
+      }
+    }
+  }
+}
