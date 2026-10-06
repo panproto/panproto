@@ -115,14 +115,11 @@ pub fn graph_provenance(
             ) => {
                 vec![*src, *tgt]
             }
-            Some(SynthKey::ResolutionReference { holder, .. })
-            | Some(SynthKey::ResolutionSpan { text: holder, .. }) => match holder {
-                crate::ViewRef::Node(node) => vec![*node],
-                crate::ViewRef::Row(row) => vec![row.0],
-                crate::ViewRef::Arc { parent, child } => vec![*parent, *child],
-                crate::ViewRef::Pair { src, tgt, .. } => vec![src.0, tgt.0],
-                crate::ViewRef::Edge(_) => Vec::new(),
-            },
+            // Resolution keys name objects of a resolved document, never of a
+            // graph restrict, so they have no source node in `source`.
+            Some(SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. }) => {
+                Vec::new()
+            }
         };
         sources.sort_unstable();
         sources.dedup();

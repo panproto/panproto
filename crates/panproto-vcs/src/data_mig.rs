@@ -171,6 +171,10 @@ pub fn migrate_backward(
         AnyComplement::Functor(_) => Err(VcsError::DataMigrationFailed {
             reason: "decoded a table complement where a tree complement was required".to_owned(),
         }),
+        AnyComplement::Resolution(_) => Err(VcsError::DataMigrationFailed {
+            reason: "decoded a resolution complement where a tree complement was required"
+                .to_owned(),
+        }),
     })
     .collect::<Result<Vec<_>, _>>()?;
 

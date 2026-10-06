@@ -22,7 +22,9 @@
 //! | [`GRAPH_DELTA_CONTEXT`], [`TABLE_DELTA_CONTEXT`], [`TREE_EDIT_CONTEXT`] | normalized edits |
 //! | [`VALIDATION_PLAN_CONTEXT`], [`VALIDATION_REPORT_CONTEXT`] | validation plans and reports |
 //! | [`SEGMENT_CONTEXT`], [`SEGMENT_COMPLEMENT_CONTEXT`], [`SEGMENT_CROSS_CONTEXT`], [`SEGMENT_TASK_CONTEXT`], [`MANIFEST_LEAF_CONTEXT`], [`MANIFEST_NODE_CONTEXT`], [`MANIFEST_CONTEXT`], [`RUN_JOURNAL_CONTEXT`] | segmented execution |
-//! | [`RESOLUTION_CONTEXT`]        | a resolution's protocol, kind and schemas    |
+//! | [`RESOLUTION_CONTEXT`]        | a resolution's protocol, kind, schemas and spec digest |
+//! | [`RESOLUTION_SPEC_CONTEXT`]   | every field of a resolution provider's spec  |
+//! | [`RESOLUTION_EXTERNAL_TEXT_CONTEXT`], [`RESOLUTION_TOKEN_BOUNDARIES_CONTEXT`], [`RESOLUTION_OCCURRENCE_CONTEXT`] | the external bytes, token boundaries and their combination one resolved occurrence used |
 //! | [`THEORY_CONTEXT`], [`COMPOSITION_CONTEXT`] | [`panproto_schema::canonical_theory_bytes`], [`panproto_schema::canonical_composition_bytes`] (defined in [`panproto_schema::canonical_theory`]) |
 //!
 //! Every context is a constant string: no id, count or range ever appears
@@ -76,7 +78,9 @@ use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::complement::Complement;
-use crate::resolution_complement::{ResolutionComplement, ResolutionKind, ResolutionSpec};
+use crate::resolution_complement::{
+    ResolutionComplement, ResolutionKind, ResolutionSpec, ResolutionTextId, ResolutionValueSite,
+};
 use crate::table_complement::TableComplement;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
@@ -201,13 +205,28 @@ pub const SEGMENT_FORMAT_VERSION: u16 = 1;
 pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
 
 /// The blake3 key-derivation context for a resolution's identity: the
-/// protocol, the resolution kind and the syntactic and semantic schema
-/// digests.
+/// protocol, the resolution kind, the syntactic and semantic schema digests
+/// and the digest of the provider's spec.
 pub const RESOLUTION_CONTEXT: &str = "panproto 2026-09 resolution identity v1";
 
 /// The blake3 key-derivation context for a provider's canonical resolution
 /// specification.
 pub const RESOLUTION_SPEC_CONTEXT: &str = "panproto 2026-09 resolution spec v1";
+
+/// The blake3 key-derivation context for the external text one resolved
+/// occurrence loaded: the key value and the exact bytes the store returned.
+pub const RESOLUTION_EXTERNAL_TEXT_CONTEXT: &str = "panproto 2026-10 resolution external text v1";
+
+/// The blake3 key-derivation context for the token boundaries one resolved
+/// occurrence used: the text identity and the boundary vector the provider
+/// returned.
+pub const RESOLUTION_TOKEN_BOUNDARIES_CONTEXT: &str =
+    "panproto 2026-10 resolution token boundaries v1";
+
+/// The blake3 key-derivation context that combines the external-text and
+/// token-boundary digests of one resolved occurrence into the single digest
+/// its complement records.
+pub const RESOLUTION_OCCURRENCE_CONTEXT: &str = "panproto 2026-10 resolution occurrence context v1";
 
 /// The theory and theory-composition contexts. They are defined beside
 /// their encoders in [`panproto_schema::canonical_theory`] and re-exported
@@ -741,6 +760,111 @@ pub fn resolution_identity(
             &spec_digest,
         ),
         complement_format: ComplementShape::Resolution.current_format(),
+    }
+}
+
+/// The digest of the external text one occurrence loaded: the canonical
+/// encoding of the key value, then the length and bytes the store returned.
+///
+/// The digest is computed from the key and bytes themselves, never taken
+/// from the store, so a store cannot vouch for content it did not return.
+#[must_use]
+pub fn resolution_external_text_digest(key: &Value, bytes: &[u8]) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_EXTERNAL_TEXT_CONTEXT);
+    hasher.value(key);
+    hasher.bytes(bytes);
+    hasher.finalize()
+}
+
+/// The digest of the token boundaries one occurrence used: the text
+/// identity, then the boundary count and each boundary.
+#[must_use]
+pub fn resolution_token_boundaries_digest(text: &ResolutionTextId, boundaries: &[u64]) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_TOKEN_BOUNDARIES_CONTEXT);
+    write_text_id(&mut hasher, text);
+    hasher.len(boundaries.len());
+    for boundary in boundaries {
+        hasher.u64(*boundary);
+    }
+    hasher.finalize()
+}
+
+/// The single context digest a complement records for one occurrence, or
+/// `None` when it used neither external text nor token boundaries.
+///
+/// Each component is written behind a presence tag, so an occurrence that
+/// used only external text and one that used only token boundaries never
+/// share a digest.
+#[must_use]
+pub fn resolution_context_digest(
+    external_text: Option<&Digest>,
+    token_boundaries: Option<&Digest>,
+) -> Option<Digest> {
+    if external_text.is_none() && token_boundaries.is_none() {
+        return None;
+    }
+    let mut hasher = Digest::hasher(RESOLUTION_OCCURRENCE_CONTEXT);
+    for component in [external_text, token_boundaries] {
+        match component {
+            None => hasher.tag(0),
+            Some(digest) => {
+                hasher.tag(1);
+                hasher.write(&digest.0);
+            }
+        }
+    }
+    Some(hasher.finalize())
+}
+
+fn write_view_ref<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &crate::ViewRef) {
+    match reference {
+        crate::ViewRef::Node(id) => {
+            sink.tag(0);
+            sink.u32(*id);
+        }
+        crate::ViewRef::Edge(id) => {
+            sink.tag(1);
+            sink.u32(id.0);
+        }
+        crate::ViewRef::Arc { parent, child } => {
+            sink.tag(2);
+            sink.u32(*parent);
+            sink.u32(*child);
+        }
+        crate::ViewRef::Row(id) => {
+            sink.tag(3);
+            sink.u32(id.0);
+        }
+        crate::ViewRef::Pair { edge, src, tgt } => {
+            sink.tag(4);
+            sink.edge(edge);
+            sink.u32(src.0);
+            sink.u32(tgt.0);
+        }
+    }
+}
+
+fn write_text_id<S: CanonicalSink + ?Sized>(sink: &mut S, text: &ResolutionTextId) {
+    let site = match text {
+        ResolutionTextId::Local(site) => {
+            sink.tag(0);
+            site
+        }
+        ResolutionTextId::ExternalKey(site) => {
+            sink.tag(1);
+            site
+        }
+    };
+    match site {
+        ResolutionValueSite::Own(holder) => {
+            sink.tag(0);
+            write_view_ref(sink, holder);
+        }
+        ResolutionValueSite::Field { holder, field } => {
+            sink.tag(1);
+            write_view_ref(sink, holder);
+            sink.str(field);
+        }
     }
 }
 

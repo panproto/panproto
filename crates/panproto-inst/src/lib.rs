@@ -158,8 +158,10 @@ pub use graph_restrict::{
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{
-    CanonicalSink, DigestHasher, RESOLUTION_CONTEXT, RESOLUTION_SPEC_CONTEXT, resolution_digest,
-    resolution_identity, resolution_spec_digest,
+    CanonicalSink, DigestHasher, RESOLUTION_CONTEXT, RESOLUTION_EXTERNAL_TEXT_CONTEXT,
+    RESOLUTION_OCCURRENCE_CONTEXT, RESOLUTION_SPEC_CONTEXT, RESOLUTION_TOKEN_BOUNDARIES_CONTEXT,
+    resolution_context_digest, resolution_digest, resolution_external_text_digest,
+    resolution_identity, resolution_spec_digest, resolution_token_boundaries_digest,
 };
 pub use identity::{
     ComplementShape, Digest, IdentityEnvelope, IdentityError, IdentityPolicy, IdentityStatus,
@@ -193,7 +195,8 @@ pub use resolution_complement::{
     AnyInstance, AssemblyPlanId, AssemblyResidue, AssemblyTrace, DefinitionKey, RedirectedArc,
     RedirectedAttachment, RedirectedFragment, RefOccurrence, ResolutionComplement,
     ResolutionContextKind, ResolutionKind, ResolutionProviderId, ResolutionSpan, ResolutionSpec,
-    UnresolvedReason as ResolutionUnresolvedReason, UnresolvedRef,
+    ResolutionTextId, ResolutionValueSite, UnresolvedReason as ResolutionUnresolvedReason,
+    UnresolvedRef,
 };
 pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
 pub use restrict_plan::{

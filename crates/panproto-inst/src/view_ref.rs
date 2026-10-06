@@ -35,6 +35,7 @@ use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use crate::ginstance::EdgeId;
+use crate::resolution_complement::ResolutionTextId;
 
 /// Identifier of a row in a table instance.
 ///
@@ -142,13 +143,14 @@ pub enum SynthKey {
         /// Occurrence index at the holder.
         index: u32,
     },
-    /// A node synthesized for one standoff span.
+    /// A node synthesized for one standoff span: the field-qualified text
+    /// and the half-open byte interval it covers.
     ResolutionSpan {
-        /// Text carrier indexed by the span.
-        text: ViewRef,
-        /// Inclusive start byte offset.
+        /// The text the span indexes.
+        text: ResolutionTextId,
+        /// First byte of the span.
         start: u64,
-        /// Exclusive end byte offset.
+        /// One past the last byte of the span.
         end: u64,
     },
 }
@@ -209,6 +211,7 @@ mod tests {
 
     use super::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
     use crate::ginstance::EdgeId;
+    use crate::resolution_complement::{ResolutionTextId, ResolutionValueSite};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -336,7 +339,10 @@ mod tests {
                 index: 2,
             },
             SynthKey::ResolutionSpan {
-                text: ViewRef::Row(RowId(4)),
+                text: ResolutionTextId::Local(ResolutionValueSite::Field {
+                    holder: ViewRef::Row(RowId(4)),
+                    field: "text".to_owned(),
+                }),
                 start: 5,
                 end: 8,
             },
@@ -357,7 +363,8 @@ mod tests {
                 r#"{"contract_expand":{"src":0,"tgt":0,"hop":0}}"#.to_owned(),
                 r#"{"resolution_reference":{"holder":{"node":3},"reference":"alias","index":2}}"#
                     .to_owned(),
-                r#"{"resolution_span":{"text":{"row":4},"start":5,"end":8}}"#.to_owned(),
+                r#"{"resolution_span":{"text":{"local":{"field":{"holder":{"row":4},"field":"text"}}},"start":5,"end":8}}"#
+                    .to_owned(),
             ]
         );
         for k in &keys {
