@@ -262,6 +262,12 @@ pub(crate) fn translate_op(
 /// Compare two members of one sort class, both already translated into
 /// class names. `first_decl` and `second_decl` are the members as
 /// declared, used to render a parameter-sort mismatch.
+///
+/// Parameter sorts are compared by their name-free forms, each variable
+/// resolved to the nearest enclosing binder of its name (the earlier
+/// parameters, then `Let` and `Case` binders), as
+/// [`crate::sort::sort_params_equivalent_modulo_rename`] does; the result
+/// is exact whether or not the parameter names are pairwise distinct.
 pub(crate) fn sort_class_mismatch(
     first: &crate::sort::Sort,
     second: &crate::sort::Sort,
@@ -274,12 +280,15 @@ pub(crate) fn sort_class_mismatch(
             second: second.arity(),
         });
     }
-    let rename = crate::sort::positional_param_rename(
-        first.params.iter().map(|p| Arc::clone(&p.name)),
-        second.params.iter().map(|p| Arc::clone(&p.name)),
-    );
+    let first_names: Vec<Arc<str>> = first.params.iter().map(|p| Arc::clone(&p.name)).collect();
+    let second_names: Vec<Arc<str>> = second.params.iter().map(|p| Arc::clone(&p.name)).collect();
     for (index, (a, b)) in first.params.iter().zip(&second.params).enumerate() {
-        if !a.sort.subst(&rename).alpha_eq(&b.sort) {
+        if !crate::sort::sort_exprs_agree(
+            &a.sort,
+            &first_names[..index],
+            &b.sort,
+            &second_names[..index],
+        ) {
             return Some(SortMismatch::ParamSort {
                 index,
                 first: Arc::from(first_decl.params[index].sort.to_string()),
@@ -298,6 +307,10 @@ pub(crate) fn sort_class_mismatch(
 
 /// Compare two members of one operation class, both already translated
 /// into class names.
+///
+/// The members agree iff their name-free forms are equal
+/// ([`crate::sort::signatures_equivalent_modulo_param_rename`], exact
+/// whether or not the input names are pairwise distinct).
 pub(crate) fn op_class_mismatch(
     first: &crate::op::Operation,
     second: &crate::op::Operation,

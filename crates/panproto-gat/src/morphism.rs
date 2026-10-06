@@ -9,7 +9,7 @@ use crate::eq::{
 };
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
-use crate::sort::positional_param_rename;
+use crate::sort::sort_exprs_agree;
 use crate::theory::Theory;
 use crate::typecheck::{VarContext, typecheck_term};
 use crate::witness::{EqWitness, WitnessJustification};
@@ -493,16 +493,20 @@ pub fn check_morphism(
         // mapping, modulo positional alpha-renaming of the parameter
         // names. The parameter names are local binders at the sort's
         // declaration site; they are in scope in later parameter sorts.
-        let sort_param_rename = positional_param_rename(
-            sort.params.iter().map(|p| Arc::clone(&p.name)),
-            target_sort.params.iter().map(|p| Arc::clone(&p.name)),
-        );
+        let sort_binders: Vec<Arc<str>> = sort.params.iter().map(|p| Arc::clone(&p.name)).collect();
+        let target_binders: Vec<Arc<str>> = target_sort
+            .params
+            .iter()
+            .map(|p| Arc::clone(&p.name))
+            .collect();
         for (i, param) in sort.params.iter().enumerate() {
-            let mapped_param_sort = param
-                .sort
-                .apply_maps(&m.sort_map, &op_rename)
-                .subst(&sort_param_rename);
-            if !mapped_param_sort.alpha_eq(&target_sort.params[i].sort) {
+            let mapped_param_sort = param.sort.apply_maps(&m.sort_map, &op_rename);
+            if !sort_exprs_agree(
+                &mapped_param_sort,
+                &sort_binders[..i],
+                &target_sort.params[i].sort,
+                &target_binders[..i],
+            ) {
                 return Err(GatError::SortParamMismatch {
                     sort: sort.name.to_string(),
                     param_index: i,
@@ -641,10 +645,12 @@ fn check_op_rename(
     // we rename the domain's parameter names to the codomain's
     // positionally, so that a morphism from `f : (a : A) -> Hom(a, a)` to
     // `f : (x : A) -> Hom(x, x)` is accepted.
-    let op_param_rename = positional_param_rename(
-        op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-        target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-    );
+    let op_binders: Vec<Arc<str>> = op.inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    let target_binders: Vec<Arc<str>> = target_op
+        .inputs
+        .iter()
+        .map(|(n, _, _)| Arc::clone(n))
+        .collect();
 
     for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
         // The head of every input sort must have a mapping (this is a
@@ -653,11 +659,14 @@ fn check_op_rename(
         if !m.sort_map.contains_key(sort_expr.head()) {
             return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
         }
-        let mapped_sort = sort_expr
-            .apply_maps(&m.sort_map, op_rename)
-            .subst(&op_param_rename);
+        let mapped_sort = sort_expr.apply_maps(&m.sort_map, op_rename);
         let (_, target_sort, _) = &target_op.inputs[i];
-        if !mapped_sort.alpha_eq(target_sort) {
+        if !sort_exprs_agree(
+            &mapped_sort,
+            &op_binders[..i],
+            target_sort,
+            &target_binders[..i],
+        ) {
             return Err(GatError::OpTypeMismatch {
                 op: op.name.to_string(),
                 detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
@@ -668,11 +677,13 @@ fn check_op_rename(
     if !m.sort_map.contains_key(op.output.head()) {
         return Err(GatError::MissingSortMapping(op.output.head().to_string()));
     }
-    let mapped_output = op
-        .output
-        .apply_maps(&m.sort_map, op_rename)
-        .subst(&op_param_rename);
-    if !mapped_output.alpha_eq(&target_op.output) {
+    let mapped_output = op.output.apply_maps(&m.sort_map, op_rename);
+    if !sort_exprs_agree(
+        &mapped_output,
+        &op_binders,
+        &target_op.output,
+        &target_binders,
+    ) {
         return Err(GatError::OpTypeMismatch {
             op: op.name.to_string(),
             detail: format!(
