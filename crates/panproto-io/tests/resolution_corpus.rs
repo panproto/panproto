@@ -15,6 +15,7 @@ use panproto_io::resolution::{
     ResolutionValueSite, ResolveContext, ResolveDomainError, ResolveError, ResolveOptions,
     TokenBoundaryProvider, UnresolvedReason, check_resolution_laws,
 };
+use panproto_lens::Mutation;
 use panproto_schema::{
     Cardinality, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, OffsetUnit,
     OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource, Reference, ResolveMode, Schema,
@@ -99,6 +100,17 @@ impl ResolutionProvider for Provider {
                 context: self.context,
             });
         };
+        // `raw:` lists node ids the provider returns as they are, so that a
+        // test can hand the engine candidates out of order or absent.
+        if let Some(ids) = text.strip_prefix("raw:") {
+            return Ok(PathResolution {
+                candidates: ids
+                    .split(',')
+                    .map(|id| ViewRef::Node(id.parse().unwrap_or(u32::MAX)))
+                    .collect(),
+                context: self.context,
+            });
+        }
         let exists = |candidate: &ViewRef| match (source, candidate) {
             (AnyInstance::Tree(tree), ViewRef::Node(id)) => tree.nodes.contains_key(id),
             (AnyInstance::Table(table), ViewRef::Row(id)) => table.row(*id).is_some(),
@@ -5285,5 +5297,640 @@ mod embedding {
                 .expect("GetPut");
             prop_assert!(same(&restored, &source));
         }
+    }
+}
+
+/// A table codec that reads its input as the one cell of one row and keeps
+/// no presentation state, so the preserving defaults apply to it.
+struct TableEcho(&'static str);
+
+impl panproto_io::InstanceParser for TableEcho {
+    fn protocol_name(&self) -> &str {
+        self.0
+    }
+
+    fn native_repr(&self) -> panproto_io::NativeRepr {
+        panproto_io::NativeRepr::Table
+    }
+
+    fn parse_wtype(
+        &self,
+        _schema: &Schema,
+        _input: &[u8],
+    ) -> Result<WInstance, panproto_io::ParseInstanceError> {
+        Err(panproto_io::ParseInstanceError::Parse {
+            protocol: self.0.to_owned(),
+            message: "a table codec".to_owned(),
+        })
+    }
+
+    fn parse_functor(
+        &self,
+        _schema: &Schema,
+        input: &[u8],
+    ) -> Result<FInstance, panproto_io::ParseInstanceError> {
+        let cell = text(&String::from_utf8_lossy(input));
+        FInstance::new()
+            .with_rows("cell", [(RowId(0), row(&[("text", cell)]))])
+            .map_err(|error| panproto_io::ParseInstanceError::Parse {
+                protocol: self.0.to_owned(),
+                message: error.to_string(),
+            })
+    }
+}
+
+impl panproto_io::InstanceEmitter for TableEcho {
+    fn protocol_name(&self) -> &str {
+        self.0
+    }
+
+    fn emit_wtype(
+        &self,
+        _schema: &Schema,
+        _instance: &WInstance,
+    ) -> Result<Vec<u8>, panproto_io::EmitInstanceError> {
+        Ok(Vec::new())
+    }
+
+    fn emit_functor(
+        &self,
+        _schema: &Schema,
+        instance: &FInstance,
+    ) -> Result<Vec<u8>, panproto_io::EmitInstanceError> {
+        serde_json::to_vec(instance).map_err(|error| panproto_io::EmitInstanceError::Emit {
+            protocol: self.0.to_owned(),
+            message: error.to_string(),
+        })
+    }
+}
+
+impl panproto_io::registry::ProtocolCodec for TableEcho {}
+
+#[test]
+fn a_codec_without_presentation_state_preserves_by_parsing_canonically() {
+    let mut registry = panproto_io::ProtocolRegistry::new();
+    registry.register(TableEcho("echo"));
+    let schema = Schema::default();
+    let (table, presentation) = registry
+        .parse_functor_preserving("echo", &schema, b"abc")
+        .expect("the default parses canonically");
+    let canonical = panproto_io::InstanceParser::parse_functor(&TableEcho("echo"), &schema, b"abc")
+        .expect("parses");
+    assert_eq!(
+        serde_json::to_value(&table).expect("serializes"),
+        serde_json::to_value(&canonical).expect("serializes")
+    );
+    assert!(presentation.is_none());
+    let emitted = registry
+        .emit_functor_preserving("echo", &schema, &table, None)
+        .expect("no state emits canonically");
+    assert_eq!(emitted, serde_json::to_vec(&canonical).expect("serializes"));
+}
+
+#[test]
+fn a_registry_with_only_a_route_or_a_graph_codec_is_not_empty() {
+    let empty = panproto_io::ProtocolRegistry::new();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+
+    let (provider, _) = posts_provider((InstanceShapeKind::Graph, InstanceShapeKind::Graph));
+    let mut routed = panproto_io::ProtocolRegistry::new();
+    routed
+        .register_resolution_route(TreeJson("posts"), provider)
+        .expect("a dedicated tree route");
+    assert!(!routed.is_empty());
+    assert_eq!(routed.len(), 1);
+
+    let mut graphs = panproto_io::ProtocolRegistry::new();
+    graphs.register_graph(GraphJson("posts"));
+    assert!(!graphs.is_empty());
+    assert_eq!(graphs.len(), 1);
+}
+
+/// The posts tree with post 5 holding two author fields, `[u1]` then
+/// `[u2, u1]`, and post 7 holding `[u2]`.
+fn posts_tree_with_two_author_sites() -> WInstance {
+    let users = prop("doc", "user", "users");
+    let id = prop("user", "user_id", "id");
+    let posts = prop("doc", "post", "posts");
+    let author = prop("post", "author", "author");
+    let authors = |names: &[&str]| {
+        Value::List(
+            names
+                .iter()
+                .map(|name| Value::Str((*name).into()))
+                .collect(),
+        )
+    };
+    tree(
+        vec![
+            Node::new(0, "doc"),
+            Node::new(1, "user"),
+            leaf(2, "user_id", Value::Str("u1".into())),
+            Node::new(3, "user"),
+            leaf(4, "user_id", Value::Str("u2".into())),
+            Node::new(5, "post"),
+            leaf(6, "author", authors(&["u1"])),
+            leaf(9, "author", authors(&["u2", "u1"])),
+            Node::new(7, "post"),
+            leaf(8, "author", authors(&["u2"])),
+        ],
+        vec![
+            (0, 1, users.clone()),
+            (1, 2, id.clone()),
+            (0, 3, users),
+            (3, 4, id),
+            (0, 5, posts.clone()),
+            (5, 6, author.clone()),
+            (5, 9, author.clone()),
+            (0, 7, posts),
+            (7, 8, author),
+        ],
+        0,
+    )
+}
+
+#[test]
+fn removing_a_later_occurrence_takes_it_from_its_own_site() {
+    let (resolution, _) = posts_resolution(|reference| {
+        reference.cardinality = Cardinality::Many;
+        reference.mode = ResolveMode::Redirect;
+    });
+    let source = AnyInstance::Tree(posts_tree_with_two_author_sites());
+    let (view, complement) = get(&resolution, &source);
+    let last = complement
+        .occurrences
+        .iter()
+        .find_map(|(carrier, records)| match (carrier, records.as_slice()) {
+            (ViewRef::Edge(id), [record])
+                if record.holder == ViewRef::Node(5) && record.index == 2 =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("post 5's third occurrence");
+    let mut removed = view;
+    removed
+        .remove_edge(last)
+        .expect("remove the third occurrence");
+    let restored = put_tree(&resolution, &removed, &complement).expect("admitted");
+    let value = |id: u32| restored.nodes.get(&id).and_then(|node| node.value.clone());
+    assert_eq!(
+        value(6),
+        Some(FieldPresence::Present(Value::List(vec![Value::Str(
+            "u1".into()
+        )])))
+    );
+    assert_eq!(
+        value(9),
+        Some(FieldPresence::Present(Value::List(vec![Value::Str(
+            "u2".into()
+        )])))
+    );
+    laws_hold(&resolution, &source, ResolveOptions::default());
+}
+
+#[test]
+fn a_table_view_node_that_is_more_than_a_row_has_no_placement() {
+    let (resolution, fixture) = orders(false);
+    let source = AnyInstance::Table(orders_table(&fixture, text("a"), text("b")));
+    let (view, complement) = get(&resolution, &source);
+    for (edit, name) in [
+        (
+            Box::new(|node: &mut Node| node.value = Some(FieldPresence::Present(text("v"))))
+                as Box<dyn Fn(&mut Node)>,
+            "a value",
+        ),
+        (
+            Box::new(|node: &mut Node| node.position = Some(0)),
+            "a position",
+        ),
+        (
+            Box::new(|node: &mut Node| node.discriminator = Some("d".into())),
+            "a discriminator",
+        ),
+    ] {
+        let mut edited = view.clone();
+        edit(edited.node_mut(0).expect("customer 0"));
+        let violations = resolution
+            .check_put_domain(
+                &AnyInstance::Graph(edited),
+                &complement,
+                &ResolveContext::empty(),
+            )
+            .expect_err(name);
+        assert!(
+            violations.contains(&ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(0)
+            }),
+            "{name}: {violations:?}"
+        );
+    }
+}
+
+#[test]
+fn canonical_put_of_a_table_view_reads_its_rows_and_pairs() {
+    let (resolution, fixture) = orders(false);
+    let source = AnyInstance::Table(orders_table(&fixture, text("a"), text("b")));
+    let (view, _) = get(&resolution, &source);
+    let (restored, complement) = resolution
+        .put_canonical(&AnyInstance::Graph(view.clone()), &ctx())
+        .expect("a canonical table");
+    assert!(same(&restored, &source));
+    let restored_again = resolution
+        .put(&AnyInstance::Graph(view), &complement, &ctx())
+        .expect("the stamped complement puts the view");
+    assert!(same(&restored_again, &source));
+}
+
+fn one_note_with_a_span() -> (Resolution, AnyInstance) {
+    let resolution = notes(&[Standoff::local("mention", OffsetUnit::Byte)], &[]);
+    let source = AnyInstance::Tree(notes_tree(vec![note(
+        1,
+        &[("text", text("hello")), ("start", int(0)), ("end", int(2))],
+    )]));
+    (resolution, source)
+}
+
+#[test]
+fn canonical_put_keeps_a_span_node_and_refuses_a_stray_node() {
+    let (resolution, source) = one_note_with_a_span();
+    let (view, complement) = get(&resolution, &source);
+    assert_eq!(complement.span_nodes.len(), 1);
+    let (restored, _) = resolution
+        .put_canonical(&AnyInstance::Graph(view.clone()), &ctx())
+        .expect("the span node is placed as a span");
+    assert!(same(&restored, &source));
+
+    let mut stray = view;
+    stray
+        .insert_node(Node::new(50, "note"))
+        .expect("a note with no parent");
+    assert!(matches!(
+        resolution.put_canonical(&AnyInstance::Graph(stray), &ctx()),
+        Err(ResolveError::PutDomain(ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(50)
+        }))
+    ));
+}
+
+#[test]
+fn a_node_of_another_vertex_under_a_span_edge_is_not_a_span() {
+    let (resolution, source) = one_note_with_a_span();
+    let (view, complement) = get(&resolution, &source);
+    let span_edge = complement
+        .occurrences
+        .keys()
+        .find_map(|carrier| match carrier {
+            ViewRef::Edge(id) => Some(*id),
+            _ => None,
+        })
+        .expect("the span's occurrence edge");
+    let mut edited = view;
+    let mut edge = edited.edge(span_edge).expect("an occurrence edge").clone();
+    edited
+        .insert_node(Node::new(50, "note"))
+        .expect("a note in the span's place");
+    edge.tgt = 50;
+    edited
+        .insert_edge(panproto_inst::EdgeId(60), edge)
+        .expect("a span edge into the note");
+    assert!(matches!(
+        resolution.put_canonical(&AnyInstance::Graph(edited), &ctx()),
+        Err(ResolveError::PutDomain(ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(50)
+        }))
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// Fans: the posts fixture with a hyper-edge over the document, whose fans
+// name posts and users.
+// ---------------------------------------------------------------------------
+
+fn fanned_posts_resolution(mode: ResolveMode) -> Resolution {
+    let mut posts = posts_schema(|reference| reference.mode = mode);
+    posts.schema.hyper_edges.insert(
+        "rel".into(),
+        panproto_schema::HyperEdge {
+            id: "rel".into(),
+            kind: "rel".into(),
+            signature: [
+                (Name::from("p"), Name::from("doc")),
+                (Name::from("post"), Name::from("post")),
+                (Name::from("user"), Name::from("user")),
+            ]
+            .into_iter()
+            .collect(),
+            parent_label: "p".into(),
+        },
+    );
+    compile(
+        "posts",
+        ResolutionKind::TreeToGraph,
+        &posts.schema,
+        &[(&posts.author_ref, "post_author")],
+    )
+}
+
+/// The posts tree with fans over the document naming `children`, each a
+/// `(label, node)` pair, in order.
+fn fanned_posts_tree(children: &[(&str, u32)]) -> WInstance {
+    let plain = posts_tree();
+    let fans = children
+        .iter()
+        .map(|(label, node)| panproto_inst::Fan::new("rel", 0).with_child(*label, *node))
+        .collect();
+    WInstance::new(plain.nodes, plain.arcs, fans, plain.root, plain.schema_root)
+}
+
+#[test]
+fn fans_survive_get_and_put_of_added_references() {
+    let resolution = fanned_posts_resolution(ResolveMode::AddEdge);
+    let source = AnyInstance::Tree(fanned_posts_tree(&[("post", 5), ("user", 1), ("post", 7)]));
+    let (view, complement) = get(&resolution, &source);
+    let restored = put_tree(&resolution, &view, &complement).expect("GetPut");
+    assert!(same(&AnyInstance::Tree(restored), &source));
+    laws_hold(&resolution, &source, ResolveOptions::default());
+}
+
+#[test]
+fn fans_of_redirected_posts_return_to_their_slots() {
+    let resolution = fanned_posts_resolution(ResolveMode::Redirect);
+    let source = AnyInstance::Tree(fanned_posts_tree(&[("user", 1), ("post", 5), ("post", 7)]));
+    let (view, complement) = get(&resolution, &source);
+    assert_eq!(complement.redirected.len(), 2);
+    assert!(
+        complement
+            .redirected
+            .values()
+            .all(|fragment| fragment.fans.len() == 1),
+        "each redirected post keeps the fan that names it"
+    );
+    let restored = put_tree(&resolution, &view, &complement).expect("GetPut");
+    assert!(same(&AnyInstance::Tree(restored), &source));
+    laws_hold(&resolution, &source, ResolveOptions::default());
+}
+
+#[test]
+fn fragment_fans_out_of_root_order_are_refused() {
+    let resolution = fanned_posts_resolution(ResolveMode::Redirect);
+    let source = AnyInstance::Tree(fanned_posts_tree(&[("post", 7), ("user", 1), ("post", 5)]));
+    assert!(matches!(
+        resolution.get(&source, &ResolveOptions::default(), &ctx()),
+        Err(ResolveError::Instance(
+            panproto_io::resolution::ResolutionInstanceError::NotTree
+        ))
+    ));
+}
+
+#[test]
+fn negative_families_are_refused_for_their_intended_reason() {
+    for (resolution, source) in [
+        (posts_resolution(|_| {}).0, AnyInstance::Tree(posts_tree())),
+        (
+            fanned_posts_resolution(ResolveMode::AddEdge),
+            AnyInstance::Tree(fanned_posts_tree(&[("post", 5), ("user", 1)])),
+        ),
+    ] {
+        let report = check_resolution_laws(
+            &resolution,
+            &source,
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )
+        .expect("the laws hold");
+        for family in &report.ran {
+            assert_eq!(family.negative, family.negative_ok, "{family:?}");
+            assert_eq!(family.in_domain, family.in_domain_ok, "{family:?}");
+        }
+        let count = |mutation: Mutation| {
+            report
+                .ran
+                .iter()
+                .find(|family| family.mutation == mutation)
+                .map_or(0, |family| {
+                    usize::try_from(family.negative).unwrap_or(usize::MAX)
+                })
+        };
+        let (view, complement) = get(&resolution, &source);
+        let fan_parents = view
+            .edges_sorted()
+            .filter(|(_, edge)| edge.edge.kind.as_ref() == panproto_inst::HYPER_PARENT_KIND)
+            .count();
+        assert_eq!(
+            count(Mutation::RemoveSynthesized),
+            complement.occurrences.len()
+        );
+        assert_eq!(
+            count(Mutation::EditSynthesized),
+            complement.occurrences.len()
+        );
+        assert_eq!(count(Mutation::MalformedFan), fan_parents);
+        assert!(
+            report.ran.iter().any(|family| family.in_domain > 0),
+            "some single edit is in the put domain: {:?}",
+            report.ran
+        );
+    }
+}
+
+#[test]
+fn a_violation_sorts_by_carrier_then_name_then_variant() {
+    let edge = ViewRef::Edge(panproto_inst::EdgeId(4));
+    let name = Name::from("r");
+    assert_eq!(
+        ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(1)
+        }
+        .sort_key(),
+        (Some(&ViewRef::Node(1)), None, 0)
+    );
+    assert_eq!(
+        ResolveDomainError::AmbiguousPlacement {
+            carrier: edge.clone(),
+            references: vec![name.clone(), Name::from("s")],
+        }
+        .sort_key(),
+        (Some(&edge), Some(&name), 1)
+    );
+    assert_eq!(
+        ResolveDomainError::UnrepresentableReference {
+            carrier: edge.clone(),
+            reference: name.clone(),
+        }
+        .sort_key(),
+        (Some(&edge), Some(&name), 2)
+    );
+    assert_eq!(
+        ResolveDomainError::ContextMismatch { at: None }.sort_key(),
+        (None, None, 6)
+    );
+    let production = Name::from("p");
+    assert_eq!(
+        ResolveDomainError::Assembly {
+            at: Some(edge.clone()),
+            production: Some(production.clone()),
+            reason: panproto_io::resolution::AssemblyDomainReason::MissingProduction,
+        }
+        .sort_key(),
+        (Some(&edge), Some(&production), 7)
+    );
+}
+
+#[test]
+fn an_overlay_equal_to_the_schema_reference_is_not_a_conflict() {
+    let posts = posts_schema(|_| {});
+    let existing = posts
+        .schema
+        .declarations
+        .references
+        .get("post_author")
+        .expect("the schema declares post_author")
+        .clone();
+    let mut spec = spec_for(
+        "posts",
+        ResolutionKind::TreeToGraph,
+        &posts.schema,
+        &[(&posts.author_ref, "post_author")],
+        &[],
+    );
+    spec.protocol_references
+        .insert("post_author".into(), existing.clone());
+    let posts_protocol = protocol("posts", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let provider = Provider {
+        id: provider_id("posts"),
+        protocol: posts_protocol.clone(),
+        kind: ResolutionKind::TreeToGraph,
+        spec: spec.clone(),
+        paths: BTreeMap::new(),
+        context: None,
+    };
+    let resolution = Resolution::for_protocol(&posts_protocol, &posts.schema, Arc::new(provider))
+        .expect("an equal overlay merges");
+    assert_eq!(resolution.references()["post_author"], existing);
+
+    let mut different = existing;
+    different.cardinality = Cardinality::Many;
+    spec.protocol_references
+        .insert("post_author".into(), different);
+    let provider = Provider {
+        id: provider_id("posts"),
+        protocol: posts_protocol.clone(),
+        kind: ResolutionKind::TreeToGraph,
+        spec,
+        paths: BTreeMap::new(),
+        context: None,
+    };
+    assert!(matches!(
+        Resolution::for_protocol(&posts_protocol, &posts.schema, Arc::new(provider)),
+        Err(ResolveError::ReferenceConflict { reference }) if reference == "post_author"
+    ));
+}
+
+#[test]
+fn unordered_or_foreign_path_candidates_are_a_provider_failure() {
+    let resolution = links(ResolveMode::AddEdge, OnUnresolved::Complement);
+    for (literal, failing) in [("raw:2,1", true), ("raw:1,99", true), ("raw:1,2", false)] {
+        let outcome = resolution.get(
+            &AnyInstance::Tree(links_tree(literal)),
+            &ResolveOptions::default(),
+            &ctx(),
+        );
+        let failed = matches!(
+            &outcome,
+            Err(ResolveError::ProviderFailure { code, .. }) if code == "path_candidates"
+        );
+        assert_eq!(failed, failing, "{literal}: {outcome:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Positions: items keyed by their index among the document's items, and
+// pointers holding an index.
+// ---------------------------------------------------------------------------
+
+fn positions(mode: ResolveMode) -> Resolution {
+    let base = protocol("slots", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let points_to = edge("pointer", "item", "ref", Some("points_to"));
+    let mut pointer = reference(
+        "pointer",
+        "pointer",
+        RefSource::KeyValue {
+            parts: vec![Vec::new()],
+        },
+        "item",
+        points_to.clone(),
+    );
+    pointer.mode = mode;
+    let mut schema = SchemaBuilder::new(&base)
+        .vertex("doc", "object", None)
+        .unwrap()
+        .vertex("item", "object", None)
+        .unwrap()
+        .vertex("pointer", "integer", None)
+        .unwrap()
+        .edge("doc", "item", "prop", Some("items"))
+        .unwrap()
+        .edge("doc", "pointer", "prop", Some("pointers"))
+        .unwrap()
+        .edge("pointer", "item", "ref", Some("points_to"))
+        .unwrap()
+        .entry("doc")
+        .key(
+            "item",
+            key(
+                "index",
+                vec![KeyPart::Position {
+                    within: prop("doc", "item", "items"),
+                }],
+                KeyRole::Primary,
+                KeyScope::Document,
+            ),
+        )
+        .reference(pointer)
+        .build()
+        .unwrap();
+    schema.orderings.insert(prop("doc", "item", "items"), 0);
+    compile(
+        "slots",
+        ResolutionKind::TreeToGraph,
+        &schema,
+        &[(&points_to, "pointer")],
+    )
+}
+
+fn positions_tree(pointer: i64) -> WInstance {
+    tree(
+        vec![
+            Node::new(0, "doc"),
+            Node::new(1, "item"),
+            Node::new(2, "item"),
+            Node::new(3, "item"),
+            leaf(4, "pointer", Value::Int(pointer)),
+        ],
+        vec![
+            (0, 1, prop("doc", "item", "items")),
+            (0, 2, prop("doc", "item", "items")),
+            (0, 4, prop("doc", "pointer", "pointers")),
+            (0, 3, prop("doc", "item", "items")),
+        ],
+        0,
+    )
+}
+
+#[test]
+fn a_position_key_is_the_index_among_the_ordered_edge_targets() {
+    let resolution = positions(ResolveMode::AddEdge);
+    for (pointer, target) in [(0, 1), (1, 2), (2, 3)] {
+        let source = AnyInstance::Tree(positions_tree(pointer));
+        let (view, _) = get(&resolution, &source);
+        let into: Vec<_> = edge_triples(&view)
+            .into_iter()
+            .filter(|(_, _, label)| label == "points_to")
+            .collect();
+        assert_eq!(into, vec![(4, target, "points_to".to_owned())], "{pointer}");
+        laws_hold(&resolution, &source, ResolveOptions::default());
     }
 }

@@ -185,3 +185,19 @@ pub fn bytes_to_declared(
 pub const fn unit_len(boundaries: &[Option<u64>]) -> u64 {
     boundaries.len().saturating_sub(1) as u64
 }
+
+#[cfg(test)]
+mod tests {
+    use super::valid_token_boundaries;
+
+    #[test]
+    fn token_boundaries_start_at_zero_increase_and_end_at_the_length() {
+        assert!(valid_token_boundaries(&[0, 3, 5], 5));
+        assert!(valid_token_boundaries(&[0], 0));
+        assert!(!valid_token_boundaries(&[1, 3, 5], 5), "not from zero");
+        assert!(!valid_token_boundaries(&[0, 3, 4], 5), "not to the end");
+        assert!(!valid_token_boundaries(&[0, 3, 3, 5], 5), "not increasing");
+        assert!(!valid_token_boundaries(&[0, 4, 3, 5], 5), "not increasing");
+        assert!(!valid_token_boundaries(&[], 0), "empty");
+    }
+}

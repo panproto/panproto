@@ -582,4 +582,89 @@ mod tests {
             ));
         }
     }
+
+    #[test]
+    fn instance_errors_project_onto_their_carrier_or_shape() {
+        use panproto_inst::{EdgeId, InstError, RowId, ViewRef};
+
+        use super::instance_error;
+        use crate::resolution::error::ResolutionInstanceError;
+
+        let cases: Vec<(InstError, ResolveError)> = vec![
+            (
+                InstError::NodeIdsExhausted,
+                ResolveError::IdExhausted { kind: IdKind::Node },
+            ),
+            (
+                InstError::EdgeIdsExhausted,
+                ResolveError::IdExhausted { kind: IdKind::Edge },
+            ),
+            (
+                InstError::DanglingEdge {
+                    edge: EdgeId(3),
+                    endpoint: 9,
+                },
+                ResolveError::Instance(ResolutionInstanceError::DanglingCarrier {
+                    carrier: ViewRef::Edge(EdgeId(3)),
+                }),
+            ),
+            (
+                InstError::DanglingArc { src: 1, tgt: 2 },
+                ResolveError::Instance(ResolutionInstanceError::DanglingCarrier {
+                    carrier: ViewRef::Arc {
+                        parent: 1,
+                        child: 2,
+                    },
+                }),
+            ),
+            (
+                InstError::NodeNotFound(4),
+                ResolveError::Instance(ResolutionInstanceError::MissingCarrier {
+                    carrier: ViewRef::Node(4),
+                }),
+            ),
+            (
+                InstError::NodeIdMismatch { key: 5, node_id: 6 },
+                ResolveError::Instance(ResolutionInstanceError::MissingCarrier {
+                    carrier: ViewRef::Node(5),
+                }),
+            ),
+            (
+                InstError::EdgeNotFound(EdgeId(7)),
+                ResolveError::Instance(ResolutionInstanceError::MissingCarrier {
+                    carrier: ViewRef::Edge(EdgeId(7)),
+                }),
+            ),
+            (
+                InstError::MissingRoot,
+                ResolveError::Instance(ResolutionInstanceError::NotTree),
+            ),
+            (
+                InstError::HomTableMismatch { row: RowId(1) },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
+            ),
+            (
+                InstError::DuplicateRowId {
+                    row: RowId(1),
+                    tables: Vec::new(),
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
+            ),
+            (
+                InstError::DuplicateNode(1),
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::VertexNotFound("v".to_owned()),
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(
+                format!("{:?}", instance_error(&error)),
+                format!("{expected:?}"),
+                "{error:?}"
+            );
+        }
+    }
 }

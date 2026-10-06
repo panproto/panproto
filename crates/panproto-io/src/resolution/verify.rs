@@ -896,4 +896,157 @@ mod tests {
         assert!(!view_diff(&view, &left, &view, &right).is_empty());
         Ok(())
     }
+
+    #[test]
+    fn values_are_equal_up_to_nan_and_signed_zero_at_every_depth() {
+        use std::collections::HashMap;
+
+        use panproto_inst::Value;
+
+        use super::{fields_equiv, value_equiv};
+
+        let record = |value: Value| HashMap::from([("k".to_owned(), value)]);
+        let equal = [
+            (Value::Float(f64::NAN), Value::Float(f64::NAN)),
+            (Value::Float(0.0), Value::Float(-0.0)),
+            (Value::Float(1.5), Value::Float(1.5)),
+            (
+                Value::List(vec![Value::Float(f64::NAN)]),
+                Value::List(vec![Value::Float(f64::NAN)]),
+            ),
+            (
+                Value::Unknown(record(Value::Float(-0.0))),
+                Value::Unknown(record(Value::Float(0.0))),
+            ),
+            (
+                Value::Opaque {
+                    type_: "t".to_owned(),
+                    fields: record(Value::Float(f64::NAN)),
+                },
+                Value::Opaque {
+                    type_: "t".to_owned(),
+                    fields: record(Value::Float(f64::NAN)),
+                },
+            ),
+            (Value::Str("s".to_owned()), Value::Str("s".to_owned())),
+        ];
+        for (a, b) in &equal {
+            assert!(value_equiv(a, b), "{a:?} == {b:?}");
+            assert!(value_equiv(b, a), "{b:?} == {a:?}");
+        }
+        let different = [
+            (Value::Float(f64::NAN), Value::Float(1.0)),
+            (Value::Float(1.0), Value::Float(f64::NAN)),
+            (Value::Float(1.0), Value::Float(2.0)),
+            (
+                Value::List(vec![Value::Int(1)]),
+                Value::List(vec![Value::Int(2)]),
+            ),
+            (
+                Value::List(vec![Value::Int(1)]),
+                Value::List(vec![Value::Int(1), Value::Int(1)]),
+            ),
+            (
+                Value::Unknown(record(Value::Int(1))),
+                Value::Unknown(record(Value::Int(2))),
+            ),
+            (
+                Value::Opaque {
+                    type_: "t".to_owned(),
+                    fields: record(Value::Int(1)),
+                },
+                Value::Opaque {
+                    type_: "u".to_owned(),
+                    fields: record(Value::Int(1)),
+                },
+            ),
+            (
+                Value::Opaque {
+                    type_: "t".to_owned(),
+                    fields: record(Value::Int(1)),
+                },
+                Value::Opaque {
+                    type_: "t".to_owned(),
+                    fields: record(Value::Int(2)),
+                },
+            ),
+            (Value::Int(1), Value::Float(1.0)),
+        ];
+        for (a, b) in &different {
+            assert!(!value_equiv(a, b), "{a:?} != {b:?}");
+            assert!(!value_equiv(b, a), "{b:?} != {a:?}");
+        }
+        let mut wider = record(Value::Int(1));
+        wider.insert("other".to_owned(), Value::Int(1));
+        assert!(!fields_equiv(&record(Value::Int(1)), &wider));
+        assert!(!fields_equiv(&wider, &record(Value::Int(1))));
+        let renamed = HashMap::from([("j".to_owned(), Value::Int(1))]);
+        assert!(!fields_equiv(&record(Value::Int(1)), &renamed));
+    }
+
+    #[test]
+    fn same_tree_compares_every_part_of_a_presentation() {
+        type Edit = Box<dyn Fn(&mut WInstance)>;
+
+        use panproto_inst::{FieldPresence, Node, Value, WInstance};
+        use panproto_schema::Edge;
+
+        use super::same_tree;
+
+        let label = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("b".into()),
+        };
+        let build = |edit: &dyn Fn(&mut WInstance)| {
+            let mut tree = WInstance::new(
+                [
+                    (0, Node::new(0, "a")),
+                    (
+                        1,
+                        Node::new(1, "b").with_value(FieldPresence::Present(Value::Int(1))),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                vec![(0, 1, label.clone())],
+                vec![panproto_inst::Fan::new("h", 0)],
+                0,
+                "a".into(),
+            );
+            edit(&mut tree);
+            tree
+        };
+        let base = build(&|_| {});
+        assert!(same_tree(&base, &build(&|_| {})));
+        let edits: Vec<(&str, Edit)> = vec![
+            ("root", Box::new(|tree| tree.root = 1)),
+            (
+                "schema root",
+                Box::new(|tree| tree.schema_root = "b".into()),
+            ),
+            (
+                "a node",
+                Box::new(|tree| {
+                    tree.nodes.insert(2, Node::new(2, "b"));
+                }),
+            ),
+            (
+                "a value",
+                Box::new(|tree| {
+                    if let Some(node) = tree.nodes.get_mut(&1) {
+                        node.value = Some(FieldPresence::Null);
+                    }
+                }),
+            ),
+            ("arcs", Box::new(|tree| tree.arcs.clear())),
+            ("fans", Box::new(|tree| tree.fans.clear())),
+        ];
+        for (part, edit) in edits {
+            let edited = build(edit.as_ref());
+            assert!(!same_tree(&base, &edited), "{part}");
+            assert!(!same_tree(&edited, &base), "{part}");
+        }
+    }
 }

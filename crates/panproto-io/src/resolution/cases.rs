@@ -1167,11 +1167,17 @@ fn table_relabel_pair(schema: &Schema, view: &FInstance) -> Vec<FInstance> {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use panproto_inst::{EdgeId, FieldPresence, GEdge, GInstance, Node, Value};
-    use panproto_lens::{GraphShape, LawShape, Lens, Mutation, MutationCases};
+    use std::collections::HashMap;
+
+    use panproto_inst::{
+        EdgeId, FInstance, FieldPresence, GEdge, GInstance, Node, RowId, Value, WInstance,
+    };
+    use panproto_lens::{
+        GraphShape, LawShape, Lens, LensShape, Mutation, MutationCases, TableShape, TreeShape,
+    };
     use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
-    use super::{Cases, Presentation, graph_cases};
+    use super::{Cases, Presentation, graph_cases, table_cases, tree_cases};
 
     fn prop(src: &str, tgt: &str, name: &str) -> Edge {
         Edge {
@@ -1288,6 +1294,296 @@ pub(super) mod tests {
             assert_eq!(ours.len(), theirs.len(), "{mutation:?}");
             for (a, b) in ours.iter().zip(&theirs) {
                 assert!(GInstance::identical(a, b), "{mutation:?}: {a:?} != {b:?}");
+            }
+            compared += ours.len();
+        }
+        assert!(compared > 0);
+        Ok(())
+    }
+
+    /// Every vertex kind the value generators name, and two they do not.
+    const KINDS: [&str; 18] = [
+        "string",
+        "date-time",
+        "uuid",
+        "float",
+        "decimal",
+        "boolean",
+        "bytes",
+        "octet-string",
+        "token",
+        "enum",
+        "cid-link",
+        "array",
+        "integer-list",
+        "object",
+        "map",
+        "null",
+        "integer",
+        "unheard-of",
+    ];
+
+    /// A schema with a `doc` root and one vertex per kind, each under a
+    /// `prop` edge named after its index.
+    fn kinds_schema() -> Result<Schema, panproto_schema::SchemaError> {
+        let protocol = Protocol {
+            name: "kinds".to_owned(),
+            ..Protocol::default()
+        };
+        let mut builder = SchemaBuilder::new(&protocol).vertex("doc", "object", None)?;
+        for (index, kind) in KINDS.iter().enumerate() {
+            let vertex = format!("v{index}");
+            builder = builder.vertex(&vertex, kind, None)?.edge(
+                "doc",
+                &vertex,
+                "prop",
+                Some(&format!("f{index}")),
+            )?;
+        }
+        builder.entry("doc").build()
+    }
+
+    /// The values a node of the kinds view holds: null at every kind, then
+    /// one of each value variant.
+    fn kinds_nodes() -> Vec<Node> {
+        let mut extra = HashMap::new();
+        for (field, value) in [
+            ("b", Value::Bool(true)),
+            ("i", Value::Int(7)),
+            ("z", Value::Float(0.0)),
+            ("x", Value::Float(2.5)),
+            ("s", Value::Str("s".to_owned())),
+            ("n", Value::Null),
+            ("y", Value::Bytes(vec![1])),
+        ] {
+            extra.insert(field.to_owned(), value);
+        }
+        let mut root = Node::new(0, "doc");
+        root.extra_fields = extra;
+        let mut nodes = vec![root];
+        let presents = [
+            Value::Bool(false),
+            Value::Int(1),
+            Value::Float(0.0),
+            Value::Float(1.5),
+            Value::Str("t".to_owned()),
+            Value::Bytes(vec![2]),
+        ];
+        for (index, _) in KINDS.iter().enumerate() {
+            let id = u32::try_from(index).unwrap_or(u32::MAX).saturating_add(1);
+            let node = Node::new(id, format!("v{index}")).with_value(FieldPresence::Null);
+            nodes.push(node);
+        }
+        for (offset, value) in presents.into_iter().enumerate() {
+            let id = u32::try_from(KINDS.len() + offset + 1).unwrap_or(u32::MAX);
+            let vertex = format!("v{}", offset % KINDS.len());
+            let mut node = Node::new(id, vertex).with_value(FieldPresence::Present(value));
+            node.position = u32::try_from(offset).ok();
+            nodes.push(node);
+        }
+        nodes
+    }
+
+    fn kinds_label(node: &Node) -> Edge {
+        let index = node.anchor.trim_start_matches('v');
+        prop("doc", &node.anchor, &format!("f{index}"))
+    }
+
+    fn kinds_graph() -> Result<GInstance, panproto_inst::InstError> {
+        let mut view = GInstance::new();
+        let nodes = kinds_nodes();
+        for node in &nodes {
+            view.insert_node(node.clone())?;
+        }
+        for (id, node) in nodes.iter().skip(1).enumerate() {
+            let id = u32::try_from(id).unwrap_or(u32::MAX);
+            view.insert_edge(EdgeId(id), GEdge::new(0, node.id, kinds_label(node)))?;
+        }
+        Ok(view)
+    }
+
+    fn kinds_tree() -> WInstance {
+        let nodes = kinds_nodes();
+        let arcs = nodes
+            .iter()
+            .skip(1)
+            .map(|node| (0, node.id, kinds_label(node)))
+            .collect();
+        let nodes = nodes.into_iter().map(|node| (node.id, node)).collect();
+        WInstance::new(nodes, arcs, Vec::new(), 0, "doc".into())
+    }
+
+    #[test]
+    fn graph_value_families_match_the_lens_checker_on_every_kind_and_value()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = kinds_schema()?;
+        let lens = identity_lens(&schema);
+        let view = kinds_graph()?;
+        let (_, complement) = panproto_lens::graph_lens::get(&lens, &view)?;
+        let mut compared = 0;
+        for mutation in SHAPE_ONLY {
+            let ours = match graph_cases(&schema, &view, &Presentation::default(), mutation) {
+                Cases::Views(views) => views,
+                Cases::Skip(_) => Vec::new(),
+            };
+            let theirs =
+                match GraphShape::mutation_cases(&lens, &view, &view, &complement, &(), mutation) {
+                    MutationCases::Cases(views) => views,
+                    MutationCases::Skip(_) => Vec::new(),
+                };
+            assert_eq!(ours.len(), theirs.len(), "{mutation:?}");
+            for (a, b) in ours.iter().zip(&theirs) {
+                assert!(GInstance::identical(a, b), "{mutation:?}: {a:?} != {b:?}");
+            }
+            compared += ours.len();
+        }
+        assert!(compared > KINDS.len());
+        Ok(())
+    }
+
+    #[test]
+    fn tree_value_families_match_the_lens_checker_on_every_kind_and_value()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = kinds_schema()?;
+        let lens = identity_lens(&schema);
+        let view = kinds_tree();
+        let (_, complement) = TreeShape::get(&lens, &view, &())?;
+        let mut compared = 0;
+        for mutation in SHAPE_ONLY {
+            let ours = match tree_cases(&schema, &view, mutation) {
+                Cases::Views(views) => views,
+                Cases::Skip(_) => Vec::new(),
+            };
+            let theirs =
+                match TreeShape::mutation_cases(&lens, &view, &view, &complement, &(), mutation) {
+                    MutationCases::Cases(views) => views,
+                    MutationCases::Skip(_) => Vec::new(),
+                };
+            assert_eq!(ours.len(), theirs.len(), "{mutation:?}");
+            for (a, b) in ours.iter().zip(&theirs) {
+                assert!(TreeShape::identical(a, b), "{mutation:?}: {a:?} != {b:?}");
+            }
+            compared += ours.len();
+        }
+        assert!(compared > KINDS.len());
+        Ok(())
+    }
+
+    fn table_schema(protocol: &Protocol) -> Result<Schema, panproto_schema::SchemaError> {
+        SchemaBuilder::new(protocol)
+            .vertex("customer", "table", None)?
+            .vertex("order", "table", None)?
+            .vertex("label", "string", None)?
+            .vertex("num", "integer", None)?
+            .vertex("flag", "boolean", None)?
+            .vertex("amount", "number", None)?
+            .vertex("blob", "bytes", None)?
+            .edge("customer", "label", "prop", Some("cid"))?
+            .edge("customer", "num", "prop", Some("rank"))?
+            .edge("order", "label", "prop", Some("customer"))?
+            .edge("order", "flag", "prop", Some("paid"))?
+            .edge("order", "amount", "prop", Some("total"))?
+            .edge("order", "blob", "prop", Some("raw"))?
+            .edge("order", "customer", "fk", Some("region"))?
+            .build()
+    }
+
+    fn table_view() -> Result<FInstance, panproto_inst::InstError> {
+        let row = |cells: &[(&str, Value)]| {
+            cells
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), value.clone()))
+                .collect::<HashMap<String, Value>>()
+        };
+        let region = Edge {
+            src: "order".into(),
+            tgt: "customer".into(),
+            kind: "fk".into(),
+            name: Some("region".into()),
+        };
+        FInstance::new()
+            .with_rows(
+                "customer",
+                [
+                    (
+                        RowId(0),
+                        row(&[("cid", Value::Str("a".to_owned())), ("rank", Value::Int(1))]),
+                    ),
+                    (RowId(1), row(&[("cid", Value::Str("b".to_owned()))])),
+                ],
+            )?
+            .with_rows(
+                "order",
+                [
+                    (
+                        RowId(2),
+                        row(&[
+                            ("customer", Value::Str("a".to_owned())),
+                            ("paid", Value::Bool(true)),
+                            ("total", Value::Float(2.5)),
+                            ("raw", Value::Bytes(vec![1])),
+                        ]),
+                    ),
+                    (RowId(3), row(&[("total", Value::Null)])),
+                ],
+            )?
+            .with_foreign_key(region, [(RowId(2), RowId(1))])
+    }
+
+    #[test]
+    fn table_families_match_the_lens_checker_under_an_identity_lens()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_schema::{BytesText, ScalarKind};
+
+        let protocol = Protocol {
+            name: "tables".to_owned(),
+            value_kinds: [
+                ("string", ScalarKind::Str),
+                (
+                    "integer",
+                    ScalarKind::Int {
+                        bits: 64,
+                        signed: true,
+                    },
+                ),
+                ("boolean", ScalarKind::Bool),
+                ("number", ScalarKind::Float { bits: 64 }),
+                ("bytes", ScalarKind::Bytes(BytesText::Base64)),
+            ]
+            .into_iter()
+            .map(|(kind, scalar)| (kind.to_owned(), scalar))
+            .collect(),
+            non_value_kinds: std::iter::once("table".to_owned()).collect(),
+            ..Protocol::default()
+        };
+        let schema = table_schema(&protocol)?;
+        let lens = identity_lens(&schema);
+        let view = table_view()?;
+        let context = panproto_lens::TableContext {
+            src: protocol.clone(),
+            tgt: protocol.clone(),
+        };
+        let (_, complement) = TableShape::get(&lens, &view, &context)?;
+        let mut compared = 0;
+        for mutation in SHAPE_ONLY {
+            let ours = match table_cases(&schema, &protocol, &view, mutation) {
+                Cases::Views(views) => views,
+                Cases::Skip(_) => Vec::new(),
+            };
+            let theirs = match TableShape::mutation_cases(
+                &lens,
+                &view,
+                &view,
+                &complement,
+                &context,
+                mutation,
+            ) {
+                MutationCases::Cases(views) => views,
+                MutationCases::Skip(_) => Vec::new(),
+            };
+            assert_eq!(ours.len(), theirs.len(), "{mutation:?}");
+            for (a, b) in ours.iter().zip(&theirs) {
+                assert!(TableShape::identical(a, b), "{mutation:?}: {a:?} != {b:?}");
             }
             compared += ours.len();
         }

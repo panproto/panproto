@@ -1187,3 +1187,38 @@ pub(super) fn holder_arc(arcs: &[&Edge], label: &Edge) -> Option<Edge> {
             .map(|arc| (*arc).clone()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use panproto_inst::Fan;
+
+    use super::merge_fans;
+
+    fn fan(parent: u32) -> Fan {
+        Fan::new("h", parent)
+    }
+
+    #[test]
+    fn fans_fill_their_slots_and_fragments_fill_the_rest() {
+        let merged = merge_fans(vec![fan(1), fan(3)], &[10, 12], vec![fan(2)], 10);
+        let parents: Vec<u32> = merged.iter().map(|fan| fan.parent).collect();
+        assert_eq!(parents, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn a_retained_fan_past_the_last_slot_puts_the_retained_fans_first() {
+        let merged = merge_fans(vec![fan(1)], &[11], vec![], 10);
+        let parents: Vec<u32> = merged.iter().map(|fan| fan.parent).collect();
+        assert_eq!(parents, vec![1]);
+        let merged = merge_fans(vec![fan(1), fan(3)], &[10, 12], vec![], 10);
+        let parents: Vec<u32> = merged.iter().map(|fan| fan.parent).collect();
+        assert_eq!(parents, vec![1, 3]);
+    }
+
+    #[test]
+    fn retained_fans_out_of_order_come_first() {
+        let merged = merge_fans(vec![fan(1), fan(3)], &[11, 10], vec![fan(2)], 10);
+        let parents: Vec<u32> = merged.iter().map(|fan| fan.parent).collect();
+        assert_eq!(parents, vec![1, 3, 2]);
+    }
+}

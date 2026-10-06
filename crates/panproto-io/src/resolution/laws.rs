@@ -577,3 +577,91 @@ fn report(
     }
     ResolutionLawReport { ran, skipped }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::resolution_complement::{
+        RefOccurrence, ResolutionComplement, ResolutionSpan, ResolutionTextId, ResolutionValueSite,
+    };
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node, Value, ViewRef};
+    use panproto_schema::Edge;
+
+    use super::witnesses;
+
+    /// Holder 1 with span node 5 under occurrence edge 7, and a second
+    /// occurrence edge 8 into node 2.
+    fn state() -> Result<(GInstance, ResolutionComplement), panproto_inst::InstError> {
+        let label = Edge {
+            src: "note".into(),
+            tgt: "span".into(),
+            kind: "ref".into(),
+            name: Some("r".into()),
+        };
+        let mut view = GInstance::new();
+        for (id, anchor) in [(1, "note"), (2, "note"), (5, "span")] {
+            view.insert_node(Node::new(id, anchor))?;
+        }
+        view.insert_edge(EdgeId(7), GEdge::new(1, 5, label.clone()))?;
+        view.insert_edge(EdgeId(8), GEdge::new(1, 2, label))?;
+        let mut complement = ResolutionComplement::default();
+        complement.span_nodes.insert(
+            5,
+            ResolutionSpan {
+                text: ResolutionTextId::Local(ResolutionValueSite::Field {
+                    holder: ViewRef::Node(1),
+                    field: "text".to_owned(),
+                }),
+                start: 0,
+                end: 3,
+            },
+        );
+        for (edge, index) in [(7, 0), (8, 1)] {
+            complement.occurrences.insert(
+                ViewRef::Edge(EdgeId(edge)),
+                vec![RefOccurrence {
+                    holder: ViewRef::Node(1),
+                    reference: "r".into(),
+                    index,
+                    literal: Value::Int(0),
+                    form: None,
+                    context: None,
+                }],
+            );
+        }
+        Ok((view, complement))
+    }
+
+    #[test]
+    fn each_synthesized_carrier_is_renamed_alone_and_all_at_once()
+    -> Result<(), panproto_inst::InstError> {
+        let (view, complement) = state()?;
+        let renamings = witnesses(&view, &complement);
+        let shapes: Vec<(BTreeMap<u32, u32>, BTreeMap<EdgeId, EdgeId>)> = renamings
+            .iter()
+            .map(|renaming| (renaming.nodes.clone(), renaming.edges.clone()))
+            .collect();
+        assert_eq!(
+            shapes,
+            vec![
+                (std::iter::once((5, 6)).collect(), BTreeMap::new()),
+                (
+                    BTreeMap::new(),
+                    std::iter::once((EdgeId(7), EdgeId(9))).collect()
+                ),
+                (
+                    BTreeMap::new(),
+                    std::iter::once((EdgeId(8), EdgeId(10))).collect()
+                ),
+                (
+                    std::iter::once((5, 6)).collect(),
+                    [(EdgeId(7), EdgeId(9)), (EdgeId(8), EdgeId(10))]
+                        .into_iter()
+                        .collect()
+                ),
+            ]
+        );
+        Ok(())
+    }
+}
