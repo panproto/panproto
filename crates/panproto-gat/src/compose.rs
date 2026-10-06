@@ -1322,9 +1322,9 @@ impl NodeInfo<'_> {
 ///    and the order of kilpatrickdreyerpeytonjonesmarlow2014backpack Secs
 ///    3.2 to 3.3, which unifies module identities and then refuses a kind
 ///    mismatch (stated; the correspondence is inferred). The comparison
-///    is syntactic modulo the class map: it does not apply the sort conversions that term equations induce
-///    (garner2015combinatorial Table 1, stated), including the equations
-///    step 5 adds. A mismatch only in the term arguments of dependent
+///    is syntactic modulo the class map: it does not apply the sort
+///    conversions that term equations induce (garner2015combinatorial
+///    Table 1, stated), including the equations step 5 adds. A mismatch only in the term arguments of dependent
 ///    sorts is [`CompositionError::QuotientNotRepresentable`], whether
 ///    the identification needs a sort equation, which a theory cannot
 ///    state, or holds modulo a term equation, which this conservative
