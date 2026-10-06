@@ -1187,6 +1187,58 @@ fn adding_an_alias_creates_a_holder() {
     assert_eq!(restored.arcs.last(), Some(&(0, 7, fixture.item_alias)));
 }
 
+/// map 0: node 1 anchored "id001", node 4 unanchored, each with a value.
+fn unanchored_tree(fixture: &Aliases) -> WInstance {
+    tree(
+        vec![
+            Node::new(0, "map"),
+            anchored(1, "id001"),
+            leaf(2, "value", text("x")),
+            Node::new(4, "node"),
+            leaf(5, "value", text("y")),
+        ],
+        vec![
+            (0, 1, fixture.item.clone()),
+            (1, 2, fixture.val.clone()),
+            (0, 4, fixture.item.clone()),
+            (4, 5, fixture.val.clone()),
+        ],
+        0,
+    )
+}
+
+#[test]
+fn an_alias_of_an_unanchored_node_is_unrepresentable_at_its_edge() {
+    // Put generates no anchor: the anchor is a field of the target, a node
+    // of the view, so a name put wrote there would change the view.
+    let fixture = aliases_schema(|reference| reference.on_unresolved = OnUnresolved::Complement);
+    let resolution = compile(
+        "aliases",
+        ResolutionKind::TreeToGraph,
+        &fixture.schema,
+        &[(&fixture.alias_of, "alias_ref")],
+    );
+    let source = AnyInstance::Tree(unanchored_tree(&fixture));
+    let (mut view, complement) = get(&resolution, &source);
+    let fresh = panproto_inst::EdgeId(view.edges().keys().map(|id| id.0 + 1).max().unwrap_or(0));
+    view.insert_edge(fresh, panproto_inst::GEdge::new(0, 4, fixture.alias_of.clone()))
+        .expect("an alias of the unanchored node");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(fresh),
+            reference: "alias_ref".into(),
+        }]
+    );
+    match resolution.put_canonical(&AnyInstance::Graph(view), &ctx()) {
+        Err(ResolveError::PutDomain(ResolveDomainError::UnrepresentableReference {
+            carrier,
+            ..
+        })) => assert_eq!(carrier, ViewRef::Edge(fresh)),
+        other => panic!("canonical put names the alias edge, got {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The variables fixture: concepts that bind their own variable, the first
 // occurrence of a name in document order defining it and every later one

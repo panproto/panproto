@@ -404,7 +404,18 @@ impl Resolution {
         let mut written = Vec::new();
         for (edge, id, target) in holders {
             let (writer, _) = self.holder_writer(graph, edge)?;
-            let first = self.canonical_literal(writer, id, target, &base, graph, ctx)?;
+            let first = self
+                .canonical_literal(writer, id, target, &base, graph, ctx)
+                .map_err(|error| match error {
+                    ResolveError::PutDomain(ResolveDomainError::UnrepresentableReference {
+                        reference,
+                        ..
+                    }) => domain(ResolveDomainError::UnrepresentableReference {
+                        carrier: ViewRef::Edge(edge),
+                        reference,
+                    }),
+                    other => other,
+                })?;
             let mut forms = vec![first];
             if matches!(writer.form, RefForm::KeyValue { .. } | RefForm::Path { .. }) {
                 forms.extend(self.provider.qualified_forms(

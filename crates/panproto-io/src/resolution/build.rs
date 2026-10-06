@@ -202,7 +202,12 @@ impl Resolution {
                     forms,
                     rewrite: false,
                 }),
-                Err(Refusal::Domain(violations)) => failures.extend(violations.into_vec()),
+                Err(Refusal::Domain(violations)) => failures.extend(
+                    violations
+                        .into_vec()
+                        .into_iter()
+                        .map(|violation| at_edge(violation, holder.carrier)),
+                ),
                 Err(refusal) => return Err(refusal),
             }
         }
