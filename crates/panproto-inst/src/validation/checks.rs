@@ -2567,12 +2567,116 @@ mod tests {
 
     use panproto_schema::{HyperEdge, Schema};
 
-    use super::tree_fan_reasons;
+    use std::collections::BTreeSet;
+
+    use panproto_schema::Edge;
+
+    use super::{InstanceView, traced, tree_fan_reasons};
     use crate::fan::Fan;
     use crate::fan_violation::FanViolation;
+    use crate::functor::FInstance;
     use crate::metadata::Node;
     use crate::validation::FanRecord;
+    use crate::view_ref::{RowId, ViewRef};
     use crate::wtype::WInstance;
+
+    fn fk(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// The foreign-key pair `(edge, s, t)` as the view names it.
+    fn pair_ref(edge: &Edge, s: u32, t: u32) -> ViewRef {
+        ViewRef::Pair {
+            edge: edge.clone(),
+            src: RowId(s),
+            tgt: RowId(t),
+        }
+    }
+
+    /// Every table over rows 0 and 1 of `t` and row 2 of `u` whose foreign
+    /// keys `t_t` (self pairs included), `t_u` and `u_t` hold any subset of
+    /// their eight possible pairs (256 tables): for every row, the
+    /// incident edges the view lists, kept as lists so that a repeated pair
+    /// shows, are exactly the pairs of the built list leaving and entering
+    /// the row, ascending, and the reads of listing them are the row and
+    /// exactly those pairs. The expectation filters the pair list the table
+    /// was built from and calls no view function.
+    #[test]
+    fn table_incident_pairs_are_listed_once_and_read_exactly() {
+        let (t_t, t_u, u_t) = (
+            fk("t", "t", "t_t"),
+            fk("t", "u", "t_u"),
+            fk("u", "t", "u_t"),
+        );
+        let possible: Vec<(Edge, u32, u32)> = vec![
+            (t_t.clone(), 0, 0),
+            (t_t.clone(), 0, 1),
+            (t_t.clone(), 1, 0),
+            (t_t, 1, 1),
+            (t_u.clone(), 0, 2),
+            (t_u, 1, 2),
+            (u_t.clone(), 2, 0),
+            (u_t, 2, 1),
+        ];
+        let mut checked = 0_usize;
+        for bits in 0_u32..256 {
+            let chosen: Vec<&(Edge, u32, u32)> = possible
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| bits & (1 << i) != 0)
+                .map(|(_, p)| p)
+                .collect();
+            let mut table = FInstance::new()
+                .with_rows(
+                    "t",
+                    [(RowId(0), HashMap::new()), (RowId(1), HashMap::new())],
+                )
+                .unwrap_or_else(|e| panic!("rows of t: {e}"))
+                .with_rows("u", [(RowId(2), HashMap::new())])
+                .unwrap_or_else(|e| panic!("rows of u: {e}"));
+            for (edge, s, t) in &chosen {
+                table
+                    .insert_foreign_key(edge.clone(), RowId(*s), RowId(*t))
+                    .unwrap_or_else(|e| panic!("pair {edge:?} {s} {t}: {e}"));
+            }
+            let view = InstanceView::Table(&table);
+            for row in [0_u32, 1, 2] {
+                let at = ViewRef::Row(RowId(row));
+                let mut leaving: Vec<ViewRef> = chosen
+                    .iter()
+                    .filter(|(_, s, _)| *s == row)
+                    .map(|(e, s, t)| pair_ref(e, *s, *t))
+                    .collect();
+                leaving.sort();
+                let mut entering: Vec<ViewRef> = chosen
+                    .iter()
+                    .filter(|(_, _, t)| *t == row)
+                    .map(|(e, s, t)| pair_ref(e, *s, *t))
+                    .collect();
+                entering.sort();
+                let ((out, inn), reads) = traced(|| {
+                    let out: Vec<ViewRef> = view.out_edges(&at).into_iter().map(|r| r.at).collect();
+                    let inn: Vec<ViewRef> = view.in_edges(&at).into_iter().map(|r| r.at).collect();
+                    (out, inn)
+                });
+                assert_eq!(out, leaving, "out-edges of row {row}, table {bits:#010b}");
+                assert_eq!(inn, entering, "in-edges of row {row}, table {bits:#010b}");
+                let expected: BTreeSet<ViewRef> = std::iter::once(at.clone())
+                    .chain(leaving.iter().cloned())
+                    .chain(entering.iter().cloned())
+                    .collect();
+                assert_eq!(reads, expected, "reads of row {row}, table {bits:#010b}");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 768);
+        eprintln!("bounded tables 256, rows checked {checked}");
+    }
 
     #[test]
     fn tree_fan_reasons_are_reported_in_order() {

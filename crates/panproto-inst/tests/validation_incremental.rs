@@ -3551,7 +3551,8 @@ fn v4_unknown_anchor_counterexample_has_the_independently_expected_report() -> T
 }
 
 // ---------------------------------------------------------------------------
-// Laws V3, V3a, V4, V5 and V6 over the contract's generators.
+// The footprint, trigger, edit, sequence and witness laws over the shared
+// generators.
 //
 // Instances are drawn by the shared generators of `validation_support`
 // (schemas with required edges, keys, references, degree bounds, an acyclic
@@ -4177,7 +4178,7 @@ impl Surface for WInstance {
     }
 }
 
-/// Laws V3 and V4 for one generated transition, or, when the edit does not
+/// Footprint soundness and edit agreement for one generated transition, or, when the edit does not
 /// apply, its typed refusal by every surface with nothing changed.
 fn v3_v4_case<I: Surface>(
     plan: &Arc<ValidationPlan>,
@@ -4210,7 +4211,7 @@ fn v3_v4_case<I: Surface>(
     )
 }
 
-/// Law V5 for one step: apply `delta` under `policy`, an unlimited budget
+/// Sequence agreement for one step: apply `delta` under `policy`, an unlimited budget
 /// and `external`. An admitted step leaves a state whose report is full
 /// validation of the new instance and which reattaches; a rejected one
 /// leaves the canonical instance and state bytes unchanged. Returns the
@@ -4415,7 +4416,7 @@ fn run_mutants(witness: &EditWitness) -> Vec<(String, EditWitness)> {
     out
 }
 
-/// Law V6 for one admitted transition: the witness verifies against its
+/// Witness verification for one admitted transition: the witness verifies against its
 /// exact replay context; an altered witness verifies iff it has the
 /// witness's canonical bytes; and under an altered replay context (policy,
 /// budget, external projection, expected options or baseline) it verifies
@@ -4552,7 +4553,8 @@ fn arb_draw() -> impl Strategy<Value = Draw> {
         )
 }
 
-/// V3 and V4 over the three transitions of one draw.
+/// Footprint soundness and edit agreement over the three transitions of
+/// one draw.
 fn v3_v4_draw(draw: &Draw) -> TestResult {
     let (pre, delta) = &draw.graph;
     let mut elements = graph_elements(pre);
@@ -4588,7 +4590,7 @@ fn v3_v4_draw(draw: &Draw) -> TestResult {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(160))]
 
-    /// V3 (footprint soundness) over generated schemas, every shape, every
+    /// Footprint soundness over generated schemas, every shape, every
     /// element kind, replacements, path keys, `Within` scopes, moved
     /// subtrees, external changes and finite-budget baselines.
     #[test]
@@ -4596,7 +4598,7 @@ proptest! {
         v3_v4_draw(&draw).map_err(|error| TestCaseError::fail(error.to_string()))?;
     }
 
-    /// V4 (edit agreement) with a finite-budget baseline and target external
+    /// Edit agreement with a finite-budget baseline and target external
     /// evidence that differs from the baseline's.
     #[test]
     fn v4_edit_agreement(
@@ -4628,7 +4630,7 @@ where
     }
 }
 
-/// V3a (trigger completeness): V3's oracle over generator families that
+/// Trigger completeness: the footprint soundness oracle over generator families that
 /// change one element kind only, for every graph `DeltaElementKind`, every
 /// table element kind and every tree edit kind, so that a missing trigger
 /// row fails a law.
@@ -4744,7 +4746,7 @@ const fn policy(require_passed: bool) -> AdmissionPolicy {
     }
 }
 
-/// V5 over one shape: from a trusted initialization under `initial`
+/// Sequence agreement over one shape: from a trusted initialization under `initial`
 /// (finite or not), apply every step through `next`, which draws the step's
 /// delta against the current instance, and check each step with
 /// [`v5_step`]; every admitted step's witness also passes [`v6_case`].
@@ -4804,7 +4806,7 @@ fn v5_sequence<I: Surface, Op: Clone>(
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// V5 (sequence agreement) with faults, repairs, identity edits, net
+    /// Sequence agreement with faults, repairs, identity edits, net
     /// batches of several operations, external changes and invalid and
     /// finite-budget baselines, in every shape.
     #[test]
@@ -4850,7 +4852,7 @@ proptest! {
         )?;
     }
 
-    /// V6 (witness verification): every witness admitted along a generated
+    /// Witness verification: every witness admitted along a generated
     /// sequence verifies against its exact replay context, and every
     /// alteration of the witness or of the context is accepted exactly when
     /// it is observationally equivalent.
@@ -5039,19 +5041,20 @@ fn every_bounded_graph() -> Vec<GInstance> {
 }
 
 /// Every table instance of the bounded scope: a film 0 titled `a` or not,
-/// actors 10 and 11 named `a` or not, the film's lead naming `a`, and any
+/// actor 10 named `a` or not, actor 11 named `b` or not, the film's lead
+/// naming `a`, and any
 /// subset of the pairs `0 -stars-> 10` and `0 -stars-> 11`. 32 instances.
 fn every_bounded_table() -> Vec<FInstance> {
     let mut out = Vec::new();
     for bits in 0_u32..32 {
-        let cell = |on: bool, column: &str| {
+        let cell = |on: bool, column: &str, text: &str| {
             if on {
-                HashMap::from([(column.to_owned(), Value::Str("a".into()))])
+                HashMap::from([(column.to_owned(), Value::Str(text.into()))])
             } else {
                 HashMap::new()
             }
         };
-        let mut film = cell(bits & 1 != 0, "title");
+        let mut film = cell(bits & 1 != 0, "title", "a");
         film.insert("year".into(), Value::Int(2000));
         film.insert("lead".into(), Value::Str("a".into()));
         let mut table = FInstance::new()
@@ -5060,8 +5063,8 @@ fn every_bounded_table() -> Vec<FInstance> {
             .with_rows(
                 "actor",
                 [
-                    (RowId(10), cell(bits & 2 != 0, "aname")),
-                    (RowId(11), cell(bits & 4 != 0, "aname")),
+                    (RowId(10), cell(bits & 2 != 0, "aname", "a")),
+                    (RowId(11), cell(bits & 4 != 0, "aname", "b")),
                 ],
             )
             .unwrap();
@@ -5197,7 +5200,7 @@ fn tree_step_menu(tree: &WInstance) -> Vec<TreeEdit> {
 /// passing, every element rejected.
 const BOUNDED_PROJECTIONS: [&[u8]; 3] = [&[], &[1], &[2]];
 
-/// V3 and V4 on every ordered pair of bounded graphs (16384 transitions),
+/// Footprint soundness and edit agreement on every ordered pair of bounded graphs (16384 transitions),
 /// from an unlimited and a four-read baseline, under unchanged and changed
 /// external projections on the diagonal.
 #[test]
@@ -5237,7 +5240,7 @@ fn v3_v4_hold_on_every_bounded_graph_transition() {
     assert_eq!(checked, 16384);
 }
 
-/// V3 and V4 on every ordered pair of bounded tables (1024 transitions),
+/// Footprint soundness and edit agreement on every ordered pair of bounded tables (1024 transitions),
 /// under every pair of bounded projections.
 #[test]
 fn v3_v4_hold_on_every_bounded_table_transition() {
@@ -5257,7 +5260,7 @@ fn v3_v4_hold_on_every_bounded_table_transition() {
     }
 }
 
-/// V3 and V4 on every bounded tree with every step of its step menu,
+/// Footprint soundness and edit agreement on every bounded tree with every step of its step menu,
 /// from an unlimited and a four-read baseline.
 #[test]
 fn v3_v4_hold_on_every_bounded_tree_step() {
@@ -5278,6 +5281,405 @@ fn v3_v4_hold_on_every_bounded_tree_step() {
         }
     }
     eprintln!("bounded trees {} steps {checked}", trees.len());
+}
+
+/// The steps a bounded scope applies to an instance.
+type Steps<'a, I> = &'a dyn Fn(&I) -> Vec<<I as ValidatedShape>::Delta>;
+
+/// One bounded scope of the sequence and witness laws: the starting
+/// instances, the steps applied to each start, the steps applied after
+/// them (none for sequences of one step), and whether witnesses are
+/// checked.
+struct SequenceScope<'a, I: Surface> {
+    starts: &'a [I],
+    first: Steps<'a, I>,
+    then: Option<Steps<'a, I>>,
+    witnesses: bool,
+}
+
+/// The steps applied and the witnesses checked by [`bounded_sequences`].
+#[derive(Default)]
+struct SequenceCounts {
+    steps: usize,
+    witnesses: usize,
+    passed_baselines: usize,
+}
+
+/// Sequence agreement on every sequence of a bounded scope, and, when the
+/// scope asks for it, witness verification of every admitted step. From
+/// each start, initialized under an unlimited and a four-read budget with
+/// every element passing its external check, every first step is applied
+/// under each policy, and every later step under each policy to every
+/// state so reached. Each step is checked by the sequence law's step check
+/// (an admitted step's state reports full validation and reattaches, a
+/// rejected step changes nothing), each admitted step's witness by the
+/// witness law's check, and on every `Passed` baseline the two policies
+/// admit or reject the step together.
+fn bounded_sequences<I: Surface>(
+    plan: &Arc<ValidationPlan>,
+    scope: &SequenceScope<'_, I>,
+) -> SequenceCounts {
+    let mut counts = SequenceCounts::default();
+    for start in scope.starts {
+        for initial in [
+            ValidationBudget::default(),
+            ValidationBudget { max_reads: Some(4) },
+        ] {
+            let (validated, _) = Validated::<I>::new(
+                plan.clone(),
+                start.clone(),
+                &initial,
+                &projection(&[1], start.elements()),
+            );
+            for first in (scope.first)(start) {
+                let reached = bounded_step(plan, &validated, &first, scope.witnesses, &mut counts);
+                let Some(then) = scope.then else {
+                    continue;
+                };
+                for next in reached {
+                    for step in then(next.instance()) {
+                        bounded_step(plan, &next, &step, scope.witnesses, &mut counts);
+                    }
+                }
+            }
+        }
+    }
+    counts
+}
+
+/// One step of [`bounded_sequences`] under each policy, with every element
+/// of the instance before and after it passing its external check; returns
+/// the state after it under each policy.
+fn bounded_step<I: Surface>(
+    plan: &Arc<ValidationPlan>,
+    validated: &Validated<I>,
+    delta: &I::Delta,
+    witnesses: bool,
+    counts: &mut SequenceCounts,
+) -> Vec<Validated<I>> {
+    let mut elements = validated.instance().elements();
+    let mut post = validated.instance().clone();
+    if I::apply_delta(delta, &mut post).is_ok() {
+        elements.extend(post.elements());
+    }
+    let external = projection(&[1], elements);
+    let mut reached = Vec::new();
+    let mut admissions = Vec::new();
+    for require_passed in [true, false] {
+        let mut next = validated.clone();
+        let options = WitnessOptions {
+            digests: counts.steps % 2 == 0,
+        };
+        let admitted = v5_step(
+            &mut next,
+            plan,
+            delta,
+            policy(require_passed),
+            &external,
+            options,
+        )
+        .unwrap_or_else(|e| panic!("sequence law: {e}"));
+        counts.steps += 1;
+        admissions.push(admitted.is_some());
+        if witnesses && let Some((baseline, prior, witness)) = admitted {
+            v6_case(
+                plan,
+                &WitnessReplay {
+                    plan,
+                    baseline: &baseline,
+                    prior: &prior,
+                    delta,
+                    policy: policy(require_passed),
+                    budget: &ValidationBudget::default(),
+                    external: &external,
+                    expected_options: options,
+                },
+                &witness,
+            )
+            .unwrap_or_else(|e| panic!("witness law: {e}"));
+            counts.witnesses += 1;
+        }
+        reached.push(next);
+    }
+    if validated.state().status == CheckStatus::Passed {
+        assert_eq!(
+            admissions[0], admissions[1],
+            "policies on a passed baseline"
+        );
+        counts.passed_baselines += 1;
+    }
+    reached
+}
+
+/// The graphs of the sequence scope: a document 0, items 1 and 2, names 3
+/// valued `a` and 4 valued `b`, and any subset of the edges `0 -items-> 1`,
+/// `0 -items-> 2`, `1 -name-> 3`, `2 -name-> 4`, `1 -next-> 2` and
+/// `2 -next-> 1` (bits 0 to 5, each under its bit's edge id) that holds
+/// every edge of `fixed`: `2^(6 - |fixed|)` graphs. Unlike the scope of
+/// [`every_bounded_graph`], whose items share one name, some of these
+/// graphs pass.
+fn sequence_graphs(fixed: u32) -> Vec<GInstance> {
+    use validation_support::{e_items, e_name, e_next};
+    let candidates = [
+        (0, 1, e_items()),
+        (0, 2, e_items()),
+        (1, 3, e_name()),
+        (2, 4, e_name()),
+        (1, 2, e_next()),
+        (2, 1, e_next()),
+    ];
+    let mut out = Vec::new();
+    for bits in 0_u32..64 {
+        if bits & fixed != fixed {
+            continue;
+        }
+        let mut graph = GInstance::new()
+            .with_node(Node::new(0, "doc"))
+            .with_node(Node::new(1, "item"))
+            .with_node(Node::new(2, "item"))
+            .with_node(
+                Node::new(3, "name").with_value(FieldPresence::Present(Value::Str("a".into()))),
+            )
+            .with_node(
+                Node::new(4, "name").with_value(FieldPresence::Present(Value::Str("b".into()))),
+            );
+        for (i, (s, t, label)) in candidates.iter().enumerate() {
+            if bits & (1 << i) != 0 {
+                graph =
+                    graph.with_edge_id(EdgeId(u32::try_from(i).unwrap()), *s, *t, label.clone());
+            }
+        }
+        out.push(graph);
+    }
+    out
+}
+
+/// The bounded tables whose enumeration bits include every bit of `fixed`
+/// (bit 0 the film's title, bits 1 and 2 the actors' names, bits 3 and 4
+/// the stars pairs): `2^(5 - |fixed|)` tables.
+fn bounded_tables_holding(fixed: u32) -> Vec<FInstance> {
+    every_bounded_table()
+        .into_iter()
+        .zip(0_u32..)
+        .filter(|(_, bits)| bits & fixed == fixed)
+        .map(|(table, _)| table)
+        .collect()
+}
+
+/// The bounded trees of at most `nodes` nodes, the root included.
+fn bounded_trees_up_to(nodes: usize) -> Vec<WInstance> {
+    every_bounded_tree()
+        .into_iter()
+        .filter(|tree| tree.nodes.len() <= nodes)
+        .collect()
+}
+
+/// The sequence law on every bounded table sequence: every sequence of one
+/// step between the 32 bounded tables (4,096 steps), and every sequence of
+/// two steps between the 8 tables with a titled film and a named actor 10
+/// (4,352 steps), each step under both policies and from both initial
+/// budgets.
+#[test]
+fn sequence_law_holds_on_every_bounded_table_sequence() {
+    let plan = law_plan(&bounded_table_schema(), InstanceShapeKind::Table);
+    let all = bounded_tables_holding(0);
+    assert_eq!(all.len(), 32);
+    let to_all = |pre: &FInstance| -> Vec<TableDelta> {
+        all.iter().map(|post| TableDelta::diff(pre, post)).collect()
+    };
+    let one = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &all,
+            first: &to_all,
+            then: None,
+            witnesses: false,
+        },
+    );
+    let small = bounded_tables_holding(0b0_0011);
+    assert_eq!(small.len(), 8);
+    let to_small = |pre: &FInstance| -> Vec<TableDelta> {
+        small
+            .iter()
+            .map(|post| TableDelta::diff(pre, post))
+            .collect()
+    };
+    let two = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &small,
+            first: &to_small,
+            then: Some(&to_small),
+            witnesses: false,
+        },
+    );
+    assert_eq!(one.steps, 4096);
+    assert_eq!(two.steps, 4352);
+    assert!(one.passed_baselines > 0 && two.passed_baselines > 0);
+    eprintln!(
+        "bounded table sequences: {} one-step and {} two-step steps, {} passed baselines",
+        one.steps,
+        two.steps,
+        one.passed_baselines + two.passed_baselines
+    );
+}
+
+/// The sequence law on every bounded tree sequence: every step of the step
+/// menu from every bounded tree of at most four nodes, and every sequence
+/// of two menu steps from every bounded tree of at most two nodes, each
+/// step under both policies and from both initial budgets.
+#[test]
+fn sequence_law_holds_on_every_bounded_tree_sequence() {
+    let plan = law_plan(&bounded_schema(), InstanceShapeKind::Tree);
+    let menu = |pre: &WInstance| -> Vec<TreeEdit> { tree_step_menu(pre) };
+    let four = bounded_trees_up_to(4);
+    let one = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &four,
+            first: &menu,
+            then: None,
+            witnesses: false,
+        },
+    );
+    let two_nodes = bounded_trees_up_to(2);
+    let two = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &two_nodes,
+            first: &menu,
+            then: Some(&menu),
+            witnesses: false,
+        },
+    );
+    assert!(one.passed_baselines > 0 && two.passed_baselines > 0);
+    eprintln!(
+        "bounded tree sequences: {} trees of at most 4 nodes, {} one-step steps; {} trees of at \
+         most 2 nodes, {} two-step steps; {} passed baselines",
+        four.len(),
+        one.steps,
+        two_nodes.len(),
+        two.steps,
+        one.passed_baselines + two.passed_baselines
+    );
+}
+
+/// The witness law on every admitted bounded step: every step between the
+/// 16 sequence graphs holding both `items` edges, between the 8 tables with a
+/// titled film and a named actor 10, and of the step menu from every
+/// bounded tree of at most three nodes, under both policies and from both
+/// initial budgets. Each witness verifies against its exact replay
+/// context, every alteration of the witness is accepted exactly when its
+/// canonical bytes are the witness's, and every altered context exactly
+/// when admission under it reproduces the witness.
+#[test]
+fn witness_law_holds_on_every_bounded_step() {
+    let graphs = sequence_graphs(0b00_0011);
+    assert_eq!(graphs.len(), 16);
+    let to_graphs = |pre: &GInstance| -> Vec<GraphDelta> {
+        graphs
+            .iter()
+            .map(|post| GraphDelta::diff(pre, post))
+            .collect()
+    };
+    let graph = bounded_sequences(
+        &law_plan(&bounded_schema(), InstanceShapeKind::Graph),
+        &SequenceScope {
+            starts: &graphs,
+            first: &to_graphs,
+            then: None,
+            witnesses: true,
+        },
+    );
+    let tables = bounded_tables_holding(0b0_0011);
+    let to_tables = |pre: &FInstance| -> Vec<TableDelta> {
+        tables
+            .iter()
+            .map(|post| TableDelta::diff(pre, post))
+            .collect()
+    };
+    let table = bounded_sequences(
+        &law_plan(&bounded_table_schema(), InstanceShapeKind::Table),
+        &SequenceScope {
+            starts: &tables,
+            first: &to_tables,
+            then: None,
+            witnesses: true,
+        },
+    );
+    let menu = |pre: &WInstance| -> Vec<TreeEdit> { tree_step_menu(pre) };
+    let trees = bounded_trees_up_to(3);
+    let tree = bounded_sequences(
+        &law_plan(&bounded_schema(), InstanceShapeKind::Tree),
+        &SequenceScope {
+            starts: &trees,
+            first: &menu,
+            then: None,
+            witnesses: true,
+        },
+    );
+    assert_eq!(graph.steps, 1024);
+    assert_eq!(table.steps, 256);
+    for (shape, counts) in [("graph", &graph), ("table", &table), ("tree", &tree)] {
+        assert!(counts.witnesses > 0, "{shape}: no admitted step");
+        eprintln!(
+            "bounded {shape} witnesses: {} steps, {} witnesses checked",
+            counts.steps, counts.witnesses
+        );
+    }
+}
+
+/// The sequence law on every bounded graph sequence: every sequence of one
+/// step between the 32 sequence graphs holding `0 -items-> 1` (4,096
+/// steps), and every sequence of two steps between the 8 holding both
+/// `items` edges and `1 -name-> 3` (4,352 steps), each step under both
+/// policies and from both initial budgets; the policies agree on every
+/// passed baseline.
+#[test]
+fn sequence_law_holds_on_every_bounded_graph_sequence() {
+    let plan = law_plan(&bounded_schema(), InstanceShapeKind::Graph);
+    let core = sequence_graphs(0b00_0001);
+    assert_eq!(core.len(), 32);
+    let to_core = |pre: &GInstance| -> Vec<GraphDelta> {
+        core.iter()
+            .map(|post| GraphDelta::diff(pre, post))
+            .collect()
+    };
+    let one = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &core,
+            first: &to_core,
+            then: None,
+            witnesses: false,
+        },
+    );
+    let small = sequence_graphs(0b00_0111);
+    assert_eq!(small.len(), 8);
+    let to_small = |pre: &GInstance| -> Vec<GraphDelta> {
+        small
+            .iter()
+            .map(|post| GraphDelta::diff(pre, post))
+            .collect()
+    };
+    let two = bounded_sequences(
+        &plan,
+        &SequenceScope {
+            starts: &small,
+            first: &to_small,
+            then: Some(&to_small),
+            witnesses: false,
+        },
+    );
+    assert_eq!(one.steps, 4096);
+    assert_eq!(two.steps, 8 * 2 * 8 * 2 + 8 * 2 * 8 * 2 * 8 * 2);
+    assert!(one.passed_baselines > 0 && two.passed_baselines > 0);
+    eprintln!(
+        "bounded graph sequences: {} one-step and {} two-step steps, {} passed baselines",
+        one.steps,
+        two.steps,
+        one.passed_baselines + two.passed_baselines
+    );
 }
 
 // ---------------------------------------------------------------------------
