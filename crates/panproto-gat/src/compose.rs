@@ -6097,9 +6097,23 @@ mod tests {
             }
         }
 
-        fn render_sort(s: &OSort, names: &[&'static str]) -> SortExpr {
+        /// Render a sort. A bare name is spelled `Name(head)`, or, when
+        /// `empty_app` holds and the head is the nullary `X`, as the
+        /// application `App { head, args: [] }`; both spellings have the
+        /// same head and the same (empty) argument list, so they share one
+        /// name-free form.
+        fn render_sort(s: &OSort, names: &[&'static str], empty_app: bool) -> SortExpr {
             s.args.as_ref().map_or_else(
-                || SortExpr::Name(Arc::from(s.head)),
+                || {
+                    if empty_app && s.head == "X" {
+                        SortExpr::App {
+                            name: Arc::from(s.head),
+                            args: vec![],
+                        }
+                    } else {
+                        SortExpr::Name(Arc::from(s.head))
+                    }
+                },
                 |args| SortExpr::App {
                     name: Arc::from(s.head),
                     args: args.iter().map(|a| render_term(a, names)).collect(),
@@ -6107,7 +6121,7 @@ mod tests {
             )
         }
 
-        fn render_op(o: &OOp, names: &[&'static str]) -> Operation {
+        fn render_op(o: &OOp, names: &[&'static str], empty_app: bool) -> Operation {
             Operation::with_implicit(
                 "member",
                 o.inputs
@@ -6116,7 +6130,7 @@ mod tests {
                     .map(|(i, (s, imp))| {
                         (
                             Arc::from(names[i]),
-                            render_sort(s, names),
+                            render_sort(s, names, empty_app),
                             if *imp {
                                 crate::op::Implicit::Yes
                             } else {
@@ -6125,18 +6139,22 @@ mod tests {
                         )
                     })
                     .collect(),
-                render_sort(&o.output, names),
+                render_sort(&o.output, names, empty_app),
             )
         }
 
-        fn render_sort_decl(d: &OSortDecl, names: &[&'static str]) -> crate::sort::Sort {
+        fn render_sort_decl(
+            d: &OSortDecl,
+            names: &[&'static str],
+            empty_app: bool,
+        ) -> crate::sort::Sort {
             crate::sort::Sort {
                 name: Arc::from("W"),
                 params: d
                     .params
                     .iter()
                     .enumerate()
-                    .map(|(i, s)| SortParam::new(names[i], render_sort(s, names)))
+                    .map(|(i, s)| SortParam::new(names[i], render_sort(s, names, empty_app)))
                     .collect(),
                 kind: if d.value_kind {
                     crate::sort::SortKind::Val(crate::sort::ValueKind::Int)
@@ -6306,8 +6324,10 @@ mod tests {
             let mut out = Vec::new();
             for form in forms {
                 for names in scope_names(form.inputs.len()) {
-                    let rendered = render_op(&form, &names);
-                    out.push((form.clone(), rendered));
+                    for empty_app in [false, true] {
+                        let rendered = render_op(&form, &names, empty_app);
+                        out.push((form.clone(), rendered));
+                    }
                 }
             }
             out
@@ -6342,8 +6362,10 @@ mod tests {
             let mut out = Vec::new();
             for form in forms {
                 for names in scope_names(form.params.len()) {
-                    let rendered = render_sort_decl(&form, &names);
-                    out.push((form.clone(), rendered));
+                    for empty_app in [false, true] {
+                        let rendered = render_sort_decl(&form, &names, empty_app);
+                        out.push((form.clone(), rendered));
+                    }
                 }
             }
             out
@@ -6592,6 +6614,7 @@ mod tests {
                 first in proptest::collection::vec(any::<u32>(), 96),
                 second in proptest::collection::vec(any::<u32>(), 96),
                 relation in 0_usize..4,
+                spellings in any::<[bool; 2]>(),
             ) {
                 let mut ch = Choices { data: &first, at: 0 };
                 let p = gen_op(&mut ch);
@@ -6603,7 +6626,10 @@ mod tests {
                     _ => perturb_op(&mut ch2, &p),
                 };
                 let q_names = gen_names(&mut ch2, q.inputs.len());
-                let (p_op, q_op) = (render_op(&p, &p_names), render_op(&q, &q_names));
+                let (p_op, q_op) = (
+                    render_op(&p, &p_names, spellings[0]),
+                    render_op(&q, &q_names, spellings[1]),
+                );
                 for op in [&p_op, &q_op] {
                     prop_assert_eq!(
                         crate::typecheck::typecheck_signature(&ambient(vec![op.clone()], vec![])),
@@ -6618,6 +6644,7 @@ mod tests {
                 first in proptest::collection::vec(any::<u32>(), 64),
                 second in proptest::collection::vec(any::<u32>(), 64),
                 relation in 0_usize..4,
+                spellings in any::<[bool; 2]>(),
             ) {
                 let mut ch = Choices { data: &first, at: 0 };
                 let p = gen_sort_decl(&mut ch);
@@ -6629,7 +6656,10 @@ mod tests {
                     _ => perturb_sort_decl(&mut ch2, &p),
                 };
                 let q_names = gen_names(&mut ch2, q.params.len());
-                let (p_sort, q_sort) = (render_sort_decl(&p, &p_names), render_sort_decl(&q, &q_names));
+                let (p_sort, q_sort) = (
+                    render_sort_decl(&p, &p_names, spellings[0]),
+                    render_sort_decl(&q, &q_names, spellings[1]),
+                );
                 for sort in [&p_sort, &q_sort] {
                     prop_assert_eq!(
                         crate::typecheck::typecheck_signature(&ambient(vec![], vec![sort.clone()])),
