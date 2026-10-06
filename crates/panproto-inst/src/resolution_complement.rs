@@ -978,6 +978,198 @@ mod tests {
     }
 
     #[test]
+    fn the_token_boundary_digest_depends_on_the_exact_text_identity() {
+        let holders = [
+            ViewRef::Node(1),
+            ViewRef::Node(2),
+            ViewRef::Edge(EdgeId(1)),
+            ViewRef::Arc {
+                parent: 1,
+                child: 2,
+            },
+            ViewRef::Arc {
+                parent: 2,
+                child: 1,
+            },
+            ViewRef::Row(RowId(1)),
+            ViewRef::Pair {
+                edge: label(),
+                src: RowId(1),
+                tgt: RowId(2),
+            },
+            ViewRef::Pair {
+                edge: label(),
+                src: RowId(2),
+                tgt: RowId(1),
+            },
+        ];
+        let mut ids = Vec::new();
+        for holder in &holders {
+            let sites = [
+                ResolutionValueSite::Own(holder.clone()),
+                ResolutionValueSite::Field {
+                    holder: holder.clone(),
+                    field: "a".to_owned(),
+                },
+                ResolutionValueSite::Field {
+                    holder: holder.clone(),
+                    field: "b".to_owned(),
+                },
+            ];
+            for site in sites {
+                ids.push(ResolutionTextId::Local(site.clone()));
+                ids.push(ResolutionTextId::ExternalKey(site));
+            }
+        }
+        let digests: BTreeSet<_> = ids
+            .iter()
+            .map(|id| resolution_token_boundaries_digest(id, &[0, 3]).0)
+            .collect();
+        assert_eq!(
+            digests.len(),
+            ids.len(),
+            "every text identity has its digest"
+        );
+        let id = &ids[0];
+        assert_ne!(
+            resolution_token_boundaries_digest(id, &[0, 3]),
+            resolution_token_boundaries_digest(id, &[0, 2, 3])
+        );
+    }
+
+    #[test]
+    fn the_spec_digest_depends_on_every_path_and_path_syntax() {
+        let other = Edge {
+            name: Some("other".into()),
+            ..label()
+        };
+        let paths = [
+            Vec::new(),
+            vec![label()],
+            vec![other.clone()],
+            vec![label(), other],
+        ];
+        let syntaxes = [
+            PathSyntax::JsonPointer,
+            PathSyntax::XPath,
+            PathSyntax::Uri { base: None },
+            PathSyntax::Uri {
+                base: Some(Vec::new()),
+            },
+            PathSyntax::Uri {
+                base: Some(vec![label()]),
+            },
+            PathSyntax::IdRef,
+        ];
+        let mut sources = Vec::new();
+        for field in &paths {
+            for syntax in &syntaxes {
+                sources.push(RefSource::Path {
+                    field: field.clone(),
+                    syntax: syntax.clone(),
+                });
+            }
+            sources.push(RefSource::KeyValue {
+                parts: vec![field.clone()],
+            });
+            sources.push(RefSource::Variable {
+                field: field.clone(),
+                binder_key: "k".into(),
+            });
+            for text in [
+                RefTextSource::Local(field.clone()),
+                RefTextSource::External(field.clone()),
+            ] {
+                sources.push(RefSource::Standoff {
+                    text,
+                    start: Vec::new(),
+                    end: Vec::new(),
+                    unit: OffsetUnit::Byte,
+                    end_inclusive: false,
+                });
+            }
+            sources.push(RefSource::Standoff {
+                text: RefTextSource::Local(Vec::new()),
+                start: field.clone(),
+                end: Vec::new(),
+                unit: OffsetUnit::Byte,
+                end_inclusive: false,
+            });
+            sources.push(RefSource::Standoff {
+                text: RefTextSource::Local(Vec::new()),
+                start: Vec::new(),
+                end: field.clone(),
+                unit: OffsetUnit::Byte,
+                end_inclusive: false,
+            });
+        }
+        assert_eq!(sources.len(), 48);
+        let digests: BTreeSet<_> = sources
+            .into_iter()
+            .map(|source| {
+                let mut variant = reference();
+                variant.source = source;
+                let mut with = spec();
+                with.protocol_references.insert("r".into(), variant);
+                resolution_spec_digest(&with).0
+            })
+            .collect();
+        // Twelve sources per field path; at the empty path the local
+        // standoff, its start variant and its end variant are one source,
+        // so 48 sources are 46 distinct references.
+        assert_eq!(digests.len(), 46);
+    }
+
+    #[test]
+    fn an_any_instance_borrows_only_its_own_shape() {
+        let tree = AnyInstance::Tree(WInstance::new(
+            BTreeMap::from([(0, Node::new(0, "a"))])
+                .into_iter()
+                .collect(),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "a".into(),
+        ));
+        let table = AnyInstance::Table(crate::FInstance::new());
+        let graph = AnyInstance::Graph(crate::GInstance::new());
+        assert!(tree.as_tree().is_some() && tree.as_table().is_none() && tree.as_graph().is_none());
+        assert!(
+            table.as_table().is_some() && table.as_tree().is_none() && table.as_graph().is_none()
+        );
+        assert!(
+            graph.as_graph().is_some() && graph.as_tree().is_none() && graph.as_table().is_none()
+        );
+    }
+
+    #[test]
+    fn a_text_identity_says_whether_its_text_is_local() {
+        let site = ResolutionValueSite::Own(ViewRef::Node(1));
+        assert!(ResolutionTextId::Local(site.clone()).is_local());
+        assert!(!ResolutionTextId::ExternalKey(site).is_local());
+    }
+
+    #[test]
+    fn a_resolution_complement_carries_its_identity_and_no_fingerprint() {
+        use crate::identity::IdentityCarrier;
+
+        let mut complement = ResolutionComplement::default();
+        assert!(IdentityCarrier::records_nothing(&complement));
+        assert_eq!(IdentityCarrier::identity(&complement), None);
+        let envelope = resolution_identity("p", &Schema::default(), &spec());
+        IdentityCarrier::set_identity(&mut complement, Some(envelope.clone()));
+        assert_eq!(IdentityCarrier::identity(&complement), Some(&envelope));
+        IdentityCarrier::set_legacy_fingerprint(&mut complement, 7);
+        assert_eq!(IdentityCarrier::legacy_fingerprint(&complement), 0);
+        assert!(
+            IdentityCarrier::records_nothing(&complement),
+            "the identity is not a record"
+        );
+        complement.order.insert(0, Vec::new());
+        assert!(!IdentityCarrier::records_nothing(&complement));
+    }
+
+    #[test]
     fn resolution_digest_depends_on_each_input() {
         let a = schema_digest(&Schema::default());
         let other = Schema {
