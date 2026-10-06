@@ -1,115 +1,484 @@
-//! Finite five-law checker for provider-indexed resolutions.
+//! The five gating laws of a resolution over its single-step basis.
+//!
+//! [`check_resolution_laws`] runs `GetPut`, `PutGet`, `Totality`,
+//! `PutTwice` and `Congruence`, in that order, for one source, one set of
+//! options and one fixed context, over the views one edit away from the
+//! source's view (the families of [`Mutation::ALL`], generated for the
+//! semantic schema by this module's own adapter, not through a lens). The
+//! report uses the lens checker's vocabulary. A pass means that no
+//! counterexample was found in the single-edit neighbourhood of the
+//! supplied source; it is not a proof over all sources or all edits.
 
-use std::collections::HashMap;
-
-use panproto_inst::{
-    AnyInstance, EdgeId, FieldPresence, GInstance, Node, ResolutionComplement, RowId, Value,
-};
-use panproto_lens::laws::{FamilyReport, Mutation, SkipReason};
-use panproto_schema::Edge;
+use panproto_inst::resolution_complement::{AnyInstance, ResolutionComplement};
+use panproto_inst::{GInstance, SynthIndex};
+use panproto_lens::{FamilyReport, Mutation, SkipReason};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    Resolution, ResolveContext, ResolveError, ResolveOptions, instances_equivalent,
-    rekey_resolution_complement_edges,
-};
+use super::cases::{Cases, Presentation, graph_cases, table_cases, tree_cases};
+use super::error::{ResolveDomainError, ResolveError};
+use super::rekey::Renaming;
+use super::verify::{compacted_index, extend_index, same_instance, view_diff};
+use super::{Resolution, ResolveContext, ResolveOptions};
 
-/// Observations from all mutation families in the finite Single-Step Basis.
+/// The counts of one run of [`check_resolution_laws`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolutionLawReport {
-    /// Families for which at least one candidate was generated.
+    /// The families with at least one candidate, with their counts.
     pub ran: Vec<FamilyReport>,
-    /// Families this target shape or concrete view could not instantiate.
+    /// The families not run, with the reason.
     pub skipped: Vec<(Mutation, SkipReason)>,
 }
 
-/// The first failed resolution gate, in contract order.
+/// The first law a resolution breaks, in gate order.
 #[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolutionLawViolation {
-    /// `put(get(source))` did not reproduce the source exactly.
-    #[error("resolution GetPut failed: {detail}")]
+    /// Put of an unchanged view does not restore the source exactly.
+    #[error("GetPut: {detail}")]
     GetPut {
-        /// Stable diagnostic detail.
+        /// What differs.
         detail: String,
     },
-    /// A successful put did not get back to the edited view.
-    #[error("resolution PutGet failed for {mutation:?}: {detail}")]
+    /// An admitted view does not resolve back from its put.
+    #[error("PutGet ({mutation:?}): {detail}")]
     PutGet {
-        /// Mutation family, absent for the unedited view.
+        /// The family of the edit, absent for the unchanged view.
         mutation: Option<Mutation>,
-        /// Stable diagnostic detail.
+        /// What differs.
         detail: String,
     },
-    /// Put failed after the complete domain checker admitted the candidate.
-    #[error("resolution Totality failed for {mutation:?}: {error}")]
+    /// Put fails on an admitted view.
+    #[error("Totality ({mutation:?}): {error}")]
     Totality {
-        /// Mutation family.
+        /// The family of the edit.
         mutation: Mutation,
-        /// Typed operation error.
+        /// The failure.
         error: ResolveError,
     },
-    /// Replaying put with the complement produced by get changed the source.
-    #[error("resolution PutTwice failed for {mutation:?}: {detail}")]
+    /// A second put with the complement the first one leads to changes the
+    /// source.
+    #[error("PutTwice ({mutation:?}): {detail}")]
     PutTwice {
-        /// Mutation family, absent for the unedited view.
+        /// The family of the edit, absent for the unchanged view.
         mutation: Option<Mutation>,
-        /// Stable diagnostic detail.
+        /// What differs.
         detail: String,
     },
-    /// A coherent synthesized-id rekey changed admission or put.
-    #[error("resolution Congruence failed: {detail}")]
+    /// Two coherently rekeyed states disagree.
+    #[error("Congruence: {detail}")]
     Congruence {
-        /// Stable diagnostic detail.
+        /// What differs.
         detail: String,
     },
-    /// Get or a second get failed outside the Totality gate.
-    #[error("resolution law operation failed: {0}")]
+    /// An operation the check needs failed.
+    #[error("operation failed: {0}")]
     Operation(ResolveError),
 }
 
-struct CandidateRun {
-    mutation: Mutation,
-    candidate: AnyInstance,
-    put: Result<AnyInstance, ResolveError>,
+/// The candidates of one shape as instances of any shape.
+fn lift<I>(cases: Cases<I>, wrap: impl Fn(I) -> AnyInstance) -> Cases<AnyInstance> {
+    match cases {
+        Cases::Views(views) => Cases::Views(views.into_iter().map(wrap).collect()),
+        Cases::Skip(reason) => Cases::Skip(reason),
+    }
 }
 
-/// Run GetPut, PutGet, Totality, PutTwice and Congruence, in that order.
+/// Whether a refusal is the one a negative family is meant to draw.
+const fn intended_negative(error: &ResolveDomainError, mutation: Mutation) -> bool {
+    matches!(
+        (mutation, error),
+        (
+            Mutation::RemoveSynthesized | Mutation::EditSynthesized,
+            ResolveDomainError::SynthesizedEdited { .. }
+        ) | (
+            Mutation::ReservedIdReuse | Mutation::MalformedFan,
+            ResolveDomainError::NoPlacement { .. }
+        )
+    )
+}
+
+const fn is_negative(mutation: Mutation) -> bool {
+    matches!(
+        mutation,
+        Mutation::RemoveSynthesized
+            | Mutation::EditSynthesized
+            | Mutation::AddContractedEdge
+            | Mutation::ReservedIdReuse
+            | Mutation::MalformedFan
+    )
+}
+
+/// The synthesized index of a view under a complement.
+fn index_of(complement: &ResolutionComplement) -> SynthIndex {
+    complement.synth_index()
+}
+
+/// The index the complement gives an edited view: its synthesized keys,
+/// with the kept occurrences of a holder's reference moved down over the
+/// ones a graph view removed.
+fn view_index(view: &AnyInstance, complement: &ResolutionComplement) -> SynthIndex {
+    match view {
+        AnyInstance::Graph(graph) => compacted_index(graph, complement),
+        AnyInstance::Tree(_) | AnyInstance::Table(_) => index_of(complement),
+    }
+}
+
+/// The index of an edited view as its put produced it: the complement's
+/// keys, extended by the keys of the carriers put created, read off the
+/// view the put source resolves to.
+fn producing_index(
+    candidate: &AnyInstance,
+    index: &SynthIndex,
+    again: &AnyInstance,
+    recomplement: &ResolutionComplement,
+) -> SynthIndex {
+    match (candidate, again) {
+        (AnyInstance::Graph(candidate), AnyInstance::Graph(again)) => {
+            extend_index(candidate, index, again, &index_of(recomplement))
+        }
+        _ => index.clone(),
+    }
+}
+
+/// What two views disagree on, under their indexes, or `None` when they
+/// are equivalent.
+fn divergence(
+    a: &AnyInstance,
+    ia: &SynthIndex,
+    b: &AnyInstance,
+    ib: &SynthIndex,
+) -> Option<String> {
+    match (a, b) {
+        (AnyInstance::Graph(a), AnyInstance::Graph(b)) => view_diff(a, ia, b, ib)
+            .first()
+            .map(|diff| format!("{diff:?}")),
+        _ => (!same_instance(a, b)).then(|| "the views differ".to_owned()),
+    }
+}
+
+impl Resolution {
+    /// The candidates of one family for `view`.
+    fn cases(
+        &self,
+        view: &AnyInstance,
+        complement: &ResolutionComplement,
+        mutation: Mutation,
+    ) -> Cases<AnyInstance> {
+        let schema = self.semantic_schema();
+        match view {
+            AnyInstance::Graph(graph) => lift(
+                graph_cases(schema, graph, &Presentation::of(complement), mutation),
+                AnyInstance::Graph,
+            ),
+            AnyInstance::Tree(tree) => lift(tree_cases(schema, tree, mutation), AnyInstance::Tree),
+            AnyInstance::Table(table) => lift(
+                table_cases(schema, self.provider.protocol(), table, mutation),
+                AnyInstance::Table,
+            ),
+        }
+    }
+
+    /// Every admitted candidate of the non-negative families, with its
+    /// family.
+    fn admitted_candidates(
+        &self,
+        view: &AnyInstance,
+        complement: &ResolutionComplement,
+        ctx: &ResolveContext<'_>,
+    ) -> Vec<(Mutation, AnyInstance)> {
+        let mut admitted = Vec::new();
+        for mutation in Mutation::ALL.into_iter().filter(|m| !is_negative(*m)) {
+            if let Cases::Views(views) = self.cases(view, complement, mutation) {
+                admitted.extend(
+                    views
+                        .into_iter()
+                        .filter(|candidate| {
+                            self.check_put_domain(candidate, complement, ctx).is_ok()
+                        })
+                        .map(|candidate| (mutation, candidate)),
+                );
+            }
+        }
+        admitted
+    }
+}
+
+/// Check the five gating laws of `resolution` at `source`.
 ///
-/// A successful report means that no counterexample was found in the finite
-/// deterministic Single-Step Basis for this source. It is not a proof over
-/// arbitrary instances.
+/// `GetPut`: put of the view with its complement restores `source`
+/// exactly. `PutGet`: the unchanged view and every candidate the put
+/// domain admits resolve back, from their put, to an equivalent view (the
+/// graph equivalence that matches synthesized carriers by key).
+/// `Totality`: put succeeds on every admitted candidate. `PutTwice`: put
+/// again with the complement the first put's source resolves to, rekeyed
+/// to the candidate's presentation, gives the same source. `Congruence`:
+/// renaming the presentation ids of synthesized carriers in a view and its
+/// complement together (every nested view reference included) leaves the
+/// complement unchanged up to that renaming, the domain verdict unchanged
+/// and the put source unchanged. Every gate quantifies over the
+/// single-edit neighbourhood of `source` only: the families of
+/// [`Mutation::ALL`], one edit each, generated for the resolution's
+/// semantic schema; the edit lens laws do not apply to a resolution.
+///
+/// # Errors
+///
+/// The first violation, in the order above, or
+/// [`ResolutionLawViolation::Operation`] when get of `source` or an
+/// operation a gate needs fails.
 pub fn check_resolution_laws(
     resolution: &Resolution,
     source: &AnyInstance,
     options: &ResolveOptions,
-    context: &ResolveContext<'_>,
+    ctx: &ResolveContext<'_>,
 ) -> Result<ResolutionLawReport, ResolutionLawViolation> {
     let (view, complement) = resolution
-        .get(source, options, context)
+        .get(source, options, ctx)
         .map_err(ResolutionLawViolation::Operation)?;
-    let restored = resolution
-        .put(&view, &complement, context)
-        .map_err(ResolutionLawViolation::Operation)?;
-    if !instances_identical(source, &restored) {
-        return Err(ResolutionLawViolation::GetPut {
-            detail: "the reconstructed syntactic instance differs from the input".to_owned(),
-        });
-    }
+    get_put(resolution, source, &view, &complement, ctx)?;
+    let admitted = resolution.admitted_candidates(&view, &complement, ctx);
+    put_get(resolution, &view, &complement, &admitted, *options, ctx)?;
+    totality(resolution, &complement, &admitted, ctx)?;
+    put_twice(resolution, &view, &complement, &admitted, *options, ctx)?;
+    congruence(resolution, &view, &complement, &admitted, ctx)?;
+    Ok(report(resolution, &view, &complement, ctx))
+}
 
-    let mut ran = Vec::new();
-    let mut skipped = Vec::new();
-    let mut runs = Vec::new();
-    for mutation in Mutation::ALL {
-        let Some(candidates) = mutation_candidates(resolution, &view, &complement, mutation) else {
-            skipped.push((mutation, SkipReason::ShapeCannotExpress));
+fn get_put(
+    resolution: &Resolution,
+    source: &AnyInstance,
+    view: &AnyInstance,
+    complement: &ResolutionComplement,
+    ctx: &ResolveContext<'_>,
+) -> Result<(), ResolutionLawViolation> {
+    let restored = resolution
+        .put(view, complement, ctx)
+        .map_err(ResolutionLawViolation::Operation)?;
+    if same_instance(source, &restored) {
+        Ok(())
+    } else {
+        Err(ResolutionLawViolation::GetPut {
+            detail: "the restored source differs from the original".to_owned(),
+        })
+    }
+}
+
+fn put_get(
+    resolution: &Resolution,
+    view: &AnyInstance,
+    complement: &ResolutionComplement,
+    admitted: &[(Mutation, AnyInstance)],
+    options: ResolveOptions,
+    ctx: &ResolveContext<'_>,
+) -> Result<(), ResolutionLawViolation> {
+    let candidates =
+        std::iter::once((None, view)).chain(admitted.iter().map(|(m, v)| (Some(*m), v)));
+    for (mutation, candidate) in candidates {
+        let Ok(restored) = resolution.put(candidate, complement, ctx) else {
             continue;
         };
-        if candidates.is_empty() {
-            skipped.push((mutation, SkipReason::NoCandidate));
-            continue;
+        let (again, recomplement) = resolution
+            .get(&restored, &options, ctx)
+            .map_err(ResolutionLawViolation::Operation)?;
+        let index = view_index(candidate, complement);
+        let produced = producing_index(candidate, &index, &again, &recomplement);
+        if let Some(detail) = divergence(candidate, &produced, &again, &index_of(&recomplement)) {
+            return Err(ResolutionLawViolation::PutGet { mutation, detail });
         }
-        let mut report = FamilyReport {
+    }
+    Ok(())
+}
+
+fn totality(
+    resolution: &Resolution,
+    complement: &ResolutionComplement,
+    admitted: &[(Mutation, AnyInstance)],
+    ctx: &ResolveContext<'_>,
+) -> Result<(), ResolutionLawViolation> {
+    for (mutation, candidate) in admitted {
+        if let Err(error) = resolution.put(candidate, complement, ctx) {
+            return Err(ResolutionLawViolation::Totality {
+                mutation: *mutation,
+                error,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn put_twice(
+    resolution: &Resolution,
+    view: &AnyInstance,
+    complement: &ResolutionComplement,
+    admitted: &[(Mutation, AnyInstance)],
+    options: ResolveOptions,
+    ctx: &ResolveContext<'_>,
+) -> Result<(), ResolutionLawViolation> {
+    let candidates =
+        std::iter::once((None, view)).chain(admitted.iter().map(|(m, v)| (Some(*m), v)));
+    for (mutation, candidate) in candidates {
+        let once = resolution
+            .put(candidate, complement, ctx)
+            .map_err(ResolutionLawViolation::Operation)?;
+        let (again, next) = resolution
+            .get(&once, &options, ctx)
+            .map_err(ResolutionLawViolation::Operation)?;
+        let index = view_index(candidate, complement);
+        let produced = producing_index(candidate, &index, &again, &next);
+        let rekeyed = Renaming::between(&index_of(&next), &produced).complement(&next);
+        let twice = resolution
+            .put(candidate, &rekeyed, ctx)
+            .map_err(ResolutionLawViolation::Operation)?;
+        if !same_instance(&once, &twice) {
+            return Err(ResolutionLawViolation::PutTwice {
+                mutation,
+                detail: "the second put changed the source".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The congruence witnesses of a graph state: each synthesized carrier
+/// renamed alone to a fresh id, and all of them renamed at once.
+fn witnesses(view: &GInstance, complement: &ResolutionComplement) -> Vec<Renaming> {
+    let index = index_of(complement);
+    let fresh_node = view
+        .nodes()
+        .keys()
+        .chain(index.nodes.keys())
+        .copied()
+        .max()
+        .map_or(Some(0), |max| max.checked_add(1));
+    let fresh_edge = view
+        .edges()
+        .keys()
+        .chain(index.edges.keys())
+        .map(|id| id.0)
+        .max()
+        .map_or(Some(0), |max| max.checked_add(1));
+    let mut renamings = Vec::new();
+    let mut all = Renaming::default();
+    if let Some(mut next) = fresh_node {
+        for &id in index.nodes.keys().filter(|id| view.node(**id).is_some()) {
+            renamings.push(Renaming {
+                nodes: std::iter::once((id, next)).collect(),
+                ..Renaming::default()
+            });
+            all.nodes.insert(id, next);
+            let Some(following) = next.checked_add(1) else {
+                break;
+            };
+            next = following;
+        }
+    }
+    if let Some(mut next) = fresh_edge {
+        for &id in index.edges.keys().filter(|id| view.edge(**id).is_some()) {
+            let fresh = panproto_inst::EdgeId(next);
+            renamings.push(Renaming {
+                edges: std::iter::once((id, fresh)).collect(),
+                ..Renaming::default()
+            });
+            all.edges.insert(id, fresh);
+            let Some(following) = next.checked_add(1) else {
+                break;
+            };
+            next = following;
+        }
+    }
+    if renamings.len() > 1 {
+        renamings.push(all);
+    }
+    renamings
+}
+
+fn congruence(
+    resolution: &Resolution,
+    view: &AnyInstance,
+    complement: &ResolutionComplement,
+    admitted: &[(Mutation, AnyInstance)],
+    ctx: &ResolveContext<'_>,
+) -> Result<(), ResolutionLawViolation> {
+    let index = index_of(complement);
+    let states = std::iter::once(view).chain(admitted.iter().map(|(_, v)| v));
+    for state in states {
+        let AnyInstance::Graph(graph) = state else {
+            continue;
+        };
+        for renaming in witnesses(graph, complement) {
+            let witness =
+                renaming
+                    .graph(graph)
+                    .map_err(|_| ResolutionLawViolation::Congruence {
+                        detail: "a renaming sent two ids to one".to_owned(),
+                    })?;
+            let witness = AnyInstance::Graph(witness);
+            let renamed = renaming.complement(complement);
+            let renamed_index = index_of(&renamed);
+            if divergence(state, &index, &witness, &renamed_index).is_some() {
+                return Err(ResolutionLawViolation::Congruence {
+                    detail: "a renamed state is not equivalent".to_owned(),
+                });
+            }
+            let back = Renaming::between(&renamed_index, &index).complement(&renamed);
+            if !same_complement(&back, complement) {
+                return Err(ResolutionLawViolation::Congruence {
+                    detail: "the renamed complement differs after renaming back".to_owned(),
+                });
+            }
+            let left = resolution.check_put_domain(state, complement, ctx).is_ok();
+            let right = resolution.check_put_domain(&witness, &renamed, ctx).is_ok();
+            if left != right {
+                return Err(ResolutionLawViolation::Congruence {
+                    detail: "renamed states have different put-domain verdicts".to_owned(),
+                });
+            }
+            if left {
+                let a = resolution
+                    .put(state, complement, ctx)
+                    .map_err(ResolutionLawViolation::Operation)?;
+                let b = resolution
+                    .put(&witness, &renamed, ctx)
+                    .map_err(ResolutionLawViolation::Operation)?;
+                if !same_instance(&a, &b) {
+                    return Err(ResolutionLawViolation::Congruence {
+                        detail: "renamed states put to different sources".to_owned(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether two complements agree in every field put reads: everything but
+/// the identity envelope, which is checked separately.
+fn same_complement(a: &ResolutionComplement, b: &ResolutionComplement) -> bool {
+    let strip = |complement: &ResolutionComplement| {
+        let mut complement = complement.clone();
+        complement.identity = None;
+        serde_json::to_value(&complement).ok()
+    };
+    let (a, b) = (strip(a), strip(b));
+    a.is_some() && a == b
+}
+
+fn report(
+    resolution: &Resolution,
+    view: &AnyInstance,
+    complement: &ResolutionComplement,
+    ctx: &ResolveContext<'_>,
+) -> ResolutionLawReport {
+    let mut ran = Vec::new();
+    let mut skipped = Vec::new();
+    for mutation in Mutation::ALL {
+        let candidates = match resolution.cases(view, complement, mutation) {
+            Cases::Views(views) => views,
+            Cases::Skip(reason) => {
+                skipped.push((mutation, reason));
+                continue;
+            }
+        };
+        let mut family = FamilyReport {
             mutation,
             in_domain: 0,
             in_domain_ok: 0,
@@ -117,581 +486,28 @@ pub fn check_resolution_laws(
             negative_ok: 0,
         };
         for candidate in candidates {
-            if resolution
-                .check_put_domain(&candidate, &complement, context)
-                .is_err()
-            {
-                report.negative = report.negative.saturating_add(1);
-                report.negative_ok = report.negative_ok.saturating_add(1);
-                continue;
-            }
-            report.in_domain = report.in_domain.saturating_add(1);
-            runs.push(CandidateRun {
-                mutation,
-                put: resolution.put(&candidate, &complement, context),
-                candidate,
-            });
-        }
-        ran.push(report);
-    }
-
-    let mut regotten = Vec::with_capacity(runs.len());
-    for run in &runs {
-        let Ok(restored) = &run.put else {
-            regotten.push(None);
-            continue;
-        };
-        let result = resolution
-            .get(restored, options, context)
-            .map_err(ResolutionLawViolation::Operation)?;
-        if !instances_equivalent(&run.candidate, &result.0) {
-            return Err(ResolutionLawViolation::PutGet {
-                mutation: Some(run.mutation),
-                detail: "get did not reproduce the admitted edited view".to_owned(),
-            });
-        }
-        regotten.push(Some(result));
-    }
-
-    for run in &runs {
-        if let Err(error) = &run.put {
-            return Err(ResolutionLawViolation::Totality {
-                mutation: run.mutation,
-                error: error.clone(),
-            });
-        }
-    }
-
-    for (run, regotten) in runs.iter().zip(&regotten) {
-        let restored = run
-            .put
-            .as_ref()
-            .map_err(|error| ResolutionLawViolation::Totality {
-                mutation: run.mutation,
-                error: error.clone(),
-            })?;
-        let Some((regotten_view, produced)) = regotten else {
-            continue;
-        };
-        let twice = resolution
-            .put(regotten_view, produced, context)
-            .map_err(ResolutionLawViolation::Operation)?;
-        if !instances_identical(restored, &twice) {
-            return Err(ResolutionLawViolation::PutTwice {
-                mutation: Some(run.mutation),
-                detail: "put with the newly produced complement changed the source".to_owned(),
-            });
-        }
-        if let Some(report) = ran
-            .iter_mut()
-            .find(|report| report.mutation == run.mutation)
-        {
-            report.in_domain_ok = report.in_domain_ok.saturating_add(1);
-        }
-    }
-
-    check_congruence(resolution, &view, &complement, context)?;
-    Ok(ResolutionLawReport { ran, skipped })
-}
-
-fn instances_identical(left: &AnyInstance, right: &AnyInstance) -> bool {
-    match (left, right) {
-        (AnyInstance::Tree(left), AnyInstance::Tree(right)) => {
-            panproto_inst::segment::canonical_winstance_bytes(left)
-                == panproto_inst::segment::canonical_winstance_bytes(right)
-        }
-        (AnyInstance::Table(left), AnyInstance::Table(right)) => left == right,
-        (AnyInstance::Graph(left), AnyInstance::Graph(right)) => GInstance::identical(left, right),
-        _ => false,
-    }
-}
-
-fn check_congruence(
-    resolution: &Resolution,
-    view: &AnyInstance,
-    complement: &ResolutionComplement,
-    context: &ResolveContext<'_>,
-) -> Result<(), ResolutionLawViolation> {
-    let AnyInstance::Graph(graph) = view else {
-        return Ok(());
-    };
-    let Some((&old, _)) = complement.synth_index().edges.iter().next() else {
-        return Ok(());
-    };
-    let new = EdgeId(
-        graph
-            .max_edge_id()
-            .map_or(Some(0), |id| id.0.checked_add(1))
-            .ok_or_else(|| ResolutionLawViolation::Congruence {
-                detail: "no fresh edge id exists for the congruence witness".to_owned(),
-            })?,
-    );
-    let mut rekeyed_graph = graph.clone();
-    let edge =
-        rekeyed_graph
-            .remove_edge(old)
-            .map_err(|error| ResolutionLawViolation::Congruence {
-                detail: error.to_string(),
-            })?;
-    rekeyed_graph
-        .insert_edge(new, edge)
-        .map_err(|error| ResolutionLawViolation::Congruence {
-            detail: error.to_string(),
-        })?;
-    let edge_ids = std::collections::BTreeMap::from([(old, new)]);
-    let rekeyed = rekey_resolution_complement_edges(complement.clone(), &edge_ids);
-    let original_domain = resolution
-        .check_put_domain(view, complement, context)
-        .is_ok();
-    let next_view = AnyInstance::Graph(rekeyed_graph);
-    let rekeyed_domain = resolution
-        .check_put_domain(&next_view, &rekeyed, context)
-        .is_ok();
-    if original_domain != rekeyed_domain {
-        return Err(ResolutionLawViolation::Congruence {
-            detail: "a coherent edge-id rekey changed the domain verdict".to_owned(),
-        });
-    }
-    if original_domain {
-        let original = resolution
-            .put(view, complement, context)
-            .map_err(ResolutionLawViolation::Operation)?;
-        let next = resolution
-            .put(&next_view, &rekeyed, context)
-            .map_err(ResolutionLawViolation::Operation)?;
-        if !instances_identical(&original, &next) {
-            return Err(ResolutionLawViolation::Congruence {
-                detail: "a coherent edge-id rekey changed put's source".to_owned(),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn mutation_candidates(
-    resolution: &Resolution,
-    view: &AnyInstance,
-    complement: &ResolutionComplement,
-    mutation: Mutation,
-) -> Option<Vec<AnyInstance>> {
-    match view {
-        AnyInstance::Graph(graph) => graph_candidates(resolution, graph, complement, mutation),
-        AnyInstance::Tree(tree) => tree_candidates(resolution, tree, mutation),
-        AnyInstance::Table(table) => table_candidates(resolution, table, mutation),
-    }
-}
-
-fn graph_candidates(
-    resolution: &Resolution,
-    graph: &GInstance,
-    complement: &ResolutionComplement,
-    mutation: Mutation,
-) -> Option<Vec<AnyInstance>> {
-    let one = |graph| vec![AnyInstance::Graph(graph)];
-    match mutation {
-        Mutation::ValueEdit | Mutation::FieldEdit => {
-            let id = graph.nodes().keys().copied().min()?;
-            let mut next = graph.clone();
-            let node = next.node_mut(id)?;
-            if mutation == Mutation::ValueEdit {
-                node.value = Some(toggled_presence(node.value.as_ref()));
-            } else {
-                node.extra_fields
-                    .insert("__resolution_law".to_owned(), Value::Bool(true));
-            }
-            Some(one(next))
-        }
-        Mutation::AddNode => {
-            let id = graph
-                .max_node_id()
-                .map_or(Some(0), |id| id.checked_add(1))?;
-            let anchor = sorted_vertices(resolution).into_iter().next()?;
-            let mut next = graph.clone();
-            next.insert_node(Node::new(id, anchor)).ok()?;
-            Some(one(next))
-        }
-        Mutation::RemoveNode => {
-            let id = graph.nodes().keys().copied().min()?;
-            let mut next = graph.clone();
-            let incident: Vec<_> = next
-                .out_edges(id)
-                .iter()
-                .chain(next.in_edges(id))
-                .copied()
-                .collect();
-            for edge in incident {
-                next.remove_edge(edge).ok()?;
-            }
-            next.remove_node(id).ok()?;
-            Some(one(next))
-        }
-        Mutation::RelabelNode => {
-            let id = graph.nodes().keys().copied().min()?;
-            let current = graph.node(id)?.anchor.clone();
-            let anchor = sorted_vertices(resolution)
-                .into_iter()
-                .find(|anchor| *anchor != current)?;
-            let mut next = graph.clone();
-            next.node_mut(id)?.anchor = anchor;
-            Some(one(next))
-        }
-        Mutation::AddEdge | Mutation::AddSelfLoop => {
-            let (src, tgt, edge) =
-                edge_placement(resolution, graph, mutation == Mutation::AddSelfLoop)?;
-            let mut next = graph.clone();
-            next.add_edge(src, tgt, edge).ok()?;
-            Some(one(next))
-        }
-        Mutation::RemoveEdge => {
-            let id = graph.edges().keys().copied().min()?;
-            let mut next = graph.clone();
-            next.remove_edge(id).ok()?;
-            Some(one(next))
-        }
-        Mutation::Reconnect => {
-            let id = graph.edges().keys().copied().min()?;
-            let edge = graph.edge(id)?;
-            let src = graph
-                .nodes()
-                .iter()
-                .filter_map(|(&id, node)| (node.anchor == edge.edge.src).then_some(id))
-                .find(|id| *id != edge.src)
-                .unwrap_or(edge.src);
-            let tgt = graph
-                .nodes()
-                .iter()
-                .filter_map(|(&id, node)| (node.anchor == edge.edge.tgt).then_some(id))
-                .find(|id| *id != edge.tgt)
-                .unwrap_or(edge.tgt);
-            if (src, tgt) == (edge.src, edge.tgt) {
-                return Some(Vec::new());
-            }
-            let mut next = graph.clone();
-            next.set_endpoints(id, src, tgt).ok()?;
-            Some(one(next))
-        }
-        Mutation::RelabelEdge => {
-            let id = graph.edges().keys().copied().min()?;
-            let old = graph.edge(id)?;
-            let label = sorted_edges(resolution).into_iter().find(|edge| {
-                *edge != old.edge
-                    && graph
-                        .node(old.src)
-                        .is_some_and(|node| node.anchor == edge.src)
-                    && graph
-                        .node(old.tgt)
-                        .is_some_and(|node| node.anchor == edge.tgt)
-            })?;
-            let mut next = graph.clone();
-            let mut edge = next.remove_edge(id).ok()?;
-            edge.edge = label;
-            next.insert_edge(id, edge).ok()?;
-            Some(one(next))
-        }
-        Mutation::Reorder => {
-            let id = graph.edges().keys().copied().min()?;
-            let mut next = graph.clone();
-            next.set_edge_position(id, Some(0)).ok()?;
-            Some(one(next))
-        }
-        Mutation::AddParallelEdge => {
-            let edge = graph.edges_sorted().next()?.1.clone();
-            let mut next = graph.clone();
-            next.add_edge(edge.src, edge.tgt, edge.edge).ok()?;
-            Some(one(next))
-        }
-        Mutation::RemoveSynthesized => {
-            if let Some((&id, _)) = complement.synth_index().edges.iter().next() {
-                let mut next = graph.clone();
-                next.remove_edge(id).ok()?;
-                Some(one(next))
-            } else if let Some((&id, _)) = complement.synth_index().nodes.iter().next() {
-                let mut next = graph.clone();
-                let incident: Vec<_> = next
-                    .out_edges(id)
-                    .iter()
-                    .chain(next.in_edges(id))
-                    .copied()
-                    .collect();
-                for edge in incident {
-                    next.remove_edge(edge).ok()?;
+            match resolution.check_put_domain(&candidate, complement, ctx) {
+                Ok(()) if !is_negative(mutation) => {
+                    family.in_domain += 1;
+                    if resolution.put(&candidate, complement, ctx).is_ok() {
+                        family.in_domain_ok += 1;
+                    }
                 }
-                next.remove_node(id).ok()?;
-                Some(one(next))
-            } else {
-                Some(Vec::new())
-            }
-        }
-        Mutation::EditSynthesized => {
-            if let Some((&id, _)) = complement.synth_index().edges.iter().next() {
-                let mut next = graph.clone();
-                next.set_edge_position(id, Some(0)).ok()?;
-                Some(one(next))
-            } else if let Some((&id, _)) = complement.synth_index().nodes.iter().next() {
-                let mut next = graph.clone();
-                next.node_mut(id)?.value = Some(FieldPresence::Present(Value::Bool(true)));
-                Some(one(next))
-            } else {
-                Some(Vec::new())
-            }
-        }
-        Mutation::AddContractedEdge | Mutation::ReservedIdReuse | Mutation::MalformedFan => None,
-    }
-}
-
-fn tree_candidates(
-    resolution: &Resolution,
-    tree: &panproto_inst::WInstance,
-    mutation: Mutation,
-) -> Option<Vec<AnyInstance>> {
-    let one = |tree| vec![AnyInstance::Tree(tree)];
-    match mutation {
-        Mutation::ValueEdit | Mutation::FieldEdit => {
-            let id = tree.nodes.keys().copied().min()?;
-            let mut next = tree.clone();
-            let node = next.nodes.get_mut(&id)?;
-            if mutation == Mutation::ValueEdit {
-                node.value = Some(toggled_presence(node.value.as_ref()));
-            } else {
-                node.extra_fields
-                    .insert("__resolution_law".to_owned(), Value::Bool(true));
-            }
-            Some(one(next))
-        }
-        Mutation::AddNode => {
-            let edge = sorted_edges(resolution).into_iter().find(|edge| {
-                tree.node(tree.root)
-                    .is_some_and(|node| node.anchor == edge.src)
-            })?;
-            let id = tree
-                .nodes
-                .keys()
-                .copied()
-                .max()
-                .map_or(Some(0), |id| id.checked_add(1))?;
-            let mut nodes = tree.nodes.clone();
-            nodes.insert(id, Node::new(id, edge.tgt.clone()));
-            let mut arcs = tree.arcs.clone();
-            arcs.push((tree.root, id, edge));
-            Some(one(panproto_inst::WInstance::new(
-                nodes,
-                arcs,
-                tree.fans.clone(),
-                tree.root,
-                tree.schema_root.clone(),
-            )))
-        }
-        Mutation::RemoveNode => {
-            let id = tree
-                .nodes
-                .keys()
-                .copied()
-                .filter(|id| *id != tree.root && tree.children(*id).is_empty())
-                .min()?;
-            let mut nodes = tree.nodes.clone();
-            nodes.remove(&id);
-            let arcs = tree
-                .arcs
-                .iter()
-                .filter(|(_, child, _)| *child != id)
-                .cloned()
-                .collect();
-            let fans = tree
-                .fans
-                .iter()
-                .filter(|fan| fan.parent != id && !fan.children.values().any(|child| *child == id))
-                .cloned()
-                .collect();
-            Some(one(panproto_inst::WInstance::new(
-                nodes,
-                arcs,
-                fans,
-                tree.root,
-                tree.schema_root.clone(),
-            )))
-        }
-        Mutation::RelabelNode => {
-            let id = tree.nodes.keys().copied().min()?;
-            let current = tree.node(id)?.anchor.clone();
-            let anchor = sorted_vertices(resolution)
-                .into_iter()
-                .find(|anchor| *anchor != current)?;
-            let mut next = tree.clone();
-            next.nodes.get_mut(&id)?.anchor = anchor;
-            Some(one(next))
-        }
-        Mutation::Reorder => {
-            let parent = tree
-                .children_map
-                .iter()
-                .find_map(|(&parent, children)| (children.len() > 1).then_some(parent))?;
-            let mut arcs = tree.arcs.clone();
-            let mut indices: Vec<_> = arcs
-                .iter()
-                .enumerate()
-                .filter_map(|(index, (source, _, _))| (*source == parent).then_some(index))
-                .collect();
-            indices.sort_unstable();
-            arcs.swap(indices[0], indices[1]);
-            Some(one(panproto_inst::WInstance::new(
-                tree.nodes.clone(),
-                arcs,
-                tree.fans.clone(),
-                tree.root,
-                tree.schema_root.clone(),
-            )))
-        }
-        Mutation::AddEdge
-        | Mutation::RemoveEdge
-        | Mutation::Reconnect
-        | Mutation::RelabelEdge
-        | Mutation::AddParallelEdge
-        | Mutation::AddSelfLoop
-        | Mutation::RemoveSynthesized
-        | Mutation::EditSynthesized
-        | Mutation::AddContractedEdge
-        | Mutation::ReservedIdReuse
-        | Mutation::MalformedFan => None,
-    }
-}
-
-fn table_candidates(
-    resolution: &Resolution,
-    table: &panproto_inst::FInstance,
-    mutation: Mutation,
-) -> Option<Vec<AnyInstance>> {
-    let one = |table| vec![AnyInstance::Table(table)];
-    match mutation {
-        Mutation::ValueEdit | Mutation::FieldEdit => {
-            let row = table
-                .tables()
-                .into_iter()
-                .flat_map(|(_, rows)| rows.ids())
-                .min()?;
-            let mut next = table.clone();
-            let record = next.row_mut(row)?;
-            let column = record
-                .keys()
-                .min()
-                .cloned()
-                .unwrap_or_else(|| "__resolution_law".to_owned());
-            record.insert(column, Value::Bool(true));
-            Some(one(next))
-        }
-        Mutation::AddNode => {
-            let protocol = resolution.provider().protocol();
-            let vertex = resolution
-                .semantic_schema()
-                .vertices
-                .iter()
-                .filter(|(_, vertex)| protocol.non_value_kinds.contains(vertex.kind.as_ref()))
-                .map(|(name, _)| name.clone())
-                .min()?;
-            let mut next = table.clone();
-            let id = next.fresh_row_id().ok()?;
-            next.insert_row(vertex, id, HashMap::new()).ok()?;
-            Some(one(next))
-        }
-        Mutation::RemoveNode => {
-            let row = table
-                .tables()
-                .into_iter()
-                .flat_map(|(_, rows)| rows.ids())
-                .min()?;
-            let mut next = table.clone();
-            next.remove_row(row)?;
-            Some(one(next))
-        }
-        Mutation::AddEdge => {
-            let (edge, src, tgt) = table_pair_placement(resolution, table)?;
-            let mut next = table.clone();
-            next.insert_foreign_key(edge, src, tgt).ok()?;
-            Some(one(next))
-        }
-        Mutation::RemoveEdge => {
-            let (edge, src, tgt) = table
-                .foreign_keys()
-                .into_iter()
-                .flat_map(|(edge, pairs)| pairs.iter().map(|&(src, tgt)| (edge.clone(), src, tgt)))
-                .min()?;
-            let mut next = table.clone();
-            if !next.remove_foreign_key(&edge, src, tgt) {
-                return Some(Vec::new());
-            }
-            Some(one(next))
-        }
-        Mutation::RelabelNode
-        | Mutation::Reconnect
-        | Mutation::RelabelEdge
-        | Mutation::Reorder
-        | Mutation::AddParallelEdge
-        | Mutation::AddSelfLoop
-        | Mutation::RemoveSynthesized
-        | Mutation::EditSynthesized
-        | Mutation::AddContractedEdge
-        | Mutation::ReservedIdReuse
-        | Mutation::MalformedFan => None,
-    }
-}
-
-fn toggled_presence(previous: Option<&FieldPresence>) -> FieldPresence {
-    match previous {
-        Some(FieldPresence::Present(Value::Bool(true))) => {
-            FieldPresence::Present(Value::Bool(false))
-        }
-        _ => FieldPresence::Present(Value::Bool(true)),
-    }
-}
-
-fn sorted_vertices(resolution: &Resolution) -> Vec<panproto_gat::Name> {
-    let mut vertices: Vec<_> = resolution
-        .semantic_schema()
-        .vertices
-        .keys()
-        .cloned()
-        .collect();
-    vertices.sort_unstable();
-    vertices
-}
-
-fn sorted_edges(resolution: &Resolution) -> Vec<Edge> {
-    let mut edges: Vec<_> = resolution.semantic_schema().edges.keys().cloned().collect();
-    edges.sort_unstable();
-    edges
-}
-
-fn edge_placement(
-    resolution: &Resolution,
-    graph: &GInstance,
-    self_loop: bool,
-) -> Option<(u32, u32, Edge)> {
-    for edge in sorted_edges(resolution) {
-        for (&src, source) in graph.nodes() {
-            if source.anchor != edge.src {
-                continue;
-            }
-            for (&tgt, target) in graph.nodes() {
-                if target.anchor == edge.tgt && (!self_loop || src == tgt) {
-                    return Some((src, tgt, edge));
+                Err(errors) if is_negative(mutation) => {
+                    family.negative += 1;
+                    if !errors.is_empty()
+                        && errors
+                            .iter()
+                            .all(|error| intended_negative(error, mutation))
+                    {
+                        family.negative_ok += 1;
+                    }
                 }
+                Ok(()) => family.negative += 1,
+                Err(_) => {}
             }
         }
+        ran.push(family);
     }
-    None
-}
-
-fn table_pair_placement(
-    resolution: &Resolution,
-    table: &panproto_inst::FInstance,
-) -> Option<(Edge, RowId, RowId)> {
-    for edge in sorted_edges(resolution) {
-        for (src, _) in table.rows(edge.src.as_ref()) {
-            for (tgt, _) in table.rows(edge.tgt.as_ref()) {
-                if !table.pairs(&edge).contains(&(src, tgt)) {
-                    return Some((edge, src, tgt));
-                }
-            }
-        }
-    }
-    None
+    ResolutionLawReport { ran, skipped }
 }

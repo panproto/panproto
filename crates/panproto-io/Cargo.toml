@@ -50,6 +50,7 @@ tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter",
 
 [dev-dependencies]
 divan = { workspace = true }
+proptest = { workspace = true }
 
 [[bench]]
 name = "io_bench"

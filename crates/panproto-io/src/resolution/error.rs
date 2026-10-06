@@ -5,7 +5,7 @@ use panproto_inst::{
     Digest, IdKind, IdentityError, InstanceShapeKind, ResolutionKind, ResolutionProviderId, Value,
     ValueFidelityError, ViewRef,
 };
-use panproto_schema::{KeyRefError, PathSyntax};
+use panproto_schema::{KeyRefError, OffsetUnit, PathSyntax};
 use serde::{Deserialize, Serialize};
 
 /// A provider capability needed by an operation.
@@ -22,8 +22,24 @@ pub enum ResolutionFeature {
     Assembly(ResolutionKind),
     /// A declared writer for a semantic reference edge.
     ReferenceWriter,
-    /// A resolution complement on a native, non-resolution route.
+    /// A resolution complement on a route with no registered resolution.
     ResolutionState,
+    /// Offsets counted over a normalized text (folded line endings, a
+    /// normalization form), which the exact byte form cannot represent.
+    NormalizedOffsets,
+}
+
+/// Why an offset is not at a unit boundary of its text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OffsetUnitReason {
+    /// The offset falls inside a unit: inside a UTF-8 scalar, inside a
+    /// UTF-16 surrogate pair, or between two token boundaries.
+    NotOnBoundary,
+    /// The unit counts characters and the text is not UTF-8.
+    TextNotUtf8,
+    /// An inclusive declaration cannot denote an empty span.
+    EmptyInclusive,
 }
 
 /// A serializable instance-shape failure at the resolution boundary.
@@ -83,13 +99,33 @@ pub enum ResolveDomainError {
         /// Candidate declarations, in ascending order.
         references: Vec<Name>,
     },
-    /// A semantic reference carrier has no declared writer.
+    /// A reference declaration cannot write the carrier so that the
+    /// written source resolves back to it.
     #[error("reference {reference} cannot represent {carrier:?}")]
     UnrepresentableReference {
         /// Semantic carrier.
         carrier: ViewRef,
         /// Reference declaration.
         reference: Name,
+    },
+    /// A span no longer lies within its text after a text edit.
+    #[error("span {carrier:?} of {reference} is out of range of its text")]
+    OffsetOutOfRange {
+        /// The span node or the reference edge.
+        carrier: ViewRef,
+        /// Reference declaration.
+        reference: Name,
+    },
+    /// A span is no longer on unit boundaries of its text after a text
+    /// edit, or cannot be written in its declared unit.
+    #[error("span {carrier:?} of {reference} is not on a unit boundary: {reason:?}")]
+    OffsetUnitViolation {
+        /// The span node or the reference edge.
+        carrier: ViewRef,
+        /// Reference declaration.
+        reference: Name,
+        /// Why the offset is not on a boundary.
+        reason: OffsetUnitReason,
     },
     /// A synthesized carrier was edited independently of its stable key.
     #[error("synthesized carrier {carrier:?} was edited incoherently")]
@@ -116,6 +152,9 @@ pub enum ResolveDomainError {
 }
 
 /// Every runtime failure exposed by resolution APIs.
+///
+/// Carriers are boxed so that the error stays small; a box serializes as
+/// the value it holds, so the wire form is that of the unboxed fields.
 #[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolveError {
@@ -125,7 +164,7 @@ pub enum ResolveError {
         /// Reference declaration.
         reference: Name,
         /// Holder.
-        at: ViewRef,
+        at: Box<ViewRef>,
         /// Canonical key tuple.
         key: Vec<Value>,
     },
@@ -135,7 +174,7 @@ pub enum ResolveError {
         /// Reference declaration.
         reference: Name,
         /// Holder.
-        at: ViewRef,
+        at: Box<ViewRef>,
         /// Canonical key tuple.
         key: Vec<Value>,
         /// Matching candidates, in ascending order.
@@ -147,13 +186,27 @@ pub enum ResolveError {
         /// Reference declaration.
         reference: Name,
         /// Holder.
-        at: ViewRef,
+        at: Box<ViewRef>,
         /// Start offset.
         start: u64,
         /// End offset.
         end: u64,
         /// Text length in the declared unit.
         len: u64,
+    },
+    /// A standoff offset is not on a unit boundary of its text.
+    #[error("offset {offset} of {reference} at {at:?} in unit {unit:?}: {reason:?}")]
+    OffsetUnitViolation {
+        /// Reference declaration.
+        reference: Name,
+        /// Holder.
+        at: Box<ViewRef>,
+        /// The declared unit.
+        unit: OffsetUnit,
+        /// The offset, in the declared unit.
+        offset: u64,
+        /// Why the offset is refused.
+        reason: OffsetUnitReason,
     },
     /// An operation received the wrong instance shape.
     #[error("expected {expected:?}, found {found:?}")]
@@ -186,7 +239,7 @@ pub enum ResolveError {
         /// Reference declaration.
         reference: Name,
         /// Holder.
-        at: ViewRef,
+        at: Box<ViewRef>,
         /// Length of each part.
         lengths: Vec<u64>,
     },
@@ -208,7 +261,7 @@ pub enum ResolveError {
     #[error("resolution context mismatch at {at:?}")]
     ContextMismatch {
         /// Affected carrier, when local.
-        at: Option<ViewRef>,
+        at: Option<Box<ViewRef>>,
         /// Digest recorded by get.
         expected: Digest,
         /// Digest recomputed by put.
@@ -237,7 +290,7 @@ pub enum ResolveError {
         /// Provider-defined stable code.
         code: Name,
         /// Affected carrier, when local.
-        at: Option<ViewRef>,
+        at: Option<Box<ViewRef>>,
     },
     /// An edit lies outside the put domain.
     #[error(transparent)]
@@ -253,5 +306,53 @@ impl From<KeyRefError> for ResolveError {
 impl From<ValueFidelityError> for ResolveError {
     fn from(value: ValueFidelityError) -> Self {
         Self::Fidelity(value)
+    }
+}
+
+impl ResolveDomainError {
+    /// The carrier the violation names, if any.
+    #[must_use]
+    pub const fn carrier(&self) -> Option<&ViewRef> {
+        match self {
+            Self::NoPlacement { carrier }
+            | Self::AmbiguousPlacement { carrier, .. }
+            | Self::UnrepresentableReference { carrier, .. }
+            | Self::OffsetOutOfRange { carrier, .. }
+            | Self::OffsetUnitViolation { carrier, .. }
+            | Self::SynthesizedEdited { carrier } => Some(carrier),
+            Self::ContextMismatch { at } | Self::Assembly { at, .. } => at.as_ref(),
+        }
+    }
+
+    /// The variant's position in declaration order.
+    #[must_use]
+    pub const fn variant_index(&self) -> u8 {
+        match self {
+            Self::NoPlacement { .. } => 0,
+            Self::AmbiguousPlacement { .. } => 1,
+            Self::UnrepresentableReference { .. } => 2,
+            Self::OffsetOutOfRange { .. } => 3,
+            Self::OffsetUnitViolation { .. } => 4,
+            Self::SynthesizedEdited { .. } => 5,
+            Self::ContextMismatch { .. } => 6,
+            Self::Assembly { .. } => 7,
+        }
+    }
+
+    /// The order of a violation vector: carrier (a violation without one
+    /// first), then the reference or production it names, then variant.
+    #[must_use]
+    pub fn sort_key(&self) -> (Option<&ViewRef>, Option<&Name>, u8) {
+        let name = match self {
+            Self::AmbiguousPlacement { references, .. } => references.first(),
+            Self::UnrepresentableReference { reference, .. }
+            | Self::OffsetOutOfRange { reference, .. }
+            | Self::OffsetUnitViolation { reference, .. } => Some(reference),
+            Self::Assembly { production, .. } => production.as_ref(),
+            Self::NoPlacement { .. }
+            | Self::SynthesizedEdited { .. }
+            | Self::ContextMismatch { .. } => None,
+        };
+        (self.carrier(), name, self.variant_index())
     }
 }

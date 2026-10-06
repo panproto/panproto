@@ -149,12 +149,13 @@ pub use error::{EmitInstanceError, ParseInstanceError};
 pub use registry::{PresentationComplement, ProtocolRegistry, ResolvedState};
 pub use resolution::{
     AnyInstance, AssemblyDomainReason, AssemblyPlanId, AssemblyResidue, AssemblyTrace,
-    DefinitionKey, ExternalTextStore, PathResolution, RedirectedArc, RedirectedAttachment,
-    RedirectedFragment, RefOccurrence, Resolution, ResolutionComplement, ResolutionContextKind,
-    ResolutionFeature, ResolutionInstanceError, ResolutionKind, ResolutionLawReport,
-    ResolutionLawViolation, ResolutionProvider, ResolutionProviderId, ResolutionSpan,
-    ResolutionSpec, ResolveContext, ResolveDomainError, ResolveError, ResolveOptions,
-    TokenBoundaryProvider, UnresolvedReason, UnresolvedRef, check_resolution_laws,
+    DefinitionKey, ExternalTextStore, OffsetUnitReason, PathResolution, RedirectedArc,
+    RedirectedAttachment, RedirectedFragment, RefOccurrence, Resolution, ResolutionComplement,
+    ResolutionContextKind, ResolutionFeature, ResolutionInstanceError, ResolutionKind,
+    ResolutionLawReport, ResolutionLawViolation, ResolutionProvider, ResolutionProviderId,
+    ResolutionSpan, ResolutionSpec, ResolutionTextId, ResolutionValueSite, ResolveContext,
+    ResolveDomainError, ResolveError, ResolveOptions, TokenBoundaryProvider, UnresolvedReason,
+    UnresolvedRef, check_resolution_laws,
 };
 pub use traits::{InstanceEmitter, InstanceParser, NativeRepr};
 

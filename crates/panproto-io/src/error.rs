@@ -101,10 +101,6 @@ pub enum ParseInstanceError {
     #[error("JSON parse error: {0}")]
     Json(String),
 
-    /// Semantic resolution failed after syntactic parsing.
-    #[error("resolution error: {0}")]
-    Resolution(#[from] Box<crate::resolution::ResolveError>),
-
     /// One or more scalar lexemes cannot be held exactly by their declared kinds.
     #[error("value fidelity errors: {0:?}")]
     Fidelity(Vec<ValueFidelityError>),
@@ -124,6 +120,11 @@ pub enum ParseInstanceError {
         /// Zero-based byte offset of the tag, when recorded by the CST.
         byte_offset: Option<u64>,
     },
+
+    /// The syntactic source parsed, and resolving it into its semantic
+    /// shape failed with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when emitting an instance to raw format bytes.
@@ -165,10 +166,6 @@ pub enum EmitInstanceError {
     #[error("JSON emit error: {0}")]
     Json(String),
 
-    /// Semantic put failed before syntactic emission.
-    #[error("resolution error: {0}")]
-    Resolution(#[from] Box<crate::resolution::ResolveError>),
-
     /// A value has no faithful representation in the output format.
     #[error(transparent)]
     Value(#[from] EmitValueError),
@@ -191,6 +188,11 @@ pub enum EmitInstanceError {
         /// The column containing the placeholder.
         column: String,
     },
+
+    /// Putting the semantic instance back to its syntactic source failed
+    /// with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when constructing a [`UnifiedCodec`](super::unified_codec::UnifiedCodec).
