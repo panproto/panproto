@@ -344,3 +344,20 @@ fn the_canonical_nan_constant_has_the_canonical_bits() {
     assert_eq!(panproto_expr::CANONICAL_NAN.to_bits(), CANONICAL);
     assert_eq!(panproto_inst::value::CANONICAL_NAN.to_bits(), CANONICAL);
 }
+
+/// A human-readable form writes every NaN as `"NaN"`, and reading `"NaN"`
+/// back gives the canonical NaN; the infinities read back as themselves.
+#[test]
+fn a_serialized_nan_reads_back_as_the_canonical_nan() {
+    for (json, bits) in [
+        (r#"{"Float":"NaN"}"#, CANONICAL),
+        (r#"{"Float":"Infinity"}"#, f64::INFINITY.to_bits()),
+        (r#"{"Float":"-Infinity"}"#, f64::NEG_INFINITY.to_bits()),
+    ] {
+        let Value::Float(x) = serde_json::from_str::<Value>(json).unwrap() else {
+            panic!("a float")
+        };
+        assert_eq!(x.to_bits(), bits, "{json}");
+    }
+    assert!(serde_json::from_str::<Value>(r#"{"Float":"nan"}"#).is_err());
+}

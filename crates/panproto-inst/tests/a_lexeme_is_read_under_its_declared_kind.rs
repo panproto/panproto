@@ -942,6 +942,20 @@ fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
             );
         }
     }
+    // Only a zero is read so: a non-zero numeral beyond i32 is refused, and
+    // a malformed one is no number.
+    for kind in &unscaled[..4] {
+        assert_eq!(
+            reason(number("1e3000000000", kind)),
+            FidelityReason::Overflow
+        );
+        assert_eq!(
+            reason(number("0.1e-3000000000", kind)),
+            FidelityReason::Overflow
+        );
+        assert_eq!(reason(number("1e", kind)), FidelityReason::NotANumber);
+        assert_eq!(reason(number("0.0.0e1", kind)), FidelityReason::NotANumber);
+    }
 }
 
 /// The closest-shortest text of a binary32 value, from its definition, for
