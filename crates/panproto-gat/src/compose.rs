@@ -1305,12 +1305,24 @@ impl NodeInfo<'_> {
 ///    order in which names are visited nor on how sorts are named.
 /// 3. The edges identify each sort with its image and each operation with
 ///    the operation it is renamed to; in [`CompositionMode::Amalgamate`],
-///    same-kind symbols with the same name are identified as well.
+///    same-kind symbols with the same name are identified as well. The
+///    classes partition the node-qualified symbols, one partition per
+///    kind: signatures over equivalence classes of names
+///    (sannellatarlecki1985program Sec 2, stated), the colimit as
+///    equivalence classes over the disjoint union (smith2006composition
+///    Sec 2, stated), computed by a union-find as for colimit quotients
+///    (pattersonlynchfairbanks2022categorical Sec 5.4, stated). Keying the
+///    partition by [`SymKind`] is an implementation choice (inferred).
 /// 4. Every class's members must agree on arity, parameter sort classes
-///    (modulo renaming the parameters), kind and closure (sorts), or on
-///    their signature once every sort and operation is sent to its class
-///    (operations). The comparison is syntactic modulo the class map: it
-///    does not apply the sort conversions that term equations induce
+///    (by their name-free forms, which do not depend on the parameter
+///    names), kind and closure (sorts), or on their signature once every
+///    sort and operation is sent to its class (operations). Identifying
+///    first and then checking that the identified members agree follows
+///    the sharing rule of milnertofteharpermacqueen1997definition rule 78
+///    and the order of kilpatrickdreyerpeytonjonesmarlow2014backpack Secs
+///    3.2 to 3.3, which unifies module identities and then refuses a kind
+///    mismatch (stated; the correspondence is inferred). The comparison
+///    is syntactic modulo the class map: it does not apply the sort conversions that term equations induce
 ///    (garner2015combinatorial Table 1, stated), including the equations
 ///    step 5 adds. A mismatch only in the term arguments of dependent
 ///    sorts is [`CompositionError::QuotientNotRepresentable`], whether
@@ -1336,8 +1348,9 @@ impl NodeInfo<'_> {
 /// Class names: the result theory is named `opts.result_name`; a class is
 /// named by the member name that occurs most often among its members, ties
 /// going to the least name by bytes (majority names in the sense of
-/// mossakowskirabecodescu2017canonical Def. 10, stated; the tiebreak is
-/// ours). Clashes, possible only in [`CompositionMode::ExplicitIdentity`],
+/// mossakowskirabecodescu2017canonical Def. 10, stated, which is Hets'
+/// naming convention, kutzneuhausmossakowskicodescu2014blending, stated;
+/// the tiebreak is ours). Clashes, possible only in [`CompositionMode::ExplicitIdentity`],
 /// follow `opts.clash`. Result vectors are in ascending name order, so the
 /// result does not depend on the order of the diagram's nodes or edges.
 ///
