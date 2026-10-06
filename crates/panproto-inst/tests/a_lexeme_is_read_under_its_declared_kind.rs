@@ -603,7 +603,9 @@ fn a_negative_zero_lexeme_keeps_its_sign_under_every_float_kind() {
         );
     }
     // An open schema reads the fractional and exponent forms as a float,
-    // and the integer form as the integer zero, which has no sign.
+    // and the integer form as the integer zero, which has no sign: the
+    // written sign of `-0` is dropped there, a recorded loss kept until it
+    // is settled how an open schema carries it.
     let any = spec(ScalarKind::Any);
     assert_eq!(float_bits(number("-0.0", &any)), negative_zero);
     assert_eq!(float_bits(number("-0e0", &any)), negative_zero);

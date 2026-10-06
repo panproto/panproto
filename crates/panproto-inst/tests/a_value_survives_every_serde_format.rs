@@ -44,7 +44,7 @@ fn same(a: &Value, b: &Value) -> bool {
 
 #[test]
 fn non_finite_floats_round_trip_in_every_serde_format() {
-    for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.5, -0.0] {
+    for f in [CANONICAL_NAN, f64::INFINITY, f64::NEG_INFINITY, 1.5, -0.0] {
         let value = Value::Float(f);
         for (format, back) in [
             ("json", json_round_trip(&value)),

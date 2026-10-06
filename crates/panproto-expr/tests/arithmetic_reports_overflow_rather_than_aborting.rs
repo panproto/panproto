@@ -107,6 +107,9 @@ fn exact_integer(rounded: f64) -> Option<i64> {
     i64::try_from(if negative { -magnitude } else { magnitude }).ok()
 }
 
+/// A rounding of a float to an integral float.
+type Rounding = fn(f64) -> f64;
+
 /// Every float-to-integer builtin returns the exact integer when it lies
 /// in `i64`'s range and refuses the float otherwise; it never saturates.
 /// The scope holds 2^63 and -2^63, their binary64 neighbours on both sides,
@@ -144,7 +147,7 @@ fn a_float_beyond_i64_is_refused_not_saturated() {
             scope.push(near(base, steps));
         }
     }
-    let ops: [(BuiltinOp, fn(f64) -> f64); 4] = [
+    let ops: [(BuiltinOp, Rounding); 4] = [
         (BuiltinOp::FloatToInt, f64::trunc),
         (BuiltinOp::Floor, f64::floor),
         (BuiltinOp::Ceil, f64::ceil),
