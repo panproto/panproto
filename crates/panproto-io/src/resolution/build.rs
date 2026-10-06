@@ -569,6 +569,12 @@ impl Resolution {
             arcs.push((slot, holder.parent, *id, holder.arc.clone()));
         }
         arcs.sort_by_key(|arc| arc.0);
+        // A fragment's fan returns only with every node it names: a fan
+        // whose other fragment the view removed has lost a member.
+        fragment_fans.retain(|fan: &panproto_inst::Fan| {
+            nodes.contains_key(&fan.parent)
+                && fan.children.values().all(|child| nodes.contains_key(child))
+        });
         let fan_ids: Vec<u32> = embedding.fans.iter().map(|fan| fan.node).collect();
         let fans = merge_fans(tree.fans, &fan_ids, fragment_fans, parts.node_floor);
         let mut candidate = WInstance::new(
@@ -712,8 +718,9 @@ impl Resolution {
 
 /// The tree's fan list: the retained fans at the slots their fan-node ids
 /// name (fan `k` of a tree's graph form is node `node_floor + k`), and the
-/// fragments' fans in the remaining slots, in order. When the retained
-/// ids name no consistent slots, the retained fans come first.
+/// fragments' fans in the remaining slots, in the order given (live
+/// fragments by root, each in canonical fan record order). When the
+/// retained ids name no consistent slots, the retained fans come first.
 fn merge_fans(
     retained: Vec<panproto_inst::Fan>,
     retained_ids: &[u32],

@@ -59,9 +59,15 @@ pub fn instance_error(error: &InstError) -> ResolveError {
         | InstError::DuplicateRowId { .. }
         | InstError::RowHasForeignKeys { .. }
         | InstError::HomTableMismatch { .. } => instance(ResolutionInstanceError::NotTable),
-        // The rest (an unknown vertex, a failed hom evaluation, a duplicate
-        // node or edge, incident edges, a node link, and any variant the
-        // non-exhaustive `InstError` adds later) leave no graph to read.
+        InstError::VertexNotFound(_)
+        | InstError::EvalHom(_)
+        | InstError::DuplicateNode(_)
+        | InstError::DuplicateEdge(_)
+        | InstError::IncidentEdges { .. }
+        | InstError::NodeLink(_) => instance(ResolutionInstanceError::NotGraph),
+        // `InstError` is non-exhaustive across crates; every variant it has
+        // today is named above, and one it adds later leaves no graph to
+        // read either.
         _ => instance(ResolutionInstanceError::NotGraph),
     }
 }
@@ -137,14 +143,7 @@ impl Resolution {
 
         let mut complement = ResolutionComplement::default();
         let inside = redirect(tree, &source, &admitted, &mut complement)?;
-        let fans: Vec<usize> = complement
-            .redirected
-            .values()
-            .flat_map(|fragment| fan_slots(tree, fragment))
-            .collect();
-        if fans.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(ResolveError::Instance(ResolutionInstanceError::NotTree));
-        }
+        let fans = fan_slots(tree, &inside);
         remove_fragments(&mut graph, &embedding, &inside, &fans)?;
 
         let visible = |occurrence: &Occurrence<'_>, outcome: &Outcome| {
@@ -342,6 +341,7 @@ fn redirect(
         .filter_map(|(occurrence, _)| node_of(&occurrence.holder))
         .collect();
     let mut inside = BTreeSet::new();
+    let mut claimed = BTreeSet::new();
     for &root in holders
         .iter()
         .filter(|holder| !has_ancestor_in(tree, **holder, &holders))
@@ -349,25 +349,24 @@ fn redirect(
         let nodes = source.subtree(root);
         complement
             .redirected
-            .insert(root, capture(tree, source, root, &nodes)?);
+            .insert(root, capture(tree, source, root, &nodes, &mut claimed)?);
         inside.extend(nodes);
     }
     Ok(inside)
 }
 
-/// The source positions of a fragment's fans, in its fan order.
-fn fan_slots(tree: &WInstance, fragment: &RedirectedFragment) -> Vec<usize> {
-    let touches = |fan: &panproto_inst::Fan| {
-        fragment.nodes.contains_key(&fan.parent)
-            || fan
-                .children
-                .values()
-                .any(|child| fragment.nodes.contains_key(child))
-    };
+/// Whether a fan names a node of `nodes`, as its parent or a child.
+fn fan_touches(fan: &panproto_inst::Fan, nodes: &BTreeSet<u32>) -> bool {
+    nodes.contains(&fan.parent) || fan.children.values().any(|child| nodes.contains(child))
+}
+
+/// The source positions of the fans that touch a node inside a fragment,
+/// ascending.
+fn fan_slots(tree: &WInstance, inside: &BTreeSet<u32>) -> Vec<usize> {
     tree.fans
         .iter()
         .enumerate()
-        .filter(|(_, fan)| touches(fan))
+        .filter(|(_, fan)| fan_touches(fan, inside))
         .map(|(slot, _)| slot)
         .collect()
 }
@@ -469,13 +468,22 @@ fn record_unresolved(
 }
 
 /// The exact fragment a redirect removes: the holder's subtree, the arc
-/// that attaches it, the arcs inside it and every fan that touches it, with
-/// the source positions of the fans.
+/// that attaches it with its source slot, the arcs inside it with theirs,
+/// and every fan that touches it and no fragment of a lesser root, in
+/// canonical fan record order.
+///
+/// A fan's position in the tree's fan list is not recorded: the instance
+/// identity writes fans in their record order, so a tree is the same tree
+/// whatever order it lists its fans in, and put returns the fragment's
+/// fans to the free fan slots in this order. `claimed` holds the source
+/// positions of the fans a lesser fragment already holds, so a fan that
+/// touches several fragments is held once, by the least.
 fn capture(
     tree: &WInstance,
     source: &Source<'_>,
     root: u32,
     nodes: &BTreeSet<u32>,
+    claimed: &mut BTreeSet<usize>,
 ) -> Result<RedirectedFragment, ResolveError> {
     let (parent, slot) = source
         .parent_arc(&ViewRef::Node(root))
@@ -500,14 +508,13 @@ fn capture(
             });
         }
     }
-    let fans: Vec<panproto_inst::Fan> = tree
-        .fans
-        .iter()
-        .filter(|fan| {
-            nodes.contains(&fan.parent) || fan.children.values().any(|child| nodes.contains(child))
-        })
-        .cloned()
-        .collect();
+    let mut fans: Vec<panproto_inst::Fan> = Vec::new();
+    for (slot, fan) in tree.fans.iter().enumerate() {
+        if fan_touches(fan, nodes) && claimed.insert(slot) {
+            fans.push(fan.clone());
+        }
+    }
+    fans.sort_by_cached_key(panproto_inst::FanRecord::of);
     let records = nodes
         .iter()
         .map(|id| {
@@ -590,6 +597,13 @@ mod tests {
         use super::instance_error;
         use crate::resolution::error::ResolutionInstanceError;
 
+        let label = panproto_schema::Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "fk".into(),
+            name: None,
+        };
+
         let cases: Vec<(InstError, ResolveError)> = vec![
             (
                 InstError::NodeIdsExhausted,
@@ -657,6 +671,76 @@ mod tests {
             (
                 InstError::VertexNotFound("v".to_owned()),
                 ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::EvalHom("h".to_owned()),
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::DuplicateEdge(EdgeId(2)),
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::IncidentEdges {
+                    node: 1,
+                    edges: vec![EdgeId(2)],
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::NodeLink("n".to_owned()),
+                ResolveError::Instance(ResolutionInstanceError::NotGraph),
+            ),
+            (
+                InstError::NotATree {
+                    reason: panproto_inst::NotTreeReason::NoRoot,
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTree),
+            ),
+            (
+                InstError::MalformedFan {
+                    node: 1,
+                    reason: panproto_inst::FanViolation::MissingParent,
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTree),
+            ),
+            (
+                InstError::ReservedVocabulary {
+                    at: ViewRef::Node(1),
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTree),
+            ),
+            (
+                InstError::NotATable {
+                    reason: panproto_inst::NotTableReason::NodeDataNotRepresentable { node: 1 },
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
+            ),
+            (
+                InstError::DanglingForeignKey {
+                    edge: label.clone(),
+                    row: RowId(1),
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
+            ),
+            (
+                InstError::DuplicateForeignKey {
+                    edge: label.clone(),
+                    src: RowId(1),
+                    tgt: RowId(2),
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
+            ),
+            (
+                InstError::RowHasForeignKeys {
+                    row: RowId(1),
+                    from: "a".into(),
+                    to: "b".into(),
+                    edge: label,
+                    src: RowId(1),
+                    tgt: RowId(2),
+                },
+                ResolveError::Instance(ResolutionInstanceError::NotTable),
             ),
         ];
         for (error, expected) in cases {

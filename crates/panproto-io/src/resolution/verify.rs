@@ -81,8 +81,17 @@ pub fn node_data_equiv(a: &Node, b: &Node) -> bool {
         && fields_equiv(&a.annotations, &b.annotations)
 }
 
-/// Whether two trees are the same presentation: same root and schema root,
-/// equal nodes by id, the same arcs and the same fans in order.
+/// The fans of a tree as records, in canonical record order.
+fn fan_records(tree: &WInstance) -> Vec<panproto_inst::FanRecord> {
+    let mut records: Vec<_> = tree.fans.iter().map(panproto_inst::FanRecord::of).collect();
+    records.sort_unstable();
+    records
+}
+
+/// Whether two trees are the same tree: same root and schema root, equal
+/// nodes by id, the same arcs in order and the same fans as the instance
+/// identity counts them, in canonical record order whatever order each
+/// tree lists them in.
 #[must_use]
 pub fn same_tree(a: &WInstance, b: &WInstance) -> bool {
     a.root == b.root
@@ -94,7 +103,7 @@ pub fn same_tree(a: &WInstance, b: &WInstance) -> bool {
                 .is_some_and(|other| node.id == other.id && node_data_equiv(node, other))
         })
         && a.arcs == b.arcs
-        && a.fans == b.fans
+        && fan_records(a) == fan_records(b)
 }
 
 /// Whether two table instances are the same presentation: equal rows by id
@@ -1048,5 +1057,18 @@ mod tests {
             assert!(!same_tree(&base, &edited), "{part}");
             assert!(!same_tree(&edited, &base), "{part}");
         }
+        let two_fans = |first: u32, second: u32| {
+            build(&|tree: &mut WInstance| {
+                tree.fans = vec![
+                    panproto_inst::Fan::new("h", first),
+                    panproto_inst::Fan::new("h", second),
+                ];
+            })
+        };
+        assert!(
+            same_tree(&two_fans(0, 1), &two_fans(1, 0)),
+            "the order a tree lists its fans in is not part of the tree"
+        );
+        assert!(!same_tree(&two_fans(0, 1), &two_fans(0, 0)));
     }
 }

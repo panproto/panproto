@@ -5703,16 +5703,98 @@ fn fans_of_redirected_posts_return_to_their_slots() {
     laws_hold(&resolution, &source, ResolveOptions::default());
 }
 
+/// Whether two trees are one tree under the instance identity, which
+/// writes fans in their canonical record order and so ignores the order a
+/// tree lists them in.
+fn same_identity(a: &WInstance, b: &WInstance) -> bool {
+    panproto_inst::segment::canonical_winstance_bytes(a)
+        == panproto_inst::segment::canonical_winstance_bytes(b)
+}
+
 #[test]
-fn fragment_fans_out_of_root_order_are_refused() {
+fn fragment_fans_out_of_root_order_round_trip_up_to_fan_order() {
     let resolution = fanned_posts_resolution(ResolveMode::Redirect);
-    let source = AnyInstance::Tree(fanned_posts_tree(&[("post", 7), ("user", 1), ("post", 5)]));
-    assert!(matches!(
-        resolution.get(&source, &ResolveOptions::default(), &ctx()),
-        Err(ResolveError::Instance(
-            panproto_io::resolution::ResolutionInstanceError::NotTree
-        ))
-    ));
+    let source = fanned_posts_tree(&[("post", 7), ("user", 1), ("post", 5)]);
+    let any = AnyInstance::Tree(source.clone());
+    let (view, complement) = get(&resolution, &any);
+    for fragment in complement.redirected.values() {
+        let records: Vec<panproto_inst::FanRecord> = fragment
+            .fans
+            .iter()
+            .map(panproto_inst::FanRecord::of)
+            .collect();
+        assert!(
+            records.windows(2).all(|pair| pair[0] <= pair[1]),
+            "a fragment lists its fans in canonical record order"
+        );
+    }
+    let restored = put_tree(&resolution, &view, &complement).expect("GetPut");
+    assert!(same_identity(&restored, &source));
+    laws_hold(&resolution, &any, ResolveOptions::default());
+}
+
+/// The redirecting posts resolution with a second hyper-edge whose fans
+/// name two posts.
+fn paired_posts_resolution() -> Resolution {
+    let mut posts = posts_schema(|reference| reference.mode = ResolveMode::Redirect);
+    posts.schema.hyper_edges.insert(
+        "pair".into(),
+        panproto_schema::HyperEdge {
+            id: "pair".into(),
+            kind: "pair".into(),
+            signature: [
+                (Name::from("p"), Name::from("doc")),
+                (Name::from("a"), Name::from("post")),
+                (Name::from("b"), Name::from("post")),
+            ]
+            .into_iter()
+            .collect(),
+            parent_label: "p".into(),
+        },
+    );
+    compile(
+        "posts",
+        ResolutionKind::TreeToGraph,
+        &posts.schema,
+        &[(&posts.author_ref, "post_author")],
+    )
+}
+
+#[test]
+fn a_fan_naming_two_redirected_holders_is_kept_once() {
+    let resolution = paired_posts_resolution();
+    let plain = posts_tree();
+    let fan = panproto_inst::Fan::new("pair", 0)
+        .with_child("a", 5)
+        .with_child("b", 7);
+    let source = WInstance::new(
+        plain.nodes,
+        plain.arcs,
+        vec![fan],
+        plain.root,
+        plain.schema_root,
+    );
+    let any = AnyInstance::Tree(source.clone());
+    let (view, complement) = get(&resolution, &any);
+    let kept: usize = complement
+        .redirected
+        .values()
+        .map(|fragment| fragment.fans.len())
+        .sum();
+    assert_eq!(kept, 1, "the fan is held by the least fragment it touches");
+    assert_eq!(complement.redirected[&5].fans.len(), 1);
+    let restored = put_tree(&resolution, &view, &complement).expect("GetPut");
+    assert!(same_identity(&restored, &source));
+    laws_hold(&resolution, &any, ResolveOptions::default());
+    // Removing the second post's alias removes the post, and with it the
+    // fan, which can no longer name both posts.
+    let mut edited = view;
+    edited
+        .remove_edge(occurrence_edge(&complement, 7))
+        .expect("remove the second post's reference");
+    let restored = put_tree(&resolution, &edited, &complement).expect("admitted");
+    assert!(!restored.nodes.contains_key(&7));
+    assert!(restored.fans.is_empty());
 }
 
 #[test]
