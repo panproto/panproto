@@ -845,4 +845,71 @@ mod exact {
         }
         assert_eq!(all.len(), 8 * 3 * 5);
     }
+
+    /// Every digit string over `alphabet` of at most `max` digits, the
+    /// empty one included.
+    fn digit_strings(alphabet: &[char], max: usize) -> Vec<String> {
+        let mut all = vec![String::new()];
+        let mut layer = vec![String::new()];
+        for _ in 0..max {
+            layer = layer
+                .iter()
+                .flat_map(|f| alphabet.iter().map(move |d| format!("{f}{d}")))
+                .collect();
+            all.extend(layer.iter().cloned());
+        }
+        all
+    }
+
+    /// The fraction `0.digits` as an integer over 10^width.
+    fn over_power_of_ten(digits: &str, width: usize) -> u64 {
+        format!("{digits:0<width$}").parse().unwrap()
+    }
+
+    /// `Fraction::cmp_numeric` against the order of the fractions as
+    /// integers over a common power of ten, on every pair of fractions of at
+    /// most three digits and on every pair of at most twelve digits over the
+    /// digits 0 and 9; on the first scope, also `cmp_chronological` of two
+    /// times with those fractions against the former comparison of
+    /// nanoseconds, which it must still give on fractions of at most nine
+    /// digits.
+    #[test]
+    fn fractions_order_as_decimal_fractions_on_the_stated_scope() {
+        use panproto_expr::exact::Fraction;
+        let short = digit_strings(&['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], 3);
+        let long = digit_strings(&['0', '9'], 12);
+        let mut pairs = 0_u64;
+        for (scope, width) in [(&short, 3), (&long, 12)] {
+            let fractions: Vec<(Fraction, u64)> = scope
+                .iter()
+                .map(|d| (Fraction::new(d).unwrap(), over_power_of_ten(d, width)))
+                .collect();
+            for (a, va) in &fractions {
+                for (b, vb) in &fractions {
+                    assert_eq!(a.cmp_numeric(b), va.cmp(vb), "{a:?} {b:?}");
+                    pairs += 1;
+                }
+            }
+        }
+        // The former comparison: whole seconds, then nanoseconds.
+        let time = |d: &str| {
+            let dot = if d.is_empty() { "" } else { "." };
+            Temporal::parse(&format!("12:00:00{dot}{d}Z")).unwrap()
+        };
+        let times: Vec<(Temporal, u64)> = short
+            .iter()
+            .map(|d| (time(d), over_power_of_ten(d, 9)))
+            .collect();
+        for (ta, na) in &times {
+            for (tb, nb) in &times {
+                assert_eq!(ta.cmp_chronological(tb), Some(na.cmp(nb)), "{ta} {tb}");
+            }
+        }
+        println!(
+            "bound: {} fractions of at most 3 digits and {} of at most 12 digits over 0 and 9; {pairs} pairs",
+            short.len(),
+            long.len()
+        );
+        assert_eq!(pairs, 1111 * 1111 + 8191 * 8191);
+    }
 }

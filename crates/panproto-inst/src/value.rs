@@ -20,7 +20,8 @@ use panproto_schema::{CanonicalWriter, ScalarKind};
 use serde::{Deserialize, Serialize};
 
 pub use panproto_expr::exact::{
-    BigIntValue, CivilDate, CivilTime, DecimalValue, ExactInteger, Offset, Temporal,
+    BigIntValue, CANONICAL_NAN, CivilDate, CivilTime, DecimalValue, ExactInteger, Fraction, Offset,
+    Temporal,
 };
 pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason};
 

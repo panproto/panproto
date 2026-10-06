@@ -690,20 +690,28 @@ fn an_exact_binary_lexeme_is_accepted_under_its_float_kind() {
 }
 
 #[test]
-fn every_nan_spelling_reads_as_the_canonical_nan() {
+fn every_nan_spelling_reads_as_its_signed_canonical_nan() {
     const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
+    const NEGATIVE: u64 = 0xfff8_0000_0000_0000;
     let kinds = [
         spec(ScalarKind::Float { bits: 32 }),
         spec(ScalarKind::Float { bits: 64 }),
         spec(ScalarKind::Any),
     ];
     for kind in &kinds {
-        for text in [
-            "NaN", "nan", "+nan", "-nan", "-NaN", ".nan", "+NaN", "-.NaN",
+        for (text, bits) in [
+            ("NaN", CANONICAL),
+            ("nan", CANONICAL),
+            ("+nan", CANONICAL),
+            (".nan", CANONICAL),
+            ("+NaN", CANONICAL),
+            ("-nan", NEGATIVE),
+            ("-NaN", NEGATIVE),
+            ("-.NaN", NEGATIVE),
         ] {
             assert_eq!(
                 float_bits(number(text, kind)),
-                CANONICAL,
+                bits,
                 "{text} under {:?}",
                 kind.kind
             );
@@ -765,7 +773,9 @@ fn every_non_finite_spelling_reads_by_its_word_on_a_bounded_scope() {
             for sign in ["", "+", "-"] {
                 for dot in ["", "."] {
                     let text = format!("{sign}{dot}{spelled}");
-                    let want = if nan {
+                    let want = if nan && sign == "-" {
+                        0xfff8_0000_0000_0000
+                    } else if nan {
                         CANONICAL
                     } else if sign == "-" {
                         f64::NEG_INFINITY.to_bits()
@@ -883,4 +893,226 @@ fn an_exponent_numeral_expanding_past_4096_zeros_overflows_under_bigint() {
     assert_eq!(reason(number("1e4096", &int)), FidelityReason::Overflow);
     // A zero with a large exponent is zero.
     assert_eq!(number("0e5000", &big_int).unwrap(), Value::Int(0));
+}
+
+/// A zero numeral whose stored exponent leaves `i32` is the zero that
+/// "0e0" (or "-0e0") is under every kind whose values carry no scale, and is
+/// refused with `Overflow` under `Decimal`, whose value would have to keep
+/// a scale `i32` cannot hold.
+#[test]
+fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
+    let unscaled = [
+        spec(ScalarKind::BigInt),
+        spec(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        }),
+        spec(ScalarKind::Float { bits: 32 }),
+        spec(ScalarKind::Float { bits: 64 }),
+        spec(ScalarKind::Any),
+    ];
+    let decimals = [
+        spec(ScalarKind::Decimal),
+        ValueSpec {
+            precision: Some(3),
+            scale: Some(2),
+            ..spec(ScalarKind::Decimal)
+        },
+    ];
+    for (text, zero) in [
+        ("0e3000000000", "0e0"),
+        ("-0e3000000000", "-0e0"),
+        ("0.0e-3000000000", "0e0"),
+    ] {
+        for kind in &unscaled {
+            let got = number(text, kind).unwrap();
+            let want = number(zero, kind).unwrap();
+            match (&got, &want) {
+                (Value::Float(a), Value::Float(b)) => {
+                    assert_eq!(a.to_bits(), b.to_bits(), "{text}");
+                }
+                _ => assert_eq!(got, want, "{text} under {:?}", kind.kind),
+            }
+        }
+        for kind in &decimals {
+            assert_eq!(
+                reason(number(text, kind)),
+                FidelityReason::Overflow,
+                "{text}"
+            );
+        }
+    }
+}
+
+/// The closest-shortest text of a binary32 value, from its definition, for
+/// x = k / 256 with k in 2^23..2^24 (the binade [2^15, 2^16)): among the
+/// decimals with the fewest significant digits that read back to x at
+/// binary32 under round-to-nearest-even, the closest to x, at a tie the
+/// larger. Returns its significand digits, its number of significant
+/// digits and whether there was a tie. Exact integer arithmetic in units
+/// of 1 / (1024 * 10^9).
+fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
+    // x in units u = 1 / (1024 * 10^9).
+    let x = u128::from(k) * 4 * 1_000_000_000;
+    // Half the gap above is 1/512 = 2 * 10^9 u; below, the same, except at
+    // x = 2^15, where the gap below is half as wide.
+    let half_up = 2_000_000_000_u128;
+    let half_down = if k == 1 << 23 { half_up / 2 } else { half_up };
+    let even = k % 2 == 0;
+    let reads_back = |v: u128| {
+        if v >= x {
+            v - x < half_up || (v - x == half_up && even)
+        } else {
+            x - v < half_down || (x - v == half_down && even)
+        }
+    };
+    for n in 1..=9_u32 {
+        // Candidates with n significant digits: multiples of 10^(5 - n),
+        // that is of `step` units (x has five integer digits).
+        let step = 1024 * 10_u128.pow(9 + 5 - n);
+        let below = x / step * step;
+        let above = below + step;
+        let candidates: Vec<u128> = [below, above]
+            .into_iter()
+            .filter(|&v| reads_back(v))
+            .collect();
+        match candidates.as_slice() {
+            [] => {}
+            [v] => return (u64::try_from(v / step).unwrap(), n, false),
+            [a, b] => {
+                let (da, db) = (x - a, b - x);
+                let tie = da == db;
+                let pick = if db <= da { b } else { a };
+                return (u64::try_from(pick / step).unwrap(), n, tie);
+            }
+            _ => unreachable!(),
+        }
+    }
+    unreachable!("nine digits always suffice")
+}
+
+/// Rust's `{:e}` of every binary32 in the binade [2^15, 2^16) is the
+/// closest-shortest text of the definition (ties away from zero), and a
+/// 32-bit float kind accepts that text with the value; at every tie it
+/// refuses the other candidate. Prints the bound and the ties found.
+#[test]
+fn the_closest_shortest_text_agrees_with_its_definition_on_a_binade() {
+    let f32_ = spec(ScalarKind::Float { bits: 32 });
+    let mut ties = Vec::new();
+    for k in (1_u32 << 23)..(1 << 24) {
+        let x = f32::from_bits(0x4700_0000 | (k - (1 << 23)));
+        assert_eq!((f64::from(x) * 256.0).to_bits(), f64::from(k).to_bits());
+        let (digits, n, tie) = closest_shortest_reference(u64::from(k));
+        let written = format!("{x:e}");
+        let (mantissa, exponent) = written.split_once('e').unwrap();
+        assert_eq!(exponent, "4", "{written}");
+        let got = mantissa.replace('.', "");
+        assert_eq!(got, digits.to_string(), "{x}: {written}");
+        assert_eq!(u32::try_from(got.len()).unwrap(), n);
+        if tie {
+            ties.push(x);
+            let accepted = number(&written, &f32_).unwrap();
+            assert!(matches!(accepted, Value::Float(y) if y.to_bits() == f64::from(x).to_bits()));
+            let other = format!("{}e{exponent}", {
+                let lower = digits - 1;
+                let s = lower.to_string();
+                format!("{}.{}", &s[..1], &s[1..])
+            });
+            assert_eq!(
+                reason(number(&other, &f32_)),
+                FidelityReason::PrecisionExceeded { max: 9 },
+                "{other}"
+            );
+        }
+    }
+    println!(
+        "bound: {} binary32 values in [2^15, 2^16); {} ties, the first {:?}",
+        1_u32 << 23,
+        ties.len(),
+        &ties[..ties.len().min(4)]
+    );
+    assert!(ties.contains(&(838_421.0_f32 / 16.0)));
+}
+
+/// Every zero numeral with at most two fractional zeros, of either sign,
+/// whose stored exponent is `i32::MIN`, `i32::MIN - 1`, `i32::MAX`,
+/// `i32::MAX + 1` or 3000000000, under every numeric kind and `Any`: inside `i32` it reads
+/// as it always has (a decimal keeps its scale), beyond it it reads as
+/// "0e0" or "-0e0" do where the kind keeps no scale and is refused with
+/// `Overflow` under `Decimal`.
+#[test]
+fn zero_numerals_beyond_i32_read_as_zero_where_the_kind_keeps_no_scale() {
+    let unscaled = [
+        spec(ScalarKind::BigInt),
+        spec(ScalarKind::Int {
+            bits: 8,
+            signed: true,
+        }),
+        spec(ScalarKind::Int {
+            bits: 64,
+            signed: false,
+        }),
+        spec(ScalarKind::Int {
+            bits: 128,
+            signed: true,
+        }),
+        spec(ScalarKind::Float { bits: 32 }),
+        spec(ScalarKind::Float { bits: 64 }),
+        spec(ScalarKind::Any),
+    ];
+    let decimals = [
+        spec(ScalarKind::Decimal),
+        ValueSpec {
+            precision: Some(3),
+            scale: Some(2),
+            ..spec(ScalarKind::Decimal)
+        },
+    ];
+    let stored = [
+        i64::from(i32::MIN),
+        i64::from(i32::MIN) - 1,
+        i64::from(i32::MAX),
+        i64::from(i32::MAX) + 1,
+        3_000_000_000,
+    ];
+    let mut checked = 0;
+    for sign in ["", "-"] {
+        for fraction in ["", ".0", ".00"] {
+            let frac_len = i64::try_from(fraction.len().saturating_sub(1)).unwrap();
+            for &stored_exponent in &stored {
+                let written = stored_exponent + frac_len;
+                let text = format!("{sign}0{fraction}e{written}");
+                let inside = i32::try_from(stored_exponent).is_ok();
+                let zero = if sign.is_empty() { "0e0" } else { "-0e0" };
+                for kind in &unscaled {
+                    let got = number(&text, kind).unwrap();
+                    let want = number(zero, kind).unwrap();
+                    assert_eq!(
+                        got.canonical_bytes(),
+                        want.canonical_bytes(),
+                        "{text} {:?}",
+                        kind.kind
+                    );
+                    checked += 1;
+                }
+                for kind in &decimals {
+                    let got = number(&text, kind);
+                    if inside {
+                        let Value::Decimal(d) = got.unwrap() else {
+                            panic!("a decimal")
+                        };
+                        assert!(d.is_zero() && !d.negative, "{text}");
+                        assert_eq!(i64::from(d.exponent), stored_exponent, "{text}");
+                    } else {
+                        assert_eq!(reason(got), FidelityReason::Overflow, "{text}");
+                    }
+                    checked += 1;
+                }
+            }
+        }
+    }
+    println!(
+        "bound: {checked} (numeral, kind) pairs: 2 signs x 3 fractions x 5 stored exponents x 9 kinds"
+    );
+    assert_eq!(checked, 2 * 3 * 5 * 9);
 }

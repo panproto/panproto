@@ -3280,8 +3280,9 @@ pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotE
 /// A float stays a float, integral or not: the column a value is written
 /// to decides its kind ([`coerce_value`](crate::value::coerce::coerce_value)),
 /// not the evaluator. A NaN, at any depth of a list or record, becomes the
-/// canonical quiet NaN `f64::NAN` (bits `0x7ff8000000000000`), whatever
-/// sign and payload the literal had: this is where a field transform's
+/// canonical quiet NaN [`CANONICAL_NAN`](crate::value::CANONICAL_NAN) (bits
+/// `0x7ff8000000000000`), whatever sign and payload the literal had: this
+/// is where a field transform's
 /// result enters a cell, so every NaN a transform writes is canonical,
 /// including one it read from a cell and returned unchanged, and two
 /// computed NaN cells are equal value for value and digest for digest. A
@@ -3307,7 +3308,11 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
         panproto_expr::Literal::Bool(b) => Value::Bool(*b),
         panproto_expr::Literal::Int(i) => Value::Int(*i),
-        panproto_expr::Literal::Float(f) => Value::Float(if f.is_nan() { f64::NAN } else { *f }),
+        panproto_expr::Literal::Float(f) => Value::Float(if f.is_nan() {
+            crate::value::CANONICAL_NAN
+        } else {
+            *f
+        }),
         panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
         panproto_expr::Literal::Bytes(b) => Value::Bytes(b.clone()),
         panproto_expr::Literal::List(items) => {

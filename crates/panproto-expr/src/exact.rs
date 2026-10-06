@@ -33,6 +33,25 @@ pub use decimal::DecimalValue;
 pub use integer::{BigIntValue, ExactInteger};
 pub use temporal::{CivilDate, CivilTime, Fraction, Offset, Temporal};
 
+/// The canonical quiet NaN, bits `0x7ff8000000000000`.
+///
+/// It is the NaN that a lexeme spelled without a minus sign reads as, and
+/// the one that every float computed by expression or field-transform
+/// evaluation is when it is a NaN.
+///
+/// It is defined by its bits because `f64::NAN` is not: Rust guarantees
+/// only that `f64::NAN` is some quiet NaN, and its sign and payload may
+/// change across versions and targets, which would change bit-wise value
+/// equality and every digest of a value that holds it.
+///
+/// ```
+/// use panproto_expr::exact::CANONICAL_NAN;
+///
+/// assert_eq!(CANONICAL_NAN.to_bits(), 0x7ff8_0000_0000_0000);
+/// assert!(CANONICAL_NAN.is_nan());
+/// ```
+pub const CANONICAL_NAN: f64 = f64::from_bits(0x7ff8_0000_0000_0000);
+
 /// The exact kind a parser was reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

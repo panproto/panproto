@@ -65,7 +65,7 @@ fn every_computed_nan_is_the_canonical_nan() {
                 vec![float(f64::INFINITY), float(f64::INFINITY)],
             ),
         ),
-        ("neg nan", call(BuiltinOp::Neg, vec![float(f64::NAN)])),
+        ("neg nan", call(BuiltinOp::Neg, vec![float(odd_nan())])),
         ("neg x", call(BuiltinOp::Neg, vec![x.clone()])),
         ("abs x", call(BuiltinOp::Abs, vec![x.clone()])),
         ("x + 1", call(BuiltinOp::Add, vec![x.clone(), float(1.0)])),
@@ -270,7 +270,7 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
 #[test]
 fn clamp_refuses_bounds_that_are_not_ordered() {
     let env = Env::new();
-    for (lo, hi) in [(1.0, 0.0), (f64::NAN, 1.0), (0.0, f64::NAN)] {
+    for (lo, hi) in [(1.0, 0.0), (odd_nan(), 1.0), (0.0, odd_nan())] {
         let expr = call(BuiltinOp::Clamp, vec![float(0.5), float(lo), float(hi)]);
         let error = eval(&expr, &env, &EvalConfig::default()).unwrap_err();
         assert!(
@@ -280,4 +280,67 @@ fn clamp_refuses_bounds_that_are_not_ordered() {
     }
     let ordered = call(BuiltinOp::Clamp, vec![float(2.0), float(0.0), float(1.0)]);
     assert_eq!(evaluated_bits(&ordered, &env), 1.0_f64.to_bits());
+}
+
+/// The value `eval` returns has the canonical NaN wherever it holds a NaN,
+/// even one evaluation only passed along: a bound variable, a literal, an
+/// element `Head` takes from a list, a list literal's element, a record's
+/// field.
+#[test]
+fn evaluation_returns_the_canonical_nan_at_every_depth() {
+    let payload = Literal::Float(f64::from_bits(0x7ff8_0000_0000_0001));
+    let negative = f64::from_bits(0xfff8_0000_0000_0000);
+    let env = Env::new().extend(Arc::from("p"), payload);
+    let p = Expr::Var(Arc::from("p"));
+    for (name, expr) in [
+        ("variable", p.clone()),
+        ("literal", float(negative)),
+        (
+            "head",
+            call(
+                BuiltinOp::Head,
+                vec![Expr::List(vec![p.clone(), float(1.0)])],
+            ),
+        ),
+    ] {
+        assert_eq!(evaluated_bits(&expr, &env), CANONICAL, "{name}");
+    }
+    let listed = eval(
+        &Expr::List(vec![float(negative), p.clone(), float(2.5)]),
+        &env,
+        &EvalConfig::default(),
+    )
+    .unwrap();
+    let Literal::List(items) = listed else {
+        panic!("a list")
+    };
+    let bits: Vec<u64> = items
+        .iter()
+        .map(|item| match item {
+            Literal::Float(x) => x.to_bits(),
+            other => panic!("a float, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(bits, vec![CANONICAL, CANONICAL, 2.5_f64.to_bits()]);
+    let record = eval(
+        &Expr::Record(vec![(Arc::from("a"), Expr::List(vec![p]))]),
+        &env,
+        &EvalConfig::default(),
+    )
+    .unwrap();
+    let Literal::Record(fields) = record else {
+        panic!("a record")
+    };
+    assert!(matches!(
+        fields.as_slice(),
+        [(_, Literal::List(items))] if matches!(items.as_slice(), [Literal::Float(x)] if x.to_bits() == CANONICAL)
+    ));
+}
+
+/// The canonical NaN is one constant, defined by its bits and re-exported
+/// by the instance crate.
+#[test]
+fn the_canonical_nan_constant_has_the_canonical_bits() {
+    assert_eq!(panproto_expr::CANONICAL_NAN.to_bits(), CANONICAL);
+    assert_eq!(panproto_inst::value::CANONICAL_NAN.to_bits(), CANONICAL);
 }

@@ -34,7 +34,10 @@
 //!   `BigInt` a non-zero numeral with a fraction or an exponent whose
 //!   stored exponent (the written exponent less the number of fractional
 //!   digits) exceeds 4096 is refused with [`FidelityReason::Overflow`]
-//!   rather than expanded, while an integer numeral of any length is read.
+//!   rather than expanded, while an integer numeral of any length is read;
+//!   this bound is a departure from lexical fidelity, described at
+//!   [`coerce`]. A zero numeral reads as zero whatever its exponent, except
+//!   under `Decimal` beyond `i32` (see [`coerce`]).
 //! - Under the other kinds a lexeme is accepted when it is of a class and
 //!   form the kind reads (a boolean literal, a string, an encoding of
 //!   bytes, an RFC 3339 date or time).
@@ -51,14 +54,18 @@
 //!
 //! # Non-finite floats
 //!
-//! Every NaN spelling (`NaN`, `nan`, `+nan`, `-nan`, `.nan`, in any case)
-//! reads as the canonical quiet NaN, bits `0x7ff8000000000000`, under both
-//! float kinds and under `Any`: the float value space has one notANumber,
-//! written `NaN` without a sign (W3C 2012, XML Schema 1.1 Part 2:
-//! Datatypes, Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 makes `-nan`
-//! valid with an implementation-specific encoding (Preston-Werner 2021,
-//! TOML v1.0.0, Float, stated). So no sign or payload is read from a
-//! lexeme. The infinity spellings read as the signed infinities.
+//! A NaN spelling (`NaN`, `nan`, `+nan`, `.nan`, in any case) reads as the
+//! canonical quiet NaN, [`CANONICAL_NAN`] (bits `0x7ff8000000000000`), and
+//! one written with a minus sign (`-nan`, `-NaN`, `-.nan`) as the same NaN
+//! with its sign bit set (bits `0xfff8000000000000`), under both float
+//! kinds and under `Any`. The written sign is carried because a format
+//! that writes it (TOML 1.0 makes `-nan` valid with an
+//! implementation-specific encoding; Preston-Werner 2021, TOML v1.0.0,
+//! Float, stated) would otherwise lose it on a round trip, though the float
+//! value space has one notANumber, written `NaN` without a sign (W3C 2012,
+//! XML Schema 1.1 Part 2: Datatypes, Secs 3.3.4.1 and 3.3.4.2, stated). No
+//! payload is read from a lexeme. The infinity spellings read as the signed
+//! infinities.
 //!
 //! [`FidelityLog`] collects the errors of a whole document, in document
 //! order, into one [`ParseError::Fidelity`].
@@ -67,8 +74,8 @@ use panproto_gat::Name;
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 use super::{
-    BigIntValue, DecimalValue, ExactInteger, FidelityReason, Offset, Temporal, Value,
-    ValueFidelityError, ValueSite,
+    BigIntValue, CANONICAL_NAN, DecimalValue, ExactInteger, FidelityReason, Offset, Temporal,
+    Value, ValueFidelityError, ValueSite,
 };
 use crate::error::ParseError;
 
@@ -131,22 +138,36 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 /// `bits == 32`, else 64), accepted exactly when `L(t)` is finite and
 /// equals t or has t numerically as its shortest text at that width, and
 /// refused with [`FidelityReason::Overflow`] when `L(t)` is infinite and
-/// with [`FidelityReason::PrecisionExceeded`] otherwise. Every NaN
-/// spelling (`NaN`, `nan`, `+nan`, `-nan`, `-NaN`, `.nan`, in any case)
-/// gives the canonical quiet NaN, bits `0x7ff8000000000000`, under both
-/// float kinds and under `Any`, since the float value space has one
-/// notANumber, written without a sign (W3C 2012, XML Schema 1.1 Part 2:
-/// Datatypes, Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 leaves the
-/// encoding of `-nan` to the implementation (Preston-Werner 2021, TOML
-/// v1.0.0, Float, stated); no sign or payload is read from a lexeme. The
-/// infinity spellings give the signed infinities.
+/// with [`FidelityReason::PrecisionExceeded`] otherwise. A NaN spelling
+/// (`NaN`, `nan`, `+nan`, `.nan`, in any case) gives [`CANONICAL_NAN`], bits
+/// `0x7ff8000000000000`, and one written with a minus sign (`-nan`, `-NaN`)
+/// the same NaN with its sign bit set, bits `0xfff8000000000000`, under
+/// both float kinds and under `Any`: the written sign is carried, so a
+/// format that writes `-nan` (valid TOML 1.0 with an implementation-specific
+/// encoding; Preston-Werner 2021, TOML v1.0.0, Float, stated) gets it back,
+/// although the float value space has one notANumber, written without a
+/// sign (W3C 2012, XML Schema 1.1 Part 2: Datatypes, Secs 3.3.4.1 and
+/// 3.3.4.2, stated); no payload is read from a lexeme. The infinity
+/// spellings give the signed infinities.
+///
+/// A numeral whose significand digits are all zero is zero whatever its
+/// exponent: when its stored exponent (its written exponent less its
+/// number of fractional digits) leaves `i32`, it reads under `Int`,
+/// `BigInt`, `Float { bits }` and `Any`, whose values keep no scale, as
+/// `0e0` does (as `-0e0` does when written with a minus sign). Under
+/// `Decimal` it is refused with [`FidelityReason::Overflow`], since a
+/// [`DecimalValue`] would have to keep a scale that leaves `i32`; this
+/// refusal of a valid numeral is a known defect, kept until the decimal
+/// exponent is widened.
 ///
 /// Under `Int` and `BigInt` an integer numeral of any length is read, while
 /// a non-zero numeral with a fraction or an exponent whose stored exponent
-/// (its written exponent less its number of fractional digits) exceeds
-/// 4096 is refused with [`FidelityReason::Overflow`] rather than expanded:
-/// `1e4096` is read, `1e4097` is refused, and the integer `1` followed by
-/// 5000 zeros, written out, is read.
+/// exceeds 4096 is refused with [`FidelityReason::Overflow`] rather than
+/// expanded: `1e4096` is read, `1e4097` is refused, though the integer `1`
+/// followed by 4097 zeros, written out, is read. This bound departs from
+/// lexical fidelity, which reads every integral numeral whose integer lies
+/// in the kind's value space, and is kept until it is settled how a big
+/// integer of that size is held.
 ///
 /// A null lexeme is [`Value::Null`] under every kind: whether the vertex
 /// may be null is a validation question, not a fidelity one. The error's
@@ -261,10 +282,14 @@ fn coerce_bool(lexeme: &Lexeme<'_>) -> Option<Value> {
     }
 }
 
+/// The canonical quiet NaN with its sign bit set, bits
+/// `0xfff8000000000000`: the NaN a spelling with a minus sign reads as.
+const NEGATIVE_NAN: f64 = f64::from_bits(0xfff8_0000_0000_0000);
+
 /// The non-finite float a lexeme spells, if it spells one: `NaN`, `inf`,
 /// `Infinity` and YAML's `.nan` and `.inf`, in any case, with an optional
-/// sign. Every NaN spelling gives the canonical quiet NaN, `f64::NAN`
-/// (bits `0x7ff8000000000000`), whatever its sign.
+/// sign. A NaN spelling gives [`CANONICAL_NAN`], or [`NEGATIVE_NAN`] when it
+/// is written with a minus sign; no payload is read.
 fn non_finite(text: &str) -> Option<f64> {
     let (negative, unsigned) = match text.as_bytes().first() {
         Some(b'-') => (true, &text[1..]),
@@ -273,7 +298,11 @@ fn non_finite(text: &str) -> Option<f64> {
     };
     let unsigned = unsigned.strip_prefix('.').unwrap_or(unsigned);
     if unsigned.eq_ignore_ascii_case("nan") {
-        Some(f64::NAN)
+        Some(if negative {
+            NEGATIVE_NAN
+        } else {
+            CANONICAL_NAN
+        })
     } else if unsigned.eq_ignore_ascii_case("inf") || unsigned.eq_ignore_ascii_case("infinity") {
         Some(if negative {
             f64::NEG_INFINITY
@@ -288,6 +317,25 @@ fn non_finite(text: &str) -> Option<f64> {
 /// The most zeros a positive exponent may expand into when an integral
 /// decimal numeral is read as an integer.
 const MAX_EXPANDED_ZEROS: usize = 4096;
+
+/// The zero numeral, `0e0` or `-0e0` as the numeral is written with a minus
+/// sign or not, that a numeral `DecimalValue::parse` refused for `reason`
+/// stands for under a kind whose values keep no scale: the numeral's
+/// significand digits are all zero and its stored exponent leaves `i32`,
+/// which is the only case in which the parser refuses a numeral with
+/// [`FidelityReason::Overflow`]. `None` for every other refusal.
+fn zero_beyond_i32(text: &str, reason: &FidelityReason) -> Option<&'static str> {
+    if *reason != FidelityReason::Overflow {
+        return None;
+    }
+    let negative = text.starts_with('-');
+    let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
+    let significand = unsigned.split(['e', 'E']).next().unwrap_or_default();
+    significand
+        .bytes()
+        .all(|b| b == b'0' || b == b'.')
+        .then_some(if negative { "-0e0" } else { "0e0" })
+}
 
 /// Whether a numeral has neither a fraction nor an exponent.
 fn is_integer_numeral(text: &str) -> bool {
@@ -305,7 +353,15 @@ fn coerce_any(lexeme: &Lexeme<'_>) -> Result<Value, ValueFidelityError> {
             if is_integer_numeral(lexeme.text) {
                 return Value::parse_integer(lexeme.text).map_err(|e| fail(e.reason));
             }
-            let decimal = DecimalValue::parse(lexeme.text).map_err(|e| fail(e.reason))?;
+            let decimal = match DecimalValue::parse(lexeme.text) {
+                Ok(decimal) => decimal,
+                Err(e) => {
+                    return match zero_beyond_i32(lexeme.text, &e.reason) {
+                        Some(zero) => coerce_any(&Lexeme::new(zero, LexClass::Number)),
+                        None => Err(fail(e.reason)),
+                    };
+                }
+            };
             let x = nearest_float(&decimal, lexeme.text, 64).map_err(fail)?;
             Ok(float_if_shortest(&decimal, x).map_or(Value::Decimal(decimal), Value::Float))
         }
@@ -385,7 +441,11 @@ fn integral(text: &str) -> Result<ExactInteger, FidelityReason> {
     if is_integer_numeral(text) {
         return BigIntValue::parse(text).map_err(|e| e.reason);
     }
-    let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
+    let decimal = match DecimalValue::parse(text) {
+        Ok(decimal) => decimal,
+        Err(e) if zero_beyond_i32(text, &e.reason).is_some() => return Ok(ExactInteger::Int(0)),
+        Err(e) => return Err(e.reason),
+    };
     if decimal.minimal_scale() > 0 {
         return Err(FidelityReason::ScaleExceeded { max: 0 });
     }
@@ -454,7 +514,15 @@ fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
     if let Some(f) = non_finite(text) {
         return Ok(Value::Float(f));
     }
-    let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
+    let decimal = match DecimalValue::parse(text) {
+        Ok(decimal) => decimal,
+        Err(e) => {
+            return match zero_beyond_i32(text, &e.reason) {
+                Some(zero) => coerce_float(zero, bits),
+                None => Err(e.reason),
+            };
+        }
+    };
     let x = nearest_float(&decimal, text, bits)?;
     if !x.is_finite() {
         return Err(FidelityReason::Overflow);
@@ -709,15 +777,18 @@ impl FidelityLog {
 /// - A [`Value::Float`] under `Float { bits: 32 }` is returned unchanged
 ///   exactly when it is a binary32 value widened to binary64 (decided on
 ///   its bits: a finite value that 24 significant bits and the binary32
-///   exponent range hold, `-0.0` included; an infinity; a NaN whose low 29
-///   fraction bits are zero). Otherwise it is refused: a NaN with
-///   [`FidelityReason::NonFinite`], since the kind cannot hold its
-///   payload; a finite value of magnitude above `3.4028234663852886e38`,
-///   the largest binary32, with [`FidelityReason::Overflow`]; and every
-///   other finite value with [`FidelityReason::PrecisionExceeded`] with
-///   `max` 9. So `Float(0.1)` is refused, while `Float(0.10000000149011612)`,
-///   the binary32 nearest 0.1, is kept: a stored value never differs from
-///   its input.
+///   exponent range hold, `-0.0` included; an infinity; a NaN whose quiet
+///   bit is set and whose low 29 fraction bits are zero). Otherwise it is
+///   refused: a NaN with [`FidelityReason::NonFinite`], since the kind
+///   cannot hold its payload or its signaling state; a finite value that
+///   rounds to an infinity at binary32, that is of magnitude at least
+///   2^128 - 2^103 = `3.4028235677973366e38`, with
+///   [`FidelityReason::Overflow`]; and every other finite value with
+///   [`FidelityReason::PrecisionExceeded`] with `max` 9. These are the
+///   reason and `max` the lexeme route gives whenever it also refuses the
+///   value's exact decimal text. So `Float(0.1)` is refused, while
+///   `Float(0.10000000149011612)`, the binary32 nearest 0.1, is kept: a
+///   stored value never differs from its input.
 /// - A non-finite [`Value::Float`] under any other float kind is returned
 ///   unchanged, sign and payload included, and refused with
 ///   [`FidelityReason::NonFinite`] under a kind that is not a float kind.
@@ -797,7 +868,7 @@ pub fn coerce_value(
                 Ok(value.clone())
             } else if !x.is_finite() {
                 Err(refuse(site, *x, FidelityReason::NonFinite))
-            } else if x.abs() > f64::from(f32::MAX) {
+            } else if x.abs() >= BINARY32_OVERFLOW {
                 Err(refuse(site, *x, FidelityReason::Overflow))
             } else {
                 Err(refuse(
@@ -856,6 +927,15 @@ fn float_text(x: f64) -> String {
     x.to_string()
 }
 
+/// The least magnitude that rounds to an infinity at binary32 under
+/// round-to-nearest-even: 2^128 - 2^103, the largest binary32,
+/// (2^24 - 1) 2^104, plus half its gap to 2^128 (a tie, which goes to the
+/// even neighbour 2^128 and so overflows).
+const BINARY32_OVERFLOW: f64 = f64::from_bits(0x47ef_ffff_f000_0000);
+
+/// The quiet bit of a binary64 NaN, the high fraction bit.
+const QUIET_BIT: u64 = 1 << 51;
+
 /// The fraction bits of a binary64 value that a binary32 value, widened,
 /// always leaves zero: binary64 has 52 fraction bits and binary32 23.
 const NARROW_FRACTION_BITS: u32 = 29;
@@ -863,10 +943,12 @@ const NARROW_FRACTION_BITS: u32 = 29;
 /// Whether the binary64 value with the bits of `x` is a binary32 value
 /// widened, decided on the bits.
 ///
-/// Widening is exact and keeps the sign, so a binary32 value widens to a
-/// binary64 value of the same number: a NaN or an infinity with the low
-/// 29 fraction bits zero (a binary32 payload has 23 bits, widened into the
-/// high fraction bits); a zero of either sign; and a finite non-zero
+/// Widening keeps the sign and the number, and quiets a NaN: an infinity
+/// widens to the infinity of its sign, and a binary32 NaN to a binary64 NaN
+/// whose quiet bit (fraction bit 51) is set and whose low 29 fraction bits
+/// are zero (the 23 payload bits go to the high fraction bits), so a
+/// signaling binary64 NaN is no widened binary32 even when those low bits
+/// are zero. Otherwise it is a zero of either sign, or a finite non-zero
 /// value `(1 + f / 2^52) * 2^e` that binary32 holds, which needs `e` in
 /// `-149..=127` and the value to be a multiple of `2^-149` with at most 24
 /// significant bits: for `e >= -126` (binary32's normal range) the low 29
@@ -881,7 +963,8 @@ fn holds_binary32(x: f64) -> bool {
     let biased = (bits >> 52) & 0x7ff;
     let zero_low = |n: u32| fraction & ((1_u64 << n) - 1) == 0;
     match biased {
-        0x7ff => zero_low(NARROW_FRACTION_BITS),
+        0x7ff if fraction == 0 => true,
+        0x7ff => fraction & QUIET_BIT != 0 && zero_low(NARROW_FRACTION_BITS),
         0 => fraction == 0,
         _ => {
             let exponent = i64::try_from(biased).map_or(i64::MAX, |b| b - 1023);

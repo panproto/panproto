@@ -81,7 +81,7 @@ pub mod float {
 
         fn visit_str<E: de::Error>(self, v: &str) -> Result<f64, E> {
             match v {
-                "NaN" => Ok(f64::NAN),
+                "NaN" => Ok(panproto_expr::exact::CANONICAL_NAN),
                 "Infinity" => Ok(f64::INFINITY),
                 "-Infinity" => Ok(f64::NEG_INFINITY),
                 _ => Err(E::invalid_value(de::Unexpected::Str(v), &self)),

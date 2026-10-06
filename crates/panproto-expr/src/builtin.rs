@@ -4,7 +4,7 @@
 //! Type checking is done at evaluation time; arguments must have the expected types.
 //!
 //! A float a builtin computes is never a NaN other than the canonical quiet
-//! NaN, `f64::NAN` (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
+//! NaN, [`CANONICAL_NAN`] (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
 //! the sign and payload of a NaN result to the platform, and negation and
 //! absolute value change a NaN's sign, so every float-valued builtin
 //! (`Add`, `Sub`, `Mul`, `Div`, `Neg`, `Abs`, `Clamp`, `StrToFloat`,
@@ -16,13 +16,13 @@ use std::sync::Arc;
 use std::cmp::Ordering;
 
 use crate::error::ExprError;
-use crate::exact::DecimalValue;
+use crate::exact::{CANONICAL_NAN, DecimalValue};
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
 
-/// `x`, or the canonical quiet NaN `f64::NAN` when `x` is a NaN.
-const fn canonical_float(x: f64) -> f64 {
-    if x.is_nan() { f64::NAN } else { x }
+/// `x`, or [`CANONICAL_NAN`] when `x` is a NaN.
+pub const fn canonical_float(x: f64) -> f64 {
+    if x.is_nan() { CANONICAL_NAN } else { x }
 }
 
 /// Safely convert a float to i64, returning an error for NaN, infinity, or out-of-range values.

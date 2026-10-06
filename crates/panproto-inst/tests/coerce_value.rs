@@ -382,7 +382,9 @@ fn expected_float(text: &str, bits: u8) -> Result<f64, FidelityReason> {
 fn is_binary32(x: f64) -> bool {
     let bits = x.to_bits();
     if x.is_nan() {
-        return bits & ((1 << 29) - 1) == 0;
+        // Widening quiets a NaN: a widened binary32 NaN has the quiet bit
+        // (fraction bit 51) set and its low 29 fraction bits zero.
+        return bits & (1 << 51) != 0 && bits & ((1 << 29) - 1) == 0;
     }
     if x.is_infinite() || x == 0.0 {
         return true;
@@ -402,6 +404,10 @@ fn is_binary32(x: f64) -> bool {
     }
     m < (1 << 24) && e >= -149 && i64::from(64 - m.leading_zeros()) + e <= 128
 }
+
+/// The least magnitude that rounds to an infinity at binary32, 2^128 -
+/// 2^103: the largest binary32, (2^24 - 1) 2^104, plus half its gap 2^104.
+const BINARY32_OVERFLOW: f64 = 340_282_356_779_733_661_637_539_395_458_142_568_448.0;
 
 /// What a decimal kind with `precision` and `scale` must do with `text`.
 fn expected_decimal(
@@ -686,7 +692,7 @@ fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Value, Fidel
             if spec.kind == (ScalarKind::Float { bits: 32 }) {
                 return Some(if is_binary32(*x) {
                     Ok(value.clone())
-                } else if x.abs() > f64::from(f32::MAX) {
+                } else if x.abs() >= BINARY32_OVERFLOW {
                     Err(FidelityReason::Overflow)
                 } else {
                     Err(FidelityReason::PrecisionExceeded { max: 9 })
@@ -808,7 +814,7 @@ proptest! {
         let kept = coerce_value(&float, &ValueSpec::new(ScalarKind::Float { bits: 64 }), site());
         prop_assert!(kept.is_ok_and(|v| same(&v, &float)));
         let narrow = coerce_value(&float, &ValueSpec::new(ScalarKind::Float { bits: 32 }), site());
-        if nan_or_inf.to_bits() & ((1 << 29) - 1) == 0 {
+        if is_binary32(nan_or_inf) {
             prop_assert!(narrow.is_ok_and(|v| same(&v, &float)));
         } else {
             prop_assert_eq!(narrow.unwrap_err().reason, FidelityReason::NonFinite);
@@ -874,6 +880,30 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
     }
     let error = coerce_value(&Value::Float(1e39), &f32_, site()).unwrap_err();
     assert_eq!(error.reason, FidelityReason::Overflow);
+    // The overflow threshold is where binary32 rounding gives an infinity,
+    // 2^128 - 2^103, as the lexeme route decides: the binary64 just below
+    // it rounds to the largest binary32 and is refused for precision.
+    let threshold = BINARY32_OVERFLOW;
+    assert_eq!(threshold.to_bits(), 0x47ef_ffff_f000_0000);
+    let below = f64::from_bits(threshold.to_bits() - 1);
+    for (x, reason) in [
+        (threshold, FidelityReason::Overflow),
+        (-threshold, FidelityReason::Overflow),
+        (below, FidelityReason::PrecisionExceeded { max: 9 }),
+        (-below, FidelityReason::PrecisionExceeded { max: 9 }),
+    ] {
+        let error = coerce_value(&Value::Float(x), &f32_, site()).unwrap_err();
+        assert_eq!(error.reason, reason, "{x:e}");
+        // The exact decimal text of x (x is an integer here).
+        let exact = format!("{x:.0}");
+        let lexeme = coerce(&Lexeme::new(&exact, LexClass::Number), &f32_);
+        assert_eq!(lexeme.unwrap_err().reason, reason, "{exact} as a lexeme");
+    }
+    let largest = Value::Float(f64::from(f32::MAX));
+    assert!(same(
+        &coerce_value(&largest, &f32_, site()).unwrap(),
+        &largest
+    ));
     // Powers of two, whose fraction bits are all zero: in range only from
     // 2^-149 to 2^127.
     for (power, reason) in [
@@ -988,9 +1018,21 @@ fn a_nan_binary32_cannot_hold_is_refused_under_float32() {
         &coerce_value(&payload, &f64_, site()).unwrap(),
         &payload
     ));
+    // A signaling NaN whose low 29 fraction bits are zero is no widened
+    // binary32 either: widening quiets a NaN.
+    let signaling = Value::Float(f64::from_bits(0x7ff0_0000_2000_0000));
+    let error = coerce_value(&signaling, &f32_, site()).unwrap_err();
+    assert_eq!(error.reason, FidelityReason::NonFinite);
+    assert_eq!(
+        coerce_value(&signaling, &f64_, site())
+            .unwrap()
+            .canonical_bytes(),
+        signaling.canonical_bytes()
+    );
     for bits in [
         0x7ff8_0000_0000_0000_u64,
         0xfff8_0000_0000_0000,
+        0x7ff8_0000_2000_0000,
         f64::INFINITY.to_bits(),
         f64::NEG_INFINITY.to_bits(),
     ] {
@@ -1383,4 +1425,164 @@ fn coerced_values_are_fixed_points_on_a_bounded_scope() {
         }
     }
     assert!(accepted > 100_000, "{accepted}");
+}
+
+/// The fraction fields of the stated scope: each boundary of the narrowing
+/// rules (the low 29 bits, binary32's 23-bit field, the quiet bit) and its
+/// neighbours.
+const FRACTION_SET: [u64; 14] = [
+    0,
+    1,
+    (1 << 28) - 1,
+    1 << 28,
+    (1 << 28) + 1,
+    (1 << 29) - 1,
+    1 << 29,
+    (1 << 52) - (1 << 29),
+    (1 << 52) - (1 << 28) - 1,
+    (1 << 52) - (1 << 28),
+    (1 << 52) - 1,
+    (1 << 51) - (1 << 29),
+    1 << 51,
+    (1 << 51) + (1 << 29),
+];
+
+/// Every f64 of the stated scope: both signs, every exponent field, every
+/// fraction of [`FRACTION_SET`]; then 12345679000.0.
+fn stated_f64_scope() -> Vec<f64> {
+    let mut out = Vec::new();
+    for sign in [0_u64, 1] {
+        for exponent in 0..=0x7ff_u64 {
+            for fraction in FRACTION_SET {
+                out.push(f64::from_bits((sign << 63) | (exponent << 52) | fraction));
+            }
+        }
+    }
+    out.push(12_345_679_000.0);
+    out
+}
+
+/// What `coerce_value(Float(x), Float { bits: 32 })` must do, from the
+/// definition: keep x iff it is the widening of a binary32 value (for a
+/// NaN, iff its fraction is a binary32 NaN fraction g, with its quiet bit,
+/// bit 22, set by widening, shifted up by 29 bits); otherwise refuse a NaN
+/// with `NonFinite`, a finite x that rounds to an infinity at binary32 with
+/// `Overflow`, and any other with `PrecisionExceeded { max: 9 }`.
+fn narrowing_reference(x: f64) -> Result<f64, FidelityReason> {
+    let fraction = x.to_bits() & ((1 << 52) - 1);
+    if x.is_nan() {
+        let widened = fraction % (1 << 29) == 0 && (fraction >> 29) & (1 << 22) != 0;
+        return if widened {
+            Ok(x)
+        } else {
+            Err(FidelityReason::NonFinite)
+        };
+    }
+    if is_binary32(x) {
+        return Ok(x);
+    }
+    // |x| rounds to an infinity at binary32 iff it reaches the midpoint of
+    // the largest binary32 and 2^128, compared exactly.
+    let threshold = Dyadic {
+        m: Nat::from_u64((1 << 25) - 1),
+        e: 103,
+    };
+    let (int, frac) = (format!("{:.0}", x.abs().trunc()), String::new());
+    let reaches = x.abs().fract() == 0.0 && cmp_numeral(&int, &frac, &threshold) != Ordering::Less;
+    Err(if reaches {
+        FidelityReason::Overflow
+    } else {
+        FidelityReason::PrecisionExceeded { max: 9 }
+    })
+}
+
+/// The narrowing rule of a 32-bit float kind, and its agreement with the
+/// lexeme route, on every f64 of [`stated_f64_scope`]: `coerce_value`
+/// equals [`narrowing_reference`]; for a finite x, `coerce` of x's exact
+/// decimal text equals law (i)'s exact reading ([`expected_float`]),
+/// accepts that text with x when x is a binary32 value, and, when both
+/// routes refuse, refuses with the same reason and `max`.
+#[test]
+fn float32_rules_agree_with_the_exact_reference_on_the_stated_scope() {
+    let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
+    let scope = stated_f64_scope();
+    let (mut kept, mut both_refused, mut lexeme_only) = (0_usize, 0_usize, 0_usize);
+    for &x in &scope {
+        let got = coerce_value(&Value::Float(x), &f32_, site());
+        let want = narrowing_reference(x);
+        match (&got, &want) {
+            (Ok(Value::Float(y)), Ok(z)) => {
+                assert_eq!(y.to_bits(), z.to_bits(), "{:#x}", x.to_bits());
+                kept += 1;
+            }
+            (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{:#x}", x.to_bits()),
+            _ => panic!("{:#x}: got {got:?}, expected {want:?}", x.to_bits()),
+        }
+        if !x.is_finite() {
+            continue;
+        }
+        let exact = format!("{x:.1100e}");
+        let lexeme = coerce(&Lexeme::new(&exact, LexClass::Number), &f32_);
+        assert_float_result(&lexeme, &expected_float(&exact, 32))
+            .unwrap_or_else(|e| panic!("{:#x}: {e}", x.to_bits()));
+        match (&got, &lexeme) {
+            (Ok(_), lexeme) => assert!(
+                lexeme.as_ref().is_ok_and(|v| same(v, &Value::Float(x))),
+                "{:#x}: the exact text of a binary32 value is accepted",
+                x.to_bits()
+            ),
+            (Err(a), Err(b)) => {
+                assert_eq!(a.reason, b.reason, "{:#x}", x.to_bits());
+                both_refused += 1;
+            }
+            (Err(_), Ok(_)) => lexeme_only += 1,
+        }
+    }
+    // 12345679000.0 is no binary32, and its exact text is the shortest
+    // text of the binary32 it rounds to, so only the lexeme route accepts.
+    let pinned = coerce(&Lexeme::new("12345679000", LexClass::Number), &f32_).unwrap();
+    assert!(same(&pinned, &Value::Float(12_345_678_848.0)));
+    assert!(coerce_value(&Value::Float(12_345_679_000.0), &f32_, site()).is_err());
+    println!(
+        "bound: {} f64 values (2 signs x 2048 exponent fields x {} fractions, and 12345679000.0); \
+         kept {kept}, both refused {both_refused}, accepted by the lexeme route only {lexeme_only}",
+        scope.len(),
+        FRACTION_SET.len()
+    );
+    assert_eq!(scope.len(), 2 * 2048 * 14 + 1);
+}
+
+/// The two routes into a 32-bit float agree on `Ok` results, bit for bit,
+/// on the stated numerals: the exact decimal texts of the finite values of
+/// [`stated_f64_scope`], and every numeral `{m}e{k}` and `-{m}e{k}` with m
+/// in 0..=999 (at most three significant digits) and k in -50..=40.
+#[test]
+fn float32_routes_agree_on_the_stated_numerals() {
+    let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
+    let f64_ = ValueSpec::new(ScalarKind::Float { bits: 64 });
+    let mut numerals: Vec<String> = stated_f64_scope()
+        .into_iter()
+        .filter(|x| x.is_finite())
+        .map(|x| format!("{x:.1100e}"))
+        .collect();
+    for m in 0..=999 {
+        for k in -50..=40 {
+            numerals.extend([format!("{m}e{k}"), format!("-{m}e{k}")]);
+        }
+    }
+    let mut agreed = 0_usize;
+    for text in &numerals {
+        let direct = coerce(&Lexeme::new(text, LexClass::Number), &f32_);
+        let path = coerce(&Lexeme::new(text, LexClass::Number), &f64_)
+            .and_then(|wide| coerce_value(&wide, &f32_, site()));
+        if let (Ok(Value::Float(a)), Ok(Value::Float(b))) = (&direct, &path) {
+            assert_eq!(a.to_bits(), b.to_bits(), "{text}");
+            agreed += 1;
+        }
+    }
+    println!(
+        "bound: {} numerals; both routes Ok on {agreed}",
+        numerals.len()
+    );
+    assert!(agreed > 0);
 }

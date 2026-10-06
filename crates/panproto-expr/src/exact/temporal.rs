@@ -157,6 +157,11 @@ impl From<Fraction> for String {
 ///
 /// Serialized as `"local"`, `"zulu"`, `{"fixed": minutes}` and
 /// `"neg_zero"`.
+///
+/// Known loss, kept until it is settled how the written case is carried:
+/// a lowercase `z` reads as [`Offset::Zulu`] and is written back as `Z`,
+/// so `==`, the canonical bytes and every route that writes through
+/// `Display` cannot tell the two spellings apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", try_from = "OffsetRepr")]
 pub enum Offset {
@@ -431,6 +436,11 @@ impl Temporal {
     /// Read a date, a time or a date-time, deciding the form from the
     /// lexeme: a date-time has a `T`, `t` or space after the date, a date
     /// has a `-` after its year, and anything else is read as a time.
+    ///
+    /// Known loss, kept until it is settled how the written case is
+    /// carried: the separator `t` or a space and a lowercase offset `z` are
+    /// read as `T` and `Z` are and written back as `T` and `Z` by
+    /// `Display`, so the value does not record which was written.
     ///
     /// # Errors
     ///
