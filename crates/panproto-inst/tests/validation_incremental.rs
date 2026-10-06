@@ -5922,8 +5922,12 @@ fn read_components(kind: CheckKind, shape: InstanceShapeKind) -> BTreeSet<Compon
         K::EndpointCoherence => vec![C::Label, C::Anchor],
         K::RequiredEdge | K::OutDegree | K::Acyclic => vec![C::EdgeExists, C::Label],
         K::PositionDistinct => vec![C::EdgeExists, C::Label, C::Position],
-        K::ValueConstraint => vec![C::Value, C::Fields, C::EdgeExists, C::Label],
+        // Which fields of a node are value sites depends on its anchor and
+        // on the labels of its out-edges; a key part's value also on
+        // positions and the order of children.
+        K::ValueConstraint => vec![C::Anchor, C::Value, C::Fields, C::EdgeExists, C::Label],
         K::RequiredValue => vec![
+            C::Anchor,
             C::Value,
             C::Fields,
             C::EdgeExists,
@@ -5931,7 +5935,9 @@ fn read_components(kind: CheckKind, shape: InstanceShapeKind) -> BTreeSet<Compon
             C::Position,
             C::Order,
         ],
-        K::Attribute => vec![C::Fields],
+        // The declarations an element's fields are checked against are its
+        // anchor's.
+        K::Attribute => vec![C::Anchor, C::Fields],
         K::TreeRoot => vec![C::NodeExists],
         K::TreeParentMap => vec![C::ParentMap, C::EdgeExists, C::Order],
         K::TreeReachable => vec![C::EdgeExists, C::Order],
