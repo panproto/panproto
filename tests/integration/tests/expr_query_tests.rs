@@ -1,8 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::cast_possible_truncation
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for the expression parser and query engine.
 //!
 //! Verifies parse/eval round-trips for arithmetic, lambda, let, string,
@@ -222,7 +218,7 @@ fn query_on_instance() {
         path: vec![],
     };
 
-    let results = execute(&query, &inst, &schema);
+    let results = execute(&query, &inst, &schema).expect("the query is answered");
     assert_eq!(results.len(), 2);
     // Both should be fruits
     for r in &results {
@@ -269,7 +265,7 @@ fn query_with_projection_and_limit() {
         path: vec![],
     };
 
-    let results = execute(&query, &inst, &schema);
+    let results = execute(&query, &inst, &schema).expect("the query is answered");
     assert_eq!(results.len(), 3);
     // Only "name" field should be present, not "score"
     for r in &results {

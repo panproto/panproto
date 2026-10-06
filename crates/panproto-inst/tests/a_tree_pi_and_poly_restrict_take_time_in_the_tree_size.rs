@@ -111,33 +111,27 @@ fn run_time(operation: Operation, instance: &WInstance) -> Duration {
     elapsed
 }
 
-/// The growth, from 1000 to 4000 mids, of `operation`'s time in units of a
-/// linear baseline over the same tree (one clone of it).
+/// The growth, from 1000 to 4000 mids, of `operation`'s time against the
+/// fourfold growth of the tree.
 fn growth(operation: Operation) -> f64 {
     let (small_tree, large_tree) = (tree(1000), tree(4000));
-    let (small, large) = common::sizes_in_units(
-        7,
-        common::Probe {
-            work: || run_time(operation, &small_tree),
-            unit: || drop(std::hint::black_box(small_tree.clone())),
-        },
-        common::Probe {
-            work: || run_time(operation, &large_tree),
-            unit: || drop(std::hint::black_box(large_tree.clone())),
-        },
+    let measured = common::growth(
+        15,
+        4,
+        || run_time(operation, &small_tree),
+        || run_time(operation, &large_tree),
     );
-    let growth = large / small;
     eprintln!(
-        "{operation:?}: 1000 mids: {small:.1} units; 4000 mids: {large:.1} units; \
-         growth {growth:.2}"
+        "{operation:?}: a 4000-mid run takes {:.1} 1000-mid runs; growth {:.2}",
+        measured.small_runs, measured.growth
     );
-    growth
+    measured.growth
 }
 
 // Quadrupling the mids quadruples the elements and the arcs. Work that
-// scans every arc at every transformed node grows sixteenfold, fourfold in
-// units of a linear baseline over the same tree; work linear in the tree up
-// to a logarithmic factor keeps its size in those units. The bound 2 is the
+// scans every arc at every transformed node grows sixteenfold, fourfold
+// against the growth of the tree; work linear in the tree up to a
+// logarithmic factor grows by about 1 against it. The bound 2 is the
 // geometric mean of the two growths, as for the tree query.
 
 #[test]

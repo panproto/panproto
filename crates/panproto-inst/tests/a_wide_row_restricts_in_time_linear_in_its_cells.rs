@@ -160,37 +160,29 @@ fn restrict_time(
     elapsed
 }
 
-/// The growth, from 250 to 4000 columns, of the restrict's time in units
-/// of a linear baseline over the same table (one clone of it).
+/// The growth, from 250 to 4000 columns, of the restrict's time against
+/// the sixteenfold growth of the table's cells.
 fn growth_from_250_to_4000_columns(fate: Fate) -> f64 {
     let (small_plan, small_table, small_row) = wide(250, 20, fate);
     let (large_plan, large_table, large_row) = wide(4000, 20, fate);
-    let (small, large) = common::sizes_in_units(
-        7,
-        common::Probe {
-            work: || restrict_time(&small_plan, &small_table, &small_row, fate),
-            unit: || drop(std::hint::black_box(small_table.clone())),
-        },
-        common::Probe {
-            work: || restrict_time(&large_plan, &large_table, &large_row, fate),
-            unit: || drop(std::hint::black_box(large_table.clone())),
-        },
+    let measured = common::growth(
+        15,
+        16,
+        || restrict_time(&small_plan, &small_table, &small_row, fate),
+        || restrict_time(&large_plan, &large_table, &large_row, fate),
     );
-    let growth = large / small;
     eprintln!(
-        "{fate:?}: 250 columns: {small:.1} units; 4000 columns: {large:.1} units; \
-         growth {growth:.2}"
+        "{fate:?}: a 4000-column restrict takes {:.1} 250-column restricts; growth {:.2}",
+        measured.small_runs, measured.growth
     );
-    growth
+    measured.growth
 }
 
 // Multiplying the columns by sixteen multiplies the cells by sixteen. Work
 // that scans a row's keys for each of its cells grows 256-fold, sixteenfold
-// in units of a linear baseline over the same table, less the share of the
-// linear work around the scans; work linear in the cells up to a
-// logarithmic factor keeps its size in those units. The bound 2.8 lies
-// between the two: the linear run measures about 1, and a scan of the kept
-// keys per cell alone already measures above 4.
+// against the growth of the cells, less the share of the linear work
+// around the scans; work linear in the cells up to a logarithmic factor
+// grows by about 1 against it. The bound 2.8 lies between the two.
 //
 // Each fate guards a different path. The identity tracks no key, so it
 // guards only the path on which no transform or cell fate runs; keeping
