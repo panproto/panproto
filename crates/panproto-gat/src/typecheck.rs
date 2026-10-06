@@ -1453,6 +1453,23 @@ impl std::fmt::Display for SignatureDefect {
 ///   sort, or by an earlier input of the operation, or for the output by
 ///   any input ([`SignatureDefect::UnboundParamVar`]).
 ///
+/// These rules are the equation-free core of the well-formedness
+/// judgements for generalized algebraic theories: the context, sort and
+/// term formation rules of palmgren2019categories Defs 4.4 and 4.7 and
+/// the sort and operation declarations of
+/// bezemcoquanddybjerescardo2021generalized Def 4 (stated). Admitting
+/// the unapplied name of a dependent sort is specific to panproto
+/// (inferred).
+///
+/// The judgement is syntactic: an argument's sort must equal the
+/// parameter's sort up to the substitution of earlier arguments, and no
+/// conversion along the theory's equations is applied. Well-formedness of
+/// a generalized algebraic theory can depend on its equations
+/// (jamner2025pyrosome Sec 2, stated), so this check is sound but
+/// incomplete for theories whose typing needs conversion: it reports
+/// [`SignatureDefect::ParamIllTyped`] for an argument whose sort equals
+/// the parameter's only modulo an equation.
+///
 /// [`typecheck_theory`] runs this check first.
 ///
 /// # Errors
@@ -3622,6 +3639,48 @@ mod tests {
                 vec![],
             ),
         ]
+    }
+
+    /// The judgement is syntactic: `w : Z(u)` with `u : Y(b)` and `Z`'s
+    /// parameter of sort `Y(a)` is refused although the equation `a = b`
+    /// makes the two sorts derivably equal.
+    #[test]
+    fn typecheck_signature_applies_no_conversion_along_equations() {
+        let theory = Theory::new(
+            "Conv",
+            vec![
+                Sort::simple("X"),
+                Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                Sort::dependent(
+                    "Z",
+                    vec![SortParam::new(
+                        "y",
+                        SortExpr::app("Y", vec![Term::constant("a")]),
+                    )],
+                ),
+            ],
+            vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("u", vec![], SortExpr::app("Y", vec![Term::constant("b")])),
+                Operation::new("w", vec![], SortExpr::app("Z", vec![Term::constant("u")])),
+            ],
+            vec![crate::eq::Equation::new(
+                "a_is_b",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        );
+        assert_eq!(
+            typecheck_signature(&theory),
+            Err(vec![SignatureDefect::ParamIllTyped {
+                site: SignatureSite::OpOutput { op: "w".into() },
+                sort: "Z".into(),
+                index: 0,
+                expected: "Y(a())".into(),
+                found: "Y(b())".into(),
+            }])
+        );
     }
 
     /// A signature that no rule admits: `id : (x : Ob) -> Cell(x, x)` where

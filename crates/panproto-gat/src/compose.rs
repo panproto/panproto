@@ -123,6 +123,15 @@ pub enum SortMismatch {
         second: usize,
     },
     /// Parameter `index` ranges over different sort classes.
+    ///
+    /// This is the representability limit of
+    /// [`NotRepresentableReason::NeedsSortEquation`] met at a sort class:
+    /// the colimit of the diagram exists among Cartmell's generalized
+    /// algebraic theories and identifies the two parameter sorts by a
+    /// sort-equality axiom (almeida2026model Construction 2.17, stated in
+    /// a preprint), which a [`crate::Theory`] cannot state. The comparison
+    /// is syntactic modulo the class map, so it also refuses parameter
+    /// sorts that agree only modulo term equations.
     ParamSort {
         /// The parameter's position.
         index: usize,
@@ -162,8 +171,18 @@ impl std::fmt::Display for SortMismatch {
 pub enum NotRepresentableReason {
     /// Two identified operations differ only in the term arguments of a
     /// dependent input or output sort (for instance `Hom(x, y)` against
-    /// `Hom(y, x)`); identifying them would need an equation between
-    /// sorts, which a [`crate::Theory`] cannot state.
+    /// `Hom(y, x)`), once every sort and operation is sent to its class.
+    ///
+    /// This is a representability limit, not the absence of a colimit:
+    /// the colimit exists among Cartmell's generalized algebraic theories
+    /// and adds a sort-equality axiom (almeida2026model Construction 2.17,
+    /// stated in a preprint), and a [`crate::Theory`] cannot state a sort
+    /// equation. The comparison is syntactic modulo the class map and does
+    /// not apply the sort conversions that term equations induce
+    /// (garner2015combinatorial Table 1, stated), so this reason is also
+    /// given for an identification that holds only modulo the diagram's
+    /// term equations and needs no sort equation; that refusal is
+    /// conservative.
     NeedsSortEquation,
 }
 
@@ -182,7 +201,8 @@ impl std::fmt::Display for OpMismatch {
         match self {
             Self::NeedsSortEquation => f.write_str(
                 "operation signatures differ only in dependent sort arguments, \
-                 which would need a sort equation",
+                 which agree only under a sort equation a theory cannot state \
+                 or under a term equation the syntactic comparison does not apply",
             ),
             Self::Signature => f.write_str("operation signatures differ in the quotient"),
         }
@@ -1048,8 +1068,19 @@ pub enum CompositionError {
         /// Another member.
         second: SymRef,
     },
-    /// Two operations the diagram identifies could only be identified by
-    /// an equation a theory cannot state.
+    /// Two operations the diagram identifies have signatures that agree
+    /// only under a sort equation, or only modulo term equations, once
+    /// every sort and operation is sent to its class.
+    ///
+    /// The refusal is a representability limit: the colimit exists among
+    /// Cartmell's generalized algebraic theories, adding a sort-equality
+    /// axiom when one is needed (almeida2026model Construction 2.17, stated
+    /// in a preprint), and a theory cannot state a sort equation. The
+    /// check is syntactic modulo the class map, so it also refuses an
+    /// identification that needs no sort equation because the diagram's
+    /// term equations already make the sorts derivably equal
+    /// (garner2015combinatorial Table 1, stated). See
+    /// [`NotRepresentableReason`].
     QuotientNotRepresentable {
         /// One member.
         first: SymRef,
@@ -1140,8 +1171,10 @@ impl std::fmt::Display for CompositionError {
             } => match reason {
                 NotRepresentableReason::NeedsSortEquation => write!(
                     f,
-                    "identifying operations {first} and {second} needs a sort equation, \
-                     which a theory cannot state"
+                    "cannot identify operations {first} and {second}: their signatures \
+                     agree only under a sort equation, which a theory cannot state, \
+                     or under a term equation, which the syntactic comparison does \
+                     not apply"
                 ),
             },
             Self::NameConflict {
@@ -1263,17 +1296,24 @@ impl NodeInfo<'_> {
 /// 4. Every class's members must agree on arity, parameter sort classes
 ///    (modulo renaming the parameters), kind and closure (sorts), or on
 ///    their signature once every sort and operation is sent to its class
-///    (operations). A mismatch only in the term arguments of dependent
-///    sorts would need a sort equation and is
-///    [`CompositionError::QuotientNotRepresentable`].
+///    (operations). The comparison is syntactic modulo the class map: it
+///    does not apply the sort conversions that term equations induce
+///    (garner2015combinatorial Table 1, stated), including the equations
+///    step 5 adds. A mismatch only in the term arguments of dependent
+///    sorts is [`CompositionError::QuotientNotRepresentable`], whether
+///    the identification needs a sort equation, which a theory cannot
+///    state, or holds modulo a term equation, which this conservative
+///    check refuses although the colimit needs no sort equation.
 /// 5. An edge that sends an operation `o` to a derived term `t` adds the
 ///    equation `o(params) = t` under the name
 ///    `"{src label}.{o}~{k}"`, with `k` the edge's position in the
 ///    canonical edge order (source label, target label, canonical bytes
-///    of the morphism); isaev2017algebraic Prop. 2.1 and
+///    of the morphism). A coequalizer of generalized algebraic theories
+///    adjoins such term-equality judgements (garner2015combinatorial
+///    Prop 12, proved); isaev2017algebraic Prop. 2.1 and
 ///    schultzwisnesky2017algebraic §6.1 build coequalizers this way in the
-///    non-dependent setting (stated), and carrying it to dependent sorts is
-///    inferred.
+///    non-dependent setting (stated); the span case and the name scheme
+///    are inferred.
 /// 6. Each class becomes one sort or operation. Equations, directed
 ///    equations and policies are translated and collected as sets by
 ///    content, keeping every source in the provenance.
