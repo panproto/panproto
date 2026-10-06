@@ -6,6 +6,38 @@
 //! shape, and decorations. Graph Sigma, Delta, and Pi run the corresponding
 //! table Kan extension and then decode its result with a deterministically
 //! transported layout.
+//!
+//! The table functors are the identity on values, so the inner nodes and
+//! edges of a cell's layout move along the value remaps the
+//! [`MigrationFunctor`] keeps ([`MigrationFunctor::inner_edges`] and
+//! [`MigrationFunctor::value_vertices`]): forward for Sigma and Pi, and back
+//! to the unique preimage in the copied table's columns for Delta. Write
+//! `V(v)` for the `value_vertices` entry of `v`, or `v` itself when it has
+//! none. A source inner value edge `e` whose source node has moved to the
+//! target value vertex `a` goes to its `inner_edges` entry when it has one,
+//! provided that entry leaves `a`, and has no image otherwise; with no
+//! entry, it goes to the target inner value edge of its kind and name from
+//! `a` to `V(e.tgt)` when the target has that edge, and has no image
+//! otherwise. No other edge is searched for: in particular an edge is never
+//! matched by being the only one of its kind and name leaving `a`. A
+//! layout with an edge that has no image is not moved, and the cell is
+//! decoded from the remaining candidates or as a record-free leaf.
+//!
+//! The encoding is fully faithful over [`GraphKanHom`] and surjective on
+//! objects onto the conforming table instances, so it is an equivalence of
+//! categories (Leinster 2014, Prop 1.3.18, stated), and not an isomorphism:
+//! graphs that differ only in their layout encode to one table. For a fixed
+//! layout, decoding is a quasi-inverse (Leinster 2014, Ex 1.3.32(b), stated),
+//! and the adjunctions `Sigma -| Delta -| Pi` of the table functors transfer
+//! along the equivalence to the graph functors (Leinster 2014, Rem 2.1.11,
+//! stated). Since graphs that differ only in layout are isomorphic, the layout
+//! a graph Kan function selects is a choice of representative.
+//!
+//! A relation is a set of pairs, so graph Sigma identifies two relation edges
+//! that the table Sigma carries to one pair. This is relationalization
+//! (Spivak and Wisnesky 2015, Def 9.1.6 and Prop 8.3.3, proven) restricted to
+//! relation pairs: rows are never identified. That this image is a reflection
+//! onto the relational instances is inferred.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -152,6 +184,48 @@ impl SideData {
 
     fn is_relation(&self, edge: &Edge) -> bool {
         self.relations.contains(edge)
+    }
+}
+
+/// The map a [`MigrationFunctor`] induces on inner value edges through its
+/// value remaps, read against the inner value edges `target` of its target
+/// schema.
+struct ValueEdgeMap<'a> {
+    inner_edges: &'a BTreeMap<Edge, Edge>,
+    value_vertices: &'a BTreeMap<Name, Name>,
+    target: &'a BTreeSet<Edge>,
+}
+
+impl<'a> ValueEdgeMap<'a> {
+    const fn new(functor: &'a MigrationFunctor) -> Self {
+        Self {
+            inner_edges: functor.inner_edges(),
+            value_vertices: functor.value_vertices(),
+            target: functor.target().inner_edges(),
+        }
+    }
+
+    /// The image of the source inner value edge `edge` once its source has
+    /// moved to the target value vertex `source`: its remap when it has one,
+    /// if that remap leaves `source`; with no remap, the target inner value
+    /// edge of its kind and name from `source` to the remap of its target
+    /// vertex (that vertex itself when it has no remap), if the target has
+    /// it. Otherwise `None`.
+    fn image(&self, edge: &Edge, source: &Name) -> Option<&'a Edge> {
+        if let Some(image) = self.inner_edges.get(edge) {
+            return (image.src == *source).then_some(image);
+        }
+        let direct = Edge {
+            src: source.clone(),
+            tgt: self
+                .value_vertices
+                .get(&edge.tgt)
+                .unwrap_or(&edge.tgt)
+                .clone(),
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        };
+        self.target.get(&direct)
     }
 }
 
@@ -844,8 +918,8 @@ fn decode_with_trace(
                 let candidate = layout
                     .cells
                     .get(&(row, column.clone()))
-                    .and_then(|cell| relabel_cell_layout(cell, value, arrow, &side));
-                let trace = if let Some(cell) = candidate.as_ref() {
+                    .filter(|cell| cell_fits(cell, value, arrow, &side));
+                let trace = if let Some(cell) = candidate {
                     decode_cell_layout(cell, row, arrow, &mut state)?
                 } else {
                     decode_record_free_cell(value, row, arrow, &mut state)?
@@ -923,23 +997,44 @@ fn choose_edge_id(
     Ok(id)
 }
 
-fn relabel_cell_layout(
+/// Whether the layout `cell` is a value subtree of `side` hanging from the
+/// attribute arrow `arrow` that folds to `value`: its nodes and edges are
+/// ordered from its root, the root is anchored at the target of `arrow`,
+/// every inner edge is an inner value edge of `side` joining nodes anchored
+/// at that edge's endpoints, and the subtree folds to `value` by canonical
+/// bytes.
+fn cell_fits(cell: &CellLayout, value: &Value, arrow: &Edge, side: &SideData) -> bool {
+    let anchored = |node: u32, anchor: &Name| {
+        cell.nodes
+            .get(&node)
+            .is_some_and(|node| node.anchor == *anchor)
+    };
+    cell_order(cell).is_ok()
+        && anchored(cell.root, &arrow.tgt)
+        && cell.edges.values().all(|edge| {
+            side.inner_edges.contains(&edge.edge)
+                && anchored(edge.src, &edge.edge.src)
+                && anchored(edge.tgt, &edge.edge.tgt)
+        })
+        && fold_layout(cell).is_ok_and(|folded| same_value(&folded, value))
+}
+
+/// The layout `cell` moved to hang from a value node anchored at `root`:
+/// each inner edge, in the order of [`cell_order`], goes to the image
+/// `image` gives it out of the new anchor of its source, and its target node
+/// is anchored at that image's target. `None` when an edge has no image or
+/// two edges anchor one node differently.
+fn move_cell(
     cell: &CellLayout,
-    value: &Value,
-    arrow: &Edge,
-    side: &SideData,
+    root: &Name,
+    image: impl Fn(&Edge, &Name) -> Option<Edge>,
 ) -> Option<CellLayout> {
     let (_, edge_order) = cell_order(cell).ok()?;
-    let mut anchors = BTreeMap::from([(cell.root, arrow.tgt.clone())]);
-    let mut result = cell.clone();
+    let mut anchors = BTreeMap::from([(cell.root, root.clone())]);
+    let mut moved = cell.clone();
     for id in edge_order {
         let original = cell.edges.get(&id)?;
-        let source = anchors.get(&original.src)?;
-        let mapped = side.inner_edges.iter().find(|candidate| {
-            candidate.src == *source
-                && candidate.kind == original.edge.kind
-                && candidate.name == original.edge.name
-        })?;
+        let mapped = image(&original.edge, anchors.get(&original.src)?)?;
         match anchors.entry(original.tgt) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(mapped.tgt.clone());
@@ -949,14 +1044,41 @@ fn relabel_cell_layout(
             }
             std::collections::btree_map::Entry::Occupied(_) => {}
         }
-        result.edges.get_mut(&id)?.edge.clone_from(mapped);
+        moved.edges.get_mut(&id)?.edge = mapped;
     }
-    for (id, node) in &mut result.nodes {
+    for (id, node) in &mut moved.nodes {
         node.anchor.clone_from(anchors.get(id)?);
     }
-    fold_layout(&result)
-        .is_ok_and(|folded| same_value(&folded, value))
-        .then_some(result)
+    Some(moved)
+}
+
+/// A source cell's layout moved forward along `map` onto the target
+/// attribute arrow `arrow` (Sigma and Pi).
+fn move_forward(cell: &CellLayout, arrow: &Edge, map: &ValueEdgeMap<'_>) -> Option<CellLayout> {
+    move_cell(cell, &arrow.tgt, |edge, source| {
+        map.image(edge, source).cloned()
+    })
+}
+
+/// A target cell's layout moved back along `map` onto the source attribute
+/// arrow `arrow` of a Delta copy: each target inner edge goes to the one
+/// inner value edge of `domain` out of the source vertex its source moved
+/// to that `map` sends to it. `None` when there is none or several.
+fn move_back(
+    cell: &CellLayout,
+    arrow: &Edge,
+    map: &ValueEdgeMap<'_>,
+    domain: &BTreeSet<Edge>,
+) -> Option<CellLayout> {
+    move_cell(cell, &arrow.tgt, |edge, source| {
+        let mut preimages = domain.iter().filter(|candidate| {
+            candidate.src == *source && map.image(candidate, &edge.src) == Some(edge)
+        });
+        match (preimages.next(), preimages.next()) {
+            (Some(only), None) => Some(only.clone()),
+            _ => None,
+        }
+    })
 }
 
 fn fold_layout(cell: &CellLayout) -> Result<Value, ()> {
@@ -1243,7 +1365,18 @@ struct OriginPlan {
     relation_layouts: BTreeMap<RelationKey, EdgeLayout>,
 }
 
-fn derive_layout(input: &GraphLayout, output: &FInstance, origins: &OriginPlan) -> GraphLayout {
+/// The layout of a table Kan result `output` over the side `side`: each
+/// output row takes the decorations of its one source row; each output cell
+/// takes the layout of the first contributing input cell that `move_cell`
+/// moves onto the cell's attribute arrow and that then fits the cell
+/// ([`cell_fits`]); relations take their selected layouts.
+fn derive_layout(
+    input: &GraphLayout,
+    output: &FInstance,
+    origins: &OriginPlan,
+    side: &SideData,
+    move_cell: impl Fn(&CellLayout, &Edge) -> Option<CellLayout>,
+) -> GraphLayout {
     let mut layout = GraphLayout {
         reserved_node_ids: input.reserved_node_ids.clone(),
         reserved_edge_ids: input.reserved_edge_ids.clone(),
@@ -1255,13 +1388,19 @@ fn derive_layout(input: &GraphLayout, output: &FInstance, origins: &OriginPlan) 
         {
             layout.table_nodes.insert(row, node.clone());
         }
-        let Some(_) = output.table_of(row) else {
+        let Some(columns) = output
+            .table_of(row)
+            .and_then(|table| side.columns.get(table))
+        else {
             continue;
         };
         let Some(cells) = output.row(row) else {
             continue;
         };
         for (column, value) in cells {
+            let Some(arrow) = columns.get(column) else {
+                continue;
+            };
             let key = (row, column.clone());
             let candidate = origins
                 .cells
@@ -1269,10 +1408,8 @@ fn derive_layout(input: &GraphLayout, output: &FInstance, origins: &OriginPlan) 
                 .into_iter()
                 .flatten()
                 .find_map(|source| {
-                    let cell = input.cells.get(source)?;
-                    fold_layout(cell)
-                        .is_ok_and(|folded| same_value(&folded, value))
-                        .then(|| cell.clone())
+                    let moved = move_cell(input.cells.get(source)?, arrow)?;
+                    cell_fits(&moved, value, arrow, side).then_some(moved)
                 });
             if let Some(cell) = candidate {
                 layout.cells.insert(key, cell);
@@ -1586,6 +1723,8 @@ pub struct GraphPiProvenance {
     pub edges: BTreeMap<EdgeId, BTreeSet<EdgeId>>,
 }
 
+/// The functor `migration` states from `src_schema` (under `src_protocol`)
+/// to `tgt_schema` (under `tgt_protocol`).
 fn checked_functor(
     src_schema: &Schema,
     src_protocol: &Protocol,
@@ -1666,11 +1805,19 @@ pub fn g_sigma_along_with_provenance(
     graph: &GInstance,
     functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphSigmaProvenance), GraphKanError> {
+    let map = ValueEdgeMap::new(functor);
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.source()))?;
     let (table_result, table) =
         f_sigma_with_provenance(&encoded, functor).map_err(GraphKanError::Adjunction)?;
     let origins = sigma_origins(&encoded, &input_layout, &table_result, functor);
-    let output_layout = derive_layout(&input_layout, &table_result, &origins);
+    let target_side = SideData::whole(functor.target());
+    let output_layout = derive_layout(
+        &input_layout,
+        &table_result,
+        &origins,
+        &target_side,
+        |cell, arrow| move_forward(cell, arrow, &map),
+    );
     let decoded = decode_with_trace(
         &table_result,
         EncodingSide::Whole(functor.target()),
@@ -1708,11 +1855,19 @@ pub fn g_sigma_restricted_with_provenance(
     graph: &GInstance,
     functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphSigmaProvenance), GraphKanError> {
+    let map = ValueEdgeMap::new(functor);
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Domain(functor))?;
     let (table_result, table) =
         f_sigma_restricted(&encoded, functor).map_err(GraphKanError::Adjunction)?;
     let origins = sigma_origins(&encoded, &input_layout, &table_result, functor);
-    let output_layout = derive_layout(&input_layout, &table_result, &origins);
+    let target_side = SideData::whole(functor.target());
+    let output_layout = derive_layout(
+        &input_layout,
+        &table_result,
+        &origins,
+        &target_side,
+        |cell, arrow| move_forward(cell, arrow, &map),
+    );
     let decoded = decode_with_trace(
         &table_result,
         EncodingSide::Whole(functor.target()),
@@ -1797,11 +1952,19 @@ pub fn g_delta_along_with_provenance(
     graph: &GInstance,
     functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphDeltaProvenance), GraphKanError> {
+    let map = ValueEdgeMap::new(functor);
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.target()))?;
     let (table_result, table) =
         f_delta_with_provenance(&encoded, functor).map_err(GraphKanError::Adjunction)?;
     let origins = delta_origins(&encoded, &input_layout, &table_result, &table, functor);
-    let output_layout = derive_layout(&input_layout, &table_result, &origins);
+    let domain_side = SideData::domain(functor);
+    let output_layout = derive_layout(
+        &input_layout,
+        &table_result,
+        &origins,
+        &domain_side,
+        |cell, arrow| move_back(cell, arrow, &map, &domain_side.inner_edges),
+    );
     let decoded = decode_with_trace(&table_result, EncodingSide::Domain(functor), &output_layout)?;
     let (nodes, edges) = contributor_maps(&decoded, &input_layout, &origins);
     Ok((
@@ -1887,12 +2050,20 @@ pub fn g_pi_along_with_provenance(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<(GInstance, GraphPiProvenance), GraphKanError> {
+    let map = ValueEdgeMap::new(functor);
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.source()))?;
     let (table_result, table) =
         functor_pi_along_with_provenance(&encoded, functor, max_product_size)
             .map_err(GraphKanError::Adjunction)?;
     let origins = pi_origins(&encoded, &input_layout, &table_result, &table, functor);
-    let output_layout = derive_layout(&input_layout, &table_result, &origins);
+    let target_side = SideData::whole(functor.target());
+    let output_layout = derive_layout(
+        &input_layout,
+        &table_result,
+        &origins,
+        &target_side,
+        |cell, arrow| move_forward(cell, arrow, &map),
+    );
     let decoded = decode_with_trace(
         &table_result,
         EncodingSide::Whole(functor.target()),
@@ -1932,11 +2103,19 @@ pub fn g_pi_restricted_with_provenance(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<(GInstance, GraphPiProvenance), GraphKanError> {
+    let map = ValueEdgeMap::new(functor);
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Domain(functor))?;
     let (table_result, table) = functor_pi_restricted(&encoded, functor, max_product_size)
         .map_err(GraphKanError::Adjunction)?;
     let origins = pi_origins(&encoded, &input_layout, &table_result, &table, functor);
-    let output_layout = derive_layout(&input_layout, &table_result, &origins);
+    let target_side = SideData::whole(functor.target());
+    let output_layout = derive_layout(
+        &input_layout,
+        &table_result,
+        &origins,
+        &target_side,
+        |cell, arrow| move_forward(cell, arrow, &map),
+    );
     let decoded = decode_with_trace(
         &table_result,
         EncodingSide::Whole(functor.target()),
