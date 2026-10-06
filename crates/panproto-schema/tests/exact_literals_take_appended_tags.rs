@@ -37,13 +37,14 @@ fn exact_literals_take_appended_tags() {
     assert_eq!(bytes(&Literal::BigInt(big)), expected);
 
     // A date-time: tag 11, form 2, year, month, day, hour, minute, second,
-    // nanos, fractional digits, then a fixed offset of 330 minutes.
+    // the fraction's digit count and digits, then a fixed offset of 330
+    // minutes.
     let when = Temporal::parse("2026-09-28T12:34:56.789+05:30").unwrap();
     let mut expected = vec![11, 2];
     expected.extend_from_slice(&le64(2026));
     expected.extend_from_slice(&[9, 28, 12, 34, 56]);
-    expected.extend_from_slice(&789_000_000_u32.to_le_bytes());
-    expected.push(3);
+    expected.extend_from_slice(&3_u64.to_le_bytes());
+    expected.extend_from_slice(b"789");
     expected.push(2);
     expected.extend_from_slice(&le64(330));
     assert_eq!(bytes(&Literal::Temporal(when)), expected);
@@ -57,8 +58,8 @@ fn exact_literals_take_appended_tags() {
         expected
     );
     let mut expected = vec![11, 1, 23, 59, 60];
-    expected.extend_from_slice(&0_u32.to_le_bytes());
-    expected.extend_from_slice(&[0, 1]);
+    expected.extend_from_slice(&0_u64.to_le_bytes());
+    expected.push(1);
     assert_eq!(
         bytes(&Literal::Temporal(Temporal::parse("23:59:60Z").unwrap())),
         expected
