@@ -581,13 +581,12 @@ impl Run<'_, '_> {
                     Some(reads)
                 }
             };
-            if !self
+            // A trace discovered within the residual budget fits it, and
+            // nothing is charged without a limit, so the charge succeeds.
+            let charged = self
                 .cursor
-                .charge(&instance, reads.as_ref().map_or(0, |r| r.len() as u64))
-            {
-                cov.incomplete += 1;
-                continue;
-            }
+                .charge(&instance, reads.as_ref().map_or(0, |r| r.len() as u64));
+            debug_assert!(charged, "a trace discovered within the residual fits it");
             let outcome = match reads {
                 Some(reads) => {
                     checks::evaluate_with_trace(&self.ctx, key, subject.as_ref(), &reads)
