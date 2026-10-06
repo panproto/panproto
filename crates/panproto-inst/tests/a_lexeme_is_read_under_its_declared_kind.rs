@@ -1048,6 +1048,187 @@ fn the_closest_shortest_text_agrees_with_its_definition_on_a_binade() {
     assert!(ties.contains(&(838_421.0_f32 / 16.0)));
 }
 
+/// The decimal a test expects under `Any` for a numeral it does not read as
+/// a float: `negative`, the significand digits and the exponent, built
+/// field by field.
+fn decimal_of(negative: bool, digits: &str, exponent: i32) -> Value {
+    Value::Decimal(DecimalValue {
+        negative,
+        digits: digits.to_owned(),
+        exponent,
+    })
+}
+
+/// At a binary64 tie the away-from-zero text reads as the float and the
+/// other tie text does not: x = 2^50 + 0.25 lies midway between
+/// `1125899906842624.2` and `1125899906842624.3`, both of which round to
+/// x, and its shortest text is the latter. Under `Float { bits: 64 }` the
+/// former is refused for precision, since it is neither x exactly nor x's
+/// shortest text, and under `Any` it is read as the decimal it writes.
+#[test]
+fn a_binary64_tie_reads_by_the_away_from_zero_text() {
+    let f64_ = spec(ScalarKind::Float { bits: 64 });
+    let any = spec(ScalarKind::Any);
+    // 2^50 + 1/4 and 2^50 + 3/4, from their bits (ulp 1/4 in [2^50, 2^51)).
+    let quarter = f64::from_bits(0x4310_0000_0000_0001);
+    let three_quarters = f64::from_bits(0x4310_0000_0000_0003);
+    assert_eq!(format!("{quarter:.2}"), "1125899906842624.25");
+    assert_eq!(format!("{three_quarters:.2}"), "1125899906842624.75");
+    for (sign, negative) in [("", false), ("-", true)] {
+        let signed = |x: f64| if negative { -x } else { x };
+        for spec in [&f64_, &any] {
+            assert_eq!(
+                float_bits(number(&format!("{sign}1125899906842624.3"), spec)),
+                signed(quarter).to_bits(),
+                "{sign}1125899906842624.3 under {:?}",
+                spec.kind
+            );
+            assert_eq!(
+                float_bits(number(&format!("{sign}1125899906842624.8"), spec)),
+                signed(three_quarters).to_bits(),
+                "{sign}1125899906842624.8 under {:?}",
+                spec.kind
+            );
+        }
+        assert_eq!(
+            reason(number(&format!("{sign}1125899906842624.2"), &f64_)),
+            FidelityReason::PrecisionExceeded { max: 17 }
+        );
+        assert_eq!(
+            reason(number(&format!("{sign}1125899906842624.7"), &f64_)),
+            FidelityReason::PrecisionExceeded { max: 17 }
+        );
+        assert_eq!(
+            number(&format!("{sign}1125899906842624.2"), &any).unwrap(),
+            decimal_of(negative, "11258999068426242", -1)
+        );
+        assert_eq!(
+            number(&format!("{sign}1125899906842624.7"), &any).unwrap(),
+            decimal_of(negative, "11258999068426247", -1)
+        );
+    }
+}
+
+/// The closest-shortest text of the binary64 value x = 2^50 + i / 4, from
+/// its definition: among the decimals with the fewest significant digits
+/// that read back to x at binary64 under round-to-nearest-even, the
+/// closest to x, at a tie the larger. Returns its significand digits, its
+/// number of significant digits and whether there was a tie. Exact integer
+/// arithmetic in units of 1 / 80, in which x is 80 * 2^50 + 20 i, half the
+/// gap above x is 10 (the ulp is 1 / 4) and a decimal of n significant
+/// digits (x has sixteen integer digits) is a multiple of 8 * 10^(17 - n).
+fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
+    let x = 80 * (1_u128 << 50) + 20 * u128::from(i);
+    let half_up = 10_u128;
+    // At 2^50 the gap below is half as wide.
+    let half_down = if i == 0 { 5 } else { half_up };
+    // The significand of x is 2^52 + i.
+    let even = i % 2 == 0;
+    let reads_back = |v: u128| {
+        if v >= x {
+            v - x < half_up || (v - x == half_up && even)
+        } else {
+            x - v < half_down || (x - v == half_down && even)
+        }
+    };
+    for n in 1..=17_u32 {
+        let step = 8 * 10_u128.pow(17 - n);
+        let below = x / step * step;
+        let above = below + step;
+        let candidates: Vec<u128> = [below, above]
+            .into_iter()
+            .filter(|&v| reads_back(v))
+            .collect();
+        match candidates.as_slice() {
+            [] => {}
+            [v] => return (v / step, n, false),
+            [a, b] => {
+                let (da, db) = (x - a, b - x);
+                let pick = if db <= da { b } else { a };
+                return (pick / step, n, da == db);
+            }
+            _ => unreachable!(),
+        }
+    }
+    unreachable!("seventeen digits always suffice")
+}
+
+/// The positional text of a seventeen-digit significand of a value with
+/// sixteen integer digits: `dddddddddddddddd.d`.
+fn positional_17(sign: &str, digits: u128) -> String {
+    let s = digits.to_string();
+    assert_eq!(s.len(), 17, "{s}");
+    format!("{sign}{}.{}", &s[..16], &s[16..])
+}
+
+/// On the first 2^20 binary64 values of the binade [2^50, 2^51), x = 2^50
+/// + i / 4 for 0 <= i < 2^20, of either sign, Rust's `{:e}` is the
+/// closest-shortest text of the definition, and at every tie (each n +
+/// 0.25 and n + 0.75) the away-from-zero text reads as the float under
+/// `Float { bits: 64 }` and `Any`, while the other tie text is refused
+/// with `PrecisionExceeded { max: 17 }` under `Float { bits: 64 }` and read
+/// under `Any` as the decimal it writes. Prints the bound and the ties.
+#[test]
+fn binary64_ties_read_by_the_away_from_zero_text_on_a_binade_prefix() {
+    let f64_ = spec(ScalarKind::Float { bits: 64 });
+    let any = spec(ScalarKind::Any);
+    let count = 1_u64 << 20;
+    let mut ties = 0_u64;
+    let mut first_ties = Vec::new();
+    for i in 0..count {
+        let magnitude = f64::from_bits(0x4310_0000_0000_0000 | i);
+        let (digits, n, tie) = closest_shortest_reference_64(i);
+        assert_eq!(tie, i % 2 == 1, "the ties are the odd i: {i}");
+        for (sign, negative) in [("", false), ("-", true)] {
+            let x = if negative { -magnitude } else { magnitude };
+            let written = format!("{x:e}");
+            let (mantissa, exponent) = written.split_once('e').unwrap();
+            assert_eq!(exponent, "15", "{written}");
+            let got = mantissa.trim_start_matches('-').replace('.', "");
+            let want = digits.to_string();
+            assert_eq!(
+                got.trim_end_matches('0'),
+                want.trim_end_matches('0'),
+                "{i}: {written}"
+            );
+            assert_eq!(u32::try_from(got.len()).unwrap(), n, "{i}: {written}");
+            if !tie {
+                continue;
+            }
+            let winner = positional_17(sign, digits);
+            let loser = positional_17(sign, digits - 1);
+            for spec in [&f64_, &any] {
+                assert_eq!(
+                    float_bits(number(&winner, spec)),
+                    x.to_bits(),
+                    "{winner} under {:?}",
+                    spec.kind
+                );
+            }
+            assert_eq!(
+                reason(number(&loser, &f64_)),
+                FidelityReason::PrecisionExceeded { max: 17 },
+                "{loser}"
+            );
+            assert_eq!(
+                number(&loser, &any).unwrap(),
+                decimal_of(negative, &(digits - 1).to_string(), -1),
+                "{loser}"
+            );
+        }
+        if tie {
+            ties += 1;
+            if first_ties.len() < 4 {
+                first_ties.push(format!("{magnitude:.2}"));
+            }
+        }
+    }
+    println!(
+        "bound: {count} binary64 values 2^50 + i/4, 0 <= i < 2^20, of either sign; {ties} ties, the first {first_ties:?}"
+    );
+    assert_eq!(ties, count / 2);
+}
+
 /// Every zero numeral with at most two fractional zeros, of either sign,
 /// whose stored exponent is `i32::MIN`, `i32::MIN - 1`, `i32::MAX`,
 /// `i32::MAX + 1` or 3000000000, under every numeric kind and `Any`: inside `i32` it reads

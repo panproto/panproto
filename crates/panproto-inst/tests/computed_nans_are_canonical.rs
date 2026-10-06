@@ -337,12 +337,20 @@ fn evaluation_returns_the_canonical_nan_at_every_depth() {
     ));
 }
 
-/// The canonical NaN is one constant, defined by its bits and re-exported
-/// by the instance crate.
+/// The canonical NaN and its negative are constants defined by their bits
+/// and re-exported by the instance crate.
 #[test]
 fn the_canonical_nan_constant_has_the_canonical_bits() {
     assert_eq!(panproto_expr::CANONICAL_NAN.to_bits(), CANONICAL);
     assert_eq!(panproto_inst::value::CANONICAL_NAN.to_bits(), CANONICAL);
+    assert_eq!(
+        panproto_expr::NEGATIVE_CANONICAL_NAN.to_bits(),
+        0xfff8_0000_0000_0000
+    );
+    assert_eq!(
+        panproto_inst::value::NEGATIVE_CANONICAL_NAN.to_bits(),
+        0xfff8_0000_0000_0000
+    );
 }
 
 /// A human-readable form writes every NaN as `"NaN"`, and reading `"NaN"`

@@ -366,6 +366,8 @@ fn narrow(v: u32) -> Result<u8, ExactParseError> {
 }
 
 /// Read `[sign]YYYY-MM-DD` (four or more year digits) at the start of `s`.
+/// A plus sign is read as no sign (a known loss, stated at
+/// [`Temporal::parse`]).
 fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
     let (negative, s) = match s.as_bytes().first() {
         Some(b'-') => (true, &s[1..]),
@@ -440,7 +442,9 @@ impl Temporal {
     /// Known loss, kept until it is settled how the written case is
     /// carried: the separator `t` or a space and a lowercase offset `z` are
     /// read as `T` and `Z` are and written back as `T` and `Z` by
-    /// `Display`, so the value does not record which was written.
+    /// `Display`, so the value does not record which was written. Likewise
+    /// a plus sign before the year (`+2024-01-01`) is read as an unsigned
+    /// year is and is not written back.
     ///
     /// # Errors
     ///
@@ -512,6 +516,16 @@ impl Temporal {
     /// their civil fields. Fractions of any length compare as decimal
     /// fractions of a second (`.1` and `.10` are equal). A leap second
     /// sorts after second 59 of its minute.
+    ///
+    /// Known departure from the order of instants, kept so that the order
+    /// of values whose fractions have at most nine digits is unchanged: a
+    /// value is placed by its whole seconds (second 60 counting as the
+    /// sixtieth second of its minute, so `23:59:60` is second 86400 of its
+    /// day) and then its fraction, so a leap second compares `Equal` to the
+    /// following minute's second 0 with an equal fraction
+    /// (`2024-01-01T23:59:60Z` and `2024-01-02T00:00:00Z`), and a leap
+    /// second with a fraction sorts after that second 0, though the leap
+    /// second precedes it.
     #[must_use]
     pub fn cmp_chronological(&self, other: &Self) -> Option<Ordering> {
         let seconds = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {

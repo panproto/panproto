@@ -52,6 +52,24 @@ pub use temporal::{CivilDate, CivilTime, Fraction, Offset, Temporal};
 /// ```
 pub const CANONICAL_NAN: f64 = f64::from_bits(0x7ff8_0000_0000_0000);
 
+/// The canonical quiet NaN with its sign bit set, bits `0xfff8000000000000`.
+///
+/// It is the NaN that a lexeme spelled with a leading minus (`-nan`,
+/// `-NaN`) reads as, so that a written sign is carried rather than
+/// dropped; it differs from [`CANONICAL_NAN`] in the sign bit only. Like
+/// that constant it is defined by its bits.
+///
+/// ```
+/// use panproto_expr::exact::{CANONICAL_NAN, NEGATIVE_CANONICAL_NAN};
+///
+/// assert_eq!(NEGATIVE_CANONICAL_NAN.to_bits(), 0xfff8_0000_0000_0000);
+/// assert_eq!(
+///     NEGATIVE_CANONICAL_NAN.to_bits(),
+///     CANONICAL_NAN.to_bits() | (1 << 63)
+/// );
+/// ```
+pub const NEGATIVE_CANONICAL_NAN: f64 = f64::from_bits(0xfff8_0000_0000_0000);
+
 /// The exact kind a parser was reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -111,8 +129,12 @@ pub enum FidelityReason {
     NotANumber,
     /// The input is a NaN or an infinity that the kind cannot hold: any NaN
     /// or infinity under a kind that is not a float kind, and, under a
-    /// 32-bit float kind, a NaN whose payload uses one of the low 29
-    /// fraction bits of a binary64 value, which no binary32 NaN widens to.
+    /// 32-bit float kind, a binary64 NaN that is not the widening of a
+    /// binary32 NaN, which is one whose payload uses one of the low 29
+    /// fraction bits or whose quiet bit (fraction bit 51) is clear, since
+    /// widening keeps a binary32 payload in the high fraction bits and
+    /// quiets a signaling NaN (bits `0x7ff8000000001234` and
+    /// `0x7ff0000020000000` are both refused).
     NonFinite,
     /// The lexeme is not a valid date, time or date-time.
     InvalidTemporal,

@@ -225,8 +225,12 @@ impl DecimalValue {
     /// `52401.313`). ECMA-262's `Number::toString` recommends ties to even
     /// instead (Ecma International TC39, ECMAScript Language Specification,
     /// Sec 6.1.6.1.20, Note 2, stated); that recommendation is not
-    /// followed. So `0.1` gives `1 × 10^-1`, not the float's exact binary
-    /// expansion. A negative zero gives zero.
+    /// followed. The other text of a tie reads back to `x` as well but is
+    /// not returned: `2^50 + 0.25` gives `1125899906842624.3`, never
+    /// `1125899906842624.2`, so a lexeme reader that accepts a float's
+    /// shortest text refuses that other text under a 64-bit float kind and
+    /// reads it as a decimal where it may. So `0.1` gives `1 × 10^-1`, not
+    /// the float's exact binary expansion. A negative zero gives zero.
     #[must_use]
     pub fn from_f64_shortest(x: f64) -> Option<Self> {
         if !x.is_finite() {

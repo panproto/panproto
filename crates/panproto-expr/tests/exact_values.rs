@@ -913,6 +913,33 @@ mod exact {
         assert_eq!(pairs, 1111 * 1111 + 8191 * 8191);
     }
 
+    /// The two departures the rustdoc of `Temporal` records hold as stated:
+    /// a leap second compares `Equal` to the next minute's second 0 (and,
+    /// with a fraction, after it), and a plus sign before a year is not
+    /// written back.
+    #[test]
+    fn the_recorded_temporal_departures_hold_as_stated() {
+        let parse = |text: &str| Temporal::parse(text).unwrap();
+        let leap = parse("2024-01-01T23:59:60Z");
+        let midnight = parse("2024-01-02T00:00:00Z");
+        assert_eq!(leap.cmp_chronological(&midnight), Some(Ordering::Equal));
+        assert_ne!(leap, midnight);
+        assert_eq!(
+            parse("2024-01-01T23:59:60.5Z").cmp_chronological(&midnight),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            parse("2024-01-01T23:59:59.999Z").cmp_chronological(&leap),
+            Some(Ordering::Less)
+        );
+        assert_eq!(parse("+2024-01-01").to_string(), "2024-01-01");
+        assert_eq!(parse("+2024-01-01"), parse("2024-01-01"));
+        assert_eq!(
+            parse("+2024-01-01T00:00:00Z").to_string(),
+            "2024-01-01T00:00:00Z"
+        );
+    }
+
     /// The canonical NaN is one constant defined by its bits.
     #[test]
     fn the_canonical_nan_is_defined_by_its_bits() {
@@ -923,5 +950,13 @@ mod exact {
             0x7ff8_0000_0000_0000
         );
         assert!(CANONICAL_NAN.is_nan());
+        use panproto_expr::exact::NEGATIVE_CANONICAL_NAN;
+        assert_eq!(NEGATIVE_CANONICAL_NAN.to_bits(), 0xfff8_0000_0000_0000);
+        assert_eq!(
+            panproto_expr::NEGATIVE_CANONICAL_NAN.to_bits(),
+            0xfff8_0000_0000_0000
+        );
+        assert!(NEGATIVE_CANONICAL_NAN.is_nan());
+        assert!(NEGATIVE_CANONICAL_NAN.is_sign_negative());
     }
 }

@@ -878,8 +878,25 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
         );
         assert_eq!(error.site, site());
     }
+    // The refusal of 16777217 (eight significant digits) says what the
+    // kind cannot hold, not that the input has more than nine digits.
+    let error = coerce_value(&Value::Float(16_777_217.0), &f32_, site()).unwrap_err();
+    let message =
+        "not exactly a value of the kind, whose values are written in at most 9 significant digits";
+    assert_eq!(error.reason.to_string(), message);
+    assert!(
+        error.to_string().contains(message),
+        "{error} states the reason"
+    );
     let error = coerce_value(&Value::Float(1e39), &f32_, site()).unwrap_err();
     assert_eq!(error.reason, FidelityReason::Overflow);
+    // Between the largest binary32 and the overflow threshold a float
+    // rounds to the largest binary32, so both routes refuse it for
+    // precision: 3.40282351e38 as a value and as a lexeme.
+    let error = coerce_value(&Value::Float(3.402_823_51e38), &f32_, site()).unwrap_err();
+    assert_eq!(error.reason, FidelityReason::PrecisionExceeded { max: 9 });
+    let error = coerce(&Lexeme::new("3.40282351e38", LexClass::Number), &f32_).unwrap_err();
+    assert_eq!(error.reason, FidelityReason::PrecisionExceeded { max: 9 });
     // The overflow threshold is where binary32 rounding gives an infinity,
     // 2^128 - 2^103, as the lexeme route decides: the binary64 just below
     // it rounds to the largest binary32 and is refused for precision.

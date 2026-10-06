@@ -57,7 +57,8 @@
 //! A NaN spelling (`NaN`, `nan`, `+nan`, `.nan`, in any case) reads as the
 //! canonical quiet NaN, [`CANONICAL_NAN`] (bits `0x7ff8000000000000`), and
 //! one written with a minus sign (`-nan`, `-NaN`, `-.nan`) as the same NaN
-//! with its sign bit set (bits `0xfff8000000000000`), under both float
+//! with its sign bit set, [`NEGATIVE_CANONICAL_NAN`] (bits
+//! `0xfff8000000000000`), under both float
 //! kinds and under `Any`. The written sign is carried because a format
 //! that writes it (TOML 1.0 makes `-nan` valid with an
 //! implementation-specific encoding; Preston-Werner 2021, TOML v1.0.0,
@@ -74,8 +75,8 @@ use panproto_gat::Name;
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 use super::{
-    BigIntValue, CANONICAL_NAN, DecimalValue, ExactInteger, FidelityReason, Offset, Temporal,
-    Value, ValueFidelityError, ValueSite,
+    BigIntValue, CANONICAL_NAN, DecimalValue, ExactInteger, FidelityReason, NEGATIVE_CANONICAL_NAN,
+    Offset, Temporal, Value, ValueFidelityError, ValueSite,
 };
 use crate::error::ParseError;
 
@@ -138,10 +139,20 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 /// `bits == 32`, else 64), accepted exactly when `L(t)` is finite and
 /// equals t or has t numerically as its shortest text at that width, and
 /// refused with [`FidelityReason::Overflow`] when `L(t)` is infinite and
-/// with [`FidelityReason::PrecisionExceeded`] otherwise. A NaN spelling
+/// with [`FidelityReason::PrecisionExceeded`] otherwise. The shortest text
+/// breaks an exact tie away from zero, so of the two shortest decimals
+/// equally close to a float only the one of larger magnitude is its
+/// shortest text, and the other, which rounds to the same float, is
+/// refused unless it equals the float: under `Float { bits: 64 }`
+/// `1125899906842624.3` gives 2^50 + 0.25 and `1125899906842624.2` is
+/// refused with `PrecisionExceeded { max: 17 }`; under `Any`, which reads a
+/// fraction as a float only when it is the float's shortest text, the
+/// former gives the float and the latter the decimal it writes; at 32 bits
+/// `52401.313` gives 52401.3125 and `52401.312` is refused. A NaN spelling
 /// (`NaN`, `nan`, `+nan`, `.nan`, in any case) gives [`CANONICAL_NAN`], bits
 /// `0x7ff8000000000000`, and one written with a minus sign (`-nan`, `-NaN`)
-/// the same NaN with its sign bit set, bits `0xfff8000000000000`, under
+/// the same NaN with its sign bit set, [`NEGATIVE_CANONICAL_NAN`], bits
+/// `0xfff8000000000000`, under
 /// both float kinds and under `Any`: the written sign is carried, so a
 /// format that writes `-nan` (valid TOML 1.0 with an implementation-specific
 /// encoding; Preston-Werner 2021, TOML v1.0.0, Float, stated) gets it back,
@@ -282,13 +293,9 @@ fn coerce_bool(lexeme: &Lexeme<'_>) -> Option<Value> {
     }
 }
 
-/// The canonical quiet NaN with its sign bit set, bits
-/// `0xfff8000000000000`: the NaN a spelling with a minus sign reads as.
-const NEGATIVE_NAN: f64 = f64::from_bits(0xfff8_0000_0000_0000);
-
 /// The non-finite float a lexeme spells, if it spells one: `NaN`, `inf`,
 /// `Infinity` and YAML's `.nan` and `.inf`, in any case, with an optional
-/// sign. A NaN spelling gives [`CANONICAL_NAN`], or [`NEGATIVE_NAN`] when it
+/// sign. A NaN spelling gives [`CANONICAL_NAN`], or [`NEGATIVE_CANONICAL_NAN`] when it
 /// is written with a minus sign; no payload is read.
 fn non_finite(text: &str) -> Option<f64> {
     let (negative, unsigned) = match text.as_bytes().first() {
@@ -299,7 +306,7 @@ fn non_finite(text: &str) -> Option<f64> {
     let unsigned = unsigned.strip_prefix('.').unwrap_or(unsigned);
     if unsigned.eq_ignore_ascii_case("nan") {
         Some(if negative {
-            NEGATIVE_NAN
+            NEGATIVE_CANONICAL_NAN
         } else {
             CANONICAL_NAN
         })
