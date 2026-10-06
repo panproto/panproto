@@ -11,7 +11,24 @@
 //! no sort equation. The refusal is conservative: it rejects a diagram
 //! whose colimit exists.
 //!
-//! Besides the pinned instance, the family of spans below, over every
+//! The diagrams below are spans over the apex `S`. Every node declares
+//! `X`, `Y(x : X)`, a constant `a : X` and one constant of sort `Y(a)`:
+//! `h` in `S`, `f` in `L`, `g` in `R`. The left leg renames `a` to `a` and
+//! `h` to `f`, so `S.a` and `L.a` form one class. The right leg sends `a`
+//! to the derived term `a` of `R` and renames `h` to `g`; a derived term
+//! joins no class, so `R.a` is a class of its own, and tier 2 adds the
+//! equation `S.a = R.a`. The class `{S.h, L.f, R.g}` then asks
+//! `Y(class of L.a)` and `Y(class of R.a)` to agree.
+//!
+//! Every node names its constant `a` because the leg check compares the
+//! image of `Y(a)` with the target's declared sort without substituting
+//! the derived-term image of `a` into it. With the right node's constant
+//! named `b` and `g : Y(b)`, the right leg is refused as not a theory
+//! morphism (`InvalidLeg`) before any class is formed, so these spans are
+//! not the fixture with distinct constants `a` and `b`; that fixture does
+//! not reach tier 1 today.
+//!
+//! Besides the single refusal, the family of these spans, over every
 //! choice of each leg's image of the constant (renamed or a derived
 //! term), both modes and both clash policies, is checked against an
 //! oracle that forms the classes of the constant itself: tier 1 accepts
@@ -19,22 +36,6 @@
 //! constant, and otherwise refuses two members that mention different
 //! classes. A property test repeats the check under renamings of the
 //! constant and the fibres.
-//!
-//! The diagram is a span over the apex `S`. Every node declares `X`,
-//! `Y(x : X)`, a constant `a : X` and one constant of sort `Y(a)`: `h` in
-//! `S`, `f` in `L`, `g` in `R`. The left leg renames `a` to `a` and `h` to
-//! `f`, so `S.a` and `L.a` form one class. The right leg sends `a` to the
-//! derived term `a` of `R` and renames `h` to `g`; a derived term joins no
-//! class, so `R.a` is a class of its own (the `b` of the identification
-//! `a = b`), and tier 2 adds the equation `S.a = R.a`. The class
-//! `{S.h, L.f, R.g}` then asks `Y(class of L.a)` and `Y(class of R.a)` to
-//! agree.
-//!
-//! `R`'s constant carries the apex's name because the leg check compares
-//! the image of `Y(a)` with `g`'s declared sort without substituting the
-//! derived-term image of `a` into it; with `R`'s constant named `b` and
-//! `g : Y(b)` the right leg is refused as not a theory morphism before
-//! any class is formed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -153,7 +154,7 @@ fn agreement_modulo_term_equation() -> TheoryDiagram {
 }
 
 #[test]
-fn tier1_refuses_agreement_that_holds_only_modulo_term_equations() {
+fn tier1_refuses_a_fibre_class_whose_constants_meet_only_through_a_derived_term() {
     let outcome = compose(&agreement_modulo_term_equation(), &options());
     eprintln!("observed outcome: {outcome:?}");
     let error = outcome.expect_err("tier 1 compares signatures syntactically");
