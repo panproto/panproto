@@ -75,10 +75,14 @@ pub struct EntityFunctor {
 /// column of its `edge_remap` entry, or of the target attribute arrow of its
 /// kind and name from the image of its table. The arrows `src_e` and `tgt_e`
 /// of a kept relation go to those of its image, which is what makes `F` a
-/// functor; on the value side `F` is the identity. An edge or column the
-/// migration does not mention is outside `S'`: no operation reads it, and
-/// none is constrained by it. The column map may send two columns of one
-/// table to one column, and may miss columns of the target.
+/// functor; on the value side `F` is the identity. The functor also keeps
+/// the migration's remaps of the vertices and edges inside column values
+/// ([`Self::inner_edges`], [`Self::value_vertices`]), which no table function
+/// reads and along which the graph Kan extensions move the layout of a
+/// structured cell. An edge or column the migration does not mention is
+/// outside `S'`: no operation reads it, and none is constrained by it. The
+/// column map may send two columns of one table to one column, and may miss
+/// columns of the target.
 ///
 /// ```
 /// use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -122,6 +126,15 @@ pub struct EntityFunctor {
 pub struct MigrationFunctor {
     /// The maps on tables, relations and columns.
     maps: Maps,
+    /// Each `edge_remap` entry whose key is an inner value edge of the
+    /// source, with its image: an inner value edge of the target of the same
+    /// kind and name. No table function reads it; the graph Kan extensions
+    /// move the inner edges of a cell's layout along it.
+    inner_edges: BTreeMap<Edge, Edge>,
+    /// Each `vertex_remap` entry whose key is a value vertex of the source.
+    /// No table function reads it; the graph Kan extensions move the inner
+    /// nodes of a cell's layout along it.
+    value_vertices: BTreeMap<Name, Name>,
 }
 
 /// Build the maps of the functor `migration` states between `source` and
@@ -298,6 +311,10 @@ impl EntityFunctor {
     /// its own kind). Such a remap only renames vertices, which a value does
     /// not record, so every cell keeps its structure.
     ///
+    /// The functor keeps the remaps of inner value edges and of value
+    /// vertices unchanged, as [`MigrationFunctor::inner_edges`] and
+    /// [`MigrationFunctor::value_vertices`].
+    ///
     /// # Errors
     ///
     /// [`RestrictError::ValueStructureRemap`] for the least inner value edge
@@ -322,7 +339,11 @@ impl EntityFunctor {
                 return Err(RestrictError::ValueStructureRemap { edge: edge.clone() });
             }
         }
-        Ok(MigrationFunctor { maps: self.maps })
+        Ok(MigrationFunctor {
+            maps: self.maps,
+            inner_edges: self.inner_edges,
+            value_vertices: self.value_remap,
+        })
     }
 
     /// The relation-ified source schema `S`.
@@ -457,6 +478,8 @@ impl MigrationFunctor {
                 relations,
                 columns,
             },
+            inner_edges: BTreeMap::new(),
+            value_vertices: BTreeMap::new(),
         })
     }
 
@@ -489,6 +512,87 @@ impl MigrationFunctor {
     #[must_use]
     pub const fn column_map(&self) -> &BTreeMap<(Name, String), String> {
         &self.maps.columns
+    }
+
+    /// The migration's remaps of inner value edges of the source: each
+    /// `edge_remap` entry whose key is an edge inside a column's value, with
+    /// its image, an inner value edge of the target of the same kind and
+    /// name. Empty for [`Self::identity`]. No table function reads it.
+    ///
+    /// ```
+    /// use std::collections::{BTreeMap, BTreeSet, HashMap};
+    ///
+    /// use panproto_inst::{CompiledMigration, MigrationFunctor};
+    /// use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
+    ///
+    /// let vertex = |id: &str, kind: &str| {
+    ///     (id.into(), Vertex { id: id.into(), kind: kind.into(), nsid: None })
+    /// };
+    /// let tags = Edge {
+    ///     src: "post".into(),
+    ///     tgt: "post.tags".into(),
+    ///     kind: "prop".into(),
+    ///     name: Some("tags".into()),
+    /// };
+    /// let element = |vertex: &str| Edge {
+    ///     src: "post.tags".into(),
+    ///     tgt: vertex.into(),
+    ///     kind: "items".into(),
+    ///     name: Some("item".into()),
+    /// };
+    /// let schema = |element_vertex: &str| Schema {
+    ///     vertices: HashMap::from([
+    ///         vertex("post", "record"),
+    ///         vertex("post.tags", "list"),
+    ///         vertex(element_vertex, "string"),
+    ///     ]),
+    ///     edges: HashMap::from([
+    ///         (tags.clone(), "prop".into()),
+    ///         (element(element_vertex), "items".into()),
+    ///     ]),
+    ///     ..Schema::default()
+    /// };
+    /// let protocol = Protocol {
+    ///     value_kinds: BTreeMap::from([
+    ///         ("list".to_owned(), ScalarKind::Any),
+    ///         ("string".to_owned(), ScalarKind::Str),
+    ///     ]),
+    ///     non_value_kinds: BTreeSet::from(["record".to_owned()]),
+    ///     ..Protocol::default()
+    /// };
+    /// // Rename the element vertex of the list column `tags`.
+    /// let mut rename = CompiledMigration::default();
+    /// rename.vertex_remap.insert("post".into(), "post".into());
+    /// rename.vertex_remap.insert("post.tags".into(), "post.tags".into());
+    /// rename.vertex_remap.insert("post.tags.tag".into(), "post.tags.label".into());
+    /// rename.edge_remap.insert(tags.clone(), tags.clone());
+    /// rename.edge_remap.insert(element("post.tags.tag"), element("post.tags.label"));
+    /// let source = schema("post.tags.tag");
+    /// let target = schema("post.tags.label");
+    /// let f = MigrationFunctor::new(&source, &protocol, &target, &protocol, &rename)?;
+    /// assert_eq!(
+    ///     f.inner_edges(),
+    ///     &BTreeMap::from([(element("post.tags.tag"), element("post.tags.label"))])
+    /// );
+    /// assert_eq!(f.value_vertices().len(), 2);
+    /// assert_eq!(f.value_vertices()["post.tags.tag"], "post.tags.label");
+    /// let identity = MigrationFunctor::identity(&source, &protocol)?;
+    /// assert!(identity.inner_edges().is_empty() && identity.value_vertices().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn inner_edges(&self) -> &BTreeMap<Edge, Edge> {
+        &self.inner_edges
+    }
+
+    /// The migration's remaps of value vertices of the source: each
+    /// `vertex_remap` entry whose key is a value vertex of the source. A
+    /// value vertex without an entry stands for its namesake. Empty for
+    /// [`Self::identity`]. No table function reads it; see
+    /// [`Self::inner_edges`] for an example.
+    #[must_use]
+    pub const fn value_vertices(&self) -> &BTreeMap<Name, Name> {
+        &self.value_vertices
     }
 
     /// The image of a table of `S'`, or `None` outside `S'`.
@@ -1080,6 +1184,78 @@ mod tests {
         assert!(matches!(
             entity.into_kan(),
             Err(RestrictError::ValueStructureRemap { edge }) if edge == inner("posts", "item")
+        ));
+        Ok(())
+    }
+
+    /// `into_kan` moves the remaps of inner value edges and of value vertices
+    /// into the functor unchanged, the identity holds none, and the refusals
+    /// of a remap that changes a value's structure are those of the entity
+    /// part's `into_kan`.
+    #[test]
+    fn migration_functor_keeps_the_value_remaps_of_its_migration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let src = with_list_column("posts", "item", "string");
+        let tgt = with_list_column("articles", "item", "string");
+        let m = rename_posts("item");
+        let entity = MigrationFunctor::entity_part(&src, &protocol(), &tgt, &protocol(), &m)?;
+        let recorded = entity.inner_edges().clone();
+        let f = entity.into_kan()?;
+        assert_eq!(f.inner_edges(), &recorded);
+        assert_eq!(
+            f.inner_edges(),
+            &BTreeMap::from([(inner("posts", "item"), inner("articles", "item"))])
+        );
+        // The table `posts` is not a value vertex, so its remap is not kept.
+        assert_eq!(
+            f.value_vertices(),
+            &BTreeMap::from([
+                (Name::from("posts.tags"), Name::from("articles.tags")),
+                (
+                    Name::from("posts.tags.items"),
+                    Name::from("articles.tags.items")
+                ),
+            ])
+        );
+        assert_eq!(f, functor(&src, &tgt, &m)?);
+        let between = MigrationFunctor::between(
+            RelSchema::new(&src, &protocol())?,
+            RelSchema::new(&tgt, &protocol())?,
+            &m,
+        )?;
+        assert_eq!(between, f);
+        // A value vertex the migration leaves alone has no entry.
+        let mut unmapped = m.clone();
+        unmapped.vertex_remap.remove("posts.tags.items");
+        let f = functor(&src, &tgt, &unmapped)?;
+        assert_eq!(f.inner_edges().len(), 1);
+        assert_eq!(
+            f.value_vertices(),
+            &BTreeMap::from([(Name::from("posts.tags"), Name::from("articles.tags"))])
+        );
+        // The identity keeps no remap.
+        let identity = MigrationFunctor::identity(&src, &protocol())?;
+        assert!(identity.inner_edges().is_empty());
+        assert!(identity.value_vertices().is_empty());
+        // A remap that renames an inner value edge is still refused, by
+        // `new` as by `into_kan`.
+        let renamed = with_list_column("articles", "element", "string");
+        let refusal = |result: Result<MigrationFunctor, RestrictError>| {
+            matches!(
+                result,
+                Err(RestrictError::ValueStructureRemap { edge }) if edge == inner("posts", "item")
+            )
+        };
+        assert!(refusal(functor(&src, &renamed, &rename_posts("element"))));
+        assert!(refusal(
+            MigrationFunctor::entity_part(
+                &src,
+                &protocol(),
+                &renamed,
+                &protocol(),
+                &rename_posts("element"),
+            )?
+            .into_kan()
         ));
         Ok(())
     }

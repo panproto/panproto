@@ -8,11 +8,20 @@
 //! transported layout.
 //!
 //! The table functors are the identity on values, so the inner nodes and
-//! edges of a cell's layout move along the value remaps of the
-//! [`KanFunctor`] the extension runs along: forward for Sigma and Pi, and
-//! back to the one preimage in the copied table's columns for Delta. A
-//! [`GraphKanFunctor`] carries the remaps of its migration; a bare
-//! [`MigrationFunctor`] carries none.
+//! edges of a cell's layout move along the value remaps the
+//! [`MigrationFunctor`] keeps ([`MigrationFunctor::inner_edges`] and
+//! [`MigrationFunctor::value_vertices`]): forward for Sigma and Pi, and back
+//! to the unique preimage in the copied table's columns for Delta. Write
+//! `V(v)` for the `value_vertices` entry of `v`, or `v` itself when it has
+//! none. A source inner value edge `e` whose source node has moved to the
+//! target value vertex `a` goes to its `inner_edges` entry when it has one,
+//! provided that entry leaves `a`, and has no image otherwise; with no
+//! entry, it goes to the target inner value edge of its kind and name from
+//! `a` to `V(e.tgt)` when the target has that edge, and has no image
+//! otherwise. No other edge is searched for: in particular an edge is never
+//! matched by being the only one of its kind and name leaving `a`. A
+//! layout with an edge that has no image is not moved, and the cell is
+//! decoded from the remaining candidates or as a record-free leaf.
 //!
 //! The encoding is fully faithful over [`GraphKanHom`] and surjective on
 //! objects onto the conforming table instances, so it is an equivalence of
@@ -45,7 +54,7 @@ use crate::functor::{FInstance, Row, same_value};
 use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
 use crate::instance_hom::{FInstanceHom, HomError};
 use crate::metadata::{Node, NodeShape};
-use crate::migration_functor::{EntityFunctor, MigrationFunctor};
+use crate::migration_functor::MigrationFunctor;
 use crate::pi::{PiProvenance, functor_pi_along_with_provenance, functor_pi_restricted};
 use crate::rel_schema::{RelSchema, RelSchemaError, column_name};
 use crate::segment::{IdAllocator, IdRange};
@@ -178,151 +187,9 @@ impl SideData {
     }
 }
 
-/// No remap of an inner value edge.
-static NO_INNER_EDGES: BTreeMap<Edge, Edge> = BTreeMap::new();
-
-/// No remap of a value vertex.
-static NO_VALUE_VERTICES: BTreeMap<Name, Name> = BTreeMap::new();
-
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for crate::migration_functor::MigrationFunctor {}
-    impl Sealed for super::GraphKanFunctor {}
-}
-
-/// A functor the graph Kan extensions run along.
-///
-/// It is a [`MigrationFunctor`], which carries the layout of a cell along
-/// no remap of its inner value edges, or a [`GraphKanFunctor`], which
-/// carries it along the remaps of the migration it was built from.
-///
-/// The table functors read only [`Self::migration_functor`], which is the
-/// identity on values. The remaps say where each inner node and edge of a
-/// cell's layout goes: an inner value edge `e` whose source moved to `v`
-/// goes to its remap when that leaves `v`; failing a remap, to the inner
-/// value edge of its kind and name from `v` to the remap of its target
-/// vertex (or to that vertex itself); failing that, when its target vertex
-/// has no remap, to the only inner value edge of its kind and name leaving
-/// `v`. Otherwise it has no image, and the cell is decoded without its
-/// layout.
-pub trait KanFunctor: sealed::Sealed {
-    /// The functor of tables, relations and columns.
-    fn migration_functor(&self) -> &MigrationFunctor;
-    /// The remaps of inner value edges of the source, ascending.
-    fn inner_edge_remaps(&self) -> &BTreeMap<Edge, Edge>;
-    /// The remaps of value vertices of the source, ascending.
-    fn value_vertex_remaps(&self) -> &BTreeMap<Name, Name>;
-}
-
-impl KanFunctor for MigrationFunctor {
-    fn migration_functor(&self) -> &MigrationFunctor {
-        self
-    }
-
-    fn inner_edge_remaps(&self) -> &BTreeMap<Edge, Edge> {
-        &NO_INNER_EDGES
-    }
-
-    fn value_vertex_remaps(&self) -> &BTreeMap<Name, Name> {
-        &NO_VALUE_VERTICES
-    }
-}
-
-/// A [`MigrationFunctor`] with the remaps of value structure that its
-/// migration states: the `edge_remap` entries of inner value edges and the
-/// `vertex_remap` entries of value vertices of the source.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GraphKanFunctor {
-    functor: MigrationFunctor,
-    inner_edges: BTreeMap<Edge, Edge>,
-    value_vertices: BTreeMap<Name, Name>,
-}
-
-impl GraphKanFunctor {
-    /// The functor `migration` states from `src_schema` (under
-    /// `src_protocol`) to `tgt_schema` (under `tgt_protocol`), with its
-    /// value remaps.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphKanError::RelSchema`] when either schema has no relation-ified
-    /// form (the source first), then [`GraphKanError::Functor`] with the
-    /// error of [`MigrationFunctor::between`].
-    pub fn new(
-        src_schema: &Schema,
-        src_protocol: &Protocol,
-        tgt_schema: &Schema,
-        tgt_protocol: &Protocol,
-        migration: &CompiledMigration,
-    ) -> Result<Self, GraphKanError> {
-        let source = RelSchema::new(src_schema, src_protocol)?;
-        let target = RelSchema::new(tgt_schema, tgt_protocol)?;
-        Self::between(source, target, migration)
-    }
-
-    /// [`Self::new`] over relation-ified schemas built already.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphKanError::Functor`] with the error of
-    /// [`MigrationFunctor::between`].
-    pub fn between(
-        source: RelSchema,
-        target: RelSchema,
-        migration: &CompiledMigration,
-    ) -> Result<Self, GraphKanError> {
-        let entity =
-            EntityFunctor::between(source, target, migration).map_err(GraphKanError::Functor)?;
-        let inner_edges = entity.inner_edges().clone();
-        let functor = entity.into_kan().map_err(GraphKanError::Functor)?;
-        let value_vertices = migration
-            .vertex_remap
-            .iter()
-            .filter(|(vertex, _)| functor.source().value_kind(vertex).is_some())
-            .map(|(vertex, image)| (vertex.clone(), image.clone()))
-            .collect();
-        Ok(Self {
-            functor,
-            inner_edges,
-            value_vertices,
-        })
-    }
-
-    /// The functor of tables, relations and columns.
-    #[must_use]
-    pub const fn functor(&self) -> &MigrationFunctor {
-        &self.functor
-    }
-
-    /// The remaps of inner value edges of the source, ascending.
-    #[must_use]
-    pub const fn inner_edges(&self) -> &BTreeMap<Edge, Edge> {
-        &self.inner_edges
-    }
-
-    /// The remaps of value vertices of the source, ascending.
-    #[must_use]
-    pub const fn value_vertices(&self) -> &BTreeMap<Name, Name> {
-        &self.value_vertices
-    }
-}
-
-impl KanFunctor for GraphKanFunctor {
-    fn migration_functor(&self) -> &MigrationFunctor {
-        &self.functor
-    }
-
-    fn inner_edge_remaps(&self) -> &BTreeMap<Edge, Edge> {
-        &self.inner_edges
-    }
-
-    fn value_vertex_remaps(&self) -> &BTreeMap<Name, Name> {
-        &self.value_vertices
-    }
-}
-
-/// The map a [`KanFunctor`] induces on inner value edges, read against the
-/// inner value edges `target` of its target schema.
+/// The map a [`MigrationFunctor`] induces on inner value edges through its
+/// value remaps, read against the inner value edges `target` of its target
+/// schema.
 struct ValueEdgeMap<'a> {
     inner_edges: &'a BTreeMap<Edge, Edge>,
     value_vertices: &'a BTreeMap<Name, Name>,
@@ -330,19 +197,23 @@ struct ValueEdgeMap<'a> {
 }
 
 impl<'a> ValueEdgeMap<'a> {
-    fn new(functor: &'a (impl KanFunctor + ?Sized)) -> Self {
+    fn new(functor: &'a MigrationFunctor) -> Self {
         Self {
-            inner_edges: functor.inner_edge_remaps(),
-            value_vertices: functor.value_vertex_remaps(),
-            target: functor.migration_functor().target().inner_edges(),
+            inner_edges: functor.inner_edges(),
+            value_vertices: functor.value_vertices(),
+            target: functor.target().inner_edges(),
         }
     }
 
     /// The image of the source inner value edge `edge` once its source has
-    /// moved to the target vertex `source`, by the rule of [`KanFunctor`].
+    /// moved to the target value vertex `source`: its remap when it has one,
+    /// if that remap leaves `source`; with no remap, the target inner value
+    /// edge of its kind and name from `source` to the remap of its target
+    /// vertex (that vertex itself when it has no remap), if the target has
+    /// it. Otherwise `None`.
     fn image(&self, edge: &Edge, source: &Name) -> Option<&'a Edge> {
         if let Some(image) = self.inner_edges.get(edge) {
-            return (image.src == *source && self.target.contains(image)).then_some(image);
+            return (image.src == *source).then_some(image);
         }
         let direct = Edge {
             src: source.clone(),
@@ -354,19 +225,7 @@ impl<'a> ValueEdgeMap<'a> {
             kind: edge.kind.clone(),
             name: edge.name.clone(),
         };
-        if let Some(image) = self.target.get(&direct) {
-            return Some(image);
-        }
-        if self.value_vertices.contains_key(&edge.tgt) {
-            return None;
-        }
-        let mut candidates = self.target.iter().filter(|candidate| {
-            candidate.src == *source && candidate.kind == edge.kind && candidate.name == edge.name
-        });
-        match (candidates.next(), candidates.next()) {
-            (Some(only), None) => Some(only),
-            _ => None,
-        }
+        self.target.get(&direct)
     }
 }
 
@@ -1864,6 +1723,20 @@ pub struct GraphPiProvenance {
     pub edges: BTreeMap<EdgeId, BTreeSet<EdgeId>>,
 }
 
+/// The functor `migration` states from `src_schema` (under `src_protocol`)
+/// to `tgt_schema` (under `tgt_protocol`).
+fn checked_functor(
+    src_schema: &Schema,
+    src_protocol: &Protocol,
+    tgt_schema: &Schema,
+    tgt_protocol: &Protocol,
+    migration: &CompiledMigration,
+) -> Result<MigrationFunctor, GraphKanError> {
+    let source = RelSchema::new(src_schema, src_protocol)?;
+    let target = RelSchema::new(tgt_schema, tgt_protocol)?;
+    MigrationFunctor::between(source, target, migration).map_err(GraphKanError::Functor)
+}
+
 /// Graph `Sigma_F` for a migration between classified schemas.
 ///
 /// # Errors
@@ -1901,7 +1774,7 @@ pub fn g_sigma_with_provenance(
     tgt_protocol: &Protocol,
     migration: &CompiledMigration,
 ) -> Result<(GInstance, GraphSigmaProvenance), GraphKanError> {
-    let functor = GraphKanFunctor::new(
+    let functor = checked_functor(
         src_schema,
         src_protocol,
         tgt_schema,
@@ -1918,7 +1791,7 @@ pub fn g_sigma_with_provenance(
 /// Returns the first encoding, table Sigma, or decoding error.
 pub fn g_sigma_along(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<GInstance, GraphKanError> {
     g_sigma_along_with_provenance(graph, functor).map(|(result, _)| result)
 }
@@ -1930,10 +1803,9 @@ pub fn g_sigma_along(
 /// Returns the first encoding, table Sigma, or decoding error.
 pub fn g_sigma_along_with_provenance(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphSigmaProvenance), GraphKanError> {
     let map = ValueEdgeMap::new(functor);
-    let functor = functor.migration_functor();
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.source()))?;
     let (table_result, table) =
         f_sigma_with_provenance(&encoded, functor).map_err(GraphKanError::Adjunction)?;
@@ -1969,7 +1841,7 @@ pub fn g_sigma_along_with_provenance(
 /// Returns the first encoding, restricted table Sigma, or decoding error.
 pub fn g_sigma_restricted(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<GInstance, GraphKanError> {
     g_sigma_restricted_with_provenance(graph, functor).map(|(result, _)| result)
 }
@@ -1981,10 +1853,9 @@ pub fn g_sigma_restricted(
 /// Returns the first encoding, restricted table Sigma, or decoding error.
 pub fn g_sigma_restricted_with_provenance(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphSigmaProvenance), GraphKanError> {
     let map = ValueEdgeMap::new(functor);
-    let functor = functor.migration_functor();
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Domain(functor))?;
     let (table_result, table) =
         f_sigma_restricted(&encoded, functor).map_err(GraphKanError::Adjunction)?;
@@ -2050,7 +1921,7 @@ pub fn g_delta_with_provenance(
     tgt_protocol: &Protocol,
     migration: &CompiledMigration,
 ) -> Result<(GInstance, GraphDeltaProvenance), GraphKanError> {
-    let functor = GraphKanFunctor::new(
+    let functor = checked_functor(
         src_schema,
         src_protocol,
         tgt_schema,
@@ -2067,7 +1938,7 @@ pub fn g_delta_with_provenance(
 /// Returns the first encoding, table Delta, or decoding error.
 pub fn g_delta_along(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<GInstance, GraphKanError> {
     g_delta_along_with_provenance(graph, functor).map(|(result, _)| result)
 }
@@ -2079,10 +1950,9 @@ pub fn g_delta_along(
 /// Returns the first encoding, table Delta, or decoding error.
 pub fn g_delta_along_with_provenance(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
 ) -> Result<(GInstance, GraphDeltaProvenance), GraphKanError> {
     let map = ValueEdgeMap::new(functor);
-    let functor = functor.migration_functor();
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.target()))?;
     let (table_result, table) =
         f_delta_with_provenance(&encoded, functor).map_err(GraphKanError::Adjunction)?;
@@ -2147,7 +2017,7 @@ pub fn g_pi_with_provenance(
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<(GInstance, GraphPiProvenance), GraphKanError> {
-    let functor = GraphKanFunctor::new(
+    let functor = checked_functor(
         src_schema,
         src_protocol,
         tgt_schema,
@@ -2164,7 +2034,7 @@ pub fn g_pi_with_provenance(
 /// Returns the first encoding, table Pi, or decoding error.
 pub fn g_pi_along(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<GInstance, GraphKanError> {
     g_pi_along_with_provenance(graph, functor, max_product_size).map(|(result, _)| result)
@@ -2177,11 +2047,10 @@ pub fn g_pi_along(
 /// Returns the first encoding, table Pi, or decoding error.
 pub fn g_pi_along_with_provenance(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<(GInstance, GraphPiProvenance), GraphKanError> {
     let map = ValueEdgeMap::new(functor);
-    let functor = functor.migration_functor();
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Whole(functor.source()))?;
     let (table_result, table) =
         functor_pi_along_with_provenance(&encoded, functor, max_product_size)
@@ -2218,7 +2087,7 @@ pub fn g_pi_along_with_provenance(
 /// Returns the first encoding, restricted table Pi, or decoding error.
 pub fn g_pi_restricted(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<GInstance, GraphKanError> {
     g_pi_restricted_with_provenance(graph, functor, max_product_size).map(|(result, _)| result)
@@ -2231,11 +2100,10 @@ pub fn g_pi_restricted(
 /// Returns the first encoding, restricted table Pi, or decoding error.
 pub fn g_pi_restricted_with_provenance(
     graph: &GInstance,
-    functor: &(impl KanFunctor + ?Sized),
+    functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<(GInstance, GraphPiProvenance), GraphKanError> {
     let map = ValueEdgeMap::new(functor);
-    let functor = functor.migration_functor();
     let (encoded, input_layout) = encode_graph(graph, EncodingSide::Domain(functor))?;
     let (table_result, table) = functor_pi_restricted(&encoded, functor, max_product_size)
         .map_err(GraphKanError::Adjunction)?;
