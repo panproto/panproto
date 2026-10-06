@@ -9,15 +9,15 @@
 //! variable replaced by the binder it resolves to, the nearest of its
 //! name); a constructor `c`'s image is `k` iff `m^(c(x_1, ..., x_n)) =
 //! k(x_1, ..., x_n)` with the `x_i` read by position (a name repeated
-//! among `c`'s inputs denotes its last occurrence). A map is a morphism iff every domain sort is mapped
-//! with its arity, kind, parameter sorts (under `F`) and closure (by
-//! constructor images) preserved, and every domain operation is mapped to
-//! an operation with the same signature under `F` or to a term of sort
-//! `F(output)` in the context of its inputs at sorts `F(input)`. The scope
-//! has no equations, whose check this repair does not change. The
-//! reference calls none of `check_morphism`,
-//! `apply_to_term_substituting`, `SortExpr::alpha_eq`, `SortExpr::subst`,
-//! `Term::substitute` or the signature comparisons.
+//! among `c`'s inputs denotes its last occurrence). A map is a morphism
+//! iff every domain sort is mapped with its arity, kind, parameter sorts
+//! (under `F`) and closure (by constructor images) preserved, and every
+//! domain operation is mapped to an operation with the same signature
+//! under `F` or to a term of sort `F(output)` in the context of its
+//! inputs at sorts `F(input)`. The scope has no equations, whose check
+//! this repair does not change. The reference calls none of
+//! `check_morphism`, `apply_to_term_substituting`, `SortExpr::alpha_eq`,
+//! `SortExpr::subst`, `Term::substitute` or the signature comparisons.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
