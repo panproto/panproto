@@ -3,14 +3,45 @@
 //! [`coerce`] is the one coercion every codec calls: a codec that reads a
 //! scalar hands over its [`Lexeme`] (the source text and the lexical class
 //! the format gave it) and the [`ValueSpec`] of the vertex it belongs to,
-//! and receives the exact [`Value`] or a [`ValueFidelityError`]. With a
-//! declared kind, a lexeme the kind cannot hold exactly is an error and
-//! never a float. With [`ScalarKind::Any`] (an open schema) the value is
-//! the most exact one the lexeme allows: an integer that fits `i64` is
-//! [`Value::Int`] and a larger one [`Value::BigInt`]; a number with a
-//! fraction or exponent is [`Value::Float`] exactly when the float reads
-//! back as the lexeme's number and [`Value::Decimal`] otherwise; strings
-//! stay strings.
+//! and receives the exact [`Value`] or a [`ValueFidelityError`].
+//!
+//! # Declared kinds
+//!
+//! Under a declared kind a lexeme is read by the kind's lexical mapping
+//! or refused with a typed [`FidelityReason`]; it is never silently
+//! rounded to a value no reading gives the lexeme back from. Under
+//! `Float { bits }` a finite numeral denotes its IEEE 754
+//! round-to-nearest-even value at the kind's width (32 or 64 bits), and
+//! the numeral is accepted exactly when that value equals the numeral, or
+//! when the value's shortest round-trip text at that width is numerically
+//! the numeral (so `0.1` is accepted under a 32-bit kind and read as the
+//! binary32 nearest it, while `16777217.0`, which rounds to `16777216`, is
+//! refused with [`FidelityReason::PrecisionExceeded`]). A negative-zero
+//! numeral is the negative zero of the kind. Under `Decimal`, `Int` and
+//! `BigInt` a numeral is accepted when its value lies in the kind's value
+//! space and the spec's `precision`, `scale`, `int_bits` and `unsigned`
+//! facets admit it.
+//!
+//! # Open schemas
+//!
+//! With [`ScalarKind::Any`] the value is the most exact one the lexeme
+//! allows: an integer that fits `i64` is [`Value::Int`] and a larger one
+//! [`Value::BigInt`]; a number with a fraction or exponent is
+//! [`Value::Float`] exactly when the float is finite and its shortest
+//! decimal is numerically the lexeme, and [`Value::Decimal`] otherwise
+//! (`-0.0` is `Float(-0.0)`, `0.10` is `Float(0.1)`, `4e-324` is a
+//! decimal); strings stay strings.
+//!
+//! # Non-finite floats
+//!
+//! The NaN spellings (`NaN`, `nan`, `+nan`, `-nan`, `.nan`, in any case)
+//! all read as the canonical quiet NaN, bits `0x7ff8000000000000`, under
+//! both float kinds and under `Any`: the float value space has one
+//! notANumber, written without a sign (W3C 2012, XML Schema 1.1 Datatypes,
+//! Secs 3.3.4.1 and 3.3.4.2, stated), and TOML 1.0 leaves the encoding of
+//! `-nan` to the implementation (TOML 1.0.0, Float, stated). So no sign or
+//! payload is read from a lexeme. The infinity spellings read as the
+//! signed infinities.
 //!
 //! [`FidelityLog`] collects the errors of a whole document, in document
 //! order, into one [`ParseError::Fidelity`].
@@ -191,7 +222,8 @@ fn coerce_bool(lexeme: &Lexeme<'_>) -> Option<Value> {
 
 /// The non-finite float a lexeme spells, if it spells one: `NaN`, `inf`,
 /// `Infinity` and YAML's `.nan` and `.inf`, in any case, with an optional
-/// sign.
+/// sign. Every NaN spelling gives the canonical quiet NaN, `f64::NAN`
+/// (bits `0x7ff8000000000000`), whatever its sign.
 fn non_finite(text: &str) -> Option<f64> {
     let (negative, unsigned) = match text.as_bytes().first() {
         Some(b'-') => (true, &text[1..]),
@@ -233,7 +265,8 @@ fn coerce_any(lexeme: &Lexeme<'_>) -> Result<Value, ValueFidelityError> {
                 return Value::parse_integer(lexeme.text).map_err(|e| fail(e.reason));
             }
             let decimal = DecimalValue::parse(lexeme.text).map_err(|e| fail(e.reason))?;
-            Ok(float_if_exact(&decimal).map_or(Value::Decimal(decimal), Value::Float))
+            let x = nearest_float(&decimal, lexeme.text, 64).map_err(fail)?;
+            Ok(float_if_shortest(&decimal, x).map_or(Value::Decimal(decimal), Value::Float))
         }
         LexClass::Bool => coerce_bool(lexeme).ok_or_else(|| fail(FidelityReason::InvalidEncoding)),
         LexClass::DateTime => Temporal::parse(lexeme.text)
@@ -248,13 +281,58 @@ fn coerce_any(lexeme: &Lexeme<'_>) -> Result<Value, ValueFidelityError> {
     }
 }
 
-/// The float of `decimal` when it holds the decimal's number exactly as
-/// far as a float can be read: finite, and its shortest decimal form is
-/// the same number.
-fn float_if_exact(decimal: &DecimalValue) -> Option<f64> {
-    let x = decimal.to_f64();
+/// `x` when it is finite and its shortest decimal is numerically
+/// `decimal`.
+fn float_if_shortest(decimal: &DecimalValue, x: f64) -> Option<f64> {
     let back = DecimalValue::from_f64_shortest(x)?;
     back.cmp_numeric(decimal).is_eq().then_some(x)
+}
+
+/// The float of `bits` bits nearest the numeral `text`, which reads as
+/// `decimal`, widened to `f64`: IEEE 754 round-to-nearest-even at the
+/// width (32, or 64 for any other width), by Rust's correctly rounded
+/// parsers, which may give an infinity or a zero outside the width's
+/// range. A zero numeral written with a `-` is the negative zero, which
+/// `decimal` cannot carry.
+fn nearest_float(decimal: &DecimalValue, text: &str, bits: u8) -> Result<f64, FidelityReason> {
+    let negative = decimal.negative || (decimal.is_zero() && text.starts_with('-'));
+    let sign = if negative { "-" } else { "" };
+    let numeral = format!("{sign}{}e{}", decimal.digits, decimal.exponent);
+    if bits == 32 {
+        numeral.parse::<f32>().map(f64::from)
+    } else {
+        numeral.parse::<f64>()
+    }
+    .map_err(|_| FidelityReason::NotANumber)
+}
+
+/// The shortest text that reads back as `x` at `bits` bits (32, or 64 for
+/// any other width), for a finite `x` that the width holds.
+fn shortest_text(x: f64, bits: u8) -> Option<DecimalValue> {
+    if bits == 32 {
+        let narrow = format!("{x:e}").parse::<f32>().ok()?;
+        DecimalValue::parse(&format!("{narrow:e}")).ok()
+    } else {
+        DecimalValue::from_f64_shortest(x)
+    }
+}
+
+/// The most significant digits a finite binary64 value's exact decimal
+/// expansion has (that of the largest subnormal); a binary32 value, widened,
+/// needs fewer.
+const MAX_EXACT_DIGITS: usize = 767;
+
+/// Whether the finite float `x` equals `decimal` exactly. A binary float's
+/// decimal expansion terminates, within [`MAX_EXACT_DIGITS`] significant
+/// digits, and Rust's formatting with an explicit precision writes the
+/// correctly rounded digits, so at that precision it writes the expansion
+/// itself.
+fn denotes_exactly(decimal: &DecimalValue, x: f64) -> bool {
+    if decimal.digits.trim_end_matches('0').len() > MAX_EXACT_DIGITS {
+        return false;
+    }
+    DecimalValue::parse(&format!("{x:.MAX_EXACT_DIGITS$e}"))
+        .is_ok_and(|exact| exact.cmp_numeric(decimal).is_eq())
 }
 
 /// The exact integer a numeral writes: an integer numeral, or a decimal
@@ -327,28 +405,26 @@ fn coerce_int(text: &str, bits: u8, signed: bool) -> Result<Value, FidelityReaso
     }
 }
 
-/// A float of `bits` bits (32 or 64; any other width reads as 64).
+/// A float of `bits` bits (32 or 64; any other width reads as 64): the
+/// value nearest the numeral, accepted when it equals the numeral or its
+/// shortest text at the width is numerically the numeral (see the module
+/// documentation).
 fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
     if let Some(f) = non_finite(text) {
         return Ok(Value::Float(f));
     }
     let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
-    let (x, back, digits) = if bits == 32 {
-        let x = text
-            .parse::<f32>()
-            .map_err(|_| FidelityReason::NotANumber)?;
-        let back = DecimalValue::parse(&format!("{x:e}")).ok();
-        (f64::from(x), back, 9)
-    } else {
-        let x = decimal.to_f64();
-        (x, DecimalValue::from_f64_shortest(x), 17)
-    };
+    let x = nearest_float(&decimal, text, bits)?;
     if !x.is_finite() {
         return Err(FidelityReason::Overflow);
     }
-    match back {
-        Some(back) if back.cmp_numeric(&decimal).is_eq() => Ok(Value::Float(x)),
-        _ => Err(FidelityReason::PrecisionExceeded { max: digits }),
+    let shortest = shortest_text(x, bits).is_some_and(|back| back.cmp_numeric(&decimal).is_eq());
+    if shortest || denotes_exactly(&decimal, x) {
+        Ok(Value::Float(x))
+    } else {
+        Err(FidelityReason::PrecisionExceeded {
+            max: if bits == 32 { 9 } else { 17 },
+        })
     }
 }
 

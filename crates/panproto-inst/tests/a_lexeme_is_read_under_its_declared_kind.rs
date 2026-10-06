@@ -562,3 +562,153 @@ fn parse_reports_every_fidelity_error_in_document_order() {
     assert!(clean.errors().is_empty());
     assert!(clean.finish().is_ok());
 }
+
+/// The bits of a float result, or a panic naming what came instead.
+fn float_bits(result: Result<Value, ValueFidelityError>) -> u64 {
+    match result {
+        Ok(Value::Float(f)) => f.to_bits(),
+        other => panic!("expected a float, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_negative_zero_lexeme_keeps_its_sign_under_every_float_kind() {
+    let negative_zero = (-0.0_f64).to_bits();
+    for bits in [32, 64] {
+        let kind = spec(ScalarKind::Float { bits });
+        for text in ["-0.0", "-0", "-0e0", "-0.000e-12"] {
+            assert_eq!(
+                float_bits(number(text, &kind)),
+                negative_zero,
+                "{text} under Float{{bits:{bits}}}"
+            );
+        }
+        for text in ["0.0", "0", "+0e0"] {
+            assert_eq!(float_bits(number(text, &kind)), 0, "{text}");
+        }
+        let site = ValueSite::new("v", None);
+        let kept = panproto_inst::value::coerce::coerce_value(&Value::Float(-0.0), &kind, site);
+        assert_eq!(float_bits(kept), negative_zero, "Float(-0.0) as {bits} bits");
+    }
+    // An open schema reads the fractional and exponent forms as a float,
+    // and the integer form as the integer zero, which has no sign.
+    let any = spec(ScalarKind::Any);
+    assert_eq!(float_bits(number("-0.0", &any)), negative_zero);
+    assert_eq!(float_bits(number("-0e0", &any)), negative_zero);
+    assert_eq!(number("-0", &any).unwrap(), Value::Int(0));
+    // A decimal zero is never negative.
+    let Value::Decimal(zero) = number("-0.0", &spec(ScalarKind::Decimal)).unwrap() else {
+        panic!("a decimal")
+    };
+    assert!(!zero.negative);
+}
+
+#[test]
+fn an_exact_binary_lexeme_is_accepted_under_its_float_kind() {
+    let f32_ = spec(ScalarKind::Float { bits: 32 });
+    let f64_ = spec(ScalarKind::Float { bits: 64 });
+    // 2^53 and 2^50 are binary32 values, written with more than nine
+    // significant digits.
+    assert_eq!(
+        number("9007199254740992", &f32_).unwrap(),
+        Value::Float(9_007_199_254_740_992.0)
+    );
+    assert_eq!(
+        number("1125899906842624", &f32_).unwrap(),
+        Value::Float(1_125_899_906_842_624.0)
+    );
+    // The exact value of the binary32 nearest 0.1.
+    assert_eq!(
+        float_bits(number("0.100000001490116119384765625", &f32_)),
+        f64::from(0.1_f32).to_bits()
+    );
+    // The exact value of the binary64 nearest 0.1, 55 significant digits.
+    assert_eq!(
+        float_bits(number(
+            "0.1000000000000000055511151231257827021181583404541015625",
+            &f64_
+        )),
+        0.1_f64.to_bits()
+    );
+    // The same digits with an exponent, and with trailing zeros.
+    assert_eq!(
+        float_bits(number(
+            "1000000000000000055511151231257827021181583404541015625e-55",
+            &f64_
+        )),
+        0.1_f64.to_bits()
+    );
+    assert_eq!(
+        float_bits(number("0.1000000014901161193847656250000", &f32_)),
+        f64::from(0.1_f32).to_bits()
+    );
+    // The least positive subnormal of each width, exactly.
+    assert_eq!(
+        float_bits(number(&format!("{:.1100e}", f64::from_bits(1)), &f64_)),
+        1
+    );
+    assert_eq!(
+        float_bits(number(
+            &format!("{:.200e}", f64::from(f32::from_bits(1))),
+            &f32_
+        )),
+        f64::from(f32::from_bits(1)).to_bits()
+    );
+    // A numeral that is neither exact nor the shortest text of its
+    // rounding is still refused, and one that is the shortest text of its
+    // rounding is still accepted.
+    for text in ["16777217.0", "0.1000000000000001", "0.10000000149011612"] {
+        assert_eq!(
+            reason(number(text, &f32_)),
+            FidelityReason::PrecisionExceeded { max: 9 },
+            "{text}"
+        );
+    }
+    assert_eq!(
+        reason(number("0.100000000000000005551115123125782702118158340454101562", &f64_)),
+        FidelityReason::PrecisionExceeded { max: 17 }
+    );
+    assert_eq!(
+        float_bits(number("0.1", &f32_)),
+        f64::from(0.1_f32).to_bits()
+    );
+}
+
+#[test]
+fn every_nan_spelling_reads_as_the_canonical_nan() {
+    const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
+    let kinds = [
+        spec(ScalarKind::Float { bits: 32 }),
+        spec(ScalarKind::Float { bits: 64 }),
+        spec(ScalarKind::Any),
+    ];
+    for kind in &kinds {
+        for text in ["NaN", "nan", "+nan", "-nan", "-NaN", ".nan", "+NaN", "-.NaN"] {
+            assert_eq!(
+                float_bits(number(text, kind)),
+                CANONICAL,
+                "{text} under {:?}",
+                kind.kind
+            );
+        }
+        assert_eq!(
+            float_bits(number("-inf", kind)),
+            f64::NEG_INFINITY.to_bits()
+        );
+        assert_eq!(float_bits(number("+.inf", kind)), f64::INFINITY.to_bits());
+    }
+    // A NaN that is already a value keeps its sign and payload under a
+    // float kind that holds it.
+    let site = ValueSite::new("v", None);
+    let coerce_value = panproto_inst::value::coerce::coerce_value;
+    for bits in [0xfff8_0000_0000_0000_u64, 0x7ff8_0000_0000_1234] {
+        let kept = coerce_value(&Value::Float(f64::from_bits(bits)), &kinds[1], site.clone());
+        assert_eq!(float_bits(kept), bits);
+    }
+    let kept = coerce_value(
+        &Value::Float(f64::from_bits(0xfff8_0000_0000_0000)),
+        &kinds[0],
+        site,
+    );
+    assert_eq!(float_bits(kept), 0xfff8_0000_0000_0000);
+}
