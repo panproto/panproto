@@ -439,3 +439,120 @@ pub fn present(n: &Node) -> Option<&Value> {
         _ => None,
     }
 }
+
+/// The tree lens on the domain where the tree and graph engines agree: the
+/// lens keeps the tree shape (no source edge between surviving vertices is
+/// dropped) and the root survives. Tree get is the graph get of the tree's
+/// graph form, read back as a tree with the same root; it also returns the
+/// view's embedding, which put takes to name the view's edges.
+///
+/// `None` outside that domain (or when the tree has no graph form).
+#[must_use]
+pub fn tree_get(lens: &GraphLens<'_>, t: &crate::model::Tree) -> Option<Result<(crate::model::Tree, Complement, crate::encode::TreeEmbedding), crate::restrict::RestrictError>> {
+    let keeps_shape = !lens.plan.fates.iter().any(|(e, f)| *f == EdgeFate::Drop && lens.m.survives(&e.src) && lens.m.survives(&e.tgt));
+    if !keeps_shape {
+        return None;
+    }
+    let (g, _) = crate::encode::tree_to_graph(t, Some(lens.src)).ok()?;
+    match crate::restrict::get_with_plan(lens.src, lens.tgt, lens.m, lens.plan, lens.vl, &g) {
+        Err(e) => Some(Err(e)),
+        Ok((view, c)) => {
+            let tree = crate::encode::graph_to_tree(&view, t.root)?;
+            Some(Ok((tree, c, view_embedding(&view))))
+        }
+    }
+}
+
+fn view_embedding(view: &Graph) -> crate::encode::TreeEmbedding {
+    let mut emb = crate::encode::TreeEmbedding::default();
+    for (id, e) in &view.edges {
+        if !is_fan_kind(&e.label.kind) {
+            emb.arcs.insert(e.tgt, *id);
+        }
+    }
+    for (id, n) in &view.nodes {
+        if n.shape == crate::model::NodeShape::HyperEdge {
+            let out: Vec<(u32, &GEdge)> = view.edges.iter().filter(|(_, e)| e.src == *id).map(|(i, e)| (*i, e)).collect();
+            let parent = out.iter().find(|(_, e)| e.label.kind == crate::restrict::HYPER_PARENT).map_or(0, |(i, _)| *i);
+            let children = out.iter().filter_map(|(i, e)| e.label.name.clone().filter(|_| e.label.kind == crate::restrict::HYPER_LABEL).map(|l| (l, *i))).collect();
+            emb.fans.push((*id, parent, children));
+        }
+    }
+    emb
+}
+
+/// Tree put: the view tree is laid out as a graph with the edge ids its
+/// embedding records (an arc whose child the embedding names keeps that id
+/// while its parent is unchanged, fans keep their nodes and edges in fan
+/// order), new arcs and fans taking fresh ids above every view, reserved
+/// and synthesized id; the graph put's result is read back as a tree with
+/// the view's root.
+///
+/// # Errors
+///
+/// The graph put's violations, or a one-element list holding
+/// `MalformedFan` at node 0 with `MissingParent` when the result is not a
+/// tree.
+pub fn tree_put(
+    lens: &GraphLens<'_>,
+    view: &crate::model::Tree,
+    emb: &crate::encode::TreeEmbedding,
+    c: &Complement,
+) -> Result<crate::model::Tree, Vec<PutDomainError>> {
+    let g = tree_view_graph(lens, view, emb, c);
+    let restored = lens.restore(&g, c).map_err(|mut v| {
+        v.sort_by_key(PutDomainError::order_key);
+        v
+    })?;
+    crate::encode::graph_to_tree(&restored, view.root)
+        .ok_or_else(|| vec![PutDomainError::MalformedFan { node: 0, reason: FanViolation::MissingParent }])
+}
+
+fn tree_view_graph(lens: &GraphLens<'_>, view: &crate::model::Tree, emb: &crate::encode::TreeEmbedding, c: &Complement) -> Graph {
+    let mut g = Graph { nodes: view.nodes.clone(), edges: BTreeMap::new() };
+    let mut node_floor = crate::restrict::floor_of(view.nodes.keys().copied().chain(c.dropped_nodes.keys().copied()).chain(c.synthesized_nodes.keys().copied()).chain(std::iter::once(c.floor.0.saturating_sub(1))));
+    let mut used: BTreeSet<u32> = BTreeSet::new();
+    let mut fresh_edge = crate::restrict::floor_of(
+        emb.arcs.values().copied().chain(c.dropped_edges.keys().copied()).chain(c.synthesized_edges.keys().copied()).chain(emb.fans.iter().flat_map(|(_, p, ch)| std::iter::once(*p).chain(ch.values().copied()))).chain(std::iter::once(c.floor.1.saturating_sub(1))),
+    );
+    let mut next = || {
+        fresh_edge += 1;
+        fresh_edge - 1
+    };
+    for (p, ch, label) in &view.arcs {
+        let id = emb.arcs.get(ch).copied().filter(|i| used.insert(*i)).unwrap_or_else(&mut next);
+        g.edges.insert(id, GEdge { src: *p, tgt: *ch, label: label.clone(), position: None });
+    }
+    for (k, f) in view.fans.iter().enumerate() {
+        let known = emb.fans.get(k);
+        let fid = known.map_or_else(
+            || {
+                node_floor += 1;
+                node_floor - 1
+            },
+            |(n, _, _)| *n,
+        );
+        let mut node = Node::new(fid, &f.hyper_edge);
+        node.shape = crate::model::NodeShape::HyperEdge;
+        g.nodes.insert(fid, node);
+        let anchor = |n: u32| view.nodes.get(&n).map(|x| x.anchor.clone()).unwrap_or_default();
+        let pid = known.map_or_else(&mut next, |(_, p, _)| *p);
+        let parent_name = lens_parent_name(lens, &f.hyper_edge);
+        g.edges.insert(pid, GEdge { src: fid, tgt: f.parent, label: SEdge { src: f.hyper_edge.clone(), tgt: anchor(f.parent), kind: crate::restrict::HYPER_PARENT.into(), name: parent_name }, position: None });
+        for (l, ch) in &f.children {
+            let cid = known.and_then(|(_, _, m)| m.get(l).copied()).unwrap_or_else(&mut next);
+            g.edges.insert(cid, GEdge { src: fid, tgt: *ch, label: SEdge { src: f.hyper_edge.clone(), tgt: anchor(*ch), kind: crate::restrict::HYPER_LABEL.into(), name: Some(l.clone()) }, position: None });
+        }
+    }
+    g
+}
+
+/// The name a view fan's parent edge carries: the source parent label of
+/// the source hyper-edge it comes from (itself, or the hyper-edge a
+/// resolver entry sends to it), as the tree's graph form names it.
+fn lens_parent_name(lens: &GraphLens<'_>, hyper: &str) -> Option<Name> {
+    let source = lens.src.hyper_edges.get(hyper).or_else(|| {
+        lens.m.hyper_resolver.iter().find(|(_, (h, _))| h == hyper).and_then(|((s, _), _)| lens.src.hyper_edges.get(s))
+    });
+    source.map(|h| h.parent_label.clone())
+}

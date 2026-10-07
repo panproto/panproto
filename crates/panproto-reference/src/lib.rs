@@ -13,6 +13,7 @@ pub mod lens;
 pub mod migration;
 pub mod model;
 pub mod num;
+pub mod path;
 pub mod rel;
 pub mod restrict;
 pub mod schema;
