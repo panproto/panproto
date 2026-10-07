@@ -8,11 +8,14 @@ use panproto_reference::canonical;
 use panproto_reference::coerce::{
     FidelityReason, LexClass, ScalarKind, ValueSpec, coerce, coerce_value,
 };
-use panproto_reference::edit::{AttrKey, AttrVal, GElem, GPayload, GraphDelta};
+use panproto_reference::edit;
 use panproto_reference::encode;
 use panproto_reference::enumerate::{self as en};
 use panproto_reference::float::{self, Format};
-use panproto_reference::model::{Node, SEdge};
+use panproto_reference::migration::Migration;
+use panproto_reference::model::{Graph, Node, NodeShape, SEdge};
+use panproto_reference::restrict::{self, HYPER_LABEL, HYPER_PARENT};
+use panproto_reference::schema::{HyperEdge, Schema};
 use panproto_reference::temporal::{self, TemporalKind};
 use panproto_reference::validation;
 use panproto_reference::value::Value;
@@ -36,14 +39,77 @@ fn enumerate_schemas_and_migrations() {
     );
     let src = &s[0];
     let tgt = &s[s.len() - 1];
-    let m = en::migrations(src, tgt);
+    let m = en::migrations(src, tgt, en::MigrationScope::VERTICES);
     report(
-        "migrations",
+        "migrations (vertex maps)",
         "2 source and 2 target vertices",
         m.len(),
-        en::migrations_count(2, 2),
+        en::migrations_count(&sizes(src, tgt), en::MigrationScope::VERTICES),
         "closed formula (|Vt| + 1)^|Vs|",
     );
+    // Every field: a source with one vertex, one edge and a hyper-edge of
+    // two labels, a target with one vertex, one edge and a hyper-edge of
+    // one label.
+    let src = Schema {
+        hyper_edges: [hyper("h", &["x", "y"])].into(),
+        ..Schema::default().vertex("a", "k").edge("a", "a", "prop", Some("e"))
+    };
+    let tgt = Schema {
+        hyper_edges: [hyper("g", &["z"])].into(),
+        ..Schema::default().vertex("a", "k").edge("a", "a", "prop", Some("f"))
+    };
+    let all = en::migrations(&src, &tgt, en::MigrationScope::ALL);
+    report(
+        "migrations (every field)",
+        "1 source vertex, 1 source edge, a 2-label source hyper-edge; 1 target vertex, 1 target edge, a 1-label target hyper-edge; paths of length at most 1",
+        all.len(),
+        en::migrations_count(&sizes(&src, &tgt), en::MigrationScope::ALL),
+        "closed formula 2^1 * 2^1 * 2^1 * (1 + 2)^1 * (1 + 2)^2 * (1 + 4)^1 * 2^1 * 2^1",
+    );
+    assert_eq!(2 * 2 * 2 * 3 * 9 * 5 * 2 * 2, all.len());
+    let distinct: BTreeSet<String> = all.iter().map(|m| format!("{m:?}")).collect();
+    assert_eq!(distinct.len(), all.len(), "labelled: no two migrations equal");
+    for field in [
+        |m: &Migration| !m.edge_remap.is_empty() || !m.surviving_edges.is_empty(),
+        |m: &Migration| !m.resolver.is_empty(),
+        |m: &Migration| !m.expansion_path.is_empty(),
+        |m: &Migration| !m.hyper_resolver.is_empty(),
+        |m: &Migration| !m.conditional.is_empty(),
+        |m: &Migration| !m.transformed.is_empty(),
+    ] {
+        assert!(all.iter().any(field));
+    }
+    // Every migration is either refused by plan compilation with a typed
+    // reason or compiles; the identity-like one of vertex a compiles.
+    for mig in &all {
+        let _ = restrict::compile(&src, &tgt, mig);
+    }
+}
+
+fn hyper(id: &str, labels: &[&str]) -> (String, HyperEdge) {
+    (
+        id.to_owned(),
+        HyperEdge {
+            kind: "k".into(),
+            signature: labels
+                .iter()
+                .map(|l| ((*l).to_owned(), "a".to_owned()))
+                .collect(),
+            parent_label: "p".into(),
+        },
+    )
+}
+
+fn sizes(src: &Schema, tgt: &Schema) -> en::MigrationSizes {
+    let n = |x: usize| x as u64;
+    en::MigrationSizes {
+        src_vertices: n(src.vertices.len()),
+        tgt_vertices: n(tgt.vertices.len()),
+        src_edges: n(src.edges.len()),
+        tgt_edges: n(tgt.edges.len()),
+        src_hyper_labels: src.hyper_edges.values().map(|h| n(h.signature.len())).collect(),
+        tgt_hyper_labels: tgt.hyper_edges.values().map(|h| n(h.signature.len())).collect(),
+    }
 }
 
 #[test]
@@ -52,13 +118,22 @@ fn enumerate_graphs_and_check_their_bytes_are_injective() {
         SEdge::new("a", "a", "e", None),
         SEdge::new("a", "b", "f", Some("n")),
     ];
-    let gs = en::graphs(&["a", "b"], &[Value::Int(0)], &labels, 2, 2);
+    let scope = en::GraphScope {
+        anchors: &["a", "b"],
+        values: &[Value::Int(0)],
+        shapes: &[NodeShape::Plain],
+        labels: &labels,
+        positions: &[None],
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let gs = en::graphs(&scope);
     report(
         "graphs",
-        "2 nodes, 2 anchors, values {none, 0}, 2 labels, at most 2 edges",
+        "2 nodes, 2 anchors, values {none, 0}, 1 shape, 2 labels, 1 position, at most 2 edges",
         gs.len(),
-        en::graphs_count(2, 1, 2, 2, 2),
-        "closed formula sum_{n <= N} (a (v + 1))^n sum_{m <= M} (n^2 l)^m",
+        en::graphs_count(2, 1, 1, 2, 1, 2, 2),
+        "closed formula sum_{n <= N} (a (v + 1) s)^n sum_{m <= M} (n^2 l p)^m",
     );
     let mut seen = BTreeSet::new();
     for g in &gs {
@@ -66,6 +141,85 @@ fn enumerate_graphs_and_check_their_bytes_are_injective() {
         assert_eq!(canonical::decode_graph(&b).as_ref(), Some(g));
         assert!(seen.insert(b));
     }
+}
+
+#[test]
+fn enumerate_graphs_with_fans_and_check_the_tree_form_round_trip() {
+    // Fan nodes (the hyper-edge shape, anchored at `h`) with parent and
+    // child edges, positioned or not: every graph either has a tree form
+    // that encodes back to it up to the ids of fan nodes and edges, or is
+    // refused with a typed reason.
+    let labels = [
+        SEdge::new("r", "r", "prop", None),
+        SEdge::new("h", "r", HYPER_PARENT, None),
+        SEdge::new("h", "r", HYPER_LABEL, Some("x")),
+        SEdge::new("h", "r", HYPER_LABEL, None),
+    ];
+    let scope = en::GraphScope {
+        anchors: &["r", "h"],
+        values: &[],
+        shapes: &[NodeShape::Plain, NodeShape::HyperEdge],
+        labels: &labels,
+        positions: &[None, Some(0)],
+        max_nodes: 3,
+        max_edges: 2,
+    };
+    let gs = en::graphs(&scope);
+    report(
+        "graphs with fans",
+        "3 nodes, 2 anchors, no values, 2 shapes, 4 labels, positions {none, 0}, at most 2 edges",
+        gs.len(),
+        en::graphs_count(2, 0, 2, 4, 2, 3, 2),
+        "closed formula sum_{n <= N} (a (v + 1) s)^n sum_{m <= M} (n^2 l p)^m",
+    );
+    let names = encode::schema_parent_name(None);
+    let (mut trees, mut refused) = (0usize, 0usize);
+    for g in &gs {
+        let Some(root) = g.nodes.keys().next().copied() else {
+            continue;
+        };
+        match encode::graph_to_tree(g, root, &names) {
+            Ok(t) => {
+                trees += 1;
+                let (back, _) = encode::tree_to_graph(&t, None).unwrap();
+                assert_eq!(fan_free_form(&back), fan_free_form(g), "{g:?}");
+                assert_eq!(encode::graph_to_tree(&back, root, &names), Ok(t));
+            }
+            Err(_) => refused += 1,
+        }
+    }
+    println!("graphs with fans: {trees} with a tree form, {refused} refused");
+    assert!(trees > 0 && refused > 0);
+}
+
+/// A graph up to the ids of its fan nodes and of its edges: the nodes that
+/// are no fan nodes, and the multiset of edges with each fan endpoint named
+/// by its rank among the fan nodes.
+fn fan_free_form(g: &Graph) -> (Vec<(u32, Node)>, Vec<String>) {
+    let fans: Vec<u32> = g
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.shape == NodeShape::HyperEdge)
+        .map(|(i, _)| *i)
+        .collect();
+    let name = |n: u32| {
+        fans.iter()
+            .position(|f| *f == n)
+            .map_or_else(|| format!("n{n}"), |k| format!("f{k}"))
+    };
+    let mut edges: Vec<String> = g
+        .edges
+        .values()
+        .map(|e| format!("{} {} {:?} {:?}", name(e.src), name(e.tgt), e.label, e.position))
+        .collect();
+    edges.sort();
+    let nodes = g
+        .nodes
+        .iter()
+        .filter(|(i, _)| !fans.contains(i))
+        .map(|(i, n)| (*i, n.clone()))
+        .collect();
+    (nodes, edges)
 }
 
 #[test]
@@ -93,57 +247,78 @@ fn enumerate_tables_and_check_their_bytes_are_injective() {
 #[test]
 fn enumerate_trees_and_check_their_encodings() {
     let mut total = 0;
-    for n in 1..=4u32 {
-        let ts = en::trees(n as usize, &["r", "s"]);
-        report(
-            "trees",
-            &format!("{n} nodes, 2 anchors"),
-            ts.len(),
-            en::trees_count(n, 2),
-            "Cayley's formula n^(n-2) for labelled trees, OEIS A000272, times a^n anchorings",
-        );
-        total += ts.len();
-        for t in &ts {
-            let b = canonical::tree_bytes(t).unwrap();
-            assert_eq!(canonical::decode_tree(&b).as_ref(), Some(t));
-            let (g, _) = encode::tree_to_graph(t, None).unwrap();
-            assert_eq!(encode::graph_to_tree(&g, 0).as_ref(), Some(t));
+    let labels: &[&str] = &["x", "y"];
+    for n in 1..=3u32 {
+        for max_fans in 0..=1u32 {
+            let scope = en::TreeScope {
+                nodes: n as usize,
+                anchors: &["r", "s"],
+                values: &[Value::Int(0)],
+                arc_names: &["k"],
+                hyper_edges: &[("h", labels)],
+                max_fans: max_fans as usize,
+            };
+            let ts = en::trees(&scope);
+            report(
+                "trees",
+                &format!(
+                    "{n} nodes, 2 anchors, values {{none, 0}}, arc names {{none, k}}, a 2-label hyper-edge, at most {max_fans} fans"
+                ),
+                ts.len(),
+                en::trees_count(n, 2, 1, 1, &[2], max_fans),
+                "Cayley's n^(n-2) labelled trees (OEIS A000272) times (n-1)! arc orders, (a (v + 1))^n anchorings, (k + 1)^(n-1) arc names and sum_{j <= F} (n (n + 1)^2)^j fan lists",
+            );
+            total += ts.len();
+            let mut seen = BTreeSet::new();
+            for t in &ts {
+                let b = canonical::tree_bytes(t).unwrap();
+                assert_eq!(canonical::decode_tree(&b).as_ref(), Some(t));
+                assert!(seen.insert(b), "labelled: no two trees equal");
+                let (g, _) = encode::tree_to_graph(t, None).unwrap();
+                assert_eq!(
+                    encode::graph_to_tree(&g, 0, &encode::schema_parent_name(None)).as_ref(),
+                    Ok(t)
+                );
+            }
         }
     }
     println!("trees: {total} in all");
 }
 
-fn delta_alphabet() -> Vec<GraphDelta> {
-    let mut out = Vec::new();
-    for anchor in ["a", "b"] {
-        let mut add = GraphDelta::identity();
-        add.add
-            .insert(GElem::Node(0), GPayload::Node(Node::new(0, anchor)));
-        out.push(add.invert());
-        out.push(add);
-    }
-    let mut attr = GraphDelta::identity();
-    attr.attrs.insert(
-        AttrKey::Anchor(0),
-        (AttrVal::Anchor("a".into()), AttrVal::Anchor("b".into())),
-    );
-    out.push(attr.invert());
-    out.push(attr);
-    out.push(GraphDelta::identity());
-    out
-}
-
 #[test]
 fn enumerate_edit_sequences_and_check_the_algebra() {
-    let alphabet = delta_alphabet();
+    let labels = [SEdge::new("a", "b", "e", None)];
+    let scope = en::DeltaScope {
+        nodes: &[0, 1],
+        anchors: &["a", "b"],
+        values: &[Value::Int(0)],
+        fields: &["f"],
+        edges: &[0],
+        labels: &labels,
+        positions: &[None, Some(0)],
+    };
+    let alphabet = en::graph_deltas(&scope);
+    report(
+        "graph deltas",
+        "nodes {0, 1}, anchors {a, b}, values {0}, field f, edge 0, 1 label, positions {none, 0}",
+        alphabet.len(),
+        en::graph_deltas_count(2, 2, 1, 1, 1, 1, 2),
+        "closed formula 1 + 2NA(V+1) + 2EN^2L + N(A(A-1) + (V+1)V + F(V+1)V + 2) + E(L(L-1) + P(P-1))",
+    );
+    let distinct: BTreeSet<String> = alphabet.iter().map(|d| format!("{d:?}")).collect();
+    assert_eq!(distinct.len(), alphabet.len());
     let words = en::sequences(&alphabet, 3);
     report(
         "edit sequences",
-        "alphabet of 7 deltas on one node, length at most 3",
+        "the graph-delta alphabet above, length at most 3",
         words.len(),
-        en::sequences_count(7, 3),
-        "closed formula sum_{l <= 3} 7^l",
+        en::sequences_count(alphabet.len() as u64, 3),
+        "closed formula sum_{l <= 3} |A|^l",
     );
+    let mut graphs = vec![Graph::default()];
+    let mut g = Graph::default();
+    g.nodes.insert(0, Node::new(0, "a"));
+    graphs.push(g);
     for w in words.iter().filter(|w| w.len() == 3) {
         let (a, b, c) = (&w[0], &w[1], &w[2]);
         if let (Ok(ab), Ok(bc)) = (a.compose(b), b.compose(c)) {
@@ -157,6 +332,13 @@ fn enumerate_edit_sequences_and_check_the_algebra() {
     for w in words.iter().filter(|w| w.len() == 2) {
         if let Ok(ab) = w[0].compose(&w[1]) {
             assert_eq!(w[1].invert().compose(&w[0].invert()), Ok(ab.invert()));
+            for g in &graphs {
+                if let Ok(mid) = edit::apply(&w[0], g)
+                    && let Ok(end) = edit::apply(&w[1], &mid)
+                {
+                    assert_eq!(edit::apply(&ab, g), Ok(end), "apply of {w:?}");
+                }
+            }
         }
     }
     for d in &alphabet {
@@ -227,6 +409,54 @@ fn enumerate_boundary_bits_and_check_the_binary32_narrowing() {
                     | FidelityReason::Overflow
                     | FidelityReason::PrecisionExceeded { max: 9 }
             ));
+        }
+    }
+}
+
+#[test]
+fn enumerate_binary32_boundary_patterns_and_check_widening_and_narrowing() {
+    // Every binary32 pattern with either sign, every exponent field, and
+    // each boundary fraction: widening keeps the value and the NaN payload,
+    // the 32-bit kind holds the widened float unchanged, narrowing returns
+    // the pattern, and the f64 neighbours of a nonzero finite one are
+    // refused.
+    let bits = en::boundary_bits(Format::B32, None, &en::binary32_fractions());
+    report(
+        "binary32 boundary patterns",
+        "either sign, every exponent field (256), 8 fractions",
+        bits.len(),
+        2 * 256 * 8,
+        "product of 2 signs, 256 exponent fields and 8 fractions",
+    );
+    let spec = ValueSpec::of(ScalarKind::Float { bits: 32 });
+    for b in bits {
+        let wide = float::widen_bits(Format::B32, b);
+        assert_eq!(float::narrow_bits(Format::B32, wide), Some(b), "{b:#x}");
+        assert_eq!(
+            coerce_value(&Value::Float(wide), &spec),
+            Some(Ok(Value::Float(wide))),
+            "{b:#x}"
+        );
+        match (float::decode(Format::B32, b), float::decode(Format::B64, wide)) {
+            (
+                float::FloatValue::Finite { value: x, negative: s },
+                float::FloatValue::Finite { value: y, negative: t },
+            ) => {
+                assert_eq!((x.clone(), s), (y, t), "{b:#x}");
+                if !x.is_zero() {
+                    for n in [wide - 1, wide + 1] {
+                        assert!(
+                            coerce_value(&Value::Float(n), &spec).is_some_and(|r| r.is_err()),
+                            "{n:#x}"
+                        );
+                    }
+                }
+            }
+            (float::FloatValue::Infinite { negative: s }, float::FloatValue::Infinite { negative: t }) => {
+                assert_eq!(s, t);
+            }
+            (float::FloatValue::NaN { .. }, float::FloatValue::NaN { .. }) => {}
+            (x, y) => panic!("{b:#x} widened to another class: {x:?} {y:?}"),
         }
     }
 }

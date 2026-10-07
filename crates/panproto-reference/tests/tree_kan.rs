@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_reference::canonical;
-use panproto_reference::encode::{self, TreeDeltaError};
+use panproto_reference::encode::{self, TreeKanError};
 use panproto_reference::migration::Migration;
 use panproto_reference::model::{Node, SEdge, Tree};
 use panproto_reference::rel::{self, RelFunctor};
@@ -106,9 +106,9 @@ fn tree_extensions_along_the_identity_return_the_input() {
     let f = functor(&s, &s, &identity(&s));
     let t = two_node_tree();
     for out in [
-        encode::t_delta(&f, &t).unwrap(),
-        encode::t_sigma(&f, &t).unwrap(),
-        encode::t_pi(&f, &t).unwrap(),
+        encode::t_delta(&f, &t),
+        encode::t_sigma(&f, &t),
+        encode::t_pi(&f, &t),
     ] {
         let out = out.expect("a tree");
         assert_eq!(out.root, 0);
@@ -157,7 +157,7 @@ fn tree_delta_refuses_a_merging_vertex_map() {
     };
     assert_eq!(
         encode::t_delta(&f, &t),
-        Err(TreeDeltaError::NonInjectiveVertexMap {
+        Err(TreeKanError::NonInjectiveVertexMap {
             first: "a".to_owned(),
             second: "b".to_owned(),
             target: "m".to_owned(),
@@ -203,7 +203,7 @@ fn tree_delta_refuses_two_columns_merged_into_one() {
     };
     assert_eq!(
         encode::t_delta(&f, &t),
-        Err(TreeDeltaError::NonInjectiveVertexMap {
+        Err(TreeKanError::NonInjectiveVertexMap {
             first: "a.x".to_owned(),
             second: "a.z".to_owned(),
             target: "a.w".to_owned(),
@@ -239,7 +239,7 @@ fn tree_delta_along_an_injective_renaming_relabels_the_tree() {
         fans: Vec::new(),
         root: 0,
     };
-    let pulled = encode::t_delta(&f, &t).unwrap().unwrap();
+    let pulled = encode::t_delta(&f, &t).unwrap();
     assert_eq!(
         shape(&pulled),
         BTreeSet::from([(
@@ -274,7 +274,7 @@ fn tree_pi_along_the_identity_keeps_the_table_node_ids() {
         fans: Vec::new(),
         root: 9,
     };
-    let pi = encode::t_pi(&f, &t).unwrap().expect("a tree");
+    let pi = encode::t_pi(&f, &t).expect("a tree");
     assert_eq!(pi.root, 9);
     assert_eq!(shape(&pi), shape(&t));
 }
@@ -311,7 +311,7 @@ fn tree_delta_refuses_two_relations_merged_into_one() {
     };
     assert_eq!(
         encode::t_delta(&f, &t),
-        Err(TreeDeltaError::NonInjectiveEdgeMap {
+        Err(TreeKanError::NonInjectiveEdgeMap {
             target: Box::new(h_edge),
         })
     );

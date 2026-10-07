@@ -106,6 +106,11 @@ pub enum PutDomainError {
         /// The refusal.
         refusal: LayerRefusal,
     },
+    /// The restored source of a tree put has no tree form.
+    RestoredNotATree {
+        /// Why.
+        reason: crate::encode::NotATree,
+    },
     /// The value layer refuses to transform a row's baseline source cells,
     /// so the row has no baseline view to pull an edit back against (get
     /// itself would refuse the baseline source).
@@ -136,6 +141,7 @@ impl PutDomainError {
             Self::MalformedFan { node, .. } => (10, Some(ViewRef::Node(*node))),
             Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
             Self::BaselineRefused { elem, .. } => (12, Some(elem.clone())),
+            Self::RestoredNotATree { .. } => (13, None),
         }
     }
 }
@@ -660,7 +666,8 @@ pub fn tree_get(
     match crate::restrict::get_with_plan(lens.src, lens.tgt, lens.m, lens.plan, lens.vl, &g) {
         Err(e) => Some(Err(e)),
         Ok((view, c)) => {
-            let tree = crate::encode::graph_to_tree(&view, t.root)?;
+            let name = |h: &str| lens_parent_name(lens, h);
+            let tree = crate::encode::graph_to_tree(&view, t.root, &name).ok()?;
             Some(Ok((tree, c, view_embedding(&view))))
         }
     }
@@ -724,10 +731,18 @@ pub fn tree_put(
         v.sort_by_key(PutDomainError::order_key);
         v
     })?;
-    crate::encode::graph_to_tree(&restored, view.root).ok_or_else(|| {
-        vec![PutDomainError::MalformedFan {
-            node: 0,
-            reason: FanViolation::MissingParent,
+    crate::encode::graph_to_tree(
+        &restored,
+        view.root,
+        &crate::encode::schema_parent_name(Some(lens.src)),
+    )
+    .map_err(|reason| {
+        vec![match reason {
+            crate::encode::NotATree::Fan { node, violation } => PutDomainError::MalformedFan {
+                node,
+                reason: violation,
+            },
+            other => PutDomainError::RestoredNotATree { reason: other },
         }]
     })
 }

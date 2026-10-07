@@ -145,68 +145,216 @@ pub fn tree_to_graph(
     Ok((g, emb))
 }
 
-/// The tree form of a tree-shaped graph with this root.
-///
-/// Fan nodes become fans in ascending fan node id, every other edge an arc, arcs in ascending edge
-/// id. `None` when the graph is not of that form (a node with two parents, a fan that is not well
-/// formed, a node unreachable from the root).
+/// Why a graph has no tree form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotATree {
+    /// The root is not a node of the graph, or is a fan node.
+    MissingRoot,
+    /// An edge whose source or target is not a node.
+    DanglingEdge {
+        /// The edge.
+        edge: u32,
+    },
+    /// An edge with a position (the graph form of a tree positions none).
+    PositionedEdge {
+        /// The edge.
+        edge: u32,
+    },
+    /// An edge of a reserved kind leaving a node that is not a fan node.
+    ReservedArc {
+        /// The edge.
+        edge: u32,
+    },
+    /// An edge from a node that is not a fan node into a fan node.
+    ArcIntoFan {
+        /// The edge.
+        edge: u32,
+    },
+    /// An arc into the root.
+    RootHasParent {
+        /// The edge.
+        edge: u32,
+    },
+    /// A node with two parent arcs.
+    SecondParent {
+        /// The node.
+        node: u32,
+    },
+    /// A fan edge whose label is not the one the graph form writes: from
+    /// the fan's hyper-edge to the anchor of the node it reaches, a parent
+    /// edge named as the hyper-edge's parent label.
+    FanLabel {
+        /// The edge.
+        edge: u32,
+    },
+    /// A fan node carrying a value, discriminator, field, position or
+    /// annotation, which the graph form never writes.
+    FanData {
+        /// The fan node.
+        node: u32,
+    },
+    /// A fan node that is not a well-formed fan.
+    Fan {
+        /// The fan node.
+        node: u32,
+        /// Its first fan violation.
+        violation: crate::fan::FanViolation,
+    },
+    /// A node that does not reach the root along its parent arcs.
+    Unreached {
+        /// The node.
+        node: u32,
+    },
+}
+
+/// The parent-edge names of a schema's hyper-edges, as [`tree_to_graph`]
+/// writes them: the hyper-edge's parent label when the schema declares the
+/// hyper-edge, else none.
 #[must_use]
-pub fn graph_to_tree(g: &Graph, root: u32) -> Option<Tree> {
-    let fan_nodes: BTreeSet<u32> = g
-        .nodes
-        .iter()
-        .filter(|(_, n)| n.shape == NodeShape::HyperEdge)
-        .map(|(i, _)| *i)
-        .collect();
-    let mut arcs = Vec::new();
-    let mut parent: BTreeMap<u32, u32> = BTreeMap::new();
-    for e in g.edges.values().filter(|e| !fan_nodes.contains(&e.src)) {
-        if parent.insert(e.tgt, e.src).is_some() || fan_nodes.contains(&e.tgt) {
-            return None;
-        }
-        arcs.push((e.src, e.tgt, e.label.clone()));
+pub fn schema_parent_name(schema: Option<&Schema>) -> impl Fn(&str) -> Option<Name> + '_ {
+    move |hyper: &str| {
+        schema
+            .and_then(|s| s.hyper_edges.get(hyper))
+            .map(|h| h.parent_label.clone())
     }
+}
+
+/// The checks of [`graph_to_tree`] on each edge, ascending.
+fn tree_form_edges(
+    g: &Graph,
+    root: u32,
+    is_fan: &dyn Fn(u32) -> bool,
+    parent_name: &dyn Fn(&str) -> Option<Name>,
+) -> Result<BTreeMap<u32, u32>, NotATree> {
+    let mut parent: BTreeMap<u32, u32> = BTreeMap::new();
+    for (id, e) in &g.edges {
+        let edge = *id;
+        let (Some(from), Some(to)) = (g.nodes.get(&e.src), g.nodes.get(&e.tgt)) else {
+            return Err(NotATree::DanglingEdge { edge });
+        };
+        if e.position.is_some() {
+            return Err(NotATree::PositionedEdge { edge });
+        }
+        if is_fan(e.src) {
+            let expected_name = if e.label.kind == HYPER_PARENT {
+                parent_name(&from.anchor)
+            } else {
+                e.label.name.clone()
+            };
+            if e.label.src != from.anchor
+                || e.label.tgt != to.anchor
+                || e.label.name != expected_name
+            {
+                return Err(NotATree::FanLabel { edge });
+            }
+            continue;
+        }
+        if is_fan_kind(&e.label.kind) {
+            return Err(NotATree::ReservedArc { edge });
+        }
+        if is_fan(e.tgt) {
+            return Err(NotATree::ArcIntoFan { edge });
+        }
+        if e.tgt == root {
+            return Err(NotATree::RootHasParent { edge });
+        }
+        if parent.insert(e.tgt, e.src).is_some() {
+            return Err(NotATree::SecondParent { node: e.tgt });
+        }
+    }
+    Ok(parent)
+}
+
+/// The tree form of a graph with this root.
+///
+/// Definition: the inverse of [`tree_to_graph`] on its image, up to the
+/// ids of fan nodes and edges. A graph has a tree form iff the root is a
+/// node that is no fan node; every edge joins two nodes and has no
+/// position; an edge out of a fan node (a node of the hyper-edge shape) is
+/// labelled from the fan's anchor to the anchor of its target, a parent
+/// edge named by `parent_name` of the fan's anchor (as [`tree_to_graph`]
+/// names it under the same schema, [`schema_parent_name`]); every other
+/// edge is an arc: of no reserved kind, into a node that is neither a fan
+/// node nor the root, and the only arc into its target; every fan node
+/// carries no data and is a well-formed fan ([`crate::fan::violations_at`],
+/// no schema); and every node that is no fan node reaches the root along
+/// its parent arcs. Fan nodes become fans in ascending fan node id (parent
+/// the target of its parent edge, children by label), and arcs keep
+/// ascending edge id order.
+///
+/// # Errors
+///
+/// The first [`NotATree`] reason: the root, then each edge in ascending
+/// id, then each fan node in ascending id, then each other node.
+pub fn graph_to_tree(
+    g: &Graph,
+    root: u32,
+    parent_name: &dyn Fn(&str) -> Option<Name>,
+) -> Result<Tree, NotATree> {
+    let is_fan = |n: u32| {
+        g.nodes
+            .get(&n)
+            .is_some_and(|x| x.shape == NodeShape::HyperEdge)
+    };
+    if !g.nodes.contains_key(&root) || is_fan(root) {
+        return Err(NotATree::MissingRoot);
+    }
+    let parent = tree_form_edges(g, root, &is_fan, parent_name)?;
     let mut fans = Vec::new();
-    for f in &fan_nodes {
+    for (f, node) in g.nodes.iter().filter(|(i, _)| is_fan(**i)) {
+        let bare = node.value.is_none()
+            && node.discriminator.is_none()
+            && node.fields.is_empty()
+            && node.position.is_none()
+            && node.annotations.is_empty();
+        if !bare {
+            return Err(NotATree::FanData { node: *f });
+        }
+        if let Some(violation) = crate::fan::violations_at(g, *f, None).into_iter().next() {
+            return Err(NotATree::Fan { node: *f, violation });
+        }
         let out: Vec<&GEdge> = g.edges.values().filter(|e| e.src == *f).collect();
-        let parents: Vec<u32> = out
+        let parent_of_fan = out
             .iter()
-            .filter(|e| e.label.kind == HYPER_PARENT)
-            .map(|e| e.tgt)
-            .collect();
-        let [p] = parents.as_slice() else { return None };
+            .find(|e| e.label.kind == HYPER_PARENT)
+            .map_or(*f, |e| e.tgt);
         let children: BTreeMap<Name, u32> = out
             .iter()
             .filter(|e| e.label.kind == HYPER_LABEL)
             .filter_map(|e| e.label.name.clone().map(|l| (l, e.tgt)))
             .collect();
         fans.push(Fan {
-            parent: *p,
-            hyper_edge: g.nodes[f].anchor.clone(),
+            parent: parent_of_fan,
+            hyper_edge: node.anchor.clone(),
             children,
         });
     }
     let nodes: BTreeMap<u32, Node> = g
         .nodes
         .iter()
-        .filter(|(i, _)| !fan_nodes.contains(i))
+        .filter(|(i, _)| !is_fan(**i))
         .map(|(i, n)| (*i, n.clone()))
         .collect();
-    let reached = nodes.keys().all(|n| {
+    for n in nodes.keys() {
         let mut cur = *n;
         let mut steps = 0usize;
         while cur != root {
             match parent.get(&cur) {
-                Some(p) if steps <= nodes.len() => {
+                Some(p) if steps < nodes.len() => {
                     cur = *p;
                     steps += 1;
                 }
-                _ => return false,
+                _ => return Err(NotATree::Unreached { node: *n }),
             }
         }
-        true
-    });
-    (reached && nodes.contains_key(&root)).then_some(Tree {
+    }
+    let arcs = g
+        .edges
+        .values()
+        .filter(|e| !is_fan(e.src))
+        .map(|e| (e.src, e.tgt, e.label.clone()))
+        .collect();
+    Ok(Tree {
         nodes,
         arcs,
         fans,
@@ -764,78 +912,11 @@ pub fn g_pi(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
     Ok(decode_table(&p, &GraphSide::whole(&f.tgt)))
 }
 
-/// The root of a graph read as a tree: the one node, other than a fan node,
-/// that is the target of no edge leaving a node other than a fan node.
-/// `None` when there is not exactly one.
-fn root_of(g: &Graph) -> Option<u32> {
-    let fan = |n: &u32| {
-        g.nodes
-            .get(n)
-            .is_some_and(|x| x.shape == NodeShape::HyperEdge)
-    };
-    let children: BTreeSet<u32> = g
-        .edges
-        .values()
-        .filter(|e| !fan(&e.src))
-        .map(|e| e.tgt)
-        .collect();
-    let mut roots = g.nodes.keys().filter(|n| !fan(n) && !children.contains(n));
-    match (roots.next(), roots.next()) {
-        (Some(r), None) => Some(*r),
-        _ => None,
-    }
-}
-
-/// A graph read back as a tree from its root ([`root_of`]).
-fn read_tree(g: &Graph) -> Option<Tree> {
-    root_of(g).and_then(|r| graph_to_tree(g, r))
-}
-
-/// Tree Sigma through the graph form: the tree is encoded as a graph, graph
-/// Sigma runs, and the result is read back as a tree when it is one, rooted
-/// at its one node with no parent.
-///
-/// Definition: on the tree-Kan domain (as for [`t_pi`]), tree Sigma of a
-/// tree X is the tree whose graph form is graph Sigma of X's graph form.
-///
-/// # Errors
-///
-/// [`GraphKanError`]; `Ok(None)` when the result is not a tree or the input
-/// has no graph form.
-pub fn t_sigma(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, GraphKanError> {
-    let Ok((g, _)) = tree_to_graph(t, None) else {
-        return Ok(None);
-    };
-    g_sigma(f, &g).map(|r| read_tree(&r))
-}
-
-/// Tree Pi through the graph form.
-///
-/// The tree is encoded as a graph, graph Pi runs, and the result is read
-/// back as a tree when it is one, rooted at its one node with no parent (Pi
-/// builds its rows afresh, so the input's root id need not survive).
-///
-/// Definition: on the tree-Kan domain (the tree's graph form is in the
-/// encoding's image, and `f` is injective on tables, relations and columns
-/// with every target table, relation and column in its image), tree Pi of a
-/// tree X is the tree whose graph form is graph Pi of X's graph form.
-/// Outside that domain the function still returns graph Pi read back as a
-/// tree, or `Ok(None)` when that graph is not a tree.
-///
-/// # Errors
-///
-/// [`GraphKanError`]; `Ok(None)` when the result is not a tree or the input
-/// has no graph form.
-pub fn t_pi(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, GraphKanError> {
-    let Ok((g, _)) = tree_to_graph(t, None) else {
-        return Ok(None);
-    };
-    g_pi(f, &g).map(|r| read_tree(&r))
-}
-
-/// Why a tree Delta refuses.
+/// Why a tree Kan extension refuses.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TreeDeltaError {
+pub enum TreeKanError {
+    /// The input tree has no graph form.
+    Encode(TreeEncodeError),
     /// Two source vertices (kept tables, or the value vertices of kept
     /// columns) share an image: the pullback would duplicate a node into
     /// several anchors and leave the trees.
@@ -855,6 +936,96 @@ pub enum TreeDeltaError {
     },
     /// The graph extension refused.
     Graph(GraphKanError),
+    /// The result has not exactly one node that is neither a fan node nor
+    /// the target of an arc, so it has no root.
+    RootCount {
+        /// How many such nodes it has.
+        count: usize,
+    },
+    /// The result, read from its root, has no tree form.
+    NotATree(NotATree),
+}
+
+/// The roots of a graph read as a tree: the nodes, other than fan nodes,
+/// that are the target of no edge leaving a node other than a fan node.
+fn roots_of(g: &Graph) -> Vec<u32> {
+    let fan = |n: &u32| {
+        g.nodes
+            .get(n)
+            .is_some_and(|x| x.shape == NodeShape::HyperEdge)
+    };
+    let children: BTreeSet<u32> = g
+        .edges
+        .values()
+        .filter(|e| !fan(&e.src))
+        .map(|e| e.tgt)
+        .collect();
+    g.nodes
+        .keys()
+        .filter(|n| !fan(n) && !children.contains(n))
+        .copied()
+        .collect()
+}
+
+/// A graph read back as a tree from its one root.
+///
+/// # Errors
+///
+/// [`TreeKanError::RootCount`] unless the graph has exactly one root, else
+/// [`TreeKanError::NotATree`] when it has no tree form from that root.
+fn read_tree(g: &Graph) -> Result<Tree, TreeKanError> {
+    match roots_of(g).as_slice() {
+        [root] => graph_to_tree(g, *root, &schema_parent_name(None)).map_err(TreeKanError::NotATree),
+        many => Err(TreeKanError::RootCount { count: many.len() }),
+    }
+}
+
+/// The graph form of a tree, for the tree Kan extensions (no schema, so
+/// fan parent edges are unnamed).
+fn tree_graph(t: &Tree) -> Result<Graph, TreeKanError> {
+    tree_to_graph(t, None)
+        .map(|(g, _)| g)
+        .map_err(TreeKanError::Encode)
+}
+
+/// Tree Sigma through the graph form.
+///
+/// Definition: tree Sigma of a tree X is the tree whose graph form is
+/// graph Sigma of X's graph form: X is encoded as a graph (no schema),
+/// graph Sigma runs, and the result is read back as a tree from its one
+/// node that no arc reaches. On the tree-Kan domain (X's graph form in the
+/// encoding's image, the functor injective on tables, relations and
+/// columns with every target table, relation and column in its image) the
+/// result is a tree; outside it, a result that is no tree is a typed
+/// refusal.
+///
+/// # Errors
+///
+/// [`TreeKanError::Encode`] when X has no graph form,
+/// [`TreeKanError::Graph`] when graph Sigma refuses, and
+/// [`TreeKanError::RootCount`] or [`TreeKanError::NotATree`] when its
+/// result is no tree.
+pub fn t_sigma(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
+    let g = tree_graph(t)?;
+    let r = g_sigma(f, &g).map_err(TreeKanError::Graph)?;
+    read_tree(&r)
+}
+
+/// Tree Pi through the graph form.
+///
+/// Definition: tree Pi of a tree X is the tree whose graph form is graph
+/// Pi of X's graph form, read back from its one node that no arc reaches
+/// (on the tree-Kan domain of [`t_sigma`]). Pi keeps the id of every row
+/// whose target table has a one-table fibre, so along the identity the
+/// root keeps its id.
+///
+/// # Errors
+///
+/// As [`t_sigma`], with graph Pi in place of graph Sigma.
+pub fn t_pi(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
+    let g = tree_graph(t)?;
+    let r = g_pi(f, &g).map_err(TreeKanError::Graph)?;
+    read_tree(&r)
 }
 
 /// The first collision of a map, in ascending key order: the earlier key,
@@ -886,15 +1057,16 @@ fn first_collision<K: Clone + Ord, V: Clone + Ord>(
 /// arrow target to its image column's arrow target); the edge map is the
 /// kept relation map together with the attribute arrows of kept columns.
 /// On that domain the tree whose graph form is graph Delta of the target
-/// tree's graph form is returned, rooted at its one node with no parent.
+/// tree's graph form is returned, read back from its one node that no arc
+/// reaches.
 ///
 /// # Errors
 ///
-/// [`TreeDeltaError::NonInjectiveVertexMap`] and
-/// [`TreeDeltaError::NonInjectiveEdgeMap`] for a merging map, checked in
-/// that order; [`TreeDeltaError::Graph`] when graph Delta refuses.
-/// `Ok(None)` when the result is not a tree or the input has no graph form.
-pub fn t_delta(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, TreeDeltaError> {
+/// [`TreeKanError::NonInjectiveVertexMap`] and
+/// [`TreeKanError::NonInjectiveEdgeMap`] for a merging map, checked in
+/// that order; then as [`t_sigma`], with graph Delta in place of graph
+/// Sigma.
+pub fn t_delta(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
     let arrow = |schema: &RelSchema, table: &str, column: &str| -> Option<SEdge> {
         schema
             .columns
@@ -927,21 +1099,18 @@ pub fn t_delta(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, TreeDeltaError>
     edges.sort();
     edges.dedup();
     if let Some((first, second, target)) = first_collision(vertices) {
-        return Err(TreeDeltaError::NonInjectiveVertexMap {
+        return Err(TreeKanError::NonInjectiveVertexMap {
             first,
             second,
             target,
         });
     }
     if let Some((_, _, target)) = first_collision(edges) {
-        return Err(TreeDeltaError::NonInjectiveEdgeMap {
+        return Err(TreeKanError::NonInjectiveEdgeMap {
             target: Box::new(target),
         });
     }
-    let Ok((g, _)) = tree_to_graph(t, None) else {
-        return Ok(None);
-    };
-    g_delta(f, &g)
-        .map(|r| read_tree(&r))
-        .map_err(TreeDeltaError::Graph)
+    let g = tree_graph(t)?;
+    let r = g_delta(f, &g).map_err(TreeKanError::Graph)?;
+    read_tree(&r)
 }

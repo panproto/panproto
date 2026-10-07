@@ -300,7 +300,12 @@ pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, 
             }
         }
     }
-    let tree = crate::encode::graph_to_tree(&graph, comp.root).ok_or(ResolveError::NotATree)?;
+    let tree = crate::encode::graph_to_tree(
+        &graph,
+        comp.root,
+        &crate::encode::schema_parent_name(Some(schema)),
+    )
+    .map_err(|_| ResolveError::NotATree)?;
     let (check, _) = tree_to_graph(&tree, Some(schema)).map_err(|_| ResolveError::NotATree)?;
     for (holder, reference, target) in &writes {
         let RefSource::KeyValue { parts } = &reference.source else {

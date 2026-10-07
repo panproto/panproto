@@ -47,7 +47,10 @@ fn a_tree_with_a_fan_round_trips_through_its_graph() {
         vec![(6, 2, [("x".to_owned(), 3), ("y".to_owned(), 4)].into())]
     );
     assert_eq!(g.edges[&2].label.name.as_deref(), Some("p"));
-    assert_eq!(encode::graph_to_tree(&g, 0), Some(tree));
+    assert_eq!(
+        encode::graph_to_tree(&g, 0, &encode::schema_parent_name(Some(&schema))),
+        Ok(tree)
+    );
 }
 
 #[test]
