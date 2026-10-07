@@ -17,6 +17,7 @@ pub mod path;
 pub mod rel;
 pub mod restrict;
 pub mod schema;
+pub mod segment;
 pub mod table;
 pub mod temporal;
 pub mod validation;
