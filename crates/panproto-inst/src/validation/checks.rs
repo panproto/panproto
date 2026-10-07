@@ -2563,20 +2563,20 @@ fn acyclic(g: &GInstance, labels: &BTreeSet<Edge>) -> Outcome {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
 
-    use panproto_schema::{HyperEdge, Schema};
+    use panproto_gat::Name;
+    use panproto_schema::{
+        Edge, HyperEdge, InstanceShapeKind, Key, KeyRole, KeyScope, Protocol, Schema,
+    };
 
-    use std::collections::BTreeSet;
-
-    use panproto_schema::Edge;
-
-    use super::{InstanceView, traced, tree_fan_reasons};
+    use super::{Context, InstanceView, TreeArcs, traced, traced_bounded, tree_fan_reasons};
     use crate::fan::Fan;
     use crate::fan_violation::FanViolation;
     use crate::functor::FInstance;
+    use crate::ginstance::GInstance;
     use crate::metadata::Node;
-    use crate::validation::FanRecord;
+    use crate::validation::{FanRecord, ValidationOptions, ValidationPlan};
     use crate::view_ref::{RowId, ViewRef};
     use crate::wtype::WInstance;
 
@@ -2676,6 +2676,92 @@ mod tests {
         }
         assert_eq!(checked, 768);
         eprintln!("bounded tables 256, rows checked {checked}");
+    }
+
+    #[test]
+    fn graph_and_tree_positions_select_only_the_named_ordering() {
+        let within = fk("parent", "item", "within");
+        let other = fk("parent", "item", "other");
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "parent"))
+            .with_node(Node::new(1, "item"))
+            .with_node(Node::new(2, "item"))
+            .with_node(Node::new(3, "item"))
+            .with_edge(0, 1, within.clone())
+            .with_edge(0, 3, other.clone())
+            .with_edge(0, 2, within.clone());
+        let graph_view = InstanceView::Graph(&graph);
+        assert_eq!(graph_view.position_of(&ViewRef::Node(1), &within), Some(0));
+        assert_eq!(graph_view.position_of(&ViewRef::Node(2), &within), Some(1));
+
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "parent")),
+                (1, Node::new(1, "item")),
+                (2, Node::new(2, "item")),
+                (3, Node::new(3, "item")),
+            ]),
+            vec![
+                (0, 1, within.clone()),
+                (0, 3, other),
+                (0, 2, within.clone()),
+            ],
+            Vec::new(),
+            0,
+            "parent".into(),
+        );
+        let arcs = TreeArcs::new(&tree);
+        let tree_view = InstanceView::Tree(&tree, &arcs);
+        assert_eq!(tree_view.position_of(&ViewRef::Node(1), &within), Some(0));
+        assert_eq!(tree_view.position_of(&ViewRef::Node(2), &within), Some(1));
+    }
+
+    #[test]
+    fn key_index_cache_identity_and_bounded_overflow_are_exact() {
+        let schema = Schema::default();
+        let protocol = Protocol {
+            syntactic_shape: InstanceShapeKind::Graph,
+            semantic_shape: InstanceShapeKind::Graph,
+            ..Protocol::default()
+        };
+        let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "b"));
+        let external = super::ExternalVerdicts::default();
+        let ctx = Context::new(&plan, InstanceView::Graph(&graph), &external);
+        let a: Name = "a".into();
+        let b: Name = "b".into();
+        let key = Key {
+            id: "k".into(),
+            parts: Vec::new(),
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+        };
+        let other_key = Key {
+            id: "other".into(),
+            ..key.clone()
+        };
+
+        assert!(ctx.key_index(&a, &key, true).is_some());
+        assert!(ctx.key_index(&a, &key, true).is_some());
+        assert_eq!(ctx.indexes.borrow().len(), 1);
+        assert!(ctx.key_index(&a, &key, false).is_some());
+        assert!(ctx.key_index(&b, &key, true).is_some());
+        assert!(ctx.key_index(&a, &other_key, true).is_some());
+        assert_eq!(ctx.indexes.borrow().len(), 4);
+
+        let bounded = Context::new(&plan, InstanceView::Graph(&graph), &external);
+        let (index, trace) = traced_bounded(8, || bounded.key_index(&a, &key, true));
+        assert!(index.is_some());
+        assert!(!trace.overflowed);
+        assert!(bounded.indexes.borrow().is_empty());
+
+        let overflowed = Context::new(&plan, InstanceView::Graph(&graph), &external);
+        let (index, trace) = traced_bounded(0, || overflowed.key_index(&a, &key, true));
+        assert!(index.is_none());
+        assert!(trace.overflowed);
+        assert!(overflowed.indexes.borrow().is_empty());
     }
 
     #[test]

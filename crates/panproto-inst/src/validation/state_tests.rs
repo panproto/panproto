@@ -334,6 +334,47 @@ fn delta_local_validation_evaluates_global_kinds_in_full() -> TestResult {
 }
 
 #[test]
+fn initialization_materializes_both_maintained_index_families() {
+    let plan = reference_plan();
+    let (validated, report) = ValidatedGraph::new(
+        plan,
+        reference_graph(2, 2),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    assert_eq!(report.status, CheckStatus::Passed);
+
+    let key_kinds: Vec<_> = validated
+        .state()
+        .key_indexes
+        .keys()
+        .map(|key| key.kind)
+        .collect();
+    let reference_kinds: Vec<_> = validated
+        .state()
+        .reference_indexes
+        .keys()
+        .map(|key| key.kind)
+        .collect();
+    assert_eq!(key_kinds, [CheckKind::KeyUnique]);
+    assert_eq!(reference_kinds, [CheckKind::ReferenceResolves]);
+    assert!(
+        validated
+            .state()
+            .key_indexes
+            .values()
+            .all(|index| !index.values.is_empty())
+    );
+    assert!(
+        validated
+            .state()
+            .reference_indexes
+            .values()
+            .all(|index| !index.values.is_empty())
+    );
+}
+
+#[test]
 fn an_inapplicable_delta_is_refused_by_the_delta_local_checkers() {
     let mut schema = Schema::default();
     schema.vertices.insert(

@@ -416,3 +416,41 @@ pub const fn is_whole_instance(kind: super::report::CheckKind) -> bool {
         K::SchemaWellFormed | K::DeclarationInterpretable | K::TreeRoot | K::KeyUnique | K::Acyclic
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use panproto_schema::{InstanceShapeKind, Protocol, Schema};
+
+    use super::Session;
+    use crate::ginstance::GInstance;
+    use crate::validation::checks::InstanceView;
+    use crate::validation::{
+        CheckInstance, CheckKey, CheckKind, ExternalVerdicts, SchemaRef, ValidationOptions,
+        ValidationPlan,
+    };
+    use crate::view_ref::ViewRef;
+
+    #[test]
+    fn a_check_absent_from_the_plan_is_inert() {
+        let schema = Schema::default();
+        let protocol = Protocol {
+            syntactic_shape: InstanceShapeKind::Graph,
+            semantic_shape: InstanceShapeKind::Graph,
+            ..Protocol::default()
+        };
+        let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+        let graph = GInstance::new();
+        let external = ExternalVerdicts::default();
+        let session = Session::new(&plan, InstanceView::Graph(&graph), &external);
+        let absent = CheckInstance {
+            check: CheckKey::new(CheckKind::External, SchemaRef::External("absent".into())),
+            subject: Some(ViewRef::Node(0)),
+        };
+
+        assert!(session.inert(&absent));
+        assert!(session.trace(&absent).is_empty());
+        assert_eq!(session.trace_within(&absent, 0), Some(BTreeSet::new()));
+    }
+}
