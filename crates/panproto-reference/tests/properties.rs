@@ -125,10 +125,10 @@ proptest! {
         let d = edit::diff(&g, &h);
         prop_assert_eq!(edit::apply(&d, &g), Ok(h.clone()));
         prop_assert_eq!(edit::apply(&d.invert(), &h), Ok(g.clone()));
-        prop_assert_eq!(d.invert().invert(), d.clone());
         prop_assert_eq!(edit::diff(&g, &g), GraphDelta::identity());
         let there_and_back = d.compose(&d.invert()).unwrap();
         prop_assert_eq!(edit::apply(&there_and_back, &g), Ok(g));
+        prop_assert_eq!(d.invert().invert(), d);
     }
 
     #[test]

@@ -457,7 +457,8 @@ pub fn binary64_fractions() -> Vec<u64> {
 
 /// The temporal lexemes of the order's exhaustive scope.
 ///
-/// Every shape over years {-1, 0, 1, 2000}, months {1, 2, 12}, days {1, 28, 29, 31} (where valid),
+/// Every shape over years {-1, 0, 1, 2000}, months {1, 2, 12}, days {1, 28, 29, 31} (impossible dates such as
+/// `0001-02-31` included, for the reader to refuse),
 /// hours {0, 23}, minutes {0, 59}, seconds {0, 59, 60}, fractions {none, .0, .5}, and offsets
 /// {local, Z, z, +00:00, -00:00, +04, +0400, +04:00, -14:00}.
 #[must_use]

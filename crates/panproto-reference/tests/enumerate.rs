@@ -17,8 +17,10 @@ use panproto_reference::temporal::{self, TemporalKind};
 use panproto_reference::validation;
 use panproto_reference::value::Value;
 
-fn report(name: &str, bound: &str, count: usize, independent: u64) {
-    println!("{name}: bound {bound}; count {count}; independent count {independent}");
+/// Print an enumeration's bound and count beside the independent count and
+/// its source, and require the two counts to agree.
+fn report(name: &str, bound: &str, count: usize, independent: u64, source: &str) {
+    println!("{name}: bound {bound}; count {count}; independent count {independent} ({source})");
     assert_eq!(count as u64, independent, "{name}");
 }
 
@@ -30,6 +32,7 @@ fn enumerate_schemas_and_migrations() {
         "2 vertices, 2 kinds, 1 name, at most 2 edges",
         s.len(),
         en::schemas_count(2, 2, 1, 2),
+        "closed formula k^n * sum_{j <= m} C(n^2 l, j)",
     );
     let src = &s[0];
     let tgt = &s[s.len() - 1];
@@ -39,6 +42,7 @@ fn enumerate_schemas_and_migrations() {
         "2 source and 2 target vertices",
         m.len(),
         en::migrations_count(2, 2),
+        "closed formula (|Vt| + 1)^|Vs|",
     );
 }
 
@@ -54,6 +58,7 @@ fn enumerate_graphs_and_check_their_bytes_are_injective() {
         "2 nodes, 2 anchors, values {none, 0}, 2 labels, at most 2 edges",
         gs.len(),
         en::graphs_count(2, 1, 2, 2, 2),
+        "closed formula sum_{n <= N} (a (v + 1))^n sum_{m <= M} (n^2 l)^m",
     );
     let mut seen = BTreeSet::new();
     for g in &gs {
@@ -73,6 +78,7 @@ fn enumerate_tables_and_check_their_bytes_are_injective() {
         "2 tables, 1 column, values {0, null}, 1 relation, at most 2 rows",
         ts.len(),
         en::tables_count(&["t", "u"], &cols, 2, &rel, 2),
+        "separate brute-force product over row counts and table assignments",
     );
     let mut seen = BTreeSet::new();
     for t in &ts {
@@ -94,6 +100,7 @@ fn enumerate_trees_and_check_their_encodings() {
             &format!("{n} nodes, 2 anchors"),
             ts.len(),
             en::trees_count(n, 2),
+            "Cayley's formula n^(n-2) for labelled trees, OEIS A000272, times a^n anchorings",
         );
         total += ts.len();
         for t in &ts {
@@ -135,6 +142,7 @@ fn enumerate_edit_sequences_and_check_the_algebra() {
         "alphabet of 7 deltas on one node, length at most 3",
         words.len(),
         en::sequences_count(7, 3),
+        "closed formula sum_{l <= 3} 7^l",
     );
     for w in words.iter().filter(|w| w.len() == 3) {
         let (a, b, c) = (&w[0], &w[1], &w[2]);
@@ -168,6 +176,7 @@ fn enumerate_numerals_and_check_fixed_points() {
         "at most 2 digits, exponent -3 to 3",
         ns.len(),
         en::numerals_count(2, -3, 3),
+        "closed formula 2 * 10^d * (hi - lo + 1)",
     );
     for kind in [
         ScalarKind::Float { bits: 16 },
@@ -200,6 +209,7 @@ fn enumerate_boundary_bits_and_check_the_binary32_narrowing() {
         "either sign, exponent fields 871 to 1153 and 0, 1, 2046, 2047, 14 fractions",
         bits.len(),
         2 * 287 * 14,
+        "product of 2 signs, 287 exponent fields and 14 fractions",
     );
     let spec = ValueSpec::of(ScalarKind::Float { bits: 32 });
     for b in bits {
@@ -225,7 +235,9 @@ fn enumerate_boundary_bits_and_check_the_binary32_narrowing() {
 fn enumerate_binary16_patterns_and_check_the_kind_holds_exactly_them() {
     let spec = ValueSpec::of(ScalarKind::Float { bits: 16 });
     let mut finite = 0u64;
+    let mut patterns = 0usize;
     for b in 0u64..=0xffff {
+        patterns += 1;
         let wide = float::widen_bits(Format::B16, b);
         assert_eq!(
             coerce_value(&Value::Float(wide), &spec),
@@ -245,7 +257,13 @@ fn enumerate_binary16_patterns_and_check_the_kind_holds_exactly_them() {
             }
         }
     }
-    report("binary16 patterns", "all 65536", 65536, 65536);
+    report(
+        "binary16 patterns",
+        "every 16-bit pattern",
+        patterns,
+        1 << 16,
+        "closed formula 2^16",
+    );
     println!("binary16 finite patterns: {finite}");
 }
 
@@ -254,9 +272,10 @@ fn enumerate_temporal_lexemes_and_check_display_and_order() {
     let ls = en::temporal_lexemes();
     report(
         "temporal lexemes",
-        "the order's scope",
+        "4 years, 3 months, 4 days, 2 hours, 2 minutes, 3 seconds, 3 fractions, 9 offsets",
         ls.len(),
         en::temporal_lexemes_count(),
+        "separate product of date, time and date-time shapes per offset",
     );
     let mut values = Vec::new();
     for l in &ls {
@@ -306,6 +325,7 @@ fn enumerate_admission_bundles_and_check_the_policies_coincide_on_a_passed_basel
         "3 required bundles, each passed or one of 2 outcomes",
         results.len(),
         27,
+        "closed formula 3^3",
     );
     for r in &results {
         let bundles: BTreeMap<usize, Vec<u8>> = r
