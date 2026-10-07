@@ -38,6 +38,7 @@ members = [
     "crates/panproto-theory-dsl",
     "crates/panproto-gat-macros",
     "crates/book-doctest-stub",
+    "crates/panproto-reference",
     "tests/integration",
     "xtask",
 ]

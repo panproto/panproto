@@ -2312,6 +2312,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "panproto-reference"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "panproto-schema"
 version = "0.74.4"
 dependencies = [
