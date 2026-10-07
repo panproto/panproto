@@ -2313,6 +2313,52 @@ fn tree_kan_boundary_cases_are_not_claimed_as_agreements() {
 }
 
 proptest! {
+    /// Graph Sigma is the separated reflection of the presheaf Sigma on
+    /// sampled graphs of every migration of [`reflection_family`] with up to
+    /// six table nodes (above the exhaustive bound of four): `counts` gives
+    /// each table's node count, `cells` each cell's value, and `masks` each
+    /// relation's subset of the possible pairs.
+    #[test]
+    fn g_sigma_is_the_separated_reflection_on_sampled_graphs(
+        index in 0usize..10,
+        counts in proptest::collection::vec(0usize..=3, 3),
+        cells in proptest::collection::vec(0usize..3, 12),
+        masks in proptest::collection::vec(any::<u64>(), 3),
+    ) {
+        let family = reflection_family();
+        prop_assert_eq!(family.len(), 10);
+        let (case, _) = &family[index];
+        let counts = &counts[..case.source.tables.len()];
+        prop_assume!(counts.iter().sum::<usize>() <= 6);
+        let shape = oracle::layout(&case.source, counts);
+        let forms = leaf_forms(&case.cells);
+        let chosen_cells: Vec<oracle::Form> = cells
+            .iter()
+            .take(shape.0.len())
+            .map(|k| forms[k % forms.len()].clone())
+            .collect();
+        let pairs: Vec<Vec<(u32, u32)>> = case
+            .source
+            .relations
+            .iter()
+            .zip(&masks)
+            .map(|(relation, mask)| {
+                oracle::possible_pairs(relation, &shape.1)
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(k, _)| mask & (1u64 << k) != 0)
+                    .map(|(_, pair)| pair)
+                    .collect()
+            })
+            .collect();
+        let graph = oracle::assemble(&case.source, &shape, &chosen_cells, &pairs);
+        let functor = case.functor();
+        let (source, target, migration) =
+            (case.source.schema(), case.target.schema(), case.migration());
+        let counts = sigma_reflection_at(case, &functor, (&source, &target, &migration), &graph);
+        prop_assert_eq!(counts.compared + counts.refused, 6);
+    }
+
     #[test]
     fn decoding_inverts_encoding(
         value in any::<i64>(),
@@ -3459,6 +3505,86 @@ mod oracle {
         }
     }
 
+    /// The cell slots `(owner, table, column)` of a graph, each table's
+    /// nodes, and the number of table nodes.
+    pub type Layout<'s> = (
+        Vec<(u32, &'s str, &'s str)>,
+        BTreeMap<&'s str, Vec<u32>>,
+        u32,
+    );
+
+    /// The table nodes of a graph of `spec` with `counts[i]` nodes at its
+    /// `i`th table: ids `0..n` in table order, with the cell slots in that
+    /// order.
+    pub fn layout<'s>(spec: &'s Spec, counts: &[usize]) -> Layout<'s> {
+        let mut slots: Vec<(u32, &str, &str)> = Vec::new();
+        let mut owners: BTreeMap<&str, Vec<u32>> = BTreeMap::new();
+        let mut id = 0u32;
+        for ((table, columns), count) in spec.tables.iter().zip(counts) {
+            for _ in 0..*count {
+                owners.entry(table).or_default().push(id);
+                for (column, _) in columns {
+                    slots.push((id, table, column));
+                }
+                id += 1;
+            }
+        }
+        (slots, owners, id)
+    }
+
+    /// Every pair between the nodes of `relation`'s endpoint tables, source
+    /// node varying slowest.
+    pub fn possible_pairs(relation: &Edge, owners: &BTreeMap<&str, Vec<u32>>) -> Vec<(u32, u32)> {
+        let none = Vec::new();
+        product(&[
+            owners.get(relation.src.as_ref()).unwrap_or(&none).clone(),
+            owners.get(relation.tgt.as_ref()).unwrap_or(&none).clone(),
+        ])
+        .into_iter()
+        .map(|pair| (pair[0], pair[1]))
+        .collect()
+    }
+
+    /// The graph of `spec` with the table nodes of `owners` (`nodes` of
+    /// them), the cell of each slot of `slots` in the form `cells` gives it,
+    /// and the pairs `pairs` gives each relation. Value nodes and edges take
+    /// ids in order after the table nodes.
+    pub fn assemble(
+        spec: &Spec,
+        layout: &Layout<'_>,
+        cells: &[Form],
+        pairs: &[Vec<(u32, u32)>],
+    ) -> GInstance {
+        let (slots, owners, nodes) = layout;
+        let mut graph = GInstance::new();
+        for (table, _) in &spec.tables {
+            for node in owners.get(table).into_iter().flatten() {
+                graph
+                    .insert_node(Node::new(*node, *table))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
+        }
+        let mut next = (*nodes, 0u32);
+        for ((owner, table, column), form) in slots.iter().zip(cells) {
+            add_cell(
+                &mut graph,
+                &mut next,
+                *owner,
+                &Spec::column_edge(table, column),
+                form,
+            );
+        }
+        for (relation, chosen) in spec.relations.iter().zip(pairs) {
+            for (src, tgt) in chosen {
+                graph
+                    .insert_edge(EdgeId(next.1), GEdge::new(*src, *tgt, relation.clone()))
+                    .unwrap_or_else(|e| panic!("{e}"));
+                next.1 += 1;
+            }
+        }
+        graph
+    }
+
     /// Every labelled graph of `Enc(spec)` with at most `max` table nodes:
     /// the table nodes carry ids `0..n` in table order, every cell takes
     /// every form `forms(table, column)` lists, and every relation takes
@@ -3471,32 +3597,14 @@ mod oracle {
     ) -> Vec<GInstance> {
         let mut out = Vec::new();
         for counts in compositions(spec.tables.len(), max) {
-            let mut slots: Vec<(u32, &str, &str)> = Vec::new();
-            let mut owners: BTreeMap<&str, Vec<u32>> = BTreeMap::new();
-            let mut id = 0u32;
-            for ((table, columns), count) in spec.tables.iter().zip(&counts) {
-                for _ in 0..*count {
-                    owners.entry(table).or_default().push(id);
-                    for (column, _) in columns {
-                        slots.push((id, table, column));
-                    }
-                    id += 1;
-                }
-            }
-            let nodes = id;
+            let shape = layout(spec, &counts);
+            let (slots, owners, _) = &shape;
             let cell_choices: Vec<Vec<Form>> = slots.iter().map(|(_, t, c)| forms(t, c)).collect();
             let pair_choices: Vec<Vec<Vec<(u32, u32)>>> = spec
                 .relations
                 .iter()
                 .map(|relation| {
-                    let none = Vec::new();
-                    let possible: Vec<(u32, u32)> = product(&[
-                        owners.get(relation.src.as_ref()).unwrap_or(&none).clone(),
-                        owners.get(relation.tgt.as_ref()).unwrap_or(&none).clone(),
-                    ])
-                    .into_iter()
-                    .map(|pair| (pair[0], pair[1]))
-                    .collect();
+                    let possible = possible_pairs(relation, owners);
                     (0u32..(1u32 << possible.len()))
                         .map(|mask| {
                             possible
@@ -3511,36 +3619,7 @@ mod oracle {
                 .collect();
             for cells in product(&cell_choices) {
                 for pairs in product(&pair_choices) {
-                    let mut graph = GInstance::new();
-                    for (table, _) in &spec.tables {
-                        for node in owners.get(table).into_iter().flatten() {
-                            graph
-                                .insert_node(Node::new(*node, *table))
-                                .unwrap_or_else(|e| panic!("{e}"));
-                        }
-                    }
-                    let mut next = (nodes, 0u32);
-                    for ((owner, table, column), form) in slots.iter().zip(&cells) {
-                        add_cell(
-                            &mut graph,
-                            &mut next,
-                            *owner,
-                            &Spec::column_edge(table, column),
-                            form,
-                        );
-                    }
-                    for (relation, chosen) in spec.relations.iter().zip(&pairs) {
-                        for (src, tgt) in chosen {
-                            graph
-                                .insert_edge(
-                                    EdgeId(next.1),
-                                    GEdge::new(*src, *tgt, relation.clone()),
-                                )
-                                .unwrap_or_else(|e| panic!("{e}"));
-                            next.1 += 1;
-                        }
-                    }
-                    out.push(graph);
+                    out.push(assemble(spec, &shape, &cells, &pairs));
                 }
             }
         }
@@ -5944,6 +6023,15 @@ fn sigma_reflection_cases() -> Vec<(KanCase, usize)> {
     ]
 }
 
+/// The migrations of the Sigma reflection check, each with its exhaustive
+/// bound on table nodes: the adjunction family at four, then
+/// [`sigma_reflection_cases`].
+fn reflection_family() -> Vec<(KanCase, usize)> {
+    let mut cases: Vec<(KanCase, usize)> = kan_family().into_iter().map(|c| (c, 4)).collect();
+    cases.extend(sigma_reflection_cases());
+    cases
+}
+
 /// Every ordering of `items`.
 fn permutations(items: &[u32]) -> Vec<Vec<u32>> {
     if items.is_empty() {
@@ -6194,8 +6282,7 @@ fn sigma_reflection_on_every_graph(case: &KanCase, max: usize) -> (usize, Reflec
 /// count, and the test prints its bounds and counts.
 #[test]
 fn g_sigma_equals_the_separated_reflection_of_the_presheaf_sigma() {
-    let mut cases: Vec<(KanCase, usize)> = kan_family().into_iter().map(|c| (c, 4)).collect();
-    cases.extend(sigma_reflection_cases());
+    let cases = reflection_family();
     let mut graphs = 0;
     let mut total = ReflectionCounts::default();
     for (case, max) in &cases {
