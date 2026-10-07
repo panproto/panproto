@@ -19,4 +19,5 @@ pub mod restrict;
 pub mod schema;
 pub mod table;
 pub mod temporal;
+pub mod validation;
 pub mod value;
