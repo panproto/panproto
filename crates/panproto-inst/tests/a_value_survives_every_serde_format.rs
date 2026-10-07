@@ -152,9 +152,13 @@ fn a_nan_keeps_its_bits_in_every_serde_format() {
         r#"{"Float":"nan"}"#,
         r#"{"Float":"-nan"}"#,
     ] {
+        let error = serde_json::from_str::<Value>(json).expect_err("refused");
+        // The refusal names every spelling a float may take.
         assert!(
-            serde_json::from_str::<Value>(json).is_err(),
-            "{json} must be refused"
+            error.to_string().contains(
+                r#"expected a number or one of "NaN", "-NaN", "Infinity", "-Infinity" or "NaN:0x" with 16 lowercase hexadecimal digits"#
+            ),
+            "{json}: {error}"
         );
     }
 }
