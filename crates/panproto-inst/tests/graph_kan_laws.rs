@@ -12,8 +12,9 @@ use panproto_inst::{
     g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi, g_pi_along,
     g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
     g_pi_transpose_right, g_pi_unit, g_pi_with_provenance, g_sigma, g_sigma_along,
-    g_sigma_along_with_provenance, g_sigma_restricted, g_sigma_with_provenance, g_transpose_left,
-    g_transpose_right, g_unit, graph_extend, graph_extend_engine, wtype_extend_engine, wtype_pi,
+    g_sigma_along_with_provenance, g_sigma_restricted, g_sigma_restricted_with_provenance,
+    g_sigma_with_provenance, g_transpose_left, g_transpose_right, g_unit, graph_extend,
+    graph_extend_engine, wtype_extend_engine, wtype_pi,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use proptest::prelude::*;
@@ -5512,4 +5513,706 @@ fn graph_pi_keeps_the_agreeing_pairs_of_a_merge() {
         let sources: BTreeSet<u32> = tuple.iter().map(|row| row.0).collect();
         assert_eq!(provenance.nodes[row], sources);
     }
+}
+
+/// A reference semantics for graph Sigma on the entity part, written from
+/// the definitions and calling none of the functions under test.
+///
+/// The entity category of a relational schema has one object per table and
+/// one per relation, and, besides identities, exactly the two legs
+/// `src_e: e -> src(e)` and `tgt_e: e -> tgt(e)` of each relation `e`. An
+/// instance is a functor from it to sets: the table nodes at each table,
+/// the relation edges at each relation (each edge its own element, so
+/// parallel edges stay apart), and each leg sending an edge to its
+/// endpoint. The left Kan extension along `F` is computed pointwise, at
+/// each target object `d`, as the colimit over the comma category `(F, d)`
+/// of the instance, by union-find over the disjoint union of the sets
+/// `I(c)` indexed by the comma objects `(c, f: F(c) -> d)`, joining `x` at
+/// `(c, f)` with `I(u)(x)` at `(c', f')` for every arrow `u: c -> c'` with
+/// `f' . F(u) = f`. The separated reflection `L_sep` then identifies two
+/// elements of one relation with equal endpoints, and nothing else.
+mod presheaf {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_gat::Name;
+    use panproto_inst::{GInstance, Value};
+    use panproto_schema::Edge;
+
+    use super::oracle;
+
+    /// An object of the entity category.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum Object {
+        Table(Name),
+        Relation(Edge),
+    }
+
+    /// An arrow of the entity category: an identity or a leg of a relation.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum Arrow {
+        Id(Object),
+        Src(Edge),
+        Tgt(Edge),
+    }
+
+    impl Arrow {
+        pub fn dom(&self) -> Object {
+            match self {
+                Self::Id(object) => object.clone(),
+                Self::Src(e) | Self::Tgt(e) => Object::Relation(e.clone()),
+            }
+        }
+
+        pub fn cod(&self) -> Object {
+            match self {
+                Self::Id(object) => object.clone(),
+                Self::Src(e) => Object::Table(e.src.clone()),
+                Self::Tgt(e) => Object::Table(e.tgt.clone()),
+            }
+        }
+    }
+
+    /// `g . f`, defined when `cod f = dom g`. A leg ends at a table, and
+    /// only the identity leaves a table, so a composite of two legs never
+    /// arises.
+    pub fn compose(g: &Arrow, f: &Arrow) -> Arrow {
+        assert_eq!(f.cod(), g.dom(), "composite of {g:?} after {f:?}");
+        match (g, f) {
+            (Arrow::Id(_), other) | (other, Arrow::Id(_)) => other.clone(),
+            _ => panic!("two legs compose only through a table: {g:?} after {f:?}"),
+        }
+    }
+
+    /// The objects and every arrow of the entity category of `side`.
+    pub fn category(side: &oracle::Side) -> (Vec<Object>, Vec<Arrow>) {
+        let mut objects: Vec<Object> = side.tables.keys().cloned().map(Object::Table).collect();
+        objects.extend(side.relations.iter().cloned().map(Object::Relation));
+        let mut arrows: Vec<Arrow> = objects.iter().cloned().map(Arrow::Id).collect();
+        for e in &side.relations {
+            arrows.push(Arrow::Src(e.clone()));
+            arrows.push(Arrow::Tgt(e.clone()));
+        }
+        (objects, arrows)
+    }
+
+    /// A functor from the entity category to sets, with each element a
+    /// number: the set at each object and the action of each leg.
+    #[derive(Clone, Debug, Default)]
+    pub struct Instance {
+        pub sets: BTreeMap<Object, BTreeSet<usize>>,
+        pub legs: BTreeMap<(Arrow, usize), usize>,
+    }
+
+    impl Instance {
+        /// `I(u)(x)`.
+        pub fn act(&self, u: &Arrow, x: usize) -> usize {
+            match u {
+                Arrow::Id(_) => x,
+                leg => self.legs[&(leg.clone(), x)],
+            }
+        }
+    }
+
+    /// The entity instance of `graph` on the objects of `side`: the nodes
+    /// at each table of `side` (by node id), the edges labelled by each
+    /// relation of `side` (by edge id), and the legs sending an edge to its
+    /// endpoints. Everything at an object outside `side` is left out.
+    pub fn of_graph(graph: &GInstance, side: &oracle::Side) -> Instance {
+        let mut instance = Instance::default();
+        for table in side.tables.keys() {
+            instance
+                .sets
+                .insert(Object::Table(table.clone()), BTreeSet::new());
+        }
+        for relation in &side.relations {
+            instance
+                .sets
+                .insert(Object::Relation(relation.clone()), BTreeSet::new());
+        }
+        for node in graph.nodes().values() {
+            if let Some(set) = instance.sets.get_mut(&Object::Table(node.anchor.clone())) {
+                set.insert(node.id as usize);
+            }
+        }
+        for (id, edge) in graph.edges_sorted() {
+            if let Some(set) = instance.sets.get_mut(&Object::Relation(edge.edge.clone())) {
+                let element = id.0 as usize;
+                set.insert(element);
+                instance
+                    .legs
+                    .insert((Arrow::Src(edge.edge.clone()), element), edge.src as usize);
+                instance
+                    .legs
+                    .insert((Arrow::Tgt(edge.edge.clone()), element), edge.tgt as usize);
+            }
+        }
+        instance
+    }
+
+    /// A functor between entity categories, given on tables and relations;
+    /// it sends identities to identities and each leg of `e` to the same
+    /// leg of `F(e)`.
+    pub struct Functor<'a> {
+        pub map: &'a oracle::Map,
+    }
+
+    impl Functor<'_> {
+        pub fn object(&self, object: &Object) -> Object {
+            match object {
+                Object::Table(t) => Object::Table(self.map.tables[t].clone()),
+                Object::Relation(e) => Object::Relation(self.map.relations[e].clone()),
+            }
+        }
+
+        pub fn arrow(&self, arrow: &Arrow) -> Arrow {
+            let image = match arrow {
+                Arrow::Id(object) => Arrow::Id(self.object(object)),
+                Arrow::Src(e) => Arrow::Src(self.map.relations[e].clone()),
+                Arrow::Tgt(e) => Arrow::Tgt(self.map.relations[e].clone()),
+            };
+            assert_eq!(image.dom(), self.object(&arrow.dom()), "{arrow:?}");
+            assert_eq!(image.cod(), self.object(&arrow.cod()), "{arrow:?}");
+            image
+        }
+    }
+
+    const fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+
+    /// The pointwise left Kan extension of `instance` along `functor`, from
+    /// the entity category of `source` to that of `target`. Each element of
+    /// the result is the class of an element `(comma object, x)`, named by
+    /// its least member's index.
+    pub fn left_kan(
+        instance: &Instance,
+        functor: &Functor<'_>,
+        source: &oracle::Side,
+        target: &oracle::Side,
+    ) -> Instance {
+        let (source_objects, source_arrows) = category(source);
+        let (target_objects, target_arrows) = category(target);
+        let mut result = Instance::default();
+        // Per target object: the comma objects, the elements and the class
+        // of each element.
+        let mut classes: BTreeMap<Object, BTreeMap<(usize, usize), usize>> = BTreeMap::new();
+        let mut commas: BTreeMap<Object, Vec<(Object, Arrow)>> = BTreeMap::new();
+        for d in &target_objects {
+            let comma: Vec<(Object, Arrow)> = source_objects
+                .iter()
+                .flat_map(|c| {
+                    let image = functor.object(c);
+                    target_arrows
+                        .iter()
+                        .filter(move |f| f.dom() == image && f.cod() == *d)
+                        .map(move |f| (c.clone(), f.clone()))
+                })
+                .collect();
+            let elements: Vec<(usize, usize)> = comma
+                .iter()
+                .enumerate()
+                .flat_map(|(k, (c, _))| instance.sets[c].iter().map(move |x| (k, *x)))
+                .collect();
+            let index: BTreeMap<(usize, usize), usize> = elements
+                .iter()
+                .enumerate()
+                .map(|(i, element)| (*element, i))
+                .collect();
+            let mut parent: Vec<usize> = (0..elements.len()).collect();
+            for (k, (c, f)) in comma.iter().enumerate() {
+                for (k2, (c2, f2)) in comma.iter().enumerate() {
+                    for u in source_arrows
+                        .iter()
+                        .filter(|u| u.dom() == *c && u.cod() == *c2)
+                    {
+                        if compose(f2, &functor.arrow(u)) != *f {
+                            continue;
+                        }
+                        for x in &instance.sets[c] {
+                            let a = find(&mut parent, index[&(k, *x)]);
+                            let b = find(&mut parent, index[&(k2, instance.act(u, *x))]);
+                            let (low, high) = (a.min(b), a.max(b));
+                            parent[high] = low;
+                        }
+                    }
+                }
+            }
+            let class: BTreeMap<(usize, usize), usize> = elements
+                .iter()
+                .map(|element| (*element, find(&mut parent, index[element])))
+                .collect();
+            result
+                .sets
+                .insert(d.clone(), class.values().copied().collect());
+            classes.insert(d.clone(), class);
+            commas.insert(d.clone(), comma);
+        }
+        // The action of each target leg `l: r -> d`: the class of `x` at
+        // `(c, f)` goes to the class of `x` at `(c, l . f)`; checked to be
+        // independent of the representative.
+        for l in target_arrows.iter().filter(|l| !matches!(l, Arrow::Id(_))) {
+            let (r, d) = (l.dom(), l.cod());
+            let into_d = &commas[&d];
+            for (&(k, x), &class) in &classes[&r] {
+                let (c, f) = &commas[&r][k];
+                let composite = compose(l, f);
+                let k2 = into_d
+                    .iter()
+                    .position(|(c2, f2)| c2 == c && *f2 == composite)
+                    .unwrap_or_else(|| panic!("no comma object ({c:?}, {composite:?})"));
+                let image = classes[&d][&(k2, x)];
+                let previous = result.legs.insert((l.clone(), class), image);
+                assert!(
+                    previous.is_none_or(|p| p == image),
+                    "the action of {l:?} depends on the representative"
+                );
+            }
+        }
+        result
+    }
+
+    /// Each relation's multiset of endpoint pairs.
+    pub type Pairs = BTreeMap<Edge, BTreeMap<(usize, usize), usize>>;
+
+    /// `L_sep`: the quotient identifying two elements of one relation whose
+    /// two legs agree; the tables are unchanged. Returns the separated
+    /// instance as each relation's multiset of endpoint pairs (every count
+    /// is one), and how many elements the quotient identified.
+    pub fn separate(instance: &Instance, target: &oracle::Side) -> (Pairs, usize) {
+        let mut pairs = BTreeMap::new();
+        let mut identified = 0;
+        for r in &target.relations {
+            let mut ends: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            for x in &instance.sets[&Object::Relation(r.clone())] {
+                let key = (
+                    instance.act(&Arrow::Src(r.clone()), *x),
+                    instance.act(&Arrow::Tgt(r.clone()), *x),
+                );
+                if ends.insert(key, 1).is_some() {
+                    identified += 1;
+                }
+            }
+            pairs.insert(r.clone(), ends);
+        }
+        (pairs, identified)
+    }
+
+    /// One term of the value side: a constant by its canonical bytes, or a
+    /// labelled null.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Term {
+        Constant(Vec<u8>),
+        Null(u64),
+    }
+
+    fn term(value: &Value) -> Term {
+        match value {
+            Value::LabeledNull(null) => Term::Null(*null),
+            other => Term::Constant(oracle::bytes(other)),
+        }
+    }
+
+    /// Whether the equations of Sigma's value side are inconsistent: each
+    /// row of a kept table equates the cells of the kept columns that `map`
+    /// sends to one target column; the equations are closed under
+    /// transitivity across rows (a labelled null names one unknown
+    /// everywhere), and they clash when they join two constants of
+    /// different canonical bytes.
+    pub fn values_clash(content: &oracle::Content, map: &oracle::Map) -> bool {
+        let mut terms: Vec<Term> = Vec::new();
+        let mut index: BTreeMap<Term, usize> = BTreeMap::new();
+        let mut equations: Vec<(usize, usize)> = Vec::new();
+        let mut id = |t: Term, terms: &mut Vec<Term>| {
+            *index.entry(t.clone()).or_insert_with(|| {
+                terms.push(t);
+                terms.len() - 1
+            })
+        };
+        for (table, cells) in content.rows.values() {
+            let mut by_image: BTreeMap<&String, Vec<&Value>> = BTreeMap::new();
+            for (column, value) in cells {
+                if let Some(image) = map.columns.get(&(table.clone(), column.clone())) {
+                    by_image.entry(image).or_default().push(value);
+                }
+            }
+            for values in by_image.values() {
+                let first = id(term(values[0]), &mut terms);
+                for value in &values[1..] {
+                    let other = id(term(value), &mut terms);
+                    equations.push((first, other));
+                }
+            }
+        }
+        let mut parent: Vec<usize> = (0..terms.len()).collect();
+        for (a, b) in equations {
+            let (a, b) = (find(&mut parent, a), find(&mut parent, b));
+            parent[a.max(b)] = a.min(b);
+        }
+        let mut constant_of: BTreeMap<usize, &Term> = BTreeMap::new();
+        for (i, t) in terms.iter().enumerate() {
+            if matches!(t, Term::Constant(_)) {
+                let root = find(&mut parent, i);
+                if constant_of.insert(root, t).is_some_and(|other| other != t) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Migrations that only the Sigma reflection check enumerates, each with the
+/// largest number of table nodes its graphs carry: two parallel relations
+/// and a third relation merged into one across a merge of tables, two
+/// parallel loops merged into one loop, and a merge of tables with a shared
+/// column whose relations are merged.
+fn sigma_reflection_cases() -> Vec<(KanCase, usize)> {
+    let (f, h, k) = (
+        edge("a", "b", "f"),
+        edge("a", "b", "h"),
+        edge("c", "b", "k"),
+    );
+    let three = spec(
+        vec![("a", vec![]), ("b", vec![]), ("c", vec![])],
+        vec![f.clone(), h.clone(), k.clone()],
+    );
+    let g = edge("A", "B", "g");
+    let (lf, lh) = (edge("a", "a", "f"), edge("a", "a", "h"));
+    let loops = spec(vec![("a", vec![])], vec![lf.clone(), lh.clone()]);
+    let lg = edge("t", "t", "g");
+    let (cf, ch) = (edge("a", "c", "f"), edge("b", "c", "h"));
+    let shared = spec(
+        vec![
+            ("a", vec![("x", "int")]),
+            ("b", vec![("x", "int")]),
+            ("c", vec![]),
+        ],
+        vec![cf.clone(), ch.clone()],
+    );
+    let cg = edge("t", "C", "g");
+    vec![
+        (
+            KanCase::new(
+                "two parallel relations and a third merged across a merge of tables",
+                (
+                    three.clone(),
+                    three,
+                    spec(vec![("A", vec![]), ("B", vec![])], vec![g.clone()]),
+                ),
+                &[("a", "A"), ("b", "B"), ("c", "A")],
+                &[],
+                &[(f, g.clone()), (h, g.clone()), (k, g)],
+            ),
+            4,
+        ),
+        (
+            KanCase::new(
+                "two parallel loops merged",
+                (
+                    loops.clone(),
+                    loops,
+                    spec(vec![("t", vec![])], vec![lg.clone()]),
+                ),
+                &[("a", "t")],
+                &[],
+                &[(lf, lg.clone()), (lh, lg)],
+            ),
+            2,
+        ),
+        (
+            KanCase::new(
+                "a merge with a shared column whose relations merge",
+                (
+                    shared.clone(),
+                    shared,
+                    spec(
+                        vec![("t", vec![("x", "int")]), ("C", vec![])],
+                        vec![cg.clone()],
+                    ),
+                ),
+                &[("a", "t"), ("b", "t"), ("c", "C")],
+                &[("a", "x", "x"), ("b", "x", "x")],
+                &[(cf, cg.clone()), (ch, cg)],
+            )
+            .with_cells(vec![Value::Int(0), Value::LabeledNull(0)]),
+            4,
+        ),
+    ]
+}
+
+/// Every ordering of `items`.
+fn permutations(items: &[u32]) -> Vec<Vec<u32>> {
+    if items.is_empty() {
+        return vec![Vec::new()];
+    }
+    let mut out = Vec::new();
+    for (i, first) in items.iter().enumerate() {
+        let mut rest = items.to_vec();
+        rest.remove(i);
+        for mut tail in permutations(&rest) {
+            tail.insert(0, *first);
+            out.push(tail);
+        }
+    }
+    out
+}
+
+/// Whether the rows and pairs of `graph` (a graph over `target`) are
+/// isomorphic to the reference, by a bijection on rows and pairs commuting
+/// with the legs. Every bijection of rows that keeps tables is tried; for
+/// one of them, `phi`, a bijection of pairs commuting with the legs exists
+/// exactly when, at each relation, the multiset of the reference's pairs
+/// with both endpoints renamed by `phi` equals the multiset of `graph`'s
+/// edges of that relation by endpoints. The reference numbers the elements
+/// of each object apart, so `phi` is keyed by table and element.
+fn rows_and_pairs_are_isomorphic(
+    rows: &BTreeMap<Name, Vec<usize>>,
+    pairs: &presheaf::Pairs,
+    graph: &GInstance,
+    target: &oracle::Side,
+) -> bool {
+    let mut out_rows: BTreeMap<Name, Vec<u32>> = target
+        .tables
+        .keys()
+        .map(|t| (t.clone(), Vec::new()))
+        .collect();
+    for node in graph.nodes().values() {
+        if let Some(list) = out_rows.get_mut(&node.anchor) {
+            list.push(node.id);
+        }
+    }
+    let mut out_pairs: BTreeMap<Edge, BTreeMap<(u32, u32), usize>> = target
+        .relations
+        .iter()
+        .map(|r| (r.clone(), BTreeMap::new()))
+        .collect();
+    for (_, e) in graph.edges_sorted() {
+        if let Some(multiset) = out_pairs.get_mut(&e.edge) {
+            *multiset.entry((e.src, e.tgt)).or_default() += 1;
+        }
+    }
+    if rows.keys().ne(out_rows.keys())
+        || rows
+            .iter()
+            .any(|(table, list)| list.len() != out_rows[table].len())
+    {
+        return false;
+    }
+    let tables: Vec<&Name> = rows.keys().collect();
+    let choices: Vec<Vec<Vec<u32>>> = tables
+        .iter()
+        .map(|table| permutations(&out_rows[*table]))
+        .collect();
+    oracle::product(&choices).into_iter().any(|images| {
+        let phi: BTreeMap<(&Name, usize), u32> = tables
+            .iter()
+            .zip(&images)
+            .flat_map(|(table, image)| {
+                rows[*table]
+                    .iter()
+                    .map(move |row| (*table, *row))
+                    .zip(image.iter().copied())
+            })
+            .collect();
+        pairs.iter().all(|(relation, multiset)| {
+            let mut renamed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+            for ((src, tgt), count) in multiset {
+                let ends = (phi[&(&relation.src, *src)], phi[&(&relation.tgt, *tgt)]);
+                *renamed.entry(ends).or_default() += count;
+            }
+            renamed == out_pairs[relation]
+        })
+    })
+}
+
+/// What one whole-source graph contributes to the Sigma reflection check.
+#[derive(Default)]
+struct ReflectionCounts {
+    compared: usize,
+    refused: usize,
+    separated: usize,
+}
+
+/// The Sigma reflection check at one whole-source graph `graph` of `case`:
+/// the reference left Kan extension of its entity instance on the kept part
+/// (its rows checked against the disjoint union of each fibre), `L_sep` of
+/// it, and the clash of its value equations; then each of the six Sigma
+/// entry points either refuses with a clash of constants, exactly when the
+/// reference clashes, or returns a graph whose rows and pairs are
+/// isomorphic to `L_sep` of the reference.
+fn sigma_reflection_at(
+    case: &KanCase,
+    functor: &MigrationFunctor,
+    schemas: (&Schema, &Schema, &CompiledMigration),
+    graph: &GInstance,
+) -> ReflectionCounts {
+    let (source_side, kept_side, target_side) =
+        (case.source.side(), case.kept.side(), case.target.side());
+    assert_eq!(
+        oracle::classify(graph, &source_side),
+        Ok(()),
+        "{}",
+        case.name
+    );
+    let kept = oracle::restrict(graph, &kept_side);
+    let instance = presheaf::of_graph(graph, &kept_side);
+    let reference_functor = presheaf::Functor { map: &case.map };
+    let kan = presheaf::left_kan(&instance, &reference_functor, &kept_side, &target_side);
+    let rows: BTreeMap<Name, Vec<usize>> = target_side
+        .tables
+        .keys()
+        .map(|t| {
+            let set = &kan.sets[&presheaf::Object::Table(t.clone())];
+            (t.clone(), set.iter().copied().collect())
+        })
+        .collect();
+    for (t, list) in &rows {
+        let fibre: usize = case
+            .map
+            .tables
+            .iter()
+            .filter(|(_, image)| *image == t)
+            .map(|(s, _)| instance.sets[&presheaf::Object::Table(s.clone())].len())
+            .sum();
+        assert_eq!(list.len(), fibre, "{}: rows at {t}", case.name);
+    }
+    let (pairs, identified) = presheaf::separate(&kan, &target_side);
+    let clash = presheaf::values_clash(&oracle::Content::of_graph(&kept, &kept_side), &case.map);
+    let (source, target, migration) = schemas;
+    let results = [
+        (
+            "g_sigma",
+            g_sigma(graph, source, &protocol(), target, &protocol(), migration),
+        ),
+        (
+            "g_sigma_with_provenance",
+            g_sigma_with_provenance(graph, source, &protocol(), target, &protocol(), migration)
+                .map(|(out, _)| out),
+        ),
+        ("g_sigma_along", g_sigma_along(graph, functor)),
+        (
+            "g_sigma_along_with_provenance",
+            g_sigma_along_with_provenance(graph, functor).map(|(out, _)| out),
+        ),
+        ("g_sigma_restricted", g_sigma_restricted(&kept, functor)),
+        (
+            "g_sigma_restricted_with_provenance",
+            g_sigma_restricted_with_provenance(&kept, functor).map(|(out, _)| out),
+        ),
+    ];
+    let mut counts = ReflectionCounts {
+        separated: usize::from(identified > 0),
+        ..ReflectionCounts::default()
+    };
+    for (name, result) in results {
+        match result {
+            Err(GraphKanError::Adjunction(AdjunctionError::SigmaConstantClash { .. })) if clash => {
+                counts.refused += 1;
+            }
+            Ok(out) if !clash => {
+                assert!(
+                    rows_and_pairs_are_isomorphic(&rows, &pairs, &out, &target_side),
+                    "{}: {name} is not L_sep of the presheaf Sigma on {graph:?}: {out:?}",
+                    case.name
+                );
+                counts.compared += 1;
+            }
+            other => panic!(
+                "{}: {name} on {graph:?}, reference clash {clash}: {other:?}",
+                case.name
+            ),
+        }
+    }
+    counts
+}
+
+/// The Sigma reflection check on every whole-source graph of `case` with at
+/// most `max` table nodes, counted against the labelled count and printed.
+fn sigma_reflection_on_every_graph(case: &KanCase, max: usize) -> (usize, ReflectionCounts) {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+    let functor = case.functor();
+    let forms = leaf_forms(&case.cells);
+    let wholes = oracle::every_graph(&case.source, &|_, _| forms.clone(), max);
+    let cells = case.cells.len();
+    let labelled = oracle::labelled_count(&case.source, &|_: &str, _: &str| cells, max);
+    assert_eq!(wholes.len(), labelled, "{}", case.name);
+    let (source, target, migration) =
+        (case.source.schema(), case.target.schema(), case.migration());
+    let (compared, refused, separated) = (
+        AtomicUsize::new(0),
+        AtomicUsize::new(0),
+        AtomicUsize::new(0),
+    );
+    par(&wholes, |graph| {
+        let counts = sigma_reflection_at(case, &functor, (&source, &target, &migration), graph);
+        compared.fetch_add(counts.compared, Relaxed);
+        refused.fetch_add(counts.refused, Relaxed);
+        separated.fetch_add(counts.separated, Relaxed);
+    });
+    let counts = ReflectionCounts {
+        compared: compared.into_inner(),
+        refused: refused.into_inner(),
+        separated: separated.into_inner(),
+    };
+    println!(
+        "{}: at most {max} table nodes; {} whole-source graphs (labelled count {labelled}); \
+         {} outputs compared, {} refusals asserted, {} graphs whose presheaf Sigma L_sep \
+         separates",
+        case.name,
+        wholes.len(),
+        counts.compared,
+        counts.refused,
+        counts.separated
+    );
+    assert_eq!(
+        counts.compared + counts.refused,
+        6 * wholes.len(),
+        "{}",
+        case.name
+    );
+    (wholes.len(), counts)
+}
+
+/// Graph Sigma on the entity part is the separated reflection `L_sep` of the
+/// presheaf left Kan extension. On every whole-source graph with at most
+/// four table nodes of every migration of the adjunction family, and on the
+/// graphs of [`sigma_reflection_cases`] up to their stated bounds, each of
+/// `g_sigma`, `g_sigma_with_provenance`, `g_sigma_along`,
+/// `g_sigma_along_with_provenance` (on the graph), `g_sigma_restricted` and
+/// `g_sigma_restricted_with_provenance` (on its restriction to the kept
+/// part) either refuses with a clash of constants, exactly where the value
+/// equations of the reference clash, or returns a graph whose rows and pairs
+/// are isomorphic, by a bijection commuting with the legs, to `L_sep` of
+/// the reference left Kan extension ([`presheaf`]). The reference rows are
+/// also checked against the closed form, the disjoint union of each target
+/// table's fibre. The enumerated graphs are counted against their labelled
+/// count, and the test prints its bounds and counts.
+#[test]
+fn g_sigma_equals_the_separated_reflection_of_the_presheaf_sigma() {
+    let mut cases: Vec<(KanCase, usize)> = kan_family().into_iter().map(|c| (c, 4)).collect();
+    cases.extend(sigma_reflection_cases());
+    let mut graphs = 0;
+    let mut total = ReflectionCounts::default();
+    for (case, max) in &cases {
+        let (count, counts) = sigma_reflection_on_every_graph(case, *max);
+        graphs += count;
+        total.compared += counts.compared;
+        total.refused += counts.refused;
+        total.separated += counts.separated;
+    }
+    println!(
+        "bound: {} migrations, at most 4 table nodes per graph (2 for the loops); {graphs} \
+         graphs, {} outputs compared, {} refusals, {} graphs where L_sep identifies pairs",
+        cases.len(),
+        total.compared,
+        total.refused,
+        total.separated
+    );
+    assert!(total.separated > 0);
+    assert!(total.refused > 0);
 }
