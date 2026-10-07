@@ -630,7 +630,9 @@ const fn is_exact(lit: &Literal) -> bool {
 fn as_decimal(lit: &Literal) -> Option<DecimalValue> {
     match lit {
         Literal::Int(n) => Some(DecimalValue::from_i64(*n)),
-        Literal::BigInt(b) => DecimalValue::new(b.negative, b.significand.clone(), b.zeros.clone()).ok(),
+        Literal::BigInt(b) => {
+            DecimalValue::new(b.negative, b.significand.clone(), b.zeros.clone()).ok()
+        }
         Literal::Decimal(d) => Some(d.clone()),
         _ => None,
     }

@@ -430,7 +430,13 @@ fn computed_and_passed_nans_follow_the_rule_on_the_stated_scope() {
                     continue;
                 }
                 let got = evaluated_bits(&call(op, vec![float(a), float(b)]), &env);
-                assert_eq!(got, expect(ieee(a, b)), "{op:?} {:#x} {:#x}", a.to_bits(), b.to_bits());
+                assert_eq!(
+                    got,
+                    expect(ieee(a, b)),
+                    "{op:?} {:#x} {:#x}",
+                    a.to_bits(),
+                    b.to_bits()
+                );
                 checked += 1;
             }
         }

@@ -48,11 +48,7 @@ fn add_magnitudes(a: &str, b: &str) -> String {
     let mut out = Vec::with_capacity(a.len().max(b.len()) + 1);
     let mut carry = 0_u8;
     for i in 0..a.len().max(b.len()) {
-        let digit = |s: &[u8]| {
-            s.len()
-                .checked_sub(i + 1)
-                .map_or(0, |at| s[at] - b'0')
-        };
+        let digit = |s: &[u8]| s.len().checked_sub(i + 1).map_or(0, |at| s[at] - b'0');
         let sum = digit(a) + digit(b) + carry;
         out.push(b'0' + sum % 10);
         carry = sum / 10;
@@ -542,9 +538,9 @@ impl BigIntValue {
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
         matches!(
-                Self::normalize(self.negative, &self.significand, &self.zeros),
-                Some(ExactInteger::Big(ref big)) if big == self
-            )
+            Self::normalize(self.negative, &self.significand, &self.zeros),
+            Some(ExactInteger::Big(ref big)) if big == self
+        )
     }
 
     /// The canonical payload bytes: the sign as one byte (`0` or `1`), the
@@ -553,7 +549,8 @@ impl BigIntValue {
     /// there is no trailing zero), behind a little-endian `u64` length.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(18 + self.significand.len() + self.zeros.magnitude().len());
+        let mut out =
+            Vec::with_capacity(18 + self.significand.len() + self.zeros.magnitude().len());
         out.push(u8::from(self.negative));
         put_str(&mut out, &self.significand);
         put_str(&mut out, self.zeros.magnitude());
@@ -615,7 +612,10 @@ impl std::fmt::Display for BigIntValue {
             f.write_str(CHUNK)?;
             left = left.minus(&chunk);
         }
-        let rest = left.to_i64().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+        let rest = left
+            .to_i64()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(0);
         f.write_str(&CHUNK[..rest])
     }
 }

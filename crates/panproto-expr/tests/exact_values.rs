@@ -480,7 +480,11 @@ mod exact {
         else {
             panic!("a decimal")
         };
-        assert!(parsed.cmp_numeric(&DecimalValue::parse("100000000000000000000").unwrap()).is_eq());
+        assert!(
+            parsed
+                .cmp_numeric(&DecimalValue::parse("100000000000000000000").unwrap())
+                .is_eq()
+        );
         assert!(matches!(
             apply_builtin(BuiltinOp::ParseDecimal, &[Literal::Str("1.2.3".into())]),
             Err(ExprError::ParseError { .. })
@@ -680,8 +684,12 @@ mod exact {
                 assert_ne!(zeros[i], zeros[j]);
             }
         }
-        let separated = ["2024-01-02T03:04:05Z", "2024-01-02t03:04:05Z", "2024-01-02 03:04:05Z"]
-            .map(bytes);
+        let separated = [
+            "2024-01-02T03:04:05Z",
+            "2024-01-02t03:04:05Z",
+            "2024-01-02 03:04:05Z",
+        ]
+        .map(bytes);
         assert!(separated[0] != separated[1] && separated[1] != separated[2]);
         assert_ne!(separated[0], separated[2]);
     }
@@ -866,7 +874,10 @@ mod exact {
             DecimalValue::from_f32_shortest(f32::from_bits(1)).unwrap(),
             dec("1e-45")
         );
-        assert_eq!(DecimalValue::from_f64_shortest(5e-324).unwrap(), dec("5e-324"));
+        assert_eq!(
+            DecimalValue::from_f64_shortest(5e-324).unwrap(),
+            dec("5e-324")
+        );
         assert_eq!(
             DecimalValue::from_f64_shortest(f64::MAX).unwrap(),
             dec("1.7976931348623157e308")
@@ -1079,10 +1090,19 @@ mod exact {
         assert_eq!(binary32_bits(0.0), Some(0));
         assert_eq!(binary32_bits(-0.0), Some(0x8000_0000));
         assert_eq!(binary32_bits(f64::from(f32::MAX)), Some(f32::MAX.to_bits()));
-        assert_eq!(binary32_bits(f64::from(f32::MIN_POSITIVE)), Some(0x0080_0000));
+        assert_eq!(
+            binary32_bits(f64::from(f32::MIN_POSITIVE)),
+            Some(0x0080_0000)
+        );
         assert_eq!(binary32_bits(f64::from(f32::from_bits(1))), Some(1));
-        assert_eq!(binary32_bits(f64::from(f32::from_bits(0x007f_ffff))), Some(0x007f_ffff));
-        assert_eq!(binary32_bits(f64::from(f32::from_bits(0x8040_0001))), Some(0x8040_0001));
+        assert_eq!(
+            binary32_bits(f64::from(f32::from_bits(0x007f_ffff))),
+            Some(0x007f_ffff)
+        );
+        assert_eq!(
+            binary32_bits(f64::from(f32::from_bits(0x8040_0001))),
+            Some(0x8040_0001)
+        );
         // Half the least binary32 subnormal, a binary64 normal value, and the
         // value just above the largest binary32 are not binary32 values.
         assert_eq!(binary32_bits(2.0_f64.powi(-150)), None);
@@ -1109,8 +1129,8 @@ mod exact {
             ExactInteger::Big(b) => b,
             ExactInteger::Int(n) => panic!("{text} is the i64 {n}"),
         };
-        let from_exponent = |negative: bool, significand: &str, zeros: &str| {
-            match BigIntValue::from_scaled(
+        let from_exponent =
+            |negative: bool, significand: &str, zeros: &str| match BigIntValue::from_scaled(
                 negative,
                 significand,
                 &WideInt::parse_canonical(zeros).unwrap(),
@@ -1119,8 +1139,7 @@ mod exact {
             {
                 ExactInteger::Big(b) => b,
                 ExactInteger::Int(n) => panic!("the i64 {n}"),
-            }
-        };
+            };
         for (negative, significand, zeros) in [
             (false, "9223372036854775808", "0"),
             (true, "9223372036854775809", "0"),
@@ -1130,7 +1149,10 @@ mod exact {
             (false, "7", "100000000000000000000"),
         ] {
             let value = from_exponent(negative, significand, zeros);
-            assert_eq!(value.canonical_bytes(), layout(negative, significand, zeros));
+            assert_eq!(
+                value.canonical_bytes(),
+                layout(negative, significand, zeros)
+            );
             assert!(value.is_well_formed());
             if zeros.len() < 5 {
                 // The integer written out reads as the same value.
@@ -1151,7 +1173,10 @@ mod exact {
             ]
         );
         // Trailing zeros of the written significand move into the count.
-        assert_eq!(from_exponent(false, "1000", "17"), from_exponent(false, "1", "20"));
+        assert_eq!(
+            from_exponent(false, "1000", "17"),
+            from_exponent(false, "1", "20")
+        );
         // Values that fit i64 are never big, whatever their spelling.
         assert_eq!(
             BigIntValue::from_scaled(false, "1", &WideInt::from(18_i64)),
@@ -1192,10 +1217,8 @@ mod exact {
     /// digits}` shape is refused.
     #[test]
     fn bigint_serde_refuses_the_former_shape() {
-        let value: BigIntValue = serde_json::from_str(
-            r#"{"negative":true,"significand":"12","zeros":"4097"}"#,
-        )
-        .unwrap();
+        let value: BigIntValue =
+            serde_json::from_str(r#"{"negative":true,"significand":"12","zeros":"4097"}"#).unwrap();
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
             r#"{"negative":true,"significand":"12","zeros":"4097"}"#
@@ -1205,7 +1228,10 @@ mod exact {
             r#"{"negative":false,"digits":"9223372036854775808"}"#,
             r#"{"negative":false,"digits":"9223372036854775808","significand":"9223372036854775808","zeros":"0"}"#,
         ] {
-            assert!(serde_json::from_str::<BigIntValue>(former).is_err(), "{former}");
+            assert!(
+                serde_json::from_str::<BigIntValue>(former).is_err(),
+                "{former}"
+            );
         }
     }
 
@@ -1252,7 +1278,12 @@ mod exact {
     /// length.
     #[test]
     fn decimal_canonical_bytes_hold_any_exponent() {
-        fn layout(negative: bool, digits: &str, exponent_negative: bool, exponent: &str) -> Vec<u8> {
+        fn layout(
+            negative: bool,
+            digits: &str,
+            exponent_negative: bool,
+            exponent: &str,
+        ) -> Vec<u8> {
             let mut out = vec![u8::from(negative)];
             out.extend_from_slice(&u64::try_from(digits.len()).unwrap().to_le_bytes());
             out.extend_from_slice(digits.as_bytes());
@@ -1285,8 +1316,20 @@ mod exact {
             ("0", false, "0", false, "0"),
             ("-1e-2147483649", true, "1", true, "2147483649"),
             ("1e2147483648", false, "1", false, "2147483648"),
-            ("1e100000000000000000000", false, "1", false, "100000000000000000000"),
-            ("-1e-100000000000000000000", true, "1", true, "100000000000000000000"),
+            (
+                "1e100000000000000000000",
+                false,
+                "1",
+                false,
+                "100000000000000000000",
+            ),
+            (
+                "-1e-100000000000000000000",
+                true,
+                "1",
+                true,
+                "100000000000000000000",
+            ),
         ] {
             let value = dec(text);
             assert_eq!(
@@ -1307,10 +1350,16 @@ mod exact {
         assert_eq!(big.integer_digits().to_string(), "3000000002");
         assert_eq!(big.scale(), WideInt::zero());
         assert_eq!(big.to_f64(), f64::INFINITY);
-        assert_eq!(dec("-1e-3000000000").to_f64().to_bits(), (-0.0_f64).to_bits());
+        assert_eq!(
+            dec("-1e-3000000000").to_f64().to_bits(),
+            (-0.0_f64).to_bits()
+        );
         assert_eq!(far.cmp_numeric(&dec("0")), Ordering::Greater);
         assert_eq!(far.cmp_numeric(&dec("1e-3000000000")), Ordering::Greater);
         assert_eq!(dec("1.6e-3000000000").cmp_numeric(&far), Ordering::Greater);
-        assert_eq!(dec("15e3000000000").cmp_numeric(&dec("1.5e3000000001")), Ordering::Equal);
+        assert_eq!(
+            dec("15e3000000000").cmp_numeric(&dec("1.5e3000000001")),
+            Ordering::Equal
+        );
     }
 }

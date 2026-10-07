@@ -99,12 +99,28 @@ fn names_non_finite(text: &str) -> bool {
         .any(|name| unsigned.eq_ignore_ascii_case(name))
 }
 
-/// The significant digits a binary float's exact decimal expansion may
-/// have at most: 767, those of the largest binary64 subnormal (a binary32
-/// value needs at most 112). Rust's formatting with an explicit precision
-/// writes correctly rounded digits, so at this precision it writes the
-/// expansion itself, padded with zeros.
-const EXACT_DIGITS: usize = 767;
+/// A number of fractional digits at which Rust's `{:.p$e}` formatting of
+/// the finite binary float `significand × 2^exponent` (`significand` of at
+/// most `significand_digits` decimal digits) writes the float's exact
+/// decimal expansion, padded with zeros: Rust's formatting with an
+/// explicit precision writes correctly rounded digits, so at any precision
+/// at least the expansion's count of significant digits it writes the
+/// expansion itself.
+///
+/// The count is bounded without computing it: for `exponent >= 0` the
+/// expansion is the integer `significand × 2^exponent`, of at most
+/// `significand_digits + floor(exponent × log10 2) + 1` digits; for
+/// `exponent = -k < 0` it is `significand × 5^k × 10^-k`, whose significant
+/// digits are those of `significand × 5^k`, at most `significand_digits +
+/// floor(k × log10 5) + 1`. Since `0.302 > log10 2` and `0.699 > log10 5`,
+/// `exponent × 302 / 1000` and `k × 699 / 1000` (rounded down) are at least
+/// the two floors.
+fn exact_precision(significand_digits: usize, exponent: i32) -> usize {
+    let factor = if exponent >= 0 { 302 } else { 699 };
+    let magnitude = u64::from(exponent.unsigned_abs());
+    let scaled = usize::try_from(magnitude * factor / 1000).unwrap_or(usize::MAX);
+    significand_digits.saturating_add(scaled).saturating_add(1)
+}
 
 impl DecimalValue {
     /// The decimal `(-1)^negative × digits × 10^exponent`.
@@ -235,10 +251,19 @@ impl DecimalValue {
             return None;
         }
         let magnitude = x.abs();
+        // `magnitude` is `fraction × 2^-1074` for a subnormal and
+        // `(2^52 + fraction) × 2^(biased - 1075)` otherwise, a significand
+        // below 2^53 < 10^16.
+        let biased = i32::try_from((x.to_bits() >> 52) & 0x7ff).unwrap_or(0);
+        let precision = exact_precision(16, biased.max(1) - 1075);
         Some(closest_shortest(
             x.is_sign_negative(),
-            &format!("{magnitude:.EXACT_DIGITS$e}"),
-            |text| text.parse::<f64>().is_ok_and(|y| y.to_bits() == magnitude.to_bits()),
+            &format!("{magnitude:.precision$e}"),
+            shortest_len(&format!("{magnitude:e}")),
+            |text| {
+                text.parse::<f64>()
+                    .is_ok_and(|y| y.to_bits() == magnitude.to_bits())
+            },
         ))
     }
 
@@ -261,10 +286,19 @@ impl DecimalValue {
             return None;
         }
         let magnitude = x.abs();
+        // `magnitude` is `fraction × 2^-149` for a subnormal and
+        // `(2^23 + fraction) × 2^(biased - 150)` otherwise, a significand
+        // below 2^24 < 10^8.
+        let biased = i32::try_from((x.to_bits() >> 23) & 0xff).unwrap_or(0);
+        let precision = exact_precision(8, biased.max(1) - 150);
         Some(closest_shortest(
             x.is_sign_negative(),
-            &format!("{magnitude:.EXACT_DIGITS$e}"),
-            |text| text.parse::<f32>().is_ok_and(|y| y.to_bits() == magnitude.to_bits()),
+            &format!("{magnitude:.precision$e}"),
+            shortest_len(&format!("{magnitude:e}")),
+            |text| {
+                text.parse::<f32>()
+                    .is_ok_and(|y| y.to_bits() == magnitude.to_bits())
+            },
         ))
     }
 
@@ -376,8 +410,7 @@ impl DecimalValue {
     /// leading zero, behind a little-endian `u64` length.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut out =
-            Vec::with_capacity(18 + self.digits.len() + self.exponent.magnitude().len());
+        let mut out = Vec::with_capacity(18 + self.digits.len() + self.exponent.magnitude().len());
         out.push(u8::from(self.negative));
         put_str(&mut out, &self.digits);
         self.exponent.write_canonical(&mut out);
@@ -394,15 +427,24 @@ impl DecimalValue {
 /// For each count n of significant digits from one up, the only n-digit
 /// decimals that can read back are the two that bracket the magnitude
 /// (`lo`, its expansion cut to n digits, and `lo` plus one unit in the n-th
-/// digit), since the set of reals that round to a float is an interval
-/// around it. The first n at which either reads back is the minimal
-/// significand; of two that both read back the closer is taken, and at an
-/// exact tie (the cut-off digits are exactly `5`) the even one. When n
-/// reaches the number of digits of the expansion, `lo` is the magnitude
-/// itself.
+/// digit): the reals that round to a float form an interval around it, so
+/// an n-digit decimal that reads back and lies beyond `lo` or `hi` has that
+/// one between itself and the magnitude, which then reads back too. The
+/// first n at which either reads back is the minimal significand; of two
+/// that both read back the closer is taken, and at an exact tie (the
+/// cut-off digits are exactly `5`) the even one. When n reaches the number
+/// of digits of the expansion, `lo` is the magnitude itself.
+///
+/// `hint` (the length of Rust's shortest text) only skips counts that
+/// cannot be the first: whether some n-digit decimal reads back is monotone
+/// in n (an n-digit decimal is an (n + 1)-digit one with a zero appended),
+/// so when no candidate of `hint - 1` digits reads back, none of fewer
+/// digits does and the search starts at `hint`; otherwise it starts at one.
+/// The result is the same either way.
 fn closest_shortest(
     negative: bool,
     expansion: &str,
+    hint: usize,
     reads_back: impl Fn(&str) -> bool,
 ) -> DecimalValue {
     let (mantissa, power) = expansion.split_once('e').unwrap_or((expansion, "0"));
@@ -412,7 +454,9 @@ fn closest_shortest(
     if exact.is_empty() {
         return DecimalValue::from_i64(0);
     }
-    for n in 1..exact.len() {
+    // The candidate of n digits that the rule takes, if either reads back,
+    // as its digits and the exponent of its last digit.
+    let pick_at = |n: usize| -> Option<(String, i64)> {
         let lo = &exact[..n];
         let hi = increment(lo);
         // Both texts scale their digits so that the n-th digit of `lo`
@@ -423,7 +467,7 @@ fn closest_shortest(
             reads_back(&format!("{lo}e{exponent}")),
             reads_back(&format!("{hi}e{exponent}")),
         ) {
-            (false, false) => continue,
+            (false, false) => return None,
             (true, false) => lo.to_owned(),
             (false, true) => hi,
             (true, true) => {
@@ -440,19 +484,31 @@ fn closest_shortest(
                 }
             }
         };
-        let kept = pick.trim_end_matches('0');
-        let exponent = exponent + i64::try_from(pick.len() - kept.len()).unwrap_or(0);
-        return DecimalValue {
-            negative,
-            digits: kept.to_owned(),
-            exponent: WideInt::from(exponent),
-        };
-    }
+        Some((pick, exponent))
+    };
+    let first = if hint >= 2 && hint < exact.len() && pick_at(hint - 1).is_none() {
+        hint
+    } else {
+        1
+    };
+    let (pick, exponent) = (first..exact.len()).find_map(pick_at).unwrap_or_else(|| {
+        let n = i64::try_from(exact.len()).unwrap_or(i64::MAX);
+        (exact.to_owned(), power + 1 - n)
+    });
+    let kept = pick.trim_end_matches('0');
+    let exponent = exponent + i64::try_from(pick.len() - kept.len()).unwrap_or(0);
     DecimalValue {
         negative,
-        digits: exact.to_owned(),
-        exponent: WideInt::from(power + 1 - i64::try_from(exact.len()).unwrap_or(i64::MAX)),
+        digits: kept.to_owned(),
+        exponent: WideInt::from(exponent),
     }
+}
+
+/// The number of significant digits of Rust's shortest text of a float,
+/// `d.ddd...e<exponent>` (`{:e}`).
+fn shortest_len(text: &str) -> usize {
+    let mantissa = text.split_once('e').map_or(text, |(m, _)| m);
+    mantissa.bytes().filter(u8::is_ascii_digit).count()
 }
 
 /// The digit string `digits` plus one in its last place.
@@ -543,8 +599,14 @@ mod tests {
     fn stored_exponent_is_exact_at_the_i32_bounds() {
         // A twelve-digit written exponent less a fractional digit count:
         // 10^11 - 97852516353 = i32::MAX, and one digit fewer is one more.
-        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_353), "2147483647");
-        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_352), "2147483648");
+        assert_eq!(
+            stored_exponent(false, "100000000000", 97_852_516_353),
+            "2147483647"
+        );
+        assert_eq!(
+            stored_exponent(false, "100000000000", 97_852_516_352),
+            "2147483648"
+        );
         // The bounds and one step beyond them, with and without fractional
         // digits: every one is read exactly, none refused.
         assert_eq!(stored_exponent(false, "2147483647", 0), "2147483647");
@@ -580,7 +642,8 @@ mod tests {
 
     #[test]
     fn parse_reads_every_stored_exponent_exactly() {
-        let exponent = |text: &str| DecimalValue::parse(text).map(|value| value.exponent.to_string());
+        let exponent =
+            |text: &str| DecimalValue::parse(text).map(|value| value.exponent.to_string());
         for (text, stored) in [
             ("1e2147483647", "2147483647"),
             ("0.1e2147483648", "2147483647"),

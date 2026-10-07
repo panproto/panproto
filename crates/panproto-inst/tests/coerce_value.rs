@@ -284,6 +284,22 @@ fn increment(digits: &str) -> String {
 /// expansion comes from [`exact_decimal`]. No printer of the code under
 /// test or of the standard library is used.
 fn reference_shortest(x: f64, bits: u8) -> String {
+    thread_local! {
+        /// The texts computed so far, by width and bits: the bounded scopes
+        /// ask for one float's text under every spec.
+        static MEMO: std::cell::RefCell<std::collections::HashMap<(u8, u64), String>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    if let Some(text) = MEMO.with(|memo| memo.borrow().get(&(bits, x.to_bits())).cloned()) {
+        return text;
+    }
+    let text = reference_shortest_uncached(x, bits);
+    MEMO.with(|memo| memo.borrow_mut().insert((bits, x.to_bits()), text.clone()));
+    text
+}
+
+/// [`reference_shortest`], computed.
+fn reference_shortest_uncached(x: f64, bits: u8) -> String {
     let sign = if x.is_sign_negative() { "-" } else { "" };
     if x == 0.0 {
         return format!("{sign}0e0");
@@ -291,7 +307,12 @@ fn reference_shortest(x: f64, bits: u8) -> String {
     let w = width(bits);
     let magnitude = x.abs();
     let (fraction, biased) = fields(magnitude, w);
-    let (exact, power) = exact_decimal(&Dyadic::of_fields(fraction, biased, w.fraction_bits, w.bias));
+    let (exact, power) = exact_decimal(&Dyadic::of_fields(
+        fraction,
+        biased,
+        w.fraction_bits,
+        w.bias,
+    ));
     for n in 1..exact.len() {
         let lo = &exact[..n];
         let hi = increment(lo);
@@ -699,16 +720,71 @@ fn int_holds(n: i128, bits: u8, signed: bool) -> bool {
     }
 }
 
-/// The integer value of `(negative, digits)`: `Int` when it fits `i64`,
-/// else `BigInt`.
-fn integer_value((negative, digits): (bool, String)) -> Value {
-    let digits = if digits.is_empty() {
-        "0".to_owned()
-    } else {
-        digits
-    };
+/// A numeric value as the reference describes it, field by field, so that
+/// no constructor of the code under test builds an expected value: a float
+/// by its bits, an integer that fits `i64`, an integer outside `i64` by its
+/// sign and its digits written out, and a decimal by its sign, digits and
+/// exponent.
+#[derive(Debug, PartialEq, Eq)]
+enum Want {
+    Float(u64),
+    Int(i64),
+    Big(bool, String),
+    Decimal(bool, String, String),
+}
+
+/// The [`Want`] description of a value the code under test returned, read
+/// from its fields; `None` for a value that is not numeric.
+fn want_of(value: &Value) -> Option<Want> {
+    Some(match value {
+        Value::Float(x) => Want::Float(x.to_bits()),
+        Value::Int(n) => Want::Int(*n),
+        Value::BigInt(b) => {
+            let zeros = b.zeros.to_string().parse::<usize>().ok()?;
+            Want::Big(
+                b.negative,
+                format!("{}{}", b.significand, "0".repeat(zeros)),
+            )
+        }
+        Value::Decimal(d) => Want::Decimal(d.negative, d.digits.clone(), d.exponent.to_string()),
+        _ => return None,
+    })
+}
+
+/// The integer `(negative, digits)`: `Int` when it fits `i64`, else its
+/// sign and digits.
+fn integer_value((negative, digits): (bool, String)) -> Want {
+    if digits.is_empty() {
+        return Want::Int(0);
+    }
     let sign = if negative { "-" } else { "" };
-    Value::parse_integer(&format!("{sign}{digits}")).unwrap()
+    format!("{sign}{digits}")
+        .parse::<i64>()
+        .map_or(Want::Big(negative, digits), Want::Int)
+}
+
+/// The decimal a numeral writes, scale kept: its sign (never negative for
+/// zero), its digits without leading zeros (`"0"` for zero) and its stored
+/// exponent, the written exponent less the fraction length.
+fn written_decimal(text: &str) -> Want {
+    let (negative, rest) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let (mantissa, written) = rest.find(['e', 'E']).map_or((rest, 0_i128), |i| {
+        (&rest[..i], rest[i + 1..].parse::<i128>().unwrap())
+    });
+    let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all = format!("{int}{frac}");
+    let digits = all.trim_start_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    let exponent = written - i128::try_from(frac.len()).unwrap();
+    Want::Decimal(
+        negative && digits != "0",
+        digits.to_owned(),
+        exponent.to_string(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -900,12 +976,13 @@ fn assert_float_result(
 
 /// What a numeric kind must do with the finite numeral `text`, read as
 /// the kind's value: `None` when the kind is not numeric.
-fn expected_numeral(text: &str, spec: &ValueSpec) -> Option<Result<Value, FidelityReason>> {
+fn expected_numeral(text: &str, spec: &ValueSpec) -> Option<Result<Want, FidelityReason>> {
     let integral = |n: Option<(bool, String)>| n.ok_or(FidelityReason::ScaleExceeded { max: 0 });
     Some(match &spec.kind {
-        ScalarKind::Float { bits } => expected_float(text, *bits).map(Value::Float),
-        ScalarKind::Decimal => expected_decimal(text, spec.precision, spec.scale)
-            .map(|()| Value::Decimal(DecimalValue::parse(text).unwrap())),
+        ScalarKind::Float { bits } => expected_float(text, *bits).map(|x| Want::Float(x.to_bits())),
+        ScalarKind::Decimal => {
+            expected_decimal(text, spec.precision, spec.scale).map(|()| written_decimal(text))
+        }
         ScalarKind::BigInt => integral(integer_of(text)).map(integer_value),
         ScalarKind::Int { bits, signed } => integral(integer_of(text)).and_then(|n| {
             if as_i128(&n).is_some_and(|m| int_holds(m, *bits, *signed)) {
@@ -922,13 +999,13 @@ fn expected_numeral(text: &str, spec: &ValueSpec) -> Option<Result<Value, Fideli
 /// kind (law (i), with the narrowing rule of a 32-bit float kind): `None`
 /// when the value or the kind is not numeric, or the value is a non-finite
 /// float.
-fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Value, FidelityReason>> {
+fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Want, FidelityReason>> {
     let text = match value {
         Value::Float(x) if !x.is_finite() => return None,
         Value::Float(x) => {
             if spec.kind == (ScalarKind::Float { bits: 32 }) {
                 return Some(if is_binary32(*x) {
-                    Ok(value.clone())
+                    Ok(Want::Float(x.to_bits()))
                 } else if x.abs() >= BINARY32_OVERFLOW {
                     Err(FidelityReason::Overflow)
                 } else {
@@ -936,17 +1013,24 @@ fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Value, Fidel
                 });
             }
             if matches!(spec.kind, ScalarKind::Float { .. }) {
-                return Some(Ok(value.clone()));
+                return Some(Ok(Want::Float(x.to_bits())));
             }
             positional(&reference_shortest(*x, 64))
         }
         Value::Int(n) => n.to_string(),
-        Value::BigInt(n) => n.to_string(),
-        Value::Decimal(d) => d.to_string(),
+        // The input's value, read from its fields.
+        Value::BigInt(n) => {
+            let sign = if n.negative { "-" } else { "" };
+            format!("{sign}{}e{}", n.significand, n.zeros)
+        }
+        Value::Decimal(d) => {
+            let sign = if d.negative { "-" } else { "" };
+            format!("{sign}{}e{}", d.digits, d.exponent)
+        }
         _ => return None,
     };
     if let ScalarKind::Float { bits } = spec.kind {
-        return Some(expected_exact_float(&text, bits).map(Value::Float));
+        return Some(expected_exact_float(&text, bits).map(|x| Want::Float(x.to_bits())));
     }
     expected_numeral(&text, spec)
 }
@@ -982,7 +1066,7 @@ proptest! {
             let result = coerce(&Lexeme::new(&exact, LexClass::Number), spec);
             let expected = expected_numeral(&exact, spec).unwrap();
             match (&result, &expected) {
-                (Ok(got), Ok(want)) => prop_assert!(same(got, want), "{exact} as {spec:?}: {got:?}"),
+                (Ok(got), Ok(want)) => prop_assert!(want_of(got).as_ref() == Some(want), "{exact} as {spec:?}: {got:?}, expected {want:?}"),
                 (Err(e), Err(reason)) => prop_assert_eq!(&e.reason, reason, "{} as {:?}", exact, spec),
                 _ => prop_assert!(false, "{exact} as {spec:?}: got {result:?}, expected {expected:?}"),
             }
@@ -992,10 +1076,7 @@ proptest! {
         if let Some(expected) = expected_value(&value, spec) {
             let result = coerce_value(&value, spec, site());
             match (&result, &expected) {
-                (Ok(Value::Float(got)), Ok(Value::Float(want))) => {
-                    prop_assert_eq!(got.to_bits(), want.to_bits(), "{:?} as {:?}", value, spec.kind);
-                }
-                (Ok(got), Ok(want)) => prop_assert!(same(got, want), "{value:?} as {spec:?}: {got:?}"),
+                (Ok(got), Ok(want)) => prop_assert!(want_of(got).as_ref() == Some(want), "{value:?} as {spec:?}: {got:?}, expected {want:?}"),
                 (Err(e), Err(reason)) => prop_assert_eq!(&e.reason, reason, "{:?} as {:?}", value, spec),
                 _ => prop_assert!(false, "{value:?} as {spec:?}: got {result:?}, expected {expected:?}"),
             }
@@ -1340,17 +1421,37 @@ fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
     let two_70 = big("1180591620717411303424");
     let ten_39 = big(&format!("1{}", "0".repeat(39)));
     let cases: [(Value, u8, Result<f64, FidelityReason>); 14] = [
-        (dec("0.1"), 32, Err(FidelityReason::PrecisionExceeded { max: 9 })),
-        (dec("0.1"), 64, Err(FidelityReason::PrecisionExceeded { max: 17 })),
-        (Value::Int(16_777_217), 32, Err(FidelityReason::PrecisionExceeded { max: 9 })),
+        (
+            dec("0.1"),
+            32,
+            Err(FidelityReason::PrecisionExceeded { max: 9 }),
+        ),
+        (
+            dec("0.1"),
+            64,
+            Err(FidelityReason::PrecisionExceeded { max: 17 }),
+        ),
+        (
+            Value::Int(16_777_217),
+            32,
+            Err(FidelityReason::PrecisionExceeded { max: 9 }),
+        ),
         (Value::Int(16_777_216), 32, Ok(16_777_216.0)),
         (two_70.clone(), 32, Ok(1_180_591_620_717_411_303_424.0)),
         (two_70, 64, Ok(1_180_591_620_717_411_303_424.0)),
         (ten_39.clone(), 32, Err(FidelityReason::Overflow)),
-        (ten_39, 64, Err(FidelityReason::PrecisionExceeded { max: 17 })),
+        (
+            ten_39,
+            64,
+            Err(FidelityReason::PrecisionExceeded { max: 17 }),
+        ),
         (Value::Int(2048), 16, Ok(2048.0)),
         (Value::Int(65504), 16, Ok(65504.0)),
-        (Value::Int(2049), 16, Err(FidelityReason::PrecisionExceeded { max: 5 })),
+        (
+            Value::Int(2049),
+            16,
+            Err(FidelityReason::PrecisionExceeded { max: 5 }),
+        ),
         (Value::Int(65520), 16, Err(FidelityReason::Overflow)),
         (Value::Int(-65520), 16, Err(FidelityReason::Overflow)),
         (dec("-0.00"), 32, Ok(0.0)),
@@ -1358,7 +1459,9 @@ fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
     for (input, bits, want) in cases {
         let got = coerce_value(&input, &float(bits), site());
         match (&got, &want) {
-            (Ok(Value::Float(y)), Ok(x)) => assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}"),
+            (Ok(Value::Float(y)), Ok(x)) => {
+                assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}")
+            }
             (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{input:?} at {bits}"),
             _ => panic!("{input:?} at {bits}: got {got:?}, expected {want:?}"),
         }
@@ -1531,10 +1634,7 @@ fn float32_routes_agree_on_a_bounded_scope() {
                 for target in [&f32_, &f64_] {
                     if let Ok(kept) = coerce_value(&input, target, site()) {
                         let read = coerce(&Lexeme::new(&lexeme, LexClass::Number), target);
-                        assert!(
-                            same_result(&Ok(kept), &read),
-                            "{input:?} as {target:?}"
-                        );
+                        assert!(same_result(&Ok(kept), &read), "{input:?} as {target:?}");
                     }
                 }
             }
@@ -1642,16 +1742,8 @@ fn coerce_value_laws_hold_on_a_bounded_scope() {
             let once = coerce_value(value, spec, site());
             if let Some(expected) = expected_value(value, spec) {
                 match (&once, &expected) {
-                    (Ok(Value::Float(got)), Ok(Value::Float(want))) => {
-                        assert_eq!(
-                            got.to_bits(),
-                            want.to_bits(),
-                            "{value:?} as {:?}",
-                            spec.kind
-                        );
-                    }
                     (Ok(got), Ok(want)) => {
-                        assert!(same(got, want), "{value:?} as {spec:?}: {got:?}");
+                        assert_eq!(want_of(got).as_ref(), Some(want), "{value:?} as {spec:?}");
                     }
                     (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{value:?} as {spec:?}"),
                     _ => panic!("{value:?} as {spec:?}: got {once:?}, expected {expected:?}"),
@@ -2098,10 +2190,14 @@ fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() 
     };
     while values.len() < 17_000 {
         let digits = 1 + rng.below(17);
-        let mantissa = (0..digits).map(|_| char::from(b'0' + u8::try_from(rng.below(10)).unwrap())).collect::<String>();
+        let mantissa = (0..digits)
+            .map(|_| char::from(b'0' + u8::try_from(rng.below(10)).unwrap()))
+            .collect::<String>();
         let exponent = i64::try_from(rng.below(96)).unwrap() - 55;
         let sign = if rng.below(2) == 0 { "" } else { "-" };
-        let x = format!("{sign}0.{mantissa}e{exponent}").parse::<f64>().unwrap();
+        let x = format!("{sign}0.{mantissa}e{exponent}")
+            .parse::<f64>()
+            .unwrap();
         push(&mut values, x);
     }
     while values.len() < 34_000 {
@@ -2112,7 +2208,11 @@ fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() 
         if y.is_finite() {
             let steps = 1 + rng.below(3);
             let bits = f64::from(y).to_bits();
-            let x = f64::from_bits(if rng.below(2) == 0 { bits + steps } else { bits.wrapping_sub(steps) });
+            let x = f64::from_bits(if rng.below(2) == 0 {
+                bits + steps
+            } else {
+                bits.wrapping_sub(steps)
+            });
             push(&mut values, x);
         }
     }
@@ -2175,7 +2275,10 @@ fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() 
         };
         check(format!("narrowing {:#x}", x.to_bits()), agree);
         let exact = format!("{x:.1100e}");
-        check(format!("law (i) on the exact text of {:#x}", x.to_bits()), law_i(&exact));
+        check(
+            format!("law (i) on the exact text of {:#x}", x.to_bits()),
+            law_i(&exact),
+        );
         let shortest = reference_shortest(x, 64);
         check(format!("law (i) on {shortest}"), law_i(&shortest));
         check(format!("routes on {shortest}"), routes(&shortest));

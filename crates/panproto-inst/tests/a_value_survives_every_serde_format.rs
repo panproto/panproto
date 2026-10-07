@@ -235,11 +235,9 @@ fn a_decimal_with_any_exponent_survives_every_serde_format() {
             values.push(Value::Decimal(decimal));
         }
         if !exponent.starts_with('-') {
-            let Some(ExactInteger::Big(big)) = BigIntValue::from_scaled(
-                true,
-                "12",
-                &WideInt::parse_canonical(exponent).unwrap(),
-            ) else {
+            let Some(ExactInteger::Big(big)) =
+                BigIntValue::from_scaled(true, "12", &WideInt::parse_canonical(exponent).unwrap())
+            else {
                 panic!("a big integer")
             };
             values.push(Value::BigInt(big));

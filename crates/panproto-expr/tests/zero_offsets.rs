@@ -161,7 +161,11 @@ fn a_temporal_keeps_its_written_case() {
         assert_eq!(value.to_string(), text);
         assert_eq!(Temporal::parse(&value.to_string()).unwrap(), value);
         let json = serde_json::to_string(&value).unwrap();
-        assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), value, "{json}");
+        assert_eq!(
+            serde_json::from_str::<Temporal>(&json).unwrap(),
+            value,
+            "{json}"
+        );
     }
     let a = Temporal::parse("2024-01-02t03:04:05z").unwrap();
     let b = Temporal::parse("2024-01-02 03:04:05Z").unwrap();
@@ -190,10 +194,17 @@ fn a_temporal_keeps_its_written_case() {
         (DateTimeSeparator::Space, r#""space""#),
     ] {
         assert_eq!(serde_json::to_string(&separator).unwrap(), json);
-        assert_eq!(serde_json::from_str::<DateTimeSeparator>(json).unwrap(), separator);
+        assert_eq!(
+            serde_json::from_str::<DateTimeSeparator>(json).unwrap(),
+            separator
+        );
     }
     // Any other separator is no date-time.
-    for bad in ["2024-01-02_03:04:05Z", "2024-01-02x03:04:05Z", "2024-01-02T03:04:05Zz"] {
+    for bad in [
+        "2024-01-02_03:04:05Z",
+        "2024-01-02x03:04:05Z",
+        "2024-01-02T03:04:05Zz",
+    ] {
         assert!(Temporal::parse(bad).is_err(), "{bad}");
     }
 }

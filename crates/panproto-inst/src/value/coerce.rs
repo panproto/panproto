@@ -919,7 +919,8 @@ fn held_exactly(decimal: &DecimalValue, bits: u8) -> Result<f64, FidelityReason>
             negative: false,
             ..decimal.clone()
         };
-        magnitude.cmp_numeric(&DecimalValue::from_i64(BINARY16_OVERFLOW)) != std::cmp::Ordering::Less
+        magnitude.cmp_numeric(&DecimalValue::from_i64(BINARY16_OVERFLOW))
+            != std::cmp::Ordering::Less
     } else {
         !x.is_finite()
     };

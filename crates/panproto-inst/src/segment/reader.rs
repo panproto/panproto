@@ -276,8 +276,7 @@ impl<'a> Reader<'a> {
                 let big = BigIntValue {
                     negative,
                     significand,
-                    zeros: WideInt::from_sign_and_digits(false, &zeros)
-                        .unwrap_or_default(),
+                    zeros: WideInt::from_sign_and_digits(false, &zeros).unwrap_or_default(),
                 };
                 if !big.is_well_formed() {
                     return Err(self.error("a big integer is not in its canonical form"));
@@ -611,7 +610,11 @@ mod tests {
                 let magnitude = exponent.trim_start_matches('-');
                 assert_eq!(
                     bytes,
-                    decimal_bytes(negative, digits, &wide(exponent.starts_with('-'), magnitude))
+                    decimal_bytes(
+                        negative,
+                        digits,
+                        &wide(exponent.starts_with('-'), magnitude)
+                    )
                 );
                 assert_eq!(ok(read(&bytes)), value, "{exponent}");
             }
@@ -620,11 +623,20 @@ mod tests {
         // exponent, a sign byte other than 0 or 1, and digits that are not
         // decimal digits are refused.
         for (exponent, what) in [
-            (wide(false, "012"), "not decimal digits without a leading zero"),
+            (
+                wide(false, "012"),
+                "not decimal digits without a leading zero",
+            ),
             (wide(true, "0"), "is a negative zero"),
             (wide(false, ""), "not decimal digits without a leading zero"),
-            (wide(false, "1a"), "not decimal digits without a leading zero"),
-            ([vec![2], wide(false, "1")[1..].to_vec()].concat(), "has sign byte 2"),
+            (
+                wide(false, "1a"),
+                "not decimal digits without a leading zero",
+            ),
+            (
+                [vec![2], wide(false, "1")[1..].to_vec()].concat(),
+                "has sign byte 2",
+            ),
         ] {
             let error = message(read(&decimal_bytes(false, "1", &exponent)));
             assert!(error.contains(what), "{error}");
@@ -645,7 +657,10 @@ mod tests {
     #[test]
     fn segment_reader_decodes_every_bigint_layout() {
         for zeros in ["0", "1", "4097", "100000000000000000000"] {
-            for (negative, significand) in [(false, "9223372036854775808"), (true, "9223372036854775809")] {
+            for (negative, significand) in [
+                (false, "9223372036854775808"),
+                (true, "9223372036854775809"),
+            ] {
                 let Some(ExactInteger::Big(big)) = BigIntValue::from_scaled(
                     negative,
                     significand,
