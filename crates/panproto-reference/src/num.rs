@@ -1,19 +1,23 @@
-//! Exact arithmetic written naively: naturals and integers as decimal digit
-//! vectors, rationals as reduced pairs.
+//! Exact arithmetic written naively: naturals and integers as digit vectors
+//! in base `10^9`, rationals as reduced pairs.
 //!
 //! Nothing here calls a big-number library or a float operation. Every
-//! operation is the schoolbook algorithm on base-10 digits, so a reader can
-//! check each one against its textbook definition. Speed is not a goal: the
-//! reference runs on small exhaustive scopes.
+//! operation is the schoolbook algorithm on base-`10^9` digits (each digit a
+//! block of nine decimal digits, so the decimal text is the digits written
+//! out), and a reader can check each one against its textbook definition.
+//! Speed is not a goal beyond making the exhaustive scopes run.
 
 use std::cmp::Ordering;
 use std::fmt;
 
-/// A natural number, held as its decimal digits, least significant first,
-/// with no most-significant zero digit (zero is the empty vector).
+/// The base of a digit: `10^9`.
+const BASE: u64 = 1_000_000_000;
+
+/// A natural number, held as its base-`10^9` digits, least significant
+/// first, with no most-significant zero digit (zero is the empty vector).
 #[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct Nat {
-    digits: Vec<u8>,
+    limbs: Vec<u32>,
 }
 
 impl fmt::Debug for Nat {
@@ -24,11 +28,12 @@ impl fmt::Debug for Nat {
 
 impl fmt::Display for Nat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.digits.is_empty() {
+        let Some((top, rest)) = self.limbs.split_last() else {
             return f.write_str("0");
-        }
-        for d in self.digits.iter().rev() {
-            write!(f, "{d}")?;
+        };
+        write!(f, "{top}")?;
+        for l in rest.iter().rev() {
+            write!(f, "{l:09}")?;
         }
         Ok(())
     }
@@ -38,7 +43,7 @@ impl Nat {
     /// Zero.
     #[must_use]
     pub const fn zero() -> Self {
-        Self { digits: Vec::new() }
+        Self { limbs: Vec::new() }
     }
 
     /// One.
@@ -47,33 +52,28 @@ impl Nat {
         Self::from_u64(1)
     }
 
-    fn normalized(mut digits: Vec<u8>) -> Self {
-        while digits.last() == Some(&0) {
-            digits.pop();
+    fn normalized(mut limbs: Vec<u32>) -> Self {
+        while limbs.last() == Some(&0) {
+            limbs.pop();
         }
-        Self { digits }
+        Self { limbs }
     }
 
     /// The natural number `n`.
     #[must_use]
-    pub fn from_u64(mut n: u64) -> Self {
-        let mut digits = Vec::new();
-        while n > 0 {
-            digits.push(u8::try_from(n % 10).unwrap_or(0));
-            n /= 10;
-        }
-        Self { digits }
+    pub fn from_u64(n: u64) -> Self {
+        Self::from_u128(u128::from(n))
     }
 
     /// The natural number `n`.
     #[must_use]
     pub fn from_u128(mut n: u128) -> Self {
-        let mut digits = Vec::new();
+        let mut limbs = Vec::new();
         while n > 0 {
-            digits.push(u8::try_from(n % 10).unwrap_or(0));
-            n /= 10;
+            limbs.push(u32::try_from(n % u128::from(BASE)).unwrap_or(0));
+            n /= u128::from(BASE);
         }
-        Self { digits }
+        Self { limbs }
     }
 
     /// Read a non-empty string of ASCII decimal digits (leading zeros
@@ -83,60 +83,78 @@ impl Nat {
         if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        Some(Self::normalized(text.bytes().rev().map(|b| b - b'0').collect()))
+        let bytes = text.as_bytes();
+        let mut limbs = Vec::new();
+        let mut end = bytes.len();
+        while end > 0 {
+            let start = end.saturating_sub(9);
+            let chunk = std::str::from_utf8(&bytes[start..end]).ok()?;
+            limbs.push(chunk.parse().ok()?);
+            end = start;
+        }
+        Some(Self::normalized(limbs))
     }
 
     /// Whether this is zero.
     #[must_use]
     pub fn is_zero(&self) -> bool {
-        self.digits.is_empty()
+        self.limbs.is_empty()
     }
 
     /// The number of decimal digits (zero has none).
     #[must_use]
     pub fn digit_count(&self) -> usize {
-        self.digits.len()
+        match self.limbs.last() {
+            None => 0,
+            Some(top) => (self.limbs.len() - 1) * 9 + top.to_string().len(),
+        }
     }
 
-    /// The digit of weight `10^i` (zero past the most significant digit).
+    /// The decimal digit of weight `10^i` (zero past the most significant
+    /// digit).
     #[must_use]
     pub fn digit(&self, i: usize) -> u8 {
-        self.digits.get(i).copied().unwrap_or(0)
+        let limb = self.limbs.get(i / 9).copied().unwrap_or(0);
+        let mut v = limb;
+        for _ in 0..(i % 9) {
+            v /= 10;
+        }
+        u8::try_from(v % 10).unwrap_or(0)
     }
 
     /// The value as a `u64`, or `None` when it does not fit.
     #[must_use]
     pub fn to_u64(&self) -> Option<u64> {
-        let mut out: u64 = 0;
-        for d in self.digits.iter().rev() {
-            out = out.checked_mul(10)?.checked_add(u64::from(*d))?;
-        }
-        Some(out)
+        self.to_u128().and_then(|v| u64::try_from(v).ok())
     }
 
     /// The value as a `u128`, or `None` when it does not fit.
     #[must_use]
     pub fn to_u128(&self) -> Option<u128> {
         let mut out: u128 = 0;
-        for d in self.digits.iter().rev() {
-            out = out.checked_mul(10)?.checked_add(u128::from(*d))?;
+        for l in self.limbs.iter().rev() {
+            out = out.checked_mul(u128::from(BASE))?.checked_add(u128::from(*l))?;
         }
         Some(out)
+    }
+
+    fn limb(&self, i: usize) -> u64 {
+        u64::from(self.limbs.get(i).copied().unwrap_or(0))
     }
 
     /// The sum `self + other`, digit by digit with carry.
     #[must_use]
     pub fn add(&self, other: &Self) -> Self {
-        let n = self.digits.len().max(other.digits.len());
+        let n = self.limbs.len().max(other.limbs.len());
         let mut out = Vec::with_capacity(n + 1);
-        let mut carry = 0u8;
+        let mut carry = 0u64;
         for i in 0..n {
-            let s = self.digit(i) + other.digit(i) + carry;
-            out.push(s % 10);
-            carry = s / 10;
+            let s = self.limb(i) + other.limb(i) + carry;
+            out.push(u32::try_from(s % BASE).unwrap_or(0));
+            carry = s / BASE;
         }
         if carry > 0 {
-            out.push(carry);
+            out.push(u32::try_from(carry).unwrap_or(0));
         }
         Self::normalized(out)
     }
@@ -147,46 +165,55 @@ impl Nat {
         if *self < *other {
             return None;
         }
-        let mut out = Vec::with_capacity(self.digits.len());
-        let mut borrow = 0u8;
-        for i in 0..self.digits.len() {
-            let subtrahend = other.digit(i) + borrow;
-            let minuend = self.digit(i);
+        let mut out = Vec::with_capacity(self.limbs.len());
+        let mut borrow = 0u64;
+        for i in 0..self.limbs.len() {
+            let subtrahend = other.limb(i) + borrow;
+            let minuend = self.limb(i);
             if minuend >= subtrahend {
-                out.push(minuend - subtrahend);
+                out.push(u32::try_from(minuend - subtrahend).unwrap_or(0));
                 borrow = 0;
             } else {
-                out.push(minuend + 10 - subtrahend);
+                out.push(u32::try_from(minuend + BASE - subtrahend).unwrap_or(0));
                 borrow = 1;
             }
         }
         Some(Self::normalized(out))
     }
 
-    /// The product `self * d` for one digit-sized factor `d < 10`.
-    fn mul_digit(&self, d: u8) -> Self {
-        let mut out = Vec::with_capacity(self.digits.len() + 1);
-        let mut carry = 0u8;
-        for x in &self.digits {
-            let p = x * d + carry;
-            out.push(p % 10);
-            carry = p / 10;
+    /// The product by one digit `d < 10^9`.
+    fn mul_small(&self, d: u64) -> Self {
+        let mut out = Vec::with_capacity(self.limbs.len() + 1);
+        let mut carry = 0u64;
+        for x in &self.limbs {
+            let p = u64::from(*x) * d + carry;
+            out.push(u32::try_from(p % BASE).unwrap_or(0));
+            carry = p / BASE;
         }
-        if carry > 0 {
-            out.push(carry);
+        while carry > 0 {
+            out.push(u32::try_from(carry % BASE).unwrap_or(0));
+            carry /= BASE;
         }
         Self::normalized(out)
+    }
+
+    fn shift_limbs(&self, k: usize) -> Self {
+        if self.is_zero() {
+            return Self::zero();
+        }
+        let mut limbs = vec![0; k];
+        limbs.extend_from_slice(&self.limbs);
+        Self { limbs }
     }
 
     /// `self * 10^k`.
     #[must_use]
     pub fn shift10(&self, k: usize) -> Self {
-        if self.is_zero() {
-            return Self::zero();
+        let mut p = 1u64;
+        for _ in 0..(k % 9) {
+            p *= 10;
         }
-        let mut digits = vec![0; k];
-        digits.extend_from_slice(&self.digits);
-        Self { digits }
+        self.mul_small(p).shift_limbs(k / 9)
     }
 
     /// The product `self * other`, schoolbook: the sum over the digits of
@@ -194,47 +221,70 @@ impl Nat {
     #[must_use]
     pub fn mul(&self, other: &Self) -> Self {
         let mut acc = Self::zero();
-        for (i, d) in other.digits.iter().enumerate() {
-            acc = acc.add(&self.mul_digit(*d).shift10(i));
+        for (i, d) in other.limbs.iter().enumerate() {
+            acc = acc.add(&self.mul_small(u64::from(*d)).shift_limbs(i));
         }
         acc
     }
 
     /// Quotient and remainder of `self / divisor` by long division, one
-    /// decimal digit of the quotient at a time; `None` for a zero divisor.
+    /// base-`10^9` digit of the quotient at a time (each found by bisection
+    /// over the digit range); `None` for a zero divisor.
     #[must_use]
     pub fn div_rem(&self, divisor: &Self) -> Option<(Self, Self)> {
         if divisor.is_zero() {
             return None;
         }
-        let mut quotient = vec![0u8; self.digits.len()];
+        let mut quotient = vec![0u32; self.limbs.len()];
         let mut rem = Self::zero();
-        for i in (0..self.digits.len()).rev() {
-            rem = rem.shift10(1).add(&Self::from_u64(u64::from(self.digit(i))));
-            let mut q = 0u8;
-            while rem >= *divisor {
-                rem = rem.checked_sub(divisor).unwrap_or_default();
-                q += 1;
+        for i in (0..self.limbs.len()).rev() {
+            rem = rem.shift_limbs(1).add(&Self::from_u64(self.limb(i)));
+            let (mut lo, mut hi) = (0u64, BASE - 1);
+            while lo < hi {
+                let mid = (lo + hi).div_ceil(2);
+                if divisor.mul_small(mid) <= rem {
+                    lo = mid;
+                } else {
+                    hi = mid - 1;
+                }
             }
-            quotient[i] = q;
+            rem = rem.checked_sub(&divisor.mul_small(lo)).unwrap_or_default();
+            quotient[i] = u32::try_from(lo).unwrap_or(0);
         }
         Some((Self::normalized(quotient), rem))
     }
 
-    /// `base^exp` by repeated multiplication.
+    /// `base^exp` by repeated squaring.
     #[must_use]
     pub fn pow(base: &Self, exp: u32) -> Self {
         let mut acc = Self::one();
-        for _ in 0..exp {
-            acc = acc.mul(base);
+        let mut b = base.clone();
+        let mut e = exp;
+        while e > 0 {
+            if e & 1 == 1 {
+                acc = acc.mul(&b);
+            }
+            b = b.mul(&b);
+            e >>= 1;
         }
         acc
     }
 
-    /// `2^k`.
+    /// `2^k`, memoized per thread (the memo changes no result).
     #[must_use]
     pub fn pow2(k: u32) -> Self {
-        Self::pow(&Self::from_u64(2), k)
+        thread_local! {
+            static MEMO: std::cell::RefCell<std::collections::HashMap<u32, Nat>> =
+                std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+        MEMO.with(|m| {
+            if let Some(v) = m.borrow().get(&k) {
+                return v.clone();
+            }
+            let v = Self::pow(&Self::from_u64(2), k);
+            m.borrow_mut().insert(k, v.clone());
+            v
+        })
     }
 
     /// `10^k`.
@@ -243,22 +293,55 @@ impl Nat {
         Self::one().shift10(k)
     }
 
-    /// The greatest common divisor by Euclid's algorithm (`gcd(0, 0) = 0`).
+    /// Half of an even number (the quotient by two, rounding down).
+    fn half(&self) -> Self {
+        let mut out = vec![0u32; self.limbs.len()];
+        let mut carry = 0u64;
+        for i in (0..self.limbs.len()).rev() {
+            let cur = carry * BASE + self.limb(i);
+            out[i] = u32::try_from(cur / 2).unwrap_or(0);
+            carry = cur % 2;
+        }
+        Self::normalized(out)
+    }
+
+    /// The greatest common divisor by the binary algorithm (Stein): strip
+    /// the common factors of two, then repeatedly replace the larger odd
+    /// number by half the difference (`gcd(0, 0) = 0`).
     #[must_use]
     pub fn gcd(a: &Self, b: &Self) -> Self {
-        let (mut x, mut y) = (a.clone(), b.clone());
-        while !y.is_zero() {
-            let r = x.div_rem(&y).map(|(_, r)| r).unwrap_or_default();
-            x = y;
-            y = r;
+        if a.is_zero() {
+            return b.clone();
         }
-        x
+        if b.is_zero() {
+            return a.clone();
+        }
+        let (mut x, mut y) = (a.clone(), b.clone());
+        let mut twos = 0u32;
+        while x.is_even() && y.is_even() {
+            x = x.half();
+            y = y.half();
+            twos += 1;
+        }
+        while x.is_even() {
+            x = x.half();
+        }
+        while !y.is_zero() {
+            while y.is_even() {
+                y = y.half();
+            }
+            if x > y {
+                std::mem::swap(&mut x, &mut y);
+            }
+            y = y.checked_sub(&x).unwrap_or_default();
+        }
+        x.mul(&Self::pow2(twos))
     }
 
     /// Whether the number is even.
     #[must_use]
     pub fn is_even(&self) -> bool {
-        self.digit(0) % 2 == 0
+        self.limb(0) % 2 == 0
     }
 }
 
@@ -270,9 +353,9 @@ impl PartialOrd for Nat {
 
 impl Ord for Nat {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.digits.len().cmp(&other.digits.len()).then_with(|| {
-            for i in (0..self.digits.len()).rev() {
-                let o = self.digits[i].cmp(&other.digits[i]);
+        self.limbs.len().cmp(&other.limbs.len()).then_with(|| {
+            for i in (0..self.limbs.len()).rev() {
+                let o = self.limbs[i].cmp(&other.limbs[i]);
                 if o != Ordering::Equal {
                     return o;
                 }
@@ -455,6 +538,9 @@ impl Rat {
     pub fn new(num: Int, den: Nat) -> Option<Self> {
         if den.is_zero() {
             return None;
+        }
+        if den == Nat::one() {
+            return Some(Self { num, den });
         }
         let g = Nat::gcd(num.magnitude(), &den);
         if g.is_zero() || g == Nat::one() {
