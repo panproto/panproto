@@ -25,7 +25,7 @@
 //! | Relation-ified schemas (classification) | [`rel::classify`] | `kan-extensions.md` |
 //! | Homomorphisms and structure-preserving bijections of instances | [`rel::homs`], [`rel::row_bijection`] | `kan-extensions.md` |
 //! | Graph Delta, Sigma and Pi (encode, presheaf operation, decode) | [`encode::g_delta`], [`encode::g_sigma`], [`encode::g_pi`] | `kan-extensions.md` |
-//! | Tree Sigma through the graph form | [`encode::t_sigma`] | `kan-extensions.md` |
+//! | Tree Delta, Sigma and Pi through the graph form | [`encode::t_delta`], [`encode::t_sigma`], [`encode::t_pi`] | `kan-extensions.md` |
 //! | Graph encoding and record-free decoding | [`encode::encode_graph`], [`encode::decode_table`] | `kan-extensions.md` |
 //! | Tree and table bridges to graphs | [`encode::tree_to_graph`], [`encode::graph_to_tree`], [`encode::table_to_graph`], [`encode::graph_to_table`] | `representation.md` |
 //! | The edge image | [`restrict::edge_image`] | `restrict-and-contraction.md` |

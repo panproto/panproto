@@ -752,16 +752,184 @@ pub fn g_pi(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
     Ok(decode_table(&p, &GraphSide::whole(&f.tgt)))
 }
 
-/// Tree Kan extensions through the graph form: the tree is encoded as a
-/// graph, the graph extension runs, and the result is read back as a tree
-/// with the same root when it is one.
+/// The root of a graph read as a tree: the one node, other than a fan node,
+/// that is the target of no edge leaving a node other than a fan node.
+/// `None` when there is not exactly one.
+fn root_of(g: &Graph) -> Option<u32> {
+    let fan = |n: &u32| {
+        g.nodes
+            .get(n)
+            .is_some_and(|x| x.shape == NodeShape::HyperEdge)
+    };
+    let children: BTreeSet<u32> = g
+        .edges
+        .values()
+        .filter(|e| !fan(&e.src))
+        .map(|e| e.tgt)
+        .collect();
+    let mut roots = g.nodes.keys().filter(|n| !fan(n) && !children.contains(n));
+    match (roots.next(), roots.next()) {
+        (Some(r), None) => Some(*r),
+        _ => None,
+    }
+}
+
+/// A graph read back as a tree from its root ([`root_of`]).
+fn read_tree(g: &Graph) -> Option<Tree> {
+    root_of(g).and_then(|r| graph_to_tree(g, r))
+}
+
+/// Tree Sigma through the graph form: the tree is encoded as a graph, graph
+/// Sigma runs, and the result is read back as a tree when it is one, rooted
+/// at its one node with no parent.
+///
+/// Definition: on the tree-Kan domain (as for [`t_pi`]), tree Sigma of a
+/// tree X is the tree whose graph form is graph Sigma of X's graph form.
 ///
 /// # Errors
 ///
-/// [`GraphKanError`]; `Ok(None)` when the result is not a tree.
+/// [`GraphKanError`]; `Ok(None)` when the result is not a tree or the input
+/// has no graph form.
 pub fn t_sigma(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, GraphKanError> {
     let Ok((g, _)) = tree_to_graph(t, None) else {
         return Ok(None);
     };
-    g_sigma(f, &g).map(|r| graph_to_tree(&r, t.root))
+    g_sigma(f, &g).map(|r| read_tree(&r))
+}
+
+/// Tree Pi through the graph form.
+///
+/// The tree is encoded as a graph, graph Pi runs, and the result is read
+/// back as a tree when it is one, rooted at its one node with no parent (Pi
+/// builds its rows afresh, so the input's root id need not survive).
+///
+/// Definition: on the tree-Kan domain (the tree's graph form is in the
+/// encoding's image, and `f` is injective on tables, relations and columns
+/// with every target table, relation and column in its image), tree Pi of a
+/// tree X is the tree whose graph form is graph Pi of X's graph form.
+/// Outside that domain the function still returns graph Pi read back as a
+/// tree, or `Ok(None)` when that graph is not a tree.
+///
+/// # Errors
+///
+/// [`GraphKanError`]; `Ok(None)` when the result is not a tree or the input
+/// has no graph form.
+pub fn t_pi(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, GraphKanError> {
+    let Ok((g, _)) = tree_to_graph(t, None) else {
+        return Ok(None);
+    };
+    g_pi(f, &g).map(|r| read_tree(&r))
+}
+
+/// Why a tree Delta refuses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TreeDeltaError {
+    /// Two source vertices (kept tables, or the value vertices of kept
+    /// columns) share an image: the pullback would duplicate a node into
+    /// several anchors and leave the trees.
+    NonInjectiveVertexMap {
+        /// The lesser source vertex sharing the image.
+        first: Name,
+        /// The greater source vertex sharing the image.
+        second: Name,
+        /// The shared target vertex.
+        target: Name,
+    },
+    /// Two source edges (kept relations, or the attribute arrows of kept
+    /// columns) share an image, so the edge relabelling has no inverse.
+    NonInjectiveEdgeMap {
+        /// The shared target edge.
+        target: Box<SEdge>,
+    },
+    /// The graph extension refused.
+    Graph(GraphKanError),
+}
+
+/// The first collision of a map, in ascending key order: the earlier key,
+/// the later key and their shared image.
+fn first_collision<K: Clone + Ord, V: Clone + Ord>(
+    pairs: impl IntoIterator<Item = (K, V)>,
+) -> Option<(K, K, V)> {
+    let mut seen: BTreeMap<V, K> = BTreeMap::new();
+    let mut sorted: Vec<(K, V)> = pairs.into_iter().collect();
+    sorted.sort();
+    for (k, v) in sorted {
+        match seen.get(&v) {
+            Some(earlier) if *earlier != k => return Some((earlier.clone(), k, v)),
+            _ => {
+                seen.insert(v, k);
+            }
+        }
+    }
+    None
+}
+
+/// Tree Delta through the graph form, on injective maps only.
+///
+/// Definition: tree Delta is the pullback of a tree along the migration,
+/// defined only when the vertex map and the edge map are injective, since a
+/// merging map would duplicate a node into several anchors and leave the
+/// trees. The vertex map here is the kept table map together with the map
+/// it induces on the value vertices of kept columns (a source column's
+/// arrow target to its image column's arrow target); the edge map is the
+/// kept relation map together with the attribute arrows of kept columns.
+/// On that domain the tree whose graph form is graph Delta of the target
+/// tree's graph form is returned, rooted at its one node with no parent.
+///
+/// # Errors
+///
+/// [`TreeDeltaError::NonInjectiveVertexMap`] and
+/// [`TreeDeltaError::NonInjectiveEdgeMap`] for a merging map, checked in
+/// that order; [`TreeDeltaError::Graph`] when graph Delta refuses.
+/// `Ok(None)` when the result is not a tree or the input has no graph form.
+pub fn t_delta(f: &RelFunctor, t: &Tree) -> Result<Option<Tree>, TreeDeltaError> {
+    let arrow = |schema: &RelSchema, table: &str, column: &str| -> Option<SEdge> {
+        schema
+            .columns
+            .get(table)
+            .and_then(|cs| cs.get(column))
+            .cloned()
+    };
+    let mut vertices: Vec<(Name, Name)> = f
+        .tables
+        .iter()
+        .map(|(s, d)| (s.clone(), d.clone()))
+        .collect();
+    let mut edges: Vec<(SEdge, SEdge)> = f
+        .relations
+        .iter()
+        .map(|(s, d)| (s.clone(), d.clone()))
+        .collect();
+    for ((s, c), tc) in &f.columns {
+        let (Some(src), Some(image)) = (f.tables.get(s), arrow(&f.src, s, c)) else {
+            continue;
+        };
+        let Some(tgt) = arrow(&f.tgt, src, tc) else {
+            continue;
+        };
+        vertices.push((image.tgt.clone(), tgt.tgt.clone()));
+        edges.push((image, tgt));
+    }
+    vertices.sort();
+    vertices.dedup();
+    edges.sort();
+    edges.dedup();
+    if let Some((first, second, target)) = first_collision(vertices) {
+        return Err(TreeDeltaError::NonInjectiveVertexMap {
+            first,
+            second,
+            target,
+        });
+    }
+    if let Some((_, _, target)) = first_collision(edges) {
+        return Err(TreeDeltaError::NonInjectiveEdgeMap {
+            target: Box::new(target),
+        });
+    }
+    let Ok((g, _)) = tree_to_graph(t, None) else {
+        return Ok(None);
+    };
+    g_delta(f, &g)
+        .map(|r| read_tree(&r))
+        .map_err(TreeDeltaError::Graph)
 }
