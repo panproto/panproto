@@ -14,13 +14,17 @@ use crate::restrict::{
 use crate::schema::{KeyRole, Schema};
 use crate::value::{Presence, Value};
 
-/// A graph element.
+/// An instance element: graph nodes and edges, table rows and pairs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ViewRef {
     /// A node.
     Node(u32),
     /// An edge.
     Edge(u32),
+    /// A row.
+    Row(u32),
+    /// A foreign-key pair.
+    Pair(SEdge, u32, u32),
 }
 
 /// A violation of the put domain, in report order (variant, then element).

@@ -15,5 +15,6 @@ pub mod num;
 pub mod rel;
 pub mod restrict;
 pub mod schema;
+pub mod table;
 pub mod temporal;
 pub mod value;
