@@ -15,6 +15,7 @@ pub mod model;
 pub mod num;
 pub mod path;
 pub mod rel;
+pub mod resolution;
 pub mod restrict;
 pub mod schema;
 pub mod segment;
