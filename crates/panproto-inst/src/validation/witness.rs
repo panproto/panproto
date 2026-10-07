@@ -149,8 +149,8 @@ use super::report::{
     write_violation,
 };
 use super::state::{
-    AdmissionPolicy, Prepared, ValidatedShape, ValidationState, admitted, check_state, key_values,
-    part_name, part_value, path_values, prepare_delta, scope_of,
+    AdmissionPolicy, Prepared, ValidatedShape, ValidationState, check_state, key_values, part_name,
+    part_value, path_values, prepare_delta, scope_of,
 };
 
 /// Optional O(n) instance commitments carried by an edit witness.
@@ -318,7 +318,7 @@ impl EditWitness {
         }
         let prepared = prepare_delta(plan, baseline, prior, delta, budget, external)
             .map_err(|_| witness_mismatch("apply", None))?;
-        if !admitted(plan, baseline, &prepared.state, policy) {
+        if !policy.admits(plan, baseline, &prepared.state) {
             return Err(witness_mismatch("admission", None));
         }
         let expected = build_witness(plan, baseline, prior, delta, self.options, &prepared);

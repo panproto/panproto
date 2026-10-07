@@ -749,7 +749,7 @@ impl<I: ValidatedShape> Validated<I> {
             external,
         )
         .map_err(EditRejection::Apply)?;
-        if !admitted(&self.plan, &self.state, &prepared.state, policy) {
+        if !policy.admits(&self.plan, &self.state, &prepared.state) {
             return Err(EditRejection::NotAdmitted {
                 validation: Box::new(prepared.validation),
             });
@@ -970,31 +970,37 @@ impl Next<'_, '_> {
     }
 }
 
-/// Whether `policy` admits the transition from `baseline` to `target`.
-///
-/// `RequirePassed` admits exactly a `Passed` target. `NoNewFailures`
-/// admits iff every check instance with a required failed or incomplete
-/// entry in the target had, in the baseline, the same required entries,
-/// compared by canonical bytes; a baseline budget-skipped instance counts
-/// as one required budget incompleteness. Advisory entries decide neither
-/// policy.
-pub fn admitted(
-    plan: &ValidationPlan,
-    baseline: &ValidationState,
-    target: &ValidationState,
-    policy: AdmissionPolicy,
-) -> bool {
-    match policy {
-        AdmissionPolicy::RequirePassed => target.status == CheckStatus::Passed,
-        AdmissionPolicy::NoNewFailures => {
-            let before = required_outcomes(plan, baseline);
-            required_outcomes(plan, target)
-                .iter()
-                .all(|(instance, verdict)| {
-                    before
-                        .get(instance)
-                        .is_some_and(|old| open_bytes(old) == open_bytes(verdict))
-                })
+impl AdmissionPolicy {
+    /// Whether this policy admits the transition from `baseline` to
+    /// `target`, two states of `plan`.
+    ///
+    /// `RequirePassed` admits exactly a `Passed` target. `NoNewFailures`
+    /// admits iff every check instance with a required failed or incomplete
+    /// entry in the target had, in the baseline, the same required entries,
+    /// compared by canonical bytes; a baseline budget-skipped instance counts
+    /// as one required budget incompleteness. Advisory entries decide neither
+    /// policy. [`Validated::apply_edit`] and [`super::EditWitness::verify`]
+    /// admit by this method, and its answer is exact for states that the
+    /// crate commits or accepts through [`Validated::from_parts`].
+    #[must_use]
+    pub fn admits(
+        self,
+        plan: &ValidationPlan,
+        baseline: &ValidationState,
+        target: &ValidationState,
+    ) -> bool {
+        match self {
+            Self::RequirePassed => target.status == CheckStatus::Passed,
+            Self::NoNewFailures => {
+                let before = required_outcomes(plan, baseline);
+                required_outcomes(plan, target)
+                    .iter()
+                    .all(|(instance, verdict)| {
+                        before
+                            .get(instance)
+                            .is_some_and(|old| open_bytes(old) == open_bytes(verdict))
+                    })
+            }
         }
     }
 }
