@@ -7770,3 +7770,223 @@ mod law_properties {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// A TreeToTable route: a list of items assembled into a table of entries,
+// reached through the table entry points of the registry.
+// ---------------------------------------------------------------------------
+
+/// The listing provider: the items of a list tree are the rows of an
+/// `entry` table, row `i` holding the `i`-th item's value as its `name`.
+struct Listing {
+    protocol: Protocol,
+    spec: ResolutionSpec,
+}
+
+impl Listing {
+    fn new() -> (Self, Schema) {
+        let protocol = protocol("listing", InstanceShapeKind::Tree, InstanceShapeKind::Table);
+        let syntactic = SchemaBuilder::new(&protocol)
+            .vertex("list", "object", None)
+            .unwrap()
+            .vertex("item", "string", None)
+            .unwrap()
+            .edge("list", "item", "prop", Some("items"))
+            .unwrap()
+            .entry("list")
+            .build()
+            .unwrap();
+        let semantic = SchemaBuilder::new(&protocol)
+            .vertex("entry", "table", None)
+            .unwrap()
+            .vertex("name", "string", None)
+            .unwrap()
+            .edge("entry", "name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let spec = ResolutionSpec {
+            kind: ResolutionKind::TreeToTable,
+            provider: provider_id("listing"),
+            semantic_schema: semantic,
+            protocol_references: BTreeMap::new(),
+            structural_edges: BTreeSet::new(),
+            reference_writers: BTreeMap::new(),
+            context_requirements: BTreeSet::new(),
+            assembly: Some(panproto_io::resolution::AssemblyPlanId {
+                grammar: "listing".into(),
+                version: 1,
+            }),
+        };
+        (Self { protocol, spec }, syntactic)
+    }
+}
+
+/// The list tree of some item values.
+fn listing_tree(values: &[&str]) -> WInstance {
+    let mut nodes = vec![Node::new(0, "list")];
+    let mut arcs = Vec::new();
+    for (value, id) in values.iter().zip(1u32..) {
+        nodes.push(leaf(id, "item", text(value)));
+        arcs.push((0, id, prop("list", "item", "items")));
+    }
+    tree(nodes, arcs, 0)
+}
+
+impl ResolutionProvider for Listing {
+    fn id(&self) -> ResolutionProviderId {
+        provider_id("listing")
+    }
+
+    fn kind(&self) -> ResolutionKind {
+        ResolutionKind::TreeToTable
+    }
+
+    fn protocol(&self) -> &Protocol {
+        &self.protocol
+    }
+
+    fn spec(
+        &self,
+        _protocol: &Protocol,
+        _syntactic: &Schema,
+    ) -> Result<ResolutionSpec, ResolveError> {
+        Ok(self.spec.clone())
+    }
+
+    fn assembly_get(
+        &self,
+        _plan: &panproto_io::resolution::AssemblyPlanId,
+        source: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<(AnyInstance, panproto_io::resolution::AssemblyResidue), ResolveError> {
+        let AnyInstance::Tree(list) = source else {
+            return Err(ResolveError::ShapeMismatch {
+                expected: InstanceShapeKind::Tree,
+                found: source.shape(),
+            });
+        };
+        let mut table = FInstance::new();
+        for &item in list.children(0) {
+            let name = match &list.nodes[&item].value {
+                Some(FieldPresence::Present(value)) => value.clone(),
+                _ => Value::Null,
+            };
+            table
+                .insert_row("entry", RowId(item), row(&[("name", name)]))
+                .map_err(|_| {
+                    ResolveError::Instance(
+                        panproto_io::resolution::ResolutionInstanceError::NotTable,
+                    )
+                })?;
+        }
+        Ok((
+            AnyInstance::Table(table),
+            panproto_io::resolution::AssemblyResidue {
+                source: Box::new(source.clone()),
+                trace: Vec::new(),
+                context: None,
+            },
+        ))
+    }
+
+    fn assembly_put_canonical(
+        &self,
+        plan: &panproto_io::resolution::AssemblyPlanId,
+        view: &AnyInstance,
+        ctx: &ResolveContext<'_>,
+    ) -> Result<(AnyInstance, panproto_io::resolution::AssemblyResidue), ResolveError> {
+        let AnyInstance::Table(table) = view else {
+            return Err(ResolveError::ShapeMismatch {
+                expected: InstanceShapeKind::Table,
+                found: view.shape(),
+            });
+        };
+        let mut nodes = vec![Node::new(0, "list")];
+        let mut arcs = Vec::new();
+        for (id, cells) in table.rows("entry") {
+            nodes.push(leaf(
+                id.0,
+                "item",
+                cells.get("name").cloned().unwrap_or(Value::Null),
+            ));
+            arcs.push((0, id.0, prop("list", "item", "items")));
+        }
+        let source = AnyInstance::Tree(tree(nodes, arcs, 0));
+        let (_, residue) = self.assembly_get(plan, &source, ctx)?;
+        Ok((source, residue))
+    }
+}
+
+#[test]
+fn a_table_route_serves_the_table_entry_points() {
+    let (provider, syntactic) = Listing::new();
+    let provider = Arc::new(provider);
+    let mut registry = panproto_io::ProtocolRegistry::new();
+    registry.register_resolution_route(TreeJson("listing"), provider.clone());
+    assert!(registry.supports_table("listing"));
+    assert!(
+        !registry.supports_tree("listing"),
+        "the route targets a table"
+    );
+    assert!(!registry.supports_graph("listing"));
+    let bytes = serde_json::to_vec(&listing_tree(&["a", "b"])).expect("serializes");
+    let table = registry
+        .parse_table("listing", &syntactic, &bytes)
+        .expect("parsed through the route");
+    let names: Vec<Value> = table
+        .rows("entry")
+        .into_iter()
+        .map(|(_, cells)| cells["name"].clone())
+        .collect();
+    assert_eq!(names, vec![text("a"), text("b")]);
+    let (with_state, complement) = registry
+        .parse_table_with_complement(
+            "listing",
+            &syntactic,
+            &bytes,
+            &ResolveOptions::default(),
+            &ctx(),
+        )
+        .expect("the checked table wrapper");
+    assert!(same(
+        &AnyInstance::Table(with_state),
+        &AnyInstance::Table(table.clone())
+    ));
+    assert!(complement.assembly.is_some());
+    assert!(matches!(
+        registry.parse_tree_with_complement(
+            "listing",
+            &syntactic,
+            &bytes,
+            &ResolveOptions::default(),
+            &ctx()
+        ),
+        Err(panproto_io::ParseInstanceError::Resolution(error))
+            if matches!(*error, ResolveError::ShapeMismatch { expected: InstanceShapeKind::Tree, found: InstanceShapeKind::Table })
+    ));
+    let emitted = registry
+        .emit_table("listing", &syntactic, &table)
+        .expect("emitted through canonical put");
+    let reparsed = registry
+        .parse_table("listing", &syntactic, &emitted)
+        .expect("reparsed");
+    assert!(same(
+        &AnyInstance::Table(reparsed),
+        &AnyInstance::Table(table)
+    ));
+    // A native table codec of the protocol is preferred over the route.
+    registry.register(TableEcho("listing"));
+    let native = registry
+        .parse_table("listing", &syntactic, b"plain")
+        .expect("the native codec");
+    assert!(!native.rows("cell").is_empty());
+    assert!(native.rows("entry").is_empty());
+    let native_bytes = registry
+        .emit_table("listing", &syntactic, &native)
+        .expect("the native codec");
+    assert_eq!(
+        native_bytes,
+        serde_json::to_vec(&native).expect("serializes")
+    );
+}
