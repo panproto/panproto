@@ -3,6 +3,7 @@
 
 pub mod canonical;
 pub mod coerce;
+pub mod encode;
 pub mod exact;
 pub mod fan;
 pub mod float;
