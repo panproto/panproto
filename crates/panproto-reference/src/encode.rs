@@ -369,6 +369,11 @@ pub enum NotEncodable {
         /// The node.
         node: u32,
     },
+    /// An edge whose source or target is not a node of the graph.
+    DanglingEdge {
+        /// The edge.
+        edge: u32,
+    },
     /// A label neither a relation, a column nor an inner edge.
     EdgeOutsideSide {
         /// The edge.
@@ -483,11 +488,14 @@ fn pass_nodes(g: &Graph, side: &GraphSide) -> Result<(), NotEncodable> {
 
 fn pass_edges(g: &Graph, side: &GraphSide) -> Result<(), NotEncodable> {
     for (id, e) in &g.edges {
+        let (Some(from), Some(to)) = (g.nodes.get(&e.src), g.nodes.get(&e.tgt)) else {
+            return Err(NotEncodable::DanglingEdge { edge: *id });
+        };
         let l = &e.label;
         if !(side.relations.contains(l) || side.is_column(l) || side.inner_edges.contains(l)) {
             return Err(NotEncodable::EdgeOutsideSide { edge: *id });
         }
-        if g.nodes[&e.src].anchor != l.src || g.nodes[&e.tgt].anchor != l.tgt {
+        if from.anchor != l.src || to.anchor != l.tgt {
             return Err(NotEncodable::IncoherentEndpoints { edge: *id });
         }
     }
@@ -553,7 +561,10 @@ fn rooted(g: &Graph, side: &GraphSide, n: u32) -> bool {
     for _ in 0..=g.nodes.len() {
         let ins: Vec<&GEdge> = g.edges.values().filter(|e| e.tgt == cur).collect();
         let [one] = ins.as_slice() else { return false };
-        if side.tables.contains(&g.nodes[&one.src].anchor) {
+        let Some(parent) = g.nodes.get(&one.src) else {
+            return false;
+        };
+        if side.tables.contains(&parent.anchor) {
             return true;
         }
         cur = one.src;
@@ -617,7 +628,8 @@ fn pass_values(g: &Graph, side: &GraphSide) -> Result<(), NotEncodable> {
 
 /// Encode a graph over a side: five checks (nodes, edges, parallel edges,
 /// cells, value nodes), then a row per table node with the folds of its
-/// cells, and a pair per relation edge.
+/// cells, and a pair per relation edge. The edge check refuses first an
+/// edge whose source or target is not a node (`DanglingEdge`).
 ///
 /// # Errors
 ///

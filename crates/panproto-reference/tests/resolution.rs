@@ -113,3 +113,20 @@ fn a_dangling_reference_is_strict_or_recorded() {
     let (_, c) = resolution::get(&s, &t, true).unwrap().unwrap();
     assert_eq!(c.unresolved.len(), 1);
 }
+
+#[test]
+fn a_reference_edge_from_a_missing_node_is_unrepresentable_not_a_panic() {
+    let (s, t) = setup(OnUnresolved::Error);
+    let (mut view, c) = resolution::get(&s, &t, false).unwrap().unwrap();
+    view.edges.insert(
+        3,
+        GEdge {
+            src: 7,
+            ..view.edges[&3].clone()
+        },
+    );
+    assert_eq!(
+        format!("{:?}", resolution::put(&s, &view, &c)),
+        "Err(UnrepresentableReference { carrier: Edge(3), reference: None })"
+    );
+}

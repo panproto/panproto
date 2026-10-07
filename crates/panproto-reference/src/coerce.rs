@@ -5,10 +5,10 @@
 //! narrowing rules for float kinds. Both are written straight from their
 //! definitions, with exact rationals for every float decision.
 //!
-//! Domain: the default numeral reading (no numeral dialect declared) and
-//! untagged lexemes. A tagged lexeme (a discriminator table's input) and a
-//! float width other than 16, 32 and 64 are outside the reference's domain
-//! and give `None`.
+//! Domain: the default numeral reading (no numeral dialect declared).
+//! Tagged lexemes are read with or without a discriminator table. A float
+//! width other than 16, 32 and 64, for which no rule is stated, gives
+//! `None`, as does the nearest-keeping-lexeme reading of an existing value.
 
 use crate::exact::{
     Decimal, DecimalValue, ExactInteger, NonFinite, Scaled, integer_of_numeral, parse_decimal,
@@ -194,14 +194,104 @@ const fn inf_bits(negative: bool) -> u64 {
     Rounded::Overflow { negative }.bits(Format::B64)
 }
 
+/// A type tag without a YAML `tag:yaml.org,2002:` or `!!` prefix.
+fn tag_name(tag: &str) -> &str {
+    tag.strip_prefix("tag:yaml.org,2002:")
+        .or_else(|| tag.strip_prefix("!!"))
+        .unwrap_or(tag)
+}
+
+/// The scalar kind a tag names, and the lexical class its lexeme is read
+/// in: the YAML core and extended-JSON names of the scalar kinds.
+fn tagged_kind(name: &str) -> Option<(ScalarKind, LexClass)> {
+    Some(match name {
+        "bool" | "boolean" => (ScalarKind::Bool, LexClass::Bool),
+        "int" | "integer" | "numberLong" | "numberInt" => (ScalarKind::BigInt, LexClass::Number),
+        "float" | "double" | "numberDouble" => (ScalarKind::Float { bits: 64 }, LexClass::Number),
+        "decimal" | "numberDecimal" => (ScalarKind::Decimal, LexClass::Number),
+        "str" | "string" => (ScalarKind::Str, LexClass::String),
+        "binary" | "base64" => (ScalarKind::Bytes(BytesText::Base64), LexClass::Bytes),
+        "hex" => (ScalarKind::Bytes(BytesText::Hex), LexClass::Bytes),
+        "timestamp" | "datetime" | "date-time" => (ScalarKind::DateTime, LexClass::DateTime),
+        "date" => (ScalarKind::Date, LexClass::DateTime),
+        "time" => (ScalarKind::Time, LexClass::DateTime),
+        _ => return None,
+    })
+}
+
+/// The opaque value that keeps a scalar of an unknown tag: its type is the
+/// tag as written and its one field `value` the lexeme.
+fn opaque_of(tag: &str, text: &str) -> Value {
+    Value::Opaque {
+        type_: tag.to_owned(),
+        fields: std::iter::once(("value".to_owned(), Value::Str(text.to_owned()))).collect(),
+    }
+}
+
+/// A tagged lexeme with no discriminator table.
+///
+/// Definition: "A tagged scalar: the declared kind governs when there is
+/// one; under `Any` the tag's own kind does, and a tag naming no scalar
+/// kind keeps the scalar as an opaque value of that type, so the tag is
+/// never dropped" (the reading every call without a discriminator table
+/// keeps). Under a declared kind the lexeme is read as a `String`; under
+/// `Any` the tag, with its YAML prefix removed, is `null` (the null value),
+/// a scalar kind's name (the lexeme read under that kind in its class), or
+/// any other name (the opaque value of the tag as written).
+fn coerce_tagged_open(text: &str, tag: &str, spec: &ValueSpec) -> Coerced {
+    if spec.kind != ScalarKind::Any {
+        return coerce(text, &LexClass::String, spec);
+    }
+    let name = tag_name(tag);
+    if name == "null" {
+        return Some(Ok(Value::Null));
+    }
+    match tagged_kind(name) {
+        Some((kind, class)) => coerce(text, &class, &ValueSpec::of(kind)),
+        None => Some(Ok(opaque_of(tag, text))),
+    }
+}
+
+/// A lexeme with a tag under a spec with a discriminator table.
+///
+/// Definition: "Under a spec with a table, a lexeme whose tag the table
+/// holds is read by `coerce` under the spec with that kind, so a JSON
+/// number tagged "text" is refused under `Str` as an untagged one is; a
+/// lexeme whose tag the table lacks is kept unchanged as `Value::Opaque {
+/// type_: tag, fields: { "value": Str(lexeme) } }` ... a lexeme with no tag
+/// is read under the spec's own kind." The lexeme keeps its own class.
+#[must_use]
+pub fn coerce_discriminated(
+    text: &str,
+    class: &LexClass,
+    tag: Option<&str>,
+    table: &std::collections::BTreeMap<String, ScalarKind>,
+    spec: &ValueSpec,
+) -> Coerced {
+    match tag {
+        None => coerce(text, class, spec),
+        Some(t) => match table.get(t) {
+            Some(kind) => coerce(text, class, &ValueSpec { kind: *kind, ..*spec }),
+            None => Some(Ok(opaque_of(t, text))),
+        },
+    }
+}
+
 /// Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
+///
+/// A lexeme of class `Tagged(tag)` with no discriminator table is read by
+/// the declared kind as a `String` when there is one, and under `Any` by
+/// its tag: `null` (with the YAML prefix removed) is the null value, a
+/// scalar kind's name reads the lexeme under that kind, and any other tag
+/// keeps it as the opaque value of the tag. A lexeme with a tag under a
+/// discriminator table goes through [`coerce_discriminated`].
 #[must_use]
 pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
     if *class == LexClass::Null {
         return Some(Ok(Value::Null));
     }
-    if matches!(class, LexClass::Tagged(_)) {
-        return None;
+    if let LexClass::Tagged(tag) = class {
+        return coerce_tagged_open(text, tag, spec);
     }
     let numeric_class = || match class {
         LexClass::Bool | LexClass::Bytes | LexClass::DateTime => Err(FidelityReason::NotANumber),
@@ -595,8 +685,9 @@ fn exact_numeric(v: &Value) -> Option<DecimalValue> {
 /// decimal is refused with `NonFinite`. Under any other non-`Any` kind a
 /// non-finite `Float` is refused with `NonFinite`, a value with a scalar
 /// lexeme is read through [`coerce`], and any other value is unchanged.
-/// `None` under the nearest-keeping-lexeme reading, a tagged spec, or a
-/// float width other than 16, 32 and 64.
+/// `None` under the nearest-keeping-lexeme reading (no rule states how an
+/// existing value is read under it) or a float width other than 16, 32
+/// and 64.
 #[must_use]
 pub fn coerce_value(v: &Value, spec: &ValueSpec) -> Coerced {
     if spec.kind == ScalarKind::Any {

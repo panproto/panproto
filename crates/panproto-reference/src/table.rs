@@ -2,9 +2,10 @@
 //! through the cell fates of the attribute arrows, the table complement,
 //! and put by the baseline-and-pullback rule.
 //!
-//! Domain: a transform-free value layer for cells (survival predicates are
-//! read through the [`ValueLayer`]); an edited cell is pulled back through
-//! its writer, and a cell with no writer is derived.
+//! The value layer ([`ValueLayer`]) supplies survival predicates and the
+//! transforms of transformed tables: get reads cells after the transforms,
+//! and put pulls an edited cell back through its writer and then through
+//! the value layer's restoration; a cell with no writer is derived.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -363,24 +364,18 @@ impl TableLens<'_> {
         }
     }
 
-    /// The baseline-and-pullback rule for one row: the baseline source
-    /// cells from the complement and the same-named view cells, its
-    /// baseline view, and each differing target cell written to its writer.
-    fn cells(
+    /// The baseline source cells of a row: each column of its source table
+    /// from the complement's dropped or original cell, else the same-named
+    /// view cell.
+    fn baseline(
         &self,
         comp: &TableComplement,
         row: u32,
         table: &str,
         view: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>, Vec<PutDomainError>> {
-        let columns: Vec<String> = self
-            .rs
-            .columns
-            .get(table)
-            .map(|cs| cs.keys().cloned().collect())
-            .unwrap_or_default();
+    ) -> BTreeMap<String, Value> {
         let mut s0 = BTreeMap::new();
-        for col in &columns {
+        for col in self.rs.columns.get(table).into_iter().flat_map(|cs| cs.keys()) {
             let key = (row, col.clone());
             if let Some(val) = comp
                 .dropped_cells
@@ -391,12 +386,54 @@ impl TableLens<'_> {
                 s0.insert(col.clone(), val.clone());
             }
         }
-        let v0 = self.tp.apply(table, &s0);
+        s0
+    }
+
+    /// The baseline-and-pullback rule for one row.
+    ///
+    /// The baseline source cells `s0` give the baseline view: the cell
+    /// fates applied to `s0`, or, for a row of a transformed table, to the
+    /// value layer's transform of `s0` on the baseline source `g0`. Each
+    /// target cell where the view differs is written to its writer (a cell
+    /// with no writer is `DerivedCellEdited`). For a transformed row the
+    /// written fields are the transformed ones, and the value layer
+    /// restores the source fields from them (with the baseline as the
+    /// recorded original when the transform changed it), its refusal being
+    /// the row's `TransformNotInvertible` or `DerivedCellEdited`.
+    fn cells(
+        &self,
+        row: u32,
+        table: &str,
+        s0: &BTreeMap<String, Value>,
+        g0: &Graph,
+        view: &BTreeMap<String, Value>,
+    ) -> Result<BTreeMap<String, Value>, Vec<PutDomainError>> {
+        let transformed = self.m.transformed.contains(table);
+        let mut node = crate::model::Node::new(row, table);
+        node.fields.clone_from(s0);
+        let f0 = if transformed {
+            match self.vl.transform(g0, &node) {
+                Ok((f, _)) => f,
+                Err(refusal) => {
+                    return Err(vec![PutDomainError::BaselineRefused {
+                        elem: ViewRef::Row(row),
+                        refusal,
+                    }]);
+                }
+            }
+        } else {
+            s0.clone()
+        };
+        let mut fields = f0.clone();
+        let v0 = self.tp.apply(table, &f0);
         let changed: BTreeSet<&String> = view
             .keys()
             .chain(v0.keys())
             .filter(|col| view.get(*col) != v0.get(*col))
             .collect();
+        if changed.is_empty() {
+            return Ok(s0.clone());
+        }
         let mut errs = Vec::new();
         for target in changed {
             match self.tp.writer(table, target) {
@@ -406,15 +443,42 @@ impl TableLens<'_> {
                 }),
                 Some(writer) => match view.get(target) {
                     Some(val) => {
-                        s0.insert(writer, val.clone());
+                        fields.insert(writer, val.clone());
                     }
                     None => {
-                        s0.remove(&writer);
+                        fields.remove(&writer);
                     }
                 },
             }
         }
-        if errs.is_empty() { Ok(s0) } else { Err(errs) }
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        if !transformed {
+            return Ok(fields);
+        }
+        let original = (f0 != *s0).then_some(s0);
+        let mut written = crate::model::Node::new(row, table);
+        written.fields = fields;
+        self.vl
+            .restore(&written, original, None)
+            .map(|(restored, _)| restored)
+            .map_err(|refusal| {
+                vec![match refusal {
+                    crate::restrict::PutFieldRefusal::DerivedCellEdited { field } => {
+                        PutDomainError::DerivedCellEdited {
+                            elem: ViewRef::Row(row),
+                            field,
+                        }
+                    }
+                    crate::restrict::PutFieldRefusal::TransformNotInvertible { field } => {
+                        PutDomainError::TransformNotInvertible {
+                            elem: ViewRef::Row(row),
+                            field,
+                        }
+                    }
+                }]
+            })
     }
 
     /// Put by the baseline-and-pullback rule, collecting every violation.
@@ -440,15 +504,14 @@ impl TableLens<'_> {
                 });
             }
         }
+        let mut baselines: BTreeMap<u32, (Name, BTreeMap<String, Value>)> = BTreeMap::new();
         for (r, (vt, cells)) in &view.rows {
             match self.source_table(c, *r, vt) {
                 Err(e) => errs.push(e),
-                Ok(s) => match self.cells(c, *r, &s, cells) {
-                    Ok(restored) => {
-                        out.rows.insert(*r, (s, restored));
-                    }
-                    Err(e) => errs.extend(e),
-                },
+                Ok(s) => {
+                    let s0 = self.baseline(c, *r, &s, cells);
+                    baselines.insert(*r, (s, s0));
+                }
             }
         }
         for pair in &view.pairs {
@@ -488,6 +551,20 @@ impl TableLens<'_> {
                 if !removed.contains(s) && !removed.contains(t) {
                     out.pairs.insert((e.clone(), *s, *t));
                 }
+            }
+        }
+        // The baseline source: every view row at its baseline cells, the
+        // dropped rows and the restored pairs; the value layer's transforms
+        // read it.
+        let mut source0 = out.clone();
+        source0.rows.extend(baselines.clone());
+        let (g0, _) = table_to_graph(&source0);
+        for (r, (s, s0)) in baselines {
+            match self.cells(r, &s, &s0, &g0, &view.rows[&r].1) {
+                Ok(restored) => {
+                    out.rows.insert(r, (s, restored));
+                }
+                Err(e) => errs.extend(e),
             }
         }
         errs.extend(self.source_violations(view, &out));

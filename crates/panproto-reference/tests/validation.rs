@@ -83,3 +83,31 @@ fn the_status_is_kleene_conjunction() {
     }
     assert_eq!(CheckStatus::all([]), Passed);
 }
+
+#[test]
+fn an_edge_to_a_missing_node_is_an_endpoint_finding_not_a_panic() {
+    let works = SEdge::new("person", "org", "prop", Some("worksAt"));
+    let s = Schema::default()
+        .vertex("person", "obj")
+        .vertex("org", "obj")
+        .edge("person", "org", "prop", Some("worksAt"));
+    let mut g = Graph::default();
+    g.nodes.insert(0, Node::new(0, "person"));
+    g.edges.insert(
+        0,
+        GEdge {
+            src: 0,
+            tgt: 9,
+            label: works,
+            position: None,
+        },
+    );
+    let r = validation::validate(&s, &BTreeMap::new(), &g).unwrap();
+    assert_eq!(r.diagnostics.len(), 1);
+    assert_eq!(r.diagnostics[0].check.kind, CheckKind::EndpointCoherence);
+    assert_eq!(
+        format!("{:?}", r.diagnostics[0].violation),
+        "DanglingEndpoint(false, 9)"
+    );
+    assert_eq!(r.status, CheckStatus::Failed);
+}

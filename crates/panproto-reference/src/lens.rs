@@ -106,6 +106,15 @@ pub enum PutDomainError {
         /// The refusal.
         refusal: LayerRefusal,
     },
+    /// The value layer refuses to transform a row's baseline source cells,
+    /// so the row has no baseline view to pull an edit back against (get
+    /// itself would refuse the baseline source).
+    BaselineRefused {
+        /// The row.
+        elem: ViewRef,
+        /// The refusal.
+        refusal: LayerRefusal,
+    },
 }
 
 impl PutDomainError {
@@ -126,6 +135,7 @@ impl PutDomainError {
             Self::MissingRequiredCell { elem, .. } => (9, Some(elem.clone())),
             Self::MalformedFan { node, .. } => (10, Some(ViewRef::Node(*node))),
             Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
+            Self::BaselineRefused { elem, .. } => (12, Some(elem.clone())),
         }
     }
 }

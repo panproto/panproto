@@ -125,6 +125,10 @@ pub enum Violation {
     UndeclaredEdge(SEdge),
     /// An endpoint is anchored elsewhere: `(source side?, expected, found)`.
     IncoherentEndpoint(bool, Name, Name),
+    /// An endpoint is no node of the instance: `(source side?, node)`. An
+    /// instance of the production shapes cannot hold such an edge; the
+    /// reference model can, and reports it here rather than failing.
+    DanglingEndpoint(bool, u32),
     /// A fan violation.
     MalformedFan(FanViolation),
     /// A required edge is missing.
@@ -318,7 +322,16 @@ fn structural(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) {
         for (src_side, node, expected) in
             [(true, e.src, &e.label.src), (false, e.tgt, &e.label.tgt)]
         {
-            let found = &g.nodes[&node].anchor;
+            let Some(found) = g.nodes.get(&node).map(|n| &n.anchor) else {
+                out.push(diag(
+                    CheckKind::EndpointCoherence,
+                    SchemaRef::Edge(e.label.clone()),
+                    Some(me.clone()),
+                    vec![me.clone()],
+                    Violation::DanglingEndpoint(src_side, node),
+                ));
+                continue;
+            };
             if found != expected {
                 let v = Violation::IncoherentEndpoint(src_side, expected.clone(), found.clone());
                 out.push(diag(

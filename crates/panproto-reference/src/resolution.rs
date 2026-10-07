@@ -248,7 +248,10 @@ pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, 
             .iter()
             .filter(|reference| {
                 reference.edge.as_ref() == Some(&edge.label)
-                    && view.nodes[&edge.src].anchor == reference.holder
+                    && view
+                        .nodes
+                        .get(&edge.src)
+                        .is_some_and(|n| n.anchor == reference.holder)
             })
             .collect();
         if r_label_is_reference(&declared, &edge.label) {

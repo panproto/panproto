@@ -100,6 +100,12 @@ pub enum SegmentError {
         /// The edge.
         edge: u32,
     },
+    /// An edge of the graph to partition whose source or target is not a
+    /// node of that graph.
+    DanglingEdge {
+        /// The edge.
+        edge: u32,
+    },
 }
 
 impl Partition {
@@ -192,7 +198,10 @@ pub struct GraphSegment {
 ///
 /// # Errors
 ///
-/// [`SegmentError::Unowned`] for the least node no range owns.
+/// The partition's own violation; [`SegmentError::Unowned`] for the least
+/// node no range owns; then, for the least edge whose source or target is
+/// not a node of `g`, [`SegmentError::DanglingEdge`], or
+/// [`SegmentError::Unowned`] when an endpoint lies in no range.
 pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentError> {
     p.validate()?;
     let owner = |n: u32| p.owner(n).ok_or(SegmentError::Unowned { node: n });
@@ -213,6 +222,9 @@ pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentE
             .insert(*id, n.clone());
     }
     for (id, e) in &g.edges {
+        let (Some(from), Some(to_node)) = (g.nodes.get(&e.src), g.nodes.get(&e.tgt)) else {
+            return Err(SegmentError::DanglingEdge { edge: *id });
+        };
         let (so, to) = (owner(e.src)?, owner(e.tgt)?);
         let s = &mut segs[usize::try_from(so).unwrap_or(0)];
         s.edges.insert(*id, e.clone());
@@ -221,7 +233,7 @@ pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentE
                 e.tgt,
                 Ghost {
                     owner: to,
-                    anchor: g.nodes[&e.tgt].anchor.clone(),
+                    anchor: to_node.anchor.clone(),
                 },
             );
             let t = &mut segs[usize::try_from(to).unwrap_or(0)];
@@ -230,7 +242,7 @@ pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentE
                 InStub {
                     src: e.src,
                     src_owner: so,
-                    src_anchor: g.nodes[&e.src].anchor.clone(),
+                    src_anchor: from.anchor.clone(),
                     tgt: e.tgt,
                     label: e.label.clone(),
                 },

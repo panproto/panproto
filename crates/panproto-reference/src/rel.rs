@@ -607,6 +607,52 @@ pub enum KanError {
         /// The column.
         column: String,
     },
+    /// A fresh row id would pass `u32::MAX`.
+    RowIdsExhausted,
+    /// A fresh labelled null would pass `u64::MAX`.
+    NullIdsExhausted,
+}
+
+/// The fresh ids above a set of used ids: one above the greatest, 0 for
+/// none, handed out ascending; `None` once the next would pass the type's
+/// greatest value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fresh<T> {
+    next: Option<T>,
+}
+
+impl Fresh<u32> {
+    /// The fresh row ids above `used`.
+    #[must_use]
+    pub fn above(used: impl Iterator<Item = u32>) -> Self {
+        Self {
+            next: used.max().map_or(Some(0), |m| m.checked_add(1)),
+        }
+    }
+
+    /// The next fresh id.
+    pub fn take(&mut self) -> Option<u32> {
+        let id = self.next?;
+        self.next = id.checked_add(1);
+        Some(id)
+    }
+}
+
+impl Fresh<u64> {
+    /// The fresh null ids above `used`.
+    #[must_use]
+    pub fn above_nulls(used: impl Iterator<Item = u64>) -> Self {
+        Self {
+            next: used.max().map_or(Some(0), |m| m.checked_add(1)),
+        }
+    }
+
+    /// The next fresh null id.
+    pub fn take_null(&mut self) -> Option<u64> {
+        let id = self.next?;
+        self.next = id.checked_add(1);
+        Some(id)
+    }
 }
 
 /// The provenance of a Delta row: the source table and target row copied.
@@ -622,10 +668,11 @@ pub type DeltaProvenance = BTreeMap<u32, (Name, u32)>;
 ///
 /// # Errors
 ///
-/// [`KanError::NonConforming`] when `j` does not conform to the target.
+/// [`KanError::NonConforming`] when `j` does not conform to the target;
+/// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
 pub fn delta(f: &RelFunctor, j: &Table) -> Result<(Table, DeltaProvenance), KanError> {
     conform(j, &f.tgt.side()).map_err(KanError::NonConforming)?;
-    let mut next = j.rows.keys().next_back().map_or(0, |m| m + 1);
+    let mut fresh = Fresh::above(j.rows.keys().copied());
     let mut used: BTreeSet<u32> = BTreeSet::new();
     let mut copy: BTreeMap<(Name, u32), u32> = BTreeMap::new();
     let mut out = Table::default();
@@ -638,8 +685,7 @@ pub fn delta(f: &RelFunctor, j: &Table) -> Result<(Table, DeltaProvenance), KanE
             let id = if used.insert(*r) {
                 *r
             } else {
-                next += 1;
-                next - 1
+                fresh.take().ok_or(KanError::RowIdsExhausted)?
             };
             let kept: BTreeMap<String, Value> = f
                 .columns
@@ -668,12 +714,14 @@ pub fn delta(f: &RelFunctor, j: &Table) -> Result<(Table, DeltaProvenance), KanE
 }
 
 /// The provenance of Sigma: each fresh null with its `(row, column)`, and
-/// each input null with the value of its class.
+/// each input null that another value represents, with that value.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct SigmaProvenance {
     /// Fresh null id to the output cell it was made for.
     pub fresh: BTreeMap<u64, (u32, String)>,
-    /// Input null id to its class's value.
+    /// Input null id to the value representing its class, for each input
+    /// null whose class the equations join with a constant or a lesser
+    /// null.
     pub merged: BTreeMap<u64, Value>,
 }
 
@@ -712,21 +760,28 @@ fn max_null(t: &Table) -> Option<u64> {
 /// pairs: the set of images `(F(e), a, b)`. Cells: each output slot
 /// `(r, β)` is equated with `r`'s value at every kept column α of r's
 /// source table with `F(α) = β` (ascending), and a slot with no preimage
-/// column is a fresh labelled null (ids from one above the input's greatest
-/// null, in ascending `(r, β)`). The equations generate classes over slots,
-/// nulls and constants (constants by canonical bytes); processed in
-/// `(r, β, α)` order, the first equation that joins two classes holding
-/// different constants is `SigmaConstantClash`. A class is represented by
-/// its constant, else its least null. The input is checked against the
-/// whole source schema and then restricted to the kept part.
+/// column is a fresh labelled null ("fresh null ids start at max(nulls of
+/// the input) + 1 (0 when none), in ascending (RowId, target column)
+/// order, checked": the input is the whole input, before its restriction
+/// to the kept part). The equations generate classes over slots, nulls and
+/// constants (constants by canonical bytes); processed in `(r, β, α)`
+/// order, the first equation that joins two classes holding different
+/// constants is `SigmaConstantClash`. A class is represented by its
+/// constant, else its least null. The input is checked against the whole
+/// source schema and then restricted to the kept part. The provenance
+/// records each fresh null with its cell, and in `merged` each null of the
+/// restricted input whose class is represented by another value (a
+/// constant, or a lesser null), with that value; a null that represents
+/// its own class is not recorded.
 ///
 /// # Errors
 ///
-/// [`KanError::NonConforming`] or [`KanError::SigmaConstantClash`].
+/// [`KanError::NonConforming`], [`KanError::SigmaConstantClash`], or
+/// [`KanError::NullIdsExhausted`] when a fresh null would pass `u64::MAX`.
 pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanError> {
     conform(i, &f.src.side()).map_err(KanError::NonConforming)?;
+    let mut fresh = Fresh::above_nulls(max_null(i).into_iter());
     let i = restrict_to_kept(i, f);
-    let mut fresh_id = max_null(&i).map_or(0, |m| m + 1);
     let mut prov = SigmaProvenance::default();
     // Component label of every term; merging relabels one component.
     let mut label: BTreeMap<Term, usize> = BTreeMap::new();
@@ -752,10 +807,10 @@ pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanE
                 .map(|((_, a), _)| a)
                 .collect();
             if preimages.is_empty() {
+                let fresh_id = fresh.take_null().ok_or(KanError::NullIdsExhausted)?;
                 prov.fresh.insert(fresh_id, (*r, beta.clone()));
                 join(&mut label, &mut next_label, &slot, &Term::Null(fresh_id))
                     .map_err(|(l, rt)| clash(*r, &beta, &l, &rt))?;
-                fresh_id += 1;
             }
             for a in preimages {
                 let Some(v) = cells.get(a) else { continue };
@@ -804,7 +859,10 @@ pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanE
         if let Term::Null(n) = t
             && !prov.fresh.contains_key(n)
         {
-            prov.merged.insert(*n, value_of(*l));
+            let representative = value_of(*l);
+            if representative != Value::LabeledNull(*n) {
+                prov.merged.insert(*n, representative);
+            }
         }
     }
     for (e, a, b) in &i.pairs {
@@ -929,30 +987,53 @@ fn tuples(inst: &Table, fibre: &[Name]) -> Vec<Vec<u32>> {
 /// rows over `ρ.src` and `ρ.tgt` with `(u at x.src, v at x.tgt)` a pair of
 /// the input at every kept relation x carried to ρ (every pair when there
 /// is none). Requires attribute surjectivity; the input is checked against
-/// the whole source schema and restricted to the kept part. Output rows are
-/// numbered from 0 in (target table, tuple) order.
+/// the whole source schema and restricted to the kept part.
+///
+/// Row ids ("Fresh RowIds come from `max(RowId in input) + 1` (0 for an
+/// empty input), checked, in a fixed order"): a row of a target table
+/// whose fibre is one table keeps the id of the row it projects to, so Pi
+/// along the identity returns its input exactly; every other row takes
+/// the next fresh id, the target tables in the image first, ordered by the
+/// least table of their fibre, each table's tuples ascending, then the
+/// tables outside the image by name.
 ///
 /// # Errors
 ///
-/// [`KanError::AttributeOutsideImage`] or [`KanError::NonConforming`].
+/// [`KanError::AttributeOutsideImage`] or [`KanError::NonConforming`];
+/// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
 pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> {
     attribute_surjective(f)?;
     conform(i, &f.src.side()).map_err(KanError::NonConforming)?;
+    let mut fresh = Fresh::above(i.rows.keys().copied());
     let i = restrict_to_kept(i, f);
     let mut out = Table::default();
     let mut prov = PiProvenance::new();
     let mut ids: BTreeMap<(Name, Vec<u32>), u32> = BTreeMap::new();
-    let mut next = 0u32;
-    for d in &f.tgt.tables {
-        let fibre = f.fibre(d);
+    let mut order: Vec<(Option<Name>, Name)> = f
+        .tgt
+        .tables
+        .iter()
+        .map(|d| (f.fibre(d).first().cloned(), d.clone()))
+        .collect();
+    order.sort_by(|(fa, da), (fb, db)| match (fa, fb) {
+        (Some(x), Some(y)) => x.cmp(y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => da.cmp(db),
+    });
+    for (_, d) in order {
+        let fibre = f.fibre(&d);
         for tuple in tuples(&i, &fibre) {
-            let Some(cells) = joined_cells(f, &i, d, &fibre, &tuple) else {
+            let Some(cells) = joined_cells(f, &i, &d, &fibre, &tuple) else {
                 continue;
             };
-            out.rows.insert(next, (d.clone(), cells));
-            prov.insert(next, (d.clone(), tuple.clone()));
-            ids.insert((d.clone(), tuple), next);
-            next += 1;
+            let id = match tuple.as_slice() {
+                [only] => *only,
+                _ => fresh.take().ok_or(KanError::RowIdsExhausted)?,
+            };
+            out.rows.insert(id, (d.clone(), cells));
+            prov.insert(id, (d.clone(), tuple.clone()));
+            ids.insert((d.clone(), tuple), id);
         }
     }
     for rho in &f.tgt.relations {
