@@ -297,3 +297,33 @@ fn coerce_value_is_idempotent_and_fixes_what_coerce_returns() {
         }
     }
 }
+
+#[test]
+fn a_tagged_lexeme_is_read_by_its_tag_under_the_open_kind_and_by_the_declared_kind_otherwise() {
+    let tagged = |text: &str, tag: &str, kind: K| {
+        coerce(text, &LexClass::Tagged(tag.to_owned()), &ValueSpec::of(kind))
+    };
+    // Under `Any` the tag's own kind reads the lexeme, the YAML prefixes
+    // stripped; `null` is the null value.
+    assert_eq!(tagged("12", "tag:yaml.org,2002:int", K::Any), Some(Ok(Value::Int(12))));
+    assert_eq!(tagged("3.5", "!!float", K::Any), Some(Ok(f(3.5))));
+    assert_eq!(tagged("true", "!!bool", K::Any), Some(Ok(Value::Bool(true))));
+    assert_eq!(tagged("aGk=", "!!binary", K::Any), Some(Ok(Value::Bytes(b"hi".to_vec()))));
+    assert_eq!(tagged("~", "!!null", K::Any), Some(Ok(Value::Null)));
+    assert_eq!(tagged("x", "!!int", K::Any), Some(Err(R::NotANumber)));
+    // An unknown tag keeps the lexeme as an opaque value of that type.
+    assert_eq!(
+        tagged("abc", "!custom", K::Any),
+        Some(Ok(Value::Opaque {
+            type_: "!custom".to_owned(),
+            fields: [("value".to_owned(), Value::Str("abc".to_owned()))].into(),
+        }))
+    );
+    // A declared kind governs: the lexeme is read as a string under it.
+    let i64k = K::Int {
+        bits: 64,
+        signed: true,
+    };
+    assert_eq!(tagged("12", "!custom", i64k), Some(Ok(Value::Int(12))));
+    assert_eq!(tagged("12", "!!str", K::Str), Some(Ok(Value::Str("12".to_owned()))));
+}

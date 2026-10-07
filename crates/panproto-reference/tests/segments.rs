@@ -15,6 +15,28 @@ fn spec(id: u32, lo: u32, hi: u32) -> SegmentSpec {
 }
 
 #[test]
+fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_partition() {
+    // Edge 0 runs from node 0 to node 3, which the graph does not hold;
+    // node 3 lies in segment 1's range, so the edge would cross segments.
+    let mut g = Graph::default();
+    g.nodes.insert(0, Node::new(0, "a"));
+    g.edges.insert(
+        0,
+        GEdge {
+            src: 0,
+            tgt: 3,
+            label: SEdge::new("a", "b", "e", None),
+            position: None,
+        },
+    );
+    let p = Partition {
+        specs: vec![spec(0, 0, 1), spec(1, 2, u32::MAX)],
+    };
+    let refused = segment::partition(&g, &p);
+    assert_eq!(format!("{refused:?}"), "Err(DanglingEdge { edge: 0 })");
+}
+
+#[test]
 fn every_two_way_split_glues_back() {
     let mut g = Graph::default();
     for i in 0..4 {

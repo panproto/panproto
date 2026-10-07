@@ -246,6 +246,150 @@ fn sigma_and_delta_hom_sets_have_equal_sizes_on_tiny_instances() {
 }
 
 #[test]
+fn every_extension_along_the_identity_keeps_row_ids_exactly() {
+    // Row ids 5 and 7, not numbered from 0: the identity returns them as
+    // they are, Pi included (each fibre is one table, whose rows keep their
+    // ids).
+    let s = ab();
+    let f = functor(&s, &s, &identity(&s));
+    let mut i = Table::default();
+    i.rows.insert(5, row("a", &[("x", Value::Int(1))]));
+    i.rows.insert(7, row("b", &[("y", Value::Int(2))]));
+    i.pairs
+        .insert((SEdge::new("a", "b", "fk", Some("f")), 5, 7));
+    assert_eq!(rel::delta(&f, &i).unwrap().0, i);
+    assert_eq!(rel::sigma(&f, &i).unwrap().0, i);
+    let (p, prov) = rel::pi(&f, &i).unwrap();
+    assert_eq!(p, i);
+    assert_eq!(
+        prov,
+        BTreeMap::from([(5, ("a".to_owned(), vec![5])), (7, ("b".to_owned(), vec![7]))])
+    );
+}
+
+/// Four record tables a, b, c, d, and an unmapped table u.
+fn four_and_unmapped() -> Schema {
+    ["a", "b", "c", "d", "u"]
+        .into_iter()
+        .fold(Schema::default(), |s, v| s.vertex(v, "record"))
+}
+
+#[test]
+fn pi_allocates_fresh_rows_above_every_input_row_in_fibre_order() {
+    // y <- {a, b}, x <- {c, d}, and k outside the image. Fresh ids start
+    // above the input's greatest row id (9, at the unmapped table u): the
+    // image tables first, ordered by the least table of their fibre (y
+    // before x), then the tables outside the image by name.
+    let source = four_and_unmapped();
+    let target = ["k", "x", "y"]
+        .into_iter()
+        .fold(Schema::default(), |s, v| s.vertex(v, "record"));
+    let mig = Migration {
+        vertex_remap: [("a", "y"), ("b", "y"), ("c", "x"), ("d", "x")]
+            .iter()
+            .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+            .collect(),
+        ..Migration::default()
+    };
+    let f = functor(&source, &target, &mig);
+    let mut i = Table::default();
+    for (id, t) in [(0, "a"), (1, "b"), (2, "c"), (3, "d"), (9, "u")] {
+        i.rows.insert(id, row(t, &[]));
+    }
+    let (p, prov) = rel::pi(&f, &i).unwrap();
+    assert_eq!(
+        prov,
+        BTreeMap::from([
+            (10, ("y".to_owned(), vec![0, 1])),
+            (11, ("x".to_owned(), vec![2, 3])),
+            (12, ("k".to_owned(), vec![])),
+        ])
+    );
+    assert_eq!(p.rows.keys().copied().collect::<Vec<_>>(), vec![10, 11, 12]);
+}
+
+#[test]
+fn sigma_numbers_fresh_nulls_above_every_input_null() {
+    // The input's greatest null (7) sits at the unmapped table u; the fresh
+    // null of the target column z starts above it.
+    let source = Schema::default()
+        .vertex("r", "record")
+        .vertex("u", "record")
+        .vertex("r.x", "int")
+        .vertex("u.w", "int")
+        .edge("r", "r.x", "prop", Some("x"))
+        .edge("u", "u.w", "prop", Some("w"));
+    let target = Schema::default()
+        .vertex("r", "record")
+        .vertex("r.x", "int")
+        .vertex("r.z", "int")
+        .edge("r", "r.x", "prop", Some("x"))
+        .edge("r", "r.z", "prop", Some("z"));
+    let mig = Migration {
+        surviving_verts: ["r".to_owned(), "r.x".to_owned()].into(),
+        surviving_edges: [SEdge::new("r", "r.x", "prop", Some("x"))].into(),
+        ..Migration::default()
+    };
+    let f = functor(&source, &target, &mig);
+    let mut i = Table::default();
+    i.rows.insert(0, row("r", &[("x", Value::Int(1))]));
+    i.rows
+        .insert(1, row("u", &[("w", Value::LabeledNull(7))]));
+    let (out, prov) = rel::sigma(&f, &i).unwrap();
+    assert_eq!(out.rows[&0].1["z"], Value::LabeledNull(8));
+    assert_eq!(prov.fresh, BTreeMap::from([(8, (0, "z".to_owned()))]));
+}
+
+#[test]
+fn sigma_records_as_merged_only_the_nulls_another_value_represents() {
+    // Two null cells merged into one column: the class {null 0, null 1} is
+    // represented by its least null, so only null 1 is merged; null 0
+    // represents itself.
+    let source = Schema::default()
+        .vertex("r", "record")
+        .vertex("r.x", "int")
+        .vertex("r.y", "int")
+        .edge("r", "r.x", "prop", Some("x"))
+        .edge("r", "r.y", "prop", Some("y"));
+    let target = Schema::default()
+        .vertex("r", "record")
+        .vertex("r.z", "int")
+        .edge("r", "r.z", "prop", Some("z"));
+    let merged = SEdge::new("r", "r.z", "prop", Some("z"));
+    let mig = Migration {
+        surviving_verts: ["r".to_owned()].into(),
+        vertex_remap: [
+            ("r.x".to_owned(), "r.z".to_owned()),
+            ("r.y".to_owned(), "r.z".to_owned()),
+        ]
+        .into(),
+        edge_remap: [
+            (SEdge::new("r", "r.x", "prop", Some("x")), merged.clone()),
+            (SEdge::new("r", "r.y", "prop", Some("y")), merged),
+        ]
+        .into(),
+        ..Migration::default()
+    };
+    let f = functor(&source, &target, &mig);
+    let mut i = Table::default();
+    i.rows.insert(
+        0,
+        row(
+            "r",
+            &[("x", Value::LabeledNull(0)), ("y", Value::LabeledNull(1))],
+        ),
+    );
+    i.rows.insert(1, row("r", &[("x", Value::LabeledNull(2)), ("y", Value::Int(4))]));
+    let (out, prov) = rel::sigma(&f, &i).unwrap();
+    assert_eq!(out.rows[&0].1["z"], Value::LabeledNull(0));
+    assert_eq!(out.rows[&1].1["z"], Value::Int(4));
+    assert_eq!(
+        prov.merged,
+        BTreeMap::from([(1, Value::LabeledNull(0)), (2, Value::Int(4))])
+    );
+}
+
+#[test]
 fn pi_refuses_a_target_column_outside_the_image() {
     let s = Schema::default().vertex("a", "record");
     let t = Schema::default()

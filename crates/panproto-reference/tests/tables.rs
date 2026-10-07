@@ -77,3 +77,123 @@ fn an_edit_to_a_renamed_column_is_written_to_its_source_column() {
         edited
     );
 }
+
+/// A value layer that doubles the integer field `a` of every node it
+/// transforms and halves it back at put, refusing an odd edited value.
+struct Doubling;
+
+impl panproto_reference::restrict::ValueLayer for Doubling {
+    fn survives(
+        &self,
+        _: &panproto_reference::model::Graph,
+        _: &panproto_reference::model::Node,
+    ) -> Result<bool, panproto_reference::restrict::LayerRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &panproto_reference::model::Graph,
+        node: &panproto_reference::model::Node,
+    ) -> Result<
+        (
+            BTreeMap<String, Value>,
+            Option<panproto_reference::value::Presence>,
+        ),
+        panproto_reference::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        if let Some(Value::Int(a)) = fields.get("a") {
+            fields.insert("a".into(), Value::Int(a * 2));
+        }
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &panproto_reference::model::Node,
+        _: Option<&BTreeMap<String, Value>>,
+        _: Option<&Option<panproto_reference::value::Presence>>,
+    ) -> Result<
+        (
+            BTreeMap<String, Value>,
+            Option<panproto_reference::value::Presence>,
+        ),
+        panproto_reference::restrict::PutFieldRefusal,
+    > {
+        let mut fields = view.fields.clone();
+        if let Some(Value::Int(a)) = fields.get("a") {
+            if a % 2 != 0 {
+                return Err(
+                    panproto_reference::restrict::PutFieldRefusal::TransformNotInvertible {
+                        field: "a".into(),
+                    },
+                );
+            }
+            fields.insert("a".into(), Value::Int(a / 2));
+        }
+        Ok((fields, view.value.clone()))
+    }
+}
+
+#[test]
+fn a_transformed_cell_is_restored_through_the_value_layer() {
+    let s = Schema::default()
+        .vertex("t", "record")
+        .vertex("t.a", "int")
+        .edge("t", "t.a", "prop", Some("a"));
+    let kinds = (
+        BTreeSet::from(["int".to_owned()]),
+        BTreeSet::from(["record".to_owned()]),
+    );
+    let rs = rel::classify(&s, &kinds.0, &kinds.1).unwrap();
+    let m = Migration {
+        surviving_verts: s.vertices.keys().cloned().collect(),
+        surviving_edges: s.edges.clone(),
+        transformed: ["t".to_owned()].into(),
+        ..Migration::default()
+    };
+    let tp = table::compile_for_tables(&s, &s, &rs, &rs, &m).unwrap();
+    let mut src = Table::default();
+    src.rows
+        .insert(0, ("t".into(), [("a".to_owned(), Value::Int(3))].into()));
+    let (view, c) = table::get(&s, &s, &m, &tp, &Doubling, &src).unwrap();
+    assert_eq!(view.rows[&0].1["a"], Value::Int(6));
+    let lens = TableLens {
+        src: &s,
+        tgt: &s,
+        rs: &rs,
+        m: &m,
+        tp: &tp,
+        vl: &Doubling,
+    };
+    // GetPut: the unedited view gives the source back.
+    assert_eq!(lens.put(&view, &c).unwrap(), src);
+    // PutGet: an even edit is halved into the source and read back.
+    let mut edited = view.clone();
+    edited
+        .rows
+        .get_mut(&0)
+        .unwrap()
+        .1
+        .insert("a".into(), Value::Int(10));
+    let back = lens.put(&edited, &c).unwrap();
+    assert_eq!(back.rows[&0].1["a"], Value::Int(5));
+    assert_eq!(table::get(&s, &s, &m, &tp, &Doubling, &back).unwrap().0, edited);
+    // An odd edit has no preimage under the transform.
+    let mut odd = view;
+    odd.rows
+        .get_mut(&0)
+        .unwrap()
+        .1
+        .insert("a".into(), Value::Int(7));
+    assert_eq!(
+        lens.put(&odd, &c),
+        Err(vec![
+            panproto_reference::lens::PutDomainError::TransformNotInvertible {
+                elem: panproto_reference::lens::ViewRef::Row(0),
+                field: "a".into(),
+            }
+        ])
+    );
+}

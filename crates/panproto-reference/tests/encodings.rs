@@ -51,6 +51,36 @@ fn a_tree_with_a_fan_round_trips_through_its_graph() {
 }
 
 #[test]
+fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_encoding() {
+    // Edge 0 runs from node 0 to node 5, which the graph does not hold.
+    let schema = Schema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .edge("a", "b", "fk", Some("f"));
+    let side = GraphSide::whole(
+        &rel::classify(
+            &schema,
+            &BTreeSet::from(["int".to_owned()]),
+            &BTreeSet::from(["record".to_owned()]),
+        )
+        .unwrap(),
+    );
+    let mut g = panproto_reference::model::Graph::default();
+    g.nodes.insert(0, Node::new(0, "a"));
+    g.edges.insert(
+        0,
+        panproto_reference::model::GEdge {
+            src: 0,
+            tgt: 5,
+            label: SEdge::new("a", "b", "fk", Some("f")),
+            position: None,
+        },
+    );
+    let refused = encode::encode_graph(&g, &side);
+    assert_eq!(format!("{refused:?}"), "Err(DanglingEdge { edge: 0 })");
+}
+
+#[test]
 fn a_table_round_trips_through_its_graph_and_its_encoding() {
     let mut table = Table::default();
     table

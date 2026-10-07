@@ -98,35 +98,23 @@ fn shape(t: &Tree) -> Shape {
         .collect()
 }
 
-/// The shape with parent ids forgotten: equal for two trees related by a
-/// bijection of node ids when, as here, no two nodes share an anchor.
-fn shape_by_anchor(t: &Tree) -> BTreeSet<(String, SEdge, String, Option<Vec<u8>>)> {
-    shape(t)
-        .into_iter()
-        .map(|(_, p, e, c, v)| (p, e, c, v))
-        .collect()
-}
-
 #[test]
 fn tree_extensions_along_the_identity_return_the_input() {
-    // Delta and Sigma keep every table node's id; Pi builds its rows afresh,
-    // so it returns the input up to a bijection of node ids.
+    // Delta, Sigma and Pi each keep every table node's id (value nodes are
+    // decoded afresh, so trees are compared by their shape).
     let s = ab();
     let f = functor(&s, &s, &identity(&s));
     let t = two_node_tree();
     for out in [
         encode::t_delta(&f, &t).unwrap(),
         encode::t_sigma(&f, &t).unwrap(),
+        encode::t_pi(&f, &t).unwrap(),
     ] {
         let out = out.expect("a tree");
         assert_eq!(out.root, 0);
         assert_eq!(out.nodes.len(), t.nodes.len());
         assert_eq!(shape(&out), shape(&t));
     }
-    let pi = encode::t_pi(&f, &t).unwrap().expect("a tree");
-    assert_eq!(pi.nodes.len(), t.nodes.len());
-    assert_eq!(pi.nodes[&pi.root].anchor, "a");
-    assert_eq!(shape_by_anchor(&pi), shape_by_anchor(&t));
 }
 
 #[test]
@@ -265,9 +253,9 @@ fn tree_delta_along_an_injective_renaming_relabels_the_tree() {
 }
 
 #[test]
-fn tree_pi_reads_its_result_back_from_the_new_root() {
-    // Root 9 at `a`, child 2 at `b`: Pi builds its rows afresh, so the root
-    // of its result is the node with no parent, not the input's root id.
+fn tree_pi_along_the_identity_keeps_the_table_node_ids() {
+    // Root 9 at `a`, child 2 at `b`: each fibre of the identity is one
+    // table, so Pi keeps every table node's id and the root stays 9.
     let s = ab();
     let f = functor(&s, &s, &identity(&s));
     let t = Tree {
@@ -287,9 +275,8 @@ fn tree_pi_reads_its_result_back_from_the_new_root() {
         root: 9,
     };
     let pi = encode::t_pi(&f, &t).unwrap().expect("a tree");
-    assert_ne!(pi.root, t.root);
-    assert_eq!(pi.nodes[&pi.root].anchor, "a");
-    assert_eq!(shape_by_anchor(&pi), shape_by_anchor(&t));
+    assert_eq!(pi.root, 9);
+    assert_eq!(shape(&pi), shape(&t));
 }
 
 #[test]
