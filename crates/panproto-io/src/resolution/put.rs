@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
 use panproto_inst::wtype_check::is_reserved_edge_kind;
-use panproto_inst::{AnyInstance, EdgeId, GInstance, NodeShape, NotTreeReason, ViewRef};
+use panproto_inst::{AnyInstance, EdgeId, GEdge, GInstance, NodeShape, NotTreeReason, ViewRef};
 use panproto_schema::{Edge, ResolveMode};
 
 use super::compile::CompiledRef;
@@ -119,6 +119,20 @@ pub struct Classified<'c> {
     pub occurrences: BTreeMap<EdgeId, &'c RefOccurrence>,
     /// New reference edges, with the reference that writes each.
     pub new_references: Vec<(EdgeId, Edge)>,
+}
+
+/// Whether a recorded occurrence edge still has its exact synthesized
+/// structure. The label, absent position and source are independent parts
+/// of that structure; agreement on either of the other two cannot excuse a
+/// change to one part.
+fn coherent_occurrence_edge(
+    expected_label: Option<&Edge>,
+    edge: &GEdge,
+    expected_source: Option<u32>,
+) -> bool {
+    expected_label == Some(&edge.edge)
+        && edge.position.is_none()
+        && expected_source == Some(edge.src)
 }
 
 impl Resolution {
@@ -260,9 +274,11 @@ impl Resolution {
                 .compiled
                 .get(&record.reference)
                 .is_some_and(|compiled| {
-                    compiled.reference.edge.as_ref() == Some(&edge.edge)
-                        && edge.position.is_none()
-                        && expected_source == Some(edge.src)
+                    coherent_occurrence_edge(
+                        compiled.reference.edge.as_ref(),
+                        edge,
+                        expected_source,
+                    )
                 });
             if coherent {
                 classified.occurrences.insert(*id, record);
@@ -373,5 +389,40 @@ pub fn not_tree_carrier(reason: &NotTreeReason, root: Option<u32>) -> Option<Vie
         NotTreeReason::ParallelEdges { tgt, .. } => Some(ViewRef::Node(*tgt)),
         NotTreeReason::PositionedEdge { edge } => Some(ViewRef::Edge(*edge)),
         NotTreeReason::NoRoot => root.map(ViewRef::Node),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn label(name: &str) -> Edge {
+        Edge {
+            src: "holder".into(),
+            tgt: "target".into(),
+            kind: "reference".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    #[test]
+    fn an_occurrence_edge_is_coherent_only_when_each_structural_part_agrees() {
+        let expected = label("points_to");
+        let found = GEdge::new(7, 11, expected.clone());
+        assert!(coherent_occurrence_edge(Some(&expected), &found, Some(7)));
+
+        assert!(!coherent_occurrence_edge(
+            Some(&label("another_reference")),
+            &found,
+            Some(7)
+        ));
+        assert!(!coherent_occurrence_edge(
+            Some(&expected),
+            &found.clone().with_position(Some(0)),
+            Some(7)
+        ));
+        assert!(!coherent_occurrence_edge(Some(&expected), &found, Some(8)));
+        assert!(!coherent_occurrence_edge(None, &found, Some(7)));
+        assert!(!coherent_occurrence_edge(Some(&expected), &found, None));
     }
 }

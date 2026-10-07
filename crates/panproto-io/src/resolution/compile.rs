@@ -438,3 +438,175 @@ fn empty_key() -> Key {
         scope: KeyScope::Document,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use panproto_schema::{
+        Cardinality, KeyPart, KeyRole, OnUnresolved, PathSyntax, SchemaDeclarations,
+    };
+
+    use super::*;
+
+    fn path(name: &str) -> Edge {
+        Edge {
+            src: "holder".into(),
+            tgt: "scalar".into(),
+            kind: "property".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    fn reference(
+        holder: &str,
+        target: &str,
+        source: RefSource,
+        target_key: Option<&str>,
+    ) -> Reference {
+        Reference {
+            id: "reference".into(),
+            holder: holder.into(),
+            source,
+            target_vertex: target.into(),
+            target_key: target_key.map(Into::into),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+        }
+    }
+
+    fn key(id: &str, parts: Vec<KeyPart>) -> Key {
+        Key {
+            id: id.into(),
+            parts,
+            role: KeyRole::Identifier,
+            scope: KeyScope::Document,
+        }
+    }
+
+    fn schema_with_key(vertex: &str, key: Key) -> Schema {
+        let mut declarations = SchemaDeclarations::default();
+        declarations.insert_key(vertex.into(), key);
+        Schema {
+            declarations,
+            ..Schema::default()
+        }
+    }
+
+    #[test]
+    fn only_an_empty_key_value_source_may_omit_its_target_key() -> Result<(), ResolveError> {
+        let schema = Schema::default();
+        let empty = reference(
+            "holder",
+            "target",
+            RefSource::KeyValue { parts: Vec::new() },
+            None,
+        );
+        let compiled = compile_reference(&schema, &empty)?;
+        assert!(matches!(
+            compiled.form,
+            RefForm::KeyValue { key, parts }
+                if key.parts.is_empty()
+                    && key.role == KeyRole::Unique
+                    && key.scope == KeyScope::Document
+                    && parts.is_empty()
+        ));
+
+        let nonempty = reference(
+            "holder",
+            "target",
+            RefSource::KeyValue {
+                parts: vec![vec![path("reference")]],
+            },
+            None,
+        );
+        assert!(matches!(
+            compile_reference(&schema, &nonempty),
+            Err(ResolveError::Schema(KeyRefError::ArityMismatch {
+                expected: 0,
+                found: 1,
+                ..
+            }))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn variable_self_binding_needs_both_the_same_vertex_and_the_binder_path()
+    -> Result<(), ResolveError> {
+        let binder = path("binder");
+        let other = path("other");
+        let schema = schema_with_key(
+            "target",
+            key("binder", vec![KeyPart::Path(vec![binder.clone()])]),
+        );
+        for (holder, field, expected) in [
+            ("target", vec![binder.clone()], true),
+            ("target", vec![other], false),
+            ("another_holder", vec![binder], false),
+        ] {
+            let variable = reference(
+                holder,
+                "target",
+                RefSource::Variable {
+                    field,
+                    binder_key: "binder".into(),
+                },
+                None,
+            );
+            let compiled = compile_reference(&schema, &variable)?;
+            assert!(matches!(
+                compiled.form,
+                RefForm::Variable { self_binding, .. } if self_binding == expected
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_keyed_standoff_reference_needs_exactly_two_key_parts() -> Result<(), ResolveError> {
+        let schema = schema_with_key(
+            "span",
+            key(
+                "interval",
+                vec![
+                    KeyPart::Path(vec![path("start")]),
+                    KeyPart::Path(vec![path("end")]),
+                ],
+            ),
+        );
+        let standoff = reference(
+            "holder",
+            "span",
+            RefSource::Standoff {
+                text: RefTextSource::Local(vec![path("text")]),
+                start: vec![path("start")],
+                end: vec![path("end")],
+                unit: OffsetUnit::Byte,
+                end_inclusive: false,
+            },
+            Some("interval"),
+        );
+        let compiled = compile_reference(&schema, &standoff)?;
+        assert!(matches!(
+            compiled.form,
+            RefForm::Standoff { key: Some(key), .. } if key.parts.len() == 2
+        ));
+
+        let path_reference = reference(
+            "holder",
+            "target",
+            RefSource::Path {
+                field: vec![path("path")],
+                syntax: PathSyntax::JsonPointer,
+            },
+            None,
+        );
+        assert!(matches!(
+            compile_reference(&Schema::default(), &path_reference)?.form,
+            RefForm::Path { .. }
+        ));
+        Ok(())
+    }
+}

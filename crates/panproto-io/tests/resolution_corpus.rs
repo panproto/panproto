@@ -459,6 +459,56 @@ fn a_tree_resolves_each_key_reference_to_one_edge() {
     assert!(!report.ran.is_empty());
 }
 
+#[test]
+fn a_recorded_occurrence_preserves_its_label_source_and_absent_position() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let (view, complement) = get(&resolution, &AnyInstance::Tree(posts_tree()));
+    let occurrence = complement
+        .occurrences
+        .keys()
+        .find_map(|carrier| match carrier {
+            ViewRef::Edge(id) => Some(*id),
+            ViewRef::Node(_) | ViewRef::Arc { .. } | ViewRef::Row(_) | ViewRef::Pair { .. } => None,
+        })
+        .expect("an occurrence edge");
+    let original = view.edge(occurrence).expect("the occurrence edge").clone();
+
+    let mut wrong_label = view.clone();
+    let mut edge = wrong_label
+        .remove_edge(occurrence)
+        .expect("remove the occurrence edge");
+    edge.edge = prop("post", "user", "another_author_ref");
+    wrong_label
+        .insert_edge(occurrence, edge)
+        .expect("replace the occurrence edge with another label");
+
+    let mut wrong_source = view.clone();
+    wrong_source
+        .set_endpoints(occurrence, 7, original.tgt)
+        .expect("move the occurrence edge to another post");
+
+    let mut positioned = view;
+    positioned
+        .set_edge_position(occurrence, Some(0))
+        .expect("position the occurrence edge");
+
+    let expected = ResolveDomainError::SynthesizedEdited {
+        carrier: ViewRef::Edge(occurrence),
+    };
+    for (name, edited) in [
+        ("label", wrong_label),
+        ("source", wrong_source),
+        ("position", positioned),
+    ] {
+        let violations = violations_of(&resolution, &edited, &complement, &ctx());
+        assert!(
+            violations.contains(&expected),
+            "changing only the recorded occurrence's {name} must report \
+             SynthesizedEdited: {violations:?}"
+        );
+    }
+}
+
 /// The posts tree with post 5's author field holding `first` and post 7's
 /// holding `second`.
 fn posts_tree_with(first: Value, second: Value) -> WInstance {
