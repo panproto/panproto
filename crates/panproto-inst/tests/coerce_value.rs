@@ -13,6 +13,7 @@
 //! when it is exactly a binary32 value.
 
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 
 use panproto_inst::Value;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce, coerce_value};
@@ -182,7 +183,7 @@ impl Nat {
         }
         let mut out = chunks.pop().unwrap().to_string();
         for chunk in chunks.iter().rev() {
-            out.push_str(&format!("{chunk:09}"));
+            write!(out, "{chunk:09}").unwrap();
         }
         out
     }
@@ -274,7 +275,7 @@ fn increment(digits: &str) -> String {
     format!("1{}", String::from_utf8(out).unwrap())
 }
 
-/// The closest-shortest text C_b(x) of a finite float x of width `bits`,
+/// The closest-shortest text `C_b(x)` of a finite float x of width `bits`,
 /// from its definition, as `<sign><digits>e<exponent>`: among the decimals
 /// with the fewest significant digits that read back to x under
 /// round-to-nearest-even at the width (decided by [`is_nearest_even`]), the
@@ -329,11 +330,13 @@ fn reference_shortest_uncached(x: f64, bits: u8) -> String {
             (true, true) => {
                 let rest = &exact[n..];
                 let half = format!("5{}", "0".repeat(rest.len() - 1));
-                match rest.cmp(half.as_str()) {
-                    Ordering::Less => lo.to_owned(),
-                    Ordering::Greater => hi,
-                    Ordering::Equal if (lo.as_bytes()[n - 1] - b'0') % 2 == 0 => lo.to_owned(),
-                    Ordering::Equal => hi,
+                // The closer, and at a tie the even significand.
+                let even = (lo.as_bytes()[n - 1] - b'0') % 2 == 0;
+                let order = rest.cmp(half.as_str());
+                if order == Ordering::Less || (order == Ordering::Equal && even) {
+                    lo.to_owned()
+                } else {
+                    hi
                 }
             }
         };
@@ -1188,6 +1191,36 @@ proptest! {
     }
 }
 
+/// Powers of two, whose fraction bits are all zero, are binary32 values
+/// only from 2^-149 to 2^127: above, `coerce_value` refuses them with
+/// `Overflow`, below with `PrecisionExceeded { max: 9 }`.
+fn powers_of_two_narrow_by_their_range(f32_: &ValueSpec) {
+    for (power, reason) in [
+        (128, Some(FidelityReason::Overflow)),
+        (200, Some(FidelityReason::Overflow)),
+        (1023, Some(FidelityReason::Overflow)),
+        (127, None),
+        (-126, None),
+        (-140, None),
+        (-149, None),
+        (-150, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+        (-200, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+        (-1074, Some(FidelityReason::PrecisionExceeded { max: 9 })),
+    ] {
+        // 2^power, from its bits (normal, or subnormal below 2^-1022).
+        let x = if power >= -1022 {
+            f64::from_bits(u64::try_from(power + 1023).unwrap() << 52)
+        } else {
+            f64::from_bits(1 << (power + 1074))
+        };
+        let result = coerce_value(&Value::Float(x), f32_, site());
+        match reason {
+            Some(reason) => assert_eq!(result.unwrap_err().reason, reason, "2^{power}"),
+            None => assert!(same(&result.unwrap(), &Value::Float(x)), "2^{power}"),
+        }
+    }
+}
+
 #[test]
 fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
     let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
@@ -1243,32 +1276,7 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
         &coerce_value(&largest, &f32_, site()).unwrap(),
         &largest
     ));
-    // Powers of two, whose fraction bits are all zero: in range only from
-    // 2^-149 to 2^127.
-    for (power, reason) in [
-        (128, Some(FidelityReason::Overflow)),
-        (200, Some(FidelityReason::Overflow)),
-        (1023, Some(FidelityReason::Overflow)),
-        (127, None),
-        (-126, None),
-        (-140, None),
-        (-149, None),
-        (-150, Some(FidelityReason::PrecisionExceeded { max: 9 })),
-        (-200, Some(FidelityReason::PrecisionExceeded { max: 9 })),
-        (-1074, Some(FidelityReason::PrecisionExceeded { max: 9 })),
-    ] {
-        // 2^power, from its bits (normal, or subnormal below 2^-1022).
-        let x = if power >= -1022 {
-            f64::from_bits(u64::try_from(power + 1023).unwrap() << 52)
-        } else {
-            f64::from_bits(1 << (power + 1074))
-        };
-        let result = coerce_value(&Value::Float(x), &f32_, site());
-        match reason {
-            Some(reason) => assert_eq!(result.unwrap_err().reason, reason, "2^{power}"),
-            None => assert!(same(&result.unwrap(), &Value::Float(x)), "2^{power}"),
-        }
-    }
+    powers_of_two_narrow_by_their_range(&f32_);
     for x in [
         0.100_000_001_490_116_12,
         -0.0,
@@ -1300,7 +1308,7 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
     // and 52401.313 refused.
     assert!(same(
         &coerce(&Lexeme::new("52401.312", LexClass::Number), &f32_).unwrap(),
-        &Value::Float(52_401.3125)
+        &Value::Float(52_401.312_5)
     ));
     assert_eq!(
         coerce(&Lexeme::new("52401.313", LexClass::Number), &f32_)
@@ -1460,7 +1468,7 @@ fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
         let got = coerce_value(&input, &float(bits), site());
         match (&got, &want) {
             (Ok(Value::Float(y)), Ok(x)) => {
-                assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}")
+                assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}");
             }
             (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{input:?} at {bits}"),
             _ => panic!("{input:?} at {bits}: got {got:?}, expected {want:?}"),
@@ -2155,7 +2163,7 @@ fn non_float_inputs_agree_with_the_exact_reference_on_the_stated_scope() {
 struct SplitMix64(u64);
 
 impl SplitMix64 {
-    fn next(&mut self) -> u64 {
+    const fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -2163,25 +2171,18 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    fn below(&mut self, n: u64) -> u64 {
+    const fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
 }
 
-/// The audit's values, drawn afresh: at least 66,611 finite f64 values that
-/// are no binary32 values (random decimals with exponents -55 to 40 of
-/// either sign, random bit patterns, f64 neighbours of binary32 values, and
-/// the binary32 overflow and subnormal boundaries) from a fixed seed, and
-/// the four texts on which the two tie-breaks differ. On each, the
-/// production `coerce` and `coerce_value` under `Float { bits: 32 }` agree
-/// with the reference: the narrowing rule ([`narrowing_reference`]), law
-/// (i) with the ties-to-even C_32 on x's exact text and on its
-/// closest-shortest binary64 text ([`expected_float`]), and the two routes
-/// on `Ok` results. Prints the seed, the count and the disagreements.
-#[test]
-fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() {
-    const SEED: u64 = 0x0f03_66a1_1e5e_ed00;
-    let mut rng = SplitMix64(SEED);
+/// The audit's values, drawn from `seed`: at least 66,611 finite f64
+/// values that are no binary32 values (random decimals with exponents -55
+/// to 40 of either sign, random bit patterns, f64 neighbours of binary32
+/// values, and 500 steps either side of the binary32 overflow and subnormal
+/// boundaries, either sign).
+fn audited_values(seed: u64) -> Vec<f64> {
+    let mut rng = SplitMix64(seed);
     let mut values: Vec<f64> = Vec::new();
     let push = |values: &mut Vec<f64>, x: f64| {
         if x.is_finite() && !is_binary32(x) {
@@ -2238,6 +2239,23 @@ fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() 
     while values.len() < 66_611 {
         push(&mut values, f64::from_bits(rng.next()));
     }
+    values
+}
+
+/// The audit's values, drawn afresh: at least 66,611 finite f64 values that
+/// are no binary32 values (random decimals with exponents -55 to 40 of
+/// either sign, random bit patterns, f64 neighbours of binary32 values, and
+/// the binary32 overflow and subnormal boundaries) from a fixed seed, and
+/// the four texts on which the two tie-breaks differ. On each, the
+/// production `coerce` and `coerce_value` under `Float { bits: 32 }` agree
+/// with the reference: the narrowing rule ([`narrowing_reference`]), law
+/// (i) with the ties-to-even `C_32` on x's exact text and on its
+/// closest-shortest binary64 text ([`expected_float`]), and the two routes
+/// on `Ok` results. Prints the seed, the count and the disagreements.
+#[test]
+fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() {
+    const SEED: u64 = 0x0f03_66a1_1e5e_ed00;
+    let values = audited_values(SEED);
     let drawn = values.len();
     let named = ["3297493.7", "-1408262.2", "52401.313", "-1879534.3"];
     let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });

@@ -650,7 +650,7 @@ mod exact {
                     layout(None, None, Some((7, 8, 60, fraction)), offset),
                     "{time}"
                 );
-                for separator in [b'T', b't', b' '] {
+                for separator in *b"Tt " {
                     let date_time = format!(
                         "-0044-03-15{}07:08:09{dot}{fraction}{written}",
                         char::from(separator)
@@ -1247,11 +1247,11 @@ mod exact {
         assert_eq!(huge.exponent_form(), "1e100000000000000000000");
         assert_eq!(huge.canonical_bytes().len(), 1 + 8 + 1 + 8 + 21);
         assert_eq!(huge.digit_count().to_string(), "100000000000000000001");
-        assert_eq!(huge.to_f64(), f64::INFINITY);
+        assert_eq!(huge.to_f64().to_bits(), f64::INFINITY.to_bits());
         let Some(ExactInteger::Big(negative)) = BigIntValue::from_scaled(true, "1", &count) else {
             panic!("-10^(10^20) is a big integer")
         };
-        assert_eq!(negative.to_f64(), f64::NEG_INFINITY);
+        assert_eq!(negative.to_f64().to_bits(), f64::NEG_INFINITY.to_bits());
         assert_eq!(negative.cmp_numeric(&huge), Ordering::Less);
         let next = WideInt::parse_canonical("100000000000000000001").unwrap();
         let Some(ExactInteger::Big(bigger)) = BigIntValue::from_scaled(false, "1", &next) else {
@@ -1270,7 +1270,7 @@ mod exact {
         else {
             panic!("3e300 is a big integer")
         };
-        assert_eq!(e300.to_f64(), 3e300);
+        assert_eq!(e300.to_f64().to_bits(), 3e300_f64.to_bits());
     }
 
     /// `DecimalValue` holds any exponent; its canonical bytes write the
@@ -1349,7 +1349,7 @@ mod exact {
         let big = dec("15e3000000000");
         assert_eq!(big.integer_digits().to_string(), "3000000002");
         assert_eq!(big.scale(), WideInt::zero());
-        assert_eq!(big.to_f64(), f64::INFINITY);
+        assert_eq!(big.to_f64().to_bits(), f64::INFINITY.to_bits());
         assert_eq!(
             dec("-1e-3000000000").to_f64().to_bits(),
             (-0.0_f64).to_bits()

@@ -1090,11 +1090,11 @@ fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
             [v] => return (u64::try_from(v / step).unwrap(), n, false),
             [a, b] => {
                 let (da, db) = (x - a, b - x);
-                let pick = match da.cmp(&db) {
-                    std::cmp::Ordering::Less => a,
-                    std::cmp::Ordering::Greater => b,
-                    std::cmp::Ordering::Equal if (a / step) % 2 == 0 => a,
-                    std::cmp::Ordering::Equal => b,
+                // The closer, and at a tie the even significand.
+                let pick = if da < db || (da == db && (a / step) % 2 == 0) {
+                    a
+                } else {
+                    b
                 };
                 return (u64::try_from(pick / step).unwrap(), n, da == db);
             }
@@ -1269,11 +1269,11 @@ fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
             [v] => return (v / step, n, false),
             [a, b] => {
                 let (da, db) = (x - a, b - x);
-                let pick = match da.cmp(&db) {
-                    std::cmp::Ordering::Less => a,
-                    std::cmp::Ordering::Greater => b,
-                    std::cmp::Ordering::Equal if (a / step) % 2 == 0 => a,
-                    std::cmp::Ordering::Equal => b,
+                // The closer, and at a tie the even significand.
+                let pick = if da < db || (da == db && (a / step) % 2 == 0) {
+                    a
+                } else {
+                    b
                 };
                 return (pick / step, n, da == db);
             }
@@ -1590,22 +1590,19 @@ fn bigint_numerals_read_alike_whatever_their_exponent_on_the_stated_scope() {
                 } else {
                     None
                 };
-                match fits_i64 {
-                    Some(v) => {
-                        assert_eq!(got, Value::Int(v), "{text}");
-                        assert_eq!(number(&text, &int).unwrap(), Value::Int(v), "{text}");
-                    }
-                    None => {
-                        let Value::BigInt(b) = &got else {
-                            panic!("{text}: {got:?}")
-                        };
-                        assert_eq!(
-                            (b.negative, b.significand.as_str(), b.zeros.to_string()),
-                            (!sign.is_empty(), s, n.to_string()),
-                            "{text}"
-                        );
-                        assert_eq!(reason(number(&text, &int)), FidelityReason::Overflow);
-                    }
+                if let Some(v) = fits_i64 {
+                    assert_eq!(got, Value::Int(v), "{text}");
+                    assert_eq!(number(&text, &int).unwrap(), Value::Int(v), "{text}");
+                } else {
+                    let Value::BigInt(b) = &got else {
+                        panic!("{text}: {got:?}")
+                    };
+                    assert_eq!(
+                        (b.negative, b.significand.as_str(), b.zeros.to_string()),
+                        (!sign.is_empty(), s, n.to_string()),
+                        "{text}"
+                    );
+                    assert_eq!(reason(number(&text, &int)), FidelityReason::Overflow);
                 }
                 if n <= 5000 {
                     let written = format!("{sign}{s}{}", "0".repeat(usize::try_from(n).unwrap()));

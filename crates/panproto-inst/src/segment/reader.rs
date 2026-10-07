@@ -559,7 +559,7 @@ mod tests {
         // tag 15, form 2, the year (8 bytes), month and day.
         let at = 1 + 1 + 8 + 2;
         assert_eq!(bytes[at], b' ');
-        for byte in [b'T', b't'] {
+        for byte in *b"Tt" {
             bytes[at] = byte;
             assert!(read(&bytes).is_ok());
         }

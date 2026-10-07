@@ -977,9 +977,8 @@ fn float_text(x: f64) -> String {
     };
     let exponent = decimal.exponent.to_i64().unwrap_or(0);
     let digits = decimal.digits;
-    let magnitude = match usize::try_from(exponent) {
-        Ok(zeros) => format!("{digits}{}", "0".repeat(zeros)),
-        Err(_) => {
+    let magnitude = usize::try_from(exponent).map_or_else(
+        |_| {
             let scale = usize::try_from(-exponent).unwrap_or(0);
             if scale >= digits.len() {
                 format!("0.{}{digits}", "0".repeat(scale - digits.len()))
@@ -987,8 +986,9 @@ fn float_text(x: f64) -> String {
                 let (int, frac) = digits.split_at(digits.len() - scale);
                 format!("{int}.{frac}")
             }
-        }
-    };
+        },
+        |zeros| format!("{digits}{}", "0".repeat(zeros)),
+    );
     format!("{sign}{magnitude}")
 }
 

@@ -476,12 +476,12 @@ fn closest_shortest(
                 // an exact tie the even one of two consecutive integers.
                 let rest = &exact[n..];
                 let lo_is_even = (lo.as_bytes()[n - 1] - b'0') % 2 == 0;
-                match (rest.as_bytes()[0].cmp(&b'5'), rest.len() > 1) {
-                    (Ordering::Less, _) => lo.to_owned(),
-                    (Ordering::Greater, _) | (Ordering::Equal, true) => hi,
-                    (Ordering::Equal, false) if lo_is_even => lo.to_owned(),
-                    (Ordering::Equal, false) => hi,
-                }
+                let take_lo = match rest.as_bytes()[0].cmp(&b'5') {
+                    Ordering::Less => true,
+                    Ordering::Greater => false,
+                    Ordering::Equal => rest.len() == 1 && lo_is_even,
+                };
+                if take_lo { lo.to_owned() } else { hi }
             }
         };
         Some((pick, exponent))
