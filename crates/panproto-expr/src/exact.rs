@@ -6,10 +6,12 @@
 //! a document that carries one of these is kept in one of the types here
 //! instead of being rounded, overflowed or left untyped:
 //!
-//! - [`DecimalValue`]: a sign, a digit string and a power-of-ten exponent,
-//!   which keeps both the value and the written scale (`1.50` is not `1.5`);
-//! - [`BigIntValue`]: an integer outside the range of `i64` (an integer
-//!   inside it is always an `i64`, see [`ExactInteger`]);
+//! - [`DecimalValue`]: a sign, a digit string and a power-of-ten exponent of
+//!   any size, which keeps both the value and the written scale (`1.50` is
+//!   not `1.5`);
+//! - [`BigIntValue`]: an integer outside the range of `i64`, as a
+//!   significand and a count of trailing zeros of any size (an integer
+//!   inside the range is always an `i64`, see [`ExactInteger`]);
 //! - [`Temporal`]: a civil date, a time of day, or both, with the
 //!   [`Offset`] the lexeme wrote (or none).
 //!
@@ -30,8 +32,8 @@ mod temporal;
 use serde::{Deserialize, Serialize};
 
 pub use decimal::DecimalValue;
-pub use integer::{BigIntValue, ExactInteger};
-pub use temporal::{CivilDate, CivilTime, Fraction, Offset, Temporal};
+pub use integer::{BigIntValue, ExactInteger, WideInt};
+pub use temporal::{CivilDate, CivilTime, DateTimeSeparator, Fraction, Offset, Temporal, ZuluCase};
 
 /// The canonical quiet NaN, bits `0x7ff8000000000000`.
 ///
@@ -69,6 +71,68 @@ pub const CANONICAL_NAN: f64 = f64::from_bits(0x7ff8_0000_0000_0000);
 /// );
 /// ```
 pub const NEGATIVE_CANONICAL_NAN: f64 = f64::from_bits(0xfff8_0000_0000_0000);
+
+/// The binary32 bits of `x` when binary32 holds `x` exactly, else `None`.
+///
+/// A finite `x` is held when it is a binary32 value: a zero of either
+/// sign, or a value that 24 significant bits and binary32's exponent range
+/// (normal and subnormal) hold. An infinity is held, with its sign. A NaN
+/// is decided on its bits, not as a number: it is held exactly when its low
+/// 29 fraction bits are zero, quiet or signalling, and its binary32 is the
+/// NaN with `x`'s sign, an all-ones exponent and `x`'s high 23 fraction
+/// bits. So the signalling NaN `0x7ff0000020000000` gives the signalling
+/// binary32 NaN `0x7f800001`, which widens back to it bit for bit, while
+/// `0x7ff8000000001234`, whose payload uses a low bit, gives `None`.
+///
+/// A writer that narrows a binary64 to binary32 narrows through this
+/// function, never with `as f32`, which quiets a signalling NaN
+/// (`0x7ff0000020000000` would become `0x7fc00001`).
+///
+/// ```
+/// use panproto_expr::exact::binary32_bits;
+///
+/// assert_eq!(binary32_bits(f64::from_bits(0x7ff0_0000_2000_0000)), Some(0x7f80_0001));
+/// assert_eq!(binary32_bits(f64::from_bits(0x7ff8_0000_0000_1234)), None);
+/// assert_eq!(binary32_bits(0.1), None);
+/// assert_eq!(binary32_bits(0.100_000_001_490_116_12), Some(0x3dcc_cccd));
+/// ```
+#[must_use]
+pub fn binary32_bits(x: f64) -> Option<u32> {
+    let bits = x.to_bits();
+    let sign = u32::from(bits >> 63 == 1) << 31;
+    let biased = (bits >> 52) & 0x7ff;
+    let fraction = bits & ((1 << 52) - 1);
+    // The fraction bits below binary32's 23, which a binary32 value widened
+    // leaves zero in the normal range.
+    let low = fraction & ((1 << 29) - 1);
+    let high = u32::try_from(fraction >> 29).ok()?;
+    match biased {
+        0x7ff => (low == 0).then_some(sign | 0x7f80_0000 | high),
+        // A zero; a non-zero binary64 subnormal is below 2^-1022, far below
+        // the least binary32, 2^-149.
+        0 => (fraction == 0).then_some(sign),
+        _ => {
+            let exponent = i64::try_from(biased).ok()? - 1023;
+            match exponent {
+                -126..=127 => {
+                    let field = u32::try_from(exponent + 127).ok()?;
+                    (low == 0).then_some(sign | (field << 23) | high)
+                }
+                -149..=-127 => {
+                    // A binary32 subnormal: the significand with its implicit
+                    // bit, shifted so that its unit is 2^-149, which needs the
+                    // bits shifted out to be zero.
+                    let shift = u32::try_from(-97 - exponent).ok()?;
+                    let significand = fraction | (1 << 52);
+                    let out = significand & ((1 << shift) - 1);
+                    let field = u32::try_from(significand >> shift).ok()?;
+                    (out == 0).then_some(sign | field)
+                }
+                _ => None,
+            }
+        }
+    }
+}
 
 /// The exact kind a parser was reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -108,12 +172,14 @@ pub enum FidelityReason {
     /// needs more than p significant digits (more than p - s integer digits
     /// under a declared scale s), and `max` is p. Under a float kind the
     /// input is a numeral that neither equals the value it rounds to nor is
-    /// numerically that value's shortest text, or, under a 32-bit kind, a
-    /// finite binary64 value in range that is not a binary32 value; `max`
-    /// is 9 for 32 bits and 17 for 64, the significant digits within which
-    /// every value of the width is written by its shortest text. The
-    /// reason does not say the input has more than `max` digits:
-    /// `16777217.0` (eight) is refused under a 32-bit kind.
+    /// numerically that value's shortest text; or an integer or decimal
+    /// value that the kind's width does not hold exactly; or, under a
+    /// 32-bit kind, a finite binary64 value in range that is not a binary32
+    /// value. Then `max` is 5 for 16 bits, 9 for 32 and 17 for 64, the
+    /// significant digits within which every value of the width is written
+    /// by its shortest text. The reason does not say the input has more
+    /// than `max` digits: `16777217.0` (eight) is refused under a 32-bit
+    /// kind.
     PrecisionExceeded {
         /// The significant digits within which every value of the kind is
         /// written.
@@ -129,12 +195,11 @@ pub enum FidelityReason {
     NotANumber,
     /// The input is a NaN or an infinity that the kind cannot hold: any NaN
     /// or infinity under a kind that is not a float kind, and, under a
-    /// 32-bit float kind, a binary64 NaN that is not the widening of a
-    /// binary32 NaN, which is one whose payload uses one of the low 29
-    /// fraction bits or whose quiet bit (fraction bit 51) is clear, since
-    /// widening keeps a binary32 payload in the high fraction bits and
-    /// quiets a signaling NaN (bits `0x7ff8000000001234` and
-    /// `0x7ff0000020000000` are both refused).
+    /// 32-bit float kind, a binary64 NaN whose low 29 fraction bits are not
+    /// all zero, quiet or signalling, which binary32 cannot hold (see
+    /// [`binary32_bits`]). A NaN whose low 29 fraction bits are zero is
+    /// held, quiet or signalling: bits `0x7ff8000000001234` are refused,
+    /// while `0x7ff0000020000000` and `0x7ff8000020000000` pass.
     NonFinite,
     /// The lexeme is not a valid date, time or date-time.
     InvalidTemporal,

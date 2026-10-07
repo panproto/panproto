@@ -2,6 +2,7 @@
 //! lexeme wrote.
 
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,16 +12,22 @@ use super::{ExactKind, ExactParseError, FidelityReason};
 ///
 /// The forms follow RFC 3339 and the date and time forms of SQL, TOML and
 /// XML Schema: `2026-09-28`, `12:34:56.789+05:30`,
-/// `2026-09-28T12:34:56.789+05:30` (a space may stand for the `T`).
+/// `2026-09-28T12:34:56.789+05:30` (a `t` or a space may stand for the
+/// `T`, and a `z` for the `Z`). A value keeps how it was written: the
+/// separator of a date-time ([`DateTimeSeparator`]), the case of a `Z`
+/// ([`ZuluCase`]), the zero-offset form ([`Offset`]) and every fractional
+/// digit, so `Display` writes back the lexeme it was read from.
 ///
 /// ```
-/// use panproto_expr::exact::{Offset, Temporal};
+/// use panproto_expr::exact::{DateTimeSeparator, Offset, Temporal};
 ///
 /// let t = Temporal::parse("2026-09-28T12:34:56.789+05:30")?;
-/// let Temporal::DateTime(date, time, offset) = &t else { unreachable!() };
+/// let Temporal::DateTime(date, time, offset, separator) = &t else { unreachable!() };
 /// assert_eq!((date.year, time.fraction.as_str()), (2026, "789"));
-/// assert_eq!(*offset, Offset::Fixed(330));
+/// assert_eq!((*offset, *separator), (Offset::Fixed(330), DateTimeSeparator::Upper));
 /// assert_eq!(t.to_string(), "2026-09-28T12:34:56.789+05:30");
+/// let lower = Temporal::parse("2026-09-28t12:34:56z")?;
+/// assert_eq!(lower.to_string(), "2026-09-28t12:34:56z");
 /// # Ok::<(), panproto_expr::ExactParseError>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -30,8 +37,82 @@ pub enum Temporal {
     Date(CivilDate),
     /// A time of day with its offset.
     Time(CivilTime, Offset),
-    /// A date and a time of day with its offset.
-    DateTime(CivilDate, CivilTime, Offset),
+    /// A date and a time of day with its offset, and the separator written
+    /// between the date and the time.
+    DateTime(CivilDate, CivilTime, Offset, DateTimeSeparator),
+}
+
+/// The separator a date-time was written with between its date and its
+/// time: `T`, `t` (RFC 3339 Sec 5.6 allows either case) or a space (RFC
+/// 3339 Sec 5.6 NOTE, TOML 1.0 and SQL).
+///
+/// Serialized as `"upper"`, `"lower"` and `"space"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateTimeSeparator {
+    /// `T`.
+    Upper,
+    /// `t`.
+    Lower,
+    /// A space.
+    Space,
+}
+
+impl DateTimeSeparator {
+    /// The byte written: `T`, `t` or a space.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        match self {
+            Self::Upper => b'T',
+            Self::Lower => b't',
+            Self::Space => b' ',
+        }
+    }
+
+    /// The separator `byte` writes, if it writes one.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            b'T' => Some(Self::Upper),
+            b't' => Some(Self::Lower),
+            b' ' => Some(Self::Space),
+            _ => None,
+        }
+    }
+}
+
+/// The case a `Z` offset was written in: `Z` or `z` (RFC 3339 Sec 5.6
+/// allows either).
+///
+/// Serialized as `"upper"` and `"lower"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZuluCase {
+    /// `Z`.
+    Upper,
+    /// `z`.
+    Lower,
+}
+
+impl ZuluCase {
+    /// The byte written: `Z` or `z`.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        match self {
+            Self::Upper => b'Z',
+            Self::Lower => b'z',
+        }
+    }
+
+    /// The case `byte` writes, if it is `Z` or `z`.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            b'Z' => Some(Self::Upper),
+            b'z' => Some(Self::Lower),
+            _ => None,
+        }
+    }
 }
 
 /// A proleptic Gregorian calendar date.
@@ -155,22 +236,20 @@ impl From<Fraction> for String {
 /// equality keeps the form; [`Temporal::cmp_chronological`] compares the
 /// instants, under which the three are `Equal`.
 ///
-/// Serialized as `"local"`, `"zulu"`, `{"fixed": minutes}` and
-/// `"neg_zero"`.
+/// The case of a `Z` is kept too ([`ZuluCase`]), so `Z` and `z` are two
+/// values of one instant, as the zero offsets are.
 ///
-/// Known loss, kept until it is settled how the written case is carried:
-/// a lowercase `z` reads as [`Offset::Zulu`] and is written back as `Z`,
-/// so `==`, the canonical bytes and every route that writes through
-/// `Display` cannot tell the two spellings apart.
+/// Serialized as `"local"`, `{"zulu": "upper"}` or `{"zulu": "lower"}`,
+/// `{"fixed": minutes}` and `"neg_zero"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", try_from = "OffsetRepr")]
 pub enum Offset {
     /// No offset: a local (floating) time, as TOML local date-times and SQL
     /// `TIMESTAMP WITHOUT TIME ZONE` write.
     Local,
-    /// The form `Z` (read also from `z`, written `Z`). By RFC 9557 Sec 2.2
-    /// the time in UTC is known and the offset to local time is unknown.
-    Zulu,
+    /// The form `Z`, or `z`, in the case written. By RFC 9557 Sec 2.2 the
+    /// time in UTC is known and the offset to local time is unknown.
+    Zulu(ZuluCase),
     /// A numeric offset in minutes east of UTC. `Fixed(0)` is the form
     /// `+00:00`, which by RFC 9557 Sec 2.2 says that UTC is the preferred
     /// reference point.
@@ -199,7 +278,7 @@ struct TimeParts {
 #[serde(rename_all = "snake_case")]
 enum OffsetRepr {
     Local,
-    Zulu,
+    Zulu(ZuluCase),
     Fixed(i16),
     NegZero,
 }
@@ -223,7 +302,7 @@ impl TryFrom<OffsetRepr> for Offset {
     fn try_from(r: OffsetRepr) -> Result<Self, Self::Error> {
         match r {
             OffsetRepr::Local => Ok(Self::Local),
-            OffsetRepr::Zulu => Ok(Self::Zulu),
+            OffsetRepr::Zulu(case) => Ok(Self::Zulu(case)),
             OffsetRepr::NegZero => Ok(Self::NegZero),
             OffsetRepr::Fixed(m) => Self::fixed(m),
         }
@@ -337,7 +416,7 @@ impl Offset {
     pub const fn minutes(self) -> i16 {
         match self {
             Self::Fixed(m) => m,
-            Self::Local | Self::Zulu | Self::NegZero => 0,
+            Self::Local | Self::Zulu(_) | Self::NegZero => 0,
         }
     }
 }
@@ -366,8 +445,8 @@ fn narrow(v: u32) -> Result<u8, ExactParseError> {
 }
 
 /// Read `[sign]YYYY-MM-DD` (four or more year digits) at the start of `s`.
-/// A plus sign is read as no sign (a known loss, stated at
-/// [`Temporal::parse`]).
+/// A plus sign is read as no sign, and a minus sign before the year zero
+/// (`-0000`) as no sign (known losses, stated at [`Temporal::parse`]).
 fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
     let (negative, s) = match s.as_bytes().first() {
         Some(b'-') => (true, &s[1..]),
@@ -414,7 +493,8 @@ fn read_time(s: &str) -> Result<(CivilTime, &str), ExactParseError> {
 fn read_offset(s: &str) -> Result<Offset, ExactParseError> {
     match s {
         "" => Ok(Offset::Local),
-        "Z" | "z" => Ok(Offset::Zulu),
+        "Z" => Ok(Offset::Zulu(ZuluCase::Upper)),
+        "z" => Ok(Offset::Zulu(ZuluCase::Lower)),
         "-00:00" => Ok(Offset::NegZero),
         _ => {
             let (sign, rest) = match s.as_bytes().first() {
@@ -439,12 +519,12 @@ impl Temporal {
     /// lexeme: a date-time has a `T`, `t` or space after the date, a date
     /// has a `-` after its year, and anything else is read as a time.
     ///
-    /// Known loss, kept until it is settled how the written case is
-    /// carried: the separator `t` or a space and a lowercase offset `z` are
-    /// read as `T` and `Z` are and written back as `T` and `Z` by
-    /// `Display`, so the value does not record which was written. Likewise
-    /// a plus sign before the year (`+2024-01-01`) is read as an unsigned
-    /// year is and is not written back.
+    /// The value records the separator and the case of a `Z` as written,
+    /// and `Display` writes them back. Known losses: a plus sign before the
+    /// year (`+2024-01-01`) is read as an unsigned year is, and a minus sign
+    /// before the year zero (`-0000-01-01`) as the year zero is, so neither
+    /// sign is written back (`0000-01-01`); the value does not record that
+    /// a sign was written.
     ///
     /// # Errors
     ///
@@ -491,12 +571,14 @@ impl Temporal {
     /// As [`parse`](Self::parse).
     pub fn parse_date_time(text: &str) -> Result<Self, ExactParseError> {
         let (date, rest) = read_date(text)?;
-        let rest = match rest.as_bytes().first() {
-            Some(b'T' | b't' | b' ') => &rest[1..],
-            _ => return Err(invalid()),
-        };
-        let (time, rest) = read_time(rest)?;
-        Ok(Self::DateTime(date, time, read_offset(rest)?))
+        let separator = rest
+            .as_bytes()
+            .first()
+            .copied()
+            .and_then(DateTimeSeparator::from_byte)
+            .ok_or_else(invalid)?;
+        let (time, rest) = read_time(&rest[1..])?;
+        Ok(Self::DateTime(date, time, read_offset(rest)?, separator))
     }
 
     /// The offset the value was written with; `None` for a date.
@@ -504,7 +586,7 @@ impl Temporal {
     pub const fn offset(&self) -> Option<Offset> {
         match self {
             Self::Date(_) => None,
-            Self::Time(_, offset) | Self::DateTime(_, _, offset) => Some(*offset),
+            Self::Time(_, offset) | Self::DateTime(_, _, offset, _) => Some(*offset),
         }
     }
 
@@ -513,7 +595,8 @@ impl Temporal {
     ///
     /// Zoned values are compared on the UTC timeline, so the three zero
     /// offsets `Z`, `+00:00` and `-00:00` compare `Equal`; local values by
-    /// their civil fields. Fractions of any length compare as decimal
+    /// their civil fields. How a value was written (the case of `Z` or of
+    /// the separator) does not enter the comparison. Fractions of any length compare as decimal
     /// fractions of a second (`.1` and `.10` are equal). A leap second
     /// sorts after second 59 of its minute.
     ///
@@ -542,7 +625,7 @@ impl Temporal {
             (Self::Time(ta, oa), Self::Time(tb, ob)) if oa.is_zoned() == ob.is_zoned() => {
                 Some(instant(None, ta, *oa, None, tb, *ob))
             }
-            (Self::DateTime(da, ta, oa), Self::DateTime(db, tb, ob))
+            (Self::DateTime(da, ta, oa, _), Self::DateTime(db, tb, ob, _))
                 if oa.is_zoned() == ob.is_zoned() =>
             {
                 Some(instant(Some(da), ta, *oa, Some(db), tb, *ob))
@@ -553,13 +636,15 @@ impl Temporal {
 
     /// The canonical payload bytes: a form byte (`0` date, `1` time, `2`
     /// date-time), then the date as a little-endian `i64` year and one byte
-    /// each for month and day, the time as one byte each for hour, minute
+    /// each for month and day, for a date-time the separator's ASCII byte
+    /// (`T`, `t` or a space), the time as one byte each for hour, minute
     /// and second followed by the fraction's digit count as a little-endian
     /// `u64` and its digits as ASCII bytes (a count of zero and no digits
     /// when the lexeme wrote no fraction), and the offset as a byte (`0`
     /// [`Offset::Local`], `1` [`Offset::Zulu`], `2` [`Offset::Fixed`], `3`
-    /// [`Offset::NegZero`]) followed, for a fixed offset, by its minutes as
-    /// a little-endian `i64`.
+    /// [`Offset::NegZero`]) followed, for `Zulu`, by the ASCII byte of the
+    /// letter written (`Z` or `z`) and, for a fixed offset, by its minutes
+    /// as a little-endian `i64`.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
         fn date(out: &mut Vec<u8>, d: CivilDate) {
@@ -573,7 +658,7 @@ impl Temporal {
         fn offset(out: &mut Vec<u8>, o: Offset) {
             match o {
                 Offset::Local => out.push(0),
-                Offset::Zulu => out.push(1),
+                Offset::Zulu(case) => out.extend_from_slice(&[1, case.byte()]),
                 Offset::Fixed(m) => {
                     out.push(2);
                     out.extend_from_slice(&i64::from(m).to_le_bytes());
@@ -592,9 +677,10 @@ impl Temporal {
                 time(&mut out, t);
                 offset(&mut out, *o);
             }
-            Self::DateTime(d, t, o) => {
+            Self::DateTime(d, t, o, separator) => {
                 out.push(2);
                 date(&mut out, *d);
+                out.push(separator.byte());
                 time(&mut out, t);
                 offset(&mut out, *o);
             }
@@ -632,7 +718,7 @@ impl std::fmt::Display for Offset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local => Ok(()),
-            Self::Zulu => f.write_str("Z"),
+            Self::Zulu(case) => f.write_char(char::from(case.byte())),
             Self::NegZero => f.write_str("-00:00"),
             Self::Fixed(m) => {
                 let sign = if *m < 0 { '-' } else { '+' };
@@ -644,13 +730,15 @@ impl std::fmt::Display for Offset {
 }
 
 impl std::fmt::Display for Temporal {
-    /// The RFC 3339 form, which [`Temporal::parse`] reads back into the
-    /// same value.
+    /// The RFC 3339 form, with the separator and the case of `Z` as
+    /// written, which [`Temporal::parse`] reads back into the same value.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Date(d) => write!(f, "{d}"),
             Self::Time(t, o) => write!(f, "{t}{o}"),
-            Self::DateTime(d, t, o) => write!(f, "{d}T{t}{o}"),
+            Self::DateTime(d, t, o, separator) => {
+                write!(f, "{d}{}{t}{o}", char::from(separator.byte()))
+            }
         }
     }
 }

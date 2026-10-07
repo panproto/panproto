@@ -21,23 +21,24 @@
 //!   when `L(t)` is finite and either equals t, or has t (numerically) as
 //!   its shortest text `C(L(t))` at that width: among the decimals with
 //!   the fewest significant digits that the width reads back as `L(t)`,
-//!   the one closest to `L(t)`, the one farther from zero at a tie. So
-//!   `0.1` is accepted under a 32-bit kind and read as the binary32
-//!   nearest it, `0.100000001490116119384765625` (that binary32 exactly)
-//!   and `9007199254740992` are accepted, and `16777217.0`, which rounds
-//!   to `16777216`, is refused with [`FidelityReason::PrecisionExceeded`];
-//!   a numeral that rounds to an infinity is refused with
+//!   the one closest to `L(t)`, and at an exact tie the one whose last
+//!   significant digit is even (ties to even, as ECMA-262 recommends; see
+//!   [`DecimalValue::from_f64_shortest`]). So `0.1` is accepted under a
+//!   32-bit kind and read as the binary32 nearest it,
+//!   `0.100000001490116119384765625` (that binary32 exactly) and
+//!   `9007199254740992` are accepted, and `16777217.0`, which rounds to
+//!   `16777216`, is refused with [`FidelityReason::PrecisionExceeded`]; a
+//!   numeral that rounds to an infinity is refused with
 //!   [`FidelityReason::Overflow`].
 //! - Under `Decimal`, `Int` and `BigInt` a numeral is accepted when its
 //!   value lies in the kind's value space and the spec's `precision`,
-//!   `scale`, `int_bits` and `unsigned` facets admit it. Under `Int` and
-//!   `BigInt` a non-zero numeral with a fraction or an exponent whose
-//!   stored exponent (the written exponent less the number of fractional
-//!   digits) exceeds 4096 is refused with [`FidelityReason::Overflow`]
-//!   rather than expanded, while an integer numeral of any length is read;
-//!   this bound is a departure from lexical fidelity, described at
-//!   [`coerce`]. A zero numeral reads as zero whatever its exponent, except
-//!   under `Decimal` beyond `i32` (see [`coerce`]).
+//!   `scale`, `int_bits` and `unsigned` facets admit it, whatever its
+//!   exponent: a decimal keeps an exponent of any size, and under `BigInt`
+//!   every numeral whose value is an integer is read, `1e4097` as the same
+//!   value as that integer written out, held as a significand and a count
+//!   of trailing zeros, so no digit beyond the significand is written.
+//!   Under the fixed-width `Int` kinds the range is checked before any
+//!   digit is expanded.
 //! - Under the other kinds a lexeme is accepted when it is of a class and
 //!   form the kind reads (a boolean literal, a string, an encoding of
 //!   bytes, an RFC 3339 date or time).
@@ -76,7 +77,7 @@ use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 use super::{
     BigIntValue, CANONICAL_NAN, DecimalValue, ExactInteger, FidelityReason, NEGATIVE_CANONICAL_NAN,
-    Offset, Temporal, Value, ValueFidelityError, ValueSite,
+    Offset, Temporal, Value, ValueFidelityError, ValueSite, WideInt, binary32_bits,
 };
 use crate::error::ParseError;
 
@@ -140,15 +141,15 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 /// equals t or has t numerically as its shortest text at that width, and
 /// refused with [`FidelityReason::Overflow`] when `L(t)` is infinite and
 /// with [`FidelityReason::PrecisionExceeded`] otherwise. The shortest text
-/// breaks an exact tie away from zero, so of the two shortest decimals
-/// equally close to a float only the one of larger magnitude is its
-/// shortest text, and the other, which rounds to the same float, is
+/// breaks an exact tie to even, so of the two shortest decimals equally
+/// close to a float only the one whose last significant digit is even is
+/// its shortest text, and the other, which rounds to the same float, is
 /// refused unless it equals the float: under `Float { bits: 64 }`
-/// `1125899906842624.3` gives 2^50 + 0.25 and `1125899906842624.2` is
+/// `1125899906842624.2` gives 2^50 + 0.25 and `1125899906842624.3` is
 /// refused with `PrecisionExceeded { max: 17 }`; under `Any`, which reads a
 /// fraction as a float only when it is the float's shortest text, the
 /// former gives the float and the latter the decimal it writes; at 32 bits
-/// `52401.313` gives 52401.3125 and `52401.312` is refused. A NaN spelling
+/// `52401.312` gives 52401.3125 and `52401.313` is refused. A NaN spelling
 /// (`NaN`, `nan`, `+nan`, `.nan`, in any case) gives [`CANONICAL_NAN`], bits
 /// `0x7ff8000000000000`, and one written with a minus sign (`-nan`, `-NaN`)
 /// the same NaN with its sign bit set, [`NEGATIVE_CANONICAL_NAN`], bits
@@ -162,23 +163,20 @@ fn fail(lexeme: &Lexeme<'_>, kind: &ScalarKind, reason: FidelityReason) -> Value
 /// spellings give the signed infinities.
 ///
 /// A numeral whose significand digits are all zero is zero whatever its
-/// exponent: when its stored exponent (its written exponent less its
-/// number of fractional digits) leaves `i32`, it reads under `Int`,
-/// `BigInt`, `Float { bits }` and `Any`, whose values keep no scale, as
-/// `0e0` does (as `-0e0` does when written with a minus sign). Under
-/// `Decimal` it is refused with [`FidelityReason::Overflow`], since a
-/// [`DecimalValue`] would have to keep a scale that leaves `i32`; this
-/// refusal of a valid numeral is a known defect, kept until the decimal
-/// exponent is widened.
+/// exponent: under `Int`, `BigInt`, `Float { bits }` and `Any`, whose
+/// values keep no scale, it reads as `0e0` does (as `-0e0` does when written
+/// with a minus sign), and under `Decimal` as the zero of its written scale
+/// (`0.0e-3000000000` has scale 3000000001), since a [`DecimalValue`] keeps
+/// an exponent of any size.
 ///
-/// Under `Int` and `BigInt` an integer numeral of any length is read, while
-/// a non-zero numeral with a fraction or an exponent whose stored exponent
-/// exceeds 4096 is refused with [`FidelityReason::Overflow`] rather than
-/// expanded: `1e4096` is read, `1e4097` is refused, though the integer `1`
-/// followed by 4097 zeros, written out, is read. This bound departs from
-/// lexical fidelity, which reads every integral numeral whose integer lies
-/// in the kind's value space, and is kept until it is settled how a big
-/// integer of that size is held.
+/// Under `Int` and `BigInt` every numeral whose value is an integer is
+/// read, whatever its exponent: `1e4097`, `1e100000000000000000000` and the
+/// integer `1` followed by 4097 zeros written out are read under `BigInt`,
+/// the first and the last as one value, held as a significand and a count of
+/// trailing zeros so that no digit beyond the significand is written. Under
+/// a fixed-width `Int` the range is checked on the count of digits before
+/// any digit is expanded, so `1e2147483647` is refused with
+/// [`FidelityReason::Overflow`] at once.
 ///
 /// A null lexeme is [`Value::Null`] under every kind: whether the vertex
 /// may be null is a validation question, not a fidelity one. The error's
@@ -321,29 +319,6 @@ fn non_finite(text: &str) -> Option<f64> {
     }
 }
 
-/// The most zeros a positive exponent may expand into when an integral
-/// decimal numeral is read as an integer.
-const MAX_EXPANDED_ZEROS: usize = 4096;
-
-/// The zero numeral, `0e0` or `-0e0` as the numeral is written with a minus
-/// sign or not, that a numeral `DecimalValue::parse` refused for `reason`
-/// stands for under a kind whose values keep no scale: the numeral's
-/// significand digits are all zero and its stored exponent leaves `i32`,
-/// which is the only case in which the parser refuses a numeral with
-/// [`FidelityReason::Overflow`]. `None` for every other refusal.
-fn zero_beyond_i32(text: &str, reason: &FidelityReason) -> Option<&'static str> {
-    if *reason != FidelityReason::Overflow {
-        return None;
-    }
-    let negative = text.starts_with('-');
-    let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
-    let significand = unsigned.split(['e', 'E']).next().unwrap_or_default();
-    significand
-        .bytes()
-        .all(|b| b == b'0' || b == b'.')
-        .then_some(if negative { "-0e0" } else { "0e0" })
-}
-
 /// Whether a numeral has neither a fraction nor an exponent.
 fn is_integer_numeral(text: &str) -> bool {
     !text.contains(['.', 'e', 'E'])
@@ -360,16 +335,8 @@ fn coerce_any(lexeme: &Lexeme<'_>) -> Result<Value, ValueFidelityError> {
             if is_integer_numeral(lexeme.text) {
                 return Value::parse_integer(lexeme.text).map_err(|e| fail(e.reason));
             }
-            let decimal = match DecimalValue::parse(lexeme.text) {
-                Ok(decimal) => decimal,
-                Err(e) => {
-                    return match zero_beyond_i32(lexeme.text, &e.reason) {
-                        Some(zero) => coerce_any(&Lexeme::new(zero, LexClass::Number)),
-                        None => Err(fail(e.reason)),
-                    };
-                }
-            };
-            let x = nearest_float(&decimal, lexeme.text, 64).map_err(fail)?;
+            let decimal = DecimalValue::parse(lexeme.text).map_err(|e| fail(e.reason))?;
+            let x = nearest_float(&decimal, lexeme.text, 64);
             Ok(float_if_shortest(&decimal, x).map_or(Value::Decimal(decimal), Value::Float))
         }
         LexClass::Bool => coerce_bool(lexeme).ok_or_else(|| fail(FidelityReason::InvalidEncoding)),
@@ -395,27 +362,28 @@ fn float_if_shortest(decimal: &DecimalValue, x: f64) -> Option<f64> {
 /// The float of `bits` bits nearest the numeral `text`, which reads as
 /// `decimal`, widened to `f64`: IEEE 754 round-to-nearest-even at the
 /// width (32, or 64 for any other width), by Rust's correctly rounded
-/// parsers, which may give an infinity or a zero outside the width's
-/// range. A zero numeral written with a `-` is the negative zero, which
-/// `decimal` cannot carry.
-fn nearest_float(decimal: &DecimalValue, text: &str, bits: u8) -> Result<f64, FidelityReason> {
-    let negative = decimal.negative || (decimal.is_zero() && text.starts_with('-'));
-    let sign = if negative { "-" } else { "" };
-    let numeral = format!("{sign}{}e{}", decimal.digits, decimal.exponent);
-    if bits == 32 {
-        numeral.parse::<f32>().map(f64::from)
+/// parsers, which give an infinity or a zero outside the width's range,
+/// whatever the size of the exponent. A zero numeral written with a `-` is
+/// the negative zero, which `decimal` cannot carry.
+fn nearest_float(decimal: &DecimalValue, text: &str, bits: u8) -> f64 {
+    let x = if bits == 32 {
+        f64::from(decimal.to_f32())
     } else {
-        numeral.parse::<f64>()
+        decimal.to_f64()
+    };
+    if decimal.is_zero() && text.starts_with('-') {
+        -x
+    } else {
+        x
     }
-    .map_err(|_| FidelityReason::NotANumber)
 }
 
 /// The shortest text that reads back as `x` at `bits` bits (32, or 64 for
-/// any other width), for a finite `x` that the width holds.
+/// any other width), for a finite `x` that the width holds: its
+/// closest-shortest decimal, ties to even.
 fn shortest_text(x: f64, bits: u8) -> Option<DecimalValue> {
     if bits == 32 {
-        let narrow = format!("{x:e}").parse::<f32>().ok()?;
-        DecimalValue::parse(&format!("{narrow:e}")).ok()
+        DecimalValue::from_f32_shortest(f32::from_bits(binary32_bits(x)?))
     } else {
         DecimalValue::from_f64_shortest(x)
     }
@@ -440,7 +408,8 @@ fn denotes_exactly(decimal: &DecimalValue, x: f64) -> bool {
 }
 
 /// The exact integer a numeral writes: an integer numeral, or a decimal
-/// numeral whose value is integral (`1.0`, `1e3`).
+/// numeral whose value is integral (`1.0`, `1e3`, `1e4097`), held without
+/// expanding its exponent.
 fn integral(text: &str) -> Result<ExactInteger, FidelityReason> {
     if non_finite(text).is_some() {
         return Err(FidelityReason::NonFinite);
@@ -448,35 +417,9 @@ fn integral(text: &str) -> Result<ExactInteger, FidelityReason> {
     if is_integer_numeral(text) {
         return BigIntValue::parse(text).map_err(|e| e.reason);
     }
-    let decimal = match DecimalValue::parse(text) {
-        Ok(decimal) => decimal,
-        Err(e) if zero_beyond_i32(text, &e.reason).is_some() => return Ok(ExactInteger::Int(0)),
-        Err(e) => return Err(e.reason),
-    };
-    if decimal.minimal_scale() > 0 {
-        return Err(FidelityReason::ScaleExceeded { max: 0 });
-    }
-    if decimal.is_zero() {
-        return Ok(ExactInteger::Int(0));
-    }
-    // Integral with a non-negative effective exponent: the digits without
-    // their trailing fractional zeros, then zeros for a positive exponent.
-    let exponent = i64::from(decimal.exponent);
-    let digits = if exponent >= 0 {
-        let zeros = usize::try_from(exponent).map_err(|_| FidelityReason::Overflow)?;
-        // An exponent that writes more than 4096 zeros is refused rather
-        // than expanded: no fixed-width kind holds such an integer (128
-        // bits is 39 digits), and `1e999999999` would otherwise allocate a
-        // gigabyte of zeros.
-        if zeros > MAX_EXPANDED_ZEROS {
-            return Err(FidelityReason::Overflow);
-        }
-        format!("{}{}", decimal.digits, "0".repeat(zeros))
-    } else {
-        let cut = usize::try_from(-exponent).map_err(|_| FidelityReason::Overflow)?;
-        decimal.digits[..decimal.digits.len() - cut].to_owned()
-    };
-    BigIntValue::from_parts(decimal.negative, &digits).map_err(|e| e.reason)
+    let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
+    BigIntValue::from_scaled(decimal.negative, &decimal.digits, &decimal.exponent)
+        .ok_or(FidelityReason::ScaleExceeded { max: 0 })
 }
 
 /// An integer of `bits` bits, signed or not.
@@ -494,8 +437,14 @@ fn coerce_int(text: &str, bits: u8, signed: bool) -> Result<Value, FidelityReaso
             }
         }
         ExactInteger::Big(big) => {
-            // Outside i64: only a kind wider than 64 bits holds it.
-            let magnitude = big.digits.parse::<u128>().ok();
+            // Outside i64: only a kind wider than 64 bits holds it, and no
+            // integer of more than 39 digits fits 128 bits, so the digits
+            // are written out only when there are at most 39 of them.
+            let magnitude = big
+                .digit_count()
+                .to_i64()
+                .filter(|&n| n <= 39)
+                .and_then(|_| big.to_string().trim_start_matches('-').parse::<u128>().ok());
             match (signed, big.negative, magnitude) {
                 (_, _, None) | (false, true, _) => false,
                 (false, false, Some(m)) => bits >= 128 || m < (1_u128 << bits),
@@ -521,16 +470,8 @@ fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
     if let Some(f) = non_finite(text) {
         return Ok(Value::Float(f));
     }
-    let decimal = match DecimalValue::parse(text) {
-        Ok(decimal) => decimal,
-        Err(e) => {
-            return match zero_beyond_i32(text, &e.reason) {
-                Some(zero) => coerce_float(zero, bits),
-                None => Err(e.reason),
-            };
-        }
-    };
-    let x = nearest_float(&decimal, text, bits)?;
+    let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
+    let x = nearest_float(&decimal, text, bits);
     if !x.is_finite() {
         return Err(FidelityReason::Overflow);
     }
@@ -553,14 +494,14 @@ fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
 fn coerce_decimal(text: &str, spec: &ValueSpec) -> Result<Value, FidelityReason> {
     let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
     if let Some(scale) = spec.scale
-        && decimal.minimal_scale() > scale
+        && decimal.minimal_scale() > WideInt::from(scale)
     {
         return Err(FidelityReason::ScaleExceeded { max: scale });
     }
     if let Some(precision) = spec.precision {
         let fits = spec.scale.map_or_else(
-            || decimal.significant_digits() <= u64::from(precision),
-            |scale| decimal.integer_digits() <= u64::from(precision.saturating_sub(scale)),
+            || decimal.significant_digits() <= WideInt::from(precision),
+            |scale| decimal.integer_digits() <= WideInt::from(precision.saturating_sub(scale)),
         );
         if !fits {
             return Err(FidelityReason::PrecisionExceeded { max: precision });
@@ -782,14 +723,13 @@ impl FidelityLog {
 ///
 /// - Under [`ScalarKind::Any`] every value is returned unchanged.
 /// - A [`Value::Float`] under `Float { bits: 32 }` is returned unchanged
-///   exactly when it is a binary32 value widened to binary64 (decided on
-///   its bits: a finite value that 24 significant bits and the binary32
-///   exponent range hold, `-0.0` included; an infinity; a NaN whose quiet
-///   bit is set and whose low 29 fraction bits are zero). Otherwise it is
-///   refused: a NaN with [`FidelityReason::NonFinite`], since the kind
-///   cannot hold its payload or its signaling state; a finite value that
-///   rounds to an infinity at binary32, that is of magnitude at least
-///   2^128 - 2^103 = `3.4028235677973366e38`, with
+///   exactly when binary32 holds it ([`binary32_bits`]): a finite value
+///   that 24 significant bits and the binary32 exponent range hold, `-0.0`
+///   included; an infinity; or a NaN whose low 29 fraction bits are zero,
+///   quiet or signalling, decided on its bits. Otherwise it is refused: a
+///   NaN with [`FidelityReason::NonFinite`], since binary32 cannot hold its
+///   payload; a finite value that rounds to an infinity at binary32, that
+///   is of magnitude at least 2^128 - 2^103 = `3.4028235677973366e38`, with
 ///   [`FidelityReason::Overflow`]; and every other finite value with
 ///   [`FidelityReason::PrecisionExceeded`] with `max` 9. These are the
 ///   reason and `max` the lexeme route gives whenever it also refuses the
@@ -799,21 +739,36 @@ impl FidelityLog {
 /// - A non-finite [`Value::Float`] under any other float kind is returned
 ///   unchanged, sign and payload included, and refused with
 ///   [`FidelityReason::NonFinite`] under a kind that is not a float kind.
+/// - A [`Value::Int`], [`Value::BigInt`] or [`Value::Decimal`] under
+///   `Float { bits }` gives `Float(x)` exactly when the kind holds its value
+///   x exactly (a binary16 value for `bits == 16`, a binary32 value for
+///   `bits == 32`, a binary64 value for every other width; a zero gives the
+///   positive zero), and is refused otherwise: with
+///   [`FidelityReason::Overflow`] when the value rounds to an infinity at
+///   that width, and with [`FidelityReason::PrecisionExceeded`] else, `max`
+///   5, 9 or 17. So `Decimal(0.1)` is refused under both 32 and 64 bits,
+///   though [`coerce`] reads the lexeme `0.1` under them as the float
+///   nearest it; `Int(16777216)` is kept under 32 bits and `Int(16777217)`
+///   refused. The lexeme route under `Float { bits: 16 }` reads binary64
+///   until a binary16 lexical mapping is stated, so `coerce` of `2049`
+///   there gives `Float(2049.0)` while `Int(2049)` is refused here.
 /// - Every other value with a scalar lexeme is [`coerce`] of that lexeme:
 ///   `true` or `false` of class [`LexClass::Bool`] for a boolean, the
-///   decimal digits of class [`LexClass::Number`] for an integer, the
-///   canonical text of class `Number` for a decimal, the shortest
-///   round-trip binary64 text (Rust's `Display`) of class `Number` for a
-///   finite float, the text of class [`LexClass::String`] for a string or
-///   a token, the RFC 3339 text of class [`LexClass::DateTime`] for a date
-///   or time, and `null` of class [`LexClass::Null`] for null.
+///   decimal digits of class [`LexClass::Number`] for an integer that fits
+///   `i64`, the exponent form `<sign><significand>e<count>` of class
+///   `Number` for a [`Value::BigInt`] (so no digit beyond the significand is
+///   written), the canonical text of class `Number` for a decimal, the
+///   closest-shortest binary64 text (ties to even, written positionally) of
+///   class `Number` for a finite float, the text of class
+///   [`LexClass::String`] for a string or a token, the RFC 3339 text of
+///   class [`LexClass::DateTime`] for a date or time, and `null` of class
+///   [`LexClass::Null`] for null.
 /// - Any other value (bytes, links, blobs, records, lists, labelled nulls)
 ///   has no scalar lexeme and is returned unchanged; validation types it.
 ///
-/// An `Ok` result is therefore the kind's reading of the input's lexeme,
-/// and coercing it again returns it unchanged. It need not denote what the
-/// input denotes: `Decimal(0.1)` under a 32-bit float kind gives the
-/// binary32 nearest 0.1, as the lexeme `0.1` does.
+/// An `Ok` result is therefore the kind's reading of the input's lexeme
+/// and, under a float kind, a value equal to the input; coercing it again
+/// returns it unchanged.
 ///
 /// The two routes into a 32-bit float agree wherever both succeed: for a
 /// finite numeral t, if `coerce(t, Float { bits: 32 })` and
@@ -833,7 +788,7 @@ impl FidelityLog {
 ///
 /// ```
 /// use panproto_inst::Value;
-/// use panproto_inst::value::{FidelityReason, ValueSite};
+/// use panproto_inst::value::{DecimalValue, FidelityReason, ValueSite};
 /// use panproto_inst::value::coerce::coerce_value;
 /// use panproto_schema::{ScalarKind, ValueSpec};
 ///
@@ -847,8 +802,12 @@ impl FidelityLog {
 /// let refused = coerce_value(&Value::Float(0.1), &narrow, site.clone()).unwrap_err();
 /// assert_eq!(refused.reason, FidelityReason::PrecisionExceeded { max: 9 });
 /// let exact = Value::Float(f64::from(0.1_f32));
-/// assert_eq!(coerce_value(&exact, &narrow, site)?, exact);
-/// # Ok::<(), panproto_inst::ValueFidelityError>(())
+/// assert_eq!(coerce_value(&exact, &narrow, site.clone())?, exact);
+/// let tenth = Value::Decimal(DecimalValue::parse("0.1")?);
+/// let refused = coerce_value(&tenth, &narrow, site.clone()).unwrap_err();
+/// assert_eq!(refused.reason, FidelityReason::PrecisionExceeded { max: 9 });
+/// assert_eq!(coerce_value(&Value::Int(16_777_216), &narrow, site)?, Value::Float(16_777_216.0));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// # Errors
@@ -860,9 +819,9 @@ pub fn coerce_value(
     spec: &ValueSpec,
     site: ValueSite,
 ) -> Result<Value, ValueFidelityError> {
-    let refuse = |site, x: f64, reason| ValueFidelityError {
+    let refuse = |site, lexeme: String, reason| ValueFidelityError {
         site,
-        lexeme: x.to_string(),
+        lexeme,
         target: spec.kind.clone(),
         reason,
     };
@@ -871,16 +830,16 @@ pub fn coerce_value(
     }
     let (text, class) = match (value, &spec.kind) {
         (Value::Float(x), ScalarKind::Float { bits: 32 }) => {
-            return if holds_binary32(*x) {
+            return if binary32_bits(*x).is_some() {
                 Ok(value.clone())
             } else if !x.is_finite() {
-                Err(refuse(site, *x, FidelityReason::NonFinite))
+                Err(refuse(site, x.to_string(), FidelityReason::NonFinite))
             } else if x.abs() >= BINARY32_OVERFLOW {
-                Err(refuse(site, *x, FidelityReason::Overflow))
+                Err(refuse(site, x.to_string(), FidelityReason::Overflow))
             } else {
                 Err(refuse(
                     site,
-                    *x,
+                    x.to_string(),
                     FidelityReason::PrecisionExceeded { max: 9 },
                 ))
             };
@@ -889,13 +848,31 @@ pub fn coerce_value(
             return if matches!(kind, ScalarKind::Float { .. }) {
                 Ok(value.clone())
             } else {
-                Err(refuse(site, *x, FidelityReason::NonFinite))
+                Err(refuse(site, x.to_string(), FidelityReason::NonFinite))
             };
+        }
+        (Value::Int(_) | Value::BigInt(_) | Value::Decimal(_), ScalarKind::Float { bits }) => {
+            let (decimal, lexeme) = match value {
+                Value::Int(n) => (DecimalValue::from_i64(*n), n.to_string()),
+                Value::BigInt(n) => (
+                    DecimalValue {
+                        negative: n.negative,
+                        digits: n.significand.clone(),
+                        exponent: n.zeros.clone(),
+                    },
+                    n.exponent_form(),
+                ),
+                Value::Decimal(d) => (d.clone(), d.to_string()),
+                _ => return Ok(value.clone()),
+            };
+            return held_exactly(&decimal, *bits)
+                .map(Value::Float)
+                .map_err(|reason| refuse(site, lexeme, reason));
         }
         (Value::Float(x), _) => (float_text(*x), LexClass::Number),
         (Value::Bool(b), _) => (b.to_string(), LexClass::Bool),
         (Value::Int(n), _) => (n.to_string(), LexClass::Number),
-        (Value::BigInt(n), _) => (n.to_string(), LexClass::Number),
+        (Value::BigInt(n), _) => (n.exponent_form(), LexClass::Number),
         (Value::Decimal(d), _) => (d.to_string(), LexClass::Number),
         (Value::Str(s) | Value::Token(s), _) => (s.clone(), LexClass::String),
         (Value::Temporal(t), _) => (t.to_string(), LexClass::DateTime),
@@ -914,24 +891,104 @@ pub fn coerce_value(
     coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
 }
 
-/// The lexeme of a finite float: its closest-shortest binary64 text, which
-/// is Rust's `Display` of an `f64`.
+/// The float of `bits` bits (16, 32, or 64 for any other width) equal to
+/// `decimal`, widened to `f64`, when the width holds that number exactly; a
+/// zero gives the positive zero. Otherwise [`FidelityReason::Overflow`]
+/// when the number rounds to an infinity at the width under
+/// round-to-nearest-even, and [`FidelityReason::PrecisionExceeded`] with
+/// the width's `max` (5, 9 or 17) else.
 ///
-/// Among the decimals with the fewest significant digits (the minimal
-/// significand) that read back to `x` under round-to-nearest-even, it is
-/// the one closest to `x`, with ties broken away from zero: of two
-/// candidates equally close, the one of larger magnitude
-/// (`2229016984128891.25` is written `2229016984128891.3`, not `.2`). The
-/// same rule at 32 bits names the shortest text of a binary32 value
-/// (`52401.3125` is written `52401.313`). ECMA-262's `Number::toString`
-/// requires only the minimal significand and recommends the closest
-/// candidate with ties to even (Ecma International TC39, ECMAScript
-/// Language Specification, Sec 6.1.6.1.20, Note 2, stated); that tie-break
-/// is not followed here. `Display` writes the digits positionally
-/// (`1e300` as a 1 and 300 zeros), which denote the same number as the
-/// scientific form.
+/// The number is held exactly iff the binary64 nearest it (at 32 bits the
+/// binary32 nearest it) equals it and, at 16 bits, that binary64 is a
+/// binary16 value, since every binary16 value is a binary64 value. At 32
+/// and 64 bits Rust's correctly rounded parsers give an infinity exactly
+/// when the number rounds to one; at 16 bits it does exactly when its
+/// magnitude is at least 65520, the largest binary16 (65504) plus half its
+/// gap (16), a tie that goes to the even neighbour 2^16 and so overflows.
+fn held_exactly(decimal: &DecimalValue, bits: u8) -> Result<f64, FidelityReason> {
+    if decimal.is_zero() {
+        return Ok(0.0);
+    }
+    let (x, max) = match bits {
+        16 => (decimal.to_f64(), 5),
+        32 => (f64::from(decimal.to_f32()), 9),
+        _ => (decimal.to_f64(), 17),
+    };
+    let overflows = if bits == 16 {
+        let magnitude = DecimalValue {
+            negative: false,
+            ..decimal.clone()
+        };
+        magnitude.cmp_numeric(&DecimalValue::from_i64(BINARY16_OVERFLOW)) != std::cmp::Ordering::Less
+    } else {
+        !x.is_finite()
+    };
+    if overflows {
+        return Err(FidelityReason::Overflow);
+    }
+    if denotes_exactly(decimal, x) && (bits != 16 || holds_binary16(x)) {
+        Ok(x)
+    } else {
+        Err(FidelityReason::PrecisionExceeded { max })
+    }
+}
+
+/// The least magnitude that rounds to an infinity at binary16 under
+/// round-to-nearest-even: the largest binary16, 65504, plus half its gap.
+const BINARY16_OVERFLOW: i64 = 65_520;
+
+/// Whether the finite binary64 value `x` is a binary16 value: a zero, or a
+/// value `(1 + f / 2^52) * 2^e` that eleven significant bits and binary16's
+/// exponent range hold, which needs `e` in `-24..=15` and, for `e >= -14`
+/// (binary16's normal range), the low 42 fraction bits zero, and for
+/// `e < -14` (its subnormal range, multiples of 2^-24) the low `28 - e`
+/// bits.
+fn holds_binary16(x: f64) -> bool {
+    let bits = x.to_bits();
+    let fraction = bits & ((1 << 52) - 1);
+    let biased = (bits >> 52) & 0x7ff;
+    let zero_low = |n: u32| fraction & ((1_u64 << n) - 1) == 0;
+    if biased == 0 {
+        return fraction == 0;
+    }
+    let exponent = i64::try_from(biased).map_or(i64::MAX, |b| b - 1023);
+    match exponent {
+        -14..=15 => zero_low(42),
+        -24..=-15 => u32::try_from(28 - exponent).is_ok_and(zero_low),
+        _ => false,
+    }
+}
+
+/// The lexeme of a finite float: its closest-shortest binary64 decimal
+/// ([`DecimalValue::from_f64_shortest`]: the minimal significand, the
+/// candidate closest to `x`, and at an exact tie the one whose last
+/// significant digit is even, ties to even as ECMA-262's `Number::toString`
+/// recommends and as this follows; Ecma International TC39, ECMAScript
+/// Language Specification, Sec 6.1.6.1.20, Note 2, stated), written
+/// positionally (`1e300` as a 1 and
+/// 300 zeros, `1e-7` as `0.0000001`) with a `-` for a negative value or
+/// the negative zero (`-0`), as Rust's `Display` of an `f64` writes, except
+/// that at an exact tie `Display` takes the candidate of larger magnitude.
 fn float_text(x: f64) -> String {
-    x.to_string()
+    let sign = if x.is_sign_negative() { "-" } else { "" };
+    let Some(decimal) = DecimalValue::from_f64_shortest(x) else {
+        return x.to_string();
+    };
+    let exponent = decimal.exponent.to_i64().unwrap_or(0);
+    let digits = decimal.digits;
+    let magnitude = match usize::try_from(exponent) {
+        Ok(zeros) => format!("{digits}{}", "0".repeat(zeros)),
+        Err(_) => {
+            let scale = usize::try_from(-exponent).unwrap_or(0);
+            if scale >= digits.len() {
+                format!("0.{}{digits}", "0".repeat(scale - digits.len()))
+            } else {
+                let (int, frac) = digits.split_at(digits.len() - scale);
+                format!("{int}.{frac}")
+            }
+        }
+    };
+    format!("{sign}{magnitude}")
 }
 
 /// The least magnitude that rounds to an infinity at binary32 under
@@ -939,47 +996,3 @@ fn float_text(x: f64) -> String {
 /// (2^24 - 1) 2^104, plus half its gap to 2^128 (a tie, which goes to the
 /// even neighbour 2^128 and so overflows).
 const BINARY32_OVERFLOW: f64 = f64::from_bits(0x47ef_ffff_f000_0000);
-
-/// The quiet bit of a binary64 NaN, the high fraction bit.
-const QUIET_BIT: u64 = 1 << 51;
-
-/// The fraction bits of a binary64 value that a binary32 value, widened,
-/// always leaves zero: binary64 has 52 fraction bits and binary32 23.
-const NARROW_FRACTION_BITS: u32 = 29;
-
-/// Whether the binary64 value with the bits of `x` is a binary32 value
-/// widened, decided on the bits.
-///
-/// Widening keeps the sign and the number, and quiets a NaN: an infinity
-/// widens to the infinity of its sign, and a binary32 NaN to a binary64 NaN
-/// whose quiet bit (fraction bit 51) is set and whose low 29 fraction bits
-/// are zero (the 23 payload bits go to the high fraction bits), so a
-/// signaling binary64 NaN is no widened binary32 even when those low bits
-/// are zero. Otherwise it is a zero of either sign, or a finite non-zero
-/// value `(1 + f / 2^52) * 2^e` that binary32 holds, which needs `e` in
-/// `-149..=127` and the value to be a multiple of `2^-149` with at most 24
-/// significant bits: for `e >= -126` (binary32's normal range) the low 29
-/// fraction bits are zero, and for `e < -126` (its subnormal range) the
-/// low `-97 - e` bits are, which leaves `e + 150` significant bits. A
-/// binary64 subnormal is below `2^-1022`, far below the least binary32
-/// value `2^-149`, so no non-zero one qualifies; a value with `e <= 127`
-/// and 24 significant bits is at most the largest binary32.
-fn holds_binary32(x: f64) -> bool {
-    let bits = x.to_bits();
-    let fraction = bits & ((1 << 52) - 1);
-    let biased = (bits >> 52) & 0x7ff;
-    let zero_low = |n: u32| fraction & ((1_u64 << n) - 1) == 0;
-    match biased {
-        0x7ff if fraction == 0 => true,
-        0x7ff => fraction & QUIET_BIT != 0 && zero_low(NARROW_FRACTION_BITS),
-        0 => fraction == 0,
-        _ => {
-            let exponent = i64::try_from(biased).map_or(i64::MAX, |b| b - 1023);
-            match exponent {
-                -126..=127 => zero_low(NARROW_FRACTION_BITS),
-                -149..=-127 => u32::try_from(-97 - exponent).is_ok_and(zero_low),
-                _ => false,
-            }
-        }
-    }
-}

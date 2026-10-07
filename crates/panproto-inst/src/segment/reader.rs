@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use panproto_expr::exact::Fraction;
+use panproto_expr::exact::{DateTimeSeparator, Fraction, WideInt, ZuluCase};
 use panproto_gat::Name;
 use panproto_schema::Edge;
 
@@ -261,8 +261,7 @@ impl<'a> Reader<'a> {
             13 => {
                 let negative = self.bool()?;
                 let digits = self.string()?;
-                let exponent = i32::try_from(self.i64()?)
-                    .map_err(|_| self.error("a decimal exponent leaves i32"))?;
+                let exponent = self.wide_int("a decimal exponent")?;
                 let decimal = DecimalValue::new(negative, digits, exponent)
                     .map_err(|e| self.error(e.to_string()))?;
                 if decimal.negative != negative {
@@ -271,9 +270,14 @@ impl<'a> Reader<'a> {
                 Value::Decimal(decimal)
             }
             14 => {
+                let negative = self.bool()?;
+                let significand = self.string()?;
+                let zeros = self.decimal_digits("a big integer's count of zeros")?;
                 let big = BigIntValue {
-                    negative: self.bool()?,
-                    digits: self.string()?,
+                    negative,
+                    significand,
+                    zeros: WideInt::from_sign_and_digits(false, &zeros)
+                        .unwrap_or_default(),
                 };
                 if !big.is_well_formed() {
                     return Err(self.error("a big integer is not in its canonical form"));
@@ -283,6 +287,40 @@ impl<'a> Reader<'a> {
             15 => Value::Temporal(self.temporal()?),
             other => return Err(self.error(format!("value tag {other}"))),
         })
+    }
+
+    /// A string of ASCII digits with no leading zero (`"0"` alone for
+    /// zero), behind its length; `what` names it in the error.
+    fn decimal_digits(&mut self, what: &str) -> Result<String, SegmentError> {
+        let digits = self.string()?;
+        let canonical = !digits.is_empty()
+            && digits.bytes().all(|b| b.is_ascii_digit())
+            && (digits == "0" || !digits.starts_with('0'));
+        if canonical {
+            Ok(digits)
+        } else {
+            Err(self.error(format!(
+                "{what} is not decimal digits without a leading zero"
+            )))
+        }
+    }
+
+    /// An integer of any size: a sign byte (`0` non-negative, `1`
+    /// negative) and the digits of its magnitude, as
+    /// [`WideInt::write_canonical`] writes them. A negative zero is refused,
+    /// so each integer has one byte form.
+    fn wide_int(&mut self, what: &str) -> Result<WideInt, SegmentError> {
+        let negative = match self.u8()? {
+            0 => false,
+            1 => true,
+            other => return Err(self.error(format!("{what} has sign byte {other}"))),
+        };
+        let magnitude = self.decimal_digits(what)?;
+        if negative && magnitude == "0" {
+            return Err(self.error(format!("{what} is a negative zero")));
+        }
+        WideInt::from_sign_and_digits(negative, &magnitude)
+            .ok_or_else(|| self.error(format!("{what} is not an integer")))
     }
 
     fn civil_date(&mut self) -> Result<CivilDate, SegmentError> {
@@ -304,12 +342,18 @@ impl<'a> Reader<'a> {
         CivilTime::new(hour, minute, second, fraction).map_err(|e| self.error(e.to_string()))
     }
 
-    /// An offset: tag `0` local, `1` `Z`, `2` a fixed offset followed by its
-    /// minutes as a little-endian `i64`, `3` `-00:00`.
+    /// An offset: tag `0` local, `1` `Z` followed by the byte of the letter
+    /// written (`Z` or `z`), `2` a fixed offset followed by its minutes as a
+    /// little-endian `i64`, `3` `-00:00`.
     fn offset(&mut self) -> Result<Offset, SegmentError> {
         match self.u8()? {
             0 => Ok(Offset::Local),
-            1 => Ok(Offset::Zulu),
+            1 => {
+                let byte = self.u8()?;
+                ZuluCase::from_byte(byte)
+                    .map(Offset::Zulu)
+                    .ok_or_else(|| self.error(format!("Z offset case byte {byte}")))
+            }
             2 => {
                 let minutes =
                     i16::try_from(self.i64()?).map_err(|_| self.error("an offset leaves i16"))?;
@@ -324,11 +368,14 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(Temporal::Date(self.civil_date()?)),
             1 => Ok(Temporal::Time(self.civil_time()?, self.offset()?)),
-            2 => Ok(Temporal::DateTime(
-                self.civil_date()?,
-                self.civil_time()?,
-                self.offset()?,
-            )),
+            2 => {
+                let date = self.civil_date()?;
+                let byte = self.u8()?;
+                let separator = DateTimeSeparator::from_byte(byte)
+                    .ok_or_else(|| self.error(format!("date-time separator byte {byte}")))?;
+                let time = self.civil_time()?;
+                Ok(Temporal::DateTime(date, time, self.offset()?, separator))
+            }
             other => Err(self.error(format!("temporal tag {other}"))),
         }
     }
@@ -374,6 +421,7 @@ mod tests {
 
     use super::*;
     use crate::identity::CanonicalSink;
+    use crate::value::ExactInteger;
 
     /// The canonical bytes of `value`, as a segment writes them.
     fn written(value: &Value) -> Vec<u8> {
@@ -410,7 +458,8 @@ mod tests {
     fn segment_reader_decodes_every_temporal_layout() {
         let offsets = [
             ("", Offset::Local),
-            ("Z", Offset::Zulu),
+            ("Z", Offset::Zulu(ZuluCase::Upper)),
+            ("z", Offset::Zulu(ZuluCase::Lower)),
             ("+00:00", Offset::Fixed(0)),
             ("-08:00", Offset::Fixed(-480)),
             ("+05:30", Offset::Fixed(330)),
@@ -427,6 +476,8 @@ mod tests {
                 for text in [
                     format!("12:34:56{fraction}{written_offset}"),
                     format!("2026-09-28T23:59:60{fraction}{written_offset}"),
+                    format!("2026-09-28t23:59:60{fraction}{written_offset}"),
+                    format!("2026-09-28 23:59:60{fraction}{written_offset}"),
                 ] {
                     let temporal = ok(Temporal::parse(&text));
                     assert_eq!(temporal.offset(), Some(offset), "{text}");
@@ -434,6 +485,10 @@ mod tests {
                     let bytes = written(&value);
                     assert_eq!(ok(read(&bytes)), value, "{text}");
                     assert_eq!(ok(read(&bytes)).canonical_bytes(), value.canonical_bytes());
+                    let Value::Temporal(back) = ok(read(&bytes)) else {
+                        panic!("a temporal")
+                    };
+                    assert_eq!(back.to_string(), text, "{text}");
                 }
             }
         }
@@ -469,11 +524,11 @@ mod tests {
 
     #[test]
     fn segment_reader_refuses_an_unknown_offset_tag() {
-        let value = Value::Temporal(ok(Temporal::parse("12:00:00Z")));
+        let value = Value::Temporal(ok(Temporal::parse("12:00:00-00:00")));
         let mut bytes = written(&value);
         let last = bytes.len() - 1;
-        assert_eq!(bytes[last], 1);
-        for (tag, offset) in [(0, Offset::Local), (1, Offset::Zulu), (3, Offset::NegZero)] {
+        assert_eq!(bytes[last], 3);
+        for (tag, offset) in [(0, Offset::Local), (3, Offset::NegZero)] {
             bytes[last] = tag;
             let Value::Temporal(t) = ok(read(&bytes)) else {
                 panic!("a temporal")
@@ -482,5 +537,140 @@ mod tests {
         }
         bytes[last] = 4;
         assert!(message(read(&bytes)).starts_with("offset tag 4"));
+        // Tag 1 is followed by the letter's byte, `Z` or `z`, and nothing
+        // else.
+        let zulu = Value::Temporal(ok(Temporal::parse("12:00:00Z")));
+        let mut bytes = written(&zulu);
+        let last = bytes.len() - 1;
+        assert_eq!(bytes[last - 1..], [1, b'Z']);
+        for (byte, case) in [(b'Z', ZuluCase::Upper), (b'z', ZuluCase::Lower)] {
+            bytes[last] = byte;
+            let Value::Temporal(t) = ok(read(&bytes)) else {
+                panic!("a temporal")
+            };
+            assert_eq!(t.offset(), Some(Offset::Zulu(case)));
+        }
+        for byte in [0, b'U', b'T', 0xff] {
+            bytes[last] = byte;
+            assert!(message(read(&bytes)).starts_with(&format!("Z offset case byte {byte}")));
+        }
+        // A date-time's separator byte sits between its date and its time.
+        let date_time = Value::Temporal(ok(Temporal::parse("2024-01-02 03:04:05Z")));
+        let mut bytes = written(&date_time);
+        // tag 15, form 2, the year (8 bytes), month and day.
+        let at = 1 + 1 + 8 + 2;
+        assert_eq!(bytes[at], b' ');
+        for byte in [b'T', b't'] {
+            bytes[at] = byte;
+            assert!(read(&bytes).is_ok());
+        }
+        for byte in [b'x', 0, b'Z'] {
+            bytes[at] = byte;
+            assert!(message(read(&bytes)).starts_with(&format!("date-time separator byte {byte}")));
+        }
+    }
+
+    /// The bytes of a `WideInt`: its sign byte and its magnitude's digits
+    /// behind their length.
+    fn wide(negative: bool, digits: &str) -> Vec<u8> {
+        let mut out = vec![u8::from(negative)];
+        out.extend_from_slice(&u64::try_from(digits.len()).unwrap_or(0).to_le_bytes());
+        out.extend_from_slice(digits.as_bytes());
+        out
+    }
+
+    /// The canonical bytes of the decimal `(negative, digits, exponent)`
+    /// under tag 13, written field by field.
+    fn decimal_bytes(negative: bool, digits: &str, exponent: &[u8]) -> Vec<u8> {
+        let mut out = vec![13, u8::from(negative)];
+        out.extend_from_slice(&u64::try_from(digits.len()).unwrap_or(0).to_le_bytes());
+        out.extend_from_slice(digits.as_bytes());
+        out.extend_from_slice(exponent);
+        out
+    }
+
+    #[test]
+    fn segment_reader_decodes_every_decimal_layout() {
+        for exponent in [
+            "-2147483649",
+            "2147483648",
+            "3000000000",
+            "-3000000001",
+            "100000000000000000000",
+            "-100000000000000000000",
+            "0",
+            "-2",
+        ] {
+            for (negative, digits) in [(false, "1"), (true, "150"), (false, "0")] {
+                let value = Value::Decimal(ok(DecimalValue::new(
+                    negative,
+                    digits,
+                    WideInt::parse_canonical(exponent).unwrap_or_default(),
+                )));
+                let bytes = written(&value);
+                let magnitude = exponent.trim_start_matches('-');
+                assert_eq!(
+                    bytes,
+                    decimal_bytes(negative, digits, &wide(exponent.starts_with('-'), magnitude))
+                );
+                assert_eq!(ok(read(&bytes)), value, "{exponent}");
+            }
+        }
+        // An exponent magnitude with a leading zero, a negative zero
+        // exponent, a sign byte other than 0 or 1, and digits that are not
+        // decimal digits are refused.
+        for (exponent, what) in [
+            (wide(false, "012"), "not decimal digits without a leading zero"),
+            (wide(true, "0"), "is a negative zero"),
+            (wide(false, ""), "not decimal digits without a leading zero"),
+            (wide(false, "1a"), "not decimal digits without a leading zero"),
+            ([vec![2], wide(false, "1")[1..].to_vec()].concat(), "has sign byte 2"),
+        ] {
+            let error = message(read(&decimal_bytes(false, "1", &exponent)));
+            assert!(error.contains(what), "{error}");
+        }
+    }
+
+    /// The canonical bytes of the big integer `(negative, significand,
+    /// zeros)` under tag 14, written field by field.
+    fn bigint_bytes(negative: bool, significand: &str, zeros: &str) -> Vec<u8> {
+        let mut out = vec![14, u8::from(negative)];
+        for part in [significand, zeros] {
+            out.extend_from_slice(&u64::try_from(part.len()).unwrap_or(0).to_le_bytes());
+            out.extend_from_slice(part.as_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn segment_reader_decodes_every_bigint_layout() {
+        for zeros in ["0", "1", "4097", "100000000000000000000"] {
+            for (negative, significand) in [(false, "9223372036854775808"), (true, "9223372036854775809")] {
+                let Some(ExactInteger::Big(big)) = BigIntValue::from_scaled(
+                    negative,
+                    significand,
+                    &WideInt::parse_canonical(zeros).unwrap_or_default(),
+                ) else {
+                    panic!("{significand}e{zeros} is a big integer")
+                };
+                let value = Value::BigInt(big);
+                let bytes = written(&value);
+                assert_eq!(bytes, bigint_bytes(negative, significand, zeros));
+                assert_eq!(ok(read(&bytes)), value, "{significand}e{zeros}");
+            }
+        }
+        // A significand ending in 0, a count with a leading zero, a value
+        // that fits i64 and a significand with a leading zero are refused.
+        for (significand, zeros, what) in [
+            ("10", "20", "not in its canonical form"),
+            ("1", "020", "not decimal digits without a leading zero"),
+            ("12", "0", "not in its canonical form"),
+            ("1", "18", "not in its canonical form"),
+            ("01", "20", "not in its canonical form"),
+            ("1", "", "not decimal digits without a leading zero"),
+        ] {
+            let error = message(read(&bigint_bytes(false, significand, zeros)));
+            assert!(error.contains(what), "{significand} {zeros}: {error}");
+        }
     }
 }

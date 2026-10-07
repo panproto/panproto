@@ -8,7 +8,7 @@
 use panproto_gat::Name;
 use panproto_inst::error::ParseError;
 use panproto_inst::value::coerce::{FidelityLog, LexClass, Lexeme, coerce};
-use panproto_inst::value::{BigIntValue, DecimalValue, ExactInteger, Offset, Temporal};
+use panproto_inst::value::{BigIntValue, DecimalValue, ExactInteger, Offset, Temporal, WideInt};
 use panproto_inst::{FidelityReason, Value, ValueFidelityError, ValueSite};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
@@ -242,7 +242,11 @@ mod coerce_rejects_a_lexeme_its_kind_cannot_hold {
             reason(number("0.5", &s)),
             FidelityReason::ScaleExceeded { max: 0 }
         );
-        assert_eq!(reason(number("1e999999999", &s)), FidelityReason::Overflow);
+        // An exponent of any size is read, without writing its zeros.
+        let Value::BigInt(power) = number("1e999999999", &s).unwrap() else {
+            panic!("a big integer")
+        };
+        assert_eq!(power.exponent_form(), "1e999999999");
     }
 
     #[test]
@@ -406,7 +410,7 @@ mod coerce_rejects_a_lexeme_its_kind_cannot_hold {
             with_time_zone: Some(false),
             ..spec(ScalarKind::DateTime)
         };
-        let Value::Temporal(Temporal::DateTime(_, time, Offset::Local)) =
+        let Value::Temporal(Temporal::DateTime(_, time, Offset::Local, _)) =
             read("1979-05-27T07:32:00.999999", LexClass::DateTime, &local).unwrap()
         else {
             panic!("a local date-time")
@@ -806,26 +810,24 @@ fn every_non_finite_spelling_reads_by_its_word_on_a_bounded_scope() {
     }
 }
 
-/// The shortest text of a float breaks an exact tie away from zero, and a
-/// float kind accepts exactly that candidate: the binary32 value
-/// 52401.3125 lies midway between `52401.312` and `52401.313`.
+/// The shortest text of a float breaks an exact tie to even, and a float
+/// kind accepts exactly that candidate: the binary32 value 52401.3125 lies
+/// midway between `52401.312` and `52401.313`.
 #[test]
-fn a_closest_shortest_tie_breaks_away_from_zero() {
+fn a_closest_shortest_tie_breaks_to_even() {
     let f32_ = spec(ScalarKind::Float { bits: 32 });
     // 52401.3125 = 838421 / 16, a binary32 value.
     let tie32 = 838_421.0_f32 / 16.0;
     assert_eq!(format!("{tie32:.4}"), "52401.3125");
-    assert_eq!(tie32.to_string(), "52401.313");
-    assert_eq!(format!("{:e}", -tie32), "-5.2401313e4");
-    for sign in ["", "-"] {
+    for (sign, negative) in [("", false), ("-", true)] {
         let tie = f64::from(tie32);
-        let want = if sign.is_empty() { tie } else { -tie };
+        let want = if negative { -tie } else { tie };
         assert_eq!(
-            float_bits(number(&format!("{sign}52401.313"), &f32_)),
+            float_bits(number(&format!("{sign}52401.312"), &f32_)),
             want.to_bits()
         );
         assert_eq!(
-            reason(number(&format!("{sign}52401.312"), &f32_)),
+            reason(number(&format!("{sign}52401.313"), &f32_)),
             FidelityReason::PrecisionExceeded { max: 9 }
         );
         // The exact value is accepted too.
@@ -835,72 +837,79 @@ fn a_closest_shortest_tie_breaks_away_from_zero() {
         );
     }
     // A binary64 tie: 2229016984128891.25 lies midway between two 17-digit
-    // texts that both read back to it, and is written with the larger.
+    // texts that both read back to it, and is written with the even one.
     let x = f64::from_bits(0x431f_ad1d_d626_35ed);
     assert_eq!(format!("{x:.2}"), "2229016984128891.25");
-    assert_eq!(x.to_string(), "2229016984128891.3");
     let f64_ = spec(ScalarKind::Float { bits: 64 });
-    assert_eq!(float_bits(number("2229016984128891.3", &f64_)), x.to_bits());
+    assert_eq!(float_bits(number("2229016984128891.2", &f64_)), x.to_bits());
     assert_eq!(
-        reason(number("2229016984128891.2", &f64_)),
+        reason(number("2229016984128891.3", &f64_)),
         FidelityReason::PrecisionExceeded { max: 17 }
     );
-    // `Display` writes a float positionally.
-    let big = 1e300_f64.to_string();
-    assert_eq!(big, format!("1{}", "0".repeat(300)));
 }
 
+/// Under `BigInt` every numeral whose value is an integer is read, whatever
+/// its exponent, and a lexeme reads as the same value as its integer
+/// written out; under a fixed-width `Int` the range is checked before any
+/// digit is expanded.
 #[test]
-fn an_exponent_numeral_expanding_past_4096_zeros_overflows_under_bigint() {
+fn a_bigint_reads_the_same_whatever_its_spelling() {
     let big_int = spec(ScalarKind::BigInt);
-    let digits = |v: Value| match v {
-        Value::BigInt(b) => b.digits,
-        other => panic!("expected a big integer, got {other:?}"),
+    let read = |text: &str| match number(text, &big_int) {
+        Ok(Value::BigInt(b)) => b,
+        other => panic!("{text}: expected a big integer, got {other:?}"),
     };
-    let expanded = digits(number("1e4096", &big_int).unwrap());
-    assert_eq!(expanded, format!("1{}", "0".repeat(4096)));
-    assert_eq!(expanded.len(), 4097);
-    assert_eq!(
-        digits(number("10e4096", &big_int).unwrap()),
-        format!("1{}", "0".repeat(4097))
-    );
-    assert_eq!(
-        digits(number("0.1e4097", &big_int).unwrap()),
-        format!("1{}", "0".repeat(4096))
-    );
-    assert_eq!(
-        digits(number("-1.5e4096", &big_int).unwrap()),
-        format!("15{}", "0".repeat(4095))
-    );
-    // The stored exponent, not the written one, is bounded: "10.0e4097"
-    // stores the digits 100 with exponent 4096.
-    assert_eq!(
-        digits(number("10.0e4097", &big_int).unwrap()),
-        format!("1{}", "0".repeat(4098))
-    );
-    for text in ["1e4097", "1e5000", "10e4097", "1e2147483647"] {
-        assert_eq!(
-            reason(number(text, &big_int)),
-            FidelityReason::Overflow,
-            "{text}"
-        );
+    for text in [
+        "1e4097",
+        "1e5000",
+        "1e9223372036854775807",
+        "1e100000000000000000000",
+    ] {
+        let value = read(text);
+        assert_eq!(value.exponent_form(), text);
+        assert!(value.is_well_formed());
     }
-    let written = format!("1{}", "0".repeat(5000));
-    assert_eq!(digits(number(&written, &big_int).unwrap()), written);
+    let written = format!("1{}", "0".repeat(4097));
+    assert_eq!(written.len(), 4098);
+    assert_eq!(read("1e4097"), read(&written));
+    assert_eq!(
+        read("1e4097").canonical_bytes(),
+        read(&written).canonical_bytes()
+    );
+    // The 22 bytes of 10^4097: the sign byte, the significand "1" behind its
+    // little-endian u64 length, the count "4097" behind its length.
+    assert_eq!(
+        read("1e4097").canonical_bytes(),
+        [
+            0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0x31, 0x04, 0, 0, 0, 0, 0, 0, 0, 0x34, 0x30, 0x39,
+            0x37
+        ]
+    );
+    // Other spellings of one integer read alike.
+    for (a, b) in [
+        ("1e4096", "10e4095"),
+        ("0.1e4097", "1e4096"),
+        ("-1.5e4096", "-15e4095"),
+        ("10.0e4097", "1e4098"),
+        ("1e5000", &format!("1{}", "0".repeat(5000))),
+    ] {
+        assert_eq!(read(a), read(b), "{a} {b}");
+    }
     let int = spec(ScalarKind::Int {
         bits: 64,
         signed: true,
     });
-    assert_eq!(reason(number("1e4097", &int)), FidelityReason::Overflow);
-    assert_eq!(reason(number("1e4096", &int)), FidelityReason::Overflow);
+    for text in ["1e4097", "1e2147483647", "1e100000000000000000000"] {
+        assert_eq!(reason(number(text, &int)), FidelityReason::Overflow, "{text}");
+    }
+    assert_eq!(number("1e18", &int).unwrap(), Value::Int(1_000_000_000_000_000_000));
     // A zero with a large exponent is zero.
     assert_eq!(number("0e5000", &big_int).unwrap(), Value::Int(0));
 }
 
 /// A zero numeral whose stored exponent leaves `i32` is the zero that
-/// "0e0" (or "-0e0") is under every kind whose values carry no scale, and is
-/// refused with `Overflow` under `Decimal`, whose value would have to keep
-/// a scale `i32` cannot hold.
+/// "0e0" (or "-0e0") is under every kind whose values carry no scale, and
+/// under `Decimal` the zero of its written scale.
 #[test]
 fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
     let unscaled = [
@@ -921,10 +930,10 @@ fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
             ..spec(ScalarKind::Decimal)
         },
     ];
-    for (text, zero) in [
-        ("0e3000000000", "0e0"),
-        ("-0e3000000000", "-0e0"),
-        ("0.0e-3000000000", "0e0"),
+    for (text, zero, exponent) in [
+        ("0e3000000000", "0e0", "3000000000"),
+        ("-0e3000000000", "-0e0", "3000000000"),
+        ("0.0e-3000000000", "0e0", "-3000000001"),
     ] {
         for kind in &unscaled {
             let got = number(text, kind).unwrap();
@@ -937,36 +946,102 @@ fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
             }
         }
         for kind in &decimals {
-            assert_eq!(
-                reason(number(text, kind)),
-                FidelityReason::Overflow,
-                "{text}"
-            );
+            let Value::Decimal(d) = number(text, kind).unwrap() else {
+                panic!("{text}: a decimal")
+            };
+            assert!(d.is_zero() && !d.negative, "{text}");
+            assert_eq!(d.exponent.to_string(), exponent, "{text}");
         }
     }
-    // Only a zero is read so: a non-zero numeral beyond i32 is refused, and
+    // A non-zero numeral beyond i32 is read by its kind: an integer kind
+    // takes its integer or refuses its range, a float kind rounds it to an
+    // infinity (refused) or to a zero that is not the numeral (refused), and
     // a malformed one is no number.
-    for kind in &unscaled[..4] {
+    let f32_ = spec(ScalarKind::Float { bits: 32 });
+    let f64_ = spec(ScalarKind::Float { bits: 64 });
+    for kind in [&f32_, &f64_] {
         assert_eq!(
             reason(number("1e3000000000", kind)),
             FidelityReason::Overflow
         );
-        assert_eq!(
+        assert!(matches!(
             reason(number("0.1e-3000000000", kind)),
-            FidelityReason::Overflow
-        );
+            FidelityReason::PrecisionExceeded { .. }
+        ));
+    }
+    assert_eq!(
+        reason(number("1e3000000000", &unscaled[1])),
+        FidelityReason::Overflow
+    );
+    assert_eq!(
+        reason(number("0.1e-3000000000", &unscaled[0])),
+        FidelityReason::ScaleExceeded { max: 0 }
+    );
+    for kind in &unscaled[..4] {
         assert_eq!(reason(number("1e", kind)), FidelityReason::NotANumber);
         assert_eq!(reason(number("0.0.0e1", kind)), FidelityReason::NotANumber);
     }
 }
 
+/// Under `Decimal` a numeral whose stored exponent leaves `i32` keeps its
+/// written scale, and under `Any` such a numeral that no finite float
+/// writes is a `Decimal`.
+#[test]
+fn a_decimal_beyond_i32_keeps_its_scale() {
+    let decimal = spec(ScalarKind::Decimal);
+    let any = spec(ScalarKind::Any);
+    let read = |text: &str, kind: &ValueSpec| match number(text, kind) {
+        Ok(Value::Decimal(d)) => d,
+        other => panic!("{text}: expected a decimal, got {other:?}"),
+    };
+    for (text, negative, digits, exponent) in [
+        ("0.0e-3000000000", false, "0", "-3000000001"),
+        ("1e3000000000", false, "1", "3000000000"),
+        ("-1.5e-2147483648", true, "15", "-2147483649"),
+        ("12e2147483647", false, "12", "2147483647"),
+        ("1e100000000000000000000", false, "1", "100000000000000000000"),
+    ] {
+        let d = read(text, &decimal);
+        assert_eq!(
+            (d.negative, d.digits.as_str(), d.exponent.to_string()),
+            (negative, digits, exponent.to_owned()),
+            "{text}"
+        );
+        assert_eq!(d.to_string(), DecimalValue::parse(text).unwrap().to_string());
+    }
+    assert_eq!(read("0.0e-3000000000", &decimal).scale().to_string(), "3000000001");
+    for text in ["1e3000000000", "-1e3000000000", "1e-3000000000"] {
+        let d = read(text, &any);
+        assert_eq!(d, DecimalValue::parse(text).unwrap(), "{text}");
+    }
+    // The facets still judge the value: a precision of 3 holds 1.5e-2147483648
+    // as a fraction of 2147483649 digits only if the scale allows it.
+    let money = ValueSpec {
+        precision: Some(3),
+        scale: Some(2),
+        ..spec(ScalarKind::Decimal)
+    };
+    assert_eq!(
+        reason(number("1.5e-2147483648", &money)),
+        FidelityReason::ScaleExceeded { max: 2 }
+    );
+    assert_eq!(
+        reason(number("1e3000000000", &money)),
+        FidelityReason::PrecisionExceeded { max: 3 }
+    );
+    assert_eq!(
+        number("150e-2", &money).unwrap(),
+        Value::Decimal(DecimalValue::parse("1.50").unwrap())
+    );
+}
+
 /// The closest-shortest text of a binary32 value, from its definition, for
 /// x = k / 256 with k in 2^23..2^24 (the binade [2^15, 2^16)): among the
 /// decimals with the fewest significant digits that read back to x at
-/// binary32 under round-to-nearest-even, the closest to x, at a tie the
-/// larger. Returns its significand digits, its number of significant
-/// digits and whether there was a tie. Exact integer arithmetic in units
-/// of 1 / (1024 * 10^9).
+/// binary32 under round-to-nearest-even, the closest to x, at a tie the one
+/// whose significand is even. Returns its significand digits, its number of
+/// significant digits and whether there was a tie. Exact integer arithmetic
+/// in units of 1 / (1024 * 10^9).
 fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
     // x in units u = 1 / (1024 * 10^9).
     let x = u128::from(k) * 4 * 1_000_000_000;
@@ -997,9 +1072,13 @@ fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
             [v] => return (u64::try_from(v / step).unwrap(), n, false),
             [a, b] => {
                 let (da, db) = (x - a, b - x);
-                let tie = da == db;
-                let pick = if db <= da { b } else { a };
-                return (u64::try_from(pick / step).unwrap(), n, tie);
+                let pick = match da.cmp(&db) {
+                    std::cmp::Ordering::Less => a,
+                    std::cmp::Ordering::Greater => b,
+                    std::cmp::Ordering::Equal if (a / step) % 2 == 0 => a,
+                    std::cmp::Ordering::Equal => b,
+                };
+                return (u64::try_from(pick / step).unwrap(), n, da == db);
             }
             _ => unreachable!(),
         }
@@ -1007,10 +1086,21 @@ fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
     unreachable!("nine digits always suffice")
 }
 
-/// Rust's `{:e}` of every binary32 in the binade [2^15, 2^16) is the
-/// closest-shortest text of the definition (ties away from zero), and a
-/// 32-bit float kind accepts that text with the value; at every tie it
-/// refuses the other candidate. Prints the bound and the ties found.
+/// The digits of `d` without trailing zeros, and the decimal exponent of
+/// its first digit.
+fn leading(d: &DecimalValue) -> (String, i64) {
+    let digits = d.digits.trim_end_matches('0').to_owned();
+    let exponent = d.exponent.to_string().parse::<i64>().unwrap()
+        + i64::try_from(d.digits.len()).unwrap()
+        - 1;
+    (digits, exponent)
+}
+
+/// The production printer `DecimalValue::from_f32_shortest` of every
+/// binary32 in the binade [2^15, 2^16) is the closest-shortest text of the
+/// definition (ties to even), and a 32-bit float kind accepts that text with
+/// the value; at every tie it refuses the other candidate. Prints the bound
+/// and the ties found.
 #[test]
 fn the_closest_shortest_text_agrees_with_its_definition_on_a_binade() {
     let f32_ = spec(ScalarKind::Float { bits: 32 });
@@ -1019,25 +1109,34 @@ fn the_closest_shortest_text_agrees_with_its_definition_on_a_binade() {
         let x = f32::from_bits(0x4700_0000 | (k - (1 << 23)));
         assert_eq!((f64::from(x) * 256.0).to_bits(), f64::from(k).to_bits());
         let (digits, n, tie) = closest_shortest_reference(u64::from(k));
-        let written = format!("{x:e}");
-        let (mantissa, exponent) = written.split_once('e').unwrap();
-        assert_eq!(exponent, "4", "{written}");
-        let got = mantissa.replace('.', "");
-        assert_eq!(got, digits.to_string(), "{x}: {written}");
-        assert_eq!(u32::try_from(got.len()).unwrap(), n);
+        let printed = DecimalValue::from_f32_shortest(x).unwrap();
+        let (got, exponent) = leading(&printed);
+        assert_eq!(exponent, 4, "{x}: {printed}");
+        let want = digits.to_string();
+        assert_eq!(got, want.trim_end_matches('0'), "{x}: {printed}");
+        assert_eq!(u32::try_from(want.len()).unwrap(), n);
         if tie {
             ties.push(x);
-            let accepted = number(&written, &f32_).unwrap();
+            let mantissa = |d: u64| {
+                let s = d.to_string();
+                format!("{}.{}e4", &s[..1], &s[1..])
+            };
+            let accepted = number(&mantissa(digits), &f32_).unwrap();
             assert!(matches!(accepted, Value::Float(y) if y.to_bits() == f64::from(x).to_bits()));
-            let other = format!("{}e{exponent}", {
-                let lower = digits - 1;
-                let s = lower.to_string();
-                format!("{}.{}", &s[..1], &s[1..])
-            });
+            assert_eq!(digits % 2, 0, "the tie goes to the even candidate");
+            // The other candidate lies on the other side of x.
+            let step = 1024 * 10_u128.pow(14 - n);
+            let x_units = u128::from(k) * 4 * 1_000_000_000;
+            let other = if u128::from(digits) * step < x_units {
+                digits + 1
+            } else {
+                digits - 1
+            };
             assert_eq!(
-                reason(number(&other, &f32_)),
+                reason(number(&mantissa(other), &f32_)),
                 FidelityReason::PrecisionExceeded { max: 9 },
-                "{other}"
+                "{}",
+                mantissa(other)
             );
         }
     }
@@ -1053,22 +1152,23 @@ fn the_closest_shortest_text_agrees_with_its_definition_on_a_binade() {
 /// The decimal a test expects under `Any` for a numeral it does not read as
 /// a float: `negative`, the significand digits and the exponent, built
 /// field by field.
-fn decimal_of(negative: bool, digits: &str, exponent: i32) -> Value {
+fn decimal_of(negative: bool, digits: &str, exponent: i64) -> Value {
     Value::Decimal(DecimalValue {
         negative,
         digits: digits.to_owned(),
-        exponent,
+        exponent: WideInt::from(exponent),
     })
 }
 
-/// At a binary64 tie the away-from-zero text reads as the float and the
-/// other tie text does not: x = 2^50 + 0.25 lies midway between
-/// `1125899906842624.2` and `1125899906842624.3`, both of which round to
-/// x, and its shortest text is the latter. Under `Float { bits: 64 }` the
-/// former is refused for precision, since it is neither x exactly nor x's
-/// shortest text, and under `Any` it is read as the decimal it writes.
+/// At a binary64 tie the even text reads as the float and the other tie
+/// text does not: x = 2^50 + 0.25 lies midway between `1125899906842624.2`
+/// and `1125899906842624.3`, both of which round to x, and its shortest
+/// text is the former. Under `Float { bits: 64 }` the latter is refused for
+/// precision, since it is neither x exactly nor x's shortest text, and under
+/// `Any` it is read as the decimal it writes. For 2^50 + 0.75 the even text
+/// is `.8`.
 #[test]
-fn a_binary64_tie_reads_by_the_away_from_zero_text() {
+fn a_binary64_tie_reads_by_the_even_text() {
     let f64_ = spec(ScalarKind::Float { bits: 64 });
     let any = spec(ScalarKind::Any);
     // 2^50 + 1/4 and 2^50 + 3/4, from their bits (ulp 1/4 in [2^50, 2^51)).
@@ -1076,13 +1176,17 @@ fn a_binary64_tie_reads_by_the_away_from_zero_text() {
     let three_quarters = f64::from_bits(0x4310_0000_0000_0003);
     assert_eq!(format!("{quarter:.2}"), "1125899906842624.25");
     assert_eq!(format!("{three_quarters:.2}"), "1125899906842624.75");
+    assert_eq!(
+        DecimalValue::from_f64_shortest(quarter).unwrap().to_string(),
+        "1125899906842624.2"
+    );
     for (sign, negative) in [("", false), ("-", true)] {
         let signed = |x: f64| if negative { -x } else { x };
         for spec in [&f64_, &any] {
             assert_eq!(
-                float_bits(number(&format!("{sign}1125899906842624.3"), spec)),
+                float_bits(number(&format!("{sign}1125899906842624.2"), spec)),
                 signed(quarter).to_bits(),
-                "{sign}1125899906842624.3 under {:?}",
+                "{sign}1125899906842624.2 under {:?}",
                 spec.kind
             );
             assert_eq!(
@@ -1093,7 +1197,7 @@ fn a_binary64_tie_reads_by_the_away_from_zero_text() {
             );
         }
         assert_eq!(
-            reason(number(&format!("{sign}1125899906842624.2"), &f64_)),
+            reason(number(&format!("{sign}1125899906842624.3"), &f64_)),
             FidelityReason::PrecisionExceeded { max: 17 }
         );
         assert_eq!(
@@ -1101,8 +1205,8 @@ fn a_binary64_tie_reads_by_the_away_from_zero_text() {
             FidelityReason::PrecisionExceeded { max: 17 }
         );
         assert_eq!(
-            number(&format!("{sign}1125899906842624.2"), &any).unwrap(),
-            decimal_of(negative, "11258999068426242", -1)
+            number(&format!("{sign}1125899906842624.3"), &any).unwrap(),
+            decimal_of(negative, "11258999068426243", -1)
         );
         assert_eq!(
             number(&format!("{sign}1125899906842624.7"), &any).unwrap(),
@@ -1114,9 +1218,9 @@ fn a_binary64_tie_reads_by_the_away_from_zero_text() {
 /// The closest-shortest text of the binary64 value x = 2^50 + i / 4, from
 /// its definition: among the decimals with the fewest significant digits
 /// that read back to x at binary64 under round-to-nearest-even, the
-/// closest to x, at a tie the larger. Returns its significand digits, its
-/// number of significant digits and whether there was a tie. Exact integer
-/// arithmetic in units of 1 / 80, in which x is 80 * 2^50 + 20 i, half the
+/// closest to x, at a tie the one whose significand is even. Returns its
+/// significand digits, its number of significant digits and whether there
+/// was a tie. Exact integer arithmetic in units of 1 / 80, in which x is 80 * 2^50 + 20 i, half the
 /// gap above x is 10 (the ulp is 1 / 4) and a decimal of n significant
 /// digits (x has sixteen integer digits) is a multiple of 8 * 10^(17 - n).
 fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
@@ -1146,7 +1250,12 @@ fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
             [v] => return (v / step, n, false),
             [a, b] => {
                 let (da, db) = (x - a, b - x);
-                let pick = if db <= da { b } else { a };
+                let pick = match da.cmp(&db) {
+                    std::cmp::Ordering::Less => a,
+                    std::cmp::Ordering::Greater => b,
+                    std::cmp::Ordering::Equal if (a / step) % 2 == 0 => a,
+                    std::cmp::Ordering::Equal => b,
+                };
                 return (pick / step, n, da == db);
             }
             _ => unreachable!(),
@@ -1164,14 +1273,15 @@ fn positional_17(sign: &str, digits: u128) -> String {
 }
 
 /// On the first 2^20 binary64 values of the binade [2^50, 2^51), that is
-/// x = 2^50 + i / 4 for 0 <= i < 2^20, of either sign, Rust's `{:e}` is
-/// the closest-shortest text of the definition, and at every tie (each
-/// n + 0.25 and n + 0.75) the away-from-zero text reads as the float under
-/// `Float { bits: 64 }` and `Any`, while the other tie text is refused
-/// with `PrecisionExceeded { max: 17 }` under `Float { bits: 64 }` and read
-/// under `Any` as the decimal it writes. Prints the bound and the ties.
+/// x = 2^50 + i / 4 for 0 <= i < 2^20, of either sign, the production
+/// printer `DecimalValue::from_f64_shortest` is the closest-shortest text of
+/// the definition, and at every tie (each n + 0.25 and n + 0.75) the even
+/// text reads as the float under `Float { bits: 64 }` and `Any`, while the
+/// other tie text is refused with `PrecisionExceeded { max: 17 }` under
+/// `Float { bits: 64 }` and read under `Any` as the decimal it writes.
+/// Prints the bound and the ties.
 #[test]
-fn binary64_ties_read_by_the_away_from_zero_text_on_a_binade_prefix() {
+fn binary64_ties_read_by_the_even_text_on_a_binade_prefix() {
     let f64_ = spec(ScalarKind::Float { bits: 64 });
     let any = spec(ScalarKind::Any);
     let count = 1_u64 << 20;
@@ -1183,22 +1293,23 @@ fn binary64_ties_read_by_the_away_from_zero_text_on_a_binade_prefix() {
         assert_eq!(tie, i % 2 == 1, "the ties are the odd i: {i}");
         for (sign, negative) in [("", false), ("-", true)] {
             let x = if negative { -magnitude } else { magnitude };
-            let written = format!("{x:e}");
-            let (mantissa, exponent) = written.split_once('e').unwrap();
-            assert_eq!(exponent, "15", "{written}");
-            let got = mantissa.trim_start_matches('-').replace('.', "");
+            let printed = DecimalValue::from_f64_shortest(x).unwrap();
+            assert_eq!(printed.negative, negative);
+            let (got, exponent) = leading(&printed);
+            assert_eq!(exponent, 15, "{i}: {printed}");
             let want = digits.to_string();
-            assert_eq!(
-                got.trim_end_matches('0'),
-                want.trim_end_matches('0'),
-                "{i}: {written}"
-            );
-            assert_eq!(u32::try_from(got.len()).unwrap(), n, "{i}: {written}");
+            assert_eq!(got, want.trim_end_matches('0'), "{i}: {printed}");
             if !tie {
                 continue;
             }
+            assert_eq!(n, 17);
+            assert_eq!(digits % 2, 0, "the tie goes to the even candidate");
+            // x is 80 * 2^50 + 20 i in units of 1/80; a 17-digit candidate
+            // is a multiple of 8.
+            let x_units = 80 * (1_u128 << 50) + 20 * u128::from(i);
+            let other = if digits * 8 < x_units { digits + 1 } else { digits - 1 };
             let winner = positional_17(sign, digits);
-            let loser = positional_17(sign, digits - 1);
+            let loser = positional_17(sign, other);
             for spec in [&f64_, &any] {
                 assert_eq!(
                     float_bits(number(&winner, spec)),
@@ -1214,7 +1325,7 @@ fn binary64_ties_read_by_the_away_from_zero_text_on_a_binade_prefix() {
             );
             assert_eq!(
                 number(&loser, &any).unwrap(),
-                decimal_of(negative, &(digits - 1).to_string(), -1),
+                decimal_of(negative, &other.to_string(), -1),
                 "{loser}"
             );
         }
@@ -1231,15 +1342,104 @@ fn binary64_ties_read_by_the_away_from_zero_text_on_a_binade_prefix() {
     assert_eq!(ties, count / 2);
 }
 
-/// Every zero numeral with at most two fractional zeros, of either sign,
-/// whose stored exponent is `i32::MIN`, `i32::MIN - 1`, `i32::MAX`,
-/// `i32::MAX + 1` or 3000000000, under every numeric kind and `Any`: inside `i32` it reads
-/// as it always has (a decimal keeps its scale), beyond it it reads as
-/// "0e0" or "-0e0" do where the kind keeps no scale and is refused with
-/// `Overflow` under `Decimal`.
+/// What a kind must read a numeral `<sign><significand>e<written>` as,
+/// computed here from the numeral's parts without the code under test, for
+/// a stored exponent so far from zero (beyond `i32`, |E| > 2^31 - 2) that
+/// no float of either width holds a non-zero value of it.
+///
+/// `digits` are the significand's digits without leading zeros (`""` for a
+/// zero) and `stored` the stored exponent E, so the value is
+/// `(-1)^negative × digits × 10^E`.
+fn expected_far(
+    negative: bool,
+    digits: &str,
+    stored: i128,
+    kind: &ValueSpec,
+) -> Result<Value, FidelityReason> {
+    let zero = digits.is_empty();
+    let sig = digits.trim_end_matches('0');
+    let trailing = i128::try_from(digits.len() - sig.len()).unwrap();
+    let decimal = || {
+        Value::Decimal(DecimalValue {
+            negative: negative && !zero,
+            digits: if zero { "0".to_owned() } else { digits.to_owned() },
+            exponent: WideInt::parse_canonical(&stored.to_string()).unwrap(),
+        })
+    };
+    match &kind.kind {
+        ScalarKind::Decimal => {
+            if zero || (kind.precision.is_none() && kind.scale.is_none()) {
+                return Ok(decimal());
+            }
+            // The facets of the scope: precision 3 and scale 2.
+            let minimal_scale = (-stored - trailing).max(0);
+            if minimal_scale > 2 {
+                return Err(FidelityReason::ScaleExceeded { max: 2 });
+            }
+            let integer_digits = (i128::try_from(digits.len()).unwrap() + stored).max(0);
+            if integer_digits > 1 {
+                return Err(FidelityReason::PrecisionExceeded { max: 3 });
+            }
+            Ok(decimal())
+        }
+        ScalarKind::BigInt | ScalarKind::Int { .. } => {
+            if zero {
+                return Ok(Value::Int(0));
+            }
+            let zeros = stored + trailing;
+            if zeros < 0 {
+                return Err(FidelityReason::ScaleExceeded { max: 0 });
+            }
+            if matches!(kind.kind, ScalarKind::Int { .. }) {
+                // More than 39 digits: no fixed-width integer holds it.
+                return Err(FidelityReason::Overflow);
+            }
+            let sign = if negative { "-" } else { "" };
+            let text = format!("{sign}{sig}e{zeros}");
+            Ok(Value::BigInt(match BigIntValue::from_scaled(
+                negative,
+                sig,
+                &WideInt::parse_canonical(&zeros.to_string()).unwrap(),
+            ) {
+                Some(ExactInteger::Big(b)) => {
+                    assert_eq!(b.exponent_form(), text);
+                    b
+                }
+                other => panic!("{text}: {other:?}"),
+            }))
+        }
+        ScalarKind::Float { bits } => {
+            let max = if *bits == 32 { 9 } else { 17 };
+            if zero {
+                return Ok(Value::Float(if negative { -0.0 } else { 0.0 }));
+            }
+            if stored > 0 {
+                Err(FidelityReason::Overflow)
+            } else {
+                Err(FidelityReason::PrecisionExceeded { max })
+            }
+        }
+        ScalarKind::Any => Ok(if zero {
+            Value::Float(if negative { -0.0 } else { 0.0 })
+        } else {
+            decimal()
+        }),
+        other => panic!("not a numeric kind: {other:?}"),
+    }
+}
+
+/// Every numeral of at most two significant digits, zero included (with
+/// zero, one or two fractional zeros), of either sign, with a stored
+/// exponent among `i32::MIN - 1`, `i32::MIN`, `i32::MAX`, `i32::MAX + 1`,
+/// 3000000000, -3000000000 and plus or minus 10^20, under every numeric
+/// kind (`Decimal` with and without precision 3 and scale 2) and `Any`,
+/// against [`expected_far`]: a zero is the zero of its kind (with its
+/// written scale under `Decimal`), a decimal keeps its stored exponent, a
+/// big integer is held without expanding it, and the other readings refuse
+/// with the kind's reason. Prints the bound.
 #[test]
 fn zero_numerals_beyond_i32_read_as_zero_where_the_kind_keeps_no_scale() {
-    let unscaled = [
+    let kinds = [
         spec(ScalarKind::BigInt),
         spec(ScalarKind::Int {
             bits: 8,
@@ -1256,8 +1456,6 @@ fn zero_numerals_beyond_i32_read_as_zero_where_the_kind_keeps_no_scale() {
         spec(ScalarKind::Float { bits: 32 }),
         spec(ScalarKind::Float { bits: 64 }),
         spec(ScalarKind::Any),
-    ];
-    let decimals = [
         spec(ScalarKind::Decimal),
         ValueSpec {
             precision: Some(3),
@@ -1266,42 +1464,41 @@ fn zero_numerals_beyond_i32_read_as_zero_where_the_kind_keeps_no_scale() {
         },
     ];
     let stored = [
-        i64::from(i32::MIN),
-        i64::from(i32::MIN) - 1,
-        i64::from(i32::MAX),
-        i64::from(i32::MAX) + 1,
+        i128::from(i32::MIN) - 1,
+        i128::from(i32::MIN),
+        i128::from(i32::MAX),
+        i128::from(i32::MAX) + 1,
         3_000_000_000,
+        -3_000_000_000,
+        100_000_000_000_000_000_000,
+        -100_000_000_000_000_000_000,
     ];
+    // (written significand, its digits without leading zeros, fraction length)
+    let mut significands = vec![
+        ("0".to_owned(), String::new(), 0_i128),
+        ("0.0".to_owned(), String::new(), 1),
+        ("0.00".to_owned(), String::new(), 2),
+    ];
+    for n in 1..=99_u32 {
+        significands.push((n.to_string(), n.to_string(), 0));
+        if n >= 10 {
+            significands.push((format!("{}.{}", n / 10, n % 10), n.to_string(), 1));
+        }
+    }
     let mut checked = 0;
     for sign in ["", "-"] {
-        for fraction in ["", ".0", ".00"] {
-            let frac_len = i64::try_from(fraction.len().saturating_sub(1)).unwrap();
+        for (written_significand, digits, frac_len) in &significands {
             for &stored_exponent in &stored {
                 let written = stored_exponent + frac_len;
-                let text = format!("{sign}0{fraction}e{written}");
-                let inside = i32::try_from(stored_exponent).is_ok();
-                let zero = if sign.is_empty() { "0e0" } else { "-0e0" };
-                for kind in &unscaled {
-                    let got = number(&text, kind).unwrap();
-                    let want = number(zero, kind).unwrap();
-                    assert_eq!(
-                        got.canonical_bytes(),
-                        want.canonical_bytes(),
-                        "{text} {:?}",
-                        kind.kind
-                    );
-                    checked += 1;
-                }
-                for kind in &decimals {
-                    let got = number(&text, kind);
-                    if inside {
-                        let Value::Decimal(d) = got.unwrap() else {
-                            panic!("a decimal")
-                        };
-                        assert!(d.is_zero() && !d.negative, "{text}");
-                        assert_eq!(i64::from(d.exponent), stored_exponent, "{text}");
-                    } else {
-                        assert_eq!(reason(got), FidelityReason::Overflow, "{text}");
+                let text = format!("{sign}{written_significand}e{written}");
+                for kind in &kinds {
+                    let got = number(&text, kind).map_err(|e| e.reason);
+                    let want = expected_far(!sign.is_empty(), digits, stored_exponent, kind);
+                    match (&got, &want) {
+                        (Ok(Value::Float(a)), Ok(Value::Float(b))) => {
+                            assert_eq!(a.to_bits(), b.to_bits(), "{text} {:?}", kind.kind);
+                        }
+                        _ => assert_eq!(got, want, "{text} {:?}", kind.kind),
                     }
                     checked += 1;
                 }
@@ -1309,7 +1506,86 @@ fn zero_numerals_beyond_i32_read_as_zero_where_the_kind_keeps_no_scale() {
         }
     }
     println!(
-        "bound: {checked} (numeral, kind) pairs: 2 signs x 3 fractions x 5 stored exponents x 9 kinds"
+        "bound: {checked} (numeral, kind) pairs: 2 signs x {} significands x 8 stored exponents x 9 kinds",
+        significands.len()
     );
-    assert_eq!(checked, 2 * 3 * 5 * 9);
+    assert_eq!(checked, 2 * significands.len() * 8 * 9);
+}
+
+/// Every numeral `<s>e<n>` with s among 1, 7 and 12, of either sign, and n
+/// among 0 to 30, 4096, 4097, 5000, 2^31 - 1, 2^31, 2^63 - 1, 2^63 and
+/// 10^20, read under `BigInt`: an `i64` when it fits, else the big integer
+/// with that significand and n (plus the trailing zeros of s) zeros, equal
+/// as a value and in canonical bytes to its integer written out where that
+/// has at most 5000 digits, and refused under `Int { bits: 64 }` exactly
+/// when it leaves `i64`. Prints the bound.
+#[test]
+fn bigint_numerals_read_alike_whatever_their_exponent_on_the_stated_scope() {
+    let big_int = spec(ScalarKind::BigInt);
+    let int = spec(ScalarKind::Int {
+        bits: 64,
+        signed: true,
+    });
+    let mut exponents: Vec<u128> = (0..=30).collect();
+    exponents.extend([
+        4096,
+        4097,
+        5000,
+        (1 << 31) - 1,
+        1 << 31,
+        (1 << 63) - 1,
+        1 << 63,
+        100_000_000_000_000_000_000,
+    ]);
+    let mut checked = 0;
+    let mut written_out = 0;
+    for sign in ["", "-"] {
+        for s in ["1", "7", "12"] {
+            for &n in &exponents {
+                let text = format!("{sign}{s}e{n}");
+                let got = number(&text, &big_int).unwrap();
+                // The reference: the integer as an i128 when it has at most
+                // 38 digits, else its significand and count.
+                let digit_count = u128::try_from(s.len()).unwrap() + n;
+                let fits_i64 = if digit_count <= 19 {
+                    let value = format!("{sign}{s}{}", "0".repeat(usize::try_from(n).unwrap()))
+                        .parse::<i128>()
+                        .unwrap();
+                    i64::try_from(value).ok()
+                } else {
+                    None
+                };
+                match fits_i64 {
+                    Some(v) => {
+                        assert_eq!(got, Value::Int(v), "{text}");
+                        assert_eq!(number(&text, &int).unwrap(), Value::Int(v), "{text}");
+                    }
+                    None => {
+                        let Value::BigInt(b) = &got else {
+                            panic!("{text}: {got:?}")
+                        };
+                        assert_eq!(
+                            (b.negative, b.significand.as_str(), b.zeros.to_string()),
+                            (!sign.is_empty(), s, n.to_string()),
+                            "{text}"
+                        );
+                        assert_eq!(reason(number(&text, &int)), FidelityReason::Overflow);
+                    }
+                }
+                if n <= 5000 {
+                    let written = format!("{sign}{s}{}", "0".repeat(usize::try_from(n).unwrap()));
+                    let out = number(&written, &big_int).unwrap();
+                    assert_eq!(out, got, "{text}");
+                    assert_eq!(out.canonical_bytes(), got.canonical_bytes(), "{text}");
+                    written_out += 1;
+                }
+                checked += 1;
+            }
+        }
+    }
+    println!(
+        "bound: {checked} numerals (2 signs x 3 significands x {} exponents), {written_out} compared with their integer written out",
+        exponents.len()
+    );
+    assert_eq!(checked, 2 * 3 * exponents.len());
 }

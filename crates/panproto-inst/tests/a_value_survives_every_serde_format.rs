@@ -209,3 +209,52 @@ fn bytes_values_read_both_byte_strings_and_integer_sequences() {
         value
     );
 }
+
+/// A `Decimal` keeps a stored exponent of any size, and a `BigInt` a count
+/// of trailing zeros of any size, through every serde format.
+#[test]
+fn a_decimal_with_any_exponent_survives_every_serde_format() {
+    use panproto_inst::value::{BigIntValue, DecimalValue, ExactInteger, WideInt};
+    let mut values = Vec::new();
+    for exponent in [
+        "-2147483649",
+        "2147483648",
+        "3000000000",
+        "-3000000001",
+        "100000000000000000000",
+        "-100000000000000000000",
+    ] {
+        for (negative, digits) in [(false, "1"), (true, "150"), (false, "0")] {
+            let decimal = DecimalValue::new(
+                negative,
+                digits,
+                WideInt::parse_canonical(exponent).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(decimal.exponent.to_string(), exponent);
+            values.push(Value::Decimal(decimal));
+        }
+        if !exponent.starts_with('-') {
+            let Some(ExactInteger::Big(big)) = BigIntValue::from_scaled(
+                true,
+                "12",
+                &WideInt::parse_canonical(exponent).unwrap(),
+            ) else {
+                panic!("a big integer")
+            };
+            values.push(Value::BigInt(big));
+        }
+    }
+    for value in &values {
+        for (format, back) in [
+            ("json", json_round_trip(value)),
+            ("msgpack", msgpack_round_trip(value)),
+            ("named msgpack", named_msgpack_round_trip(value)),
+            ("cbor", cbor_round_trip(value)),
+        ] {
+            assert_eq!(&back, value, "{format}");
+            assert_eq!(back.canonical_bytes(), value.canonical_bytes(), "{format}");
+        }
+    }
+    assert_eq!(values.len(), 6 * 3 + 3);
+}

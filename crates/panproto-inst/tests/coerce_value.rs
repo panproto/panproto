@@ -151,6 +151,58 @@ impl Nat {
             .cmp(&other.0.len())
             .then_with(|| self.0.iter().rev().cmp(other.0.iter().rev()))
     }
+
+    fn is_zero(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// `self / d` and `self % d`, by long division from the high limb.
+    fn divmod_small(&self, d: u32) -> (Self, u32) {
+        let mut out = vec![0_u32; self.0.len()];
+        let mut rem = 0_u64;
+        for (i, limb) in self.0.iter().enumerate().rev() {
+            let cur = (rem << 32) | u64::from(*limb);
+            out[i] = u32::try_from(cur / u64::from(d)).unwrap();
+            rem = cur % u64::from(d);
+        }
+        (Self(out).trim(), u32::try_from(rem).unwrap())
+    }
+
+    /// The decimal digits of `self`, `"0"` for zero.
+    fn to_decimal(&self) -> String {
+        if self.is_zero() {
+            return "0".to_owned();
+        }
+        let mut chunks = Vec::new();
+        let mut n = self.clone();
+        while !n.is_zero() {
+            let (q, r) = n.divmod_small(1_000_000_000);
+            chunks.push(r);
+            n = q;
+        }
+        let mut out = chunks.pop().unwrap().to_string();
+        for chunk in chunks.iter().rev() {
+            out.push_str(&format!("{chunk:09}"));
+        }
+        out
+    }
+
+    /// The number of binary digits of `self` (zero for zero).
+    fn bit_len(&self) -> u64 {
+        self.0.last().map_or(0, |top| {
+            u64::try_from(self.0.len() - 1).unwrap() * 32 + u64::from(32 - top.leading_zeros())
+        })
+    }
+
+    /// `self` with its trailing binary zeros removed, and their number.
+    fn strip_twos(mut self) -> (Self, i64) {
+        let mut count = 0;
+        while !self.is_zero() && self.0[0] % 2 == 0 {
+            self = self.divmod_small(2).0;
+            count += 1;
+        }
+        (self, count)
+    }
 }
 
 /// A non-negative dyadic rational `m * 2^e`.
@@ -187,6 +239,101 @@ impl Dyadic {
             m: a.add(&b),
             e: e - 1,
         }
+    }
+}
+
+/// The exact decimal expansion of the dyadic `d`: its significant digits
+/// without trailing zeros and the decimal exponent of the first one.
+/// `m * 2^e` is an integer when `e >= 0`, and `m * 5^-e / 10^-e` otherwise.
+fn exact_decimal(d: &Dyadic) -> (String, i64) {
+    let (n, scale) = if d.e >= 0 {
+        (d.m.clone().shl(u64::try_from(d.e).unwrap()), 0)
+    } else {
+        let mut n = d.m.clone();
+        for _ in 0..-d.e {
+            n.mul_add(5, 0);
+        }
+        (n.trim(), -d.e)
+    };
+    let all = n.to_decimal();
+    let digits = all.trim_end_matches('0').to_owned();
+    (digits, i64::try_from(all.len()).unwrap() - 1 - scale)
+}
+
+/// The digit string `digits` plus one in its last place.
+fn increment(digits: &str) -> String {
+    let mut out: Vec<u8> = digits.bytes().collect();
+    for at in (0..out.len()).rev() {
+        if out[at] == b'9' {
+            out[at] = b'0';
+        } else {
+            out[at] += 1;
+            return String::from_utf8(out).unwrap();
+        }
+    }
+    format!("1{}", String::from_utf8(out).unwrap())
+}
+
+/// The closest-shortest text C_b(x) of a finite float x of width `bits`,
+/// from its definition, as `<sign><digits>e<exponent>`: among the decimals
+/// with the fewest significant digits that read back to x under
+/// round-to-nearest-even at the width (decided by [`is_nearest_even`]), the
+/// closest to x, and at an exact tie the one whose significand is even. The
+/// candidates of n digits that can read back are the two that bracket x,
+/// its exact expansion cut to n digits and that plus one unit; the exact
+/// expansion comes from [`exact_decimal`]. No printer of the code under
+/// test or of the standard library is used.
+fn reference_shortest(x: f64, bits: u8) -> String {
+    let sign = if x.is_sign_negative() { "-" } else { "" };
+    if x == 0.0 {
+        return format!("{sign}0e0");
+    }
+    let w = width(bits);
+    let magnitude = x.abs();
+    let (fraction, biased) = fields(magnitude, w);
+    let (exact, power) = exact_decimal(&Dyadic::of_fields(fraction, biased, w.fraction_bits, w.bias));
+    for n in 1..exact.len() {
+        let lo = &exact[..n];
+        let hi = increment(lo);
+        let exponent = power + 1 - i64::try_from(n).unwrap();
+        let lo_text = format!("{lo}e{exponent}");
+        let hi_text = format!("{hi}e{exponent}");
+        let pick = match (
+            is_nearest_even(&lo_text, magnitude, bits),
+            is_nearest_even(&hi_text, magnitude, bits),
+        ) {
+            (false, false) => continue,
+            (true, false) => lo.to_owned(),
+            (false, true) => hi,
+            (true, true) => {
+                let rest = &exact[n..];
+                let half = format!("5{}", "0".repeat(rest.len() - 1));
+                match rest.cmp(half.as_str()) {
+                    Ordering::Less => lo.to_owned(),
+                    Ordering::Greater => hi,
+                    Ordering::Equal if (lo.as_bytes()[n - 1] - b'0') % 2 == 0 => lo.to_owned(),
+                    Ordering::Equal => hi,
+                }
+            }
+        };
+        return format!("{sign}{pick}e{exponent}");
+    }
+    let exponent = power + 1 - i64::try_from(exact.len()).unwrap();
+    format!("{sign}{exact}e{exponent}")
+}
+
+/// The positional text of a finite numeral, as `coerce_value` writes the
+/// lexeme of a float: the digits, zeros for a positive exponent, a point
+/// for a negative one, and `-` for a negative value or a negative zero.
+fn positional(numeral: &str) -> String {
+    let negative = numeral.starts_with('-');
+    let (_, int, frac) = normalize(numeral);
+    let sign = if negative { "-" } else { "" };
+    match (int.is_empty(), frac.is_empty()) {
+        (true, true) => format!("{sign}0"),
+        (false, true) => format!("{sign}{int}"),
+        (true, false) => format!("{sign}0.{frac}"),
+        (false, false) => format!("{sign}{int}.{frac}"),
     }
 }
 
@@ -337,27 +484,23 @@ fn numerals_equal(a: &str, b: &str) -> bool {
 /// to `f64`: Rust's parser's result, checked here to be the
 /// round-to-nearest-even reading; the zero of a numeral written with `-`
 /// is the negative zero. Then the shortest text of that value at the
-/// width, Rust's `{:e}` (the closest-shortest text, ties away from zero),
-/// checked to read back to the value, and the significant digits that
-/// text may have at most.
+/// width, [`reference_shortest`] (the closest-shortest text, ties to
+/// even), and the significant digits that text may have at most.
 fn read_float(text: &str, bits: u8) -> (f64, String, u32) {
-    let (x, shortest, max) = if bits == 32 {
-        let x = text.parse::<f32>().unwrap();
-        (f64::from(x), format!("{x:e}"), 9)
+    let (x, max) = if bits == 32 {
+        (f64::from(text.parse::<f32>().unwrap()), 9)
     } else {
-        let x = text.parse::<f64>().unwrap();
-        (x, format!("{x:e}"), 17)
+        (text.parse::<f64>().unwrap(), 17)
     };
     assert!(
         is_nearest_even(text, x, bits),
         "{text} does not read as {x:e} at {bits} bits"
     );
-    if x.is_finite() {
-        assert!(
-            is_nearest_even(&shortest, x, bits),
-            "{shortest} does not read back as {x:e}"
-        );
-    }
+    let shortest = if x.is_finite() {
+        reference_shortest(x, bits)
+    } else {
+        String::new()
+    };
     (x, shortest, max)
 }
 
@@ -375,16 +518,15 @@ fn expected_float(text: &str, bits: u8) -> Result<f64, FidelityReason> {
     }
 }
 
-/// Whether the finite or infinite `x` is a binary32 value widened, decided
-/// by writing |x| as m * 2^e with m odd: m below 2^24, e at least -149 and
-/// the value at most the largest binary32, (2^24 - 1) * 2^104; or x is an
-/// infinity, a zero, or a NaN with the low 29 fraction bits zero.
+/// Whether binary32 holds `x`, decided by writing |x| as m * 2^e with m
+/// odd: m below 2^24, e at least -149 and the value at most the largest
+/// binary32, (2^24 - 1) * 2^104; or x is an infinity, a zero, or a NaN whose
+/// low 29 fraction bits are zero, quiet or signalling (its binary32 has x's
+/// high 23 fraction bits).
 fn is_binary32(x: f64) -> bool {
     let bits = x.to_bits();
     if x.is_nan() {
-        // Widening quiets a NaN: a widened binary32 NaN has the quiet bit
-        // (fraction bit 51) set and its low 29 fraction bits zero.
-        return bits & (1 << 51) != 0 && bits & ((1 << 29) - 1) == 0;
+        return bits & ((1 << 29) - 1) == 0;
     }
     if x.is_infinite() || x == 0.0 {
         return true;
@@ -408,6 +550,100 @@ fn is_binary32(x: f64) -> bool {
 /// The least magnitude that rounds to an infinity at binary32, 2^128 -
 /// 2^103: the largest binary32, (2^24 - 1) 2^104, plus half its gap 2^104.
 const BINARY32_OVERFLOW: f64 = 340_282_356_779_733_661_637_539_395_458_142_568_448.0;
+
+/// The finite numeral `text` as `(negative, m, e)` with `|text| = m * 2^e`
+/// and m odd (m zero for a zero), when it is a dyadic rational; `None`
+/// when it is not, so no binary float of any width equals it.
+fn dyadic_of_numeral(text: &str) -> Option<(bool, Nat, i64)> {
+    let (negative, int, frac) = normalize(text);
+    let mut n = Nat::from_digits(&format!("{int}{frac}"));
+    if n.is_zero() {
+        return Some((false, n, 0));
+    }
+    // n / 10^f = (n / 5^f) / 2^f, dyadic iff 5^f divides n.
+    let f = i64::try_from(frac.len()).unwrap();
+    for _ in 0..f {
+        let (q, r) = n.divmod_small(5);
+        if r != 0 {
+            return None;
+        }
+        n = q;
+    }
+    let (m, twos) = n.strip_twos();
+    Some((negative, m, twos - f))
+}
+
+/// A binary interchange format for the non-float inputs of a float kind:
+/// significand bits, the least and the greatest exponent of the unit in the
+/// last place, and the significant digits of its `PrecisionExceeded`.
+#[derive(Clone, Copy)]
+struct Format {
+    precision: u64,
+    least: i64,
+    greatest: i64,
+    max: u32,
+}
+
+/// The format a float kind of `bits` bits holds a non-float input in:
+/// binary16, binary32, or binary64 for every other width.
+const fn format_of(bits: u8) -> Format {
+    match bits {
+        16 => Format {
+            precision: 11,
+            least: -24,
+            greatest: 5,
+            max: 5,
+        },
+        32 => Format {
+            precision: 24,
+            least: -149,
+            greatest: 104,
+            max: 9,
+        },
+        _ => Format {
+            precision: 53,
+            least: -1074,
+            greatest: 971,
+            max: 17,
+        },
+    }
+}
+
+/// What `coerce_value` must do with an integer or decimal value written
+/// `text` under a float kind of `bits` bits, from the definition: the float
+/// equal to it when the format holds it exactly (a zero gives the positive
+/// zero), `Overflow` when its magnitude reaches the least that rounds to an
+/// infinity, (2^p - 1/2) 2^greatest (65520, 2^128 - 2^103 and 2^1024 -
+/// 2^970), and `PrecisionExceeded` with the format's `max` otherwise. A
+/// number m 2^e (m odd) is held iff some M 2^q with M < 2^p and q within
+/// the format's range equals it: q = min(e, greatest), needing e at least
+/// the least exponent and m 2^(e - q) below 2^p.
+fn expected_exact_float(text: &str, bits: u8) -> Result<f64, FidelityReason> {
+    let format = format_of(bits);
+    let dyadic = dyadic_of_numeral(text);
+    if dyadic.as_ref().is_some_and(|(_, m, _)| m.is_zero()) {
+        return Ok(0.0);
+    }
+    let (negative, int, frac) = normalize(text);
+    let threshold = Dyadic {
+        m: Nat::from_u64((1 << (format.precision + 1)) - 1),
+        e: format.greatest - 1,
+    };
+    if cmp_numeral(&int, &frac, &threshold) != Ordering::Less {
+        return Err(FidelityReason::Overflow);
+    }
+    let held = dyadic.is_some_and(|(_, m, e)| {
+        let q = e.min(format.greatest);
+        e >= format.least && m.bit_len() + u64::try_from(e - q).unwrap() <= format.precision
+    });
+    if !held {
+        return Err(FidelityReason::PrecisionExceeded { max: format.max });
+    }
+    let x = text.parse::<f64>().unwrap();
+    assert!(numeral_equals_float(text, x, 64), "{text}");
+    assert_eq!(x.is_sign_negative(), negative);
+    Ok(x)
+}
 
 /// What a decimal kind with `precision` and `scale` must do with `text`.
 fn expected_decimal(
@@ -493,6 +729,7 @@ fn specs() -> Vec<ValueSpec> {
         int(64, false),
         int(128, true),
         spec(ScalarKind::BigInt),
+        spec(ScalarKind::Float { bits: 16 }),
         spec(ScalarKind::Float { bits: 32 }),
         spec(ScalarKind::Float { bits: 64 }),
         spec(ScalarKind::Decimal),
@@ -698,16 +935,19 @@ fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Value, Fidel
                     Err(FidelityReason::PrecisionExceeded { max: 9 })
                 });
             }
-            if spec.kind == (ScalarKind::Float { bits: 64 }) {
+            if matches!(spec.kind, ScalarKind::Float { .. }) {
                 return Some(Ok(value.clone()));
             }
-            format!("{x}")
+            positional(&reference_shortest(*x, 64))
         }
         Value::Int(n) => n.to_string(),
         Value::BigInt(n) => n.to_string(),
         Value::Decimal(d) => d.to_string(),
         _ => return None,
     };
+    if let ScalarKind::Float { bits } = spec.kind {
+        return Some(expected_exact_float(&text, bits).map(Value::Float));
+    }
     expected_numeral(&text, spec)
 }
 
@@ -849,12 +1089,13 @@ proptest! {
         ];
         for input in inputs.iter().filter(|v| **v != Value::Null) {
             for target in [&f32_, &f64_] {
-                // An integer or decimal input is coerced as its lexeme.
+                // An integer or decimal input that a float kind keeps is
+                // kept as its lexeme reads.
                 let lexeme = match input { Value::Decimal(d) => d.to_string(), other => integer_text(other) };
-                prop_assert!(same_result(
-                    &coerce_value(input, target, site()),
-                    &coerce(&Lexeme::new(&lexeme, LexClass::Number), target),
-                ), "{input:?} as {target:?}");
+                if let Ok(kept) = coerce_value(input, target, site()) {
+                    let read = coerce(&Lexeme::new(&lexeme, LexClass::Number), target);
+                    prop_assert!(read.is_ok_and(|v| same(&v, &kept)), "{input:?} as {target:?}");
+                }
                 let direct = coerce_value(input, target, site());
                 let path = coerce_value(input, &f64_, site())
                     .and_then(|wide| coerce_value(&wide, target, site()));
@@ -960,13 +1201,32 @@ fn coerce_value_refuses_a_float_that_is_not_a_binary32() {
         };
         assert_eq!(y.to_bits(), x.to_bits(), "{x}");
     }
-    // A decimal or integer keeps the lexeme rule: `0.1` reads as the
-    // binary32 nearest it.
+    // A decimal or integer is kept only when the kind holds it exactly,
+    // while the lexeme `0.1` reads as the binary32 nearest it.
     let tenth = Value::Decimal(DecimalValue::parse("0.1").unwrap());
+    for input in [tenth, Value::Int(16_777_217)] {
+        assert_eq!(
+            coerce_value(&input, &f32_, site()).unwrap_err().reason,
+            FidelityReason::PrecisionExceeded { max: 9 },
+            "{input:?}"
+        );
+    }
     assert!(same(
-        &coerce_value(&tenth, &f32_, site()).unwrap(),
-        &Value::Float(f64::from(0.1_f32))
+        &coerce(&Lexeme::new("0.1", LexClass::Number), &f32_).unwrap(),
+        &Value::Float(0.100_000_001_490_116_12)
     ));
+    // Ties to even: 52401.3125 is written 52401.312, so that text is read
+    // and 52401.313 refused.
+    assert!(same(
+        &coerce(&Lexeme::new("52401.312", LexClass::Number), &f32_).unwrap(),
+        &Value::Float(52_401.3125)
+    ));
+    assert_eq!(
+        coerce(&Lexeme::new("52401.313", LexClass::Number), &f32_)
+            .unwrap_err()
+            .reason,
+        FidelityReason::PrecisionExceeded { max: 9 }
+    );
 }
 
 #[test]
@@ -1028,39 +1288,115 @@ fn a_non_finite_float_is_kept_only_by_a_float_kind() {
 fn a_nan_binary32_cannot_hold_is_refused_under_float32() {
     let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
     let f64_ = ValueSpec::new(ScalarKind::Float { bits: 64 });
-    let payload = Value::Float(f64::from_bits(0x7ff8_0000_0000_1234));
-    let error = coerce_value(&payload, &f32_, site()).unwrap_err();
-    assert_eq!(error.reason, FidelityReason::NonFinite);
-    assert!(same(
-        &coerce_value(&payload, &f64_, site()).unwrap(),
-        &payload
-    ));
-    // A signaling NaN whose low 29 fraction bits are zero is no widened
-    // binary32 either: widening quiets a NaN.
-    let signaling = Value::Float(f64::from_bits(0x7ff0_0000_2000_0000));
-    let error = coerce_value(&signaling, &f32_, site()).unwrap_err();
-    assert_eq!(error.reason, FidelityReason::NonFinite);
-    assert_eq!(
-        coerce_value(&signaling, &f64_, site())
-            .unwrap()
-            .canonical_bytes(),
-        signaling.canonical_bytes()
-    );
+    // A NaN with a low fraction bit set is refused under 32 bits and kept,
+    // bit for bit, under 64.
     for bits in [
-        0x7ff8_0000_0000_0000_u64,
-        0xfff8_0000_0000_0000,
+        0x7ff8_0000_0000_1234_u64,
+        0x7ff8_0000_0000_0001,
+        0x7ff0_0000_0000_0001,
+        0xfff8_0000_1fff_ffff,
+    ] {
+        let payload = Value::Float(f64::from_bits(bits));
+        let error = coerce_value(&payload, &f32_, site()).unwrap_err();
+        assert_eq!(error.reason, FidelityReason::NonFinite, "{bits:#x}");
+        assert_eq!(
+            coerce_value(&payload, &f64_, site())
+                .unwrap()
+                .canonical_bytes(),
+            payload.canonical_bytes(),
+            "{bits:#x}"
+        );
+    }
+    // A NaN whose low 29 fraction bits are zero is held, quiet or
+    // signalling, under both kinds with its bits: the signalling NaN
+    // 0x7ff0000020000000 is the binary32 0x7f800001 widened bit for bit.
+    for bits in [
+        0x7ff0_0000_2000_0000_u64,
         0x7ff8_0000_2000_0000,
+        0x7ff8_0000_0000_0000,
+        0xfff8_0000_0000_0000,
         f64::INFINITY.to_bits(),
         f64::NEG_INFINITY.to_bits(),
     ] {
         let kept = Value::Float(f64::from_bits(bits));
         for spec in [&f32_, &f64_] {
-            assert!(
-                same(&coerce_value(&kept, spec, site()).unwrap(), &kept),
-                "{bits:x}"
-            );
+            let Value::Float(y) = coerce_value(&kept, spec, site()).unwrap() else {
+                panic!("a float")
+            };
+            assert_eq!(y.to_bits(), bits, "{bits:#x} under {:?}", spec.kind);
         }
     }
+}
+
+/// Under a float kind an integer or decimal input is kept, as the float
+/// equal to it, only when the kind holds its value exactly; otherwise it is
+/// refused with `Overflow` when the value rounds to an infinity at the
+/// kind's width and with `PrecisionExceeded` (max 5, 9 or 17) else.
+#[test]
+fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
+    let float = |bits| ValueSpec::new(ScalarKind::Float { bits });
+    let dec = |t: &str| Value::Decimal(DecimalValue::parse(t).unwrap());
+    let big = |t: &str| Value::parse_integer(t).unwrap();
+    let two_70 = big("1180591620717411303424");
+    let ten_39 = big(&format!("1{}", "0".repeat(39)));
+    let cases: [(Value, u8, Result<f64, FidelityReason>); 14] = [
+        (dec("0.1"), 32, Err(FidelityReason::PrecisionExceeded { max: 9 })),
+        (dec("0.1"), 64, Err(FidelityReason::PrecisionExceeded { max: 17 })),
+        (Value::Int(16_777_217), 32, Err(FidelityReason::PrecisionExceeded { max: 9 })),
+        (Value::Int(16_777_216), 32, Ok(16_777_216.0)),
+        (two_70.clone(), 32, Ok(1_180_591_620_717_411_303_424.0)),
+        (two_70, 64, Ok(1_180_591_620_717_411_303_424.0)),
+        (ten_39.clone(), 32, Err(FidelityReason::Overflow)),
+        (ten_39, 64, Err(FidelityReason::PrecisionExceeded { max: 17 })),
+        (Value::Int(2048), 16, Ok(2048.0)),
+        (Value::Int(65504), 16, Ok(65504.0)),
+        (Value::Int(2049), 16, Err(FidelityReason::PrecisionExceeded { max: 5 })),
+        (Value::Int(65520), 16, Err(FidelityReason::Overflow)),
+        (Value::Int(-65520), 16, Err(FidelityReason::Overflow)),
+        (dec("-0.00"), 32, Ok(0.0)),
+    ];
+    for (input, bits, want) in cases {
+        let got = coerce_value(&input, &float(bits), site());
+        match (&got, &want) {
+            (Ok(Value::Float(y)), Ok(x)) => assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}"),
+            (Err(e), Err(reason)) => assert_eq!(&e.reason, reason, "{input:?} at {bits}"),
+            _ => panic!("{input:?} at {bits}: got {got:?}, expected {want:?}"),
+        }
+    }
+    // The lexeme route under 16 bits reads binary64, so the lexeme of a
+    // refused input may still be read there.
+    assert!(same(
+        &coerce(&Lexeme::new("2049", LexClass::Number), &float(16)).unwrap(),
+        &Value::Float(2049.0)
+    ));
+}
+
+/// The pins of the binary64 integer boundary and a binary16 acceptance:
+/// `Decimal` 0.1 under 32 bits and 2^53 + 1 under 64 bits are refused,
+/// while 2^24 under 32 bits and `Decimal` 0.5 under 16 bits are kept.
+#[test]
+fn a_non_float_input_is_kept_only_when_exact() {
+    let float = |bits| ValueSpec::new(ScalarKind::Float { bits });
+    let tenth = Value::Decimal(DecimalValue::parse("0.1").unwrap());
+    assert_eq!(
+        coerce_value(&tenth, &float(32), site()).unwrap_err().reason,
+        FidelityReason::PrecisionExceeded { max: 9 }
+    );
+    assert_eq!(
+        coerce_value(&Value::Int(9_007_199_254_740_993), &float(64), site())
+            .unwrap_err()
+            .reason,
+        FidelityReason::PrecisionExceeded { max: 17 }
+    );
+    assert!(same(
+        &coerce_value(&Value::Int(16_777_216), &float(32), site()).unwrap(),
+        &Value::Float(16_777_216.0)
+    ));
+    let half = Value::Decimal(DecimalValue::parse("0.5").unwrap());
+    assert!(same(
+        &coerce_value(&half, &float(16), site()).unwrap(),
+        &Value::Float(0.5)
+    ));
 }
 
 /// The decimal digits of an integer value.
@@ -1154,8 +1490,8 @@ fn float_lexemes_follow_law_i_on_a_bounded_scope() {
 }
 
 /// The two routes into a 32-bit float agree on every `Ok` result over the
-/// bounded scope, and an integer or decimal value is coerced to each float
-/// kind as its lexeme is.
+/// bounded scope, and an integer or decimal value that a float kind keeps
+/// is kept as its lexeme reads.
 #[test]
 fn float32_routes_agree_on_a_bounded_scope() {
     let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
@@ -1193,13 +1529,13 @@ fn float32_routes_agree_on_a_bounded_scope() {
                     other => integer_text(other),
                 };
                 for target in [&f32_, &f64_] {
-                    assert!(
-                        same_result(
-                            &coerce_value(&input, target, site()),
-                            &coerce(&Lexeme::new(&lexeme, LexClass::Number), target),
-                        ),
-                        "{input:?} as {target:?}"
-                    );
+                    if let Ok(kept) = coerce_value(&input, target, site()) {
+                        let read = coerce(&Lexeme::new(&lexeme, LexClass::Number), target);
+                        assert!(
+                            same_result(&Ok(kept), &read),
+                            "{input:?} as {target:?}"
+                        );
+                    }
                 }
             }
         }
@@ -1480,15 +1816,15 @@ fn stated_f64_scope() -> Vec<f64> {
 }
 
 /// What `coerce_value(Float(x), Float { bits: 32 })` must do, from the
-/// definition: keep x iff it is the widening of a binary32 value (for a
-/// NaN, iff its fraction is a binary32 NaN fraction g, with its quiet bit,
-/// bit 22, set by widening, shifted up by 29 bits); otherwise refuse a NaN
-/// with `NonFinite`, a finite x that rounds to an infinity at binary32 with
-/// `Overflow`, and any other with `PrecisionExceeded { max: 9 }`.
+/// definition: keep x iff binary32 holds it (for a NaN, decided on its
+/// bits: iff its fraction is a binary32 NaN fraction g shifted up by 29
+/// bits, quiet or signalling); otherwise refuse a NaN with `NonFinite`, a
+/// finite x that rounds to an infinity at binary32 with `Overflow`, and any
+/// other with `PrecisionExceeded { max: 9 }`.
 fn narrowing_reference(x: f64) -> Result<f64, FidelityReason> {
     let fraction = x.to_bits() & ((1 << 52) - 1);
     if x.is_nan() {
-        let widened = fraction % (1 << 29) == 0 && (fraction >> 29) & (1 << 22) != 0;
+        let widened = fraction % (1 << 29) == 0;
         return if widened {
             Ok(x)
         } else {
@@ -1602,4 +1938,265 @@ fn float32_routes_agree_on_the_stated_numerals() {
         numerals.len()
     );
     assert!(agreed > 0);
+}
+
+/// `2^k` written in decimal.
+fn power_of_two(k: u64) -> String {
+    Nat::from_u64(1).shl(k).to_decimal()
+}
+
+/// `a - b` for decimal naturals with `a >= b`, in decimal, by borrowing
+/// through the digits.
+fn sub_decimal(a: &str, b: &str) -> String {
+    let width = a.len();
+    let b = format!("{b:0>width$}");
+    let mut out = Vec::with_capacity(width);
+    let mut borrow = 0_u8;
+    for (x, y) in a.bytes().rev().zip(b.bytes().rev()) {
+        let (x, y) = (x - b'0', y - b'0' + borrow);
+        if x >= y {
+            out.push(x - y);
+            borrow = 0;
+        } else {
+            out.push(x + 10 - y);
+            borrow = 1;
+        }
+    }
+    assert_eq!(borrow, 0, "a >= b");
+    let digits: String = out.iter().rev().map(|d| char::from(b'0' + d)).collect();
+    let trimmed = digits.trim_start_matches('0');
+    if trimmed.is_empty() {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// `a + delta` for a decimal natural `a` and a small signed `delta`, in
+/// decimal.
+fn offset_by(a: &str, delta: i64) -> String {
+    if delta >= 0 {
+        Nat::from_digits(a)
+            .add(&Nat::from_u64(delta.unsigned_abs()))
+            .to_decimal()
+    } else {
+        sub_decimal(a, &delta.unsigned_abs().to_string())
+    }
+}
+
+/// Integer and decimal inputs under `Float { bits: 16 }`, 32 and 64 agree
+/// with [`expected_exact_float`] on the stated scope: the integers 2^k - 1,
+/// 2^k and 2^k + 1 for k = 11, 24 and 53, the overflow boundaries of
+/// binary16 (65504, 65519, 65520, 65521), binary32 (2^128 - 2^104 and
+/// 2^128 - 2^103 with their integer neighbours) and binary64 (2^1024 -
+/// 2^971 and 2^1024 - 2^970 with their integer neighbours), of either sign,
+/// each as an integer value and as a decimal; and every decimal `m e k`
+/// with m in -999..=999 and k in -50..=40. Prints the bound.
+#[test]
+fn non_float_inputs_agree_with_the_exact_reference_on_the_stated_scope() {
+    let mut integers = Vec::new();
+    for k in [11, 24, 53] {
+        for delta in [-1, 0, 1] {
+            integers.push(offset_by(&power_of_two(k), delta));
+        }
+    }
+    integers.extend(["65504", "65519", "65520", "65521"].map(str::to_owned));
+    // 2^a - 2^b for a > b.
+    let minus = |a: u64, b: u64| sub_decimal(&power_of_two(a), &power_of_two(b));
+    for (a, b) in [(128, 104), (128, 103), (1024, 971), (1024, 970)] {
+        let base = minus(a, b);
+        for delta in [-1, 0, 1] {
+            integers.push(offset_by(&base, delta));
+        }
+    }
+    let mut inputs: Vec<(Value, String)> = Vec::new();
+    for magnitude in &integers {
+        for sign in ["", "-"] {
+            let text = format!("{sign}{magnitude}");
+            inputs.push((Value::parse_integer(&text).unwrap(), text.clone()));
+            let decimal = DecimalValue::parse(&text).unwrap();
+            inputs.push((Value::Decimal(decimal.clone()), decimal.to_string()));
+        }
+    }
+    let integer_inputs = inputs.len();
+    for m in -999_i64..=999 {
+        for k in -50..=40 {
+            let decimal = DecimalValue::parse(&format!("{m}e{k}")).unwrap();
+            let text = decimal.to_string();
+            inputs.push((Value::Decimal(decimal), text));
+        }
+    }
+    let mut checked = 0_usize;
+    let (mut kept, mut overflow, mut precision) = (0_usize, 0_usize, 0_usize);
+    for (input, text) in &inputs {
+        for bits in [16_u8, 32, 64] {
+            let got = coerce_value(input, &ValueSpec::new(ScalarKind::Float { bits }), site());
+            let want = expected_exact_float(text, bits);
+            match (&got, &want) {
+                (Ok(Value::Float(y)), Ok(x)) => {
+                    assert_eq!(y.to_bits(), x.to_bits(), "{input:?} at {bits}");
+                    kept += 1;
+                }
+                (Err(e), Err(reason)) => {
+                    assert_eq!(&e.reason, reason, "{input:?} at {bits}");
+                    if *reason == FidelityReason::Overflow {
+                        overflow += 1;
+                    } else {
+                        precision += 1;
+                    }
+                }
+                _ => panic!("{input:?} at {bits}: got {got:?}, expected {want:?}"),
+            }
+            checked += 1;
+        }
+    }
+    println!(
+        "bound: {} inputs ({integer_inputs} integer and decimal boundary inputs, 1999 x 91 decimals) \
+         x 3 widths = {checked}; kept {kept}, overflow {overflow}, precision {precision}",
+        inputs.len()
+    );
+    assert_eq!(checked, 3 * inputs.len());
+}
+
+/// A deterministic 64-bit generator (`SplitMix64`), so that the drawn
+/// values are fixed by the printed seed.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+}
+
+/// The audit's values, drawn afresh: at least 66,611 finite f64 values that
+/// are no binary32 values (random decimals with exponents -55 to 40 of
+/// either sign, random bit patterns, f64 neighbours of binary32 values, and
+/// the binary32 overflow and subnormal boundaries) from a fixed seed, and
+/// the four texts on which the two tie-breaks differ. On each, the
+/// production `coerce` and `coerce_value` under `Float { bits: 32 }` agree
+/// with the reference: the narrowing rule ([`narrowing_reference`]), law
+/// (i) with the ties-to-even C_32 on x's exact text and on its
+/// closest-shortest binary64 text ([`expected_float`]), and the two routes
+/// on `Ok` results. Prints the seed, the count and the disagreements.
+#[test]
+fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() {
+    const SEED: u64 = 0x0f03_66a1_1e5e_ed00;
+    let mut rng = SplitMix64(SEED);
+    let mut values: Vec<f64> = Vec::new();
+    let push = |values: &mut Vec<f64>, x: f64| {
+        if x.is_finite() && !is_binary32(x) {
+            values.push(x);
+        }
+    };
+    while values.len() < 17_000 {
+        let digits = 1 + rng.below(17);
+        let mantissa = (0..digits).map(|_| char::from(b'0' + u8::try_from(rng.below(10)).unwrap())).collect::<String>();
+        let exponent = i64::try_from(rng.below(96)).unwrap() - 55;
+        let sign = if rng.below(2) == 0 { "" } else { "-" };
+        let x = format!("{sign}0.{mantissa}e{exponent}").parse::<f64>().unwrap();
+        push(&mut values, x);
+    }
+    while values.len() < 34_000 {
+        push(&mut values, f64::from_bits(rng.next()));
+    }
+    while values.len() < 51_000 {
+        let y = f32::from_bits(u32::try_from(rng.next() >> 32).unwrap());
+        if y.is_finite() {
+            let steps = 1 + rng.below(3);
+            let bits = f64::from(y).to_bits();
+            let x = f64::from_bits(if rng.below(2) == 0 { bits + steps } else { bits.wrapping_sub(steps) });
+            push(&mut values, x);
+        }
+    }
+    let boundaries = [
+        BINARY32_OVERFLOW,
+        f64::from(f32::MAX),
+        2.0_f64.powi(-149),
+        2.0_f64.powi(-150),
+        2.0_f64.powi(-126),
+        f64::from(f32::MIN_POSITIVE) - 2.0_f64.powi(-149),
+    ];
+    for b in boundaries {
+        for steps in 1..=500_u64 {
+            for x in [
+                f64::from_bits(b.to_bits() + steps),
+                f64::from_bits(b.to_bits() - steps),
+            ] {
+                push(&mut values, x);
+                push(&mut values, -x);
+            }
+        }
+    }
+    while values.len() < 66_611 {
+        push(&mut values, f64::from_bits(rng.next()));
+    }
+    let drawn = values.len();
+    let named = ["3297493.7", "-1408262.2", "52401.313", "-1879534.3"];
+    let f32_ = ValueSpec::new(ScalarKind::Float { bits: 32 });
+    let f64_ = ValueSpec::new(ScalarKind::Float { bits: 64 });
+    let mut disagreements = Vec::new();
+    let mut check = |what: String, agree: bool| {
+        if !agree {
+            disagreements.push(what);
+        }
+    };
+    let law_i = |text: &str| {
+        let got = coerce(&Lexeme::new(text, LexClass::Number), &f32_);
+        let want = expected_float(text, 32);
+        match (&got, &want) {
+            (Ok(Value::Float(y)), Ok(x)) => y.to_bits() == x.to_bits(),
+            (Err(e), Err(reason)) => &e.reason == reason,
+            _ => false,
+        }
+    };
+    let routes = |text: &str| {
+        let direct = coerce(&Lexeme::new(text, LexClass::Number), &f32_);
+        let path = coerce(&Lexeme::new(text, LexClass::Number), &f64_)
+            .and_then(|wide| coerce_value(&wide, &f32_, site()));
+        match (&direct, &path) {
+            (Ok(Value::Float(a)), Ok(Value::Float(b))) => a.to_bits() == b.to_bits(),
+            _ => true,
+        }
+    };
+    for &x in &values {
+        let got = coerce_value(&Value::Float(x), &f32_, site());
+        let agree = match (&got, &narrowing_reference(x)) {
+            (Ok(Value::Float(y)), Ok(z)) => y.to_bits() == z.to_bits(),
+            (Err(e), Err(reason)) => &e.reason == reason,
+            _ => false,
+        };
+        check(format!("narrowing {:#x}", x.to_bits()), agree);
+        let exact = format!("{x:.1100e}");
+        check(format!("law (i) on the exact text of {:#x}", x.to_bits()), law_i(&exact));
+        let shortest = reference_shortest(x, 64);
+        check(format!("law (i) on {shortest}"), law_i(&shortest));
+        check(format!("routes on {shortest}"), routes(&shortest));
+    }
+    for text in named {
+        check(format!("law (i) on {text}"), law_i(text));
+        check(format!("routes on {text}"), routes(text));
+    }
+    println!(
+        "seed: {SEED:#018x}; values checked: {drawn} drawn and {} named; disagreements: {}; first: {:?}",
+        named.len(),
+        disagreements.len(),
+        &disagreements[..disagreements.len().min(8)]
+    );
+    assert!(drawn >= 66_611);
+    assert!(disagreements.is_empty());
+    // The four named texts read by the ties-to-even rule.
+    assert_eq!(
+        coerce(&Lexeme::new("52401.313", LexClass::Number), &f32_)
+            .unwrap_err()
+            .reason,
+        FidelityReason::PrecisionExceeded { max: 9 }
+    );
 }

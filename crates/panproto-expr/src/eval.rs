@@ -4,18 +4,20 @@
 //! counter (decremented on each reduction) and a depth counter (incremented
 //! on each recursive call) to bound computation.
 //!
-//! Every NaN that evaluation returns is the canonical quiet NaN,
-//! [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN) (bits `0x7ff8000000000000`), whatever sign and payload
-//! the platform's arithmetic, a literal or a bound variable gave it: each
-//! float-valued builtin returns it in place of any NaN, and [`eval`] and
-//! [`eval_with_resolver`] replace every NaN of the value they return, at
-//! any depth of a list or record, by it. A closure is returned as it is;
-//! what it computes is canonicalized when it is applied and returned. So
-//! two evaluations that return NaNs return equal values, bit for bit.
+//! A NaN that evaluation computes is the canonical quiet NaN,
+//! [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN) (bits
+//! `0x7ff8000000000000`), whatever sign and payload the platform's
+//! arithmetic gave it: each builtin that computes a float returns it in
+//! place of any NaN result. A NaN that evaluation binds or passes along
+//! keeps its bits: one bound to a variable, written as a literal, or
+//! returned by `Head`, a field access or a branch is returned as it was
+//! given, so a cell's NaN that a transform passes through is written back
+//! unchanged. So two evaluations that compute NaNs return equal values, bit
+//! for bit, and a NaN that is passed through is the NaN of its source.
 
 use std::sync::Arc;
 
-use crate::builtin::{apply_builtin, canonical_float};
+use crate::builtin::apply_builtin;
 use crate::env::Env;
 use crate::error::ExprError;
 use crate::expr::{BuiltinOp, Expr, Pattern};
@@ -110,9 +112,6 @@ impl<'a> EvalState<'a> {
 
 /// Evaluate an expression in the given environment.
 ///
-/// Every NaN in the returned value, at any depth of a list or record, is
-/// [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN).
-///
 /// # Errors
 ///
 /// Returns [`ExprError`] on type mismatches, unbound variables,
@@ -125,8 +124,6 @@ pub fn eval(expr: &Expr, env: &Env, config: &EvalConfig) -> Result<Literal, Expr
 ///
 /// The resolver is consulted wherever a builtin is applied, at any depth, so a
 /// context-dependent builtin behaves the same nested as it does at the root.
-/// Every NaN in the returned value, at any depth of a list or record, is
-/// [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN).
 ///
 /// # Errors
 ///
@@ -140,23 +137,7 @@ pub fn eval_with_resolver(
     resolver: &dyn BuiltinResolver,
 ) -> Result<Literal, ExprError> {
     let mut state = EvalState::new(config, resolver);
-    eval_inner(expr, env, 0, &mut state).map(canonical_nans)
-}
-
-/// `value` with every float that is a NaN replaced by [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN),
-/// through lists and records at any depth; a closure is kept as it is.
-fn canonical_nans(value: Literal) -> Literal {
-    match value {
-        Literal::Float(x) => Literal::Float(canonical_float(x)),
-        Literal::List(items) => Literal::List(items.into_iter().map(canonical_nans).collect()),
-        Literal::Record(fields) => Literal::Record(
-            fields
-                .into_iter()
-                .map(|(name, field)| (name, canonical_nans(field)))
-                .collect(),
-        ),
-        other => other,
-    }
+    eval_inner(expr, env, 0, &mut state)
 }
 
 fn eval_inner(

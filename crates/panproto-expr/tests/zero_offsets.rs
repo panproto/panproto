@@ -1,10 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The three zero offsets `Z`, `+00:00` and `-00:00` are three distinct
-//! values that denote one instant, named by their written forms.
+//! values that denote one instant, named by their written forms; a `Z` keeps
+//! its written case and a date-time its written separator.
 
 use std::cmp::Ordering;
 
-use panproto_expr::exact::{Offset, Temporal};
+use panproto_expr::exact::{DateTimeSeparator, Offset, Temporal, ZuluCase};
 
 #[test]
 fn the_three_zero_offsets_are_distinct_values_of_one_instant() {
@@ -21,7 +22,7 @@ fn the_three_zero_offsets_are_distinct_values_of_one_instant() {
         assert_eq!(
             values.clone().map(|v| v.offset()),
             [
-                Some(Offset::Zulu),
+                Some(Offset::Zulu(ZuluCase::Upper)),
                 Some(Offset::Fixed(0)),
                 Some(Offset::NegZero)
             ],
@@ -42,13 +43,14 @@ fn the_three_zero_offsets_are_distinct_values_of_one_instant() {
             assert_eq!(local.cmp_chronological(v), None);
         }
     }
-    // A lower-case `z` reads as the form `Z` and is written `Z`.
+    // A lower-case `z` reads as the form `Z` in its own case.
     let lower = Temporal::parse("2026-09-28T12:34:56z").unwrap();
-    assert_eq!(lower.offset(), Some(Offset::Zulu));
-    assert_eq!(lower.to_string(), "2026-09-28T12:34:56Z");
+    assert_eq!(lower.offset(), Some(Offset::Zulu(ZuluCase::Lower)));
+    assert_eq!(lower.to_string(), "2026-09-28T12:34:56z");
     // Every zero offset has zero minutes east of UTC.
     for offset in [
-        Offset::Zulu,
+        Offset::Zulu(ZuluCase::Upper),
+        Offset::Zulu(ZuluCase::Lower),
         Offset::Fixed(0),
         Offset::NegZero,
         Offset::Local,
@@ -61,7 +63,8 @@ fn the_three_zero_offsets_are_distinct_values_of_one_instant() {
 fn offset_serde_names_are_lexical_and_the_old_names_are_refused() {
     let accepted = [
         (Offset::Local, r#""local""#),
-        (Offset::Zulu, r#""zulu""#),
+        (Offset::Zulu(ZuluCase::Upper), r#"{"zulu":"upper"}"#),
+        (Offset::Zulu(ZuluCase::Lower), r#"{"zulu":"lower"}"#),
         (Offset::Fixed(-90), r#"{"fixed":-90}"#),
         (Offset::Fixed(0), r#"{"fixed":0}"#),
         (Offset::NegZero, r#""neg_zero""#),
@@ -70,14 +73,18 @@ fn offset_serde_names_are_lexical_and_the_old_names_are_refused() {
         assert_eq!(serde_json::to_string(&offset).unwrap(), json);
         assert_eq!(serde_json::from_str::<Offset>(json).unwrap(), offset);
     }
-    for old in ["utc", "unknown", "Zulu", "NegZero", "negzero", "Z"] {
+    for old in ["utc", "unknown", "Zulu", "NegZero", "negzero", "Z", "zulu"] {
         let error = serde_json::from_str::<Offset>(&format!("\"{old}\""))
             .unwrap_err()
             .to_string();
         assert!(
-            error.starts_with(&format!("unknown variant `{old}`")),
-            "{error}"
+            error.starts_with(&format!("unknown variant `{old}`"))
+                || (old == "zulu" && error.starts_with("invalid type: unit variant")),
+            "{old}: {error}"
         );
+    }
+    for bad in [r#"{"zulu":"Upper"}"#, r#"{"zulu":"z"}"#, r#"{"zulu":null}"#] {
+        assert!(serde_json::from_str::<Offset>(bad).is_err(), "{bad}");
     }
     // A fixed offset of a day or more is refused.
     assert!(serde_json::from_str::<Offset>(r#"{"fixed":1440}"#).is_err());
@@ -118,11 +125,75 @@ fn every_offset_round_trips_through_its_written_form() {
     assert_eq!(seen, 2879);
     for (written, offset) in [
         ("", Offset::Local),
-        ("Z", Offset::Zulu),
+        ("Z", Offset::Zulu(ZuluCase::Upper)),
+        ("z", Offset::Zulu(ZuluCase::Lower)),
         ("-00:00", Offset::NegZero),
     ] {
         let value = Temporal::parse(&format!("00:00:00{written}")).unwrap();
         assert_eq!(value.offset(), Some(offset));
         assert_eq!(value.to_string(), format!("00:00:00{written}"));
+    }
+}
+
+/// A temporal keeps the written case of `Z` and of its date-time separator:
+/// `Display` writes back each spelling, `==`, `Hash` and the canonical
+/// bytes tell them apart, and `cmp_chronological` compares them `Equal`.
+#[test]
+fn a_temporal_keeps_its_written_case() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let hash = |value: &Temporal| {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    };
+    for text in [
+        "2024-01-02T03:04:05z",
+        "2024-01-02t03:04:05Z",
+        "2024-01-02t03:04:05z",
+        "2024-01-02 03:04:05Z",
+        "2024-01-02 03:04:05z",
+        "03:04:05z",
+        "2024-01-02T03:04:05Z",
+    ] {
+        let value = Temporal::parse(text).unwrap();
+        assert_eq!(value.to_string(), text);
+        assert_eq!(Temporal::parse(&value.to_string()).unwrap(), value);
+        let json = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), value, "{json}");
+    }
+    let a = Temporal::parse("2024-01-02t03:04:05z").unwrap();
+    let b = Temporal::parse("2024-01-02 03:04:05Z").unwrap();
+    let c = Temporal::parse("2024-01-02T03:04:05Z").unwrap();
+    for (x, y) in [(&a, &b), (&a, &c), (&b, &c)] {
+        assert_ne!(x, y);
+        assert_ne!(hash(x), hash(y), "{x} and {y}");
+        assert_ne!(x.canonical_bytes(), y.canonical_bytes());
+        assert_eq!(x.cmp_chronological(y), Some(Ordering::Equal), "{x} and {y}");
+    }
+    let Temporal::DateTime(_, _, offset, separator) = &a else {
+        panic!("a date-time")
+    };
+    assert_eq!(
+        (*offset, *separator),
+        (Offset::Zulu(ZuluCase::Lower), DateTimeSeparator::Lower)
+    );
+    let Temporal::DateTime(_, _, _, separator) = &b else {
+        panic!("a date-time")
+    };
+    assert_eq!(*separator, DateTimeSeparator::Space);
+    // The separator's serde names.
+    for (separator, json) in [
+        (DateTimeSeparator::Upper, r#""upper""#),
+        (DateTimeSeparator::Lower, r#""lower""#),
+        (DateTimeSeparator::Space, r#""space""#),
+    ] {
+        assert_eq!(serde_json::to_string(&separator).unwrap(), json);
+        assert_eq!(serde_json::from_str::<DateTimeSeparator>(json).unwrap(), separator);
+    }
+    // Any other separator is no date-time.
+    for bad in ["2024-01-02_03:04:05Z", "2024-01-02x03:04:05Z", "2024-01-02T03:04:05Zz"] {
+        assert!(Temporal::parse(bad).is_err(), "{bad}");
     }
 }

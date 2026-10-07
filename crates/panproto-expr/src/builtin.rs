@@ -3,26 +3,45 @@
 //! Each builtin is a pure function from `&[Literal]` to `Result<Literal, ExprError>`.
 //! Type checking is done at evaluation time; arguments must have the expected types.
 //!
-//! A float a builtin computes is never a NaN other than the canonical quiet
-//! NaN, [`CANONICAL_NAN`] (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
+//! A NaN that a builtin computes is the canonical quiet NaN,
+//! [`CANONICAL_NAN`] (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
 //! the sign and payload of a NaN result to the platform, and negation and
-//! absolute value change a NaN's sign, so every float-valued builtin
-//! (`Add`, `Sub`, `Mul`, `Div`, `Neg`, `Abs`, `Clamp`, `StrToFloat`,
-//! `DecimalToFloat`) returns the canonical NaN in place of any NaN. Two
-//! computed floats are thus equal bit for bit whenever both are NaN.
+//! absolute value change a NaN's sign, so the builtins that compute a float
+//! (`Add`, `Sub`, `Mul`, `Div`, `Neg`, `Abs`, `Clamp` and `DecimalToFloat`)
+//! return the canonical NaN in place of any NaN result, and two computed
+//! NaNs are equal bit for bit. `StrToFloat` reads a NaN spelling as a
+//! lexeme is read under a float kind: one written with a leading minus
+//! gives [`NEGATIVE_CANONICAL_NAN`] (bits `0xfff8000000000000`), every other
+//! NaN spelling [`CANONICAL_NAN`], whatever bits the platform's parser
+//! gives. A builtin that returns an argument or an element as it is (`Head`,
+//! a field access, a branch) passes a NaN along with its bits.
 
 use std::sync::Arc;
 
 use std::cmp::Ordering;
 
 use crate::error::ExprError;
-use crate::exact::{CANONICAL_NAN, DecimalValue};
+use crate::exact::{CANONICAL_NAN, DecimalValue, NEGATIVE_CANONICAL_NAN};
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
 
-/// `x`, or [`CANONICAL_NAN`] when `x` is a NaN.
-pub const fn canonical_float(x: f64) -> f64 {
+/// `x`, or [`CANONICAL_NAN`] when `x` is a NaN: the float a builtin that
+/// computes `x` returns.
+const fn canonical_float(x: f64) -> f64 {
     if x.is_nan() { CANONICAL_NAN } else { x }
+}
+
+/// The float `StrToFloat` returns for the text `s`, which the platform's
+/// parser read as `x`: `x` itself unless it is a NaN, and for a NaN
+/// spelling [`NEGATIVE_CANONICAL_NAN`] when `s` is written with a leading
+/// minus and [`CANONICAL_NAN`] otherwise, as a NaN lexeme is read under a
+/// float kind.
+fn read_nan_by_sign(s: &str, x: f64) -> f64 {
+    match (x.is_nan(), s.starts_with('-')) {
+        (false, _) => x,
+        (true, true) => NEGATIVE_CANONICAL_NAN,
+        (true, false) => CANONICAL_NAN,
+    }
 }
 
 /// 2^63, the least float above `i64::MAX`; -2^63 is `i64::MIN` exactly.
@@ -467,7 +486,7 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
         BuiltinOp::StrToFloat => match &args[0] {
             Literal::Str(s) => s
                 .parse::<f64>()
-                .map(|x| Literal::Float(canonical_float(x)))
+                .map(|x| Literal::Float(read_nan_by_sign(s, x)))
                 .map_err(|_| ExprError::ParseError {
                     value: s.clone(),
                     target_type: "float".into(),
@@ -611,7 +630,7 @@ const fn is_exact(lit: &Literal) -> bool {
 fn as_decimal(lit: &Literal) -> Option<DecimalValue> {
     match lit {
         Literal::Int(n) => Some(DecimalValue::from_i64(*n)),
-        Literal::BigInt(b) => DecimalValue::new(b.negative, b.digits.clone(), 0).ok(),
+        Literal::BigInt(b) => DecimalValue::new(b.negative, b.significand.clone(), b.zeros.clone()).ok(),
         Literal::Decimal(d) => Some(d.clone()),
         _ => None,
     }

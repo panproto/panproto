@@ -1,13 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Every NaN that expression evaluation or field-transform evaluation
-//! returns is the canonical quiet NaN, bits `0x7ff8000000000000`, so two
-//! computed NaN cells are equal value for value and digest for digest.
+//! computes is the canonical quiet NaN, bits `0x7ff8000000000000`, so two
+//! computed NaN cells are equal value for value and digest for digest; a
+//! NaN that evaluation binds or passes along keeps its bits; and
+//! `StrToFloat` reads a NaN spelling as `coerce` does.
 
 use std::sync::Arc;
 
 use panproto_expr::{BuiltinOp, Env, EvalConfig, Expr, Literal, eval};
+use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
 use panproto_inst::wtype::apply_field_transforms;
 use panproto_inst::{FieldTransform, Node, TransformContext, Value};
+use panproto_schema::{ScalarKind, ValueSpec};
 
 const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
 
@@ -74,13 +78,6 @@ fn every_computed_nan_is_the_canonical_nan() {
             call(BuiltinOp::Clamp, vec![x, float(0.0), float(1.0)]),
         ),
         (
-            "str_to_float -nan",
-            call(
-                BuiltinOp::StrToFloat,
-                vec![Expr::Lit(Literal::Str("-nan".into()))],
-            ),
-        ),
-        (
             "str_to_float NaN",
             call(
                 BuiltinOp::StrToFloat,
@@ -91,6 +88,12 @@ fn every_computed_nan_is_the_canonical_nan() {
     for (name, expr) in &cases {
         assert_eq!(evaluated_bits(expr, &env), CANONICAL, "{name}");
     }
+    // A minus-signed NaN spelling reads as the negative canonical NaN.
+    let negative = call(
+        BuiltinOp::StrToFloat,
+        vec![Expr::Lit(Literal::Str("-nan".into()))],
+    );
+    assert_eq!(evaluated_bits(&negative, &env), 0xfff8_0000_0000_0000);
     // Non-NaN floats are untouched, a negative zero included.
     let negative_zero = call(BuiltinOp::Neg, vec![float(0.0)]);
     assert_eq!(evaluated_bits(&negative_zero, &env), (-0.0_f64).to_bits());
@@ -124,7 +127,8 @@ fn a_field_transform_writes_the_canonical_nan() {
     };
     let node = transformed(0.0, std::slice::from_ref(&produce));
     assert_eq!(cell_bits(&node, "a"), CANONICAL);
-    // A transform that returns the NaN it read writes the canonical NaN.
+    // A transform that returns the NaN it read writes it back with its
+    // bits.
     let identity = FieldTransform::ApplyExpr {
         key: "a".into(),
         expr: Expr::Var(Arc::from("a")),
@@ -132,8 +136,11 @@ fn a_field_transform_writes_the_canonical_nan() {
         coercion_class: panproto_gat::CoercionClass::Iso,
     };
     let node = transformed(odd_nan(), std::slice::from_ref(&identity));
-    assert_eq!(cell_bits(&node, "a"), CANONICAL);
-    // A computed list's NaNs are canonical too.
+    assert_eq!(cell_bits(&node, "a"), odd_nan().to_bits());
+    let negative = f64::from_bits(0xfff8_0000_0000_0000);
+    let node = transformed(negative, std::slice::from_ref(&identity));
+    assert_eq!(cell_bits(&node, "a"), 0xfff8_0000_0000_0000);
+    // A list that only passes the NaN along keeps its bits too.
     let listed = FieldTransform::ComputeField {
         target_key: "l".into(),
         expr: Expr::List(vec![Expr::Var(Arc::from("a"))]),
@@ -144,7 +151,7 @@ fn a_field_transform_writes_the_canonical_nan() {
     let Some(Value::List(items)) = node.extra_fields.get("l") else {
         panic!("a list")
     };
-    assert!(matches!(items.as_slice(), [Value::Float(x)] if x.to_bits() == CANONICAL));
+    assert!(matches!(items.as_slice(), [Value::Float(x)] if x.to_bits() == odd_nan().to_bits()));
     // A cell no transform evaluates keeps its bits.
     let node = transformed(odd_nan(), &[]);
     assert_eq!(cell_bits(&node, "a"), odd_nan().to_bits());
@@ -255,13 +262,19 @@ fn float_builtins_agree_with_ieee_arithmetic_up_to_nan_canonicalization() {
             }
         }
     }
-    // Every NaN spelling `StrToFloat` reads is canonical.
+    // Every NaN spelling `StrToFloat` reads is one of the two named NaNs,
+    // by its written sign.
     for text in ["NaN", "nan", "-nan", "+nan", "-NaN", "+NaN"] {
         let parsed = call(
             BuiltinOp::StrToFloat,
             vec![Expr::Lit(Literal::Str(text.into()))],
         );
-        assert_eq!(evaluated_bits(&parsed, &env), CANONICAL, "{text}");
+        let want = if text.starts_with('-') {
+            0xfff8_0000_0000_0000
+        } else {
+            CANONICAL
+        };
+        assert_eq!(evaluated_bits(&parsed, &env), want, "{text}");
     }
 }
 
@@ -282,28 +295,30 @@ fn clamp_refuses_bounds_that_are_not_ordered() {
     assert_eq!(evaluated_bits(&ordered, &env), 1.0_f64.to_bits());
 }
 
-/// The value `eval` returns has the canonical NaN wherever it holds a NaN,
-/// even one evaluation only passed along: a bound variable, a literal, an
-/// element `Head` takes from a list, a list literal's element, a record's
-/// field.
+/// A NaN that evaluation binds or passes along keeps its bits: a bound
+/// variable, a literal, an element `Head` takes from a list, a list
+/// literal's element, a record's field.
 #[test]
-fn evaluation_returns_the_canonical_nan_at_every_depth() {
-    let payload = Literal::Float(f64::from_bits(0x7ff8_0000_0000_0001));
-    let negative = f64::from_bits(0xfff8_0000_0000_0000);
+fn evaluation_passes_a_nan_along_with_its_bits() {
+    let payload_bits = 0x7ff8_0000_0000_0001_u64;
+    let negative_bits = 0xfff8_0000_0000_0000_u64;
+    let payload = Literal::Float(f64::from_bits(payload_bits));
+    let negative = f64::from_bits(negative_bits);
     let env = Env::new().extend(Arc::from("p"), payload);
     let p = Expr::Var(Arc::from("p"));
-    for (name, expr) in [
-        ("variable", p.clone()),
-        ("literal", float(negative)),
+    for (name, expr, bits) in [
+        ("variable", p.clone(), payload_bits),
+        ("literal", float(negative), negative_bits),
         (
             "head",
             call(
                 BuiltinOp::Head,
                 vec![Expr::List(vec![p.clone(), float(1.0)])],
             ),
+            payload_bits,
         ),
     ] {
-        assert_eq!(evaluated_bits(&expr, &env), CANONICAL, "{name}");
+        assert_eq!(evaluated_bits(&expr, &env), bits, "{name}");
     }
     let listed = eval(
         &Expr::List(vec![float(negative), p.clone(), float(2.5)]),
@@ -321,7 +336,7 @@ fn evaluation_returns_the_canonical_nan_at_every_depth() {
             other => panic!("a float, got {other:?}"),
         })
         .collect();
-    assert_eq!(bits, vec![CANONICAL, CANONICAL, 2.5_f64.to_bits()]);
+    assert_eq!(bits, vec![negative_bits, payload_bits, 2.5_f64.to_bits()]);
     let record = eval(
         &Expr::Record(vec![(Arc::from("a"), Expr::List(vec![p]))]),
         &env,
@@ -333,8 +348,137 @@ fn evaluation_returns_the_canonical_nan_at_every_depth() {
     };
     assert!(matches!(
         fields.as_slice(),
-        [(_, Literal::List(items))] if matches!(items.as_slice(), [Literal::Float(x)] if x.to_bits() == CANONICAL)
+        [(_, Literal::List(items))] if matches!(items.as_slice(), [Literal::Float(x)] if x.to_bits() == payload_bits)
     ));
+}
+
+/// `StrToFloat` reads each NaN spelling that Rust's float grammar and
+/// `coerce` both accept to the bits `coerce` gives it under
+/// `Float { bits: 64 }` and under `Any`.
+#[test]
+fn str_to_float_reads_nan_spellings_as_coerce() {
+    let env = Env::new();
+    let float64 = ValueSpec::new(ScalarKind::Float { bits: 64 });
+    let any = ValueSpec::new(ScalarKind::Any);
+    for (text, bits) in [
+        ("nan", CANONICAL),
+        ("NaN", CANONICAL),
+        ("+nan", CANONICAL),
+        ("+NaN", CANONICAL),
+        ("-nan", 0xfff8_0000_0000_0000),
+        ("-NaN", 0xfff8_0000_0000_0000),
+    ] {
+        let parsed = call(
+            BuiltinOp::StrToFloat,
+            vec![Expr::Lit(Literal::Str(text.into()))],
+        );
+        let got = evaluated_bits(&parsed, &env);
+        assert_eq!(got, bits, "{text}");
+        for spec in [&float64, &any] {
+            let Value::Float(x) = coerce(&Lexeme::new(text, LexClass::Number), spec).unwrap()
+            else {
+                panic!("a float")
+            };
+            assert_eq!(got, x.to_bits(), "{text} under {:?}", spec.kind);
+        }
+    }
+}
+
+/// Each builtin that computes a float, over every NaN of the fraction set
+/// (both signs, quiet and signalling), plus and minus 0, 1 and infinity,
+/// gives the canonical NaN exactly where IEEE arithmetic gives a NaN, and
+/// each pass-through form (a variable, a literal, `Head`, a `Let` binding,
+/// a `Match` arm, a record's field) keeps every such NaN's bits.
+/// Prints the bound.
+#[test]
+fn computed_and_passed_nans_follow_the_rule_on_the_stated_scope() {
+    let fractions: [u64; 14] = [
+        0,
+        1,
+        (1 << 28) - 1,
+        1 << 28,
+        (1 << 28) + 1,
+        (1 << 29) - 1,
+        1 << 29,
+        (1 << 52) - (1 << 29),
+        (1 << 52) - (1 << 28) - 1,
+        (1 << 52) - (1 << 28),
+        (1 << 52) - 1,
+        (1 << 51) - (1 << 29),
+        1 << 51,
+        (1 << 51) + (1 << 29),
+    ];
+    let mut operands = vec![0.0, -0.0, 1.0, -1.0, f64::INFINITY, f64::NEG_INFINITY];
+    for sign in [0_u64, 1] {
+        for fraction in fractions.into_iter().filter(|&f| f != 0) {
+            operands.push(f64::from_bits((sign << 63) | (0x7ff << 52) | fraction));
+        }
+    }
+    let env = Env::new();
+    let expect = |x: f64| if x.is_nan() { CANONICAL } else { x.to_bits() };
+    let binary: [(BuiltinOp, FloatOp); 4] = [
+        (BuiltinOp::Add, |a, b| a + b),
+        (BuiltinOp::Sub, |a, b| a - b),
+        (BuiltinOp::Mul, |a, b| a * b),
+        (BuiltinOp::Div, |a, b| a / b),
+    ];
+    let mut checked = 0_usize;
+    for &a in &operands {
+        for (op, ieee) in binary {
+            for &b in &operands {
+                if op == BuiltinOp::Div && b == 0.0 {
+                    continue;
+                }
+                let got = evaluated_bits(&call(op, vec![float(a), float(b)]), &env);
+                assert_eq!(got, expect(ieee(a, b)), "{op:?} {:#x} {:#x}", a.to_bits(), b.to_bits());
+                checked += 1;
+            }
+        }
+        for (op, ieee) in [
+            (BuiltinOp::Neg, (|x: f64| -x) as fn(f64) -> f64),
+            (BuiltinOp::Abs, f64::abs),
+        ] {
+            let got = evaluated_bits(&call(op, vec![float(a)]), &env);
+            assert_eq!(got, expect(ieee(a)), "{op:?} {:#x}", a.to_bits());
+            checked += 1;
+        }
+        let clamp = call(BuiltinOp::Clamp, vec![float(a), float(-1.0), float(1.0)]);
+        assert_eq!(evaluated_bits(&clamp, &env), expect(a.clamp(-1.0, 1.0)));
+        let decimal = Literal::Decimal(panproto_expr::exact::DecimalValue::parse("1.5").unwrap());
+        let to_float = call(BuiltinOp::DecimalToFloat, vec![Expr::Lit(decimal)]);
+        assert_eq!(evaluated_bits(&to_float, &env), 1.5_f64.to_bits());
+        checked += 2;
+        // Pass-through forms keep the bits.
+        let bound = Env::new().extend(Arc::from("v"), Literal::Float(a));
+        let v = Expr::Var(Arc::from("v"));
+        let forms = [
+            v.clone(),
+            float(a),
+            call(BuiltinOp::Head, vec![Expr::List(vec![v.clone()])]),
+            Expr::Let {
+                name: Arc::from("w"),
+                value: Box::new(v.clone()),
+                body: Box::new(Expr::Var(Arc::from("w"))),
+            },
+            Expr::Match {
+                scrutinee: Box::new(Expr::Lit(Literal::Int(1))),
+                arms: vec![(panproto_expr::Pattern::Wildcard, v.clone())],
+            },
+            Expr::Field(
+                Box::new(Expr::Record(vec![(Arc::from("f"), v.clone())])),
+                Arc::from("f"),
+            ),
+        ];
+        for form in &forms {
+            assert_eq!(evaluated_bits(form, &bound), a.to_bits(), "{form:?}");
+            checked += 1;
+        }
+    }
+    println!(
+        "bound: {} operands (26 NaNs, plus and minus 0, 1 and infinity); {checked} checks",
+        operands.len()
+    );
+    assert_eq!(operands.len(), 32);
 }
 
 /// The canonical NaN and its negative are constants defined by their bits
@@ -353,8 +497,9 @@ fn the_canonical_nan_constant_has_the_canonical_bits() {
     );
 }
 
-/// A human-readable form writes every NaN as `"NaN"`, and reading `"NaN"`
-/// back gives the canonical NaN; the infinities read back as themselves.
+/// In a human-readable form `"NaN"` reads back as the canonical NaN and
+/// the infinities as themselves; a lowercase `"nan"` is no spelling of the
+/// form (the other NaN spellings are pinned with the serde formats).
 #[test]
 fn a_serialized_nan_reads_back_as_the_canonical_nan() {
     for (json, bits) in [

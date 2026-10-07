@@ -394,15 +394,17 @@ fn perturb_value(value: &mut panproto_inst::value::Value) {
         // a date moves by a whole Gregorian cycle of 400 years (so every
         // month and day stay valid), and a time moves its minute.
         Value::Decimal(d) => {
-            d.exponent = d.exponent.checked_sub(1).unwrap_or(i32::MIN + 1);
+            d.exponent = d
+                .exponent
+                .minus(&panproto_inst::value::WideInt::from(1_i64));
         }
-        Value::BigInt(b) => b.digits.push('1'),
+        Value::BigInt(b) => b.significand.push('1'),
         Value::Temporal(t) => match t {
             panproto_inst::value::Temporal::Date(date) => {
                 date.year = date.year.checked_add(400).unwrap_or(date.year - 400);
             }
             panproto_inst::value::Temporal::Time(time, _)
-            | panproto_inst::value::Temporal::DateTime(_, time, _) => {
+            | panproto_inst::value::Temporal::DateTime(_, time, _, _) => {
                 time.minute = (time.minute + 1) % 60;
             }
         },

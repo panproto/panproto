@@ -1,21 +1,25 @@
-//! Exact decimal numbers.
+//! Exact decimal numbers, and the closest-shortest decimal of a binary
+//! float.
 
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ExactKind, ExactParseError, FidelityReason, is_canonical_digits, put_str, strip_leading_zeros,
+    ExactKind, ExactParseError, FidelityReason, WideInt, is_canonical_digits, put_str,
+    strip_leading_zeros,
 };
 
 /// An exact decimal number: `(-1)^negative × digits × 10^exponent`.
 ///
 /// `digits` is a non-empty string of ASCII digits with no leading zero
-/// (except the single digit `"0"`), and zero is never negative. The
-/// representation keeps the scale the number was written with, so `1.50`
-/// (`digits` `"150"`, `exponent` `-2`) and `1.5` (`"15"`, `-1`) are
-/// different values under `==`; [`cmp_numeric`](Self::cmp_numeric)
-/// compares them as numbers.
+/// (except the single digit `"0"`), zero is never negative, and `exponent`
+/// is an integer of any size ([`WideInt`]), so every decimal numeral is
+/// held, whatever its exponent: `0.0e-3000000000` is the zero of scale
+/// 3000000001 and `1e3000000000` is 1 × 10^3000000000. The representation
+/// keeps the scale the number was written with, so `1.50` (`digits`
+/// `"150"`, `exponent` `-2`) and `1.5` (`"15"`, `-1`) are different values
+/// under `==`; [`cmp_numeric`](Self::cmp_numeric) compares them as numbers.
 ///
 /// This is the abstract representation of the General Decimal Arithmetic
 /// specification (Cowlishaw 2009), of XSD's precisionDecimal (Peterson and
@@ -31,19 +35,22 @@ use super::{
 /// Part 2: Datatypes, Sec 3.3.3, stated). [`scale`](Self::scale) is the
 /// number of fractional digits written, clamped at zero, while `exponent`
 /// keeps a positive power of ten (`1e3` has exponent 3, where `BigDecimal`
-/// would record the scale -3).
+/// would record the scale -3). Unlike GDA's and `BigDecimal`'s, whose
+/// exponents have bounds, the exponent here has none.
 ///
 /// ```
 /// use std::cmp::Ordering;
 ///
-/// use panproto_expr::exact::DecimalValue;
+/// use panproto_expr::exact::{DecimalValue, WideInt};
 ///
 /// let a = DecimalValue::parse("1.50")?;
 /// let b = DecimalValue::parse("1.5")?;
 /// assert_ne!(a, b);
 /// assert_eq!(a.cmp_numeric(&b), Ordering::Equal);
-/// assert_eq!((a.scale(), b.scale()), (2, 1));
+/// assert_eq!((a.scale(), b.scale()), (WideInt::from(2_i64), WideInt::from(1_i64)));
 /// assert_eq!(a.to_string(), "1.50");
+/// let far = DecimalValue::parse("0.0e-3000000000")?;
+/// assert_eq!(far.scale().to_string(), "3000000001");
 /// # Ok::<(), panproto_expr::ExactParseError>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,54 +61,34 @@ pub struct DecimalValue {
     /// The significant digits, without leading zeros.
     pub digits: String,
     /// The power of ten the digits are scaled by.
-    pub exponent: i32,
+    pub exponent: WideInt,
 }
 
 /// The unchecked fields of a [`DecimalValue`], as they are deserialized.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DecimalParts {
     negative: bool,
     digits: String,
-    exponent: i32,
+    exponent: WideInt,
 }
 
 impl TryFrom<DecimalParts> for DecimalValue {
     type Error = ExactParseError;
 
     fn try_from(parts: DecimalParts) -> Result<Self, Self::Error> {
-        Self::new(parts.negative, parts.digits, parts.exponent)
+        let value = Self::new(parts.negative, parts.digits, parts.exponent)?;
+        if value.negative == parts.negative {
+            Ok(value)
+        } else {
+            // A negative zero is not the one representation of zero.
+            Err(not_a_number())
+        }
     }
 }
 
 const fn not_a_number() -> ExactParseError {
     ExactParseError::new(ExactKind::Decimal, FidelityReason::NotANumber)
-}
-
-const fn overflow() -> ExactParseError {
-    ExactParseError::new(ExactKind::Decimal, FidelityReason::Overflow)
-}
-
-/// The stored exponent of a decimal lexeme: its written exponent (negative
-/// when `exponent_negative`, with significant digits `exponent_digits`) less
-/// its fractional digit count `frac_len`, or `None` when that leaves `i32`.
-///
-/// The difference is exact. A written exponent of more than twenty
-/// significant digits has magnitude at least 10^20: negative, the difference
-/// is below `i32::MIN`; positive, it exceeds `i32::MAX`, since `frac_len` is
-/// at most `u64::MAX` < 10^20 - `i32::MAX`. Twenty digits or fewer fit `i128`
-/// together with any `frac_len`.
-fn stored_exponent(exponent_negative: bool, exponent_digits: &str, frac_len: usize) -> Option<i32> {
-    if exponent_digits.len() > 20 {
-        return None;
-    }
-    let magnitude = i128::try_from(exponent_digits.parse::<u128>().ok()?).ok()?;
-    let written = if exponent_negative {
-        -magnitude
-    } else {
-        magnitude
-    };
-    let frac_len = i128::try_from(frac_len).ok()?;
-    i32::try_from(written - frac_len).ok()
 }
 
 /// Whether `text` (sign and case ignored) names a NaN or an infinity.
@@ -111,6 +98,13 @@ fn names_non_finite(text: &str) -> bool {
         .iter()
         .any(|name| unsigned.eq_ignore_ascii_case(name))
 }
+
+/// The significant digits a binary float's exact decimal expansion may
+/// have at most: 767, those of the largest binary64 subnormal (a binary32
+/// value needs at most 112). Rust's formatting with an explicit precision
+/// writes correctly rounded digits, so at this precision it writes the
+/// expansion itself, padded with zeros.
+const EXACT_DIGITS: usize = 767;
 
 impl DecimalValue {
     /// The decimal `(-1)^negative × digits × 10^exponent`.
@@ -124,7 +118,7 @@ impl DecimalValue {
     pub fn new(
         negative: bool,
         digits: impl Into<String>,
-        exponent: i32,
+        exponent: impl Into<WideInt>,
     ) -> Result<Self, ExactParseError> {
         let digits = digits.into();
         if !is_canonical_digits(&digits) {
@@ -134,7 +128,7 @@ impl DecimalValue {
         Ok(Self {
             negative,
             digits,
-            exponent,
+            exponent: exponent.into(),
         })
     }
 
@@ -143,15 +137,15 @@ impl DecimalValue {
     /// Accepts the JSON number grammar and the decimal forms of SQL and XML
     /// Schema: an optional sign, digits with an optional fractional part
     /// (either side of the point may be empty, not both), and an optional
-    /// exponent `e`/`E` with its own optional sign. Leading zeros are
-    /// dropped; trailing fractional zeros are kept as scale.
+    /// exponent `e`/`E` with its own optional sign and any number of
+    /// digits. Leading zeros are dropped; trailing fractional zeros are
+    /// kept as scale. The stored exponent (the written exponent, 0 when
+    /// absent, less the number of fractional digits) is computed exactly,
+    /// whatever its size.
     ///
     /// # Errors
     ///
-    /// [`FidelityReason::NonFinite`] for a NaN or infinity spelling,
-    /// [`FidelityReason::Overflow`] exactly when the stored exponent (the
-    /// written exponent, 0 when absent, less the number of fractional digits)
-    /// leaves `i32`, and
+    /// [`FidelityReason::NonFinite`] for a NaN or infinity spelling, and
     /// [`FidelityReason::NotANumber`] for anything else that is not a
     /// decimal lexeme.
     pub fn parse(text: &str) -> Result<Self, ExactParseError> {
@@ -179,22 +173,18 @@ impl DecimalValue {
         {
             return Err(not_a_number());
         }
-        let (exponent_negative, exponent_digits) = match exponent_text {
-            None => (false, "0"),
+        let written = match exponent_text {
+            None => WideInt::zero(),
             Some(e) => {
                 let (negative, magnitude) = match e.as_bytes().first() {
                     Some(b'-') => (true, &e[1..]),
                     Some(b'+') => (false, &e[1..]),
                     _ => (false, e),
                 };
-                if magnitude.is_empty() || !all_digits(magnitude) {
-                    return Err(not_a_number());
-                }
-                (negative, strip_leading_zeros(magnitude))
+                WideInt::from_sign_and_digits(negative, magnitude).ok_or_else(not_a_number)?
             }
         };
-        let exponent = stored_exponent(exponent_negative, exponent_digits, frac_part.len())
-            .ok_or_else(overflow)?;
+        let exponent = written.minus(&WideInt::from(frac_part.len()));
         let mut digits = String::with_capacity(int_part.len() + frac_part.len());
         digits.push_str(int_part);
         digits.push_str(frac_part);
@@ -208,45 +198,99 @@ impl DecimalValue {
         Self {
             negative: value < 0,
             digits: value.unsigned_abs().to_string(),
-            exponent: 0,
+            exponent: WideInt::zero(),
         }
     }
 
-    /// The shortest decimal that reads back as `x`, or `None` when `x` is
-    /// not finite.
+    /// The closest-shortest decimal of `x` at binary64, or `None` when `x`
+    /// is not finite.
     ///
-    /// This is the decimal Rust's float formatting writes (`{:e}`): among
-    /// the decimals with the fewest significant digits (the minimal
-    /// significand) that read back to exactly `x` under
-    /// round-to-nearest-even, the one closest to `x`, with ties broken
-    /// away from zero, so of two such decimals equally close to `x` the one of
-    /// larger magnitude (`2229016984128891.25` gives `2229016984128891.3`;
-    /// at 32 bits the same rule writes the binary32 value `52401.3125` as
-    /// `52401.313`). ECMA-262's `Number::toString` recommends ties to even
-    /// instead (Ecma International TC39, ECMAScript Language Specification,
-    /// Sec 6.1.6.1.20, Note 2, stated); that recommendation is not
-    /// followed. The other text of a tie reads back to `x` as well but is
-    /// not returned: `2^50 + 0.25` gives `1125899906842624.3`, never
-    /// `1125899906842624.2`, so a lexeme reader that accepts a float's
-    /// shortest text refuses that other text under a 64-bit float kind and
-    /// reads it as a decimal where it may. So `0.1` gives `1 × 10^-1`, not
-    /// the float's exact binary expansion. A negative zero gives zero.
+    /// Among the decimals with the fewest significant digits (the minimal
+    /// significand) that read back to exactly `x` under IEEE 754
+    /// round-to-nearest-even at binary64, it is the one closest to `x`, and
+    /// at an exact tie, of the two candidates equally close to `x`, the one
+    /// whose significand (its last significant digit) is even: ties to even,
+    /// as ECMA-262's `Number::toString` recommends (Ecma International TC39,
+    /// ECMAScript Language Specification, Sec 6.1.6.1.20, Note 2, stated)
+    /// and as this function follows. Rust's float formatting, which takes
+    /// the candidate of larger magnitude at such a tie, is not used for the
+    /// choice. So `2^50 +
+    /// 0.25` gives `1125899906842624.2`, while `1125899906842624.3`, the
+    /// other text of the tie, also reads back to it but is not returned;
+    /// `0.1` gives `1 × 10^-1`, not the float's exact binary expansion; and
+    /// a negative zero gives zero. Every route that writes a binary64 as
+    /// decimal text writes this decimal.
+    ///
+    /// ```
+    /// use panproto_expr::exact::DecimalValue;
+    ///
+    /// let tie = f64::from_bits(0x4310_0000_0000_0001); // 2^50 + 1/4
+    /// let text = DecimalValue::from_f64_shortest(tie).map(|d| d.to_string());
+    /// assert_eq!(text.as_deref(), Some("1125899906842624.2"));
+    /// assert_eq!("1125899906842624.3".parse::<f64>(), Ok(tie));
+    /// ```
     #[must_use]
     pub fn from_f64_shortest(x: f64) -> Option<Self> {
         if !x.is_finite() {
             return None;
         }
-        Self::parse(&format!("{x:e}")).ok()
+        let magnitude = x.abs();
+        Some(closest_shortest(
+            x.is_sign_negative(),
+            &format!("{magnitude:.EXACT_DIGITS$e}"),
+            |text| text.parse::<f64>().is_ok_and(|y| y.to_bits() == magnitude.to_bits()),
+        ))
+    }
+
+    /// The closest-shortest decimal of `x` at binary32, or `None` when `x`
+    /// is not finite: the rule of
+    /// [`from_f64_shortest`](Self::from_f64_shortest), ties to even, with
+    /// reading back at binary32. So the binary32 value `52401.3125` gives
+    /// `52401.312`, not `52401.313`.
+    ///
+    /// ```
+    /// use panproto_expr::exact::DecimalValue;
+    ///
+    /// let tie = 838_421.0_f32 / 16.0; // 52401.3125
+    /// let text = DecimalValue::from_f32_shortest(tie).map(|d| d.to_string());
+    /// assert_eq!(text.as_deref(), Some("52401.312"));
+    /// ```
+    #[must_use]
+    pub fn from_f32_shortest(x: f32) -> Option<Self> {
+        if !x.is_finite() {
+            return None;
+        }
+        let magnitude = x.abs();
+        Some(closest_shortest(
+            x.is_sign_negative(),
+            &format!("{magnitude:.EXACT_DIGITS$e}"),
+            |text| text.parse::<f32>().is_ok_and(|y| y.to_bits() == magnitude.to_bits()),
+        ))
+    }
+
+    /// The text `0.<digits>e<lead>`, with `lead` the decimal exponent of the
+    /// place just above the leading digit, which Rust's float parsers read
+    /// as this number whatever the size of the exponent: a written exponent
+    /// beyond their range only saturates, and here it is beyond that range
+    /// only when the number is.
+    fn leading_form(&self) -> String {
+        let sign = if self.negative { "-" } else { "" };
+        let lead = self.exponent.plus(&WideInt::from(self.digits.len()));
+        format!("{sign}0.{}e{lead}", self.digits)
     }
 
     /// The nearest `f64`, which may be infinite or zero when the decimal is
     /// outside the range of `f64`. Lossy in general.
     #[must_use]
     pub fn to_f64(&self) -> f64 {
-        let sign = if self.negative { "-" } else { "" };
-        format!("{sign}{}e{}", self.digits, self.exponent)
-            .parse::<f64>()
-            .unwrap_or(f64::NAN)
+        self.leading_form().parse::<f64>().unwrap_or(f64::NAN)
+    }
+
+    /// The nearest `f32`, which may be infinite or zero when the decimal is
+    /// outside the range of `f32`. Lossy in general.
+    #[must_use]
+    pub fn to_f32(&self) -> f32 {
+        self.leading_form().parse::<f32>().unwrap_or(f32::NAN)
     }
 
     /// Whether the decimal is zero, at any scale.
@@ -258,45 +302,51 @@ impl DecimalValue {
     /// The number of digits written after the decimal point:
     /// `max(0, -exponent)`.
     #[must_use]
-    pub const fn scale(&self) -> u32 {
-        if self.exponent < 0 {
-            self.exponent.unsigned_abs()
+    pub fn scale(&self) -> WideInt {
+        if self.exponent.is_negative() {
+            self.exponent.abs()
         } else {
-            0
+            WideInt::zero()
         }
     }
 
     /// The smallest scale that writes the same number: the scale with every
-    /// trailing fractional zero dropped.
+    /// trailing fractional zero dropped (zero for zero).
     #[must_use]
-    pub fn minimal_scale(&self) -> u32 {
+    pub fn minimal_scale(&self) -> WideInt {
+        if self.is_zero() {
+            return WideInt::zero();
+        }
         let trailing = self.digits.len() - self.digits.trim_end_matches('0').len();
-        let trailing = if self.is_zero() {
-            u32::MAX
+        let minimal = self.scale().minus(&WideInt::from(trailing));
+        if minimal.is_negative() {
+            WideInt::zero()
         } else {
-            u32::try_from(trailing).unwrap_or(u32::MAX)
-        };
-        self.scale().saturating_sub(trailing)
+            minimal
+        }
     }
 
     /// The number of digits before the decimal point once leading zeros are
-    /// dropped (`0` for a number whose magnitude is below one).
+    /// dropped (zero for a number whose magnitude is below one).
     #[must_use]
-    pub fn integer_digits(&self) -> u64 {
+    pub fn integer_digits(&self) -> WideInt {
         if self.is_zero() {
-            return 0;
+            return WideInt::zero();
         }
-        let position =
-            i64::try_from(self.digits.len()).unwrap_or(i64::MAX) + i64::from(self.exponent);
-        u64::try_from(position).unwrap_or(0)
+        let position = self.exponent.plus(&WideInt::from(self.digits.len()));
+        if position.is_negative() {
+            WideInt::zero()
+        } else {
+            position
+        }
     }
 
     /// The number of digits the number needs in positional notation: its
     /// [`integer_digits`](Self::integer_digits) plus its
     /// [`minimal_scale`](Self::minimal_scale).
     #[must_use]
-    pub fn significant_digits(&self) -> u64 {
-        u64::from(self.minimal_scale()).saturating_add(self.integer_digits())
+    pub fn significant_digits(&self) -> WideInt {
+        self.minimal_scale().plus(&self.integer_digits())
     }
 
     /// Compare two decimals as numbers, ignoring scale.
@@ -320,24 +370,111 @@ impl DecimalValue {
     }
 
     /// The canonical payload bytes: the sign as one byte (`0` or `1`), the
-    /// digits behind a `u64` length, and the exponent as a little-endian
-    /// `i64`.
+    /// digits behind a little-endian `u64` length, then the exponent as its
+    /// sign byte (`0` non-negative, `1` negative, written as the value's
+    /// sign byte is) and the decimal digits of its magnitude, with no
+    /// leading zero, behind a little-endian `u64` length.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(17 + self.digits.len());
+        let mut out =
+            Vec::with_capacity(18 + self.digits.len() + self.exponent.magnitude().len());
         out.push(u8::from(self.negative));
         put_str(&mut out, &self.digits);
-        out.extend_from_slice(&i64::from(self.exponent).to_le_bytes());
+        self.exponent.write_canonical(&mut out);
         out
     }
+}
+
+/// The closest-shortest decimal of a finite binary float whose magnitude
+/// has the exact decimal expansion `expansion` (Rust's `{:e}` form with
+/// enough digits to be exact, `d.ddd...e<exponent>`), given the test
+/// `reads_back` of whether a decimal text reads back to that magnitude at
+/// the float's width. `negative` is the float's sign; a zero gives zero.
+///
+/// For each count n of significant digits from one up, the only n-digit
+/// decimals that can read back are the two that bracket the magnitude
+/// (`lo`, its expansion cut to n digits, and `lo` plus one unit in the n-th
+/// digit), since the set of reals that round to a float is an interval
+/// around it. The first n at which either reads back is the minimal
+/// significand; of two that both read back the closer is taken, and at an
+/// exact tie (the cut-off digits are exactly `5`) the even one. When n
+/// reaches the number of digits of the expansion, `lo` is the magnitude
+/// itself.
+fn closest_shortest(
+    negative: bool,
+    expansion: &str,
+    reads_back: impl Fn(&str) -> bool,
+) -> DecimalValue {
+    let (mantissa, power) = expansion.split_once('e').unwrap_or((expansion, "0"));
+    let power = power.parse::<i64>().unwrap_or(0);
+    let all: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let exact = all.trim_end_matches('0');
+    if exact.is_empty() {
+        return DecimalValue::from_i64(0);
+    }
+    for n in 1..exact.len() {
+        let lo = &exact[..n];
+        let hi = increment(lo);
+        // Both texts scale their digits so that the n-th digit of `lo`
+        // stands at 10^exponent; `hi` has n + 1 digits only when it carried
+        // into a new leading 1, which the same exponent places correctly.
+        let exponent = power + 1 - i64::try_from(n).unwrap_or(i64::MAX);
+        let pick = match (
+            reads_back(&format!("{lo}e{exponent}")),
+            reads_back(&format!("{hi}e{exponent}")),
+        ) {
+            (false, false) => continue,
+            (true, false) => lo.to_owned(),
+            (false, true) => hi,
+            (true, true) => {
+                // Both read back: the closer, by the cut-off digits `rest`
+                // against one half of a unit in the n-th digit (`5`), and at
+                // an exact tie the even one of two consecutive integers.
+                let rest = &exact[n..];
+                let lo_is_even = (lo.as_bytes()[n - 1] - b'0') % 2 == 0;
+                match (rest.as_bytes()[0].cmp(&b'5'), rest.len() > 1) {
+                    (Ordering::Less, _) => lo.to_owned(),
+                    (Ordering::Greater, _) | (Ordering::Equal, true) => hi,
+                    (Ordering::Equal, false) if lo_is_even => lo.to_owned(),
+                    (Ordering::Equal, false) => hi,
+                }
+            }
+        };
+        let kept = pick.trim_end_matches('0');
+        let exponent = exponent + i64::try_from(pick.len() - kept.len()).unwrap_or(0);
+        return DecimalValue {
+            negative,
+            digits: kept.to_owned(),
+            exponent: WideInt::from(exponent),
+        };
+    }
+    DecimalValue {
+        negative,
+        digits: exact.to_owned(),
+        exponent: WideInt::from(power + 1 - i64::try_from(exact.len()).unwrap_or(i64::MAX)),
+    }
+}
+
+/// The digit string `digits` plus one in its last place.
+fn increment(digits: &str) -> String {
+    let mut out: Vec<u8> = digits.bytes().collect();
+    for at in (0..out.len()).rev() {
+        if out[at] == b'9' {
+            out[at] = b'0';
+        } else {
+            out[at] += 1;
+            return out.into_iter().map(char::from).collect();
+        }
+    }
+    let mut carried = vec![b'1'];
+    carried.extend(out);
+    carried.into_iter().map(char::from).collect()
 }
 
 /// Compare the magnitudes of two non-zero decimals.
 fn cmp_magnitude(left: &DecimalValue, right: &DecimalValue) -> Ordering {
     // The position of the leading digit decides unless it ties.
-    let lead = |d: &DecimalValue| {
-        i64::try_from(d.digits.len()).unwrap_or(i64::MAX) + i64::from(d.exponent)
-    };
+    let lead = |d: &DecimalValue| d.exponent.plus(&WideInt::from(d.digits.len()));
     lead(left).cmp(&lead(right)).then_with(|| {
         let (lhs, rhs) = (left.digits.as_bytes(), right.digits.as_bytes());
         (0..lhs.len().max(rhs.len()))
@@ -360,15 +497,22 @@ impl std::fmt::Display for DecimalValue {
         if self.negative {
             f.write_str("-")?;
         }
-        let len = i64::try_from(self.digits.len()).unwrap_or(i64::MAX);
-        let exponent = i64::from(self.exponent);
-        if exponent > 0 || exponent < -(len + 6) {
+        let len = WideInt::from(self.digits.len());
+        let floor = len.plus(&WideInt::from(6_i64)).negated();
+        let positive = !self.exponent.is_negative() && !self.exponent.is_zero();
+        if positive || self.exponent < floor {
             return write!(f, "{}e{}", self.digits, self.exponent);
         }
-        if exponent == 0 {
+        // Here -(len + 6) <= exponent <= 0, so the scale fits `usize`.
+        let scale = self
+            .exponent
+            .negated()
+            .to_i64()
+            .and_then(|s| usize::try_from(s).ok())
+            .unwrap_or(0);
+        if scale == 0 {
             return f.write_str(&self.digits);
         }
-        let scale = usize::try_from(-exponent).unwrap_or(usize::MAX);
         if scale >= self.digits.len() {
             f.write_str("0.")?;
             for _ in 0..scale - self.digits.len() {
@@ -386,64 +530,75 @@ impl std::fmt::Display for DecimalValue {
 mod tests {
     use super::*;
 
-    #[test]
-    fn stored_exponent_is_exact_at_the_i32_bounds() {
-        // A twelve-digit written exponent comes back into range once enough
-        // fractional digits are taken off: 10^11 - 97852516353 = i32::MAX.
-        assert_eq!(
-            stored_exponent(false, "100000000000", 97_852_516_353),
-            Some(i32::MAX)
-        );
-        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_352), None);
-        // The bounds are reached exactly, with and without fractional digits.
-        assert_eq!(stored_exponent(false, "2147483647", 0), Some(i32::MAX));
-        assert_eq!(stored_exponent(true, "2147483648", 0), Some(i32::MIN));
-        assert_eq!(stored_exponent(false, "2147483648", 1), Some(i32::MAX));
-        assert_eq!(stored_exponent(true, "2147483647", 1), Some(i32::MIN));
-        assert_eq!(stored_exponent(false, "0", 0), Some(0));
-        assert_eq!(stored_exponent(true, "0", 3), Some(-3));
-        // Just outside the bounds.
-        assert_eq!(stored_exponent(false, "2147483648", 0), None);
-        assert_eq!(stored_exponent(true, "2147483649", 0), None);
-        assert_eq!(stored_exponent(true, "2147483648", 1), None);
-        assert_eq!(stored_exponent(false, "0", 2_147_483_649), None);
-        // Long exponents: twenty digits are computed, more are refused
-        // whatever the fractional digit count.
-        assert_eq!(stored_exponent(false, "100000000000000000000", 0), None);
-        assert_eq!(
-            stored_exponent(false, "100000000000000000000", usize::MAX),
-            None
-        );
-        assert_eq!(stored_exponent(true, "100000000000000000000", 0), None);
-        assert_eq!(
-            stored_exponent(false, "99999999999999999999", usize::MAX),
-            None
-        );
-        assert_eq!(stored_exponent(true, "99999999999999999999", 0), None);
-        // Every exponent refused by the eleven-digit length rule with a
-        // fractional digit count that leaves it outside `i32` stays refused.
-        assert_eq!(stored_exponent(false, "999999999999", 0), None);
-        assert_eq!(stored_exponent(true, "100000000000", 0), None);
-        assert_eq!(stored_exponent(false, "99999999999", 0), None);
-        assert_eq!(stored_exponent(true, "99999999999", 0), None);
+    /// The stored exponent of a lexeme whose written exponent is
+    /// `(exponent_negative, exponent_digits)` and which has `frac_len`
+    /// fractional digits, computed as [`DecimalValue::parse`] computes it.
+    fn stored_exponent(exponent_negative: bool, exponent_digits: &str, frac_len: usize) -> String {
+        WideInt::from_sign_and_digits(exponent_negative, exponent_digits)
+            .map(|written| written.minus(&WideInt::from(frac_len)).to_string())
+            .unwrap_or_default()
     }
 
     #[test]
-    fn parse_refuses_exactly_outside_the_stored_exponent_range() {
-        let exponent = |text: &str| DecimalValue::parse(text).map(|value| value.exponent);
-        assert_eq!(exponent("1e2147483647"), Ok(i32::MAX));
-        assert_eq!(exponent("0.1e2147483648"), Ok(i32::MAX));
-        assert_eq!(exponent("1e-2147483648"), Ok(i32::MIN));
-        assert_eq!(exponent("1e000000000002147483647"), Ok(i32::MAX));
-        for text in [
-            "1e2147483648",
-            "1.5e-2147483648",
-            "1e99999999999",
-            "1e100000000000",
-            "1e99999999999999999999999",
-            "1e-99999999999999999999999",
+    fn stored_exponent_is_exact_at_the_i32_bounds() {
+        // A twelve-digit written exponent less a fractional digit count:
+        // 10^11 - 97852516353 = i32::MAX, and one digit fewer is one more.
+        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_353), "2147483647");
+        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_352), "2147483648");
+        // The bounds and one step beyond them, with and without fractional
+        // digits: every one is read exactly, none refused.
+        assert_eq!(stored_exponent(false, "2147483647", 0), "2147483647");
+        assert_eq!(stored_exponent(true, "2147483648", 0), "-2147483648");
+        assert_eq!(stored_exponent(false, "2147483648", 1), "2147483647");
+        assert_eq!(stored_exponent(true, "2147483647", 1), "-2147483648");
+        assert_eq!(stored_exponent(false, "0", 0), "0");
+        assert_eq!(stored_exponent(true, "0", 3), "-3");
+        assert_eq!(stored_exponent(false, "2147483648", 0), "2147483648");
+        assert_eq!(stored_exponent(true, "2147483649", 0), "-2147483649");
+        assert_eq!(stored_exponent(true, "2147483648", 1), "-2147483649");
+        assert_eq!(stored_exponent(false, "0", 2_147_483_649), "-2147483649");
+        // Long exponents are computed exactly whatever the fractional digit
+        // count.
+        assert_eq!(
+            stored_exponent(false, "100000000000000000000", 0),
+            "100000000000000000000"
+        );
+        assert_eq!(
+            stored_exponent(false, "100000000000000000000", usize::MAX),
+            (100_000_000_000_000_000_000_i128 - i128::try_from(usize::MAX).unwrap_or(0))
+                .to_string()
+        );
+        assert_eq!(
+            stored_exponent(true, "100000000000000000000", 0),
+            "-100000000000000000000"
+        );
+        assert_eq!(stored_exponent(false, "999999999999", 0), "999999999999");
+        assert_eq!(stored_exponent(true, "000100000000000", 0), "-100000000000");
+        assert_eq!(stored_exponent(false, "99999999999", 0), "99999999999");
+        assert_eq!(stored_exponent(true, "99999999999", 2), "-100000000001");
+    }
+
+    #[test]
+    fn parse_reads_every_stored_exponent_exactly() {
+        let exponent = |text: &str| DecimalValue::parse(text).map(|value| value.exponent.to_string());
+        for (text, stored) in [
+            ("1e2147483647", "2147483647"),
+            ("0.1e2147483648", "2147483647"),
+            ("1e-2147483648", "-2147483648"),
+            ("1e000000000002147483647", "2147483647"),
+            ("1e2147483648", "2147483648"),
+            ("1.5e-2147483648", "-2147483649"),
+            ("1e99999999999", "99999999999"),
+            ("1e100000000000", "100000000000"),
+            ("1e99999999999999999999999", "99999999999999999999999"),
+            ("1e-99999999999999999999999", "-99999999999999999999999"),
+            ("0.0e-3000000000", "-3000000001"),
+            ("-0e3000000000", "3000000000"),
         ] {
-            assert_eq!(exponent(text), Err(overflow()), "{text}");
+            assert_eq!(exponent(text), Ok(stored.to_owned()), "{text}");
+        }
+        for text in ["1e", "1e+", "1e-", "1e1.5", "1ee1", "1e--1"] {
+            assert_eq!(exponent(text), Err(not_a_number()), "{text}");
         }
     }
 }
