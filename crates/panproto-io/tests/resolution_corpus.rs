@@ -7990,3 +7990,86 @@ fn a_table_route_serves_the_table_entry_points() {
         serde_json::to_vec(&native).expect("serializes")
     );
 }
+
+#[test]
+fn a_provider_without_overrides_lists_no_qualified_form_and_admits_no_assembly() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let reference = &resolution.references()["post_author"];
+    assert_eq!(
+        resolution
+            .provider()
+            .qualified_forms(
+                reference,
+                ViewRef::Node(5),
+                ViewRef::Node(1),
+                &text("u1"),
+                &AnyInstance::Graph(GInstance::new()),
+                &ctx(),
+            )
+            .expect("the default"),
+        Vec::<Value>::new()
+    );
+    let (provider, syntactic) = Listing::new();
+    let protocol = provider.protocol.clone();
+    let listing =
+        Resolution::for_protocol(&protocol, &syntactic, Arc::new(provider)).expect("compiles");
+    let source = AnyInstance::Tree(listing_tree(&["a"]));
+    let (view, complement) = listing
+        .get(&source, &ResolveOptions::default(), &ctx())
+        .expect("assembled");
+    assert_eq!(
+        listing.check_put_domain(&view, &complement, &ctx()),
+        Err(vec![ResolveDomainError::Assembly {
+            at: None,
+            production: None,
+            reason: panproto_io::resolution::AssemblyDomainReason::MissingProduction,
+        }]),
+        "the default domain admits nothing"
+    );
+}
+
+#[test]
+fn a_resolution_and_its_context_show_what_they_hold() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let shown = format!("{resolution:?}");
+    assert!(shown.starts_with("Resolution"), "{shown}");
+    assert!(
+        shown.contains("posts") && shown.contains("TreeToGraph"),
+        "{shown}"
+    );
+    let spaces = Spaces::new(false);
+    let with_tokens = ResolveContext {
+        external_text: None,
+        token_boundaries: Some(&spaces),
+    };
+    assert_eq!(
+        format!("{with_tokens:?}"),
+        "ResolveContext { external_text: false, token_boundaries: true }"
+    );
+    assert_eq!(
+        format!("{:?}", ResolveContext::empty()),
+        "ResolveContext { external_text: false, token_boundaries: false }"
+    );
+}
+
+#[test]
+fn a_protocol_with_neither_a_table_codec_nor_a_table_route_reads_no_table() {
+    let mut registry = panproto_io::ProtocolRegistry::new();
+    registry.register(TreeJson("trees"));
+    assert!(matches!(
+        registry.parse_table("trees", &Schema::default(), b"{}"),
+        Err(panproto_io::ParseInstanceError::UnsupportedRepresentation {
+            requested: panproto_io::NativeRepr::Table,
+            native: panproto_io::NativeRepr::Tree,
+            ..
+        })
+    ));
+    assert!(matches!(
+        registry.emit_table("trees", &Schema::default(), &FInstance::new()),
+        Err(panproto_io::EmitInstanceError::UnsupportedRepresentation {
+            requested: panproto_io::NativeRepr::Table,
+            native: panproto_io::NativeRepr::Tree,
+            ..
+        })
+    ));
+}
