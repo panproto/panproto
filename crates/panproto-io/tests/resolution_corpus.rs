@@ -7923,7 +7923,7 @@ fn a_table_route_serves_the_table_entry_points() {
     let (provider, syntactic) = Listing::new();
     let provider = Arc::new(provider);
     let mut registry = panproto_io::ProtocolRegistry::new();
-    registry.register_resolution_route(TreeJson("listing"), provider.clone());
+    registry.register_resolution_route(TreeJson("listing"), provider);
     assert!(registry.supports_table("listing"));
     assert!(
         !registry.supports_tree("listing"),
@@ -8072,4 +8072,275 @@ fn a_protocol_with_neither_a_table_codec_nor_a_table_route_reads_no_table() {
             ..
         })
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Placement of edited structure: spanning arcs, promoted arcs, new holders
+// and table edges, each pinned to its exact put-domain vector.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_reconnected_spanning_arc_is_not_structural() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let (mut view, complement) = get(&resolution, &AnyInstance::Tree(posts_tree()));
+    // Arc 0 is user 1's spanning arc; pointing it at user 3 leaves user 1
+    // without a parent and gives user 3 a second incoming arc.
+    view.set_endpoints(panproto_inst::EdgeId(0), 0, 3)
+        .expect("reconnect user 1's arc to user 3");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(1)
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(2)
+            },
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Node(5),
+                reference: "post_author".into()
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(0))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(1))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(2))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(3))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(4))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(5))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(6))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(7))
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_least_new_arc_into_a_parentless_node_is_promoted() {
+    // Every author dangles, so the view has no occurrence edge and a new
+    // arc's slot is the next arc position, 8.
+    let (resolution, _) = posts_resolution(|reference| {
+        reference.on_unresolved = OnUnresolved::Complement;
+        reference.nullable = true;
+    });
+    let source = AnyInstance::Tree(posts_tree_with(text("zz"), text("zz")));
+    let (mut view, complement) = get(&resolution, &source);
+    let posts = prop("doc", "post", "posts");
+    view.insert_node(Node::new(100, "post"))
+        .expect("a new post");
+    // The arc from post 5 has the smaller id; the document's arc has the
+    // least key `(label, source, id)`, so id order is not key order.
+    view.insert_edge(
+        panproto_inst::EdgeId(8),
+        panproto_inst::GEdge::new(5, 100, posts.clone()),
+    )
+    .expect("an arc from post 5");
+    view.insert_edge(
+        panproto_inst::EdgeId(20),
+        panproto_inst::GEdge::new(0, 100, posts),
+    )
+    .expect("an arc from the document");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(8))
+            },
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(panproto_inst::EdgeId(20))
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_new_redirect_from_a_fan_node_is_unrepresentable() {
+    let resolution = fanned_posts_resolution(ResolveMode::Redirect);
+    let source = AnyInstance::Tree(fanned_posts_tree(&[("user", 1)]));
+    let (mut view, complement) = get(&resolution, &source);
+    let fan = view
+        .nodes()
+        .iter()
+        .find(|(_, node)| node.shape == panproto_inst::NodeShape::HyperEdge)
+        .map(|(id, _)| *id)
+        .expect("a fan node");
+    let label = posts_schema(|_| {}).author_ref;
+    view.insert_edge(
+        panproto_inst::EdgeId(90),
+        panproto_inst::GEdge::new(fan, 1, label),
+    )
+    .expect("a reference from the fan node");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(panproto_inst::EdgeId(90)),
+            reference: "post_author".into()
+        },]
+    );
+}
+
+#[test]
+fn a_new_redirect_whose_key_path_has_two_hops_is_unrepresentable() {
+    let base = protocol("deep", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let label = edge("post", "user", "ref", Some("author_ref"));
+    let mut author = reference(
+        "post_author",
+        "post",
+        RefSource::KeyValue {
+            parts: vec![vec![
+                prop("post", "meta", "meta"),
+                prop("meta", "author", "author"),
+            ]],
+        },
+        "user",
+        label.clone(),
+    );
+    author.mode = ResolveMode::Redirect;
+    let schema = SchemaBuilder::new(&base)
+        .vertex("doc", "object", None)
+        .unwrap()
+        .vertex("user", "object", None)
+        .unwrap()
+        .vertex("user_id", "string", None)
+        .unwrap()
+        .vertex("post", "object", None)
+        .unwrap()
+        .vertex("meta", "object", None)
+        .unwrap()
+        .vertex("author", "string", None)
+        .unwrap()
+        .edge("doc", "user", "prop", Some("users"))
+        .unwrap()
+        .edge("user", "user_id", "prop", Some("id"))
+        .unwrap()
+        .edge("doc", "post", "prop", Some("posts"))
+        .unwrap()
+        .edge("post", "meta", "prop", Some("meta"))
+        .unwrap()
+        .edge("meta", "author", "prop", Some("author"))
+        .unwrap()
+        .edge("post", "user", "ref", Some("author_ref"))
+        .unwrap()
+        .entry("doc")
+        .key(
+            "user",
+            key(
+                "id",
+                vec![KeyPart::Path(vec![prop("user", "user_id", "id")])],
+                KeyRole::Primary,
+                KeyScope::Document,
+            ),
+        )
+        .reference(author)
+        .build()
+        .unwrap();
+    let resolution = compile(
+        "deep",
+        ResolutionKind::TreeToGraph,
+        &schema,
+        &[(&label, "post_author")],
+    );
+    let source = AnyInstance::Tree(tree(
+        vec![
+            Node::new(0, "doc"),
+            Node::new(1, "user"),
+            leaf(2, "user_id", text("u1")),
+        ],
+        vec![
+            (0, 1, prop("doc", "user", "users")),
+            (1, 2, prop("user", "user_id", "id")),
+        ],
+        0,
+    ));
+    let (mut view, complement) = get(&resolution, &source);
+    view.insert_edge(
+        panproto_inst::EdgeId(20),
+        panproto_inst::GEdge::new(0, 1, label),
+    )
+    .expect("a new reference");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(panproto_inst::EdgeId(20)),
+            reference: "post_author".into()
+        },]
+    );
+}
+
+#[test]
+fn a_table_edge_into_a_span_has_no_placement() {
+    let (resolution, fixture) = orders(false);
+    let mut table = orders_table(&fixture, text("a"), text("b"));
+    if let Some(order) = table.row_mut(RowId(3)) {
+        order.insert("left".to_owned(), text("hello"));
+        order.insert("right".to_owned(), text("world"));
+        order.insert("start".to_owned(), int(0));
+        order.insert("end".to_owned(), int(2));
+    }
+    let (mut view, complement) = get(&resolution, &AnyInstance::Table(table));
+    let span = *complement.span_nodes.keys().next().expect("a span node");
+    view.insert_edge(
+        panproto_inst::EdgeId(99),
+        panproto_inst::GEdge::new(3, span, fixture.region),
+    )
+    .expect("a foreign-key edge into the span");
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Edge(panproto_inst::EdgeId(99))
+        },]
+    );
+}
+
+#[test]
+fn a_reconnect_after_a_removal_is_written_at_its_shifted_index() {
+    let (resolution, _) = posts_resolution(|reference| {
+        reference.cardinality = Cardinality::Many;
+        reference.mode = ResolveMode::Redirect;
+    });
+    let source = AnyInstance::Tree(posts_tree_with(
+        Value::List(vec![text("u1"), text("u2"), text("u1")]),
+        Value::List(vec![text("u2")]),
+    ));
+    let (mut view, complement) = get(&resolution, &source);
+    let at = |index: u32| {
+        complement
+            .occurrences
+            .iter()
+            .find_map(|(carrier, records)| match (carrier, records.as_slice()) {
+                (ViewRef::Edge(id), [record])
+                    if record.holder == ViewRef::Node(5) && record.index == index =>
+                {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .expect("an occurrence of post 5")
+    };
+    let (first, third) = (at(0), at(2));
+    view.remove_edge(first)
+        .expect("remove the first occurrence");
+    view.set_endpoints(third, 0, 3)
+        .expect("reconnect the third occurrence to user 3");
+    let restored = put_tree(&resolution, &view, &complement).expect("admitted");
+    assert_eq!(
+        restored.nodes[&6].value,
+        Some(FieldPresence::Present(Value::List(vec![
+            text("u2"),
+            text("u2")
+        ])))
+    );
 }
