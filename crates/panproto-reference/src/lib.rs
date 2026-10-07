@@ -20,5 +20,6 @@ pub mod schema;
 pub mod segment;
 pub mod table;
 pub mod temporal;
+pub mod theory;
 pub mod validation;
 pub mod value;
