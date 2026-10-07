@@ -13,9 +13,15 @@
 //! The construction follows the colimit of theories of Goguen and Burstall
 //! (goguenburstall1992institutions, Thm 11, proved: the colimit is built on
 //! signatures and carries the translated sentences of every component).
-//! Carrying it to dependent sort contexts is ours (inferred): every class
-//! must agree on its members' signatures modulo the identification before
-//! anything is built, and the result must pass the signature typechecker.
+//! Colimits of theories with dependent sorts exist: the category of
+//! C-systems has all colimits and is equivalent to a category of
+//! generalized algebraic theories (voevodsky2016subsystems Rem 2.8,
+//! stated), and a coequalizer adjoins sort- and term-equality judgements
+//! (garner2015combinatorial Prop 12, proved). That [`compose`] computes
+//! this colimit, restricted to theories without sort equations, whenever
+//! it does not refuse is inferred: every class must agree on its members'
+//! signatures modulo the identification before anything is built, and the
+//! result must pass the signature typechecker.
 //!
 //! A composition returns a [`Composition`]: the theory, one inclusion
 //! morphism per node, a [`Provenance`] that sends every source symbol,
@@ -1351,8 +1357,9 @@ impl NodeInfo<'_> {
 /// going to the least name by bytes (majority names in the sense of
 /// mossakowskirabecodescu2017canonical Def. 10, stated, which is Hets'
 /// naming convention, kutzneuhausmossakowskicodescu2014blending, stated;
-/// the tiebreak is ours). Clashes, possible only in [`CompositionMode::ExplicitIdentity`],
-/// follow `opts.clash`. Result vectors are in ascending name order, so the
+/// no precedent for the tiebreak was found in the venues searched).
+/// Clashes, possible only in [`CompositionMode::ExplicitIdentity`], follow
+/// `opts.clash`. Result vectors are in ascending name order, so the
 /// result does not depend on the order of the diagram's nodes or edges.
 ///
 /// # Errors
