@@ -3,13 +3,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::fan::{FanViolation, violations_at, candidates};
+use crate::fan::{FanViolation, candidates, violations_at};
 use crate::keys;
 use crate::migration::Migration;
 use crate::model::{GEdge, Graph, Name, Node, SEdge};
 use crate::restrict::{
-    Complement, EdgeFate, LayerRefusal, PairResolution, Plan, PutFieldRefusal, SynthKey, ValueLayer, is_fan_kind,
-    map_back, reverse_anchor,
+    Complement, EdgeFate, LayerRefusal, PairResolution, Plan, PutFieldRefusal, SynthKey,
+    ValueLayer, is_fan_kind, map_back, reverse_anchor,
 };
 use crate::schema::{KeyRole, Schema};
 use crate::value::{Presence, Value};
@@ -24,7 +24,7 @@ pub enum ViewRef {
     /// A row.
     Row(u32),
     /// A foreign-key pair.
-    Pair(SEdge, u32, u32),
+    Pair(Box<SEdge>, u32, u32),
 }
 
 /// A violation of the put domain, in report order (variant, then element).
@@ -145,6 +145,36 @@ pub struct GraphLens<'a> {
     pub vl: &'a dyn ValueLayer,
 }
 
+/// A view node or edge reusing the id of a dropped source node or edge.
+fn id_collisions(view: &Graph, c: &Complement) -> Vec<PutDomainError> {
+    let nodes = view
+        .nodes
+        .keys()
+        .filter(|i| c.dropped_nodes.contains_key(i))
+        .map(|id| ViewRef::Node(*id));
+    let edges = view
+        .edges
+        .keys()
+        .filter(|i| c.dropped_edges.contains_key(i))
+        .map(|id| ViewRef::Edge(*id));
+    nodes
+        .chain(edges)
+        .map(|elem| PutDomainError::IdCollision { elem })
+        .collect()
+}
+
+/// The put-domain error of a value layer's field refusal at `elem`.
+fn field_refusal(elem: ViewRef, refusal: PutFieldRefusal) -> PutDomainError {
+    match refusal {
+        PutFieldRefusal::DerivedCellEdited { field } => {
+            PutDomainError::DerivedCellEdited { elem, field }
+        }
+        PutFieldRefusal::TransformNotInvertible { field } => {
+            PutDomainError::TransformNotInvertible { elem, field }
+        }
+    }
+}
+
 /// The expected content of a synthesized object.
 enum Expected {
     /// A node with this anchor.
@@ -152,6 +182,9 @@ enum Expected {
     /// An edge with this label and endpoints.
     Edge(SEdge, SynthOrId, SynthOrId),
 }
+
+/// Builds the synthesized key of each hop of a chain.
+type KeyOf = Box<dyn Fn(u16) -> SynthKey>;
 
 /// The expected content of a synthesized object, read from its key, the
 /// plan and the source anchors.
@@ -162,30 +195,74 @@ fn expected_synth(
     is_node: bool,
     anchor_of: &dyn Fn(u32) -> Option<Name>,
 ) -> Option<Expected> {
-    let (s, t, inter, labels, hop, key_of): (u32, u32, Vec<Name>, Vec<SEdge>, u16, Box<dyn Fn(u16) -> SynthKey>) = match key {
-        SynthKey::Contract { src, tgt, edge } => {
-            return (!is_node).then(|| Expected::Edge(edge.clone(), SynthOrId::Id(*src), SynthOrId::Id(*tgt)));
-        }
-        SynthKey::Expand { source_edge, hop } => {
-            let e = c.dropped_edges.get(source_edge)?;
-            let EdgeFate::Expand { intermediates, labels } = lens.plan.fates.get(&e.label)? else { return None };
-            let se = *source_edge;
-            (e.src, e.tgt, intermediates.clone(), labels.clone(), *hop, Box::new(move |h| SynthKey::Expand { source_edge: se, hop: h }))
-        }
-        SynthKey::ContractExpand { src, tgt, hop } => {
-            let pair = lens.plan.pairs.get(&(anchor_of(*src)?, anchor_of(*tgt)?))?;
-            let PairResolution::Expand { intermediates, labels } = &pair.resolution else { return None };
-            let (s, t) = (*src, *tgt);
-            (s, t, intermediates.clone(), labels.clone(), *hop, Box::new(move |h| SynthKey::ContractExpand { src: s, tgt: t, hop: h }))
-        }
-    };
+    let (s, t, inter, labels, hop, key_of): (u32, u32, Vec<Name>, Vec<SEdge>, u16, KeyOf) =
+        match key {
+            SynthKey::Contract { src, tgt, edge } => {
+                return (!is_node).then(|| {
+                    Expected::Edge(edge.clone(), SynthOrId::Id(*src), SynthOrId::Id(*tgt))
+                });
+            }
+            SynthKey::Expand { source_edge, hop } => {
+                let e = c.dropped_edges.get(source_edge)?;
+                let EdgeFate::Expand {
+                    intermediates,
+                    labels,
+                } = lens.plan.fates.get(&e.label)?
+                else {
+                    return None;
+                };
+                let se = *source_edge;
+                (
+                    e.src,
+                    e.tgt,
+                    intermediates.clone(),
+                    labels.clone(),
+                    *hop,
+                    Box::new(move |h| SynthKey::Expand {
+                        source_edge: se,
+                        hop: h,
+                    }),
+                )
+            }
+            SynthKey::ContractExpand { src, tgt, hop } => {
+                let pair = lens.plan.pairs.get(&(anchor_of(*src)?, anchor_of(*tgt)?))?;
+                let PairResolution::Expand {
+                    intermediates,
+                    labels,
+                } = &pair.resolution
+                else {
+                    return None;
+                };
+                let (s, t) = (*src, *tgt);
+                (
+                    s,
+                    t,
+                    intermediates.clone(),
+                    labels.clone(),
+                    *hop,
+                    Box::new(move |h| SynthKey::ContractExpand {
+                        src: s,
+                        tgt: t,
+                        hop: h,
+                    }),
+                )
+            }
+        };
     let h = usize::from(hop);
     if is_node {
         return inter.get(h).map(|a| Expected::Node(a.clone()));
     }
     let label = labels.get(h)?;
-    let from = if h == 0 { SynthOrId::Id(s) } else { SynthOrId::Synth(key_of(hop - 1)) };
-    let to = if h == inter.len() { SynthOrId::Id(t) } else { SynthOrId::Synth(key_of(hop)) };
+    let from = if h == 0 {
+        SynthOrId::Id(s)
+    } else {
+        SynthOrId::Synth(Box::new(key_of(hop - 1)))
+    };
+    let to = if h == inter.len() {
+        SynthOrId::Id(t)
+    } else {
+        SynthOrId::Synth(Box::new(key_of(hop)))
+    };
     Some(Expected::Edge(label.clone(), from, to))
 }
 
@@ -193,14 +270,20 @@ fn expected_synth(
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SynthOrId {
     Id(u32),
-    Synth(SynthKey),
+    Synth(Box<SynthKey>),
 }
 
 /// The source-origin endpoints of a synthesized object's chain.
 fn chain_ends(c: &Complement, key: &SynthKey) -> Vec<u32> {
     match key {
-        SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => vec![*src, *tgt],
-        SynthKey::Expand { source_edge, .. } => c.dropped_edges.get(source_edge).map(|e| vec![e.src, e.tgt]).unwrap_or_default(),
+        SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
+            vec![*src, *tgt]
+        }
+        SynthKey::Expand { source_edge, .. } => c
+            .dropped_edges
+            .get(source_edge)
+            .map(|e| vec![e.src, e.tgt])
+            .unwrap_or_default(),
     }
 }
 
@@ -224,7 +307,14 @@ impl GraphLens<'_> {
     /// The source label of a non-synthesized view edge: the recorded one
     /// when the view label is its image and the endpoints are unchanged,
     /// else the put rule's unique preimage. `Err` with the domain error.
-    fn edge_label(&self, c: &Complement, view: &Graph, id: u32, e: &GEdge, anchor: &dyn Fn(u32) -> Option<Name>) -> Result<SEdge, PutDomainError> {
+    fn edge_label(
+        &self,
+        c: &Complement,
+        view: &Graph,
+        id: u32,
+        e: &GEdge,
+        anchor: &dyn Fn(u32) -> Option<Name>,
+    ) -> Result<SEdge, PutDomainError> {
         if let Some(r) = c.original_edges.get(&id)
             && r.src == e.src
             && r.tgt == e.tgt
@@ -235,14 +325,22 @@ impl GraphLens<'_> {
         match map_back(self.src, self.m, self.plan, view, e, anchor) {
             Ok(l) => Ok(l),
             Err(0) if !is_fan_kind(&e.label.kind) => {
-                let planned = anchor(e.src).zip(anchor(e.tgt)).and_then(|p| self.plan.pairs.get(&p));
+                let planned = anchor(e.src)
+                    .zip(anchor(e.tgt))
+                    .and_then(|p| self.plan.pairs.get(&p));
                 if planned.is_some_and(|p| p.resolution == PairResolution::Label(e.label.clone())) {
-                    Err(PutDomainError::ContractedEdgeInserted { elem: ViewRef::Edge(id) })
+                    Err(PutDomainError::ContractedEdgeInserted {
+                        elem: ViewRef::Edge(id),
+                    })
                 } else {
-                    Err(PutDomainError::UnrepresentableViewEdge { elem: ViewRef::Edge(id) })
+                    Err(PutDomainError::UnrepresentableViewEdge {
+                        elem: ViewRef::Edge(id),
+                    })
                 }
             }
-            Err(_) => Err(PutDomainError::UnrepresentableViewEdge { elem: ViewRef::Edge(id) }),
+            Err(_) => Err(PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(id),
+            }),
         }
     }
 
@@ -257,7 +355,9 @@ impl GraphLens<'_> {
                 .hyper_resolver
                 .iter()
                 .filter(|((h, _), _)| *h == r.label.src)
-                .any(|(_, (_, map))| r.label.name.as_ref().and_then(|l| map.get(l)) == e.label.name.as_ref());
+                .any(|(_, (_, map))| {
+                    r.label.name.as_ref().and_then(|l| map.get(l)) == e.label.name.as_ref()
+                });
             return r.label.kind == e.label.kind && (r.label.name == e.label.name || renamed);
         }
         matches!(self.plan.fates.get(&r.label), Some(EdgeFate::Keep(i)) if *i == e.label)
@@ -268,7 +368,11 @@ impl GraphLens<'_> {
     /// # Errors
     ///
     /// The sorted violations.
-    pub fn check_put_domain(&self, view: &Graph, c: &Complement) -> Result<(), Vec<PutDomainError>> {
+    pub fn check_put_domain(
+        &self,
+        view: &Graph,
+        c: &Complement,
+    ) -> Result<(), Vec<PutDomainError>> {
         let mut errs = self.restore(view, c).err().unwrap_or_default();
         errs.sort_by_key(PutDomainError::order_key);
         if errs.is_empty() { Ok(()) } else { Err(errs) }
@@ -288,31 +392,51 @@ impl GraphLens<'_> {
 }
 
 impl GraphLens<'_> {
-    fn synth_violations(&self, view: &Graph, c: &Complement, anchor_of: &dyn Fn(u32) -> Option<Name>) -> Vec<PutDomainError> {
+    fn synth_violations(
+        &self,
+        view: &Graph,
+        comp: &Complement,
+        anchor_of: &dyn Fn(u32) -> Option<Name>,
+    ) -> Vec<PutDomainError> {
         let mut out = Vec::new();
-        let id_of_key = |k: &SynthKey| c.synthesized_nodes.iter().find(|(_, x)| *x == k).map(|(i, _)| *i);
-        let resolve = |p: &SynthOrId| match p {
-            SynthOrId::Id(n) => Some(*n),
-            SynthOrId::Synth(k) => id_of_key(k),
+        let id_of_key = |key: &SynthKey| {
+            comp.synthesized_nodes
+                .iter()
+                .find(|(_, other)| *other == key)
+                .map(|(id_found, _)| *id_found)
         };
-        let explained = |k: &SynthKey| chain_ends(c, k).iter().any(|n| !view.nodes.contains_key(n));
-        for (id, k) in &c.synthesized_nodes {
-            let ok = match view.nodes.get(id) {
-                None => explained(k),
-                Some(n) => matches!(expected_synth(self, c, k, true, anchor_of), Some(Expected::Node(a)) if a == n.anchor && n.value.is_none()),
-            };
+        let resolve = |end: &SynthOrId| match end {
+            SynthOrId::Id(node) => Some(*node),
+            SynthOrId::Synth(key) => id_of_key(key),
+        };
+        let explained = |key: &SynthKey| {
+            chain_ends(comp, key)
+                .iter()
+                .any(|node| !view.nodes.contains_key(node))
+        };
+        for (id, key) in &comp.synthesized_nodes {
+            let ok = view.nodes.get(id).map_or_else(
+                || explained(key),
+                |node| matches!(expected_synth(self, comp, key, true, anchor_of), Some(Expected::Node(anchor)) if anchor == node.anchor && node.value.is_none()),
+            );
             if !ok {
-                out.push(PutDomainError::SynthesizedEdited { elem: ViewRef::Node(*id) });
+                out.push(PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Node(*id),
+                });
             }
         }
-        for (id, k) in &c.synthesized_edges {
-            let ok = match view.edges.get(id) {
-                None => explained(k),
-                Some(e) => matches!(expected_synth(self, c, k, false, anchor_of),
-                    Some(Expected::Edge(l, s, t)) if l == e.label && resolve(&s) == Some(e.src) && resolve(&t) == Some(e.tgt) && e.position.is_none()),
-            };
+        for (id, key) in &comp.synthesized_edges {
+            let ok = view.edges.get(id).map_or_else(
+                || explained(key),
+                |edge| {
+                    matches!(expected_synth(self, comp, key, false, anchor_of),
+                        Some(Expected::Edge(label, from, to)) if label == edge.label && resolve(&from) == Some(edge.src) && resolve(&to) == Some(edge.tgt) && edge.position.is_none())
+                },
+            );
             if !ok {
-                out.push(PutDomainError::SynthesizedEdited { elem: ViewRef::Edge(*id) });
+                out.push(PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(*id),
+                });
             }
         }
         out
@@ -326,36 +450,60 @@ impl GraphLens<'_> {
     /// edges less the cascade (the dropped edges incident to a surviving
     /// source node the view removed).
     fn restore(&self, view: &Graph, c: &Complement) -> Result<Graph, Vec<PutDomainError>> {
-        let mut errs = Vec::new();
-        for id in view.nodes.keys().filter(|i| c.dropped_nodes.contains_key(i)) {
-            errs.push(PutDomainError::IdCollision { elem: ViewRef::Node(*id) });
-        }
-        for id in view.edges.keys().filter(|i| c.dropped_edges.contains_key(i)) {
-            errs.push(PutDomainError::IdCollision { elem: ViewRef::Edge(*id) });
-        }
+        let mut errs = id_collisions(view, c);
         let mut anchors: BTreeMap<u32, Name> = BTreeMap::new();
         let mut out = Graph::default();
-        for (id, n) in view.nodes.iter().filter(|(i, _)| !c.synthesized_nodes.contains_key(i)) {
+        for (id, n) in view
+            .nodes
+            .iter()
+            .filter(|(i, _)| !c.synthesized_nodes.contains_key(i))
+        {
             match self.source_anchor(c, n) {
                 Ok(a) => {
                     anchors.insert(*id, a);
                 }
-                Err(candidates) => errs.push(PutDomainError::AmbiguousReverseAnchor { elem: ViewRef::Node(*id), candidates }),
+                Err(candidates) => errs.push(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(*id),
+                    candidates,
+                }),
             }
         }
-        let anchor_of = |n: u32| anchors.get(&n).cloned().or_else(|| c.dropped_nodes.get(&n).map(|x| x.anchor.clone()));
+        let anchor_of = |n: u32| {
+            anchors
+                .get(&n)
+                .cloned()
+                .or_else(|| c.dropped_nodes.get(&n).map(|x| x.anchor.clone()))
+        };
         errs.extend(self.synth_violations(view, c, &anchor_of));
-        for (id, n) in view.nodes.iter().filter(|(i, _)| !c.synthesized_nodes.contains_key(i)) {
-            match self.vl.restore(n, c.original_fields.get(id), c.original_values.get(id)) {
+        for (id, n) in view
+            .nodes
+            .iter()
+            .filter(|(i, _)| !c.synthesized_nodes.contains_key(i))
+        {
+            match self
+                .vl
+                .restore(n, c.original_fields.get(id), c.original_values.get(id))
+            {
                 Ok((fields, value)) => {
                     let anchor = anchors.get(id).cloned().unwrap_or_else(|| n.anchor.clone());
-                    out.nodes.insert(*id, Node { anchor, fields, value, ..n.clone() });
+                    out.nodes.insert(
+                        *id,
+                        Node {
+                            anchor,
+                            value,
+                            fields,
+                            ..n.clone()
+                        },
+                    );
                 }
-                Err(PutFieldRefusal::DerivedCellEdited { field }) => errs.push(PutDomainError::DerivedCellEdited { elem: ViewRef::Node(*id), field }),
-                Err(PutFieldRefusal::TransformNotInvertible { field }) => errs.push(PutDomainError::TransformNotInvertible { elem: ViewRef::Node(*id), field }),
+                Err(refusal) => errs.push(field_refusal(ViewRef::Node(*id), refusal)),
             }
         }
-        for (id, e) in view.edges.iter().filter(|(i, _)| !c.synthesized_edges.contains_key(i)) {
+        for (id, e) in view
+            .edges
+            .iter()
+            .filter(|(i, _)| !c.synthesized_edges.contains_key(i))
+        {
             match self.edge_label(c, view, *id, e, &anchor_of) {
                 Ok(label) => {
                     out.edges.insert(*id, GEdge { label, ..e.clone() });
@@ -369,7 +517,8 @@ impl GraphLens<'_> {
             .flat_map(|e| [e.src, e.tgt])
             .filter(|n| !c.dropped_nodes.contains_key(n) && !view.nodes.contains_key(n))
             .collect();
-        out.nodes.extend(c.dropped_nodes.iter().map(|(i, n)| (*i, n.clone())));
+        out.nodes
+            .extend(c.dropped_nodes.iter().map(|(i, n)| (*i, n.clone())));
         for (id, e) in &c.dropped_edges {
             if !removed.contains(&e.src) && !removed.contains(&e.tgt) {
                 out.edges.insert(*id, e.clone());
@@ -384,14 +533,23 @@ impl GraphLens<'_> {
     /// domain.
     fn source_violations(&self, view: &Graph, c: &Complement, out: &Graph) -> Vec<PutDomainError> {
         let mut errs = Vec::new();
-        for (id, n) in out.nodes.iter().filter(|(i, _)| view.nodes.contains_key(i) && !c.synthesized_nodes.contains_key(i)) {
+        for (id, n) in out
+            .nodes
+            .iter()
+            .filter(|(i, _)| view.nodes.contains_key(i) && !c.synthesized_nodes.contains_key(i))
+        {
             if !self.m.conditional.contains(&n.anchor) {
                 continue;
             }
             match self.vl.survives(out, n) {
                 Ok(true) => {}
-                Ok(false) => errs.push(PutDomainError::SurvivalPredicateFails { elem: ViewRef::Node(*id) }),
-                Err(refusal) => errs.push(PutDomainError::SurvivalPredicateRefused { elem: ViewRef::Node(*id), refusal }),
+                Ok(false) => errs.push(PutDomainError::SurvivalPredicateFails {
+                    elem: ViewRef::Node(*id),
+                }),
+                Err(refusal) => errs.push(PutDomainError::SurvivalPredicateRefused {
+                    elem: ViewRef::Node(*id),
+                    refusal,
+                }),
             }
         }
         for (vertex, ks) in &self.src.keys {
@@ -399,24 +557,45 @@ impl GraphLens<'_> {
                 let (buckets, _) = keys::buckets(out, vertex, key);
                 for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
                     let cols = key.parts.iter().map(part_column);
-                    let key_cols = cols.zip(values.iter().map(|v| crate::canonical::value_bytes(v).unwrap_or_default())).collect();
-                    errs.push(PutDomainError::DuplicateKey { table: vertex.clone(), key: key_cols, elems: elems.into_iter().map(ViewRef::Node).collect() });
+                    let key_cols = cols
+                        .zip(
+                            values
+                                .iter()
+                                .map(|v| crate::canonical::value_bytes(v).unwrap_or_default()),
+                        )
+                        .collect();
+                    errs.push(PutDomainError::DuplicateKey {
+                        table: vertex.clone(),
+                        key: key_cols,
+                        elems: elems.into_iter().map(ViewRef::Node).collect(),
+                    });
                 }
                 if key.role != KeyRole::Primary {
                     continue;
                 }
-                for id in out.nodes.iter().filter(|(i, n)| n.anchor == *vertex && view.nodes.contains_key(i)).map(|(i, _)| i) {
+                for id in out
+                    .nodes
+                    .iter()
+                    .filter(|(i, n)| n.anchor == *vertex && view.nodes.contains_key(i))
+                    .map(|(i, _)| i)
+                {
                     for p in &key.parts {
                         if let crate::schema::KeyPart::Path(path) = p
                             && keys::path_value(out, *id, path).is_none()
                         {
-                            errs.push(PutDomainError::MissingRequiredCell { elem: ViewRef::Node(*id), field: part_column(p) });
+                            errs.push(PutDomainError::MissingRequiredCell {
+                                elem: ViewRef::Node(*id),
+                                field: part_column(p),
+                            });
                         }
                     }
                 }
             }
         }
-        if let Some(n) = candidates(out).into_iter().find(|n| !violations_at(out, *n, Some(self.src)).is_empty()) {
+        if let Some(n) = candidates(out)
+            .into_iter()
+            .find(|n| !violations_at(out, *n, Some(self.src)).is_empty())
+        {
             let reason = violations_at(out, n, Some(self.src)).remove(0);
             errs.push(PutDomainError::MalformedFan { node: n, reason });
         }
@@ -426,7 +605,10 @@ impl GraphLens<'_> {
 
 fn part_column(p: &crate::schema::KeyPart) -> String {
     match p {
-        crate::schema::KeyPart::Path(path) => path.last().map(|e| e.column().to_owned()).unwrap_or_default(),
+        crate::schema::KeyPart::Path(path) => path
+            .last()
+            .map(|e| e.column().to_owned())
+            .unwrap_or_default(),
         crate::schema::KeyPart::Position { within } => within.column().to_owned(),
     }
 }
@@ -440,16 +622,27 @@ pub fn present(n: &Node) -> Option<&Value> {
     }
 }
 
-/// The tree lens on the domain where the tree and graph engines agree: the
-/// lens keeps the tree shape (no source edge between surviving vertices is
-/// dropped) and the root survives. Tree get is the graph get of the tree's
-/// graph form, read back as a tree with the same root; it also returns the
-/// view's embedding, which put takes to name the view's edges.
+/// The tree lens on the domain where the tree and graph engines agree.
+///
+/// The lens keeps the tree shape (no source edge between surviving vertices is dropped) and the
+/// root survives. Tree get is the graph get of the tree's graph form, read back as a tree with the
+/// same root; it also returns the view's embedding, which put takes to name the view's edges.
 ///
 /// `None` outside that domain (or when the tree has no graph form).
 #[must_use]
-pub fn tree_get(lens: &GraphLens<'_>, t: &crate::model::Tree) -> Option<Result<(crate::model::Tree, Complement, crate::encode::TreeEmbedding), crate::restrict::RestrictError>> {
-    let keeps_shape = !lens.plan.fates.iter().any(|(e, f)| *f == EdgeFate::Drop && lens.m.survives(&e.src) && lens.m.survives(&e.tgt));
+pub fn tree_get(
+    lens: &GraphLens<'_>,
+    t: &crate::model::Tree,
+) -> Option<
+    Result<
+        (crate::model::Tree, Complement, crate::encode::TreeEmbedding),
+        crate::restrict::RestrictError,
+    >,
+> {
+    let keeps_shape =
+        !lens.plan.fates.iter().any(|(e, f)| {
+            *f == EdgeFate::Drop && lens.m.survives(&e.src) && lens.m.survives(&e.tgt)
+        });
     if !keeps_shape {
         return None;
     }
@@ -472,21 +665,38 @@ fn view_embedding(view: &Graph) -> crate::encode::TreeEmbedding {
     }
     for (id, n) in &view.nodes {
         if n.shape == crate::model::NodeShape::HyperEdge {
-            let out: Vec<(u32, &GEdge)> = view.edges.iter().filter(|(_, e)| e.src == *id).map(|(i, e)| (*i, e)).collect();
-            let parent = out.iter().find(|(_, e)| e.label.kind == crate::restrict::HYPER_PARENT).map_or(0, |(i, _)| *i);
-            let children = out.iter().filter_map(|(i, e)| e.label.name.clone().filter(|_| e.label.kind == crate::restrict::HYPER_LABEL).map(|l| (l, *i))).collect();
+            let out: Vec<(u32, &GEdge)> = view
+                .edges
+                .iter()
+                .filter(|(_, e)| e.src == *id)
+                .map(|(i, e)| (*i, e))
+                .collect();
+            let parent = out
+                .iter()
+                .find(|(_, e)| e.label.kind == crate::restrict::HYPER_PARENT)
+                .map_or(0, |(i, _)| *i);
+            let children = out
+                .iter()
+                .filter_map(|(i, e)| {
+                    e.label
+                        .name
+                        .clone()
+                        .filter(|_| e.label.kind == crate::restrict::HYPER_LABEL)
+                        .map(|l| (l, *i))
+                })
+                .collect();
             emb.fans.push((*id, parent, children));
         }
     }
     emb
 }
 
-/// Tree put: the view tree is laid out as a graph with the edge ids its
-/// embedding records (an arc whose child the embedding names keeps that id
-/// while its parent is unchanged, fans keep their nodes and edges in fan
-/// order), new arcs and fans taking fresh ids above every view, reserved
-/// and synthesized id; the graph put's result is read back as a tree with
-/// the view's root.
+/// Tree put.
+///
+/// The view tree is laid out as a graph with the edge ids its embedding records (an arc whose child
+/// the embedding names keeps that id while its parent is unchanged, fans keep their nodes and edges
+/// in fan order), new arcs and fans taking fresh ids above every view, reserved and synthesized id;
+/// the graph put's result is read back as a tree with the view's root.
 ///
 /// # Errors
 ///
@@ -504,24 +714,88 @@ pub fn tree_put(
         v.sort_by_key(PutDomainError::order_key);
         v
     })?;
-    crate::encode::graph_to_tree(&restored, view.root)
-        .ok_or_else(|| vec![PutDomainError::MalformedFan { node: 0, reason: FanViolation::MissingParent }])
+    crate::encode::graph_to_tree(&restored, view.root).ok_or_else(|| {
+        vec![PutDomainError::MalformedFan {
+            node: 0,
+            reason: FanViolation::MissingParent,
+        }]
+    })
 }
 
-fn tree_view_graph(lens: &GraphLens<'_>, view: &crate::model::Tree, emb: &crate::encode::TreeEmbedding, c: &Complement) -> Graph {
-    let mut g = Graph { nodes: view.nodes.clone(), edges: BTreeMap::new() };
-    let mut node_floor = crate::restrict::floor_of(view.nodes.keys().copied().chain(c.dropped_nodes.keys().copied()).chain(c.synthesized_nodes.keys().copied()).chain(std::iter::once(c.floor.0.saturating_sub(1))));
+/// The edge of kind `kind` and name `name` from fan node `fan` of
+/// hyper-edge `hyper_edge` to the target node with its anchor.
+fn fan_edge(
+    fan: u32,
+    hyper_edge: &str,
+    kind: &str,
+    name: Option<Name>,
+    (tgt, tgt_anchor): (u32, Name),
+) -> GEdge {
+    GEdge {
+        src: fan,
+        tgt,
+        label: SEdge {
+            src: hyper_edge.to_owned(),
+            tgt: tgt_anchor,
+            kind: kind.to_owned(),
+            name,
+        },
+        position: None,
+    }
+}
+
+fn tree_view_graph(
+    lens: &GraphLens<'_>,
+    view: &crate::model::Tree,
+    emb: &crate::encode::TreeEmbedding,
+    c: &Complement,
+) -> Graph {
+    let mut g = Graph {
+        nodes: view.nodes.clone(),
+        edges: BTreeMap::new(),
+    };
+    let mut node_floor = crate::restrict::floor_of(
+        view.nodes
+            .keys()
+            .copied()
+            .chain(c.dropped_nodes.keys().copied())
+            .chain(c.synthesized_nodes.keys().copied())
+            .chain(std::iter::once(c.floor.0.saturating_sub(1))),
+    );
     let mut used: BTreeSet<u32> = BTreeSet::new();
     let mut fresh_edge = crate::restrict::floor_of(
-        emb.arcs.values().copied().chain(c.dropped_edges.keys().copied()).chain(c.synthesized_edges.keys().copied()).chain(emb.fans.iter().flat_map(|(_, p, ch)| std::iter::once(*p).chain(ch.values().copied()))).chain(std::iter::once(c.floor.1.saturating_sub(1))),
+        emb.arcs
+            .values()
+            .copied()
+            .chain(c.dropped_edges.keys().copied())
+            .chain(c.synthesized_edges.keys().copied())
+            .chain(
+                emb.fans
+                    .iter()
+                    .flat_map(|(_, p, ch)| std::iter::once(*p).chain(ch.values().copied())),
+            )
+            .chain(std::iter::once(c.floor.1.saturating_sub(1))),
     );
     let mut next = || {
         fresh_edge += 1;
         fresh_edge - 1
     };
     for (p, ch, label) in &view.arcs {
-        let id = emb.arcs.get(ch).copied().filter(|i| used.insert(*i)).unwrap_or_else(&mut next);
-        g.edges.insert(id, GEdge { src: *p, tgt: *ch, label: label.clone(), position: None });
+        let id = emb
+            .arcs
+            .get(ch)
+            .copied()
+            .filter(|i| used.insert(*i))
+            .unwrap_or_else(&mut next);
+        g.edges.insert(
+            id,
+            GEdge {
+                src: *p,
+                tgt: *ch,
+                label: label.clone(),
+                position: None,
+            },
+        );
     }
     for (k, f) in view.fans.iter().enumerate() {
         let known = emb.fans.get(k);
@@ -535,13 +809,38 @@ fn tree_view_graph(lens: &GraphLens<'_>, view: &crate::model::Tree, emb: &crate:
         let mut node = Node::new(fid, &f.hyper_edge);
         node.shape = crate::model::NodeShape::HyperEdge;
         g.nodes.insert(fid, node);
-        let anchor = |n: u32| view.nodes.get(&n).map(|x| x.anchor.clone()).unwrap_or_default();
+        let anchor = |n: u32| {
+            view.nodes
+                .get(&n)
+                .map(|x| x.anchor.clone())
+                .unwrap_or_default()
+        };
         let pid = known.map_or_else(&mut next, |(_, p, _)| *p);
         let parent_name = lens_parent_name(lens, &f.hyper_edge);
-        g.edges.insert(pid, GEdge { src: fid, tgt: f.parent, label: SEdge { src: f.hyper_edge.clone(), tgt: anchor(f.parent), kind: crate::restrict::HYPER_PARENT.into(), name: parent_name }, position: None });
+        g.edges.insert(
+            pid,
+            fan_edge(
+                fid,
+                &f.hyper_edge,
+                crate::restrict::HYPER_PARENT,
+                parent_name,
+                (f.parent, anchor(f.parent)),
+            ),
+        );
         for (l, ch) in &f.children {
-            let cid = known.and_then(|(_, _, m)| m.get(l).copied()).unwrap_or_else(&mut next);
-            g.edges.insert(cid, GEdge { src: fid, tgt: *ch, label: SEdge { src: f.hyper_edge.clone(), tgt: anchor(*ch), kind: crate::restrict::HYPER_LABEL.into(), name: Some(l.clone()) }, position: None });
+            let cid = known
+                .and_then(|(_, _, m)| m.get(l).copied())
+                .unwrap_or_else(&mut next);
+            g.edges.insert(
+                cid,
+                fan_edge(
+                    fid,
+                    &f.hyper_edge,
+                    crate::restrict::HYPER_LABEL,
+                    Some(l.clone()),
+                    (*ch, anchor(*ch)),
+                ),
+            );
         }
     }
     g
@@ -552,7 +851,11 @@ fn tree_view_graph(lens: &GraphLens<'_>, view: &crate::model::Tree, emb: &crate:
 /// resolver entry sends to it), as the tree's graph form names it.
 fn lens_parent_name(lens: &GraphLens<'_>, hyper: &str) -> Option<Name> {
     let source = lens.src.hyper_edges.get(hyper).or_else(|| {
-        lens.m.hyper_resolver.iter().find(|(_, (h, _))| h == hyper).and_then(|((s, _), _)| lens.src.hyper_edges.get(s))
+        lens.m
+            .hyper_resolver
+            .iter()
+            .find(|(_, (h, _))| h == hyper)
+            .and_then(|((s, _), _)| lens.src.hyper_edges.get(s))
     });
     source.map(|h| h.parent_label.clone())
 }

@@ -104,10 +104,9 @@ impl Nat {
     /// The number of decimal digits (zero has none).
     #[must_use]
     pub fn digit_count(&self) -> usize {
-        match self.limbs.last() {
-            None => 0,
-            Some(top) => (self.limbs.len() - 1) * 9 + top.to_string().len(),
-        }
+        self.limbs
+            .last()
+            .map_or(0, |top| (self.limbs.len() - 1) * 9 + top.to_string().len())
     }
 
     /// The decimal digit of weight `10^i` (zero past the most significant
@@ -133,7 +132,9 @@ impl Nat {
     pub fn to_u128(&self) -> Option<u128> {
         let mut out: u128 = 0;
         for l in self.limbs.iter().rev() {
-            out = out.checked_mul(u128::from(BASE))?.checked_add(u128::from(*l))?;
+            out = out
+                .checked_mul(u128::from(BASE))?
+                .checked_add(u128::from(*l))?;
         }
         Some(out)
     }
@@ -228,28 +229,52 @@ impl Nat {
     }
 
     /// Quotient and remainder of `self / divisor` by long division, one
-    /// base-`10^9` digit of the quotient at a time (each found by bisection
-    /// over the digit range); `None` for a zero divisor.
+    /// base-`10^9` digit of the quotient at a time; each digit is the
+    /// largest q with `divisor * q <= remainder`, found from a lower
+    /// estimate (the remainder's leading digits over the divisor's leading
+    /// digit plus one) raised one step at a time; `None` for a zero
+    /// divisor.
     #[must_use]
     pub fn div_rem(&self, divisor: &Self) -> Option<(Self, Self)> {
         if divisor.is_zero() {
             return None;
         }
+        let k = divisor.limbs.len();
+        let b = u128::from(BASE);
+        // The divisor's two leading digits (rounded up) and the remainder's
+        // matching three leading digits give a lower estimate within a
+        // few units of the true digit.
+        let (lead, low) = if k >= 2 {
+            (
+                u128::from(divisor.limb(k - 1)) * b + u128::from(divisor.limb(k - 2)) + 1,
+                k - 2,
+            )
+        } else {
+            (u128::from(divisor.limb(0)), 0)
+        };
         let mut quotient = vec![0u32; self.limbs.len()];
         let mut rem = Self::zero();
         for i in (0..self.limbs.len()).rev() {
             rem = rem.shift_limbs(1).add(&Self::from_u64(self.limb(i)));
-            let (mut lo, mut hi) = (0u64, BASE - 1);
-            while lo < hi {
-                let mid = (lo + hi).div_ceil(2);
-                if divisor.mul_small(mid) <= rem {
-                    lo = mid;
-                } else {
-                    hi = mid - 1;
-                }
+            let top = (low..=k)
+                .rev()
+                .fold(0u128, |acc, j| acc * b + u128::from(rem.limb(j)));
+            let mut q = u64::try_from((top / lead).min(u128::from(BASE - 1))).unwrap_or(0);
+            let mut product = divisor.mul_small(q);
+            while product > rem {
+                q -= 1;
+                product = divisor.mul_small(q);
             }
-            rem = rem.checked_sub(&divisor.mul_small(lo)).unwrap_or_default();
-            quotient[i] = u32::try_from(lo).unwrap_or(0);
+            loop {
+                let next = product.add(divisor);
+                if next > rem {
+                    break;
+                }
+                product = next;
+                q += 1;
+            }
+            rem = rem.checked_sub(&product).unwrap_or_default();
+            quotient[i] = u32::try_from(q).unwrap_or(0);
         }
         Some((Self::normalized(quotient), rem))
     }
@@ -477,11 +502,16 @@ impl Int {
         match self.magnitude.cmp(&other.magnitude) {
             Ordering::Less => Self::new(
                 other.negative,
-                other.magnitude.checked_sub(&self.magnitude).unwrap_or_default(),
+                other
+                    .magnitude
+                    .checked_sub(&self.magnitude)
+                    .unwrap_or_default(),
             ),
             _ => Self::new(
                 self.negative,
-                self.magnitude.checked_sub(&other.magnitude).unwrap_or_default(),
+                self.magnitude
+                    .checked_sub(&other.magnitude)
+                    .unwrap_or_default(),
             ),
         }
     }
@@ -557,7 +587,10 @@ impl Rat {
     /// The integer `n` as a rational.
     #[must_use]
     pub fn from_int(n: Int) -> Self {
-        Self { num: n, den: Nat::one() }
+        Self {
+            num: n,
+            den: Nat::one(),
+        }
     }
 
     /// Zero.
@@ -634,7 +667,9 @@ impl Rat {
         if other.is_zero() {
             return None;
         }
-        let num = self.num.mul(&Int::new(other.is_negative(), other.den.clone()));
+        let num = self
+            .num
+            .mul(&Int::new(other.is_negative(), other.den.clone()));
         let den = self.den.mul(other.num.magnitude());
         Self::new(num, den)
     }
@@ -646,7 +681,10 @@ impl Rat {
         if k >= 0 {
             Self::from_int(Int::new(false, mag))
         } else {
-            Self { num: Int::from_i64(1), den: mag }
+            Self {
+                num: Int::from_i64(1),
+                den: mag,
+            }
         }
     }
 
@@ -657,18 +695,17 @@ impl Rat {
         if k >= 0 {
             Self::from_int(Int::new(false, mag))
         } else {
-            Self { num: Int::from_i64(1), den: mag }
+            Self {
+                num: Int::from_i64(1),
+                den: mag,
+            }
         }
     }
 
     /// The greatest integer not above this number.
     #[must_use]
     pub fn floor(&self) -> Int {
-        let (q, r) = self
-            .num
-            .magnitude()
-            .div_rem(&self.den)
-            .unwrap_or_default();
+        let (q, r) = self.num.magnitude().div_rem(&self.den).unwrap_or_default();
         if self.is_negative() && !r.is_zero() {
             Int::new(true, q.add(&Nat::one()))
         } else {
@@ -756,10 +793,10 @@ mod tests {
                 assert_eq!(x.mul(&y).to_u64(), Some(a * b));
                 assert_eq!(x.checked_sub(&y).and_then(|n| n.to_u64()), a.checked_sub(b));
                 assert_eq!(x.cmp(&y), a.cmp(&b));
-                if b > 0 {
-                    let (q, r) = x.div_rem(&y).unwrap_or_default();
-                    assert_eq!((q.to_u64(), r.to_u64()), (Some(a / b), Some(a % b)));
-                }
+                let (q, r) = x
+                    .div_rem(&y)
+                    .map_or((None, None), |(q, r)| (q.to_u64(), r.to_u64()));
+                assert_eq!((q, r), (a.checked_div(b), a.checked_rem(b)));
             }
         }
     }
@@ -769,7 +806,9 @@ mod tests {
         // 2^64 = 18446744073709551616 and 10^20 = 2^20 * 5^20.
         assert_eq!(Nat::pow2(64).to_string(), "18446744073709551616");
         assert_eq!(
-            nat("18446744073709551616").mul(&nat("18446744073709551616")).to_string(),
+            nat("18446744073709551616")
+                .mul(&nat("18446744073709551616"))
+                .to_string(),
             "340282366920938463463374607431768211456"
         );
         assert_eq!(Nat::gcd(&Nat::pow10(20), &Nat::pow2(64)), Nat::pow2(20));

@@ -66,21 +66,23 @@ fn all_digits(s: &str) -> bool {
     s.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Read a decimal numeral: an optional sign, digits with an optional point
-/// (either side of the point may be empty, not both), and an optional
-/// exponent `e`/`E` with an optional sign and at least one digit. This is
-/// the JSON number grammar widened by the decimal forms of SQL and XML
-/// Schema (a leading `+`, a point with an empty side). `None` otherwise.
+/// Read a decimal numeral.
+///
+/// An optional sign, digits with an optional point (either side of the point may be empty, not
+/// both), and an optional exponent `e`/`E` with an optional sign and at least one digit. This is
+/// the JSON number grammar widened by the decimal forms of SQL and XML Schema (a leading `+`, a
+/// point with an empty side). `None` otherwise.
 #[must_use]
 pub fn parse_numeral(text: &str) -> Option<Numeral> {
     let (negative, rest) = split_sign(text);
     let (mantissa, exponent_text) = rest
         .find(['e', 'E'])
         .map_or((rest, None), |at| (&rest[..at], Some(&rest[at + 1..])));
-    let (integer, fraction, has_point) = mantissa
-        .find('.')
-        .map_or((mantissa, "", false), |at| (&mantissa[..at], &mantissa[at + 1..], true));
-    if (integer.is_empty() && fraction.is_empty()) || !all_digits(integer) || !all_digits(fraction) {
+    let (integer, fraction, has_point) = mantissa.find('.').map_or((mantissa, "", false), |at| {
+        (&mantissa[..at], &mantissa[at + 1..], true)
+    });
+    if (integer.is_empty() && fraction.is_empty()) || !all_digits(integer) || !all_digits(fraction)
+    {
         return None;
     }
     let exponent = match exponent_text {
@@ -114,7 +116,10 @@ impl Numeral {
     /// fractional digits.
     #[must_use]
     pub fn stored_exponent(&self) -> Int {
-        let f = Int::new(false, Nat::from_u64(u64::try_from(self.fraction.len()).unwrap_or(u64::MAX)));
+        let f = Int::new(
+            false,
+            Nat::from_u64(u64::try_from(self.fraction.len()).unwrap_or(u64::MAX)),
+        );
         self.exponent.sub(&f)
     }
 
@@ -147,11 +152,12 @@ pub enum Scaled {
 fn pow10_small(k: &Int) -> Option<Rat> {
     k.to_i64().map(Rat::pow10)
 }
-/// A finite exact decimal `(-1)^negative x digits x 10^exponent` with an
-/// unbounded integer exponent: `digits` has no leading zero (zero is
-/// `"0"`), a zero keeps a written minus sign (`-0` and `-0E+3` are negative
-/// zeros), and the representation keeps the written scale (`1.50` and `1.5` differ; [`DecimalValue::cmp_numeric`]
-/// compares numbers).
+/// A finite exact decimal `(-1)^negative x digits x 10^exponent` with an unbounded integer
+/// exponent.
+///
+/// `digits` has no leading zero (zero is `"0"`), a zero keeps a written minus sign (`-0` and
+/// `-0E+3` are negative zeros), and the representation keeps the written scale (`1.50` and `1.5`
+/// differ; [`DecimalValue::cmp_numeric`] compares numbers).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DecimalValue {
     /// The sign (a zero may be negative).
@@ -215,7 +221,9 @@ impl DecimalValue {
         if self.is_zero() {
             return Nat::zero();
         }
-        self.scale().checked_sub(&self.trailing_zeros()).unwrap_or_default()
+        self.scale()
+            .checked_sub(&self.trailing_zeros())
+            .unwrap_or_default()
     }
 
     /// The number of digits before the point once leading zeros are dropped:
@@ -225,9 +233,16 @@ impl DecimalValue {
         if self.is_zero() {
             return Nat::zero();
         }
-        let len = Int::new(false, Nat::from_u64(u64::try_from(self.digits.digit_count()).unwrap_or(0)));
+        let len = Int::new(
+            false,
+            Nat::from_u64(u64::try_from(self.digits.digit_count()).unwrap_or(0)),
+        );
         let pos = len.add(&self.exponent);
-        if pos.is_negative() { Nat::zero() } else { pos.magnitude().clone() }
+        if pos.is_negative() {
+            Nat::zero()
+        } else {
+            pos.magnitude().clone()
+        }
     }
 
     /// The digits in positional notation: integer digits plus minimal scale.
@@ -240,7 +255,11 @@ impl DecimalValue {
     /// `[10^(p-1), 10^p)` for `p = len(digits) + exponent` (zero has none).
     #[must_use]
     pub fn position(&self) -> Int {
-        Int::new(false, Nat::from_u64(u64::try_from(self.digits.digit_count()).unwrap_or(0))).add(&self.exponent)
+        Int::new(
+            false,
+            Nat::from_u64(u64::try_from(self.digits.digit_count()).unwrap_or(0)),
+        )
+        .add(&self.exponent)
     }
 
     /// The value placed against `10^lo` and `10^hi` (`lo < hi`): exact when
@@ -286,12 +305,12 @@ impl DecimalValue {
     }
 }
 
-fn cmp_magnitude(a: &DecimalValue, b: &DecimalValue) -> Ordering {
-    a.position().cmp(&b.position()).then_with(|| {
-        let (x, y) = (a.digits.to_string(), b.digits.to_string());
-        let n = x.len().max(y.len());
-        let pad = |s: &str| format!("{s:0<n$}");
-        pad(&x).cmp(&pad(&y))
+fn cmp_magnitude(left: &DecimalValue, right: &DecimalValue) -> Ordering {
+    left.position().cmp(&right.position()).then_with(|| {
+        let (lhs, rhs) = (left.digits.to_string(), right.digits.to_string());
+        let width = lhs.len().max(rhs.len());
+        let pad = |text: &str| format!("{text:0<width$}");
+        pad(&lhs).cmp(&pad(&rhs))
     })
 }
 
@@ -331,7 +350,10 @@ impl ExactInteger {
         let mut s = significand.clone();
         let mut z = zeros.clone();
         while s.digit(0) == 0 {
-            s = s.div_rem(&Nat::from_u64(10)).map(|(q, _)| q).unwrap_or_default();
+            s = s
+                .div_rem(&Nat::from_u64(10))
+                .map(|(q, _)| q)
+                .unwrap_or_default();
             z = z.add(&Nat::one());
         }
         // Small enough to expand: 19 digits bound i64.
@@ -341,7 +363,11 @@ impl ExactInteger {
                 return Self::Int(v);
             }
         }
-        Self::Big(BigIntValue { negative, significand: s, zeros: z })
+        Self::Big(BigIntValue {
+            negative,
+            significand: s,
+            zeros: z,
+        })
     }
 
     /// The exact value; `None` when the count of zeros exceeds `i64`.
@@ -396,7 +422,10 @@ pub fn integer_of_numeral(n: &Numeral) -> Option<ExactInteger> {
     let mut s = d.digits.clone();
     let mut z = Int::zero();
     while s.digit(0) == 0 {
-        s = s.div_rem(&Nat::from_u64(10)).map(|(q, _)| q).unwrap_or_default();
+        s = s
+            .div_rem(&Nat::from_u64(10))
+            .map(|(q, _)| q)
+            .unwrap_or_default();
         z = z.add(&Int::from_i64(1));
     }
     let count = z.add(&d.exponent);
@@ -410,28 +439,60 @@ mod tests {
     #[test]
     fn numerals_read_their_stored_exponent_and_scale() {
         let d = DecimalValue::parse("1.50");
-        let shown = d.as_ref().map(|d| (d.digits.to_string(), d.exponent.to_string(), d.scale().to_string()));
+        let shown = d.as_ref().map(|d| {
+            (
+                d.digits.to_string(),
+                d.exponent.to_string(),
+                d.scale().to_string(),
+            )
+        });
         assert_eq!(shown, Some(("150".into(), "-2".into(), "2".into())));
         assert_eq!(d.map(|d| d.minimal_scale().to_string()), Some("1".into()));
         assert!(parse_numeral(".5").is_some() && parse_numeral("5.").is_some());
-        assert!(parse_numeral(".").is_none() && parse_numeral("1e").is_none() && parse_numeral("--1").is_none());
+        assert!(
+            parse_numeral(".").is_none()
+                && parse_numeral("1e").is_none()
+                && parse_numeral("--1").is_none()
+        );
         let big = parse_numeral("0.0e-3000000000").map(|n| DecimalValue::of_numeral(&n));
-        assert_eq!(big.map(|d| d.scale().to_string()), Some("3000000001".into()));
+        assert_eq!(
+            big.map(|d| d.scale().to_string()),
+            Some("3000000001".into())
+        );
     }
 
     #[test]
     fn integers_keep_one_representation_and_any_count() {
         let n = parse_numeral("1e4097").and_then(|n| integer_of_numeral(&n));
-        let written = parse_numeral(&format!("1{}", "0".repeat(4097))).and_then(|n| integer_of_numeral(&n));
+        let written =
+            parse_numeral(&format!("1{}", "0".repeat(4097))).and_then(|n| integer_of_numeral(&n));
         assert_eq!(n, written);
-        assert_eq!(parse_numeral("9223372036854775807").and_then(|n| integer_of_numeral(&n)), Some(ExactInteger::Int(i64::MAX)));
-        assert!(matches!(parse_numeral("9223372036854775808").and_then(|n| integer_of_numeral(&n)), Some(ExactInteger::Big(_))));
-        assert_eq!(parse_numeral("-9223372036854775808").and_then(|n| integer_of_numeral(&n)), Some(ExactInteger::Int(i64::MIN)));
-        assert_eq!(parse_numeral("1.5").and_then(|n| integer_of_numeral(&n)), None);
-        assert_eq!(parse_numeral("150e-1").and_then(|n| integer_of_numeral(&n)), Some(ExactInteger::Int(15)));
+        assert_eq!(
+            parse_numeral("9223372036854775807").and_then(|n| integer_of_numeral(&n)),
+            Some(ExactInteger::Int(i64::MAX))
+        );
+        assert!(matches!(
+            parse_numeral("9223372036854775808").and_then(|n| integer_of_numeral(&n)),
+            Some(ExactInteger::Big(_))
+        ));
+        assert_eq!(
+            parse_numeral("-9223372036854775808").and_then(|n| integer_of_numeral(&n)),
+            Some(ExactInteger::Int(i64::MIN))
+        );
+        assert_eq!(
+            parse_numeral("1.5").and_then(|n| integer_of_numeral(&n)),
+            None
+        );
+        assert_eq!(
+            parse_numeral("150e-1").and_then(|n| integer_of_numeral(&n)),
+            Some(ExactInteger::Int(15))
+        );
         let huge = parse_numeral("1e9223372036854775807").and_then(|n| integer_of_numeral(&n));
         let bigger = parse_numeral("1e9223372036854775808").and_then(|n| integer_of_numeral(&n));
-        assert_eq!(huge.zip(bigger).map(|(a, b)| a.cmp_numeric(&b)), Some(Ordering::Less));
+        assert_eq!(
+            huge.zip(bigger).map(|(a, b)| a.cmp_numeric(&b)),
+            Some(Ordering::Less)
+        );
     }
 }
 
@@ -459,6 +520,7 @@ pub enum Decimal {
 
 /// Read a decimal lexeme: a finite numeral ([`parse_numeral`]) or a special
 /// form of the General Decimal Arithmetic numeric string syntax:
+///
 /// `Infinity` or `Inf`, `NaN` or `sNaN` followed by optional payload
 /// digits, in any case, with an optional sign. `None` otherwise.
 #[must_use]
@@ -476,23 +538,47 @@ pub fn parse_decimal(text: &str) -> Option<Decimal> {
     } else {
         (false, lower.strip_prefix("nan")?)
     };
-    let payload = if tail.is_empty() { Nat::zero() } else { Nat::parse(tail)? };
-    Some(Decimal::NaN { negative, signalling, payload })
+    let payload = if tail.is_empty() {
+        Nat::zero()
+    } else {
+        Nat::parse(tail)?
+    };
+    Some(Decimal::NaN {
+        negative,
+        signalling,
+        payload,
+    })
 }
 
 impl Decimal {
     /// The rank of a value's class in the numeric preorder: negative quiet
     /// NaNs, negative signalling NaNs, minus infinity, finite, plus
     /// infinity, positive signalling NaNs, positive quiet NaNs.
-    fn class_rank(&self) -> u8 {
+    const fn class_rank(&self) -> u8 {
         match self {
-            Self::NaN { negative: true, signalling: false, .. } => 0,
-            Self::NaN { negative: true, signalling: true, .. } => 1,
+            Self::NaN {
+                negative: true,
+                signalling: false,
+                ..
+            } => 0,
+            Self::NaN {
+                negative: true,
+                signalling: true,
+                ..
+            } => 1,
             Self::Infinite { negative: true } => 2,
             Self::Finite(_) => 3,
             Self::Infinite { negative: false } => 4,
-            Self::NaN { negative: false, signalling: true, .. } => 5,
-            Self::NaN { negative: false, signalling: false, .. } => 6,
+            Self::NaN {
+                negative: false,
+                signalling: true,
+                ..
+            } => 5,
+            Self::NaN {
+                negative: false,
+                signalling: false,
+                ..
+            } => 6,
         }
     }
 
@@ -516,13 +602,17 @@ impl Decimal {
     pub fn compare_total(&self, other: &Self) -> Ordering {
         let (sa, sb) = (self.sign(), other.sign());
         if sa != sb {
-            return if sa { Ordering::Less } else { Ordering::Greater };
+            return if sa {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
         }
         let positive = cmp_total_positive(self, other);
         if sa { positive.reverse() } else { positive }
     }
 
-    fn sign(&self) -> bool {
+    const fn sign(&self) -> bool {
         match self {
             Self::Finite(d) => d.negative,
             Self::Infinite { negative } | Self::NaN { negative, .. } => *negative,
@@ -536,17 +626,40 @@ fn cmp_total_positive(a: &Decimal, b: &Decimal) -> Ordering {
     let rank = |d: &Decimal| match d {
         Decimal::Finite(_) => 0u8,
         Decimal::Infinite { .. } => 1,
-        Decimal::NaN { signalling: true, .. } => 2,
-        Decimal::NaN { signalling: false, .. } => 3,
+        Decimal::NaN {
+            signalling: true, ..
+        } => 2,
+        Decimal::NaN {
+            signalling: false, ..
+        } => 3,
     };
     match (a, b) {
         (Decimal::Finite(x), Decimal::Finite(y)) => {
-            let (mx, my) = (DecimalValue { negative: false, ..x.clone() }, DecimalValue { negative: false, ..y.clone() });
-            mx.cmp_numeric(&my).then_with(|| x.exponent.cmp(&y.exponent))
+            let (mx, my) = (
+                DecimalValue {
+                    negative: false,
+                    ..x.clone()
+                },
+                DecimalValue {
+                    negative: false,
+                    ..y.clone()
+                },
+            );
+            mx.cmp_numeric(&my)
+                .then_with(|| x.exponent.cmp(&y.exponent))
         }
-        (Decimal::NaN { signalling: s1, payload: p1, .. }, Decimal::NaN { signalling: s2, payload: p2, .. }) if s1 == s2 => {
-            p1.cmp(p2)
-        }
+        (
+            Decimal::NaN {
+                signalling: s1,
+                payload: p1,
+                ..
+            },
+            Decimal::NaN {
+                signalling: s2,
+                payload: p2,
+                ..
+            },
+        ) if s1 == s2 => p1.cmp(p2),
         _ => rank(a).cmp(&rank(b)),
     }
 }
@@ -559,11 +672,34 @@ mod decimal_tests {
     fn compare_total_follows_its_rules() {
         // Rules applied to the published list: sign 1 reverses the exponent
         // rule, so -1 sorts below -1.00 and -0 below -0.000.
-        let order = ["-NaN", "-sNaN", "-Infinity", "-127", "-1", "-1.00", "-0", "-0.000", "0", "1.2300", "1.23", "1E+9", "Infinity", "sNaN", "NaN", "NaN456"];
+        let order = [
+            "-NaN",
+            "-sNaN",
+            "-Infinity",
+            "-127",
+            "-1",
+            "-1.00",
+            "-0",
+            "-0.000",
+            "0",
+            "1.2300",
+            "1.23",
+            "1E+9",
+            "Infinity",
+            "sNaN",
+            "NaN",
+            "NaN456",
+        ];
         let parsed: Vec<Decimal> = order.iter().filter_map(|t| parse_decimal(t)).collect();
         assert_eq!(parsed.len(), order.len());
         for w in parsed.windows(2) {
-            assert_eq!(w[0].compare_total(&w[1]), Ordering::Less, "{:?} {:?}", w[0], w[1]);
+            assert_eq!(
+                w[0].compare_total(&w[1]),
+                Ordering::Less,
+                "{:?} {:?}",
+                w[0],
+                w[1]
+            );
         }
         for a in &parsed {
             for b in &parsed {

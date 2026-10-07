@@ -29,7 +29,9 @@ impl<L: Clone> LensPath<L> {
     pub fn then(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Identity(_), p) | (p, Self::Identity(_)) => p.clone(),
-            (Self::Stages(a), Self::Stages(b)) => Self::Stages(a.iter().chain(b).cloned().collect()),
+            (Self::Stages(a), Self::Stages(b)) => {
+                Self::Stages(a.iter().chain(b).cloned().collect())
+            }
         }
     }
 
@@ -43,6 +45,10 @@ impl<L: Clone> LensPath<L> {
     }
 }
 
+/// One stage's get: stage index and view to the next view and its
+/// complement.
+pub type StageGet<'a, I, C, E> = &'a dyn Fn(usize, &I) -> Result<(I, C), E>;
+
 /// Get through a path: each stage's get on the previous view; returns the
 /// last view and every stage's complement in order.
 ///
@@ -51,7 +57,7 @@ impl<L: Clone> LensPath<L> {
 /// The first stage error with its stage index.
 pub fn get_path<I: Clone, C, E>(
     stages: usize,
-    get: &dyn Fn(usize, &I) -> Result<(I, C), E>,
+    get: StageGet<'_, I, C, E>,
     source: &I,
 ) -> Result<(I, Vec<C>), (usize, E)> {
     let mut view = source.clone();

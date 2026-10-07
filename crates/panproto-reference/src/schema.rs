@@ -181,6 +181,9 @@ impl Schema {
     /// The edges from `a` to `b`.
     #[must_use]
     pub fn edges_between(&self, a: &str, b: &str) -> Vec<&SEdge> {
-        self.edges.iter().filter(|e| e.src == a && e.tgt == b).collect()
+        self.edges
+            .iter()
+            .filter(|e| e.src == a && e.tgt == b)
+            .collect()
     }
 }

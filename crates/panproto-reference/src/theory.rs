@@ -16,7 +16,7 @@ pub enum Term {
     /// A variable.
     Var(Name),
     /// An application.
-    App(Name, Vec<Term>),
+    App(Name, Vec<Self>),
 }
 
 /// A sort expression: a sort name (for a dependent sort, the unapplied
@@ -120,7 +120,11 @@ pub enum Defect {
 /// an application's output with the operation's inputs substituted.
 fn term_sort(t: &Theory, ctx: &[(Name, SortExpr)], term: &Term) -> Option<SortExpr> {
     match term {
-        Term::Var(x) => ctx.iter().rev().find(|(n, _)| n == x).map(|(_, s)| s.clone()),
+        Term::Var(x) => ctx
+            .iter()
+            .rev()
+            .find(|(n, _)| n == x)
+            .map(|(_, s)| s.clone()),
         Term::App(o, args) => {
             let op = t.ops.iter().find(|op| op.name == *o)?;
             (op.inputs.len() == args.len()).then(|| subst_sort(&op.output, &op.inputs, args))
@@ -130,15 +134,25 @@ fn term_sort(t: &Theory, ctx: &[(Name, SortExpr)], term: &Term) -> Option<SortEx
 
 fn subst_term(term: &Term, binders: &[(Name, SortExpr)], args: &[Term]) -> Term {
     match term {
-        Term::Var(x) => binders.iter().rposition(|(n, _)| n == x).and_then(|i| args.get(i).cloned()).unwrap_or_else(|| term.clone()),
-        Term::App(o, xs) => Term::App(o.clone(), xs.iter().map(|a| subst_term(a, binders, args)).collect()),
+        Term::Var(x) => binders
+            .iter()
+            .rposition(|(n, _)| n == x)
+            .and_then(|i| args.get(i).cloned())
+            .unwrap_or_else(|| term.clone()),
+        Term::App(o, xs) => Term::App(
+            o.clone(),
+            xs.iter().map(|a| subst_term(a, binders, args)).collect(),
+        ),
     }
 }
 
 fn subst_sort(s: &SortExpr, binders: &[(Name, SortExpr)], args: &[Term]) -> SortExpr {
     match s {
         SortExpr::Name(n) => SortExpr::Name(n.clone()),
-        SortExpr::App(n, xs) => SortExpr::App(n.clone(), xs.iter().map(|a| subst_term(a, binders, args)).collect()),
+        SortExpr::App(n, xs) => SortExpr::App(
+            n.clone(),
+            xs.iter().map(|a| subst_term(a, binders, args)).collect(),
+        ),
     }
 }
 
@@ -153,14 +167,26 @@ fn unbound(ctx: &[(Name, SortExpr)], term: &Term) -> Option<Name> {
 /// Check one sort expression in a context: the sort is declared (among
 /// `declared`), an application has the declared arity, every argument's
 /// variables are bound and its sort's head is the parameter's.
-fn check_expr(t: &Theory, declared: &[&Sort], ctx: &[(Name, SortExpr)], site: &Site, s: &SortExpr, out: &mut Vec<Defect>) {
+fn check_expr(
+    t: &Theory,
+    declared: &[&Sort],
+    ctx: &[(Name, SortExpr)],
+    site: &Site,
+    s: &SortExpr,
+    out: &mut Vec<Defect>,
+) {
     let Some(sort) = declared.iter().find(|d| d.name == s.head()) else {
         out.push(Defect::UndeclaredSort(site.clone(), s.head().to_owned()));
         return;
     };
     let SortExpr::App(_, args) = s else { return };
     if args.len() != sort.params.len() {
-        out.push(Defect::SortArity(site.clone(), sort.name.clone(), sort.params.len(), args.len()));
+        out.push(Defect::SortArity(
+            site.clone(),
+            sort.name.clone(),
+            sort.params.len(),
+            args.len(),
+        ));
         return;
     }
     for (i, a) in args.iter().enumerate() {
@@ -172,21 +198,32 @@ fn check_expr(t: &Theory, declared: &[&Sort], ctx: &[(Name, SortExpr)], site: &S
         if let Some(found) = term_sort(t, ctx, a)
             && found.head() != expected.head()
         {
-            out.push(Defect::ParamIllTyped(site.clone(), sort.name.clone(), i, expected.head().to_owned(), found.head().to_owned()));
+            out.push(Defect::ParamIllTyped(
+                site.clone(),
+                sort.name.clone(),
+                i,
+                expected.head().to_owned(),
+                found.head().to_owned(),
+            ));
         }
     }
 }
 
 fn duplicates(names: &[&Name]) -> Vec<Name> {
     let mut seen = BTreeSet::new();
-    names.iter().filter(|n| !seen.insert((**n).clone())).map(|n| (*n).clone()).collect()
+    names
+        .iter()
+        .filter(|n| !seen.insert((**n).clone()))
+        .map(|n| (*n).clone())
+        .collect()
 }
 
-/// Signature well-formedness: every sort parameter's sort is declared
-/// earlier; every sort expression of an operation names a declared sort,
-/// an application with the declared arity whose argument terms are typed
-/// against the parameters (with substitution) and whose variables are bound
-/// by earlier inputs; binder names and symbol names are distinct.
+/// Signature well-formedness.
+///
+/// Every sort parameter's sort is declared earlier; every sort expression of an operation names a
+/// declared sort, an application with the declared arity whose argument terms are typed against the
+/// parameters (with substitution) and whose variables are bound by earlier inputs; binder names and
+/// symbol names are distinct.
 ///
 /// # Errors
 ///
@@ -218,7 +255,14 @@ pub fn typecheck_signature(t: &Theory) -> Result<(), Vec<Defect>> {
             }
             check_expr(t, &all, &o.inputs[..i], &site, xs, &mut out);
         }
-        check_expr(t, &all, &o.inputs, &Site::OpOutput(o.name.clone()), &o.output, &mut out);
+        check_expr(
+            t,
+            &all,
+            &o.inputs,
+            &Site::OpOutput(o.name.clone()),
+            &o.output,
+            &mut out,
+        );
     }
     out.sort();
     if out.is_empty() { Ok(()) } else { Err(out) }
@@ -316,27 +360,65 @@ pub struct Composition {
 /// the telescope (`None` for a variable bound nowhere).
 fn name_free_term(binders: &[Name], t: &Term, class: &dyn Fn(&str) -> Name) -> Term {
     match t {
-        Term::Var(x) => Term::Var(binders.iter().rposition(|b| b == x).map_or_else(|| format!("free:{x}"), |i| format!("#{i}"))),
-        Term::App(o, xs) => Term::App(class(o), xs.iter().map(|a| name_free_term(binders, a, class)).collect()),
+        Term::Var(x) => Term::Var(
+            binders
+                .iter()
+                .rposition(|b| b == x)
+                .map_or_else(|| format!("free:{x}"), |i| format!("#{i}")),
+        ),
+        Term::App(o, xs) => Term::App(
+            class(o),
+            xs.iter()
+                .map(|a| name_free_term(binders, a, class))
+                .collect(),
+        ),
     }
 }
 
-fn name_free_sort(binders: &[Name], s: &SortExpr, sort_class: &dyn Fn(&str) -> Name, op_class: &dyn Fn(&str) -> Name) -> SortExpr {
+fn name_free_sort(
+    binders: &[Name],
+    s: &SortExpr,
+    sort_class: &dyn Fn(&str) -> Name,
+    op_class: &dyn Fn(&str) -> Name,
+) -> SortExpr {
     match s {
         SortExpr::Name(n) => SortExpr::Name(sort_class(n)),
-        SortExpr::App(n, xs) => SortExpr::App(sort_class(n), xs.iter().map(|a| name_free_term(binders, a, op_class)).collect()),
+        SortExpr::App(n, xs) => SortExpr::App(
+            sort_class(n),
+            xs.iter()
+                .map(|a| name_free_term(binders, a, op_class))
+                .collect(),
+        ),
     }
 }
 
-fn op_signature(o: &Op, sort_class: &dyn Fn(&str) -> Name, op_class: &dyn Fn(&str) -> Name) -> (Vec<SortExpr>, SortExpr) {
+fn op_signature(
+    o: &Op,
+    sort_class: &dyn Fn(&str) -> Name,
+    op_class: &dyn Fn(&str) -> Name,
+) -> (Vec<SortExpr>, SortExpr) {
     let names: Vec<Name> = o.inputs.iter().map(|(n, _)| n.clone()).collect();
-    let ins = o.inputs.iter().enumerate().map(|(i, (_, s))| name_free_sort(&names[..i], s, sort_class, op_class)).collect();
+    let ins = o
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(i, (_, s))| name_free_sort(&names[..i], s, sort_class, op_class))
+        .collect();
     (ins, name_free_sort(&names, &o.output, sort_class, op_class))
 }
 
-fn sort_signature(s: &Sort, sort_class: &dyn Fn(&str) -> Name, op_class: &dyn Fn(&str) -> Name) -> (usize, Name, bool, Vec<SortExpr>) {
+fn sort_signature(
+    s: &Sort,
+    sort_class: &dyn Fn(&str) -> Name,
+    op_class: &dyn Fn(&str) -> Name,
+) -> (usize, Name, bool, Vec<SortExpr>) {
     let names: Vec<Name> = s.params.iter().map(|(n, _)| n.clone()).collect();
-    let params = s.params.iter().enumerate().map(|(i, (_, x))| name_free_sort(&names[..i], x, sort_class, op_class)).collect();
+    let params = s
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, (_, x))| name_free_sort(&names[..i], x, sort_class, op_class))
+        .collect();
     (s.params.len(), s.kind.clone(), s.closed, params)
 }
 
@@ -345,14 +427,28 @@ fn sort_signature(s: &Sort, sort_class: &dyn Fn(&str) -> Name, op_class: &dyn Fn
 /// operation whose signature is the translated source signature (name-free)
 /// or to a term whose variables are the operation's inputs.
 fn is_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
-    let sort_img = |n: &str| m.sorts.get(n).cloned().unwrap_or_else(|| format!("unmapped:{n}"));
-    let sorts_ok = src.sorts.iter().all(|s| m.sorts.get(&s.name).is_some_and(|t| tgt.sorts.iter().any(|ts| ts.name == *t && ts.params.len() == s.params.len())));
+    let sort_img = |n: &str| {
+        m.sorts
+            .get(n)
+            .cloned()
+            .unwrap_or_else(|| format!("unmapped:{n}"))
+    };
+    let sorts_ok = src.sorts.iter().all(|s| {
+        m.sorts.get(&s.name).is_some_and(|t| {
+            tgt.sorts
+                .iter()
+                .any(|ts| ts.name == *t && ts.params.len() == s.params.len())
+        })
+    });
     let op_img = |n: &str| match m.ops.get(n) {
         Some(OpImage::Op(o)) => o.clone(),
         _ => format!("term:{n}"),
     };
     let ops_ok = src.ops.iter().all(|o| match m.ops.get(&o.name) {
-        Some(OpImage::Op(o2)) => tgt.ops.iter().find(|t| t.name == *o2).is_some_and(|t| op_signature(o, &sort_img, &op_img) == op_signature(t, &|x| x.to_owned(), &|x| x.to_owned())),
+        Some(OpImage::Op(o2)) => tgt.ops.iter().find(|t| t.name == *o2).is_some_and(|t| {
+            op_signature(o, &sort_img, &op_img)
+                == op_signature(t, &|x| x.to_owned(), &|x| x.to_owned())
+        }),
         Some(OpImage::Term(t)) => unbound(&o.inputs, t).is_none(),
         None => false,
     });
@@ -366,7 +462,9 @@ struct Classes {
 
 impl Classes {
     fn join(&mut self, a: &(SymKind, SymRef), b: &(SymKind, SymRef)) {
-        let (Some(la), Some(lb)) = (self.label.get(a).copied(), self.label.get(b).copied()) else { return };
+        let (Some(la), Some(lb)) = (self.label.get(a).copied(), self.label.get(b).copied()) else {
+            return;
+        };
         for v in self.label.values_mut() {
             if *v == lb {
                 *v = la;
@@ -395,14 +493,23 @@ fn majority(members: &[SymRef]) -> Name {
         *count.entry(&m.name).or_default() += 1;
     }
     let best = count.values().copied().max().unwrap_or(0);
-    count.into_iter().find(|(_, c)| *c == best).map(|(n, _)| n.clone()).unwrap_or_default()
+    count
+        .into_iter()
+        .find(|(_, c)| *c == best)
+        .map(|(n, _)| n.clone())
+        .unwrap_or_default()
 }
 
 /// Name every class of one kind: its candidate; under explicit identity, a
 /// candidate shared by several classes is a clash, refused or freshened as
 /// `{least member label}.{candidate}`, any remaining collision suffixed
 /// `#1`, `#2`, ... in ascending class order.
-fn name_classes(kind: SymKind, classes: &[Vec<SymRef>], mode: Mode, clash: ClashPolicy) -> Result<Vec<Name>, ComposeError> {
+fn name_classes(
+    kind: SymKind,
+    classes: &[Vec<SymRef>],
+    mode: Mode,
+    clash: ClashPolicy,
+) -> Result<Vec<Name>, ComposeError> {
     let cands: Vec<Name> = classes.iter().map(|c| majority(c)).collect();
     let mut names = cands.clone();
     if mode == Mode::ExplicitIdentity {
@@ -410,9 +517,17 @@ fn name_classes(kind: SymKind, classes: &[Vec<SymRef>], mode: Mode, clash: Clash
             let sharing: Vec<usize> = (0..cands.len()).filter(|j| cands[*j] == *c).collect();
             if sharing.len() > 1 {
                 if clash == ClashPolicy::Reject {
-                    return Err(ComposeError::NameClash(kind, c.clone(), sharing.iter().map(|j| classes[*j].clone()).collect()));
+                    return Err(ComposeError::NameClash(
+                        kind,
+                        c.clone(),
+                        sharing.iter().map(|j| classes[*j].clone()).collect(),
+                    ));
                 }
-                let label = classes[i].iter().map(|m| m.node.clone()).min().unwrap_or_default();
+                let label = classes[i]
+                    .iter()
+                    .map(|m| m.node.clone())
+                    .min()
+                    .unwrap_or_default();
                 names[i] = format!("{label}.{c}");
             }
         }
@@ -444,7 +559,13 @@ fn name_classes(kind: SymKind, classes: &[Vec<SymRef>], mode: Mode, clash: Clash
 /// The first [`ComposeError`]; `Ok(None)` for a diagram outside the
 /// reference's domain (an ill-typed node whose defects are only undeclared
 /// sorts).
-pub fn compose(nodes: &[(Name, Theory)], edges: &[(Name, Name, Morphism)], mode: Mode, clash: ClashPolicy, result_name: &str) -> Result<Option<Composition>, ComposeError> {
+pub fn compose(
+    nodes: &[(Name, Theory)],
+    edges: &[(Name, Name, Morphism)],
+    mode: Mode,
+    clash: ClashPolicy,
+    result_name: &str,
+) -> Result<Option<Composition>, ComposeError> {
     let mut labels = BTreeSet::new();
     for (l, t) in nodes {
         if l.is_empty() || l.contains('.') || l.contains('#') {
@@ -467,12 +588,25 @@ pub fn compose(nodes: &[(Name, Theory)], edges: &[(Name, Name, Morphism)], mode:
                 return Err(ComposeError::UnknownNodeLabel(l.clone()));
             }
         }
-        if !is_morphism(theory(s).unwrap_or(&Theory::default()), theory(t).unwrap_or(&Theory::default()), m) {
+        let (Some(source), Some(target)) = (theory(s), theory(t)) else {
+            return Err(ComposeError::InvalidLeg(i));
+        };
+        if !is_morphism(source, target, m) {
             return Err(ComposeError::InvalidLeg(i));
         }
     }
-    let sym = |k: SymKind, n: &str, x: &str| (k, SymRef { node: n.to_owned(), name: x.to_owned() });
-    let mut cl = Classes { label: BTreeMap::new() };
+    let sym = |k: SymKind, n: &str, x: &str| {
+        (
+            k,
+            SymRef {
+                node: n.to_owned(),
+                name: x.to_owned(),
+            },
+        )
+    };
+    let mut cl = Classes {
+        label: BTreeMap::new(),
+    };
     for (l, t) in nodes {
         for s in &t.sorts {
             let n = cl.label.len();
@@ -496,11 +630,16 @@ pub fn compose(nodes: &[(Name, Theory)], edges: &[(Name, Name, Morphism)], mode:
         }
     };
     leg_only(&mut cl);
-    let legs = Classes { label: cl.label.clone() };
+    let legs = Classes {
+        label: cl.label.clone(),
+    };
     if mode == Mode::Amalgamate {
         let keys: Vec<(SymKind, SymRef)> = cl.label.keys().cloned().collect();
         for a in &keys {
-            for b in keys.iter().filter(|b| b.0 == a.0 && b.1.name == a.1.name && b.1.node != a.1.node) {
+            for b in keys
+                .iter()
+                .filter(|b| b.0 == a.0 && b.1.name == a.1.name && b.1.node != a.1.node)
+            {
                 cl.join(a, b);
             }
         }
@@ -518,7 +657,9 @@ fn rename_term(t: &Term, op: &dyn Fn(&str) -> Name) -> Term {
 fn rename_sort(s: &SortExpr, sort: &dyn Fn(&str) -> Name, op: &dyn Fn(&str) -> Name) -> SortExpr {
     match s {
         SortExpr::Name(n) => SortExpr::Name(sort(n)),
-        SortExpr::App(n, xs) => SortExpr::App(sort(n), xs.iter().map(|a| rename_term(a, op)).collect()),
+        SortExpr::App(n, xs) => {
+            SortExpr::App(sort(n), xs.iter().map(|a| rename_term(a, op)).collect())
+        }
     }
 }
 
@@ -550,33 +691,9 @@ fn finish(
     clash: ClashPolicy,
     result_name: &str,
 ) -> Result<Composition, ComposeError> {
-    let theory = |l: &str| nodes.iter().find(|(x, _)| x == l).map(|(_, t)| t.clone()).unwrap_or_default();
-    let class_id = |k: SymKind, node: &str, name: &str| {
-        cl.label.get(&(k, SymRef { node: node.to_owned(), name: name.to_owned() })).map_or_else(|| format!("?{name}"), |l| format!("c{l}"))
-    };
-    for kind in [SymKind::Sort, SymKind::Op] {
-        for members in cl.members(kind) {
-            let sig = |m: &SymRef| {
-                let t = theory(&m.node);
-                let (sc, oc) = (|n: &str| class_id(SymKind::Sort, &m.node, n), |n: &str| class_id(SymKind::Op, &m.node, n));
-                match kind {
-                    SymKind::Sort => t.sorts.iter().find(|s| s.name == m.name).map(|s| format!("{:?}", sort_signature(s, &sc, &oc))),
-                    _ => t.ops.iter().find(|o| o.name == m.name).map(|o| format!("{:?}", op_signature(o, &sc, &oc))),
-                }
-            };
-            let first = &members[0];
-            if let Some(second) = members.iter().find(|m| sig(m) != sig(first)) {
-                let same_leg = legs.label.get(&(kind, first.clone())) == legs.label.get(&(kind, second.clone()));
-                return Err(if mode == Mode::Amalgamate && !same_leg {
-                    ComposeError::NameConflict(kind, first.name.clone(), first.clone(), second.clone())
-                } else if kind == SymKind::Sort {
-                    ComposeError::SortSignatureMismatch(first.clone(), second.clone())
-                } else {
-                    ComposeError::OpSignatureMismatch(first.clone(), second.clone())
-                });
-            }
-        }
-    }
+    check_signatures(nodes, cl, legs, mode)?;
+    let theory = |l: &str| node_theory(nodes, l);
+    let class_id = |k: SymKind, node: &str, name: &str| class_id(cl, k, node, name);
     let mut provenance = BTreeMap::new();
     let mut result_of: BTreeMap<(SymKind, String), Name> = BTreeMap::new();
     for kind in [SymKind::Sort, SymKind::Op] {
@@ -589,47 +706,204 @@ fn finish(
             }
         }
     }
-    let res = |k: SymKind, node: &str, n: &str| result_of.get(&(k, class_id(k, node, n))).cloned().unwrap_or_else(|| n.to_owned());
-    let mut out = Theory { name: result_name.to_owned(), ..Theory::default() };
+    let res = |k: SymKind, node: &str, n: &str| {
+        result_of
+            .get(&(k, class_id(k, node, n)))
+            .cloned()
+            .unwrap_or_else(|| n.to_owned())
+    };
+    let mut out = Theory {
+        name: result_name.to_owned(),
+        ..Theory::default()
+    };
     for c in cl.members(SymKind::Sort) {
         let m = &c[0];
         if let Some(s) = theory(&m.node).sorts.iter().find(|s| s.name == m.name) {
-            let params = s.params.iter().map(|(p, x)| (p.clone(), rename_sort(x, &|n| res(SymKind::Sort, &m.node, n), &|n| res(SymKind::Op, &m.node, n)))).collect();
-            out.sorts.push(Sort { name: res(SymKind::Sort, &m.node, &m.name), params, kind: s.kind.clone(), closed: s.closed });
+            let params = s
+                .params
+                .iter()
+                .map(|(p, x)| {
+                    (
+                        p.clone(),
+                        rename_sort(x, &|n| res(SymKind::Sort, &m.node, n), &|n| {
+                            res(SymKind::Op, &m.node, n)
+                        }),
+                    )
+                })
+                .collect();
+            out.sorts.push(Sort {
+                name: res(SymKind::Sort, &m.node, &m.name),
+                params,
+                kind: s.kind.clone(),
+                closed: s.closed,
+            });
         }
     }
     for c in cl.members(SymKind::Op) {
         let m = &c[0];
         if let Some(o) = theory(&m.node).ops.iter().find(|o| o.name == m.name) {
-            let (sr, or) = (|n: &str| res(SymKind::Sort, &m.node, n), |n: &str| res(SymKind::Op, &m.node, n));
-            let inputs = o.inputs.iter().map(|(p, x)| (p.clone(), rename_sort(x, &sr, &or))).collect();
-            out.ops.push(Op { name: or(&m.name), inputs, output: rename_sort(&o.output, &sr, &or) });
+            let (sr, or) = (
+                |n: &str| res(SymKind::Sort, &m.node, n),
+                |n: &str| res(SymKind::Op, &m.node, n),
+            );
+            let inputs = o
+                .inputs
+                .iter()
+                .map(|(p, x)| (p.clone(), rename_sort(x, &sr, &or)))
+                .collect();
+            out.ops.push(Op {
+                name: or(&m.name),
+                inputs,
+                output: rename_sort(&o.output, &sr, &or),
+            });
         }
     }
+    let eqs = equation_inputs(nodes, edges, &res);
+    out.eqs = equations(&eqs, mode, clash, &mut provenance)?;
+    out.sorts.sort_by(|a, b| a.name.cmp(&b.name));
+    out.ops.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Composition {
+        theory: out,
+        provenance,
+    })
+}
+
+/// The theory at node label `l` (empty when there is none).
+fn node_theory(nodes: &[(Name, Theory)], l: &str) -> Theory {
+    nodes
+        .iter()
+        .find(|(x, _)| x == l)
+        .map(|(_, t)| t.clone())
+        .unwrap_or_default()
+}
+
+/// The class id of a symbol, or `?name` for a symbol in no class.
+fn class_id(cl: &Classes, k: SymKind, node: &str, name: &str) -> String {
+    cl.label
+        .get(&(
+            k,
+            SymRef {
+                node: node.to_owned(),
+                name: name.to_owned(),
+            },
+        ))
+        .map_or_else(|| format!("?{name}"), |l| format!("c{l}"))
+}
+
+/// Refuse a class whose members' signatures (read through the classes)
+/// differ: a name conflict under amalgamation across legs, else a
+/// signature mismatch.
+fn check_signatures(
+    nodes: &[(Name, Theory)],
+    cl: &Classes,
+    legs: &Classes,
+    mode: Mode,
+) -> Result<(), ComposeError> {
+    let theory = |l: &str| node_theory(nodes, l);
+    let class_id = |k: SymKind, node: &str, name: &str| class_id(cl, k, node, name);
+    for kind in [SymKind::Sort, SymKind::Op] {
+        for members in cl.members(kind) {
+            let sig = |m: &SymRef| {
+                let t = theory(&m.node);
+                let (sc, oc) = (
+                    |n: &str| class_id(SymKind::Sort, &m.node, n),
+                    |n: &str| class_id(SymKind::Op, &m.node, n),
+                );
+                match kind {
+                    SymKind::Sort => t
+                        .sorts
+                        .iter()
+                        .find(|s| s.name == m.name)
+                        .map(|s| format!("{:?}", sort_signature(s, &sc, &oc))),
+                    _ => t
+                        .ops
+                        .iter()
+                        .find(|o| o.name == m.name)
+                        .map(|o| format!("{:?}", op_signature(o, &sc, &oc))),
+                }
+            };
+            let first = &members[0];
+            if let Some(second) = members.iter().find(|m| sig(m) != sig(first)) {
+                let same_leg = legs.label.get(&(kind, first.clone()))
+                    == legs.label.get(&(kind, second.clone()));
+                return Err(if mode == Mode::Amalgamate && !same_leg {
+                    ComposeError::NameConflict(
+                        kind,
+                        first.name.clone(),
+                        first.clone(),
+                        second.clone(),
+                    )
+                } else if kind == SymKind::Sort {
+                    ComposeError::SortSignatureMismatch(first.clone(), second.clone())
+                } else {
+                    ComposeError::OpSignatureMismatch(first.clone(), second.clone())
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The equations to classify: every node theory's equations renamed into
+/// the result, then one per term-valued operation image, for the edges in
+/// (source, target, morphism) order.
+fn equation_inputs(
+    nodes: &[(Name, Theory)],
+    edges: &[(Name, Name, Morphism)],
+    res: &dyn Fn(SymKind, &str, &str) -> Name,
+) -> Vec<(SymRef, Name, Term, Term)> {
+    let theory = |l: &str| node_theory(nodes, l);
     let mut eqs: Vec<(SymRef, Name, Term, Term)> = Vec::new();
     for (l, t) in nodes {
         for e in &t.eqs {
             let op = |n: &str| res(SymKind::Op, l, n);
-            eqs.push((SymRef { node: l.clone(), name: e.name.clone() }, e.name.clone(), rename_term(&e.lhs, &op), rename_term(&e.rhs, &op)));
+            eqs.push((
+                SymRef {
+                    node: l.clone(),
+                    name: e.name.clone(),
+                },
+                e.name.clone(),
+                rename_term(&e.lhs, &op),
+                rename_term(&e.rhs, &op),
+            ));
         }
     }
     let mut ordered: Vec<(usize, &(Name, Name, Morphism))> = edges.iter().enumerate().collect();
-    ordered.sort_by(|a, b| (&a.1.0, &a.1.1, format!("{:?}", a.1.2)).cmp(&(&b.1.0, &b.1.1, format!("{:?}", b.1.2))));
+    ordered.sort_by(|a, b| {
+        (&a.1.0, &a.1.1, format!("{:?}", a.1.2)).cmp(&(&b.1.0, &b.1.1, format!("{:?}", b.1.2)))
+    });
     for (rank, (_, (s, t, m))) in ordered.iter().enumerate() {
         for (o, img) in &m.ops {
             let OpImage::Term(term) = img else { continue };
-            let Some(op) = theory(s).ops.into_iter().find(|x| x.name == *o) else { continue };
-            let lhs = Term::App(res(SymKind::Op, s, o), op.inputs.iter().map(|(x, _)| Term::Var(x.clone())).collect());
+            let Some(op) = theory(s).ops.into_iter().find(|x| x.name == *o) else {
+                continue;
+            };
+            let lhs = Term::App(
+                res(SymKind::Op, s, o),
+                op.inputs
+                    .iter()
+                    .map(|(x, _)| Term::Var(x.clone()))
+                    .collect(),
+            );
             let rhs = rename_term(term, &|n| res(SymKind::Op, t, n));
             let name = format!("{s}.{o}~{rank}");
-            eqs.push((SymRef { node: s.clone(), name: name.clone() }, name, lhs, rhs));
+            eqs.push((
+                SymRef {
+                    node: s.clone(),
+                    name: name.clone(),
+                },
+                name,
+                lhs,
+                rhs,
+            ));
         }
     }
-    out.eqs = equations(&eqs, mode, clash, &mut provenance)?;
-    out.sorts.sort_by(|a, b| a.name.cmp(&b.name));
-    out.ops.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Composition { theory: out, provenance })
+    eqs
 }
+
+/// An equation class: its members, its alpha-normal sides, and the
+/// representative sides.
+type EqClass = (Vec<SymRef>, (Term, Term), Term, Term);
 
 /// The result equations: explicit identity merges alpha-equivalent
 /// equations into one class each; amalgamation merges only same-named
@@ -641,21 +915,27 @@ fn equations(
     clash: ClashPolicy,
     provenance: &mut BTreeMap<(SymKind, SymRef), Name>,
 ) -> Result<Vec<Equation>, ComposeError> {
-    let mut classes: Vec<(Vec<SymRef>, (Term, Term), Term, Term)> = Vec::new();
+    let mut classes: Vec<EqClass> = Vec::new();
     for (r, name, l, rr) in eqs {
         let key = alpha(l, rr);
-        let found = classes.iter_mut().find(|c| c.1 == key && (mode == Mode::ExplicitIdentity || c.0.iter().any(|m| m.name == *name)));
-        match found {
-            Some(c) => c.0.push(r.clone()),
-            None => {
-                if mode == Mode::Amalgamate
-                    && let Some(c) = classes.iter().find(|c| c.0.iter().any(|m| m.name == *name))
-                {
-                    return Err(ComposeError::NameConflict(SymKind::Eq, name.clone(), c.0[0].clone(), r.clone()));
-                }
-                classes.push((vec![r.clone()], key, l.clone(), rr.clone()));
-            }
+        let found = classes.iter_mut().find(|c| {
+            c.1 == key && (mode == Mode::ExplicitIdentity || c.0.iter().any(|m| m.name == *name))
+        });
+        if let Some(c) = found {
+            c.0.push(r.clone());
+            continue;
         }
+        if mode == Mode::Amalgamate
+            && let Some(c) = classes.iter().find(|c| c.0.iter().any(|m| m.name == *name))
+        {
+            return Err(ComposeError::NameConflict(
+                SymKind::Eq,
+                name.clone(),
+                c.0[0].clone(),
+                r.clone(),
+            ));
+        }
+        classes.push((vec![r.clone()], key, l.clone(), rr.clone()));
     }
     for c in &mut classes {
         c.0.sort();
@@ -668,7 +948,11 @@ fn equations(
         for m in &c.0 {
             provenance.insert((SymKind::Eq, m.clone()), n.clone());
         }
-        out.push(Equation { name: n, lhs: c.2, rhs: c.3 });
+        out.push(Equation {
+            name: n,
+            lhs: c.2,
+            rhs: c.3,
+        });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)

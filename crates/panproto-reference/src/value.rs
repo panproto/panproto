@@ -6,10 +6,11 @@ use std::collections::BTreeMap;
 use crate::exact::{BigIntValue, Decimal, ExactInteger};
 use crate::temporal::Temporal;
 
-/// An instance value. A float is its binary64 bit pattern, so two floats are
-/// equal iff their patterns are (a NaN equals itself and differs from a NaN
-/// of another sign or payload; `0.0` differs from `-0.0`), which is
-/// canonical-byte equality.
+/// An instance value.
+///
+/// A float is its binary64 bit pattern, so two floats are equal iff their patterns are (a NaN
+/// equals itself and differs from a NaN of another sign or payload; `0.0` differs from `-0.0`),
+/// which is canonical-byte equality.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Value {
     /// A boolean.

@@ -11,9 +11,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::exact::{BigIntValue, Decimal, DecimalValue};
-use crate::model::{Fan, GEdge, Graph, NodeShape, Node, SEdge, Table, Tree};
+use crate::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
 use crate::num::{Int, Nat};
-use crate::temporal::{DateFields, Offset, OffsetForm, Separator, Temporal, TimeFields, Year, ZuluCase};
+use crate::temporal::{
+    DateFields, Offset, OffsetForm, Separator, Temporal, TimeFields, Year, ZuluCase,
+};
 use crate::value::{Presence, Value};
 
 /// A byte sink with the canonical primitive encoders.
@@ -124,12 +126,12 @@ impl<'a> Reader<'a> {
         Some(i64::from_le_bytes(self.take(8)?.try_into().ok()?))
     }
     /// A count.
-    pub fn len(&mut self) -> Option<usize> {
+    pub fn count(&mut self) -> Option<usize> {
         usize::try_from(self.u64()?).ok()
     }
     /// A length-prefixed byte string.
     pub fn raw(&mut self) -> Option<Vec<u8>> {
-        let n = self.len()?;
+        let n = self.count()?;
         self.take(n).map(<[u8]>::to_vec)
     }
     /// A length-prefixed UTF-8 string.
@@ -154,7 +156,12 @@ impl<'a> Reader<'a> {
     }
     /// A schema edge.
     pub fn edge(&mut self) -> Option<SEdge> {
-        Some(SEdge { src: self.str()?, tgt: self.str()?, kind: self.str()?, name: self.opt_name()? })
+        Some(SEdge {
+            src: self.str()?,
+            tgt: self.str()?,
+            kind: self.str()?,
+            name: self.opt_name()?,
+        })
     }
 }
 
@@ -172,11 +179,12 @@ fn read_digits(r: &mut Reader<'_>) -> Option<Nat> {
     Nat::parse(&s)
 }
 
-/// The canonical bytes of a decimal: a finite one as its sign byte (1 for a
-/// negative number or zero), its digits behind a length, and its exponent
-/// as a sign byte and the magnitude's minimal digits behind a length; an
-/// infinity as byte 2 and its sign byte; a NaN as byte 3, its sign byte,
-/// its signalling byte and its payload's minimal digits behind a length.
+/// The canonical bytes of a decimal.
+///
+/// A finite one as its sign byte (1 for a negative number or zero), its digits behind a length, and
+/// its exponent as a sign byte and the magnitude's minimal digits behind a length; an infinity as
+/// byte 2 and its sign byte; a NaN as byte 3, its sign byte, its signalling byte and its payload's
+/// minimal digits behind a length.
 pub fn write_decimal(w: &mut Writer, d: &Decimal) {
     match d {
         Decimal::Finite(v) => {
@@ -189,7 +197,11 @@ pub fn write_decimal(w: &mut Writer, d: &Decimal) {
             w.tag(2);
             w.tag(u8::from(*negative));
         }
-        Decimal::NaN { negative, signalling, payload } => {
+        Decimal::NaN {
+            negative,
+            signalling,
+            payload,
+        } => {
             w.tag(3);
             w.tag(u8::from(*negative));
             w.tag(u8::from(*signalling));
@@ -216,10 +228,20 @@ pub fn read_decimal(r: &mut Reader<'_>) -> Option<Decimal> {
             if en && mag.is_zero() {
                 return None;
             }
-            Some(Decimal::Finite(DecimalValue { negative: s == 1, digits, exponent: Int::new(en, mag) }))
+            Some(Decimal::Finite(DecimalValue {
+                negative: s == 1,
+                digits,
+                exponent: Int::new(en, mag),
+            }))
         }
-        2 => Some(Decimal::Infinite { negative: read_bool(r)? }),
-        3 => Some(Decimal::NaN { negative: read_bool(r)?, signalling: read_bool(r)?, payload: read_digits(r)? }),
+        2 => Some(Decimal::Infinite {
+            negative: read_bool(r)?,
+        }),
+        3 => Some(Decimal::NaN {
+            negative: read_bool(r)?,
+            signalling: read_bool(r)?,
+            payload: read_digits(r)?,
+        }),
         _ => None,
     }
 }
@@ -241,7 +263,11 @@ pub fn read_bigint(r: &mut Reader<'_>) -> Option<BigIntValue> {
     if significand.is_zero() || significand.digit(0) == 0 {
         return None;
     }
-    let b = BigIntValue { negative, significand, zeros };
+    let b = BigIntValue {
+        negative,
+        significand,
+        zeros,
+    };
     match crate::exact::ExactInteger::from_parts(b.negative, &b.significand, &b.zeros) {
         crate::exact::ExactInteger::Big(_) => Some(b),
         crate::exact::ExactInteger::Int(_) => None,
@@ -260,20 +286,22 @@ fn complete_layout(t: &Temporal) -> bool {
     let date_ok = t.date.is_none_or(|d| {
         d.month.is_some()
             && d.day.is_some()
-            && d.year.is_some_and(|y| !y.negative_zero && y.width == y.value.unsigned_abs().to_string().len().max(4))
+            && d.year.is_some_and(|y| {
+                !y.negative_zero && y.width == y.value.unsigned_abs().to_string().len().max(4)
+            })
     });
     let date_only_local = !(t.date.is_some() && t.time.is_none()) || t.offset == Offset::Local;
     t.is_complete() && offset_ok && date_ok && date_only_local
 }
 
-/// The canonical bytes of a temporal in the complete-form layout: a form
-/// byte (0 date, 1 time, 2 date-time); a date as a little-endian `i64` year
-/// and a month and a day byte; a date-time's separator byte (`T`, `t` or a
-/// space, as ASCII) between date and time; a time as hour, minute and second
-/// bytes and its fraction digits behind a length; the offset as 0 local,
-/// 1 `Z` followed by its case byte (`Z` or `z` as ASCII), 2 fixed followed
-/// by its minutes as an `i64`, 3 negative zero. `None` for a form outside
-/// that layout (reduced, truncated, or another written offset form).
+/// The canonical bytes of a temporal in the complete-form layout.
+///
+/// A form byte (0 date, 1 time, 2 date-time); a date as a little-endian `i64` year and a month and
+/// a day byte; a date-time's separator byte (`T`, `t` or a space, as ASCII) between date and time;
+/// a time as hour, minute and second bytes and its fraction digits behind a length; the offset as 0
+/// local, 1 `Z` followed by its case byte (`Z` or `z` as ASCII), 2 fixed followed by its minutes as
+/// an `i64`, 3 negative zero. `None` for a form outside that layout (reduced, truncated, or another
+/// written offset form).
 #[must_use]
 pub fn write_temporal(w: &mut Writer, t: &Temporal) -> Option<()> {
     if !complete_layout(t) {
@@ -323,7 +351,11 @@ pub fn write_temporal(w: &mut Writer, t: &Temporal) -> Option<()> {
 fn read_date(r: &mut Reader<'_>) -> Option<DateFields> {
     let year = r.i64()?;
     Some(DateFields {
-        year: Some(Year { value: year, negative_zero: false, width: year.unsigned_abs().to_string().len().max(4) }),
+        year: Some(Year {
+            value: year,
+            negative_zero: false,
+            width: year.unsigned_abs().to_string().len().max(4),
+        }),
         month: Some(r.tag()?),
         day: Some(r.tag()?),
     })
@@ -335,7 +367,12 @@ fn read_time(r: &mut Reader<'_>) -> Option<TimeFields> {
     if !fraction.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    Some(TimeFields { hour: Some(hour), minute: Some(minute), second: Some(second), fraction })
+    Some(TimeFields {
+        hour: Some(hour),
+        minute: Some(minute),
+        second: Some(second),
+        fraction,
+    })
 }
 
 fn read_offset(r: &mut Reader<'_>) -> Option<Offset> {
@@ -362,10 +399,20 @@ fn read_offset(r: &mut Reader<'_>) -> Option<Offset> {
 /// The inverse of [`write_temporal`].
 pub fn read_temporal(r: &mut Reader<'_>) -> Option<Temporal> {
     match r.tag()? {
-        0 => Some(Temporal { date: Some(read_date(r)?), time: None, separator: None, offset: Offset::Local }),
+        0 => Some(Temporal {
+            date: Some(read_date(r)?),
+            time: None,
+            separator: None,
+            offset: Offset::Local,
+        }),
         1 => {
             let time = read_time(r)?;
-            Some(Temporal { date: None, time: Some(time), separator: None, offset: read_offset(r)? })
+            Some(Temporal {
+                date: None,
+                time: Some(time),
+                separator: None,
+                offset: read_offset(r)?,
+            })
         }
         2 => {
             let date = read_date(r)?;
@@ -376,7 +423,12 @@ pub fn read_temporal(r: &mut Reader<'_>) -> Option<Temporal> {
                 _ => return None,
             };
             let time = read_time(r)?;
-            Some(Temporal { date: Some(date), time: Some(time), separator: Some(separator), offset: read_offset(r)? })
+            Some(Temporal {
+                date: Some(date),
+                time: Some(time),
+                separator: Some(separator),
+                offset: read_offset(r)?,
+            })
         }
         _ => None,
     }
@@ -392,7 +444,7 @@ fn write_map(w: &mut Writer, m: &BTreeMap<String, Value>) -> Option<()> {
 }
 
 fn read_map(r: &mut Reader<'_>) -> Option<BTreeMap<String, Value>> {
-    let n = r.len()?;
+    let n = r.count()?;
     let mut out = BTreeMap::new();
     let mut last: Option<String> = None;
     for _ in 0..n {
@@ -407,9 +459,10 @@ fn read_map(r: &mut Reader<'_>) -> Option<BTreeMap<String, Value>> {
     Some(out)
 }
 
-/// The canonical bytes of a value: a tag (0 `Bool` to 15 `Temporal`) and its
-/// payload; maps as their count and entries in ascending key order. `None`
-/// when a temporal inside lies outside the complete-form layout.
+/// The canonical bytes of a value.
+///
+/// A tag (0 `Bool` to 15 `Temporal`) and its payload; maps as their count and entries in ascending
+/// key order. `None` when a temporal inside lies outside the complete-form layout.
 pub fn write_value(w: &mut Writer, v: &Value) -> Option<()> {
     match v {
         Value::Bool(b) => {
@@ -492,13 +545,20 @@ pub fn read_value(r: &mut Reader<'_>) -> Option<Value> {
         3 => Value::Str(r.str()?),
         4 => Value::Bytes(r.raw()?),
         5 => Value::CidLink(r.str()?),
-        6 => Value::Blob { ref_: r.str()?, mime: r.str()?, size: r.u64()? },
+        6 => Value::Blob {
+            ref_: r.str()?,
+            mime: r.str()?,
+            size: r.u64()?,
+        },
         7 => Value::Token(r.str()?),
         8 => Value::Null,
-        9 => Value::Opaque { type_: r.str()?, fields: read_map(r)? },
+        9 => Value::Opaque {
+            type_: r.str()?,
+            fields: read_map(r)?,
+        },
         10 => Value::Unknown(read_map(r)?),
         11 => {
-            let n = r.len()?;
+            let n = r.count()?;
             let mut items = Vec::new();
             for _ in 0..n {
                 items.push(read_value(r)?);
@@ -536,9 +596,10 @@ pub fn canonical_cmp(a: &Value, b: &Value) -> std::cmp::Ordering {
     value_bytes(a).cmp(&value_bytes(b))
 }
 
-/// A node record: id, anchor, value (0 none, 1 present and the value,
-/// 2 null, 3 absent), discriminator, fields, position, shape (0 plain,
-/// 1 list, 2 XML element and its tag, 3 text segment, 4 hyper-edge) and
+/// A node record.
+///
+/// Id, anchor, value (0 none, 1 present and the value, 2 null, 3 absent), discriminator, fields,
+/// position, shape (0 plain, 1 list, 2 XML element and its tag, 3 text segment, 4 hyper-edge) and
 /// annotations.
 pub fn write_node(w: &mut Writer, n: &Node) -> Option<()> {
     w.u32(n.id);
@@ -591,7 +652,16 @@ pub fn read_node(r: &mut Reader<'_>) -> Option<Node> {
         _ => return None,
     };
     let annotations = read_map(r)?;
-    Some(Node { id, anchor, value, discriminator, fields, position, shape, annotations })
+    Some(Node {
+        id,
+        anchor,
+        value,
+        discriminator,
+        fields,
+        position,
+        shape,
+        annotations,
+    })
 }
 
 /// The canonical bytes of a graph: node and edge counts, node records in
@@ -620,7 +690,7 @@ pub fn graph_bytes(g: &Graph) -> Option<Vec<u8>> {
 #[must_use]
 pub fn decode_graph(bytes: &[u8]) -> Option<Graph> {
     let mut r = Reader::new(bytes);
-    let (nn, ne) = (r.len()?, r.len()?);
+    let (nn, ne) = (r.count()?, r.count()?);
     let mut g = Graph::default();
     for _ in 0..nn {
         let n = read_node(&mut r)?;
@@ -634,7 +704,12 @@ pub fn decode_graph(bytes: &[u8]) -> Option<Graph> {
         if g.edges.keys().next_back().is_some_and(|last| *last >= id) {
             return None;
         }
-        let e = GEdge { src: r.u32()?, tgt: r.u32()?, label: r.edge()?, position: r.opt_u32()? };
+        let e = GEdge {
+            src: r.u32()?,
+            tgt: r.u32()?,
+            label: r.edge()?,
+            position: r.opt_u32()?,
+        };
         g.edges.insert(id, e);
     }
     (r.done() && g.well_formed()).then_some(g)
@@ -665,7 +740,7 @@ pub fn table_bytes(t: &Table) -> Option<Vec<u8>> {
 #[must_use]
 pub fn decode_table(bytes: &[u8]) -> Option<Table> {
     let mut r = Reader::new(bytes);
-    let (nr, np) = (r.len()?, r.len()?);
+    let (nr, np) = (r.count()?, r.count()?);
     let mut t = Table::default();
     for _ in 0..nr {
         let id = r.u32()?;
@@ -688,13 +763,18 @@ pub fn decode_table(bytes: &[u8]) -> Option<Table> {
 
 /// A fan's canonical record: parent, hyper-edge, children by label.
 fn fan_record(f: &Fan) -> (u32, String, Vec<(String, u32)>) {
-    (f.parent, f.hyper_edge.clone(), f.children.iter().map(|(l, n)| (l.clone(), *n)).collect())
+    (
+        f.parent,
+        f.hyper_edge.clone(),
+        f.children.iter().map(|(l, n)| (l.clone(), *n)).collect(),
+    )
 }
 
-/// The canonical bytes of a tree: node, arc and fan counts, node records in
-/// ascending id, arc records `(parent, child, label)` in arc order, fan
-/// records in ascending record order. The root and the fans' listed order
-/// are not written.
+/// The canonical bytes of a tree.
+///
+/// Node, arc and fan counts, node records in ascending id, arc records `(parent, child, label)` in
+/// arc order, fan records in ascending record order. The root and the fans' listed order are not
+/// written.
 #[must_use]
 pub fn tree_bytes(t: &Tree) -> Option<Vec<u8>> {
     let mut w = Writer::default();
@@ -729,11 +809,15 @@ pub fn tree_bytes(t: &Tree) -> Option<Vec<u8>> {
 #[must_use]
 pub fn decode_tree(bytes: &[u8]) -> Option<Tree> {
     let mut r = Reader::new(bytes);
-    let (nn, na, nf) = (r.len()?, r.len()?, r.len()?);
+    let (nn, na, nf) = (r.count()?, r.count()?, r.count()?);
     let mut nodes = BTreeMap::new();
     for _ in 0..nn {
         let n = read_node(&mut r)?;
-        if nodes.keys().next_back().is_some_and(|last: &u32| *last >= n.id) {
+        if nodes
+            .keys()
+            .next_back()
+            .is_some_and(|last: &u32| *last >= n.id)
+        {
             return None;
         }
         nodes.insert(n.id, n);
@@ -747,7 +831,7 @@ pub fn decode_tree(bytes: &[u8]) -> Option<Tree> {
     for _ in 0..nf {
         let parent = r.u32()?;
         let hyper_edge = r.str()?;
-        let k = r.len()?;
+        let k = r.count()?;
         let mut children = Vec::new();
         for _ in 0..k {
             children.push((r.str()?, r.u32()?));
@@ -760,9 +844,24 @@ pub fn decode_tree(bytes: &[u8]) -> Option<Tree> {
             return None;
         }
         last = Some(rec);
-        fans.push(Fan { parent, hyper_edge, children: children.into_iter().collect() });
+        fans.push(Fan {
+            parent,
+            hyper_edge,
+            children: children.into_iter().collect(),
+        });
     }
-    let roots: Vec<u32> = nodes.keys().copied().filter(|n| !arcs.iter().any(|(_, c, _)| c == n)).collect();
-    let [root] = roots.as_slice() else { return None };
-    r.done().then(|| Tree { nodes, arcs, fans, root: *root })
+    let roots: Vec<u32> = nodes
+        .keys()
+        .copied()
+        .filter(|n| !arcs.iter().any(|(_, c, _)| c == n))
+        .collect();
+    let [root] = roots.as_slice() else {
+        return None;
+    };
+    r.done().then_some(Tree {
+        nodes,
+        arcs,
+        fans,
+        root: *root,
+    })
 }

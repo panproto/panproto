@@ -18,33 +18,72 @@ fn a_tree_with_a_fan_round_trips_through_its_graph() {
     }
     let tree = Tree {
         nodes,
-        arcs: vec![(0, 2, SEdge::new("r", "a", "prop", Some("a"))), (0, 5, SEdge::new("r", "b", "prop", Some("b")))],
-        fans: vec![Fan { parent: 0, hyper_edge: "h".into(), children: [("x".to_owned(), 2), ("y".to_owned(), 5)].into() }],
+        arcs: vec![
+            (0, 2, SEdge::new("r", "a", "prop", Some("a"))),
+            (0, 5, SEdge::new("r", "b", "prop", Some("b"))),
+        ],
+        fans: vec![Fan {
+            parent: 0,
+            hyper_edge: "h".into(),
+            children: [("x".to_owned(), 2), ("y".to_owned(), 5)].into(),
+        }],
         root: 0,
     };
-    let schema = Schema { hyper_edges: [("h".to_owned(), HyperEdge { kind: "k".into(), signature: BTreeMap::new(), parent_label: "p".into() })].into(), ..Schema::default() };
+    let schema = Schema {
+        hyper_edges: [(
+            "h".to_owned(),
+            HyperEdge {
+                kind: "k".into(),
+                signature: BTreeMap::new(),
+                parent_label: "p".into(),
+            },
+        )]
+        .into(),
+        ..Schema::default()
+    };
     let (g, emb) = encode::tree_to_graph(&tree, Some(&schema)).unwrap();
-    assert_eq!(emb.fans, vec![(6, 2, [("x".to_owned(), 3), ("y".to_owned(), 4)].into())]);
+    assert_eq!(
+        emb.fans,
+        vec![(6, 2, [("x".to_owned(), 3), ("y".to_owned(), 4)].into())]
+    );
     assert_eq!(g.edges[&2].label.name.as_deref(), Some("p"));
     assert_eq!(encode::graph_to_tree(&g, 0), Some(tree));
 }
 
 #[test]
 fn a_table_round_trips_through_its_graph_and_its_encoding() {
-    let mut t = Table::default();
-    t.rows.insert(3, ("a".into(), [("x".to_owned(), Value::Int(1))].into()));
-    t.rows.insert(7, ("b".into(), BTreeMap::new()));
-    t.pairs.insert((SEdge::new("a", "b", "fk", Some("f")), 3, 7));
-    let (g, emb) = encode::table_to_graph(&t);
+    let mut table = Table::default();
+    table
+        .rows
+        .insert(3, ("a".into(), [("x".to_owned(), Value::Int(1))].into()));
+    table.rows.insert(7, ("b".into(), BTreeMap::new()));
+    table
+        .pairs
+        .insert((SEdge::new("a", "b", "fk", Some("f")), 3, 7));
+    let (graph, emb) = encode::table_to_graph(&table);
     assert_eq!(emb.len(), 1);
-    assert_eq!(encode::graph_to_table(&g), Some(t.clone()));
-    let s = Schema::default().vertex("a", "record").vertex("b", "record").vertex("a.x", "int").edge("a", "a.x", "prop", Some("x")).edge("a", "b", "fk", Some("f"));
-    let r = rel::classify(&s, &BTreeSet::from(["int".to_owned()]), &BTreeSet::from(["record".to_owned()])).unwrap();
-    let side = GraphSide::whole(&r);
-    let decoded = encode::decode_table(&t, &side);
-    assert_eq!(encode::encode_graph(&decoded, &side), Ok(t.clone()));
-    let id = Migration { surviving_verts: s.vertices.keys().cloned().collect(), surviving_edges: s.edges.clone(), ..Migration::default() };
-    let f = rel::entity_functor(&r, &r, &id).unwrap();
-    assert_eq!(encode::g_sigma(&f, &decoded), Ok(decoded.clone()));
-    assert_eq!(encode::g_delta(&f, &decoded), Ok(decoded));
+    assert_eq!(encode::graph_to_table(&graph), Some(table.clone()));
+    let schema = Schema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("a.x", "int")
+        .edge("a", "a.x", "prop", Some("x"))
+        .edge("a", "b", "fk", Some("f"));
+    let side_schema = rel::classify(
+        &schema,
+        &BTreeSet::from(["int".to_owned()]),
+        &BTreeSet::from(["record".to_owned()]),
+    )
+    .unwrap();
+    let side = GraphSide::whole(&side_schema);
+    let decoded = encode::decode_table(&table, &side);
+    assert_eq!(encode::encode_graph(&decoded, &side), Ok(table.clone()));
+    let id = Migration {
+        surviving_verts: schema.vertices.keys().cloned().collect(),
+        surviving_edges: schema.edges,
+        ..Migration::default()
+    };
+    let functor = rel::entity_functor(&side_schema, &side_schema, &id).unwrap();
+    assert_eq!(encode::g_sigma(&functor, &decoded), Ok(decoded.clone()));
+    assert_eq!(encode::g_delta(&functor, &decoded), Ok(decoded));
 }

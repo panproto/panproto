@@ -1,8 +1,9 @@
-//! The edit algebra: deltas as spans at the identity match (deleted
-//! elements with payloads, added elements, attribute changes of kept
-//! elements), their normal form, inversion, the composition case table,
-//! application, the differ, independence and merge, and the whole-state
-//! reference translations of edits through a lens.
+//! The edit algebra.
+//!
+//! Deltas as spans at the identity match (deleted elements with payloads, added elements, attribute
+//! changes of kept elements), their normal form, inversion, the composition case table,
+//! application, the differ, independence and merge, and the whole-state reference translations of
+//! edits through a lens.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
@@ -39,7 +40,11 @@ pub struct Delta<S: DeltaSpace> {
 
 impl<S: DeltaSpace> Clone for Delta<S> {
     fn clone(&self) -> Self {
-        Self { del: self.del.clone(), add: self.add.clone(), attrs: self.attrs.clone() }
+        Self {
+            del: self.del.clone(),
+            add: self.add.clone(),
+            attrs: self.attrs.clone(),
+        }
     }
 }
 
@@ -51,13 +56,21 @@ impl<S: DeltaSpace> PartialEq for Delta<S> {
 
 impl<S: DeltaSpace> Debug for Delta<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Delta").field("del", &self.del).field("add", &self.add).field("attrs", &self.attrs).finish()
+        f.debug_struct("Delta")
+            .field("del", &self.del)
+            .field("add", &self.add)
+            .field("attrs", &self.attrs)
+            .finish()
     }
 }
 
 impl<S: DeltaSpace> Default for Delta<S> {
     fn default() -> Self {
-        Self { del: BTreeMap::new(), add: BTreeMap::new(), attrs: BTreeMap::new() }
+        Self {
+            del: BTreeMap::new(),
+            add: BTreeMap::new(),
+            attrs: BTreeMap::new(),
+        }
     }
 }
 
@@ -91,13 +104,23 @@ impl<S: DeltaSpace> Delta<S> {
     /// and new, and no attribute of an element the delta deletes or adds.
     #[must_use]
     pub fn is_normal(&self) -> bool {
-        self.attrs.iter().all(|(k, (o, n))| o != n && !self.del.contains_key(&S::owner(k)) && !self.add.contains_key(&S::owner(k)))
+        self.attrs.iter().all(|(k, (o, n))| {
+            o != n && !self.del.contains_key(&S::owner(k)) && !self.add.contains_key(&S::owner(k))
+        })
     }
 
     /// The inverse: deleted and added parts swapped, old and new swapped.
     #[must_use]
     pub fn invert(&self) -> Self {
-        Self { del: self.add.clone(), add: self.del.clone(), attrs: self.attrs.iter().map(|(k, (o, n))| (k.clone(), (n.clone(), o.clone()))).collect() }
+        Self {
+            del: self.add.clone(),
+            add: self.del.clone(),
+            attrs: self
+                .attrs
+                .iter()
+                .map(|(k, (o, n))| (k.clone(), (n.clone(), o.clone())))
+                .collect(),
+        }
     }
 
     fn action(&self, x: &S::Elem) -> Action<S::Payload, S::Key, S::Val> {
@@ -106,8 +129,17 @@ impl<S: DeltaSpace> Delta<S> {
             (Some(p), None) => Action::Del(p.clone()),
             (None, Some(q)) => Action::Add(q.clone()),
             (None, None) => {
-                let attrs: BTreeMap<S::Key, (S::Val, S::Val)> = self.attrs.iter().filter(|(k, _)| S::owner(k) == *x).map(|(k, v)| (k.clone(), v.clone())).collect();
-                if attrs.is_empty() { Action::None } else { Action::Attrs(attrs) }
+                let attrs: BTreeMap<S::Key, (S::Val, S::Val)> = self
+                    .attrs
+                    .iter()
+                    .filter(|(k, _)| S::owner(k) == *x)
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if attrs.is_empty() {
+                    Action::None
+                } else {
+                    Action::Attrs(attrs)
+                }
             }
         }
     }
@@ -125,7 +157,9 @@ impl<S: DeltaSpace> Delta<S> {
                 self.del.insert(x.clone(), p);
                 self.add.insert(x.clone(), q);
             }
-            Action::Attrs(m) => self.attrs.extend(m.into_iter().filter(|(_, (o, n))| o != n)),
+            Action::Attrs(m) => self
+                .attrs
+                .extend(m.into_iter().filter(|(_, (o, n))| o != n)),
         }
     }
 
@@ -157,7 +191,10 @@ impl<S: DeltaSpace> Delta<S> {
 /// Fold attribute changes into a payload: each key's value checked to equal
 /// `expect` (`true`: the new value, reading back the old) and set to the
 /// other side.
-fn fold_back<S: DeltaSpace>(r: &S::Payload, attrs: &BTreeMap<S::Key, (S::Val, S::Val)>) -> Option<S::Payload> {
+fn fold_back<S: DeltaSpace>(
+    r: &S::Payload,
+    attrs: &BTreeMap<S::Key, (S::Val, S::Val)>,
+) -> Option<S::Payload> {
     let mut p = r.clone();
     for (k, (o, n)) in attrs {
         if S::read(&p, k) != *n {
@@ -168,7 +205,10 @@ fn fold_back<S: DeltaSpace>(r: &S::Payload, attrs: &BTreeMap<S::Key, (S::Val, S:
     Some(p)
 }
 
-fn fold_forward<S: DeltaSpace>(q: &S::Payload, attrs: &BTreeMap<S::Key, (S::Val, S::Val)>) -> Result<S::Payload, S::Key> {
+fn fold_forward<S: DeltaSpace>(
+    q: &S::Payload,
+    attrs: &BTreeMap<S::Key, (S::Val, S::Val)>,
+) -> Result<S::Payload, S::Key> {
     let mut p = q.clone();
     for (k, (o, n)) in attrs {
         if S::read(&p, k) != *o {
@@ -179,53 +219,90 @@ fn fold_forward<S: DeltaSpace>(q: &S::Payload, attrs: &BTreeMap<S::Key, (S::Val,
     Ok(p)
 }
 
+/// The action type of a delta space.
+type SpaceAction<S> =
+    Action<<S as DeltaSpace>::Payload, <S as DeltaSpace>::Key, <S as DeltaSpace>::Val>;
+
+/// The mismatch type of a delta space.
+type SpaceMismatch<S> = Mismatch<<S as DeltaSpace>::Elem, <S as DeltaSpace>::Key>;
+
 fn compose_action<S: DeltaSpace>(
-    x: &S::Elem,
-    a: Action<S::Payload, S::Key, S::Val>,
-    b: Action<S::Payload, S::Key, S::Val>,
-) -> Result<Action<S::Payload, S::Key, S::Val>, Mismatch<S::Elem, S::Key>> {
-    let mismatch = || Mismatch::Elem(x.clone());
-    Ok(match (a, b) {
-        (a, Action::None) => a,
-        (Action::None, b) => b,
-        (Action::Del(p), Action::Add(r)) => Action::Repl(p, r),
-        (Action::Del(_), _) => return Err(mismatch()),
-        (Action::Add(q), Action::Del(r)) => {
-            if r == q { Action::None } else { return Err(mismatch()) }
+    elem: &S::Elem,
+    first: SpaceAction<S>,
+    second: SpaceAction<S>,
+) -> Result<SpaceAction<S>, SpaceMismatch<S>> {
+    let mismatch = || Mismatch::Elem(elem.clone());
+    Ok(match (first, second) {
+        (first, Action::None) => first,
+        (Action::None, second) => second,
+        (Action::Del(before), Action::Add(seen)) => Action::Repl(before, seen),
+        (Action::Del(_), _)
+        | (Action::Add(_) | Action::Repl(..) | Action::Attrs(_), Action::Add(_)) => {
+            return Err(mismatch());
         }
-        (Action::Add(q), Action::Repl(r, t)) => {
-            if r == q { Action::Add(t) } else { return Err(mismatch()) }
+        (Action::Add(after), Action::Del(seen)) => {
+            if seen == after {
+                Action::None
+            } else {
+                return Err(mismatch());
+            }
         }
-        (Action::Add(q), Action::Attrs(m)) => Action::Add(fold_forward::<S>(&q, &m).map_err(Mismatch::Attr)?),
-        (Action::Repl(p, q), Action::Del(r)) => {
-            if r == q { Action::Del(p) } else { return Err(mismatch()) }
+        (Action::Add(after), Action::Repl(seen, then)) => {
+            if seen == after {
+                Action::Add(then)
+            } else {
+                return Err(mismatch());
+            }
         }
-        (Action::Repl(p, q), Action::Repl(r, t)) => {
-            if r == q { Action::Repl(p, t) } else { return Err(mismatch()) }
+        (Action::Add(after), Action::Attrs(changes)) => {
+            Action::Add(fold_forward::<S>(&after, &changes).map_err(Mismatch::Attr)?)
         }
-        (Action::Repl(p, q), Action::Attrs(m)) => Action::Repl(p, fold_forward::<S>(&q, &m).map_err(Mismatch::Attr)?),
-        (Action::Add(_) | Action::Repl(..), Action::Add(_)) => return Err(mismatch()),
-        (Action::Attrs(m), Action::Del(r)) => Action::Del(fold_back::<S>(&r, &m).ok_or_else(mismatch)?),
-        (Action::Attrs(m), Action::Repl(r, t)) => Action::Repl(fold_back::<S>(&r, &m).ok_or_else(mismatch)?, t),
-        (Action::Attrs(_), Action::Add(_)) => return Err(mismatch()),
+        (Action::Repl(before, after), Action::Del(seen)) => {
+            if seen == after {
+                Action::Del(before)
+            } else {
+                return Err(mismatch());
+            }
+        }
+        (Action::Repl(before, after), Action::Repl(seen, then)) => {
+            if seen == after {
+                Action::Repl(before, then)
+            } else {
+                return Err(mismatch());
+            }
+        }
+        (Action::Repl(before, after), Action::Attrs(changes)) => Action::Repl(
+            before,
+            fold_forward::<S>(&after, &changes).map_err(Mismatch::Attr)?,
+        ),
+        (Action::Attrs(changes), Action::Del(seen)) => {
+            Action::Del(fold_back::<S>(&seen, &changes).ok_or_else(mismatch)?)
+        }
+        (Action::Attrs(changes), Action::Repl(seen, then)) => {
+            Action::Repl(fold_back::<S>(&seen, &changes).ok_or_else(mismatch)?, then)
+        }
         (Action::Attrs(m1), Action::Attrs(m2)) => {
             let mut out = m1;
-            for (k, (o2, n2)) in m2 {
-                match out.remove(&k) {
+            for (key, (o2, n2)) in m2 {
+                match out.remove(&key) {
                     None => {
-                        out.insert(k, (o2, n2));
+                        out.insert(key, (o2, n2));
                     }
                     Some((o1, n1)) => {
                         if n1 != o2 {
-                            return Err(Mismatch::Attr(k));
+                            return Err(Mismatch::Attr(key));
                         }
                         if o1 != n2 {
-                            out.insert(k, (o1, n2));
+                            out.insert(key, (o1, n2));
                         }
                     }
                 }
             }
-            if out.is_empty() { Action::None } else { Action::Attrs(out) }
+            if out.is_empty() {
+                Action::None
+            } else {
+                Action::Attrs(out)
+            }
         }
     })
 }
@@ -304,7 +381,12 @@ pub enum AttrVal {
 pub struct GraphSpace;
 
 fn meta_of(n: &Node) -> NodeMeta {
-    NodeMeta { discriminator: n.discriminator.clone(), position: n.position, shape: n.shape.clone(), annotations: n.annotations.clone() }
+    NodeMeta {
+        discriminator: n.discriminator.clone(),
+        position: n.position,
+        shape: n.shape.clone(),
+        annotations: n.annotations.clone(),
+    }
 }
 
 impl DeltaSpace for GraphSpace {
@@ -315,7 +397,9 @@ impl DeltaSpace for GraphSpace {
 
     fn owner(k: &AttrKey) -> GElem {
         match k {
-            AttrKey::Value(n) | AttrKey::Field(n, _) | AttrKey::Meta(n) | AttrKey::Anchor(n) => GElem::Node(*n),
+            AttrKey::Value(n) | AttrKey::Field(n, _) | AttrKey::Meta(n) | AttrKey::Anchor(n) => {
+                GElem::Node(*n)
+            }
             AttrKey::EdgeLabel(e) | AttrKey::EdgePosition(e) => GElem::Edge(*e),
         }
     }
@@ -332,37 +416,37 @@ impl DeltaSpace for GraphSpace {
         }
     }
 
-    fn write(p: &GPayload, k: &AttrKey, v: &AttrVal) -> GPayload {
-        match (p.clone(), k, v) {
-            (GPayload::Node(mut n), AttrKey::Value(_), AttrVal::Presence(x)) => {
-                n.value.clone_from(x);
-                GPayload::Node(n)
+    fn write(payload: &GPayload, key: &AttrKey, val: &AttrVal) -> GPayload {
+        match (payload.clone(), key, val) {
+            (GPayload::Node(mut node), AttrKey::Value(_), AttrVal::Presence(given)) => {
+                node.value.clone_from(given);
+                GPayload::Node(node)
             }
-            (GPayload::Node(mut n), AttrKey::Field(_, f), AttrVal::Field(x)) => {
-                match x {
-                    Some(val) => n.fields.insert(f.clone(), val.clone()),
-                    None => n.fields.remove(f),
+            (GPayload::Node(mut node), AttrKey::Field(_, field), AttrVal::Field(given)) => {
+                match given {
+                    Some(val) => node.fields.insert(field.clone(), val.clone()),
+                    None => node.fields.remove(field),
                 };
-                GPayload::Node(n)
+                GPayload::Node(node)
             }
-            (GPayload::Node(mut n), AttrKey::Meta(_), AttrVal::Meta(m)) => {
-                n.discriminator.clone_from(&m.discriminator);
-                n.position = m.position;
-                n.shape = m.shape.clone();
-                n.annotations.clone_from(&m.annotations);
-                GPayload::Node(n)
+            (GPayload::Node(mut node), AttrKey::Meta(_), AttrVal::Meta(meta)) => {
+                node.discriminator.clone_from(&meta.discriminator);
+                node.position = meta.position;
+                node.shape = meta.shape.clone();
+                node.annotations.clone_from(&meta.annotations);
+                GPayload::Node(node)
             }
-            (GPayload::Node(mut n), AttrKey::Anchor(_), AttrVal::Anchor(a)) => {
-                n.anchor.clone_from(a);
-                GPayload::Node(n)
+            (GPayload::Node(mut node), AttrKey::Anchor(_), AttrVal::Anchor(anchor)) => {
+                node.anchor.clone_from(anchor);
+                GPayload::Node(node)
             }
-            (GPayload::Edge(mut e), AttrKey::EdgeLabel(_), AttrVal::Label(l)) => {
-                e.label = l.clone();
-                GPayload::Edge(e)
+            (GPayload::Edge(mut edge), AttrKey::EdgeLabel(_), AttrVal::Label(label)) => {
+                edge.label = label.clone();
+                GPayload::Edge(edge)
             }
-            (GPayload::Edge(mut e), AttrKey::EdgePosition(_), AttrVal::Position(x)) => {
-                e.position = *x;
-                GPayload::Edge(e)
+            (GPayload::Edge(mut edge), AttrKey::EdgePosition(_), AttrVal::Position(given)) => {
+                edge.position = *given;
+                GPayload::Edge(edge)
             }
             (other, _, _) => other,
         }
@@ -414,7 +498,11 @@ pub enum ApplyError {
 }
 
 fn incident(g: &Graph, n: u32) -> Vec<u32> {
-    g.edges.iter().filter(|(_, e)| e.src == n || e.tgt == n).map(|(i, _)| *i).collect()
+    g.edges
+        .iter()
+        .filter(|(_, e)| e.src == n || e.tgt == n)
+        .map(|(i, _)| *i)
+        .collect()
 }
 
 fn remove(g: &mut Graph, x: &GElem) {
@@ -447,12 +535,11 @@ fn current(g: &Graph, x: &GElem) -> Option<GPayload> {
     }
 }
 
-/// Apply a graph delta (double pushout at the identity match), checked in
-/// full first: deleted nodes, then deleted edges, exist with their
-/// payloads; attribute old values hold; every edge incident to a deleted
-/// node is deleted; added ids are free after deletion; added edges'
-/// endpoints exist; the result is in the fan domain. Then delete, change
-/// attributes and add.
+/// Apply a graph delta (double pushout at the identity match), checked in full first.
+///
+/// Deleted nodes, then deleted edges, exist with their payloads; attribute old values hold; every
+/// edge incident to a deleted node is deleted; added ids are free after deletion; added edges'
+/// endpoints exist; the result is in the fan domain. Then delete, change attributes and add.
 ///
 /// # Errors
 ///
@@ -475,9 +562,15 @@ pub fn apply(d: &GraphDelta, g: &Graph) -> Result<Graph, ApplyError> {
     }
     for x in d.del.keys() {
         if let GElem::Node(n) = x {
-            let dangling: Vec<u32> = incident(g, *n).into_iter().filter(|e| !d.del.contains_key(&GElem::Edge(*e))).collect();
+            let dangling: Vec<u32> = incident(g, *n)
+                .into_iter()
+                .filter(|e| !d.del.contains_key(&GElem::Edge(*e)))
+                .collect();
             if !dangling.is_empty() {
-                return Err(ApplyError::DanglingEdges { node: *n, edges: dangling });
+                return Err(ApplyError::DanglingEdges {
+                    node: *n,
+                    edges: dangling,
+                });
             }
         }
     }
@@ -487,8 +580,12 @@ pub fn apply(d: &GraphDelta, g: &Graph) -> Result<Graph, ApplyError> {
     }
     for (x, p) in &d.add {
         match (x, p) {
-            (GElem::Node(n), _) if out.nodes.contains_key(n) => return Err(ApplyError::DuplicateNodeId(*n)),
-            (GElem::Edge(e), _) if out.edges.contains_key(e) => return Err(ApplyError::DuplicateEdge(*e)),
+            (GElem::Node(n), _) if out.nodes.contains_key(n) => {
+                return Err(ApplyError::DuplicateNodeId(*n));
+            }
+            (GElem::Edge(e), _) if out.edges.contains_key(e) => {
+                return Err(ApplyError::DuplicateEdge(*e));
+            }
             _ => {}
         }
     }
@@ -516,62 +613,96 @@ pub fn apply(d: &GraphDelta, g: &Graph) -> Result<Graph, ApplyError> {
     Ok(out)
 }
 
-/// The differ: nodes and edges by id; an element only in `a` is deleted,
-/// only in `b` added; an edge whose endpoints differ is replaced; every
-/// other difference is an attribute change (value, each field, metadata,
-/// anchor; label, position). Never a same-payload replacement.
+/// The differ.
+///
+/// Nodes and edges by id; an element only in `a` is deleted, only in `b` added; an edge whose
+/// endpoints differ is replaced; every other difference is an attribute change (value, each field,
+/// metadata, anchor; label, position). Never a same-payload replacement.
 #[must_use]
-pub fn diff(a: &Graph, b: &Graph) -> GraphDelta {
-    let mut d = GraphDelta::identity();
-    for (id, n) in &a.nodes {
-        match b.nodes.get(id) {
+pub fn diff(before: &Graph, after: &Graph) -> GraphDelta {
+    let mut delta = GraphDelta::identity();
+    for (id, node) in &before.nodes {
+        match after.nodes.get(id) {
             None => {
-                d.del.insert(GElem::Node(*id), GPayload::Node(n.clone()));
+                delta
+                    .del
+                    .insert(GElem::Node(*id), GPayload::Node(node.clone()));
             }
-            Some(m) => {
-                let (pa, pb) = (GPayload::Node(n.clone()), GPayload::Node(m.clone()));
-                let fields: BTreeSet<&String> = n.fields.keys().chain(m.fields.keys()).collect();
-                let mut keys = vec![AttrKey::Value(*id), AttrKey::Meta(*id), AttrKey::Anchor(*id)];
-                keys.extend(fields.into_iter().map(|f| AttrKey::Field(*id, f.clone())));
-                for k in keys {
-                    let (o, v) = (GraphSpace::read(&pa, &k), GraphSpace::read(&pb, &k));
-                    if o != v {
-                        d.attrs.insert(k, (o, v));
+            Some(other) => {
+                let (pa, pb) = (GPayload::Node(node.clone()), GPayload::Node(other.clone()));
+                let fields: BTreeSet<&String> =
+                    node.fields.keys().chain(other.fields.keys()).collect();
+                let mut keys = vec![
+                    AttrKey::Value(*id),
+                    AttrKey::Meta(*id),
+                    AttrKey::Anchor(*id),
+                ];
+                keys.extend(
+                    fields
+                        .into_iter()
+                        .map(|other_edge| AttrKey::Field(*id, other_edge.clone())),
+                );
+                for key in keys {
+                    let (old, new) = (GraphSpace::read(&pa, &key), GraphSpace::read(&pb, &key));
+                    if old != new {
+                        delta.attrs.insert(key, (old, new));
                     }
                 }
             }
         }
     }
-    for (id, n) in &b.nodes {
-        if !a.nodes.contains_key(id) {
-            d.add.insert(GElem::Node(*id), GPayload::Node(n.clone()));
+    for (id, node) in &after.nodes {
+        if !before.nodes.contains_key(id) {
+            delta
+                .add
+                .insert(GElem::Node(*id), GPayload::Node(node.clone()));
         }
     }
-    for (id, e) in &a.edges {
-        match b.edges.get(id) {
+    for (id, edge) in &before.edges {
+        match after.edges.get(id) {
             None => {
-                d.del.insert(GElem::Edge(*id), GPayload::Edge(e.clone()));
+                delta
+                    .del
+                    .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
             }
-            Some(f) if (f.src, f.tgt) != (e.src, e.tgt) => {
-                d.del.insert(GElem::Edge(*id), GPayload::Edge(e.clone()));
-                d.add.insert(GElem::Edge(*id), GPayload::Edge(f.clone()));
+            Some(other_edge) if (other_edge.src, other_edge.tgt) != (edge.src, edge.tgt) => {
+                delta
+                    .del
+                    .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
+                delta
+                    .add
+                    .insert(GElem::Edge(*id), GPayload::Edge(other_edge.clone()));
             }
-            Some(f) => {
-                if e.label != f.label {
-                    d.attrs.insert(AttrKey::EdgeLabel(*id), (AttrVal::Label(e.label.clone()), AttrVal::Label(f.label.clone())));
+            Some(other_edge) => {
+                if edge.label != other_edge.label {
+                    delta.attrs.insert(
+                        AttrKey::EdgeLabel(*id),
+                        (
+                            AttrVal::Label(edge.label.clone()),
+                            AttrVal::Label(other_edge.label.clone()),
+                        ),
+                    );
                 }
-                if e.position != f.position {
-                    d.attrs.insert(AttrKey::EdgePosition(*id), (AttrVal::Position(e.position), AttrVal::Position(f.position)));
+                if edge.position != other_edge.position {
+                    delta.attrs.insert(
+                        AttrKey::EdgePosition(*id),
+                        (
+                            AttrVal::Position(edge.position),
+                            AttrVal::Position(other_edge.position),
+                        ),
+                    );
                 }
             }
         }
     }
-    for (id, e) in &b.edges {
-        if !a.edges.contains_key(id) {
-            d.add.insert(GElem::Edge(*id), GPayload::Edge(e.clone()));
+    for (id, edge) in &after.edges {
+        if !before.edges.contains_key(id) {
+            delta
+                .add
+                .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
         }
     }
-    d
+    delta
 }
 
 /// An element reference in a conflict.
@@ -639,7 +770,12 @@ fn uses(d: &GraphDelta, x: &GElem) -> Vec<ElemRef> {
             }
         }
     }
-    out.extend(d.attrs.keys().filter(|k| GraphSpace::owner(k) == *x).map(|k| ElemRef::Attr(k.clone())));
+    out.extend(
+        d.attrs
+            .keys()
+            .filter(|k| GraphSpace::owner(k) == *x)
+            .map(|k| ElemRef::Attr(k.clone())),
+    );
     if d.del.contains_key(x) && d.add.contains_key(x) {
         out.push(ElemRef::Elem(x.clone()));
     }
@@ -691,7 +827,13 @@ fn nodes_of(d: &GraphDelta) -> BTreeSet<u32> {
             _ => {}
         }
     }
-    out.extend(d.attrs.keys().filter_map(|k| if let GElem::Node(n) = GraphSpace::owner(k) { Some(n) } else { None }));
+    out.extend(d.attrs.keys().filter_map(|k| {
+        if let GElem::Node(n) = GraphSpace::owner(k) {
+            Some(n)
+        } else {
+            None
+        }
+    }));
     out
 }
 
@@ -706,7 +848,10 @@ pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
     for (d1, d2) in [(a, b), (b, a)] {
         for x in d1.del.keys().filter(|x| !d1.add.contains_key(*x)) {
             for user in uses(d2, x) {
-                out.insert(EditConflict::DeleteUse { deleted: x.clone(), user });
+                out.insert(EditConflict::DeleteUse {
+                    deleted: x.clone(),
+                    user,
+                });
             }
         }
         for k in d1.attrs.keys() {
@@ -715,11 +860,21 @@ pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
                     if let GPayload::Edge(edge) = p
                         && (edge.src == *n || edge.tgt == *n)
                     {
-                        out.insert(EditConflict::AnchorUse { node: *n, user: ElemRef::Elem(e.clone()) });
+                        out.insert(EditConflict::AnchorUse {
+                            node: *n,
+                            user: ElemRef::Elem(e.clone()),
+                        });
                     }
                 }
-                for k2 in d2.attrs.keys().filter(|k2| matches!(k2, AttrKey::EdgeLabel(_))) {
-                    out.insert(EditConflict::AnchorUse { node: *n, user: ElemRef::Attr(k2.clone()) });
+                for k2 in d2
+                    .attrs
+                    .keys()
+                    .filter(|k2| matches!(k2, AttrKey::EdgeLabel(_)))
+                {
+                    out.insert(EditConflict::AnchorUse {
+                        node: *n,
+                        user: ElemRef::Attr(k2.clone()),
+                    });
                 }
             }
         }
@@ -730,7 +885,19 @@ pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
     for x in a.add.keys().filter(|x| b.add.contains_key(*x)) {
         out.insert(EditConflict::AddAdd { elem: x.clone() });
     }
-    let fan_pair = |p: ElemRef, q: ElemRef| if p <= q { EditConflict::FanUse { first: p, second: q } } else { EditConflict::FanUse { first: q, second: p } };
+    let fan_pair = |p: ElemRef, q: ElemRef| {
+        if p <= q {
+            EditConflict::FanUse {
+                first: p,
+                second: q,
+            }
+        } else {
+            EditConflict::FanUse {
+                first: q,
+                second: p,
+            }
+        }
+    };
     for n in nodes_of(a).intersection(&nodes_of(b)) {
         let (ca, cb) = (fan_changes(a, *n), fan_changes(b, *n));
         for (p, sp) in &ca {
@@ -759,7 +926,9 @@ pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
 pub fn is_benign(c: &EditConflict, a: &GraphDelta, b: &GraphDelta) -> bool {
     match c {
         EditConflict::DeleteDelete { elem } => a.del.get(elem) == b.del.get(elem),
-        EditConflict::UpdateUpdate { key } => a.attrs.get(key).map(|x| &x.1) == b.attrs.get(key).map(|x| &x.1),
+        EditConflict::UpdateUpdate { key } => {
+            a.attrs.get(key).map(|x| &x.1) == b.attrs.get(key).map(|x| &x.1)
+        }
         EditConflict::AddAdd { elem } => a.add.get(elem) == b.add.get(elem),
         _ => false,
     }
@@ -788,9 +957,16 @@ pub fn merge(a: &GraphDelta, b: &GraphDelta) -> Result<GraphDelta, EditConflict>
 /// # Errors
 ///
 /// The error of applying the edit or of either get, as text.
-pub fn get_edit<E: Debug>(get: &dyn Fn(&Graph) -> Result<Graph, E>, s: &Graph, d: &GraphDelta) -> Result<GraphDelta, String> {
+pub fn get_edit<E: Debug>(
+    get: &dyn Fn(&Graph) -> Result<Graph, E>,
+    s: &Graph,
+    d: &GraphDelta,
+) -> Result<GraphDelta, String> {
     let s2 = apply(d, s).map_err(|e| format!("{e:?}"))?;
-    Ok(diff(&get(s).map_err(|e| format!("{e:?}"))?, &get(&s2).map_err(|e| format!("{e:?}"))?))
+    Ok(diff(
+        &get(s).map_err(|e| format!("{e:?}"))?,
+        &get(&s2).map_err(|e| format!("{e:?}"))?,
+    ))
 }
 
 /// The reference translation of a view edit through a lens: the differ
@@ -799,7 +975,12 @@ pub fn get_edit<E: Debug>(get: &dyn Fn(&Graph) -> Result<Graph, E>, s: &Graph, d
 /// # Errors
 ///
 /// The error of applying the edit or of put, as text.
-pub fn put_edit<E: Debug>(put: &dyn Fn(&Graph) -> Result<Graph, E>, s: &Graph, v: &Graph, dv: &GraphDelta) -> Result<GraphDelta, String> {
+pub fn put_edit<E: Debug>(
+    put: &dyn Fn(&Graph) -> Result<Graph, E>,
+    s: &Graph,
+    v: &Graph,
+    dv: &GraphDelta,
+) -> Result<GraphDelta, String> {
     let v2 = apply(dv, v).map_err(|e| format!("{e:?}"))?;
     Ok(diff(s, &put(&v2).map_err(|e| format!("{e:?}"))?))
 }
@@ -859,30 +1040,32 @@ impl DeltaSpace for TableSpace {
         }
     }
 
-    fn write(p: &TPayload, k: &TKey, v: &TVal) -> TPayload {
-        let mut p = p.clone();
-        if let Some((t, cells)) = p.as_mut() {
-            match (k, v) {
-                (TKey::Cell(_, c), TVal::Cell(Some(x))) => {
-                    cells.insert(c.clone(), x.clone());
+    fn write(payload: &TPayload, key: &TKey, val: &TVal) -> TPayload {
+        let mut payload = payload.clone();
+        if let Some((table, cells)) = payload.as_mut() {
+            match (key, val) {
+                (TKey::Cell(_, column), TVal::Cell(Some(cell))) => {
+                    cells.insert(column.clone(), cell.clone());
                 }
-                (TKey::Cell(_, c), TVal::Cell(None)) => {
-                    cells.remove(c);
+                (TKey::Cell(_, column), TVal::Cell(None)) => {
+                    cells.remove(column);
                 }
-                (TKey::Table(_), TVal::Table(n)) => t.clone_from(n),
+                (TKey::Table(_), TVal::Table(name)) => table.clone_from(name),
                 _ => {}
             }
         }
-        p
+        payload
     }
 }
 
 /// A table delta.
 pub type TableDelta = Delta<TableSpace>;
 
-/// Apply a table delta: deleted rows and pairs exist with their payloads,
-/// attribute old values hold, a deleted row's pairs are deleted, added ids
-/// are free, added pairs' rows exist. `Err` names the offending element.
+/// Apply a table delta.
+///
+/// Deleted rows and pairs exist with their payloads, attribute old values hold, a deleted row's
+/// pairs are deleted, added ids are free, added pairs' rows exist. `Err` names the offending
+/// element.
 ///
 /// # Errors
 ///
@@ -905,7 +1088,11 @@ pub fn apply_table(d: &TableDelta, t: &Table) -> Result<Table, TElem> {
     }
     for x in d.del.keys() {
         if let TElem::Row(r) = x
-            && let Some((e, s, dd)) = t.pairs.iter().find(|(_, s, dd)| s == r || dd == r).filter(|(e, s, dd)| !d.del.contains_key(&TElem::Pair(e.clone(), *s, *dd)))
+            && let Some((e, s, dd)) = t
+                .pairs
+                .iter()
+                .find(|(_, s, dd)| s == r || dd == r)
+                .filter(|(e, s, dd)| !d.del.contains_key(&TElem::Pair(e.clone(), *s, *dd)))
         {
             return Err(TElem::Pair(e.clone(), *s, *dd));
         }
@@ -944,7 +1131,11 @@ pub fn apply_table(d: &TableDelta, t: &Table) -> Result<Table, TElem> {
             _ => return Err(x.clone()),
         }
     }
-    let dangling = out.pairs.iter().find(|(_, s, dd)| !out.rows.contains_key(s) || !out.rows.contains_key(dd)).cloned();
+    let dangling = out
+        .pairs
+        .iter()
+        .find(|(_, s, dd)| !out.rows.contains_key(s) || !out.rows.contains_key(dd))
+        .cloned();
     if let Some((e, s, dd)) = dangling {
         return Err(TElem::Pair(e, s, dd));
     }

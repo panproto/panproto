@@ -88,17 +88,31 @@ pub fn classify(
     if let Some(kind) = value_kinds.intersection(non_value_kinds).next() {
         return Err(RelSchemaError::AmbiguousKind { kind: kind.clone() });
     }
-    let mut declared: BTreeSet<Name> = schema.keys.iter().filter(|(_, k)| !k.is_empty()).map(|(v, _)| v.clone()).collect();
+    let mut declared: BTreeSet<Name> = schema
+        .keys
+        .iter()
+        .filter(|(_, k)| !k.is_empty())
+        .map(|(v, _)| v.clone())
+        .collect();
     for r in schema.references.values() {
         declared.insert(r.holder.clone());
         declared.insert(r.target_vertex.clone());
     }
     for (v, kind) in &schema.vertices {
         if !declared.contains(v) && !value_kinds.contains(kind) && !non_value_kinds.contains(kind) {
-            return Err(RelSchemaError::UnclassifiedKind { vertex: v.clone(), kind: kind.clone() });
+            return Err(RelSchemaError::UnclassifiedKind {
+                vertex: v.clone(),
+                kind: kind.clone(),
+            });
         }
     }
-    let is_table = |v: &str| declared.contains(v) || schema.vertices.get(v).is_some_and(|k| non_value_kinds.contains(k));
+    let is_table = |v: &str| {
+        declared.contains(v)
+            || schema
+                .vertices
+                .get(v)
+                .is_some_and(|k| non_value_kinds.contains(k))
+    };
     let mut values: BTreeSet<Name> = schema
         .vertices
         .iter()
@@ -117,11 +131,23 @@ pub fn classify(
         }
         values.extend(grow);
     }
-    if let Some(bad) = schema.edges.iter().find(|e| values.contains(&e.src) && is_table(&e.tgt)) {
+    if let Some(bad) = schema
+        .edges
+        .iter()
+        .find(|e| values.contains(&e.src) && is_table(&e.tgt))
+    {
         return Err(RelSchemaError::ValueReachesTable { edge: bad.clone() });
     }
-    let tables: BTreeSet<Name> = schema.vertices.keys().filter(|v| is_table(v)).cloned().collect();
-    let mut columns: BTreeMap<Name, BTreeMap<String, SEdge>> = tables.iter().map(|t| (t.clone(), BTreeMap::new())).collect();
+    let tables: BTreeSet<Name> = schema
+        .vertices
+        .keys()
+        .filter(|v| is_table(v))
+        .cloned()
+        .collect();
+    let mut columns: BTreeMap<Name, BTreeMap<String, SEdge>> = tables
+        .iter()
+        .map(|t| (t.clone(), BTreeMap::new()))
+        .collect();
     let mut relations = BTreeSet::new();
     let mut inner_edges = BTreeSet::new();
     for e in &schema.edges {
@@ -131,13 +157,23 @@ pub fn classify(
             let cols = columns.entry(e.src.clone()).or_default();
             let name = e.column().to_owned();
             if cols.insert(name.clone(), e.clone()).is_some() {
-                return Err(RelSchemaError::DuplicateColumn { table: e.src.clone(), column: name });
+                return Err(RelSchemaError::DuplicateColumn {
+                    table: e.src.clone(),
+                    column: name,
+                });
             }
         } else if values.contains(&e.src) {
             inner_edges.insert(e.clone());
         }
     }
-    Ok(RelSchema { tables, relations, columns, value_vertices: values, inner_edges, kinds: schema.vertices.clone() })
+    Ok(RelSchema {
+        tables,
+        relations,
+        columns,
+        value_vertices: values,
+        inner_edges,
+        kinds: schema.vertices.clone(),
+    })
 }
 
 /// A functor between relation-ified schemas, restricted to its kept part.
@@ -170,22 +206,22 @@ pub enum FunctorError {
     /// A kept relation's image is not a target relation between the images.
     IncoherentEdgeImage {
         /// The source edge.
-        edge: SEdge,
+        edge: Box<SEdge>,
         /// Its image.
-        image: SEdge,
+        image: Box<SEdge>,
     },
     /// An attribute arrow's image is not a target attribute arrow of the
     /// image table.
     IncoherentAttributeImage {
         /// The source arrow.
-        edge: SEdge,
+        edge: Box<SEdge>,
         /// Its image, when it has one.
-        image: Option<SEdge>,
+        image: Option<Box<SEdge>>,
     },
     /// An inner-edge remap changes the value structure.
     ValueStructureRemap {
         /// The source inner edge.
-        edge: SEdge,
+        edge: Box<SEdge>,
     },
 }
 
@@ -213,7 +249,11 @@ fn is_image<'a, K, V: PartialEq + 'a>(map: impl IntoIterator<Item = (K, &'a V)>,
 /// # Errors
 ///
 /// The first failing step's [`FunctorError`].
-pub fn entity_functor(src: &RelSchema, tgt: &RelSchema, m: &Migration) -> Result<RelFunctor, FunctorError> {
+pub fn entity_functor(
+    src: &RelSchema,
+    tgt: &RelSchema,
+    m: &Migration,
+) -> Result<RelFunctor, FunctorError> {
     let mut tables = BTreeMap::new();
     for s in &src.tables {
         let kept = m.vertex_remap.contains_key(s)
@@ -223,22 +263,35 @@ pub fn entity_functor(src: &RelSchema, tgt: &RelSchema, m: &Migration) -> Result
         }
         let image = m.vertex_image(s).to_owned();
         if !tgt.tables.contains(&image) {
-            return Err(FunctorError::VertexImageNotATable { vertex: s.clone(), image });
+            return Err(FunctorError::VertexImageNotATable {
+                vertex: s.clone(),
+                image,
+            });
         }
         tables.insert(s.clone(), image);
     }
     let kept_edge = |e: &SEdge| {
-        m.edge_remap.contains_key(e) || (m.surviving_edges.contains(e) && !is_image(&m.edge_remap, e))
+        m.edge_remap.contains_key(e)
+            || (m.surviving_edges.contains(e) && !is_image(&m.edge_remap, e))
     };
     let mut relations = BTreeMap::new();
-    for e in src.relations.iter().filter(|e| tables.contains_key(&e.src) && tables.contains_key(&e.tgt)) {
+    for e in src
+        .relations
+        .iter()
+        .filter(|e| tables.contains_key(&e.src) && tables.contains_key(&e.tgt))
+    {
         if !kept_edge(e) {
             continue;
         }
         let image = m.edge_remap.get(e).cloned().unwrap_or_else(|| e.clone());
-        let coherent = tgt.relations.contains(&image) && image.src == tables[&e.src] && image.tgt == tables[&e.tgt];
+        let coherent = tgt.relations.contains(&image)
+            && image.src == tables[&e.src]
+            && image.tgt == tables[&e.tgt];
         if !coherent {
-            return Err(FunctorError::IncoherentEdgeImage { edge: e.clone(), image });
+            return Err(FunctorError::IncoherentEdgeImage {
+                edge: Box::new(e.clone()),
+                image: Box::new(image),
+            });
         }
         relations.insert(e.clone(), image);
     }
@@ -253,12 +306,21 @@ pub fn entity_functor(src: &RelSchema, tgt: &RelSchema, m: &Migration) -> Result
                 && kind_of(tgt, &image.src) == kind_of(src, &e.src)
                 && kind_of(tgt, &image.tgt) == kind_of(src, &e.tgt);
             if !ok {
-                return Err(FunctorError::ValueStructureRemap { edge: e.clone() });
+                return Err(FunctorError::ValueStructureRemap {
+                    edge: Box::new(e.clone()),
+                });
             }
             inner_edges.insert(e.clone(), image.clone());
         }
     }
-    Ok(RelFunctor { src: src.clone(), tgt: tgt.clone(), tables, relations, columns, inner_edges })
+    Ok(RelFunctor {
+        src: src.clone(),
+        tgt: tgt.clone(),
+        tables,
+        relations,
+        columns,
+        inner_edges,
+    })
 }
 
 fn functor_columns(
@@ -278,22 +340,43 @@ fn functor_columns(
     for (s, c, a) in arrows {
         let image_table = &tables[s];
         let target_cols = tgt.columns.get(image_table);
-        let target_of = |e: &SEdge| target_cols.and_then(|cols| cols.iter().find(|(_, arrow)| *arrow == e).map(|(n, _)| n.clone()));
+        let target_of = |e: &SEdge| {
+            target_cols.and_then(|cols| {
+                cols.iter()
+                    .find(|(_, arrow)| *arrow == e)
+                    .map(|(n, _)| n.clone())
+            })
+        };
         if let Some(image) = m.edge_remap.get(a) {
             let end_ok = m.vertex_remap.get(&a.tgt).is_none_or(|v| *v == image.tgt);
             match target_of(image) {
                 Some(col) if end_ok && image.src == *image_table => {
                     out.insert((s.clone(), c.clone()), col);
                 }
-                _ => return Err(FunctorError::IncoherentAttributeImage { edge: a.clone(), image: Some(image.clone()) }),
+                _ => {
+                    return Err(FunctorError::IncoherentAttributeImage {
+                        edge: Box::new(a.clone()),
+                        image: Some(Box::new(image.clone())),
+                    });
+                }
             }
         } else if m.surviving_edges.contains(a) && !is_image(&m.edge_remap, a) {
-            let wanted = SEdge { src: image_table.clone(), tgt: m.vertex_image(&a.tgt).to_owned(), kind: a.kind.clone(), name: a.name.clone() };
+            let wanted = SEdge {
+                src: image_table.clone(),
+                tgt: m.vertex_image(&a.tgt).to_owned(),
+                kind: a.kind.clone(),
+                name: a.name.clone(),
+            };
             match target_of(&wanted) {
                 Some(col) => {
                     out.insert((s.clone(), c.clone()), col);
                 }
-                None => return Err(FunctorError::IncoherentAttributeImage { edge: a.clone(), image: None }),
+                None => {
+                    return Err(FunctorError::IncoherentAttributeImage {
+                        edge: Box::new(a.clone()),
+                        image: None,
+                    });
+                }
             }
         }
     }
@@ -314,7 +397,19 @@ impl RelSchema {
     #[must_use]
     pub fn side(&self) -> Side {
         Side {
-            tables: self.tables.iter().map(|t| (t.clone(), self.columns.get(t).map(|c| c.keys().cloned().collect()).unwrap_or_default())).collect(),
+            tables: self
+                .tables
+                .iter()
+                .map(|t| {
+                    (
+                        t.clone(),
+                        self.columns
+                            .get(t)
+                            .map(|c| c.keys().cloned().collect())
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect(),
             relations: self.relations.clone(),
         }
     }
@@ -325,17 +420,28 @@ impl RelFunctor {
     /// kept relations.
     #[must_use]
     pub fn kept_side(&self) -> Side {
-        let mut tables: BTreeMap<Name, BTreeSet<String>> = self.tables.keys().map(|t| (t.clone(), BTreeSet::new())).collect();
+        let mut tables: BTreeMap<Name, BTreeSet<String>> = self
+            .tables
+            .keys()
+            .map(|t| (t.clone(), BTreeSet::new()))
+            .collect();
         for (s, c) in self.columns.keys() {
             tables.entry(s.clone()).or_default().insert(c.clone());
         }
-        Side { tables, relations: self.relations.keys().cloned().collect() }
+        Side {
+            tables,
+            relations: self.relations.keys().cloned().collect(),
+        }
     }
 
     /// The kept source tables mapped to the target table `d`, ascending.
     #[must_use]
     pub fn fibre(&self, d: &str) -> Vec<Name> {
-        self.tables.iter().filter(|(_, t)| *t == d).map(|(s, _)| s.clone()).collect()
+        self.tables
+            .iter()
+            .filter(|(_, t)| *t == d)
+            .map(|(s, _)| s.clone())
+            .collect()
     }
 }
 
@@ -351,9 +457,9 @@ pub enum Conformance {
     /// A labelled null below the top level of a cell.
     NestedLabeledNull,
     /// A pair at a relation outside the side.
-    RelationOutside(SEdge),
+    RelationOutside(Box<SEdge>),
     /// A pair whose rows are not at its relation's endpoint tables.
-    IncoherentPair(SEdge),
+    IncoherentPair(Box<SEdge>),
 }
 
 /// The first violation of conformance.
@@ -367,16 +473,16 @@ pub struct NonConforming {
     pub reason: Conformance,
 }
 
-/// Check that an instance conforms to a side: rows at its tables with
-/// exactly its columns and no nested labelled null, pairs at its relations
-/// between rows of the relation's endpoint tables. The first violation is
-/// the least row; within a row, the least column; a row's violation comes
-/// before a pair whose source row is not smaller.
+/// Check that an instance conforms to a side.
+///
+/// Rows at its tables with exactly its columns and no nested labelled null, pairs at its relations
+/// between rows of the relation's endpoint tables. The first violation is the least row; within a
+/// row, the least column; a row's violation comes before a pair whose source row is not smaller.
 ///
 /// # Errors
 ///
 /// The first [`NonConforming`] violation.
-pub fn conform(inst: &Table, side: &Side) -> Result<(), NonConforming> {
+pub fn conform(inst: &Table, side: &Side) -> Result<(), Box<NonConforming>> {
     let mut first: Option<NonConforming> = None;
     for (id, (table, cells)) in &inst.rows {
         let v = row_violation(*id, table, cells, side);
@@ -390,38 +496,65 @@ pub fn conform(inst: &Table, side: &Side) -> Result<(), NonConforming> {
         .iter()
         .filter_map(|(e, s, t)| {
             if !side.relations.contains(e) {
-                return Some((*s, Conformance::RelationOutside(e.clone())));
+                return Some((*s, Conformance::RelationOutside(Box::new(e.clone()))));
             }
             let at = |r: &u32| inst.rows.get(r).map(|(tb, _)| tb.clone());
             (at(s).as_deref() != Some(e.src.as_str()) || at(t).as_deref() != Some(e.tgt.as_str()))
-                .then(|| (*s, Conformance::IncoherentPair(e.clone())))
+                .then(|| (*s, Conformance::IncoherentPair(Box::new(e.clone()))))
         })
         .min_by_key(|(s, _)| *s);
     match (first, pair) {
-        (Some(r), Some((s, _))) if r.row <= s => Err(r),
-        (_, Some((row, reason))) => Err(NonConforming { row, column: None, reason }),
-        (Some(r), None) => Err(r),
+        (Some(r), Some((s, _))) if r.row <= s => Err(Box::new(r)),
+        (_, Some((row, reason))) => Err(Box::new(NonConforming {
+            row,
+            column: None,
+            reason,
+        })),
+        (Some(r), None) => Err(Box::new(r)),
         (None, None) => Ok(()),
     }
 }
 
-fn row_violation(id: u32, table: &str, cells: &BTreeMap<String, Value>, side: &Side) -> Option<NonConforming> {
+fn row_violation(
+    id: u32,
+    table: &str,
+    cells: &BTreeMap<String, Value>,
+    side: &Side,
+) -> Option<NonConforming> {
     let Some(columns) = side.tables.get(table) else {
-        return Some(NonConforming { row: id, column: None, reason: Conformance::TableOutside });
+        return Some(NonConforming {
+            row: id,
+            column: None,
+            reason: Conformance::TableOutside,
+        });
     };
-    let missing = columns.iter().find(|c| !cells.contains_key(*c)).map(|c| (c.clone(), Conformance::MissingCell));
-    let stray = cells.keys().find(|k| !columns.contains(*k)).map(|k| (k.clone(), Conformance::StrayCell));
+    let missing = columns
+        .iter()
+        .find(|c| !cells.contains_key(*c))
+        .map(|c| (c.clone(), Conformance::MissingCell));
+    let stray = cells
+        .keys()
+        .find(|k| !columns.contains(*k))
+        .map(|k| (k.clone(), Conformance::StrayCell));
     let keyed = match (missing, stray) {
         (Some(m), Some(s)) => Some(if s.0 < m.0 { s } else { m }),
         (m, s) => m.or(s),
     };
     if let Some((column, reason)) = keyed {
-        return Some(NonConforming { row: id, column: Some(column), reason });
+        return Some(NonConforming {
+            row: id,
+            column: Some(column),
+            reason,
+        });
     }
     cells
         .iter()
         .find(|(_, v)| v.has_nested_labeled_null())
-        .map(|(c, _)| NonConforming { row: id, column: Some(c.clone()), reason: Conformance::NestedLabeledNull })
+        .map(|(c, _)| NonConforming {
+            row: id,
+            column: Some(c.clone()),
+            reason: Conformance::NestedLabeledNull,
+        })
 }
 
 /// The restriction of a conforming instance to the kept part: rows at kept
@@ -434,11 +567,20 @@ pub fn restrict_to_kept(inst: &Table, f: &RelFunctor) -> Table {
         .iter()
         .filter_map(|(id, (t, cells))| {
             let cols = side.tables.get(t)?;
-            let kept = cells.iter().filter(|(c, _)| cols.contains(*c)).map(|(c, v)| (c.clone(), v.clone())).collect();
+            let kept = cells
+                .iter()
+                .filter(|(c, _)| cols.contains(*c))
+                .map(|(c, v)| (c.clone(), v.clone()))
+                .collect();
             Some((*id, (t.clone(), kept)))
         })
         .collect();
-    let pairs = inst.pairs.iter().filter(|(e, _, _)| side.relations.contains(e)).cloned().collect();
+    let pairs = inst
+        .pairs
+        .iter()
+        .filter(|(e, _, _)| side.relations.contains(e))
+        .cloned()
+        .collect();
     Table { rows, pairs }
 }
 
@@ -446,7 +588,7 @@ pub fn restrict_to_kept(inst: &Table, f: &RelFunctor) -> Table {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KanError {
     /// The input does not conform.
-    NonConforming(NonConforming),
+    NonConforming(Box<NonConforming>),
     /// Two constants were equated in a Sigma cell class.
     SigmaConstantClash {
         /// The output row.
@@ -454,9 +596,9 @@ pub enum KanError {
         /// The target column.
         column: String,
         /// The class's constant before the joining equation.
-        left: Value,
+        left: Box<Value>,
         /// The other constant.
-        right: Value,
+        right: Box<Value>,
     },
     /// A target column is not the image of a kept column of its fibre.
     AttributeOutsideImage {
@@ -470,13 +612,13 @@ pub enum KanError {
 /// The provenance of a Delta row: the source table and target row copied.
 pub type DeltaProvenance = BTreeMap<u32, (Name, u32)>;
 
-/// Delta along `f` (precomposition): for each kept source table s and each
-/// row r of `j` at `F(s)`, a copy row at s holding, at each kept column c
-/// of s, r's cell at `F(s, c)`; for each kept relation e and each pair
-/// `(F(e), a, b)` of `j`, the pair `(e, copy of a at e.src, copy of b at
-/// e.tgt)`. Ids: copies are made in (source table, target row) order; the
-/// first copy of a row keeps its id, every other copy takes the next id
-/// above every id of `j`. No null is created.
+/// Delta along `f` (precomposition).
+///
+/// For each kept source table s and each row r of `j` at `F(s)`, a copy row at s holding, at each
+/// kept column c of s, r's cell at `F(s, c)`; for each kept relation e and each pair `(F(e), a, b)`
+/// of `j`, the pair `(e, copy of a at e.src, copy of b at e.tgt)`. Ids: copies are made in (source
+/// table, target row) order; the first copy of a row keeps its id, every other copy takes the next
+/// id above every id of `j`. No null is created.
 ///
 /// # Errors
 ///
@@ -513,7 +655,10 @@ pub fn delta(f: &RelFunctor, j: &Table) -> Result<(Table, DeltaProvenance), KanE
     for (e, image) in &f.relations {
         for (pe, a, b) in &j.pairs {
             if pe == image
-                && let (Some(x), Some(y)) = (copy.get(&(e.src.clone(), *a)), copy.get(&(e.tgt.clone(), *b)))
+                && let (Some(x), Some(y)) = (
+                    copy.get(&(e.src.clone(), *a)),
+                    copy.get(&(e.tgt.clone(), *b)),
+                )
             {
                 out.pairs.insert((e.clone(), *x, *y));
             }
@@ -551,7 +696,13 @@ fn max_null(t: &Table) -> Option<u64> {
     t.rows
         .values()
         .flat_map(|(_, c)| c.values())
-        .filter_map(|v| if let Value::LabeledNull(n) = v { Some(*n) } else { None })
+        .filter_map(|v| {
+            if let Value::LabeledNull(n) = v {
+                Some(*n)
+            } else {
+                None
+            }
+        })
         .max()
 }
 
@@ -583,29 +734,60 @@ pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanE
     let mut slots: Vec<(u32, String, Name)> = Vec::new();
     for (r, (s, cells)) in &i.rows {
         let t = &f.tables[s];
-        for beta in f.tgt.columns.get(t).map(|c| c.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+        for beta in f
+            .tgt
+            .columns
+            .get(t)
+            .map(|c| c.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
             slots.push((*r, beta.clone(), t.clone()));
             let slot = Term::Slot(*r, beta.clone());
             label.insert(slot.clone(), next_label);
             next_label += 1;
-            let preimages: Vec<&String> = f.columns.iter().filter(|((src, _), b)| src == s && **b == beta).map(|((_, a), _)| a).collect();
+            let preimages: Vec<&String> = f
+                .columns
+                .iter()
+                .filter(|((src, _), b)| src == s && **b == beta)
+                .map(|((_, a), _)| a)
+                .collect();
             if preimages.is_empty() {
                 prov.fresh.insert(fresh_id, (*r, beta.clone()));
-                join(&mut label, &mut next_label, &slot, &Term::Null(fresh_id)).map_err(|(l, rt)| clash(*r, &beta, l, rt))?;
+                join(&mut label, &mut next_label, &slot, &Term::Null(fresh_id))
+                    .map_err(|(l, rt)| clash(*r, &beta, &l, &rt))?;
                 fresh_id += 1;
             }
             for a in preimages {
                 let Some(v) = cells.get(a) else { continue };
-                join(&mut label, &mut next_label, &slot, &term_of(v)).map_err(|(l, rt)| clash(*r, &beta, l, rt))?;
+                join(&mut label, &mut next_label, &slot, &term_of(v))
+                    .map_err(|(l, rt)| clash(*r, &beta, &l, &rt))?;
             }
         }
     }
     let value_of = |lbl: usize| -> Value {
-        let members: Vec<&Term> = label.iter().filter(|(_, l)| **l == lbl).map(|(t, _)| t).collect();
+        let members: Vec<&Term> = label
+            .iter()
+            .filter(|(_, l)| **l == lbl)
+            .map(|(t, _)| t)
+            .collect();
         members
             .iter()
-            .find_map(|t| if let Term::Const(b) = t { crate::canonical::decode_value(b) } else { None })
-            .or_else(|| members.iter().find_map(|t| if let Term::Null(n) = t { Some(Value::LabeledNull(*n)) } else { None }))
+            .find_map(|t| {
+                if let Term::Const(b) = t {
+                    crate::canonical::decode_value(b)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                members.iter().find_map(|t| {
+                    if let Term::Null(n) = t {
+                        Some(Value::LabeledNull(*n))
+                    } else {
+                        None
+                    }
+                })
+            })
             .unwrap_or(Value::Null)
     };
     let mut out = Table::default();
@@ -631,14 +813,24 @@ pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanE
     Ok((out, prov))
 }
 
-fn clash(row: u32, column: &str, left: Vec<u8>, right: Vec<u8>) -> KanError {
+fn clash(row: u32, column: &str, left: &[u8], right: &[u8]) -> KanError {
     let dec = |b: &[u8]| crate::canonical::decode_value(b).unwrap_or(Value::Null);
-    KanError::SigmaConstantClash { row, column: column.to_owned(), left: dec(&left), right: dec(&right) }
+    KanError::SigmaConstantClash {
+        row,
+        column: column.to_owned(),
+        left: Box::new(dec(left)),
+        right: Box::new(dec(right)),
+    }
 }
 
 /// Join the classes of `a` and `b`; refuse when both hold a constant and the
 /// constants differ, returning `(a's constant, b's constant)`.
-fn join(label: &mut BTreeMap<Term, usize>, next: &mut usize, a: &Term, b: &Term) -> Result<(), (Vec<u8>, Vec<u8>)> {
+fn join(
+    label: &mut BTreeMap<Term, usize>,
+    next: &mut usize,
+    a: &Term,
+    b: &Term,
+) -> Result<(), (Vec<u8>, Vec<u8>)> {
     for t in [a, b] {
         if !label.contains_key(t) {
             label.insert(t.clone(), *next);
@@ -650,7 +842,17 @@ fn join(label: &mut BTreeMap<Term, usize>, next: &mut usize, a: &Term, b: &Term)
         return Ok(());
     }
     let constant = |l: usize, label: &BTreeMap<Term, usize>| {
-        label.iter().find_map(|(t, x)| if *x == l { if let Term::Const(c) = t { Some(c.clone()) } else { None } } else { None })
+        label.iter().find_map(|(t, x)| {
+            if *x == l {
+                if let Term::Const(c) = t {
+                    Some(c.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
     };
     if let (Some(ca), Some(cb)) = (constant(la, label), constant(lb, label)) {
         return Err((ca, cb));
@@ -676,9 +878,15 @@ pub type PiProvenance = BTreeMap<u32, (Name, Vec<u32>)>;
 pub fn attribute_surjective(f: &RelFunctor) -> Result<(), KanError> {
     for (t, cols) in &f.tgt.columns {
         for c in cols.keys() {
-            let covered = f.columns.iter().any(|((s, _), tc)| tc == c && f.tables.get(s) == Some(t));
+            let covered = f
+                .columns
+                .iter()
+                .any(|((s, _), tc)| tc == c && f.tables.get(s) == Some(t));
             if !covered {
-                return Err(KanError::AttributeOutsideImage { table: t.clone(), column: c.clone() });
+                return Err(KanError::AttributeOutsideImage {
+                    table: t.clone(),
+                    column: c.clone(),
+                });
             }
         }
     }
@@ -690,14 +898,21 @@ pub fn attribute_surjective(f: &RelFunctor) -> Result<(), KanError> {
 fn tuples(inst: &Table, fibre: &[Name]) -> Vec<Vec<u32>> {
     let mut out: Vec<Vec<u32>> = vec![Vec::new()];
     for s in fibre {
-        let rows: Vec<u32> = inst.rows.iter().filter(|(_, (t, _))| t == s).map(|(id, _)| *id).collect();
+        let rows: Vec<u32> = inst
+            .rows
+            .iter()
+            .filter(|(_, (t, _))| t == s)
+            .map(|(id, _)| *id)
+            .collect();
         out = out
             .into_iter()
-            .flat_map(|prefix| rows.iter().map(move |r| {
-                let mut p = prefix.clone();
-                p.push(*r);
-                p
-            }))
+            .flat_map(|prefix| {
+                rows.iter().map(move |r| {
+                    let mut p = prefix.clone();
+                    p.push(*r);
+                    p
+                })
+            })
             .collect();
     }
     out
@@ -731,7 +946,9 @@ pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> 
     for d in &f.tgt.tables {
         let fibre = f.fibre(d);
         for tuple in tuples(&i, &fibre) {
-            let Some(cells) = joined_cells(f, &i, d, &fibre, &tuple) else { continue };
+            let Some(cells) = joined_cells(f, &i, d, &fibre, &tuple) else {
+                continue;
+            };
             out.rows.insert(next, (d.clone(), cells));
             prov.insert(next, (d.clone(), tuple.clone()));
             ids.insert((d.clone(), tuple), next);
@@ -739,9 +956,19 @@ pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> 
         }
     }
     for rho in &f.tgt.relations {
-        let carried: Vec<&SEdge> = f.relations.iter().filter(|(_, img)| *img == rho).map(|(x, _)| x).collect();
+        let carried: Vec<&SEdge> = f
+            .relations
+            .iter()
+            .filter(|(_, img)| *img == rho)
+            .map(|(x, _)| x)
+            .collect();
         let (fs, ft) = (f.fibre(&rho.src), f.fibre(&rho.tgt));
-        let rows_at = |t: &Name| ids.iter().filter(move |((d, _), _)| d == t).map(|((_, tu), id)| (tu.clone(), *id)).collect::<Vec<_>>();
+        let rows_at = |t: &Name| {
+            ids.iter()
+                .filter(move |((d, _), _)| d == t)
+                .map(|((_, tu), id)| (tu.clone(), *id))
+                .collect::<Vec<_>>()
+        };
         for (u, uid) in rows_at(&rho.src) {
             for (v, vid) in rows_at(&rho.tgt) {
                 let ok = carried.iter().all(|x| {
@@ -758,18 +985,32 @@ pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> 
     Ok((out, prov))
 }
 
-fn joined_cells(f: &RelFunctor, i: &Table, d: &str, fibre: &[Name], tuple: &[u32]) -> Option<BTreeMap<String, Value>> {
+fn joined_cells(
+    func: &RelFunctor,
+    inst: &Table,
+    target: &str,
+    fibre: &[Name],
+    tuple: &[u32],
+) -> Option<BTreeMap<String, Value>> {
     let mut cells = BTreeMap::new();
-    for beta in f.tgt.columns.get(d).map(|c| c.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+    for beta in func
+        .tgt
+        .columns
+        .get(target)
+        .map(|c| c.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default()
+    {
         let mut found: Option<Value> = None;
-        for (k, s) in fibre.iter().enumerate() {
-            let row = &i.rows.get(&tuple[k])?.1;
-            for ((src, a), b) in &f.columns {
-                if src == s && *b == beta {
-                    let v = row.get(a)?;
+        for (pos, table) in fibre.iter().enumerate() {
+            let row = &inst.rows.get(&tuple[pos])?.1;
+            for ((src, col), image) in &func.columns {
+                if src == table && *image == beta {
+                    let val = row.get(col)?;
                     match &found {
-                        None => found = Some(v.clone()),
-                        Some(w) if crate::canonical::value_bytes(w) == crate::canonical::value_bytes(v) => {}
+                        None => found = Some(val.clone()),
+                        Some(prior)
+                            if crate::canonical::value_bytes(prior)
+                                == crate::canonical::value_bytes(val) => {}
                         Some(_) => return None,
                     }
                 }
@@ -780,120 +1021,140 @@ fn joined_cells(f: &RelFunctor, i: &Table, d: &str, fibre: &[Name], tuple: &[u32
     Some(cells)
 }
 
-/// An isomorphism between two attributed instances: a bijection of rows
-/// preserving tables, pairs and cells, with a bijection of labelled nulls
-/// under which cells agree (every other value compared by canonical bytes).
+/// A structure-preserving bijection between two attributed instances.
+///
+/// A bijection of rows preserving tables, pairs and cells, with a bijection of labelled nulls under
+/// which cells agree (every other value compared by canonical bytes).
+///
 /// Found by naive backtracking over row bijections; `None` when none
 /// exists.
 #[must_use]
-pub fn isomorphism(a: &Table, b: &Table) -> Option<BTreeMap<u32, u32>> {
+pub fn row_bijection(a: &Table, b: &Table) -> Option<BTreeMap<u32, u32>> {
     if a.rows.len() != b.rows.len() || a.pairs.len() != b.pairs.len() {
         return None;
     }
     let order: Vec<u32> = a.rows.keys().copied().collect();
     let mut map = BTreeMap::new();
     let mut nulls = BTreeMap::new();
-    search_iso(a, b, &order, 0, &mut map, &mut nulls).then_some(map)
+    search_bijection(a, b, &order, 0, &mut map, &mut nulls).then_some(map)
 }
 
-fn search_iso(
-    a: &Table,
-    b: &Table,
+fn search_bijection(
+    left: &Table,
+    right: &Table,
     order: &[u32],
-    k: usize,
+    pos: usize,
     map: &mut BTreeMap<u32, u32>,
     nulls: &mut BTreeMap<u64, u64>,
 ) -> bool {
-    let Some(&r) = order.get(k) else {
-        return a.pairs.iter().all(|(e, x, y)| b.pairs.contains(&(e.clone(), map[x], map[y])));
+    let Some(&row) = order.get(pos) else {
+        return left
+            .pairs
+            .iter()
+            .all(|(edge, from, to)| right.pairs.contains(&(edge.clone(), map[from], map[to])));
     };
-    let (ta, ca) = &a.rows[&r];
-    for (cand, (tb, cb)) in &b.rows {
-        if tb != ta || map.values().any(|v| v == cand) || ca.keys().ne(cb.keys()) {
+    let (ta, ca) = &left.rows[&row];
+    for (cand, (tb, cb)) in &right.rows {
+        if tb != ta || map.values().any(|val| val == cand) || ca.keys().ne(cb.keys()) {
             continue;
         }
         let saved = nulls.clone();
-        if ca.iter().all(|(c, v)| match_values(v, &cb[c], nulls)) {
-            map.insert(r, *cand);
-            if search_iso(a, b, order, k + 1, map, nulls) {
+        if ca
+            .iter()
+            .all(|(col, val)| match_values(val, &cb[col], nulls))
+        {
+            map.insert(row, *cand);
+            if search_bijection(left, right, order, pos + 1, map, nulls) {
                 return true;
             }
-            map.remove(&r);
+            map.remove(&row);
         }
         *nulls = saved;
     }
     false
 }
 
-fn match_values(x: &Value, y: &Value, nulls: &mut BTreeMap<u64, u64>) -> bool {
-    match (x, y) {
-        (Value::LabeledNull(p), Value::LabeledNull(q)) => match nulls.get(p) {
-            Some(m) => m == q,
-            None => {
-                if nulls.values().any(|m| m == q) {
-                    return false;
-                }
-                nulls.insert(*p, *q);
-                true
+fn match_values(left: &Value, right: &Value, nulls: &mut BTreeMap<u64, u64>) -> bool {
+    match (left, right) {
+        (Value::LabeledNull(lnull), Value::LabeledNull(rnull)) => {
+            if let Some(mapped) = nulls.get(lnull) {
+                return mapped == rnull;
             }
-        },
+            if nulls.values().any(|mapped| mapped == rnull) {
+                return false;
+            }
+            nulls.insert(*lnull, *rnull);
+            true
+        }
         (Value::LabeledNull(_), _) | (_, Value::LabeledNull(_)) => false,
-        _ => crate::canonical::value_bytes(x) == crate::canonical::value_bytes(y),
+        _ => crate::canonical::value_bytes(left) == crate::canonical::value_bytes(right),
     }
 }
 
-/// Every homomorphism between two instances of one schema: a map of rows
-/// preserving tables and pairs, under which each cell of the domain equals
-/// the image row's cell, a labelled null of the domain being sent to the
-/// value it first meets (consistently), every other value compared by
-/// canonical bytes. Enumerated naively over all row maps.
+/// Every homomorphism between two instances of one schema.
+///
+/// A map of rows preserving tables and pairs, under which each cell of the domain equals the image
+/// row's cell, a labelled null of the domain being sent to the value it first meets (consistently),
+/// every other value compared by canonical bytes. Enumerated naively over all row maps.
 #[must_use]
 pub fn homs(a: &Table, b: &Table) -> Vec<BTreeMap<u32, u32>> {
     let order: Vec<u32> = a.rows.keys().copied().collect();
     let mut out = Vec::new();
-    hom_search(a, b, &order, 0, &mut BTreeMap::new(), &BTreeMap::new(), &mut out);
+    hom_search(
+        a,
+        b,
+        &order,
+        0,
+        &mut BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut out,
+    );
     out
 }
 
 fn hom_search(
-    a: &Table,
-    b: &Table,
+    dom: &Table,
+    cod: &Table,
     order: &[u32],
-    k: usize,
+    pos: usize,
     map: &mut BTreeMap<u32, u32>,
     nulls: &BTreeMap<u64, Vec<u8>>,
     out: &mut Vec<BTreeMap<u32, u32>>,
 ) {
-    let Some(&r) = order.get(k) else {
-        if a.pairs.iter().all(|(e, x, y)| b.pairs.contains(&(e.clone(), map[x], map[y]))) {
+    let Some(&row) = order.get(pos) else {
+        if dom
+            .pairs
+            .iter()
+            .all(|(edge, from, to)| cod.pairs.contains(&(edge.clone(), map[from], map[to])))
+        {
             out.push(map.clone());
         }
         return;
     };
-    let (ta, ca) = &a.rows[&r];
-    for (cand, (tb, cb)) in &b.rows {
+    let (ta, ca) = &dom.rows[&row];
+    for (cand, (tb, cb)) in &cod.rows {
         if tb != ta {
             continue;
         }
-        let mut n = nulls.clone();
-        let ok = ca.iter().all(|(c, v)| {
-            let Some(w) = cb.get(c) else { return false };
-            let wb = crate::canonical::value_bytes(w).unwrap_or_default();
-            match v {
-                Value::LabeledNull(id) => match n.get(id) {
-                    Some(prev) => *prev == wb,
-                    None => {
-                        n.insert(*id, wb);
-                        true
+        let mut fixed = nulls.clone();
+        let ok = ca.iter().all(|(col, val)| {
+            let Some(img) = cb.get(col) else { return false };
+            let wb = crate::canonical::value_bytes(img).unwrap_or_default();
+            match val {
+                Value::LabeledNull(id) => {
+                    if let Some(prev) = fixed.get(id) {
+                        return *prev == wb;
                     }
-                },
+                    fixed.insert(*id, wb);
+                    true
+                }
                 other => crate::canonical::value_bytes(other).unwrap_or_default() == wb,
             }
         });
         if ok {
-            map.insert(r, *cand);
-            hom_search(a, b, order, k + 1, map, &n, out);
-            map.remove(&r);
+            map.insert(row, *cand);
+            hom_search(dom, cod, order, pos + 1, map, &fixed, out);
+            map.remove(&row);
         }
     }
 }

@@ -15,8 +15,8 @@ use crate::exact::{
     parse_non_finite, parse_numeral,
 };
 use crate::float::{
-    CANONICAL_NAN_BITS, Dec, Format, NEGATIVE_CANONICAL_NAN_BITS, Rounded, decode, holds_exactly,
-    narrow_bits, round_to, shortest, widen_bits, FloatValue,
+    CANONICAL_NAN_BITS, Dec, FloatValue, Format, NEGATIVE_CANONICAL_NAN_BITS, Rounded, decode,
+    holds_exactly, narrow_bits, round_to, shortest, widen_bits,
 };
 use crate::num::{Int, Nat, Rat};
 use crate::temporal::{self, Offset, TemporalKind};
@@ -182,15 +182,19 @@ pub type Coerced = Option<Result<Value, FidelityReason>>;
 /// below `10^-400` to zero.
 const BOUND: i64 = 400;
 
-fn nan_bits(negative: bool) -> u64 {
-    if negative { NEGATIVE_CANONICAL_NAN_BITS } else { CANONICAL_NAN_BITS }
+const fn nan_bits(negative: bool) -> u64 {
+    if negative {
+        NEGATIVE_CANONICAL_NAN_BITS
+    } else {
+        CANONICAL_NAN_BITS
+    }
 }
 
-fn inf_bits(negative: bool) -> u64 {
+const fn inf_bits(negative: bool) -> u64 {
     Rounded::Overflow { negative }.bits(Format::B64)
 }
 
-/// Read `lexeme` of class `class` under `spec` (VF4 with law (i)).
+/// Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
 #[must_use]
 pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
     if *class == LexClass::Null {
@@ -228,7 +232,9 @@ pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
         ScalarKind::Bytes(encoding) => match class {
             LexClass::Number => Err(FidelityReason::NotANumberForKind),
             LexClass::Bool => Err(FidelityReason::InvalidEncoding),
-            _ => decode_bytes(text, encoding).map(Value::Bytes).ok_or(FidelityReason::InvalidEncoding),
+            _ => decode_bytes(text, encoding)
+                .map(Value::Bytes)
+                .ok_or(FidelityReason::InvalidEncoding),
         },
         ScalarKind::Date | ScalarKind::Time | ScalarKind::DateTime => match class {
             LexClass::Number => Err(FidelityReason::NotANumberForKind),
@@ -266,26 +272,36 @@ fn coerce_any(text: &str, class: &LexClass) -> Result<Value, FidelityReason> {
             }
             let n = parse_numeral(text).ok_or(FidelityReason::NotANumber)?;
             if n.is_integer_form() {
-                return integer_of_numeral(&n).map(Value::integer).ok_or(FidelityReason::NotANumber);
+                return integer_of_numeral(&n)
+                    .map(Value::integer)
+                    .ok_or(FidelityReason::NotANumber);
             }
             let d = DecimalValue::of_numeral(&n);
             match nearest(Format::B64, &d) {
                 Rounded::Finite(bits) => {
-                    let shortest_equal = shortest(Format::B64, bits)
-                        .is_some_and(|s| dec_equals(&s, &d));
-                    Ok(if shortest_equal { Value::Float(bits) } else { Value::Decimal(Decimal::Finite(d)) })
+                    let shortest_equal =
+                        shortest(Format::B64, bits).is_some_and(|s| dec_equals(&s, &d));
+                    Ok(if shortest_equal {
+                        Value::Float(bits)
+                    } else {
+                        Value::Decimal(Decimal::Finite(d))
+                    })
                 }
                 Rounded::Overflow { .. } => Ok(Value::Decimal(Decimal::Finite(d))),
             }
         }
         LexClass::Bool => coerce_bool(text, class).map_err(|_| FidelityReason::InvalidEncoding),
-        LexClass::DateTime => temporal::parse_any(text).map(Value::Temporal).ok_or(FidelityReason::InvalidTemporal),
-        LexClass::Bytes => decode_bytes(text, BytesText::Base64).map(Value::Bytes).ok_or(FidelityReason::InvalidEncoding),
+        LexClass::DateTime => temporal::parse_any(text)
+            .map(Value::Temporal)
+            .ok_or(FidelityReason::InvalidTemporal),
+        LexClass::Bytes => decode_bytes(text, BytesText::Base64)
+            .map(Value::Bytes)
+            .ok_or(FidelityReason::InvalidEncoding),
         LexClass::String | LexClass::Null | LexClass::Tagged(_) => Ok(Value::Str(text.to_owned())),
     }
 }
 
-fn non_finite_bits(nf: NonFinite) -> u64 {
+const fn non_finite_bits(nf: NonFinite) -> u64 {
     match nf {
         NonFinite::NaN { negative } => nan_bits(negative),
         NonFinite::Infinity { negative } => inf_bits(negative),
@@ -297,7 +313,9 @@ fn non_finite_bits(nf: NonFinite) -> u64 {
 fn nearest(format: Format, d: &DecimalValue) -> Rounded {
     match d.scaled(-BOUND, BOUND) {
         Scaled::Value(q) => round_to(format, &q, d.negative),
-        Scaled::AtLeastHi => Rounded::Overflow { negative: d.negative },
+        Scaled::AtLeastHi => Rounded::Overflow {
+            negative: d.negative,
+        },
         Scaled::BelowLo => Rounded::Finite(if d.negative { sign_bit(format) } else { 0 }),
     }
 }
@@ -324,7 +342,11 @@ fn denotes_exactly(format: Format, d: &DecimalValue, bits: u64) -> bool {
     }
 }
 
-fn coerce_float(text: &str, format: Format, reading: FloatReading) -> Result<Value, FidelityReason> {
+fn coerce_float(
+    text: &str,
+    format: Format,
+    reading: FloatReading,
+) -> Result<Value, FidelityReason> {
     if let Some(nf) = parse_non_finite(text) {
         return Ok(Value::Float(non_finite_bits(nf)));
     }
@@ -341,19 +363,28 @@ fn coerce_float(text: &str, format: Format, reading: FloatReading) -> Result<Val
     if canonical || denotes_exactly(format, &d, bits) {
         Ok(Value::Float(widen_bits(format, bits)))
     } else {
-        Err(FidelityReason::PrecisionExceeded { max: format.max_significant_digits() })
+        Err(FidelityReason::PrecisionExceeded {
+            max: format.max_significant_digits(),
+        })
     }
 }
 
 /// `-2^(bits-1)` and `2^(bits-1)` (signed) or `0` and `2^bits` (unsigned):
 /// the half-open range of an integer kind, as decimals.
 fn int_range(bits: u8, signed: bool) -> (DecimalValue, DecimalValue) {
-    let as_dec = |negative: bool, n: Nat| DecimalValue { negative, digits: n, exponent: Int::zero() };
+    let as_dec = |negative: bool, n: Nat| DecimalValue {
+        negative,
+        digits: n,
+        exponent: Int::zero(),
+    };
     if signed {
         let half = Nat::pow2(u32::from(bits) - 1);
         (as_dec(true, half.clone()), as_dec(false, half))
     } else {
-        (as_dec(false, Nat::zero()), as_dec(false, Nat::pow2(u32::from(bits))))
+        (
+            as_dec(false, Nat::zero()),
+            as_dec(false, Nat::pow2(u32::from(bits))),
+        )
     }
 }
 
@@ -372,7 +403,9 @@ fn coerce_int(text: &str, width: Option<(u8, bool)>) -> Result<Value, FidelityRe
             return Err(FidelityReason::Overflow);
         }
     }
-    integer_of_numeral(&n).map(Value::integer).ok_or(FidelityReason::NotANumber)
+    integer_of_numeral(&n)
+        .map(Value::integer)
+        .ok_or(FidelityReason::NotANumber)
 }
 
 fn coerce_decimal(text: &str, spec: &ValueSpec) -> Result<Value, FidelityReason> {
@@ -386,7 +419,9 @@ fn coerce_decimal(text: &str, spec: &ValueSpec) -> Result<Value, FidelityReason>
         if let Some(precision) = spec.precision {
             let fits = spec.scale.map_or_else(
                 || d.positional_digits() <= Nat::from_u64(u64::from(precision)),
-                |scale| d.integer_digits() <= Nat::from_u64(u64::from(precision.saturating_sub(scale))),
+                |scale| {
+                    d.integer_digits() <= Nat::from_u64(u64::from(precision.saturating_sub(scale)))
+                },
             );
             if !fits {
                 return Err(FidelityReason::PrecisionExceeded { max: precision });
@@ -421,7 +456,11 @@ fn decode_base64(text: &str, alphabet: &[u8; 64], padding_required: bool) -> Opt
     let body = text.trim_end_matches('=');
     let pads = text.len() - body.len();
     let expected_pads = (4 - body.len() % 4) % 4;
-    let padding_ok = if padding_required { pads == expected_pads } else { pads == 0 || pads == expected_pads };
+    let padding_ok = if padding_required {
+        pads == expected_pads
+    } else {
+        pads == 0 || pads == expected_pads
+    };
     if !padding_ok || body.len() % 4 == 1 {
         return None;
     }
@@ -464,7 +503,10 @@ fn decode_bytes(text: &str, encoding: BytesText) -> Option<Vec<u8>> {
                 .collect()
         }
         BytesText::Raw => Some(text.as_bytes().to_vec()),
-        BytesText::Latin1 => text.chars().map(|c| u8::try_from(u32::from(c)).ok()).collect(),
+        BytesText::Latin1 => text
+            .chars()
+            .map(|c| u8::try_from(u32::from(c)).ok())
+            .collect(),
     }
 }
 
@@ -476,7 +518,10 @@ pub fn positional(d: &Dec) -> String {
     let sign = if d.negative { "-" } else { "" };
     if d.exponent >= 0 {
         let zeros = usize::try_from(d.exponent).unwrap_or(0);
-        return format!("{sign}{digits}{}", "0".repeat(if d.coefficient.is_zero() { 0 } else { zeros }));
+        return format!(
+            "{sign}{digits}{}",
+            "0".repeat(if d.coefficient.is_zero() { 0 } else { zeros })
+        );
     }
     let frac = usize::try_from(-d.exponent).unwrap_or(0);
     if digits.len() > frac {
@@ -498,15 +543,23 @@ fn lexeme_of(v: &Value, kind: ScalarKind) -> Option<(String, LexClass)> {
         Value::Int(i) => (i.to_string(), LexClass::Number),
         Value::BigInt(b) => {
             let sign = if b.negative { "-" } else { "" };
-            (format!("{sign}{}e{}", b.significand, b.zeros), LexClass::Number)
+            (
+                format!("{sign}{}e{}", b.significand, b.zeros),
+                LexClass::Number,
+            )
         }
         Value::Decimal(Decimal::Finite(d)) => {
             let sign = if d.negative { "-" } else { "" };
-            (format!("{sign}{}e{}", d.digits, d.exponent), LexClass::Number)
+            (
+                format!("{sign}{}e{}", d.digits, d.exponent),
+                LexClass::Number,
+            )
         }
         Value::Float(bits) => {
             let narrow = match kind {
-                ScalarKind::Float { bits: 32 } => narrow_bits(Format::B32, *bits).map(|b| (Format::B32, b)),
+                ScalarKind::Float { bits: 32 } => {
+                    narrow_bits(Format::B32, *bits).map(|b| (Format::B32, b))
+                }
                 _ => None,
             };
             let (format, b) = narrow.unwrap_or((Format::B64, *bits));
@@ -570,33 +623,51 @@ pub fn coerce_value(v: &Value, spec: &ValueSpec) -> Coerced {
 fn coerce_into_float(v: &Value, format: Format) -> Result<Value, FidelityReason> {
     let reject = |q: &Rat, negative: bool| match round_to(format, q, negative) {
         Rounded::Overflow { .. } => FidelityReason::Overflow,
-        Rounded::Finite(_) => FidelityReason::PrecisionExceeded { max: format.max_significant_digits() },
+        Rounded::Finite(_) => FidelityReason::PrecisionExceeded {
+            max: format.max_significant_digits(),
+        },
     };
     match v {
         Value::Float(bits) => match decode(Format::B64, *bits) {
             FloatValue::Finite { negative, value } => {
-                if holds_exactly(format, &value) { Ok(v.clone()) } else { Err(reject(&value, negative)) }
+                if holds_exactly(format, &value) {
+                    Ok(v.clone())
+                } else {
+                    Err(reject(&value, negative))
+                }
             }
             FloatValue::Infinite { .. } => Ok(v.clone()),
-            FloatValue::NaN { .. } => narrow_bits(format, *bits).map(|_| v.clone()).ok_or(FidelityReason::NonFinite),
+            FloatValue::NaN { .. } => narrow_bits(format, *bits)
+                .map(|_| v.clone())
+                .ok_or(FidelityReason::NonFinite),
         },
-        Value::Decimal(Decimal::Infinite { .. } | Decimal::NaN { .. }) => Err(FidelityReason::NonFinite),
+        Value::Decimal(Decimal::Infinite { .. } | Decimal::NaN { .. }) => {
+            Err(FidelityReason::NonFinite)
+        }
         _ => match exact_numeric(v) {
             Some(d) => match d.scaled(-BOUND, BOUND) {
                 Scaled::AtLeastHi => Err(FidelityReason::Overflow),
-                Scaled::BelowLo => Err(FidelityReason::PrecisionExceeded { max: format.max_significant_digits() }),
+                Scaled::BelowLo => Err(FidelityReason::PrecisionExceeded {
+                    max: format.max_significant_digits(),
+                }),
                 Scaled::Value(q) => {
                     if holds_exactly(format, &q) {
-                        Ok(Value::Float(round_to(Format::B64, &q, d.negative).bits(Format::B64)))
+                        Ok(Value::Float(
+                            round_to(Format::B64, &q, d.negative).bits(Format::B64),
+                        ))
                     } else {
                         Err(reject(&q, d.negative))
                     }
                 }
             },
             None => match lexeme_of(v, ScalarKind::Float { bits: 64 }) {
-                Some((text, class)) => coerce(&text, &class, &ValueSpec::of(ScalarKind::Float {
-                    bits: u8::try_from(format.width()).unwrap_or(64),
-                }))
+                Some((text, class)) => coerce(
+                    &text,
+                    &class,
+                    &ValueSpec::of(ScalarKind::Float {
+                        bits: u8::try_from(format.width()).unwrap_or(64),
+                    }),
+                )
                 .unwrap_or(Err(FidelityReason::NotANumber)),
                 None => Ok(v.clone()),
             },

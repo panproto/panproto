@@ -139,7 +139,9 @@ impl Temporal {
     #[must_use]
     pub fn shape(&self) -> Shape {
         Shape {
-            date: self.date.map(|d| (d.year.is_some(), d.month.is_some(), d.day.is_some())),
+            date: self
+                .date
+                .map(|d| (d.year.is_some(), d.month.is_some(), d.day.is_some())),
             time: self
                 .time
                 .as_ref()
@@ -159,7 +161,9 @@ impl Temporal {
     /// or a full date and full time.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        let full_date = self.date.is_none_or(|d| d.year.is_some() && d.month.is_some() && d.day.is_some());
+        let full_date = self
+            .date
+            .is_none_or(|d| d.year.is_some() && d.month.is_some() && d.day.is_some());
         let full_time = self
             .time
             .as_ref()
@@ -218,7 +222,11 @@ pub fn day_number(y: i64, m: u8, d: u8) -> i64 {
 /// value without a year that is not truncated (a time): the same with no
 /// days. For a truncated value: its present fields, most significant first.
 fn order_key(v: &Temporal) -> (Vec<i64>, String) {
-    let fraction = v.time.as_ref().map(|t| t.fraction.clone()).unwrap_or_default();
+    let fraction = v
+        .time
+        .as_ref()
+        .map(|t| t.fraction.clone())
+        .unwrap_or_default();
     let second = v.time.as_ref().and_then(|t| t.second).map_or(0, i64::from);
     if v.is_truncated() {
         let mut fields = Vec::new();
@@ -234,7 +242,8 @@ fn order_key(v: &Temporal) -> (Vec<i64>, String) {
         return (fields, fraction);
     }
     let days = v.date.and_then(|d| {
-        d.year.map(|y| day_number(y.value, d.month.unwrap_or(1), d.day.unwrap_or(1)))
+        d.year
+            .map(|y| day_number(y.value, d.month.unwrap_or(1), d.day.unwrap_or(1)))
     });
     let hour = v.time.as_ref().and_then(|t| t.hour).map_or(0, i64::from);
     let minute = v.time.as_ref().and_then(|t| t.minute).map_or(0, i64::from);
@@ -262,7 +271,7 @@ pub fn comparable(a: &Temporal, b: &Temporal) -> bool {
 }
 
 /// The partial chronological order: `None` for incomparable values, else
-/// the order of [`order_key`] with the fraction compared as a decimal
+/// the order of `order_key` with the fraction compared as a decimal
 /// fraction.
 #[must_use]
 pub fn cmp_chronological(a: &Temporal, b: &Temporal) -> Option<Ordering> {
@@ -325,19 +334,41 @@ fn valid_date(d: &DateFields) -> bool {
 
 fn parse_date_body(s: &str) -> Option<DateFields> {
     let d = if let Some(rest) = s.strip_prefix("---") {
-        DateFields { year: None, month: None, day: Some(digits_n(rest, 2)?) }
+        DateFields {
+            year: None,
+            month: None,
+            day: Some(digits_n(rest, 2)?),
+        }
     } else if let Some(rest) = s.strip_prefix("--") {
         match rest.split_once('-') {
-            Some((m, d)) => DateFields { year: None, month: Some(digits_n(m, 2)?), day: Some(digits_n(d, 2)?) },
-            None => DateFields { year: None, month: Some(digits_n(rest, 2)?), day: None },
+            Some((m, d)) => DateFields {
+                year: None,
+                month: Some(digits_n(m, 2)?),
+                day: Some(digits_n(d, 2)?),
+            },
+            None => DateFields {
+                year: None,
+                month: Some(digits_n(rest, 2)?),
+                day: None,
+            },
         }
     } else {
         let (sign, body) = s.strip_prefix('-').map_or(("", s), |r| ("-", r));
         let mut parts = body.splitn(3, '-');
         let year = parse_year(&format!("{sign}{}", parts.next()?))?;
-        let month = parts.next().map(|m| digits_n(m, 2)).map_or(Some(None), |m| m.map(Some))?;
-        let day = parts.next().map(|d| digits_n(d, 2)).map_or(Some(None), |d| d.map(Some))?;
-        DateFields { year: Some(year), month, day }
+        let month = parts
+            .next()
+            .map(|m| digits_n(m, 2))
+            .map_or(Some(None), |m| m.map(Some))?;
+        let day = parts
+            .next()
+            .map(|d| digits_n(d, 2))
+            .map_or(Some(None), |d| d.map(Some))?;
+        DateFields {
+            year: Some(year),
+            month,
+            day,
+        }
     };
     valid_date(&d).then_some(d)
 }
@@ -356,19 +387,37 @@ fn parse_seconds(s: &str) -> Option<(u8, String)> {
 fn parse_time_body(s: &str) -> Option<TimeFields> {
     let t = if let Some(rest) = s.strip_prefix("--") {
         let (second, fraction) = parse_seconds(rest)?;
-        TimeFields { hour: None, minute: None, second: Some(second), fraction }
+        TimeFields {
+            hour: None,
+            minute: None,
+            second: Some(second),
+            fraction,
+        }
     } else if let Some(rest) = s.strip_prefix('-') {
         match rest.split_once(':') {
             Some((m, sec)) => {
                 let (second, fraction) = parse_seconds(sec)?;
-                TimeFields { hour: None, minute: Some(digits_n(m, 2)?), second: Some(second), fraction }
+                TimeFields {
+                    hour: None,
+                    minute: Some(digits_n(m, 2)?),
+                    second: Some(second),
+                    fraction,
+                }
             }
-            None => TimeFields { hour: None, minute: Some(digits_n(rest, 2)?), second: None, fraction: String::new() },
+            None => TimeFields {
+                hour: None,
+                minute: Some(digits_n(rest, 2)?),
+                second: None,
+                fraction: String::new(),
+            },
         }
     } else {
         let mut parts = s.splitn(3, ':');
         let hour = digits_n(parts.next()?, 2)?;
-        let minute = parts.next().map(|m| digits_n(m, 2)).map_or(Some(None), |m| m.map(Some))?;
+        let minute = parts
+            .next()
+            .map(|m| digits_n(m, 2))
+            .map_or(Some(None), |m| m.map(Some))?;
         let (second, fraction) = match parts.next() {
             None => (None, String::new()),
             Some(sec) => {
@@ -376,7 +425,12 @@ fn parse_time_body(s: &str) -> Option<TimeFields> {
                 (Some(second), fraction)
             }
         };
-        TimeFields { hour: Some(hour), minute, second, fraction }
+        TimeFields {
+            hour: Some(hour),
+            minute,
+            second,
+            fraction,
+        }
     };
     let ok = t.hour.is_none_or(|h| h <= 23) && t.minute.is_none_or(|m| m <= 59);
     ok.then_some(t)
@@ -397,7 +451,11 @@ fn parse_offset(s: &str) -> Option<Offset> {
     let (h, m, form) = if let Some((h, m)) = body.split_once(':') {
         (digits_n(h, 2)?, digits_n(m, 2)?, OffsetForm::Extended)
     } else if body.len() == 4 {
-        (digits_n(&body[..2], 2)?, digits_n(&body[2..], 2)?, OffsetForm::Basic)
+        (
+            digits_n(&body[..2], 2)?,
+            digits_n(&body[2..], 2)?,
+            OffsetForm::Basic,
+        )
     } else {
         (digits_n(body, 2)?, 0, OffsetForm::HourOnly)
     };
@@ -445,18 +503,22 @@ fn longest_body<T>(v: Vec<T>) -> Option<T> {
 #[must_use]
 pub fn parse(kind: TemporalKind, s: &str) -> Option<Temporal> {
     match kind {
-        TemporalKind::Date => longest_body(splits(s, parse_date_body)).map(|(d, offset)| Temporal {
-            date: Some(d),
-            time: None,
-            separator: None,
-            offset,
-        }),
-        TemporalKind::Time => longest_body(splits(s, parse_time_body)).map(|(t, offset)| Temporal {
-            date: None,
-            time: Some(t),
-            separator: None,
-            offset,
-        }),
+        TemporalKind::Date => {
+            longest_body(splits(s, parse_date_body)).map(|(d, offset)| Temporal {
+                date: Some(d),
+                time: None,
+                separator: None,
+                offset,
+            })
+        }
+        TemporalKind::Time => {
+            longest_body(splits(s, parse_time_body)).map(|(t, offset)| Temporal {
+                date: None,
+                time: Some(t),
+                separator: None,
+                offset,
+            })
+        }
         TemporalKind::DateTime => {
             let parsed = splits(s, |body| {
                 let at = body.find(['T', 't', ' '])?;
@@ -484,10 +546,14 @@ pub fn parse(kind: TemporalKind, s: &str) -> Option<Temporal> {
 /// Read a lexeme with no declared kind: exactly one kind must read it.
 #[must_use]
 pub fn parse_any(s: &str) -> Option<Temporal> {
-    let all: Vec<Temporal> = [TemporalKind::Date, TemporalKind::Time, TemporalKind::DateTime]
-        .into_iter()
-        .filter_map(|k| parse(k, s))
-        .collect();
+    let all: Vec<Temporal> = [
+        TemporalKind::Date,
+        TemporalKind::Time,
+        TemporalKind::DateTime,
+    ]
+    .into_iter()
+    .filter_map(|k| parse(k, s))
+    .collect();
     single(all)
 }
 
@@ -517,7 +583,11 @@ impl fmt::Display for Offset {
 fn write_date(f: &mut fmt::Formatter<'_>, d: &DateFields) -> fmt::Result {
     match d.year {
         Some(y) => {
-            let sign = if y.value < 0 || y.negative_zero { "-" } else { "" };
+            let sign = if y.value < 0 || y.negative_zero {
+                "-"
+            } else {
+                ""
+            };
             write!(f, "{sign}{:0w$}", y.value.abs(), w = y.width)?;
             if let Some(m) = d.month {
                 write!(f, "-{m:02}")?;
@@ -536,25 +606,29 @@ fn write_date(f: &mut fmt::Formatter<'_>, d: &DateFields) -> fmt::Result {
     }
 }
 
-fn write_time(f: &mut fmt::Formatter<'_>, t: &TimeFields) -> fmt::Result {
-    let frac = |f: &mut fmt::Formatter<'_>| {
-        if t.fraction.is_empty() { Ok(()) } else { write!(f, ".{}", t.fraction) }
+fn write_time(out: &mut fmt::Formatter<'_>, time: &TimeFields) -> fmt::Result {
+    let frac = |out: &mut fmt::Formatter<'_>| {
+        if time.fraction.is_empty() {
+            Ok(())
+        } else {
+            write!(out, ".{}", time.fraction)
+        }
     };
-    match (t.hour, t.minute, t.second) {
-        (Some(h), None, _) => write!(f, "{h:02}"),
-        (Some(h), Some(m), None) => write!(f, "{h:02}:{m:02}"),
-        (Some(h), Some(m), Some(s)) => {
-            write!(f, "{h:02}:{m:02}:{s:02}")?;
-            frac(f)
+    match (time.hour, time.minute, time.second) {
+        (Some(hour), None, _) => write!(out, "{hour:02}"),
+        (Some(hour), Some(minute), None) => write!(out, "{hour:02}:{minute:02}"),
+        (Some(hour), Some(minute), Some(second)) => {
+            write!(out, "{hour:02}:{minute:02}:{second:02}")?;
+            frac(out)
         }
-        (None, Some(m), Some(s)) => {
-            write!(f, "-{m:02}:{s:02}")?;
-            frac(f)
+        (None, Some(minute), Some(second)) => {
+            write!(out, "-{minute:02}:{second:02}")?;
+            frac(out)
         }
-        (None, Some(m), None) => write!(f, "-{m:02}"),
-        (None, None, Some(s)) => {
-            write!(f, "--{s:02}")?;
-            frac(f)
+        (None, Some(minute), None) => write!(out, "-{minute:02}"),
+        (None, None, Some(second)) => {
+            write!(out, "--{second:02}")?;
+            frac(out)
         }
         (None, None, None) => Ok(()),
     }
@@ -591,51 +665,110 @@ mod tests {
     #[test]
     fn every_written_form_displays_back() {
         for s in [
-            "2024-01-02T03:04:05z", "2024-01-02t03:04:05Z", "2024-01-02 03:04:05Z", "2024-01-02T03:04:05.120+05:30",
-            "1985-04-12T23", "1979-05-27 07:32Z", "---15T09:45:00+01:00", "2024-01-02T03:04:05-0000",
+            "2024-01-02T03:04:05z",
+            "2024-01-02t03:04:05Z",
+            "2024-01-02 03:04:05Z",
+            "2024-01-02T03:04:05.120+05:30",
+            "1985-04-12T23",
+            "1979-05-27 07:32Z",
+            "---15T09:45:00+01:00",
+            "2024-01-02T03:04:05-0000",
         ] {
             assert_eq!(dt(s).map(|v| v.to_string()), Some(s.to_owned()), "{s}");
         }
-        for s in ["2018", "-0044", "1973-06", "--04-12", "---12", "-0000", "2018Z", "2002-10-10+13:00"] {
-            assert_eq!(parse(TemporalKind::Date, s).map(|v| v.to_string()), Some(s.to_owned()), "{s}");
+        for s in [
+            "2018",
+            "-0044",
+            "1973-06",
+            "--04-12",
+            "---12",
+            "-0000",
+            "2018Z",
+            "2002-10-10+13:00",
+        ] {
+            assert_eq!(
+                parse(TemporalKind::Date, s).map(|v| v.to_string()),
+                Some(s.to_owned()),
+                "{s}"
+            );
         }
-        for s in ["03:04:05z", "23", "23:20", "-20:50", "-20", "--50", "12:00:00.1234567891", "23:20+04"] {
-            assert_eq!(parse(TemporalKind::Time, s).map(|v| v.to_string()), Some(s.to_owned()), "{s}");
+        for s in [
+            "03:04:05z",
+            "23",
+            "23:20",
+            "-20:50",
+            "-20",
+            "--50",
+            "12:00:00.1234567891",
+            "23:20+04",
+        ] {
+            assert_eq!(
+                parse(TemporalKind::Time, s).map(|v| v.to_string()),
+                Some(s.to_owned()),
+                "{s}"
+            );
         }
         assert_eq!(parse_any("--04"), None);
-        assert!(parse(TemporalKind::Date, "--04").is_some() && parse(TemporalKind::Time, "--04").is_some());
+        assert!(
+            parse(TemporalKind::Date, "--04").is_some()
+                && parse(TemporalKind::Time, "--04").is_some()
+        );
         assert_eq!(parse(TemporalKind::Date, "+2018"), None);
         assert_eq!(parse(TemporalKind::Date, "2023-02-29"), None);
     }
 
     #[test]
     fn written_forms_of_one_moment_compare_equal() {
-        let a = dt("2024-01-02T03:04:05Z");
-        let b = dt("2024-01-02t03:04:05z");
-        let c = dt("2024-01-02T03:04:05+00:00");
-        let d = dt("2024-01-02T03:04:05-00:00");
-        let e = dt("2024-01-02T08:34:05+05:30");
-        let x = a.clone().unwrap_or_else(|| Temporal { date: None, time: None, separator: None, offset: Offset::Local });
-        for o in [b, c, d, e].into_iter().flatten() {
-            assert_eq!(cmp_chronological(&x, &o), Some(Ordering::Equal));
+        let zulu = dt("2024-01-02T03:04:05Z");
+        let lower = dt("2024-01-02t03:04:05z");
+        let plus = dt("2024-01-02T03:04:05+00:00");
+        let negzero = dt("2024-01-02T03:04:05-00:00");
+        let shifted = dt("2024-01-02T08:34:05+05:30");
+        let Some(base) = zulu else { return };
+        for other in [lower, plus, negzero, shifted].into_iter().flatten() {
+            assert_eq!(cmp_chronological(&base, &other), Some(Ordering::Equal));
         }
         let local = dt("2024-01-02T03:04:05");
-        assert_eq!(local.map(|l| cmp_chronological(&x, &l)), Some(None));
+        assert_eq!(
+            local.map(|local| cmp_chronological(&base, &local)),
+            Some(None)
+        );
     }
 
     #[test]
     fn fractions_compare_as_decimal_fractions_and_a_leap_second_precedes_the_next_minute() {
         let p = |s: &str| parse(TemporalKind::Time, s);
-        assert_eq!(p("12:00:00.1").zip(p("12:00:00.10")).map(|(a, b)| cmp_chronological(&a, &b)), Some(Some(Ordering::Equal)));
-        assert_eq!(p("12:00:00.09").zip(p("12:00:00.1")).map(|(a, b)| cmp_chronological(&a, &b)), Some(Some(Ordering::Less)));
+        assert_eq!(
+            p("12:00:00.1")
+                .zip(p("12:00:00.10"))
+                .map(|(a, b)| cmp_chronological(&a, &b)),
+            Some(Some(Ordering::Equal))
+        );
+        assert_eq!(
+            p("12:00:00.09")
+                .zip(p("12:00:00.1"))
+                .map(|(a, b)| cmp_chronological(&a, &b)),
+            Some(Some(Ordering::Less))
+        );
         let leap = dt("2016-12-31T23:59:60Z");
         let next = dt("2017-01-01T00:00:00Z");
         let before = dt("2016-12-31T23:59:59.999Z");
-        assert_eq!(leap.clone().zip(next).map(|(a, b)| cmp_chronological(&a, &b)), Some(Some(Ordering::Less)));
-        assert_eq!(before.zip(leap).map(|(a, b)| cmp_chronological(&a, &b)), Some(Some(Ordering::Less)));
+        assert_eq!(
+            leap.clone()
+                .zip(next)
+                .map(|(a, b)| cmp_chronological(&a, &b)),
+            Some(Some(Ordering::Less))
+        );
+        assert_eq!(
+            before.zip(leap).map(|(a, b)| cmp_chronological(&a, &b)),
+            Some(Some(Ordering::Less))
+        );
         // A year is placed by the UTC instant of its first moment.
         let y = parse(TemporalKind::Date, "2018+05:00");
         let z = parse(TemporalKind::Date, "2017Z");
-        assert_eq!(y.zip(z).map(|(a, b)| cmp_chronological(&a, &b)), Some(Some(Ordering::Greater)));
+        assert_eq!(
+            y.zip(z).map(|(a, b)| cmp_chronological(&a, &b)),
+            Some(Some(Ordering::Greater))
+        );
     }
 }

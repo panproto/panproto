@@ -113,15 +113,24 @@ impl Partition {
             if usize::try_from(s.id).ok() != Some(i) {
                 return Err(SegmentError::NonDense);
             }
-            if s.nodes.iter().chain(s.alloc_nodes.iter()).chain(s.alloc_edges.iter()).any(|r| r.lo > r.hi) {
+            if s.nodes
+                .iter()
+                .chain(s.alloc_nodes.iter())
+                .chain(s.alloc_edges.iter())
+                .any(|r| r.lo > r.hi)
+            {
                 return Err(SegmentError::InvertedRange { segment: s.id });
             }
         }
         for a in &self.specs {
             for b in self.specs.iter().filter(|b| b.id > a.id) {
                 let overlap = |x: &IdRange, y: &IdRange| x.lo <= y.hi && y.lo <= x.hi;
-                let nodes = a.nodes.iter().any(|x| b.nodes.iter().any(|y| overlap(x, y)));
-                let edges = matches!((a.alloc_edges, b.alloc_edges), (Some(x), Some(y)) if overlap(&x, &y));
+                let nodes = a
+                    .nodes
+                    .iter()
+                    .any(|x| b.nodes.iter().any(|y| overlap(x, y)));
+                let edges =
+                    matches!((a.alloc_edges, b.alloc_edges), (Some(x), Some(y)) if overlap(&x, &y));
                 if nodes || edges {
                     return Err(SegmentError::OverlappingRanges { a: a.id, b: b.id });
                 }
@@ -133,7 +142,10 @@ impl Partition {
     /// The owner of a node id.
     #[must_use]
     pub fn owner(&self, id: u32) -> Option<u32> {
-        self.specs.iter().find(|s| s.nodes.iter().any(|r| r.contains(id))).map(|s| s.id)
+        self.specs
+            .iter()
+            .find(|s| s.nodes.iter().any(|r| r.contains(id)))
+            .map(|s| s.id)
     }
 }
 
@@ -187,25 +199,49 @@ pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentE
     let mut segs: Vec<GraphSegment> = p
         .specs
         .iter()
-        .map(|s| GraphSegment { segment: s.id, nodes: BTreeMap::new(), edges: BTreeMap::new(), ghosts: BTreeMap::new(), in_stubs: BTreeMap::new() })
+        .map(|s| GraphSegment {
+            segment: s.id,
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            ghosts: BTreeMap::new(),
+            in_stubs: BTreeMap::new(),
+        })
         .collect();
     for (id, n) in &g.nodes {
-        segs[usize::try_from(owner(*id)?).unwrap_or(0)].nodes.insert(*id, n.clone());
+        segs[usize::try_from(owner(*id)?).unwrap_or(0)]
+            .nodes
+            .insert(*id, n.clone());
     }
     for (id, e) in &g.edges {
         let (so, to) = (owner(e.src)?, owner(e.tgt)?);
         let s = &mut segs[usize::try_from(so).unwrap_or(0)];
         s.edges.insert(*id, e.clone());
         if so != to {
-            s.ghosts.insert(e.tgt, Ghost { owner: to, anchor: g.nodes[&e.tgt].anchor.clone() });
+            s.ghosts.insert(
+                e.tgt,
+                Ghost {
+                    owner: to,
+                    anchor: g.nodes[&e.tgt].anchor.clone(),
+                },
+            );
             let t = &mut segs[usize::try_from(to).unwrap_or(0)];
-            t.in_stubs.insert(*id, InStub { src: e.src, src_owner: so, src_anchor: g.nodes[&e.src].anchor.clone(), tgt: e.tgt, label: e.label.clone() });
+            t.in_stubs.insert(
+                *id,
+                InStub {
+                    src: e.src,
+                    src_owner: so,
+                    src_anchor: g.nodes[&e.src].anchor.clone(),
+                    tgt: e.tgt,
+                    label: e.label.clone(),
+                },
+            );
         }
     }
     Ok(segs)
 }
 
 /// Glue segments into the whole instance, checking the segment contract:
+///
 /// every node is owned by its holder and keyed by its id, every edge's
 /// source is owned by its holder, every remote target is a ghost naming
 /// its true owner and anchor, ghosts are exactly the remote targets, every
@@ -225,7 +261,11 @@ pub fn glue(segs: &[GraphSegment], p: &Partition) -> Result<Graph, SegmentError>
             }
             let o = p.owner(*k).ok_or(SegmentError::Unowned { node: *k })?;
             if o != s.segment {
-                return Err(SegmentError::WrongOwner { node: *k, expected: o, found: s.segment });
+                return Err(SegmentError::WrongOwner {
+                    node: *k,
+                    expected: o,
+                    found: s.segment,
+                });
             }
             g.nodes.insert(*k, n.clone());
         }
@@ -234,37 +274,59 @@ pub fn glue(segs: &[GraphSegment], p: &Partition) -> Result<Graph, SegmentError>
     for s in segs {
         for (id, e) in &s.edges {
             if !s.nodes.contains_key(&e.src) {
-                let expected = p.owner(e.src).ok_or(SegmentError::Unowned { node: e.src })?;
-                return Err(SegmentError::WrongOwner { node: e.src, expected, found: s.segment });
+                let expected = p
+                    .owner(e.src)
+                    .ok_or(SegmentError::Unowned { node: e.src })?;
+                return Err(SegmentError::WrongOwner {
+                    node: e.src,
+                    expected,
+                    found: s.segment,
+                });
             }
             if g.edges.insert(*id, e.clone()).is_some() {
                 return Err(SegmentError::DuplicateEdgeId { edge: *id });
             }
             if !s.nodes.contains_key(&e.tgt) {
                 cross.insert(*id);
-                let ok = s.ghosts.get(&e.tgt).is_some_and(|gh| Some(gh.owner) == p.owner(e.tgt) && g.nodes.get(&e.tgt).is_some_and(|n| n.anchor == gh.anchor));
+                let ok = s.ghosts.get(&e.tgt).is_some_and(|gh| {
+                    Some(gh.owner) == p.owner(e.tgt)
+                        && g.nodes.get(&e.tgt).is_some_and(|n| n.anchor == gh.anchor)
+                });
                 if !ok {
                     return Err(SegmentError::GhostMismatch { node: e.tgt });
                 }
             }
         }
-        let remote: BTreeSet<u32> = s.edges.values().map(|e| e.tgt).filter(|t| !s.nodes.contains_key(t)).collect();
+        let remote: BTreeSet<u32> = s
+            .edges
+            .values()
+            .map(|e| e.tgt)
+            .filter(|t| !s.nodes.contains_key(t))
+            .collect();
         if let Some(extra) = s.ghosts.keys().find(|k| !remote.contains(*k)) {
             return Err(SegmentError::GhostMismatch { node: *extra });
         }
     }
     for s in segs {
         for (id, st) in &s.in_stubs {
-            let ok = g.edges.get(id).is_some_and(|e| e.src == st.src && e.tgt == st.tgt && e.label == st.label)
+            let ok = g
+                .edges
+                .get(id)
+                .is_some_and(|e| e.src == st.src && e.tgt == st.tgt && e.label == st.label)
                 && s.nodes.contains_key(&st.tgt)
                 && Some(st.src_owner) == p.owner(st.src)
                 && st.src_owner != s.segment
-                && g.nodes.get(&st.src).is_some_and(|n| n.anchor == st.src_anchor);
+                && g.nodes
+                    .get(&st.src)
+                    .is_some_and(|n| n.anchor == st.src_anchor);
             if !ok {
                 return Err(SegmentError::InStubMismatch { edge: *id });
             }
         }
-        for id in cross.iter().filter(|id| s.nodes.contains_key(&g.edges[id].tgt)) {
+        for id in cross
+            .iter()
+            .filter(|id| s.nodes.contains_key(&g.edges[id].tgt))
+        {
             if !s.in_stubs.contains_key(id) {
                 return Err(SegmentError::InStubMismatch { edge: *id });
             }
@@ -278,17 +340,24 @@ pub fn glue(segs: &[GraphSegment], p: &Partition) -> Result<Graph, SegmentError>
 /// # Errors
 ///
 /// The gluing error.
-pub fn segmented<T>(segs: &[GraphSegment], p: &Partition, op: &dyn Fn(&Graph) -> T) -> Result<T, SegmentError> {
+pub fn segmented<T>(
+    segs: &[GraphSegment],
+    p: &Partition,
+    op: &dyn Fn(&Graph) -> T,
+) -> Result<T, SegmentError> {
     glue(segs, p).map(|g| op(&g))
 }
 
-/// The fresh id of an allocation range: the range's floor (its least id,
-/// or one above the greatest source id it holds) raised above every used
-/// id it holds; `None` when that passes the range's top or is `u32::MAX`.
+/// The fresh id of an allocation range.
+///
+/// The range's floor (its least id, or one above the greatest source id it holds) raised above
+/// every used id it holds; `None` when that passes the range's top or is `u32::MAX`.
 #[must_use]
 pub fn fresh(range: IdRange, source: &BTreeSet<u32>, used: &BTreeSet<u32>) -> Option<u32> {
     let inside = |s: &BTreeSet<u32>| s.iter().copied().filter(|i| range.contains(*i)).max();
-    let floor = inside(source).map_or(Some(range.lo), |m| m.checked_add(1).map(|f| f.max(range.lo)))?;
+    let floor = inside(source).map_or(Some(range.lo), |m| {
+        m.checked_add(1).map(|f| f.max(range.lo))
+    })?;
     let f = inside(used).map_or(Some(floor), |m| m.checked_add(1).map(|x| x.max(floor)))?;
     (f <= range.hi && f != u32::MAX).then_some(f)
 }

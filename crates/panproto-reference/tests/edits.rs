@@ -12,7 +12,15 @@ fn graph() -> Graph {
     let mut g = Graph::default();
     g.nodes.insert(0, Node::new(0, "a"));
     g.nodes.insert(1, Node::new(1, "b"));
-    g.edges.insert(0, GEdge { src: 0, tgt: 1, label: SEdge::new("a", "b", "e", None), position: None });
+    g.edges.insert(
+        0,
+        GEdge {
+            src: 0,
+            tgt: 1,
+            label: SEdge::new("a", "b", "e", None),
+            position: None,
+        },
+    );
     g
 }
 
@@ -34,7 +42,10 @@ fn composition_is_partial_and_both_bracketings_may_refuse() {
     let mut a = GraphDelta::identity();
     a.add.insert(GElem::Node(5), node(5, "a"));
     let mut b = GraphDelta::identity();
-    b.attrs.insert(AttrKey::Anchor(5), (AttrVal::Anchor("a".into()), AttrVal::Anchor("z".into())));
+    b.attrs.insert(
+        AttrKey::Anchor(5),
+        (AttrVal::Anchor("a".into()), AttrVal::Anchor("z".into())),
+    );
     let mut c = GraphDelta::identity();
     let mut r = Node::new(5, "z");
     r.discriminator = Some("d".into());
@@ -56,7 +67,7 @@ fn the_differ_applies_and_regularity_holds() {
     let d = edit::diff(&g, &h);
     assert_eq!(edit::apply(&d, &g), Ok(h.clone()));
     assert_eq!(edit::diff(&g, &g), GraphDelta::identity());
-    assert_eq!(edit::apply(&d.invert(), &h), Ok(g.clone()));
+    assert_eq!(edit::apply(&d.invert(), &h), Ok(g));
     let back = d.compose(&d.invert()).unwrap().compose(&d).unwrap();
     assert_eq!(back, d);
 }
@@ -67,7 +78,13 @@ fn independent_deltas_commute_and_merge() {
     let mut a = GraphDelta::identity();
     a.add.insert(GElem::Node(9), node(9, "a"));
     let mut b = GraphDelta::identity();
-    b.attrs.insert(AttrKey::Field(1, "x".into()), (AttrVal::Field(None), AttrVal::Field(Some(panproto_reference::value::Value::Int(1)))));
+    b.attrs.insert(
+        AttrKey::Field(1, "x".into()),
+        (
+            AttrVal::Field(None),
+            AttrVal::Field(Some(panproto_reference::value::Value::Int(1))),
+        ),
+    );
     assert!(edit::independence(&a, &b).is_empty());
     let ab = edit::apply(&b, &edit::apply(&a, &g).unwrap()).unwrap();
     let ba = edit::apply(&a, &edit::apply(&b, &g).unwrap()).unwrap();
@@ -78,7 +95,13 @@ fn independent_deltas_commute_and_merge() {
     let mut del = GraphDelta::identity();
     del.del.insert(GElem::Node(0), node(0, "a"));
     let mut anchor = GraphDelta::identity();
-    anchor.attrs.insert(AttrKey::Anchor(0), (AttrVal::Anchor("a".into()), AttrVal::Anchor("q".into())));
+    anchor.attrs.insert(
+        AttrKey::Anchor(0),
+        (AttrVal::Anchor("a".into()), AttrVal::Anchor("q".into())),
+    );
     assert!(!edit::independence(&del, &anchor).is_empty());
-    assert!(matches!(edit::apply(&del, &g), Err(edit::ApplyError::DanglingEdges { node: 0, .. })));
+    assert!(matches!(
+        edit::apply(&del, &g),
+        Err(edit::ApplyError::DanglingEdges { node: 0, .. })
+    ));
 }

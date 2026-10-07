@@ -13,7 +13,10 @@ use crate::lens::{PutDomainError, ViewRef};
 use crate::migration::Migration;
 use crate::model::{Graph, Name, SEdge, Table};
 use crate::rel::{FunctorError, RelFunctor, RelSchema, entity_functor};
-use crate::restrict::{self, EdgeFate, PairResolution, Plan, PlanError, RestrictError, SynthKey, ValueLayer, reverse_anchor};
+use crate::restrict::{
+    self, EdgeFate, PairResolution, Plan, PlanError, RestrictError, SynthKey, ValueLayer,
+    reverse_anchor,
+};
 use crate::schema::Schema;
 use crate::value::Value;
 
@@ -39,13 +42,13 @@ pub enum SurvivalElement {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TablePlanError {
     /// The restrict plan refused.
-    Plan(PlanError),
+    Plan(Box<PlanError>),
     /// The entity functor refused.
-    Functor(FunctorError),
+    Functor(Box<FunctorError>),
     /// An expansion or hyper-edge resolution.
     NotTableRepresentable,
-    /// F.R's survival and the entity functor disagree.
-    SurvivalRulesDisagree(SurvivalElement),
+    /// Graph restrict's survival and the entity functor disagree.
+    SurvivalRulesDisagree(Box<SurvivalElement>),
 }
 
 /// The compiled table plan.
@@ -66,10 +69,16 @@ impl TablePlan {
     #[must_use]
     pub fn writer(&self, s: &str, t: &str) -> Option<String> {
         let fates = self.fates.get(s).map(Vec::as_slice).unwrap_or_default();
-        if let Some(CellFate::Rename(from, _)) = fates.iter().rev().find(|f| matches!(f, CellFate::Rename(_, to) if to == t)) {
+        if let Some(CellFate::Rename(from, _)) = fates
+            .iter()
+            .rev()
+            .find(|f| matches!(f, CellFate::Rename(_, to) if to == t))
+        {
             return Some(from.clone());
         }
-        let has_fate = fates.iter().any(|f| matches!(f, CellFate::Drop(c) | CellFate::Rename(c, _) if c == t));
+        let has_fate = fates
+            .iter()
+            .any(|f| matches!(f, CellFate::Drop(c) | CellFate::Rename(c, _) if c == t));
         (!has_fate).then(|| t.to_owned())
     }
 
@@ -86,31 +95,50 @@ impl TablePlan {
         }
         targets
             .into_iter()
-            .filter_map(|t| self.writer(s, &t).and_then(|w| row.get(&w).cloned()).map(|v| (t, v)))
+            .filter_map(|t| {
+                self.writer(s, &t)
+                    .and_then(|w| row.get(&w).cloned())
+                    .map(|v| (t, v))
+            })
             .collect()
     }
 }
 
-/// Compile the table plan: the restrict plan, the entity functor, the
-/// refusal of expansions and hyper-edge resolution, the agreement check of
-/// the two survival rules (tables ascending, then relations and attribute
-/// arrows of tables both keep, ascending), and the cell fates.
+/// Compile the table plan.
+///
+/// The restrict plan, the entity functor, the refusal of expansions and hyper-edge resolution, the
+/// agreement check of the two survival rules (tables ascending, then relations and attribute arrows
+/// of tables both keep, ascending), and the cell fates.
 ///
 /// # Errors
 ///
 /// The first [`TablePlanError`] in that order.
-pub fn compile_for_tables(src: &Schema, tgt: &Schema, rs: &RelSchema, rt: &RelSchema, m: &Migration) -> Result<TablePlan, TablePlanError> {
-    let plan = restrict::compile(src, tgt, m).map_err(TablePlanError::Plan)?;
-    let functor = entity_functor(rs, rt, m).map_err(TablePlanError::Functor)?;
-    let expands = plan.fates.values().any(|f| matches!(f, EdgeFate::Expand { .. }))
-        || plan.pairs.values().any(|p| matches!(p.resolution, PairResolution::Expand { .. }));
+pub fn compile_for_tables(
+    src: &Schema,
+    tgt: &Schema,
+    rs: &RelSchema,
+    rt: &RelSchema,
+    m: &Migration,
+) -> Result<TablePlan, TablePlanError> {
+    let plan = restrict::compile(src, tgt, m).map_err(|e| TablePlanError::Plan(Box::new(e)))?;
+    let functor = entity_functor(rs, rt, m).map_err(|e| TablePlanError::Functor(Box::new(e)))?;
+    let expands = plan
+        .fates
+        .values()
+        .any(|f| matches!(f, EdgeFate::Expand { .. }))
+        || plan
+            .pairs
+            .values()
+            .any(|p| matches!(p.resolution, PairResolution::Expand { .. }));
     if expands || !m.hyper_resolver.is_empty() {
         return Err(TablePlanError::NotTableRepresentable);
     }
     for t in &rs.tables {
         let fr = m.survives(t).then(|| m.vertex_image(t).to_owned());
         if fr != functor.tables.get(t).cloned() {
-            return Err(TablePlanError::SurvivalRulesDisagree(SurvivalElement::Table(t.clone())));
+            return Err(TablePlanError::SurvivalRulesDisagree(Box::new(
+                SurvivalElement::Table(t.clone()),
+            )));
         }
     }
     let kept = |t: &str| functor.tables.contains_key(t);
@@ -120,7 +148,12 @@ pub fn compile_for_tables(src: &Schema, tgt: &Schema, rs: &RelSchema, rt: &RelSc
     }
     for (t, cols) in rs.columns.iter().filter(|(t, _)| kept(t)) {
         for (c, a) in cols {
-            let image = functor.columns.get(&(t.clone(), c.clone())).and_then(|tc| rt.columns.get(&functor.tables[t]).and_then(|cs| cs.get(tc)).cloned());
+            let image = functor.columns.get(&(t.clone(), c.clone())).and_then(|tc| {
+                rt.columns
+                    .get(&functor.tables[t])
+                    .and_then(|cs| cs.get(tc))
+                    .cloned()
+            });
             edges.push((a.clone(), image));
         }
     }
@@ -132,7 +165,9 @@ pub fn compile_for_tables(src: &Schema, tgt: &Schema, rs: &RelSchema, rt: &RelSc
             _ => false,
         };
         if !agree {
-            return Err(TablePlanError::SurvivalRulesDisagree(SurvivalElement::Edge(e)));
+            return Err(TablePlanError::SurvivalRulesDisagree(Box::new(
+                SurvivalElement::Edge(e),
+            )));
         }
     }
     let mut fates = BTreeMap::new();
@@ -141,7 +176,10 @@ pub fn compile_for_tables(src: &Schema, tgt: &Schema, rs: &RelSchema, rt: &RelSc
         let mut v = Vec::new();
         for (c, a) in rs.columns.get(t).into_iter().flatten() {
             let target_col = match plan.fates.get(a) {
-                Some(EdgeFate::Keep(e)) => rt.columns.get(image).and_then(|cs| cs.iter().find(|(_, x)| *x == e).map(|(n, _)| n.clone())),
+                Some(EdgeFate::Keep(e)) => rt
+                    .columns
+                    .get(image)
+                    .and_then(|cs| cs.iter().find(|(_, x)| *x == e).map(|(n, _)| n.clone())),
                 _ => None,
             };
             match target_col {
@@ -152,7 +190,11 @@ pub fn compile_for_tables(src: &Schema, tgt: &Schema, rs: &RelSchema, rt: &RelSc
         }
         fates.insert(t.clone(), v);
     }
-    Ok(TablePlan { plan, functor, fates })
+    Ok(TablePlan {
+        plan,
+        functor,
+        fates,
+    })
 }
 
 /// The table complement.
@@ -177,74 +219,104 @@ pub struct TableComplement {
     pub id_floor: u32,
 }
 
-/// Table get: rows and pairs restricted as graph nodes and edges (F.R and
+/// Table get: rows and pairs restricted as graph nodes and edges (graph restrict and
 /// contraction), then the cell fates of each surviving row's source table,
 /// and the table complement.
 ///
 /// # Errors
 ///
 /// The engine's [`RestrictError`].
-pub fn get(src: &Schema, tgt: &Schema, m: &Migration, tp: &TablePlan, vl: &dyn ValueLayer, t: &Table) -> Result<(Table, TableComplement), RestrictError> {
-    let (g, _) = table_to_graph(t);
-    let (vg, gc) = restrict::get_with_plan(src, tgt, m, &tp.plan, vl, &g)?;
+pub fn get(
+    src: &Schema,
+    tgt: &Schema,
+    mig: &Migration,
+    tp: &TablePlan,
+    vl: &dyn ValueLayer,
+    source: &Table,
+) -> Result<(Table, TableComplement), RestrictError> {
+    let (graph, _) = table_to_graph(source);
+    let (vg, gc) = restrict::get_with_plan(src, tgt, mig, &tp.plan, vl, &graph)?;
     let mut view = Table::default();
-    let mut c = TableComplement { id_floor: gc.floor.0, ..TableComplement::default() };
-    for (id, n) in &vg.nodes {
-        let (stable, source_cells) = &t.rows[id];
-        view.rows.insert(*id, (n.anchor.clone(), tp.apply(stable, &n.fields)));
-        if reverse_anchor(src, m, &n.anchor) != vec![stable.clone()] {
-            c.original_tables.insert(*id, stable.clone());
+    let mut comp = TableComplement {
+        id_floor: gc.floor.0,
+        ..TableComplement::default()
+    };
+    for (id, node) in &vg.nodes {
+        let (stable, source_cells) = &source.rows[id];
+        view.rows
+            .insert(*id, (node.anchor.clone(), tp.apply(stable, &node.fields)));
+        if reverse_anchor(src, mig, &node.anchor) != vec![stable.clone()] {
+            comp.original_tables.insert(*id, stable.clone());
         }
-        let v = &view.rows[id].1;
-        for (col, o) in source_cells {
-            match v.get(col) {
+        let cells = &view.rows[id].1;
+        for (col, old) in source_cells {
+            match cells.get(col) {
                 None => {
-                    c.dropped_cells.insert((*id, col.clone()), o.clone());
+                    comp.dropped_cells.insert((*id, col.clone()), old.clone());
                 }
-                Some(x) if x != o => {
-                    c.original_cells.insert((*id, col.clone()), o.clone());
+                Some(seen) if seen != old => {
+                    comp.original_cells.insert((*id, col.clone()), old.clone());
                 }
                 Some(_) => {}
             }
         }
     }
-    for (id, n) in &gc.dropped_nodes {
-        c.dropped_rows.insert(*id, (n.anchor.clone(), n.fields.clone()));
+    for (id, node) in &gc.dropped_nodes {
+        comp.dropped_rows
+            .insert(*id, (node.anchor.clone(), node.fields.clone()));
     }
-    for e in gc.dropped_edges.values() {
-        c.dropped_fk_pairs.entry(e.label.clone()).or_default().insert((e.src, e.tgt));
+    for edge in gc.dropped_edges.values() {
+        comp.dropped_fk_pairs
+            .entry(edge.label.clone())
+            .or_default()
+            .insert((edge.src, edge.tgt));
     }
-    for (id, e) in &vg.edges {
-        let pair = (e.label.clone(), e.src, e.tgt);
+    for (id, edge) in &vg.edges {
+        let pair = (edge.label.clone(), edge.src, edge.tgt);
         if gc.synthesized_edges.contains_key(id) {
-            c.synthesized_fk_pairs.insert(pair.clone());
+            comp.synthesized_fk_pairs.insert(pair.clone());
         }
         view.pairs.insert(pair);
     }
     let mut sources: BTreeMap<(SEdge, u32, u32), BTreeSet<SEdge>> = BTreeMap::new();
-    for (id, e) in &vg.edges {
+    for (id, edge) in &vg.edges {
         if !gc.synthesized_edges.contains_key(id) {
-            sources.entry((e.label.clone(), e.src, e.tgt)).or_default().insert(g.edges[id].label.clone());
+            sources
+                .entry((edge.label.clone(), edge.src, edge.tgt))
+                .or_default()
+                .insert(graph.edges[id].label.clone());
         }
     }
     for (pair, srcs) in sources {
-        let unique = preimage(src, m, &tp.plan, &view, &pair).ok();
-        let back = unique.map(|e| BTreeSet::from([e]));
-        if c.synthesized_fk_pairs.contains(&pair) || back.as_ref() != Some(&srcs) {
-            c.original_fk_edges.insert(pair, srcs);
+        let unique = preimage(src, mig, &tp.plan, &view, &pair).ok();
+        let back = unique.map(|edge| BTreeSet::from([edge]));
+        if comp.synthesized_fk_pairs.contains(&pair) || back.as_ref() != Some(&srcs) {
+            comp.original_fk_edges.insert(pair, srcs);
         }
     }
-    Ok((view, c))
+    Ok((view, comp))
 }
 
 /// The unique source edge whose fate keeps a view pair's label between
 /// preimages of its rows' view tables; `Err` with the candidate count.
-fn preimage(src: &Schema, m: &Migration, plan: &Plan, view: &Table, (e, s, t): &(SEdge, u32, u32)) -> Result<SEdge, usize> {
-    let (Some((ts, _)), Some((tt, _))) = (view.rows.get(s), view.rows.get(t)) else { return Err(0) };
+fn preimage(
+    src: &Schema,
+    mig: &Migration,
+    plan: &Plan,
+    view: &Table,
+    (label, src_row, tgt_row): &(SEdge, u32, u32),
+) -> Result<SEdge, usize> {
+    let (Some((ts, _)), Some((tt, _))) = (view.rows.get(src_row), view.rows.get(tgt_row)) else {
+        return Err(0);
+    };
     let cands: Vec<&SEdge> = src
         .edges
         .iter()
-        .filter(|p| matches!(plan.fates.get(*p), Some(EdgeFate::Keep(i)) if i == e) && m.vertex_image(&p.src) == ts && m.vertex_image(&p.tgt) == tt)
+        .filter(|cand| {
+            matches!(plan.fates.get(*cand), Some(EdgeFate::Keep(i)) if i == label)
+                && mig.vertex_image(&cand.src) == ts
+                && mig.vertex_image(&cand.tgt) == tt
+        })
         .collect();
     match cands.as_slice() {
         [one] => Ok((*one).clone()),
@@ -270,7 +342,12 @@ pub struct TableLens<'a> {
 
 impl TableLens<'_> {
     /// The source table of a view row.
-    fn source_table(&self, c: &TableComplement, r: u32, view_table: &str) -> Result<Name, PutDomainError> {
+    fn source_table(
+        &self,
+        c: &TableComplement,
+        r: u32,
+        view_table: &str,
+    ) -> Result<Name, PutDomainError> {
         if let Some(t) = c.original_tables.get(&r)
             && self.m.vertex_image(t) == view_table
         {
@@ -279,34 +356,60 @@ impl TableLens<'_> {
         let pre = reverse_anchor(self.src, self.m, view_table);
         match pre.as_slice() {
             [one] => Ok(one.clone()),
-            _ => Err(PutDomainError::AmbiguousReverseAnchor { elem: ViewRef::Row(r), candidates: pre }),
+            _ => Err(PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Row(r),
+                candidates: pre,
+            }),
         }
     }
 
     /// The baseline-and-pullback rule for one row: the baseline source
     /// cells from the complement and the same-named view cells, its
     /// baseline view, and each differing target cell written to its writer.
-    fn cells(&self, c: &TableComplement, r: u32, s: &str, view: &BTreeMap<String, Value>) -> Result<BTreeMap<String, Value>, Vec<PutDomainError>> {
-        let columns: Vec<String> = self.rs.columns.get(s).map(|cs| cs.keys().cloned().collect()).unwrap_or_default();
+    fn cells(
+        &self,
+        comp: &TableComplement,
+        row: u32,
+        table: &str,
+        view: &BTreeMap<String, Value>,
+    ) -> Result<BTreeMap<String, Value>, Vec<PutDomainError>> {
+        let columns: Vec<String> = self
+            .rs
+            .columns
+            .get(table)
+            .map(|cs| cs.keys().cloned().collect())
+            .unwrap_or_default();
         let mut s0 = BTreeMap::new();
         for col in &columns {
-            let key = (r, col.clone());
-            if let Some(v) = c.dropped_cells.get(&key).or_else(|| c.original_cells.get(&key)).or_else(|| view.get(col)) {
-                s0.insert(col.clone(), v.clone());
+            let key = (row, col.clone());
+            if let Some(val) = comp
+                .dropped_cells
+                .get(&key)
+                .or_else(|| comp.original_cells.get(&key))
+                .or_else(|| view.get(col))
+            {
+                s0.insert(col.clone(), val.clone());
             }
         }
-        let v0 = self.tp.apply(s, &s0);
-        let changed: BTreeSet<&String> = view.keys().chain(v0.keys()).filter(|k| view.get(*k) != v0.get(*k)).collect();
+        let v0 = self.tp.apply(table, &s0);
+        let changed: BTreeSet<&String> = view
+            .keys()
+            .chain(v0.keys())
+            .filter(|col| view.get(*col) != v0.get(*col))
+            .collect();
         let mut errs = Vec::new();
-        for t in changed {
-            match self.tp.writer(s, t) {
-                None => errs.push(PutDomainError::DerivedCellEdited { elem: ViewRef::Row(r), field: t.clone() }),
-                Some(w) => match view.get(t) {
-                    Some(v) => {
-                        s0.insert(w, v.clone());
+        for target in changed {
+            match self.tp.writer(table, target) {
+                None => errs.push(PutDomainError::DerivedCellEdited {
+                    elem: ViewRef::Row(row),
+                    field: target.clone(),
+                }),
+                Some(writer) => match view.get(target) {
+                    Some(val) => {
+                        s0.insert(writer, val.clone());
                     }
                     None => {
-                        s0.remove(&w);
+                        s0.remove(&writer);
                     }
                 },
             }
@@ -323,11 +426,18 @@ impl TableLens<'_> {
         let mut errs = Vec::new();
         let mut out = Table::default();
         for id in view.rows.keys().filter(|r| c.dropped_rows.contains_key(r)) {
-            errs.push(PutDomainError::IdCollision { elem: ViewRef::Row(*id) });
+            errs.push(PutDomainError::IdCollision {
+                elem: ViewRef::Row(*id),
+            });
         }
         for (e, s, t) in &c.synthesized_fk_pairs {
-            if !view.pairs.contains(&(e.clone(), *s, *t)) && view.rows.contains_key(s) && view.rows.contains_key(t) {
-                errs.push(PutDomainError::SynthesizedEdited { elem: ViewRef::Pair(e.clone(), *s, *t) });
+            if !view.pairs.contains(&(e.clone(), *s, *t))
+                && view.rows.contains_key(s)
+                && view.rows.contains_key(t)
+            {
+                errs.push(PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Pair(Box::new(e.clone()), *s, *t),
+                });
             }
         }
         for (r, (vt, cells)) in &view.rows {
@@ -343,7 +453,8 @@ impl TableLens<'_> {
         }
         for pair in &view.pairs {
             if let Some(srcs) = c.original_fk_edges.get(pair) {
-                out.pairs.extend(srcs.iter().map(|e| (e.clone(), pair.1, pair.2)));
+                out.pairs
+                    .extend(srcs.iter().map(|e| (e.clone(), pair.1, pair.2)));
                 continue;
             }
             if c.synthesized_fk_pairs.contains(pair) {
@@ -353,8 +464,14 @@ impl TableLens<'_> {
                 Ok(e) => {
                     out.pairs.insert((e, pair.1, pair.2));
                 }
-                Err(0) if self.contracted(view, pair) => errs.push(PutDomainError::ContractedEdgeInserted { elem: ViewRef::Pair(pair.0.clone(), pair.1, pair.2) }),
-                Err(_) => errs.push(PutDomainError::UnrepresentableViewEdge { elem: ViewRef::Pair(pair.0.clone(), pair.1, pair.2) }),
+                Err(0) if self.contracted(view, pair) => {
+                    errs.push(PutDomainError::ContractedEdgeInserted {
+                        elem: ViewRef::Pair(Box::new(pair.0.clone()), pair.1, pair.2),
+                    });
+                }
+                Err(_) => errs.push(PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Pair(Box::new(pair.0.clone()), pair.1, pair.2),
+                }),
             }
         }
         let removed: BTreeSet<u32> = c
@@ -364,7 +481,8 @@ impl TableLens<'_> {
             .flat_map(|(s, t)| [*s, *t])
             .filter(|r| !c.dropped_rows.contains_key(r) && !view.rows.contains_key(r))
             .collect();
-        out.rows.extend(c.dropped_rows.iter().map(|(i, r)| (*i, r.clone())));
+        out.rows
+            .extend(c.dropped_rows.iter().map(|(i, r)| (*i, r.clone())));
         for (e, ps) in &c.dropped_fk_pairs {
             for (s, t) in ps {
                 if !removed.contains(s) && !removed.contains(t) {
@@ -381,10 +499,24 @@ impl TableLens<'_> {
         }
     }
 
-    fn contracted(&self, view: &Table, (e, s, t): &(SEdge, u32, u32)) -> bool {
-        let anchor = |r: &u32| view.rows.get(r).map(|(tb, _)| reverse_anchor(self.src, self.m, tb));
-        let (Some(a), Some(b)) = (anchor(s), anchor(t)) else { return false };
-        a.iter().any(|x| b.iter().any(|y| self.tp.plan.pairs.get(&(x.clone(), y.clone())).is_some_and(|p| p.resolution == PairResolution::Label(e.clone()))))
+    fn contracted(&self, view: &Table, (label, src_row, tgt_row): &(SEdge, u32, u32)) -> bool {
+        let anchor = |row: &u32| {
+            view.rows
+                .get(row)
+                .map(|(tb, _)| reverse_anchor(self.src, self.m, tb))
+        };
+        let (Some(from), Some(to)) = (anchor(src_row), anchor(tgt_row)) else {
+            return false;
+        };
+        from.iter().any(|one| {
+            to.iter().any(|two| {
+                self.tp
+                    .plan
+                    .pairs
+                    .get(&(one.clone(), two.clone()))
+                    .is_some_and(|pair| pair.resolution == PairResolution::Label(label.clone()))
+            })
+        })
     }
 
     /// Survival predicates of restored view rows and declared keys, read on
@@ -396,8 +528,13 @@ impl TableLens<'_> {
             if self.m.conditional.contains(&n.anchor) {
                 match self.vl.survives(&g, n) {
                     Ok(true) => {}
-                    Ok(false) => errs.push(PutDomainError::SurvivalPredicateFails { elem: ViewRef::Row(*r) }),
-                    Err(refusal) => errs.push(PutDomainError::SurvivalPredicateRefused { elem: ViewRef::Row(*r), refusal }),
+                    Ok(false) => errs.push(PutDomainError::SurvivalPredicateFails {
+                        elem: ViewRef::Row(*r),
+                    }),
+                    Err(refusal) => errs.push(PutDomainError::SurvivalPredicateRefused {
+                        elem: ViewRef::Row(*r),
+                        refusal,
+                    }),
                 }
             }
         }
@@ -414,21 +551,44 @@ fn key_violations(src: &Schema, g: &Graph, view: &Table) -> Vec<PutDomainError> 
             let (buckets, _) = crate::keys::buckets(g, vertex, key);
             for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
                 let cols = key.parts.iter().map(|p| match p {
-                    crate::schema::KeyPart::Path(path) => path.last().map(|e| e.column().to_owned()).unwrap_or_default(),
+                    crate::schema::KeyPart::Path(path) => path
+                        .last()
+                        .map(|e| e.column().to_owned())
+                        .unwrap_or_default(),
                     crate::schema::KeyPart::Position { within } => within.column().to_owned(),
                 });
-                let key_cols = cols.zip(values.iter().map(|v| crate::canonical::value_bytes(v).unwrap_or_default())).collect();
-                errs.push(PutDomainError::DuplicateKey { table: vertex.clone(), key: key_cols, elems: elems.into_iter().map(ViewRef::Row).collect() });
+                let key_cols = cols
+                    .zip(
+                        values
+                            .iter()
+                            .map(|v| crate::canonical::value_bytes(v).unwrap_or_default()),
+                    )
+                    .collect();
+                errs.push(PutDomainError::DuplicateKey {
+                    table: vertex.clone(),
+                    key: key_cols,
+                    elems: elems.into_iter().map(ViewRef::Row).collect(),
+                });
             }
             if key.role == crate::schema::KeyRole::Primary {
-                for (id, n) in g.nodes.iter().filter(|(i, n)| n.anchor == *vertex && view.rows.contains_key(i)) {
+                for id in g
+                    .nodes
+                    .iter()
+                    .filter(|(i, n)| n.anchor == *vertex && view.rows.contains_key(i))
+                    .map(|(i, _)| i)
+                {
                     for p in &key.parts {
                         if let crate::schema::KeyPart::Path(path) = p
                             && crate::keys::path_value(g, *id, path).is_none()
                         {
-                            let field = path.last().map(|e| e.column().to_owned()).unwrap_or_default();
-                            let _ = n;
-                            errs.push(PutDomainError::MissingRequiredCell { elem: ViewRef::Row(*id), field });
+                            let field = path
+                                .last()
+                                .map(|e| e.column().to_owned())
+                                .unwrap_or_default();
+                            errs.push(PutDomainError::MissingRequiredCell {
+                                elem: ViewRef::Row(*id),
+                                field,
+                            });
                         }
                     }
                 }

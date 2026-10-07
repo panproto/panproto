@@ -1,5 +1,6 @@
-//! The instance models the reference operates on: schema edges, nodes,
-//! graphs, tables and trees, each a plain finite structure with ordered
+//! The instance models the reference operates on.
+//!
+//! Schema edges, nodes, graphs, tables and trees, each a plain finite structure with ordered
 //! containers so that equality is structural and iteration deterministic.
 
 use std::collections::{BTreeMap, BTreeSet};

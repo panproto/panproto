@@ -1,6 +1,7 @@
-//! Restrict on graphs: the compiled edge image and contraction plan, stage 1
-//! (per element survival, relabelling and Skolem expansion), stage 2
-//! (contraction of paths through dropped nodes, then fan survival), the
+//! Restrict on graphs.
+//!
+//! The compiled edge image and contraction plan, stage 1 (per element survival, relabelling and
+//! Skolem expansion), stage 2 (contraction of paths through dropped nodes, then fan survival), the
 //! allocation of synthesized ids by Skolem key, and the complement.
 //!
 //! Restrict is Delta along the inclusion of the surviving part followed by
@@ -95,29 +96,34 @@ pub enum PlanError {
     /// A kept or expanded image is not coherent.
     IncoherentEdgeImage {
         /// The source edge.
-        source_edge: SEdge,
+        source_edge: Box<SEdge>,
         /// Its image (or failing expansion label).
-        image: SEdge,
+        image: Box<SEdge>,
     },
     /// A planned pair's resolution is not coherent.
     IncoherentPairImage {
         /// The target pair.
-        pair: (Name, Name),
+        pair: Box<(Name, Name)>,
         /// The incoherent label.
-        image: SEdge,
+        image: Box<SEdge>,
     },
 }
 
-/// The direct image of a source edge between surviving endpoints: the
-/// `edge_remap` image, else the target edge of the same kind and name
-/// between the endpoint images, else the resolver's entry for those images.
+/// The direct image of a source edge between surviving endpoints.
+///
+/// The `edge_remap` image, else the target edge of the same kind and name between the endpoint
+/// images, else the resolver's entry for those images.
 #[must_use]
 pub fn direct_image(tgt: &Schema, m: &Migration, e: &SEdge) -> Option<SEdge> {
     if let Some(i) = m.edge_remap.get(e) {
         return Some(i.clone());
     }
     let (a, b) = (m.vertex_image(&e.src), m.vertex_image(&e.tgt));
-    if let Some(c) = tgt.edges_between(a, b).into_iter().find(|c| c.kind == e.kind && c.name == e.name) {
+    if let Some(c) = tgt
+        .edges_between(a, b)
+        .into_iter()
+        .find(|c| c.kind == e.kind && c.name == e.name)
+    {
         return Some(c.clone());
     }
     m.resolver.get(&(a.to_owned(), b.to_owned())).cloned()
@@ -136,9 +142,10 @@ fn resolve_edge(tgt: &Schema, m: &Migration, a: &str, b: &str) -> Result<SEdge, 
     }
 }
 
-/// Pair resolution: the resolver entry, else the unique target edge, else
-/// the expansion path with each hop resolved by [`resolve_edge`] (the
-/// first failing hop's reason), else the reason no unique edge exists.
+/// Pair resolution.
+///
+/// The resolver entry, else the unique target edge, else the expansion path with each hop resolved
+/// by `resolve_edge` (the first failing hop's reason), else the reason no unique edge exists.
 #[must_use]
 pub fn resolve_pair(tgt: &Schema, m: &Migration, a: &str, b: &str) -> PairResolution {
     match resolve_edge(tgt, m, a, b) {
@@ -146,22 +153,39 @@ pub fn resolve_pair(tgt: &Schema, m: &Migration, a: &str, b: &str) -> PairResolu
         Err(reason) => match m.expansion_path.get(&(a.to_owned(), b.to_owned())) {
             None => PairResolution::Unresolved(a.to_owned(), b.to_owned(), reason),
             Some(inter) => {
-                let chain: Vec<&str> = std::iter::once(a).chain(inter.iter().map(String::as_str)).chain(std::iter::once(b)).collect();
+                let chain: Vec<&str> = std::iter::once(a)
+                    .chain(inter.iter().map(String::as_str))
+                    .chain(std::iter::once(b))
+                    .collect();
                 let mut labels = Vec::new();
                 for w in chain.windows(2) {
                     match resolve_edge(tgt, m, w[0], w[1]) {
                         Ok(e) => labels.push(e),
-                        Err(r) => return PairResolution::Unresolved(w[0].to_owned(), w[1].to_owned(), r),
+                        Err(r) => {
+                            return PairResolution::Unresolved(w[0].to_owned(), w[1].to_owned(), r);
+                        }
                     }
                 }
-                PairResolution::Expand { intermediates: inter.clone(), labels }
+                PairResolution::Expand {
+                    intermediates: inter.clone(),
+                    labels,
+                }
             }
         },
     }
 }
 
-fn coherent_chain(tgt: &Schema, a: &str, inter: &[Name], b: &str, labels: &[SEdge]) -> Result<(), SEdge> {
-    let chain: Vec<&str> = std::iter::once(a).chain(inter.iter().map(String::as_str)).chain(std::iter::once(b)).collect();
+fn coherent_chain(
+    tgt: &Schema,
+    a: &str,
+    inter: &[Name],
+    b: &str,
+    labels: &[SEdge],
+) -> Result<(), SEdge> {
+    let chain: Vec<&str> = std::iter::once(a)
+        .chain(inter.iter().map(String::as_str))
+        .chain(std::iter::once(b))
+        .collect();
     for (w, l) in chain.windows(2).zip(labels) {
         if l.src != w[0] || l.tgt != w[1] || !tgt.edges.contains(l) {
             return Err(l.clone());
@@ -181,35 +205,57 @@ fn coherent_chain(tgt: &Schema, a: &str, inter: &[Name], b: &str, labels: &[SEdg
 /// # Errors
 ///
 /// [`PlanError::IncoherentEdgeImage`] for the least incoherent edge.
-pub fn edge_image(tgt: &Schema, src: &Schema, m: &Migration) -> Result<BTreeMap<SEdge, EdgeFate>, PlanError> {
+pub fn edge_image(
+    tgt: &Schema,
+    src: &Schema,
+    mig: &Migration,
+) -> Result<BTreeMap<SEdge, EdgeFate>, PlanError> {
     let mut fates = BTreeMap::new();
-    for e in &src.edges {
-        let fate = if !(m.survives(&e.src) && m.survives(&e.tgt)) {
+    for edge in &src.edges {
+        let fate = if !(mig.survives(&edge.src) && mig.survives(&edge.tgt)) {
             EdgeFate::Drop
-        } else if let Some(i) = direct_image(tgt, m, e) {
-            EdgeFate::Keep(i)
+        } else if let Some(image) = direct_image(tgt, mig, edge) {
+            EdgeFate::Keep(image)
         } else {
-            let (a, b) = (m.vertex_image(&e.src), m.vertex_image(&e.tgt));
-            if m.expansion_path.contains_key(&(a.to_owned(), b.to_owned())) {
-                match resolve_pair(tgt, m, a, b) {
+            let (from, to) = (mig.vertex_image(&edge.src), mig.vertex_image(&edge.tgt));
+            if mig
+                .expansion_path
+                .contains_key(&(from.to_owned(), to.to_owned()))
+            {
+                match resolve_pair(tgt, mig, from, to) {
                     PairResolution::Label(l) => EdgeFate::Keep(l),
-                    PairResolution::Expand { intermediates, labels } => EdgeFate::Expand { intermediates, labels },
+                    PairResolution::Expand {
+                        intermediates,
+                        labels,
+                    } => EdgeFate::Expand {
+                        intermediates,
+                        labels,
+                    },
                     PairResolution::Unresolved(x, y, r) => EdgeFate::Unresolved(x, y, r),
                 }
             } else {
                 EdgeFate::Drop
             }
         };
-        let (a, b) = (m.vertex_image(&e.src), m.vertex_image(&e.tgt));
+        let (from, to) = (mig.vertex_image(&edge.src), mig.vertex_image(&edge.tgt));
         let bad = match &fate {
-            EdgeFate::Keep(i) => (i.src != a || i.tgt != b || !tgt.edges.contains(i)).then(|| i.clone()),
-            EdgeFate::Expand { intermediates, labels } => coherent_chain(tgt, a, intermediates, b, labels).err(),
+            EdgeFate::Keep(image) => {
+                (image.src != from || image.tgt != to || !tgt.edges.contains(image))
+                    .then(|| image.clone())
+            }
+            EdgeFate::Expand {
+                intermediates,
+                labels,
+            } => coherent_chain(tgt, from, intermediates, to, labels).err(),
             _ => None,
         };
         if let Some(image) = bad {
-            return Err(PlanError::IncoherentEdgeImage { source_edge: e.clone(), image });
+            return Err(PlanError::IncoherentEdgeImage {
+                source_edge: Box::new(edge.clone()),
+                image: Box::new(image),
+            });
         }
-        fates.insert(e.clone(), fate);
+        fates.insert(edge.clone(), fate);
     }
     Ok(fates)
 }
@@ -218,7 +264,10 @@ pub fn edge_image(tgt: &Schema, src: &Schema, m: &Migration) -> Result<BTreeMap<
 /// vertices after `start` lie in `inside`.
 fn reach(start: &str, inside: &BTreeSet<Name>, step: &dyn Fn(&str) -> Vec<Name>) -> BTreeSet<Name> {
     let mut seen = BTreeSet::new();
-    let mut queue: VecDeque<Name> = step(start).into_iter().filter(|v| inside.contains(v)).collect();
+    let mut queue: VecDeque<Name> = step(start)
+        .into_iter()
+        .filter(|v| inside.contains(v))
+        .collect();
     while let Some(v) = queue.pop_front() {
         if seen.insert(v.clone()) {
             queue.extend(step(&v).into_iter().filter(|w| inside.contains(w)));
@@ -231,7 +280,11 @@ fn reach(start: &str, inside: &BTreeSet<Name>, step: &dyn Fn(&str) -> Vec<Name>)
 /// cycle (a self-loop counts), by repeatedly removing vertices without an
 /// incoming edge.
 fn has_cycle(edges: &BTreeSet<SEdge>, inside: &BTreeSet<Name>) -> bool {
-    let mut live: BTreeSet<Name> = edges.iter().flat_map(|e| [e.src.clone(), e.tgt.clone()]).filter(|v| inside.contains(v)).collect();
+    let mut live: BTreeSet<Name> = edges
+        .iter()
+        .flat_map(|e| [e.src.clone(), e.tgt.clone()])
+        .filter(|v| inside.contains(v))
+        .collect();
     loop {
         let sources: Vec<Name> = live
             .iter()
@@ -264,11 +317,37 @@ fn has_cycle(edges: &BTreeSet<SEdge>, inside: &BTreeSet<Name>) -> bool {
 /// # Errors
 ///
 /// [`PlanError::IncoherentPairImage`] for the least incoherent pair.
-pub fn contraction_plan(src: &Schema, tgt: &Schema, m: &Migration) -> Result<BTreeMap<(Name, Name), PlannedPair>, PlanError> {
-    let endpoint: BTreeSet<Name> = src.vertices.keys().filter(|v| m.survives(v)).cloned().collect();
-    let interior: BTreeSet<Name> = src.vertices.keys().filter(|v| !m.survives(v) || m.conditional.contains(*v)).cloned().collect();
-    let succ = |v: &str| src.edges.iter().filter(|e| e.src == v).map(|e| e.tgt.clone()).collect::<Vec<_>>();
-    let pred = |v: &str| src.edges.iter().filter(|e| e.tgt == v).map(|e| e.src.clone()).collect::<Vec<_>>();
+pub fn contraction_plan(
+    src: &Schema,
+    tgt: &Schema,
+    m: &Migration,
+) -> Result<BTreeMap<(Name, Name), PlannedPair>, PlanError> {
+    let endpoint: BTreeSet<Name> = src
+        .vertices
+        .keys()
+        .filter(|v| m.survives(v))
+        .cloned()
+        .collect();
+    let interior: BTreeSet<Name> = src
+        .vertices
+        .keys()
+        .filter(|v| !m.survives(v) || m.conditional.contains(*v))
+        .cloned()
+        .collect();
+    let succ = |v: &str| {
+        src.edges
+            .iter()
+            .filter(|e| e.src == v)
+            .map(|e| e.tgt.clone())
+            .collect::<Vec<_>>()
+    };
+    let pred = |v: &str| {
+        src.edges
+            .iter()
+            .filter(|e| e.tgt == v)
+            .map(|e| e.src.clone())
+            .collect::<Vec<_>>()
+    };
     let mut out = BTreeMap::new();
     for a in &endpoint {
         let f = reach(a, &interior, &succ);
@@ -280,21 +359,40 @@ pub fn contraction_plan(src: &Schema, tgt: &Schema, m: &Migration) -> Result<BTr
             let region: BTreeSet<SEdge> = src
                 .edges
                 .iter()
-                .filter(|e| (f.contains(&e.src) && (e.tgt == *b || back.contains(&e.tgt))) || (e.src == *a && back.contains(&e.tgt)))
+                .filter(|e| {
+                    (f.contains(&e.src) && (e.tgt == *b || back.contains(&e.tgt)))
+                        || (e.src == *a && back.contains(&e.tgt))
+                })
                 .cloned()
                 .collect();
             let bounded = !has_cycle(&region, &interior);
             let (ta, tb) = (m.vertex_image(a).to_owned(), m.vertex_image(b).to_owned());
             let resolution = resolve_pair(tgt, m, &ta, &tb);
             let bad = match &resolution {
-                PairResolution::Label(l) => (l.src != ta || l.tgt != tb || !tgt.edges.contains(l)).then(|| l.clone()),
-                PairResolution::Expand { intermediates, labels } => coherent_chain(tgt, &ta, intermediates, &tb, labels).err(),
+                PairResolution::Label(l) => {
+                    (l.src != ta || l.tgt != tb || !tgt.edges.contains(l)).then(|| l.clone())
+                }
+                PairResolution::Expand {
+                    intermediates,
+                    labels,
+                } => coherent_chain(tgt, &ta, intermediates, &tb, labels).err(),
                 PairResolution::Unresolved(..) => None,
             };
             if let Some(image) = bad {
-                return Err(PlanError::IncoherentPairImage { pair: (ta, tb), image });
+                return Err(PlanError::IncoherentPairImage {
+                    pair: Box::new((ta, tb)),
+                    image: Box::new(image),
+                });
             }
-            out.insert((a.clone(), b.clone()), PlannedPair { target: (ta, tb), region, bounded, resolution });
+            out.insert(
+                (a.clone(), b.clone()),
+                PlannedPair {
+                    target: (ta, tb),
+                    region,
+                    bounded,
+                    resolution,
+                },
+            );
         }
     }
     Ok(out)
@@ -306,7 +404,10 @@ pub fn contraction_plan(src: &Schema, tgt: &Schema, m: &Migration) -> Result<BTr
 ///
 /// The first [`PlanError`].
 pub fn compile(src: &Schema, tgt: &Schema, m: &Migration) -> Result<Plan, PlanError> {
-    Ok(Plan { fates: edge_image(tgt, src, m)?, pairs: contraction_plan(src, tgt, m)? })
+    Ok(Plan {
+        fates: edge_image(tgt, src, m)?,
+        pairs: contraction_plan(src, tgt, m)?,
+    })
 }
 
 /// The contraction mode of a plan.
@@ -408,7 +509,11 @@ pub trait ValueLayer {
     /// # Errors
     ///
     /// A transform refusal.
-    fn transform(&self, source: &Graph, node: &Node) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal>;
+    fn transform(
+        &self,
+        source: &Graph,
+        node: &Node,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal>;
 
     /// Restore a node's source fields and value at put, from its view node
     /// and the recorded originals.
@@ -434,7 +539,11 @@ impl ValueLayer for NoValueLayer {
         Ok(true)
     }
 
-    fn transform(&self, _: &Graph, node: &Node) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
         Ok((node.fields.clone(), node.value.clone()))
     }
 
@@ -445,8 +554,12 @@ impl ValueLayer for NoValueLayer {
         original_value: Option<&Option<Presence>>,
     ) -> Result<(BTreeMap<String, Value>, Option<Presence>), PutFieldRefusal> {
         Ok((
-            original_fields.cloned().unwrap_or_else(|| view.fields.clone()),
-            original_value.cloned().unwrap_or_else(|| view.value.clone()),
+            original_fields
+                .cloned()
+                .unwrap_or_else(|| view.fields.clone()),
+            original_value
+                .cloned()
+                .unwrap_or_else(|| view.value.clone()),
         ))
     }
 }
@@ -487,7 +600,7 @@ pub enum EngineError {
     /// surviving endpoints.
     IncoherentEdgeImage {
         /// The label.
-        label: SEdge,
+        label: Box<SEdge>,
     },
     /// The value layer refused.
     Layer(LayerRefusal),
@@ -541,8 +654,12 @@ pub struct Complement {
 /// edge of a reserved kind.
 #[must_use]
 pub fn is_fan_node(g: &Graph, n: u32) -> bool {
-    g.nodes.get(&n).is_some_and(|x| x.shape == NodeShape::HyperEdge)
-        || g.edges.values().any(|e| e.src == n && is_fan_kind(&e.label.kind))
+    g.nodes
+        .get(&n)
+        .is_some_and(|x| x.shape == NodeShape::HyperEdge)
+        || g.edges
+            .values()
+            .any(|e| e.src == n && is_fan_kind(&e.label.kind))
 }
 
 /// Whether an edge kind is reserved for fans.
@@ -569,21 +686,31 @@ pub fn reverse_anchor(src: &Schema, m: &Migration, anchor: &str) -> Vec<Name> {
         .filter(|v| m.vertex_image(v) == anchor)
         .cloned()
         .collect();
-    if pre.is_empty() { vec![anchor.to_owned()] } else { pre }
+    if pre.is_empty() {
+        vec![anchor.to_owned()]
+    } else {
+        pre
+    }
 }
 
 /// One synthesized object waiting for its id.
 #[derive(Clone, Debug)]
 enum Pending {
-    Node { anchor: Name },
-    Edge { src: Endpoint, tgt: Endpoint, label: SEdge },
+    Node {
+        anchor: Name,
+    },
+    Edge {
+        src: Endpoint,
+        tgt: Endpoint,
+        label: SEdge,
+    },
 }
 
 /// An endpoint of a synthesized edge: a source node or a synthesized node.
 #[derive(Clone, Debug)]
 enum Endpoint {
     Source(u32),
-    Synth(SynthKey),
+    Synth(Box<SynthKey>),
 }
 
 /// The pending objects of a path s -> intermediates -> t keyed by `key(h)`.
@@ -597,24 +724,52 @@ fn path_objects(
     let mut out = Vec::new();
     let n = intermediates.len();
     for (h, a) in intermediates.iter().enumerate() {
-        out.push((key(u16::try_from(h).unwrap_or(u16::MAX)), Pending::Node { anchor: a.clone() }));
+        out.push((
+            key(u16::try_from(h).unwrap_or(u16::MAX)),
+            Pending::Node { anchor: a.clone() },
+        ));
     }
     for (h, l) in labels.iter().enumerate() {
-        let src = if h == 0 { Endpoint::Source(s) } else { Endpoint::Synth(key(u16::try_from(h - 1).unwrap_or(u16::MAX))) };
-        let tgt = if h == n { Endpoint::Source(t) } else { Endpoint::Synth(key(u16::try_from(h).unwrap_or(u16::MAX))) };
-        out.push((key(u16::try_from(h).unwrap_or(u16::MAX)), Pending::Edge { src, tgt, label: l.clone() }));
+        let src = if h == 0 {
+            Endpoint::Source(s)
+        } else {
+            Endpoint::Synth(Box::new(key(u16::try_from(h - 1).unwrap_or(u16::MAX))))
+        };
+        let tgt = if h == n {
+            Endpoint::Source(t)
+        } else {
+            Endpoint::Synth(Box::new(key(u16::try_from(h).unwrap_or(u16::MAX))))
+        };
+        out.push((
+            key(u16::try_from(h).unwrap_or(u16::MAX)),
+            Pending::Edge {
+                src,
+                tgt,
+                label: l.clone(),
+            },
+        ));
     }
     out
 }
 
-fn at(stage: u8, id: u32, id2: u32, error: EngineError) -> RestrictError {
-    RestrictError::At { key: ErrorKey { stage, id, id2 }, error }
+const fn at(stage: u8, id: u32, id2: u32, error: EngineError) -> RestrictError {
+    RestrictError::At {
+        key: ErrorKey { stage, id, id2 },
+        error,
+    }
 }
 
 fn unresolved(x: &str, y: &str, r: &UnresolvedReason) -> EngineError {
     match r {
-        UnresolvedReason::NoEdge => EngineError::NoEdgeFound { src: x.to_owned(), tgt: y.to_owned() },
-        UnresolvedReason::Ambiguous { count } => EngineError::AmbiguousEdge { src: x.to_owned(), tgt: y.to_owned(), count: *count },
+        UnresolvedReason::NoEdge => EngineError::NoEdgeFound {
+            src: x.to_owned(),
+            tgt: y.to_owned(),
+        },
+        UnresolvedReason::Ambiguous { count } => EngineError::AmbiguousEdge {
+            src: x.to_owned(),
+            tgt: y.to_owned(),
+            count: *count,
+        },
     }
 }
 
@@ -639,16 +794,20 @@ impl Run<'_> {
             }
             let mut alive = self.m.survives(&n.anchor);
             if alive && self.m.conditional.contains(&n.anchor) {
-                alive = vl.survives(self.g, n).map_err(|r| at(0, *id, 0, EngineError::Layer(r)))?;
+                alive = vl
+                    .survives(self.g, n)
+                    .map_err(|r| at(0, *id, 0, EngineError::Layer(r)))?;
             }
             if !alive {
                 self.c.dropped_nodes.insert(*id, n.clone());
                 continue;
             }
             let mut v = n.clone();
-            v.anchor = self.m.vertex_image(&n.anchor).to_owned();
+            self.m.vertex_image(&n.anchor).clone_into(&mut v.anchor);
             if self.m.transformed.contains(&n.anchor) {
-                let (fields, value) = vl.transform(self.g, n).map_err(|r| at(0, *id, 0, EngineError::Layer(r)))?;
+                let (fields, value) = vl
+                    .transform(self.g, n)
+                    .map_err(|r| at(0, *id, 0, EngineError::Layer(r)))?;
                 v.fields = fields;
                 v.value = value;
             }
@@ -668,18 +827,40 @@ impl Run<'_> {
                 continue;
             }
             let Some(fate) = self.plan.fates.get(&e.label) else {
-                return Err(at(1, *id, 0, EngineError::IncoherentEdgeImage { label: e.label.clone() }));
+                return Err(at(
+                    1,
+                    *id,
+                    0,
+                    EngineError::IncoherentEdgeImage {
+                        label: Box::new(e.label.clone()),
+                    },
+                ));
             };
             match fate {
                 EdgeFate::Keep(image) => {
-                    self.view.edges.insert(*id, GEdge { label: image.clone(), ..e.clone() });
+                    self.view.edges.insert(
+                        *id,
+                        GEdge {
+                            label: image.clone(),
+                            ..e.clone()
+                        },
+                    );
                 }
                 EdgeFate::Drop => {
                     self.c.dropped_edges.insert(*id, e.clone());
                 }
-                EdgeFate::Expand { intermediates, labels } => {
+                EdgeFate::Expand {
+                    intermediates,
+                    labels,
+                } => {
                     let source_edge = *id;
-                    self.pending.extend(path_objects(e.src, e.tgt, intermediates, labels, &|hop| SynthKey::Expand { source_edge, hop }));
+                    self.pending.extend(path_objects(
+                        e.src,
+                        e.tgt,
+                        intermediates,
+                        labels,
+                        &|hop| SynthKey::Expand { source_edge, hop },
+                    ));
                     self.c.dropped_edges.insert(*id, e.clone());
                 }
                 EdgeFate::Unresolved(x, y, r) => return Err(at(1, *id, 0, unresolved(x, y, r))),
@@ -695,8 +876,20 @@ impl Run<'_> {
     fn realized_pairs(&self) -> BTreeSet<(u32, u32)> {
         let mut pairs = BTreeSet::new();
         let dropped = |n: u32| !self.view.nodes.contains_key(&n) && !is_fan_node(self.g, n);
-        let out = |n: u32| self.g.edges.iter().filter(move |(_, e)| e.src == n && !is_fan_kind(&e.label.kind)).map(|(_, e)| e.tgt);
-        for s in self.view.nodes.keys().copied().filter(|s| !is_fan_node(self.g, *s)) {
+        let out = |n: u32| {
+            self.g
+                .edges
+                .iter()
+                .filter(move |(_, e)| e.src == n && !is_fan_kind(&e.label.kind))
+                .map(|(_, e)| e.tgt)
+        };
+        for s in self
+            .view
+            .nodes
+            .keys()
+            .copied()
+            .filter(|s| !is_fan_node(self.g, *s))
+        {
             let mut seen = BTreeSet::new();
             let mut queue: VecDeque<u32> = out(s).filter(|t| dropped(*t)).collect();
             while let Some(d) = queue.pop_front() {
@@ -717,21 +910,58 @@ impl Run<'_> {
 
     /// Stage 2: contraction of every realized pair, ascending.
     fn contract(&mut self) -> Result<(), RestrictError> {
-        for (s, t) in self.realized_pairs() {
-            let (a, b) = (&self.g.nodes[&s].anchor, &self.g.nodes[&t].anchor);
-            let Some(pair) = self.plan.pairs.get(&(a.clone(), b.clone())) else {
-                let err = EngineError::NoEdgeFound { src: self.m.vertex_image(a).to_owned(), tgt: self.m.vertex_image(b).to_owned() };
-                return Err(at(2, s, t, err));
+        for (src_node, tgt_node) in self.realized_pairs() {
+            let (from, to) = (
+                &self.g.nodes[&src_node].anchor,
+                &self.g.nodes[&tgt_node].anchor,
+            );
+            let Some(pair) = self.plan.pairs.get(&(from.clone(), to.clone())) else {
+                let err = EngineError::NoEdgeFound {
+                    src: self.m.vertex_image(from).to_owned(),
+                    tgt: self.m.vertex_image(to).to_owned(),
+                };
+                return Err(at(2, src_node, tgt_node, err));
             };
             match &pair.resolution {
-                PairResolution::Label(e) => {
-                    let key = SynthKey::Contract { src: s, tgt: t, edge: e.clone() };
-                    self.pending.push((key, Pending::Edge { src: Endpoint::Source(s), tgt: Endpoint::Source(t), label: e.clone() }));
+                PairResolution::Label(label) => {
+                    let key = SynthKey::Contract {
+                        src: src_node,
+                        tgt: tgt_node,
+                        edge: label.clone(),
+                    };
+                    self.pending.push((
+                        key,
+                        Pending::Edge {
+                            src: Endpoint::Source(src_node),
+                            tgt: Endpoint::Source(tgt_node),
+                            label: label.clone(),
+                        },
+                    ));
                 }
-                PairResolution::Expand { intermediates, labels } => {
-                    self.pending.extend(path_objects(s, t, intermediates, labels, &|hop| SynthKey::ContractExpand { src: s, tgt: t, hop }));
+                PairResolution::Expand {
+                    intermediates,
+                    labels,
+                } => {
+                    self.pending.extend(path_objects(
+                        src_node,
+                        tgt_node,
+                        intermediates,
+                        labels,
+                        &|hop| SynthKey::ContractExpand {
+                            src: src_node,
+                            tgt: tgt_node,
+                            hop,
+                        },
+                    ));
                 }
-                PairResolution::Unresolved(x, y, r) => return Err(at(2, s, t, unresolved(x, y, r))),
+                PairResolution::Unresolved(hop_src, hop_tgt, reason) => {
+                    return Err(at(
+                        2,
+                        src_node,
+                        tgt_node,
+                        unresolved(hop_src, hop_tgt, reason),
+                    ));
+                }
             }
         }
         Ok(())
@@ -746,13 +976,27 @@ impl Run<'_> {
     /// keeps its hyper-edge and labels. Edges to dropped children, and every
     /// node and edge of a dropped fan, go to the complement.
     fn fans(&mut self) {
-        let fan_ids: Vec<u32> = self.g.nodes.keys().copied().filter(|n| is_fan_node(self.g, *n)).collect();
+        let fan_ids: Vec<u32> = self
+            .g
+            .nodes
+            .keys()
+            .copied()
+            .filter(|n| is_fan_node(self.g, *n))
+            .collect();
         for f in fan_ids {
             let node = &self.g.nodes[&f];
-            let out: Vec<(u32, &GEdge)> = self.g.edges.iter().filter(|(_, e)| e.src == f).map(|(i, e)| (*i, e)).collect();
+            let out: Vec<(u32, &GEdge)> = self
+                .g
+                .edges
+                .iter()
+                .filter(|(_, e)| e.src == f)
+                .map(|(i, e)| (*i, e))
+                .collect();
             let alive_set: BTreeSet<u32> = self.view.nodes.keys().copied().collect();
             let alive = |n: u32| alive_set.contains(&n);
-            let parent_ok = out.iter().any(|(_, e)| e.label.kind == HYPER_PARENT && alive(e.tgt));
+            let parent_ok = out
+                .iter()
+                .any(|(_, e)| e.label.kind == HYPER_PARENT && alive(e.tgt));
             let labels: BTreeSet<Name> = out
                 .iter()
                 .filter(|(_, e)| e.label.kind == HYPER_LABEL && alive(e.tgt))
@@ -764,7 +1008,8 @@ impl Run<'_> {
                 .get(&(node.anchor.clone(), labels.clone()))
                 .cloned()
                 .unwrap_or_else(|| (node.anchor.clone(), BTreeMap::new()));
-            let survives = parent_ok && !labels.is_empty() && self.tgt.hyper_edges.contains_key(&hyper);
+            let survives =
+                parent_ok && !labels.is_empty() && self.tgt.hyper_edges.contains_key(&hyper);
             if !survives {
                 self.c.dropped_nodes.insert(f, node.clone());
                 for (i, e) in out {
@@ -772,18 +1017,32 @@ impl Run<'_> {
                 }
                 continue;
             }
-            self.view.nodes.insert(f, Node { anchor: hyper.clone(), ..node.clone() });
+            self.view.nodes.insert(
+                f,
+                Node {
+                    anchor: hyper.clone(),
+                    ..node.clone()
+                },
+            );
             for (i, e) in out {
                 if !alive(e.tgt) {
                     self.c.dropped_edges.insert(i, e.clone());
                     continue;
                 }
                 let name = if e.label.kind == HYPER_LABEL {
-                    e.label.name.as_ref().map(|l| label_map.get(l).cloned().unwrap_or_else(|| l.clone()))
+                    e.label
+                        .name
+                        .as_ref()
+                        .map(|l| label_map.get(l).cloned().unwrap_or_else(|| l.clone()))
                 } else {
                     e.label.name.clone()
                 };
-                let label = SEdge { src: hyper.clone(), tgt: self.view.nodes[&e.tgt].anchor.clone(), kind: e.label.kind.clone(), name };
+                let label = SEdge {
+                    src: hyper.clone(),
+                    tgt: self.view.nodes[&e.tgt].anchor.clone(),
+                    kind: e.label.kind.clone(),
+                    name,
+                };
                 self.view.edges.insert(i, GEdge { label, ..e.clone() });
             }
         }
@@ -803,28 +1062,34 @@ impl Run<'_> {
         nodes.sort_by(|a, b| a.0.cmp(&b.0));
         edges.sort_by(|a, b| a.0.cmp(&b.0));
         let mut ids: BTreeMap<SynthKey, u32> = BTreeMap::new();
-        let mut next = self.c.floor.0;
+        let mut fresh_nodes = self.c.floor.0..u32::MAX;
         for (k, anchor) in nodes {
-            if next == u32::MAX {
+            let Some(next) = fresh_nodes.next() else {
                 return Err(at(5, 0, 0, EngineError::IdsExhausted { nodes: true }));
-            }
+            };
             self.view.nodes.insert(next, Node::new(next, &anchor));
             self.c.synthesized_nodes.insert(next, k.clone());
             ids.insert(k, next);
-            next += 1;
         }
-        let mut next = self.c.floor.1;
+        let mut fresh_edges = self.c.floor.1..u32::MAX;
         for (k, s, t, label) in edges {
-            if next == u32::MAX {
+            let Some(next) = fresh_edges.next() else {
                 return Err(at(5, 1, 0, EngineError::IdsExhausted { nodes: false }));
-            }
+            };
             let id_of = |p: &Endpoint| match p {
                 Endpoint::Source(n) => *n,
-                Endpoint::Synth(key) => ids.get(key).copied().unwrap_or(u32::MAX),
+                Endpoint::Synth(key) => ids.get(key.as_ref()).copied().unwrap_or(u32::MAX),
             };
-            self.view.edges.insert(next, GEdge { src: id_of(&s), tgt: id_of(&t), label, position: None });
+            self.view.edges.insert(
+                next,
+                GEdge {
+                    src: id_of(&s),
+                    tgt: id_of(&t),
+                    label,
+                    position: None,
+                },
+            );
             self.c.synthesized_edges.insert(next, k);
-            next += 1;
         }
         Ok(())
     }
@@ -887,24 +1152,44 @@ pub fn map_back(
     source_anchor: &dyn Fn(u32) -> Option<Name>,
 ) -> Result<SEdge, usize> {
     if is_fan_kind(&e.label.kind) {
-        let (Some(af), Some(at)) = (source_anchor(e.src), source_anchor(e.tgt)) else { return Err(0) };
+        let (Some(af), Some(at)) = (source_anchor(e.src), source_anchor(e.tgt)) else {
+            return Err(0);
+        };
         let he = src.hyper_edges.get(&af).ok_or(0usize)?;
         let name = if e.label.kind == HYPER_PARENT {
             e.label.name.as_ref().map(|_| he.parent_label.clone())
         } else {
             e.label.name.clone()
         };
-        let ok = match &name {
-            None => e.label.kind == HYPER_PARENT,
-            Some(l) => (e.label.kind == HYPER_PARENT && *l == he.parent_label) || he.signature.contains_key(l),
+        let ok = name.as_ref().map_or_else(
+            || e.label.kind == HYPER_PARENT,
+            |l| {
+                (e.label.kind == HYPER_PARENT && *l == he.parent_label)
+                    || he.signature.contains_key(l)
+            },
+        );
+        return if ok {
+            Ok(SEdge {
+                src: af,
+                tgt: at,
+                kind: e.label.kind.clone(),
+                name,
+            })
+        } else {
+            Err(0)
         };
-        return if ok { Ok(SEdge { src: af, tgt: at, kind: e.label.kind.clone(), name }) } else { Err(0) };
     }
-    let (Some(vs), Some(vt)) = (view.nodes.get(&e.src), view.nodes.get(&e.tgt)) else { return Err(0) };
+    let (Some(vs), Some(vt)) = (view.nodes.get(&e.src), view.nodes.get(&e.tgt)) else {
+        return Err(0);
+    };
     let candidates: Vec<&SEdge> = plan
         .fates
         .iter()
-        .filter(|(p, f)| matches!(f, EdgeFate::Keep(i) if *i == e.label) && m.vertex_image(&p.src) == vs.anchor && m.vertex_image(&p.tgt) == vt.anchor)
+        .filter(|(p, f)| {
+            matches!(f, EdgeFate::Keep(i) if *i == e.label)
+                && m.vertex_image(&p.src) == vs.anchor
+                && m.vertex_image(&p.tgt) == vt.anchor
+        })
         .map(|(p, _)| p)
         .collect();
     match candidates.as_slice() {
@@ -930,7 +1215,13 @@ pub fn map_back(
 /// # Errors
 ///
 /// [`RestrictError::Plan`] or the first [`RestrictError::At`].
-pub fn get(src: &Schema, tgt: &Schema, m: &Migration, vl: &dyn ValueLayer, g: &Graph) -> Result<(Graph, Complement), RestrictError> {
+pub fn get(
+    src: &Schema,
+    tgt: &Schema,
+    m: &Migration,
+    vl: &dyn ValueLayer,
+    g: &Graph,
+) -> Result<(Graph, Complement), RestrictError> {
     let plan = compile(src, tgt, m).map_err(RestrictError::Plan)?;
     get_with_plan(src, tgt, m, &plan, vl, g)
 }
@@ -948,8 +1239,20 @@ pub fn get_with_plan(
     vl: &dyn ValueLayer,
     g: &Graph,
 ) -> Result<(Graph, Complement), RestrictError> {
-    let mut run = Run { src, tgt, m, plan, g, view: Graph::default(), c: Complement::default(), pending: Vec::new() };
-    run.c.floor = (floor_of(g.nodes.keys().copied()), floor_of(g.edges.keys().copied()));
+    let mut run = Run {
+        src,
+        tgt,
+        m,
+        plan,
+        g,
+        view: Graph::default(),
+        c: Complement::default(),
+        pending: Vec::new(),
+    };
+    run.c.floor = (
+        floor_of(g.nodes.keys().copied()),
+        floor_of(g.edges.keys().copied()),
+    );
     run.nodes(vl)?;
     run.edges()?;
     run.contract()?;

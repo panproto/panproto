@@ -1,14 +1,14 @@
-//! IEEE 754 binary interchange formats by exact rationals: decoding a bit
-//! pattern, the round-to-nearest-even lexical mapping `L_b`, the
-//! closest-shortest printer `C_b` with ties to even, and the bit-wise
-//! narrowing and widening of NaNs.
+//! IEEE 754 binary interchange formats by exact rationals.
+//!
+//! Decoding a bit pattern, the round-to-nearest-even lexical mapping `L_b`, the closest-shortest
+//! printer `C_b` with ties to even, and the bit-wise narrowing and widening of NaNs.
 //!
 //! No float arithmetic is used. A finite value is a [`Rat`]; rounding
 //! compares the exact remainder with one half.
 
 use std::cmp::Ordering;
 
-use crate::num::{Int, Nat, Rat, floor_log10, floor_log2};
+use crate::num::{Int, Nat, Rat, floor_log2, floor_log10};
 
 /// A binary interchange format of width 16, 32 or 64.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -88,15 +88,15 @@ impl Format {
         }
     }
 
-    fn fraction_mask(self) -> u64 {
+    const fn fraction_mask(self) -> u64 {
         (1u64 << (self.precision() - 1)) - 1
     }
 
-    fn exponent_mask(self) -> u64 {
+    const fn exponent_mask(self) -> u64 {
         (1u64 << self.exponent_bits()) - 1
     }
 
-    fn sign_bit(self) -> u64 {
+    const fn sign_bit(self) -> u64 {
         1u64 << (self.width() - 1)
     }
 }
@@ -153,7 +153,8 @@ pub fn decode(format: Format, bits: u64) -> FloatValue {
             i64::try_from(e_field).unwrap_or(0) - format.bias() - p + 1,
         )
     };
-    let magnitude = Rat::from_int(Int::new(false, Nat::from_u64(significand))).mul(&Rat::pow2(exponent));
+    let magnitude =
+        Rat::from_int(Int::new(false, Nat::from_u64(significand))).mul(&Rat::pow2(exponent));
     let value = if negative { magnitude.neg() } else { magnitude };
     FloatValue::Finite { negative, value }
 }
@@ -173,66 +174,75 @@ pub enum Rounded {
 impl Rounded {
     /// The bit pattern, an overflow giving the infinity of its sign.
     #[must_use]
-    pub fn bits(self, format: Format) -> u64 {
+    pub const fn bits(self, format: Format) -> u64 {
         match self {
             Self::Finite(b) => b,
             Self::Overflow { negative } => {
                 let inf = format.exponent_mask() << (format.precision() - 1);
-                if negative { inf | format.sign_bit() } else { inf }
+                if negative {
+                    inf | format.sign_bit()
+                } else {
+                    inf
+                }
             }
         }
     }
 }
 
-/// `L_b`: round the exact value `q` to the nearest value of `format`, ties
-/// to the even significand (IEEE 754-2019 Sec 4.3.1, roundTiesToEven);
-/// `negative_zero` gives the sign of a zero `q` (a numeral `-0` reads as
-/// negative zero).
+/// `L_b`.
+///
+/// Round the exact value `q` to the nearest value of `format`, ties to the even significand (IEEE
+/// 754-2019 Sec 4.3.1, roundTiesToEven); `negative_zero` gives the sign of a zero `q` (a numeral
+/// `-0` reads as negative zero).
 ///
 /// Definition: with `e = floor(log2 |q|)` and the quantum exponent
 /// `qe = max(e, emin) - p + 1`, the significand is `|q| / 2^qe` rounded to
 /// an integer n by comparing the remainder with 1/2 (ties to even n); a
 /// carry to `2^p` renormalizes; a value of exponent above `emax` overflows.
 #[must_use]
-pub fn round_to(format: Format, q: &Rat, negative_zero: bool) -> Rounded {
-    let p = i64::from(format.precision());
-    let negative = if q.is_zero() { negative_zero } else { q.is_negative() };
+pub fn round_to(format: Format, value: &Rat, negative_zero: bool) -> Rounded {
+    let precision = i64::from(format.precision());
+    let negative = if value.is_zero() {
+        negative_zero
+    } else {
+        value.is_negative()
+    };
     let sign = if negative { format.sign_bit() } else { 0 };
-    if q.is_zero() {
+    if value.is_zero() {
         return Rounded::Finite(sign);
     }
-    let a = q.abs();
-    let e = floor_log2(&a).unwrap_or(0);
-    let mut qe = e.max(format.emin()) - p + 1;
-    let scaled = a.div(&Rat::pow2(qe)).unwrap_or_else(Rat::zero);
+    let magnitude = value.abs();
+    let log2 = floor_log2(&magnitude).unwrap_or(0);
+    let mut qe = log2.max(format.emin()) - precision + 1;
+    let scaled = magnitude.div(&Rat::pow2(qe)).unwrap_or_else(Rat::zero);
     let floor = scaled.floor();
     let rem = scaled.sub(&Rat::from_int(floor.clone()));
     let half = Rat::pow2(-1);
-    let mut n = floor.magnitude().clone();
+    let mut significand = floor.magnitude().clone();
     let round_up = match rem.cmp(&half) {
         Ordering::Greater => true,
-        Ordering::Equal => !n.is_even(),
+        Ordering::Equal => !significand.is_even(),
         Ordering::Less => false,
     };
     if round_up {
-        n = n.add(&Nat::one());
+        significand = significand.add(&Nat::one());
     }
-    if n == Nat::pow2(format.precision()) {
-        n = Nat::pow2(format.precision() - 1);
+    if significand == Nat::pow2(format.precision()) {
+        significand = Nat::pow2(format.precision() - 1);
         qe += 1;
     }
-    if n.is_zero() {
+    if significand.is_zero() {
         return Rounded::Finite(sign);
     }
-    if qe + p - 1 > format.emax() {
+    if qe + precision - 1 > format.emax() {
         return Rounded::Overflow { negative };
     }
-    let n64 = n.to_u64().unwrap_or(0);
+    let n64 = significand.to_u64().unwrap_or(0);
     let implicit = 1u64 << (format.precision() - 1);
     if n64 < implicit {
         return Rounded::Finite(sign | n64);
     }
-    let biased = u64::try_from(qe + p - 1 + format.bias()).unwrap_or(0);
+    let biased = u64::try_from(qe + precision - 1 + format.bias()).unwrap_or(0);
     Rounded::Finite(sign | (biased << (format.precision() - 1)) | (n64 - implicit))
 }
 
@@ -266,7 +276,11 @@ impl Dec {
     #[must_use]
     pub fn normalized(negative: bool, coefficient: &Nat, exponent: i64) -> Self {
         if coefficient.is_zero() {
-            return Self { negative, coefficient: Nat::zero(), exponent: 0 };
+            return Self {
+                negative,
+                coefficient: Nat::zero(),
+                exponent: 0,
+            };
         }
         let text = coefficient.to_string();
         let trimmed = text.trim_end_matches('0');
@@ -394,7 +408,10 @@ fn pick_closer(a: Nat, da: Rat, b: Nat, db: Rat) -> (Nat, Rat) {
 }
 
 fn last_significant_digit(n: &Nat) -> u8 {
-    (0..n.digit_count()).map(|i| n.digit(i)).find(|d| *d != 0).unwrap_or(0)
+    (0..n.digit_count())
+        .map(|i| n.digit(i))
+        .find(|d| *d != 0)
+        .unwrap_or(0)
 }
 
 /// `ceil(a / u)` for non-negative `a` and positive `u`, as a natural.
@@ -410,14 +427,18 @@ fn ceil_div(a: &Rat, u: &Rat) -> Nat {
 
 /// `floor(a / u)` for non-negative `a` and positive `u`, as a natural.
 fn lo_floor_div(a: &Rat, u: &Rat) -> Nat {
-    a.div(u).unwrap_or_else(Rat::zero).floor().magnitude().clone()
+    a.div(u)
+        .unwrap_or_else(Rat::zero)
+        .floor()
+        .magnitude()
+        .clone()
 }
 
-/// The binary64 pattern that widens the `format` pattern `bits` on the
-/// bits: a finite value exactly, an infinity to the infinity of its sign,
-/// and a NaN to the NaN with its sign, an all-ones exponent and its fraction
-/// shifted to the high fraction bits of binary64 (quiet or signalling as
-/// written; no quieting).
+/// The binary64 pattern that widens the `format` pattern `bits` on the bits.
+///
+/// A finite value exactly, an infinity to the infinity of its sign, and a NaN to the NaN with its
+/// sign, an all-ones exponent and its fraction shifted to the high fraction bits of binary64 (quiet
+/// or signalling as written; no quieting).
 #[must_use]
 pub fn widen_bits(format: Format, bits: u64) -> u64 {
     match decode(format, bits) {
@@ -433,10 +454,10 @@ pub fn widen_bits(format: Format, bits: u64) -> u64 {
     }
 }
 
-/// The `format` pattern of the binary64 pattern `bits` when `format` holds
-/// it exactly, on the bits: a finite value iff it is a value of `format`,
-/// an infinity always, and a NaN iff its fraction bits below the narrow
-/// fraction are zero (quiet or signalling). `None` otherwise.
+/// The `format` pattern of the binary64 pattern `bits` when `format` holds it exactly, on the bits.
+///
+/// A finite value iff it is a value of `format`, an infinity always, and a NaN iff its fraction
+/// bits below the narrow fraction are zero (quiet or signalling). `None` otherwise.
 #[must_use]
 pub fn narrow_bits(format: Format, bits: u64) -> Option<u64> {
     match decode(Format::B64, bits) {
@@ -470,34 +491,68 @@ mod tests {
 
     fn rat(text: &str) -> Rat {
         let (n, d) = text.split_once('/').unwrap_or((text, "1"));
-        Rat::new(Int::parse(n).unwrap_or_default(), Nat::parse(d).unwrap_or_default())
-            .unwrap_or_else(Rat::zero)
+        Rat::new(
+            Int::parse(n).unwrap_or_default(),
+            Nat::parse(d).unwrap_or_default(),
+        )
+        .unwrap_or_else(Rat::zero)
     }
 
     #[test]
     fn worked_examples_round_to_the_published_patterns() {
         // binary64 nearest 1/10 is 0x3fb999999999999a; binary32 nearest is
         // 0x3dcccccd; binary16 nearest is 0x2e66 (IEEE 754 worked values).
-        assert_eq!(round_to(Format::B64, &rat("1/10"), false), Rounded::Finite(0x3fb9_9999_9999_999a));
-        assert_eq!(round_to(Format::B32, &rat("1/10"), false), Rounded::Finite(0x3dcc_cccd));
-        assert_eq!(round_to(Format::B16, &rat("1/10"), false), Rounded::Finite(0x2e66));
+        assert_eq!(
+            round_to(Format::B64, &rat("1/10"), false),
+            Rounded::Finite(0x3fb9_9999_9999_999a)
+        );
+        assert_eq!(
+            round_to(Format::B32, &rat("1/10"), false),
+            Rounded::Finite(0x3dcc_cccd)
+        );
+        assert_eq!(
+            round_to(Format::B16, &rat("1/10"), false),
+            Rounded::Finite(0x2e66)
+        );
         // 65504 is the largest binary16; 65520 rounds to infinity; 65519
         // rounds down to 65504.
-        assert_eq!(round_to(Format::B16, &rat("65504"), false), Rounded::Finite(0x7bff));
-        assert_eq!(round_to(Format::B16, &rat("65520"), false), Rounded::Overflow { negative: false });
-        assert_eq!(round_to(Format::B16, &rat("65519"), false), Rounded::Finite(0x7bff));
+        assert_eq!(
+            round_to(Format::B16, &rat("65504"), false),
+            Rounded::Finite(0x7bff)
+        );
+        assert_eq!(
+            round_to(Format::B16, &rat("65520"), false),
+            Rounded::Overflow { negative: false }
+        );
+        assert_eq!(
+            round_to(Format::B16, &rat("65519"), false),
+            Rounded::Finite(0x7bff)
+        );
         // 2049 is a tie between 2048 and 2050 at binary16; even is 2048.
-        assert_eq!(round_to(Format::B16, &rat("2049"), false), Rounded::Finite(0x6800));
+        assert_eq!(
+            round_to(Format::B16, &rat("2049"), false),
+            Rounded::Finite(0x6800)
+        );
         // 2^-1075 is a tie between 0 and the least subnormal; even is 0.
-        assert_eq!(round_to(Format::B64, &Rat::pow2(-1075), false), Rounded::Finite(0));
-        assert_eq!(round_to(Format::B64, &Rat::zero(), true), Rounded::Finite(0x8000_0000_0000_0000));
+        assert_eq!(
+            round_to(Format::B64, &Rat::pow2(-1075), false),
+            Rounded::Finite(0)
+        );
+        assert_eq!(
+            round_to(Format::B64, &Rat::zero(), true),
+            Rounded::Finite(0x8000_0000_0000_0000)
+        );
     }
 
     #[test]
     fn every_binary16_pattern_decodes_and_rounds_back_to_itself() {
         for bits in 0u64..=0xffff {
             if let FloatValue::Finite { negative, value } = decode(Format::B16, bits) {
-                assert_eq!(round_to(Format::B16, &value, negative), Rounded::Finite(bits), "{bits:#x}");
+                assert_eq!(
+                    round_to(Format::B16, &value, negative),
+                    Rounded::Finite(bits),
+                    "{bits:#x}"
+                );
             }
         }
     }
@@ -510,24 +565,33 @@ mod tests {
         let Rounded::Finite(bits) = round_to(Format::B64, &x, false) else {
             return;
         };
-        let d = shortest(Format::B64, bits).unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
+        let d =
+            shortest(Format::B64, bits).unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
         assert_eq!(d.to_scientific(), "1.1258999068426242e15");
         let y = rat("838421/16");
         let Rounded::Finite(b32) = round_to(Format::B32, &y, false) else {
             return;
         };
-        let d = shortest(Format::B32, b32).unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
+        let d =
+            shortest(Format::B32, b32).unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
         assert_eq!(d.to_scientific(), "5.2401312e4");
         // The binary32 nearest 0.1 prints "0.1".
-        let d = shortest(Format::B32, 0x3dcc_cccd).unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
+        let d = shortest(Format::B32, 0x3dcc_cccd)
+            .unwrap_or_else(|| Dec::normalized(false, &Nat::zero(), 0));
         assert_eq!(d.to_scientific(), "1e-1");
     }
 
     #[test]
     fn nan_narrowing_decides_on_the_low_fraction_bits() {
-        assert_eq!(narrow_bits(Format::B32, 0x7ff0_0000_2000_0000), Some(0x7f80_0001));
+        assert_eq!(
+            narrow_bits(Format::B32, 0x7ff0_0000_2000_0000),
+            Some(0x7f80_0001)
+        );
         assert_eq!(narrow_bits(Format::B32, 0x7ff8_0000_0000_1234), None);
-        assert_eq!(narrow_bits(Format::B32, NEGATIVE_CANONICAL_NAN_BITS), Some(0xffc0_0000));
+        assert_eq!(
+            narrow_bits(Format::B32, NEGATIVE_CANONICAL_NAN_BITS),
+            Some(0xffc0_0000)
+        );
         assert_eq!(widen_bits(Format::B32, 0x7f80_0001), 0x7ff0_0000_2000_0000);
         assert_eq!(widen_bits(Format::B16, 0x7e00), CANONICAL_NAN_BITS);
         assert_eq!(narrow_bits(Format::B16, 0x3fb9_9999_9999_999a), None);
