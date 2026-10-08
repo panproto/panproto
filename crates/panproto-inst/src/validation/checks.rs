@@ -1510,15 +1510,8 @@ fn discover_local(
             | CheckKind::Attribute,
             Some(at),
         ) => {
-            if !record_read(at.clone()) {
-                return;
-            }
-            if key.kind == CheckKind::Attribute
-                && let Some(node) = view.node(at)
-                && !ctx.plan.attributes.for_vertex(node.anchor).is_empty()
-            {
-                let _ = view.fields(at);
-            }
+            // An element's anchor and fields share one carrier reference.
+            let _ = record_read(at.clone());
         }
         (CheckKind::EndpointCoherence, Some(edge)) => {
             for record in edges_at(view, edge) {
