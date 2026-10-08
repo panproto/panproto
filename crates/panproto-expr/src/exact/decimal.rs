@@ -122,6 +122,20 @@ fn exact_precision(significand_digits: usize, exponent: i32) -> usize {
     significand_digits.saturating_add(scaled).saturating_add(1)
 }
 
+/// A precision at which scientific formatting writes `x`'s exact binary64
+/// expansion, including its last non-zero decimal digit.
+fn exact_f64_precision(x: f64) -> usize {
+    let biased = i32::try_from((x.to_bits() >> 52) & 0x7ff).unwrap_or(0);
+    exact_precision(16, biased.max(1) - 1075)
+}
+
+/// A precision at which scientific formatting writes `x`'s exact binary32
+/// expansion, including its last non-zero decimal digit.
+fn exact_f32_precision(x: f32) -> usize {
+    let biased = i32::try_from((x.to_bits() >> 23) & 0xff).unwrap_or(0);
+    exact_precision(8, biased.max(1) - 150)
+}
+
 impl DecimalValue {
     /// The decimal `(-1)^negative × digits × 10^exponent`.
     ///
@@ -254,8 +268,7 @@ impl DecimalValue {
         // `magnitude` is `fraction × 2^-1074` for a subnormal and
         // `(2^52 + fraction) × 2^(biased - 1075)` otherwise, a significand
         // below 2^53 < 10^16.
-        let biased = i32::try_from((x.to_bits() >> 52) & 0x7ff).unwrap_or(0);
-        let precision = exact_precision(16, biased.max(1) - 1075);
+        let precision = exact_f64_precision(x);
         Some(closest_shortest(
             x.is_sign_negative(),
             &format!("{magnitude:.precision$e}"),
@@ -289,8 +302,7 @@ impl DecimalValue {
         // `magnitude` is `fraction × 2^-149` for a subnormal and
         // `(2^23 + fraction) × 2^(biased - 150)` otherwise, a significand
         // below 2^24 < 10^8.
-        let biased = i32::try_from((x.to_bits() >> 23) & 0xff).unwrap_or(0);
-        let precision = exact_precision(8, biased.max(1) - 150);
+        let precision = exact_f32_precision(x);
         Some(closest_shortest(
             x.is_sign_negative(),
             &format!("{magnitude:.precision$e}"),
@@ -585,6 +597,25 @@ impl std::fmt::Display for DecimalValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn float_expansion_precision_covers_the_exact_decimal() {
+        assert_eq!(exact_precision(16, -1074), 767);
+        assert_eq!(exact_precision(16, -52), 53);
+        assert_eq!(exact_precision(16, 971), 310);
+        assert_eq!(exact_precision(8, -149), 113);
+        assert_eq!(exact_precision(8, -23), 25);
+        assert_eq!(exact_precision(8, 104), 40);
+
+        assert_eq!(exact_f64_precision(0.0), 767);
+        assert_eq!(exact_f64_precision(f64::from_bits(1)), 767);
+        assert_eq!(exact_f64_precision(1.0), 53);
+        assert_eq!(exact_f64_precision(f64::MAX), 310);
+        assert_eq!(exact_f32_precision(0.0), 113);
+        assert_eq!(exact_f32_precision(f32::from_bits(1)), 113);
+        assert_eq!(exact_f32_precision(1.0), 25);
+        assert_eq!(exact_f32_precision(f32::MAX), 40);
+    }
 
     /// The stored exponent of a lexeme whose written exponent is
     /// `(exponent_negative, exponent_digits)` and which has `frac_len`

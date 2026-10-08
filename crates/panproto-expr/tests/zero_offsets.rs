@@ -8,6 +8,47 @@ use std::cmp::Ordering;
 use panproto_expr::exact::{DateTimeSeparator, Offset, Temporal, ZuluCase};
 
 #[test]
+fn lexical_marker_bytes_are_bijections_and_enter_canonical_payloads() {
+    for (separator, byte) in [
+        (DateTimeSeparator::Upper, b'T'),
+        (DateTimeSeparator::Lower, b't'),
+        (DateTimeSeparator::Space, b' '),
+    ] {
+        assert_eq!(separator.byte(), byte);
+        assert_eq!(DateTimeSeparator::from_byte(byte), Some(separator));
+    }
+    for byte in [b'Z', b'z', b'_', 0, u8::MAX] {
+        assert_eq!(
+            ZuluCase::from_byte(byte),
+            match byte {
+                b'Z' => Some(ZuluCase::Upper),
+                b'z' => Some(ZuluCase::Lower),
+                _ => None,
+            }
+        );
+    }
+    assert_eq!(ZuluCase::Upper.byte(), b'Z');
+    assert_eq!(ZuluCase::Lower.byte(), b'z');
+    for byte in [b'Z', b'z', b'_', 0, u8::MAX] {
+        assert_eq!(DateTimeSeparator::from_byte(byte), None, "{byte}");
+    }
+
+    let time = Temporal::parse("03:04:05z").unwrap();
+    let mut expected_time = vec![1, 3, 4, 5];
+    expected_time.extend_from_slice(&0_u64.to_le_bytes());
+    expected_time.extend_from_slice(&[1, b'z']);
+    assert_eq!(time.canonical_bytes(), expected_time);
+
+    let datetime = Temporal::parse("2024-01-02t03:04:05Z").unwrap();
+    let mut expected_datetime = vec![2];
+    expected_datetime.extend_from_slice(&2024_i64.to_le_bytes());
+    expected_datetime.extend_from_slice(&[1, 2, b't', 3, 4, 5]);
+    expected_datetime.extend_from_slice(&0_u64.to_le_bytes());
+    expected_datetime.extend_from_slice(&[1, b'Z']);
+    assert_eq!(datetime.canonical_bytes(), expected_datetime);
+}
+
+#[test]
 fn the_three_zero_offsets_are_distinct_values_of_one_instant() {
     for (stem, form) in [
         ("2026-09-28T12:34:56.789", "date-time"),
@@ -114,6 +155,7 @@ fn every_offset_round_trips_through_its_written_form() {
         let written = format!("{sign}{:02}:{:02}", m / 60, m % 60);
         let value = Temporal::parse(&format!("00:00:00{written}")).unwrap();
         assert_eq!(value.offset(), Some(Offset::Fixed(minutes)), "{written}");
+        assert_eq!(value.offset().unwrap().minutes(), minutes, "{written}");
         assert_eq!(value.to_string(), format!("00:00:00{written}"));
         let json = serde_json::to_string(&Offset::Fixed(minutes)).unwrap();
         assert_eq!(
@@ -132,6 +174,20 @@ fn every_offset_round_trips_through_its_written_form() {
         let value = Temporal::parse(&format!("00:00:00{written}")).unwrap();
         assert_eq!(value.offset(), Some(offset));
         assert_eq!(value.to_string(), format!("00:00:00{written}"));
+    }
+}
+
+#[test]
+fn chronological_comparison_subtracts_the_offset_in_minutes() {
+    for (local, utc) in [
+        ("1970-01-01T00:00:00+01:00", "1969-12-31T23:00:00Z"),
+        ("1969-12-31T23:00:00-01:00", "1970-01-01T00:00:00Z"),
+        ("2024-02-29T12:34:56+05:30", "2024-02-29T07:04:56Z"),
+    ] {
+        let local = Temporal::parse(local).unwrap();
+        let utc = Temporal::parse(utc).unwrap();
+        assert_eq!(local.cmp_chronological(&utc), Some(Ordering::Equal));
+        assert_eq!(utc.cmp_chronological(&local), Some(Ordering::Equal));
     }
 }
 

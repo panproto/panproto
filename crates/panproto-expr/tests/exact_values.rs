@@ -124,6 +124,109 @@ mod exact {
         }
     }
 
+    /// Rust's scientific float formatter is an independent shortest-text
+    /// oracle. Its only documented difference from this crate's rule is
+    /// the choice at an exact tie: Rust takes the larger candidate, while
+    /// this crate takes the candidate whose last digit is even.
+    #[test]
+    fn shortest_float_decimals_match_an_independent_oracle_on_a_bounded_scope() {
+        let check64 = |x: f64| {
+            let ours = DecimalValue::from_f64_shortest(x).unwrap();
+            assert_eq!(ours.to_f64().to_bits(), x.to_bits(), "{x:e}");
+            let rust = dec(&format!("{x:e}"));
+            assert_eq!(
+                ours.significant_digits(),
+                rust.significant_digits(),
+                "{x:e}: {ours} against {rust}"
+            );
+            if ours.cmp_numeric(&rust).is_ne() {
+                assert_eq!(rust.to_f64().to_bits(), x.to_bits(), "{x:e}: {rust}");
+                assert_eq!(
+                    (ours.digits.as_bytes().last().unwrap() - b'0') % 2,
+                    0,
+                    "{x:e}: {ours} against {rust}"
+                );
+                assert_eq!(
+                    (rust.digits.as_bytes().last().unwrap() - b'0') % 2,
+                    1,
+                    "{x:e}: {ours} against {rust}"
+                );
+            }
+        };
+        let check32 = |x: f32| {
+            let ours = DecimalValue::from_f32_shortest(x).unwrap();
+            assert_eq!(ours.to_f32().to_bits(), x.to_bits(), "{x:e}");
+            let rust = dec(&format!("{x:e}"));
+            assert_eq!(
+                ours.significant_digits(),
+                rust.significant_digits(),
+                "{x:e}: {ours} against {rust}"
+            );
+            if ours.cmp_numeric(&rust).is_ne() {
+                assert_eq!(rust.to_f32().to_bits(), x.to_bits(), "{x:e}: {rust}");
+                assert_eq!(
+                    (ours.digits.as_bytes().last().unwrap() - b'0') % 2,
+                    0,
+                    "{x:e}: {ours} against {rust}"
+                );
+                assert_eq!(
+                    (rust.digits.as_bytes().last().unwrap() - b'0') % 2,
+                    1,
+                    "{x:e}: {ours} against {rust}"
+                );
+            }
+        };
+
+        let mut state64 = 0x243f_6a88_85a3_08d3_u64;
+        for exponent in [0_u64, 1, 2, 255, 511, 1022, 1023, 1024, 1535, 2045, 2046] {
+            for _ in 0..128 {
+                state64 ^= state64 << 13;
+                state64 ^= state64 >> 7;
+                state64 ^= state64 << 17;
+                let fraction = state64 & ((1_u64 << 52) - 1);
+                let x = f64::from_bits((exponent << 52) | fraction);
+                if x.is_finite() {
+                    check64(x);
+                }
+            }
+        }
+
+        let mut state32 = 0x9e37_79b9_u32;
+        for exponent in [0_u32, 1, 2, 31, 63, 126, 127, 128, 191, 253, 254] {
+            for _ in 0..128 {
+                state32 ^= state32 << 13;
+                state32 ^= state32 >> 17;
+                state32 ^= state32 << 5;
+                let fraction = state32 & ((1_u32 << 23) - 1);
+                let x = f32::from_bits((exponent << 23) | fraction);
+                if x.is_finite() {
+                    check32(x);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decimal_scale_conversion_and_display_boundaries_are_exact() {
+        let padded = dec("1.5000");
+        assert_eq!(padded.minimal_scale(), WideInt::from(1_i64));
+        assert_eq!(padded.significant_digits(), WideInt::from(2_i64));
+        assert_eq!(dec("123.4500").significant_digits(), WideInt::from(5_i64));
+        assert_eq!(dec("0.00100").significant_digits(), WideInt::from(3_i64));
+
+        assert_eq!(dec("0.1").to_f32().to_bits(), 0.1_f32.to_bits());
+        assert_eq!(dec("3.4028235e38").to_f32().to_bits(), f32::MAX.to_bits());
+        assert_eq!(dec("1e-45").to_f32().to_bits(), 1);
+        assert_eq!(dec("-1e-45").to_f32().to_bits(), 0x8000_0001);
+
+        // Six leading zeroes remain positional; the seventh switches to an
+        // exponent. This is the strict boundary in `Display`.
+        assert_eq!(dec("1e-7").to_string(), "0.0000001");
+        assert_eq!(dec("1e-8").to_string(), "1e-8");
+        assert_eq!(dec("12e-8").to_string(), "0.00000012");
+        assert_eq!(dec("12e-9").to_string(), "12e-9");
+    }
+
     proptest! {
         #[test]
         fn decimal_parse_keeps_scale_and_compares_numerically(
@@ -230,6 +333,147 @@ mod exact {
             Literal::integer(BigIntValue::parse("7").unwrap()),
             Literal::Int(7)
         );
+    }
+
+    /// The decimal-string implementation of `WideInt` agrees with a
+    /// primitive-integer oracle throughout a bounded scope that crosses
+    /// zero in both operands. Explicit long carries and borrows cover the
+    /// part of the implementation outside that scope.
+    #[test]
+    fn wide_integer_arithmetic_agrees_with_i128_on_a_bounded_scope() {
+        for n in -256_i64..=256 {
+            let value = WideInt::from(n);
+            assert_eq!(value.to_string(), n.to_string());
+            assert_eq!(
+                WideInt::parse_canonical(&n.to_string()),
+                Some(value.clone())
+            );
+            assert_eq!(value.to_i64(), Some(n));
+            assert_eq!(value.is_zero(), n == 0);
+            assert_eq!(value.is_negative(), n < 0);
+            assert_eq!(value.abs().to_string(), n.unsigned_abs().to_string());
+            assert_eq!(value.negated().to_string(), (-i128::from(n)).to_string());
+        }
+        for a in -128_i64..=128 {
+            for b in -128_i64..=128 {
+                let wide_a = WideInt::from(a);
+                let wide_b = WideInt::from(b);
+                assert_eq!(wide_a.cmp(&wide_b), a.cmp(&b), "{a} cmp {b}");
+                assert_eq!(
+                    wide_a.plus(&wide_b).to_string(),
+                    (i128::from(a) + i128::from(b)).to_string(),
+                    "{a} + {b}"
+                );
+                assert_eq!(
+                    wide_a.minus(&wide_b).to_string(),
+                    (i128::from(a) - i128::from(b)).to_string(),
+                    "{a} - {b}"
+                );
+            }
+        }
+
+        let nines = WideInt::parse_canonical("99999999999999999999").unwrap();
+        let power = WideInt::parse_canonical("100000000000000000000").unwrap();
+        assert_eq!(nines.plus(&WideInt::from(1_i64)), power);
+        assert_eq!(power.minus(&WideInt::from(1_i64)), nines);
+        assert_eq!(
+            WideInt::parse_canonical("-99999999999999999999")
+                .unwrap()
+                .minus(&WideInt::from(1_i64)),
+            WideInt::parse_canonical("-100000000000000000000").unwrap()
+        );
+        assert_eq!(
+            WideInt::parse_canonical("9223372036854775807")
+                .unwrap()
+                .to_i64(),
+            Some(i64::MAX)
+        );
+        assert_eq!(
+            WideInt::parse_canonical("9223372036854775808")
+                .unwrap()
+                .to_i64(),
+            None
+        );
+        assert_eq!(
+            WideInt::parse_canonical("-9223372036854775808")
+                .unwrap()
+                .to_i64(),
+            Some(i64::MIN)
+        );
+        assert_eq!(
+            WideInt::parse_canonical("-9223372036854775809")
+                .unwrap()
+                .to_i64(),
+            None
+        );
+
+        for invalid in ["", "-", "+1", "00", "01", "-0", "-01", "1a"] {
+            assert_eq!(WideInt::parse_canonical(invalid), None, "{invalid:?}");
+        }
+        assert_eq!(
+            WideInt::from_sign_and_digits(true, "000"),
+            Some(WideInt::zero())
+        );
+        assert_eq!(WideInt::from_sign_and_digits(false, ""), None);
+        assert_eq!(WideInt::from_sign_and_digits(false, "12x"), None);
+
+        for (value, expected) in [
+            (WideInt::from(-7_i32), "-7"),
+            (WideInt::from(7_u32), "7"),
+            (WideInt::from(7_u64), "7"),
+            (WideInt::from(7_usize), "7"),
+            (WideInt::from(-7_i128), "-7"),
+            (WideInt::from(0_i128), "0"),
+            (WideInt::from(7_i128), "7"),
+        ] {
+            assert_eq!(value.to_string(), expected);
+        }
+        let canonical = WideInt::parse_canonical("-123").unwrap();
+        let mut bytes = Vec::new();
+        canonical.write_canonical(&mut bytes);
+        assert_eq!(bytes, [1, 3, 0, 0, 0, 0, 0, 0, 0, b'1', b'2', b'3']);
+
+        for n in [-1_i128, 0, 1, i128::from(i64::MAX) + 1, i128::MIN] {
+            let value = BigIntValue::from_i128(n);
+            assert_eq!(value.to_string(), n.to_string(), "{n}");
+        }
+    }
+
+    #[test]
+    fn fidelity_reasons_have_stable_diagnostic_text() {
+        let cases = [
+            (FidelityReason::Overflow, "out of range"),
+            (
+                FidelityReason::PrecisionExceeded { max: 17 },
+                "not exactly a value of the kind, whose values are written in at most 17 significant digits",
+            ),
+            (
+                FidelityReason::ScaleExceeded { max: 4 },
+                "more than 4 digits after the point",
+            ),
+            (FidelityReason::NotANumber, "not a number"),
+            (
+                FidelityReason::NonFinite,
+                "a NaN or an infinity the kind cannot hold",
+            ),
+            (FidelityReason::InvalidTemporal, "not a valid date or time"),
+            (FidelityReason::OffsetRequired, "a UTC offset is required"),
+            (
+                FidelityReason::OffsetForbidden,
+                "a UTC offset is not allowed",
+            ),
+            (
+                FidelityReason::InvalidEncoding,
+                "not in the declared text encoding",
+            ),
+            (
+                FidelityReason::NotANumberForKind,
+                "a number where the kind holds none",
+            ),
+        ];
+        for (reason, expected) in cases {
+            assert_eq!(reason.to_string(), expected);
+        }
     }
 
     #[test]
@@ -1182,6 +1426,13 @@ mod exact {
             BigIntValue::from_scaled(false, "1", &WideInt::from(18_i64)),
             Some(ExactInteger::Int(1_000_000_000_000_000_000))
         );
+        // Two significant digits and ten appended zeros still fit i64.
+        // The boundary depends on addition, not multiplication, of those
+        // two counts.
+        assert_eq!(
+            BigIntValue::from_scaled(false, "12", &WideInt::from(10_i64)),
+            Some(ExactInteger::Int(120_000_000_000))
+        );
         assert_eq!(
             BigIntValue::from_scaled(true, "9223372036854775808", &WideInt::zero()),
             Some(ExactInteger::Int(i64::MIN))
@@ -1211,6 +1462,30 @@ mod exact {
                 assert_eq!(a.cmp_numeric(b), i.cmp(&j), "{a:?} {b:?}");
             }
         }
+    }
+
+    /// Formatting a finite-size big integer terminates and writes exactly
+    /// its counted zeroes. The channel bound turns a regressed subtraction
+    /// loop into an assertion failure rather than letting the test process
+    /// inherit the loop.
+    #[test]
+    fn bigint_display_terminates_at_the_zero_count() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let Some(ExactInteger::Big(value)) =
+            BigIntValue::from_scaled(false, "123", &WideInt::from(20_i64))
+        else {
+            panic!("123e20 is outside i64")
+        };
+        let (send, receive) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = send.send(value.to_string());
+        });
+        let text = receive
+            .recv_timeout(Duration::from_secs(2))
+            .expect("formatting a 23-digit bigint must terminate");
+        assert_eq!(text, "12300000000000000000000");
     }
 
     /// The serde form carries the count, and the former `{negative,

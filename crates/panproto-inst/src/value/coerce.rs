@@ -997,3 +997,58 @@ fn float_text(x: f64) -> String {
 /// (2^24 - 1) 2^104, plus half its gap to 2^128 (a tie, which goes to the
 /// even neighbour 2^128 and so overflows).
 const BINARY32_OVERFLOW: f64 = f64::from_bits(0x47ef_ffff_f000_0000);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_float_comparison_keeps_the_767_digit_boundary() {
+        let x = f64::from_bits(0x000f_ffff_ffff_ffff);
+        let Ok(decimal) = DecimalValue::parse(&format!("{x:.MAX_EXACT_DIGITS$e}")) else {
+            panic!("the exact expansion is a decimal")
+        };
+        assert_eq!(decimal.digits.trim_end_matches('0').len(), MAX_EXACT_DIGITS);
+        assert!(denotes_exactly(&decimal, x));
+    }
+
+    #[test]
+    fn binary16_membership_agrees_with_its_bit_boundaries() {
+        for x in [
+            0.0,
+            -0.0,
+            1.0,
+            1.0 + 2.0_f64.powi(-10),
+            2.0_f64.powi(-24),
+            1023.0 * 2.0_f64.powi(-24),
+            2.0_f64.powi(-14),
+            65_504.0,
+        ] {
+            assert!(holds_binary16(x), "{x:e}");
+        }
+        for x in [
+            f64::from_bits(1),
+            1.0 + 2.0_f64.powi(-11),
+            1.5 * 2.0_f64.powi(-24),
+            2.0_f64.powi(-25),
+            2.0_f64.powi(16),
+        ] {
+            assert!(!holds_binary16(x), "{x:e}");
+        }
+    }
+
+    #[test]
+    fn integer_and_float_text_boundaries_use_their_exact_counts() {
+        assert!(matches!(
+            coerce_int("18446744073709551616", 128, false),
+            Ok(Value::BigInt(_))
+        ));
+        assert!(matches!(
+            coerce_int("-18446744073709551616", 128, true),
+            Ok(Value::BigInt(_))
+        ));
+        assert_eq!(float_text(12.5), "12.5");
+        assert_eq!(float_text(-12.5), "-12.5");
+        assert_eq!(float_text(0.125), "0.125");
+    }
+}

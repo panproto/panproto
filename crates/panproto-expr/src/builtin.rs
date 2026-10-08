@@ -732,6 +732,21 @@ mod tests {
     }
 
     #[test]
+    fn numeric_binary_operations_cover_every_promotion_direction() {
+        for (args, expected) in [
+            ([Literal::Int(2), Literal::Int(3)], Literal::Int(5)),
+            (
+                [Literal::Float(2.0), Literal::Float(3.5)],
+                Literal::Float(5.5),
+            ),
+            ([Literal::Int(2), Literal::Float(3.5)], Literal::Float(5.5)),
+            ([Literal::Float(2.5), Literal::Int(3)], Literal::Float(5.5)),
+        ] {
+            assert_eq!(apply_builtin(BuiltinOp::Add, &args).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn div_by_zero() {
         let result = apply_builtin(BuiltinOp::Div, &[Literal::Int(1), Literal::Int(0)]);
         assert!(matches!(result, Err(ExprError::DivisionByZero)));
@@ -804,6 +819,70 @@ mod tests {
             &[Literal::Float(f64::NAN), Literal::Float(1.0)],
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn float_computations_canonicalize_nan_but_parsing_keeps_its_written_sign() {
+        let payload_nan = f64::from_bits(0xfff8_0000_0000_1234);
+        for op in [BuiltinOp::Neg, BuiltinOp::Abs] {
+            let Literal::Float(value) = apply_builtin(op, &[Literal::Float(payload_nan)]).unwrap()
+            else {
+                panic!("{op:?} did not return a float")
+            };
+            assert_eq!(value.to_bits(), CANONICAL_NAN.to_bits(), "{op:?}");
+        }
+
+        for (text, bits) in [
+            ("NaN", CANONICAL_NAN.to_bits()),
+            ("+NaN", CANONICAL_NAN.to_bits()),
+            ("-NaN", NEGATIVE_CANONICAL_NAN.to_bits()),
+            ("1.25", 1.25_f64.to_bits()),
+        ] {
+            let Literal::Float(value) =
+                apply_builtin(BuiltinOp::StrToFloat, &[Literal::Str(text.into())]).unwrap()
+            else {
+                panic!("str_to_float did not return a float")
+            };
+            assert_eq!(value.to_bits(), bits, "{text}");
+        }
+
+        let Literal::Float(clamped) = apply_builtin(
+            BuiltinOp::Clamp,
+            &[
+                Literal::Float(payload_nan),
+                Literal::Float(-1.0),
+                Literal::Float(1.0),
+            ],
+        )
+        .unwrap() else {
+            panic!("float clamp did not return a float")
+        };
+        assert_eq!(clamped.to_bits(), CANONICAL_NAN.to_bits());
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[Literal::Int(7), Literal::Int(0), Literal::Int(5)]
+            ),
+            Ok(Literal::Int(5))
+        ));
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[Literal::Int(7), Literal::Int(5), Literal::Int(0)]
+            ),
+            Err(ExprError::TypeError { .. })
+        ));
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[
+                    Literal::Float(7.0),
+                    Literal::Float(5.0),
+                    Literal::Float(0.0)
+                ]
+            ),
+            Err(ExprError::TypeError { .. })
+        ));
     }
 
     #[test]
