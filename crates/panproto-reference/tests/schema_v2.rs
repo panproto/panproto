@@ -9,7 +9,9 @@ use panproto_reference::canonical::{ComplementShape, IdentityEnvelope, identity}
 use panproto_reference::coerce::{
     FidelityReason, LexClass, NumeralDialect, ScalarKind, ValueSpec, coerce_dialect,
 };
+use panproto_reference::exact::Decimal;
 use panproto_reference::keys::{KeyEquality, NumericPrimitive, SqlCollation, SqlPad};
+use panproto_reference::model::{GEdge, Graph, Node, NodeShape, SEdge};
 use panproto_reference::resolution::{rfc3986, standoff_form, standoff_inverse};
 use panproto_reference::schema::{
     Change, Key, KeyPart, KeyRole, KeyScope, Schema, canonical_bytes, classify_change,
@@ -304,15 +306,37 @@ fn rfc3986_matches_the_normal_and_abnormal_examples() {
         ("g?y#s", "http://a/b/c/g?y#s"),
         (";x", "http://a/b/c/;x"),
         ("g;x", "http://a/b/c/g;x"),
+        ("g;x?y#s", "http://a/b/c/g;x?y#s"),
         ("", "http://a/b/c/d;p?q"),
         (".", "http://a/b/c/"),
         ("./", "http://a/b/c/"),
         ("..", "http://a/b/"),
+        ("../", "http://a/b/"),
         ("../g", "http://a/b/g"),
         ("../..", "http://a/"),
+        ("../../", "http://a/"),
         ("../../g", "http://a/g"),
         ("../../../g", "http://a/g"),
+        ("../../../../g", "http://a/g"),
+        ("/./g", "http://a/g"),
+        ("/../g", "http://a/g"),
+        ("g.", "http://a/b/c/g."),
+        (".g", "http://a/b/c/.g"),
+        ("g..", "http://a/b/c/g.."),
+        ("..g", "http://a/b/c/..g"),
+        ("./../g", "http://a/b/g"),
+        ("./g/.", "http://a/b/c/g/"),
+        ("g/./h", "http://a/b/c/g/h"),
+        ("g/../h", "http://a/b/c/h"),
+        ("g;x=1/./y", "http://a/b/c/g;x=1/y"),
+        ("g;x=1/../y", "http://a/b/c/y"),
+        ("g?y/./x", "http://a/b/c/g?y/./x"),
+        ("g?y/../x", "http://a/b/c/g?y/../x"),
+        ("g#s/./x", "http://a/b/c/g#s/./x"),
+        ("g#s/../x", "http://a/b/c/g#s/../x"),
         ("http:g", "http:g"),
+        ("g//h", "http://a/b/c/g//h"),
+        ("//g//h", "http://g//h"),
     ];
     for (reference, expected) in examples {
         assert_eq!(
@@ -363,6 +387,113 @@ fn declared_key_relations_and_sort_order_have_the_stated_boundaries() {
         panproto_reference::keys::key_order(&[Value::Int(2), Value::Int(1)]),
         Some(false)
     );
+
+    let numeric_classes = [
+        vec![
+            Value::Float(f64::NEG_INFINITY.to_bits()),
+            Value::Decimal(Decimal::Infinite { negative: true }),
+        ],
+        vec![Value::Int(0), Value::Float(0.0f64.to_bits())],
+        vec![
+            Value::Float(f64::INFINITY.to_bits()),
+            Value::Decimal(Decimal::Infinite { negative: false }),
+        ],
+    ];
+    for (left_class, left_values) in numeric_classes.iter().enumerate() {
+        for (right_class, right_values) in numeric_classes.iter().enumerate() {
+            let expected = left_class.cmp(&right_class);
+            for left in left_values {
+                for right in right_values {
+                    assert_eq!(
+                        panproto_reference::keys::sort_order(left, right),
+                        Some(expected),
+                        "{left:?} versus {right:?}"
+                    );
+                }
+            }
+        }
+    }
+    let nan = Value::Float(f64::NAN.to_bits());
+    for numeric in numeric_classes.iter().flatten() {
+        assert_eq!(panproto_reference::keys::sort_order(&nan, numeric), None);
+        assert_eq!(panproto_reference::keys::sort_order(numeric, &nan), None);
+    }
+    assert_eq!(panproto_reference::keys::sort_order(&nan, &nan), None);
+    assert_eq!(
+        panproto_reference::keys::sort_order(&Value::Int(0), &Value::Str("0".into())),
+        None
+    );
+}
+
+#[test]
+fn fan_incidence_is_neither_ancestry_nor_a_position_parent() {
+    let within = SEdge::new("parent", "item", "ordered", Some("items"));
+    let mut graph = Graph {
+        nodes: [
+            (0, Node::new(0, "scope")),
+            (1, Node::new(1, "fan")),
+            (2, Node::new(2, "item")),
+            (3, Node::new(3, "parent")),
+            (4, Node::new(4, "item")),
+        ]
+        .into(),
+        edges: BTreeMap::new(),
+    };
+    graph.nodes.get_mut(&1).unwrap().shape = NodeShape::HyperEdge;
+    graph.edges.insert(
+        0,
+        GEdge {
+            src: 0,
+            tgt: 1,
+            label: SEdge::new("scope", "fan", "foreign", None),
+            position: None,
+        },
+    );
+    graph.edges.insert(
+        1,
+        GEdge {
+            src: 1,
+            tgt: 2,
+            label: within.clone(),
+            position: Some(0),
+        },
+    );
+    graph.edges.insert(
+        2,
+        GEdge {
+            src: 3,
+            tgt: 4,
+            label: within.clone(),
+            position: Some(0),
+        },
+    );
+    assert_eq!(
+        panproto_reference::keys::nearest_ancestor(&graph, 2, "scope"),
+        None
+    );
+    let position_key = Key {
+        id: "position".to_owned(),
+        parts: vec![KeyPart::Position { within }],
+        role: KeyRole::Unique,
+        scope: KeyScope::Global,
+    };
+    assert_eq!(
+        panproto_reference::keys::key_value(&graph, 2, &position_key),
+        None
+    );
+    assert_eq!(
+        panproto_reference::keys::key_value(&graph, 4, &position_key),
+        Some(vec![Value::Int(0)])
+    );
+}
+
+#[test]
+fn an_index_key_never_derives_a_resolution_pair() {
+    for index in [None, Some(0), Some(1)] {
+        for target in [None, Some(0), Some(1)] {
+            assert!(!panproto_reference::resolution::index_target(index, target));
+        }
+    }
 }
 
 #[test]

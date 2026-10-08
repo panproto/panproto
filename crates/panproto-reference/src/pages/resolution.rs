@@ -899,13 +899,13 @@ pub mod implementation {
         Some((written_start, written_end))
     }
 
-    /// Definition: An index field selects a position and is not itself a resolvable
-    /// target identity.
+    /// Definition: An index field selects a position and never derives a
+    /// resolved pair, even when its written index equals a target row's index.
     ///
     /// Book anchors: `L-resolution-12`.
     #[must_use]
-    pub const fn index_target(index: Option<u64>, target_index: Option<u64>) -> bool {
-        matches!((index, target_index), (Some(left), Some(right)) if left == right)
+    pub const fn index_target(_index: Option<u64>, _target_index: Option<u64>) -> bool {
+        false
     }
 
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -951,28 +951,41 @@ pub mod implementation {
     }
 
     fn remove_dot_segments(path: &str) -> String {
-        let absolute = path.starts_with('/');
-        let trailing = path.ends_with('/') || path.ends_with("/.") || path.ends_with("/..");
-        let mut output: Vec<&str> = Vec::new();
-        for segment in path.split('/') {
-            match segment {
-                "" | "." => {}
-                ".." => {
-                    output.pop();
-                }
-                _ => output.push(segment),
+        let mut input = path;
+        let mut output = String::new();
+        while !input.is_empty() {
+            if let Some(rest) = input
+                .strip_prefix("../")
+                .or_else(|| input.strip_prefix("./"))
+            {
+                input = rest;
+            } else if input.starts_with("/./") {
+                input = &input[2..];
+            } else if input == "/." {
+                input = "/";
+            } else if input.starts_with("/../") {
+                input = &input[3..];
+                remove_last_segment(&mut output);
+            } else if input == "/.." {
+                input = "/";
+                remove_last_segment(&mut output);
+            } else if matches!(input, "." | "..") {
+                input = "";
+            } else {
+                let end = input.strip_prefix('/').map_or_else(
+                    || input.find('/').unwrap_or(input.len()),
+                    |after_slash| after_slash.find('/').map_or(input.len(), |at| at + 1),
+                );
+                output.push_str(&input[..end]);
+                input = &input[end..];
             }
         }
-        let mut result = if absolute {
-            "/".to_owned()
-        } else {
-            String::new()
-        };
-        result.push_str(&output.join("/"));
-        if trailing && !result.ends_with('/') {
-            result.push('/');
-        }
-        result
+        output
+    }
+
+    /// Remove the last complete path segment from RFC 3986's output buffer.
+    fn remove_last_segment(output: &mut String) {
+        output.truncate(output.rfind('/').unwrap_or(0));
     }
 
     fn merge_paths(base: &Uri<'_>, reference: &str) -> String {

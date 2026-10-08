@@ -213,6 +213,19 @@ pub mod keys {
     #[must_use]
     pub fn sort_order(left: &Value, right: &Value) -> Option<std::cmp::Ordering> {
         match (numeric_key(left), numeric_key(right)) {
+            (Some(NumericKey::NaN), _) | (_, Some(NumericKey::NaN)) => None,
+            (Some(NumericKey::NegativeInfinity), Some(NumericKey::NegativeInfinity))
+            | (Some(NumericKey::PositiveInfinity), Some(NumericKey::PositiveInfinity)) => {
+                Some(std::cmp::Ordering::Equal)
+            }
+            (Some(NumericKey::NegativeInfinity), Some(_))
+            | (Some(NumericKey::Finite(_)), Some(NumericKey::PositiveInfinity)) => {
+                Some(std::cmp::Ordering::Less)
+            }
+            (Some(_), Some(NumericKey::NegativeInfinity))
+            | (Some(NumericKey::PositiveInfinity), Some(NumericKey::Finite(_))) => {
+                Some(std::cmp::Ordering::Greater)
+            }
             (Some(NumericKey::Finite(a)), Some(NumericKey::Finite(b))) => Some(a.cmp(&b)),
             (None, None) => match (left, right) {
                 (Value::Str(a), Value::Str(b)) => Some(a.as_bytes().cmp(b.as_bytes())),
@@ -345,12 +358,18 @@ pub mod keys {
                     let parent = g
                         .edges
                         .values()
-                        .find(|e| e.tgt == n && e.label == *within)?
+                        .find(|e| {
+                            e.tgt == n && e.label == *within && ordinary_arc(g, e.src, e.tgt, e)
+                        })?
                         .src;
                     let mut sibs: Vec<(Option<u32>, u32, u32)> = g
                         .edges
                         .iter()
-                        .filter(|(_, e)| e.src == parent && e.label == *within)
+                        .filter(|(_, e)| {
+                            e.src == parent
+                                && e.label == *within
+                                && ordinary_arc(g, e.src, e.tgt, e)
+                        })
                         .map(|(i, e)| (e.position, *i, e.tgt))
                         .collect();
                     sibs.sort();
@@ -372,7 +391,12 @@ pub mod keys {
         while !level.is_empty() {
             let mut next: Vec<u32> = level
                 .iter()
-                .flat_map(|x| g.edges.values().filter(move |e| e.tgt == *x).map(|e| e.src))
+                .flat_map(|x| {
+                    g.edges
+                        .values()
+                        .filter(move |e| e.tgt == *x && ordinary_arc(g, e.src, e.tgt, e))
+                        .map(|e| e.src)
+                })
                 .filter(|p| seen.insert(*p))
                 .collect();
             next.sort_unstable();
@@ -386,6 +410,17 @@ pub mod keys {
             level = next;
         }
         None
+    }
+
+    /// Whether an instance edge is an ordinary-node arc rather than fan
+    /// incidence vocabulary.
+    fn ordinary_arc(g: &Graph, src: u32, tgt: u32, edge: &crate::model::GEdge) -> bool {
+        !crate::restrict::is_fan_kind(&edge.label.kind)
+            && [src, tgt].into_iter().all(|id| {
+                g.nodes
+                    .get(&id)
+                    .is_some_and(|node| node.shape != NodeShape::HyperEdge)
+            })
     }
 
     /// Key buckets: (scope, canonical key bytes) to (key value, members).
