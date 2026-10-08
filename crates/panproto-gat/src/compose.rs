@@ -13,9 +13,15 @@
 //! The construction follows the colimit of theories of Goguen and Burstall
 //! (goguenburstall1992institutions, Thm 11, proved: the colimit is built on
 //! signatures and carries the translated sentences of every component).
-//! Carrying it to dependent sort contexts is ours (inferred): every class
-//! must agree on its members' signatures modulo the identification before
-//! anything is built, and the result must pass the signature typechecker.
+//! Colimits of theories with dependent sorts exist: the category of
+//! C-systems has all colimits and is equivalent to a category of
+//! generalized algebraic theories (voevodsky2016subsystems Rem 2.8,
+//! stated), and a coequalizer adjoins sort- and term-equality judgements
+//! (garner2015combinatorial Prop 12, proved). That [`compose`] computes
+//! this colimit, restricted to theories without sort equations, whenever
+//! it does not refuse is inferred: every class must agree on its members'
+//! signatures modulo the identification before anything is built, and the
+//! result must pass the signature typechecker.
 //!
 //! A composition returns a [`Composition`]: the theory, one inclusion
 //! morphism per node, a [`Provenance`] that sends every source symbol,
@@ -123,6 +129,15 @@ pub enum SortMismatch {
         second: usize,
     },
     /// Parameter `index` ranges over different sort classes.
+    ///
+    /// This is the representability limit of
+    /// [`NotRepresentableReason::NeedsSortEquation`] met at a sort class:
+    /// the colimit of the diagram exists among Cartmell's generalized
+    /// algebraic theories and identifies the two parameter sorts by a
+    /// sort-equality axiom (almeida2026model Construction 2.17, stated in
+    /// a preprint), which a [`crate::Theory`] cannot state. The comparison
+    /// is syntactic modulo the class map, so it also refuses parameter
+    /// sorts that agree only modulo term equations.
     ParamSort {
         /// The parameter's position.
         index: usize,
@@ -162,8 +177,18 @@ impl std::fmt::Display for SortMismatch {
 pub enum NotRepresentableReason {
     /// Two identified operations differ only in the term arguments of a
     /// dependent input or output sort (for instance `Hom(x, y)` against
-    /// `Hom(y, x)`); identifying them would need an equation between
-    /// sorts, which a [`crate::Theory`] cannot state.
+    /// `Hom(y, x)`), once every sort and operation is sent to its class.
+    ///
+    /// This is a representability limit, not the absence of a colimit:
+    /// the colimit exists among Cartmell's generalized algebraic theories
+    /// and adds a sort-equality axiom (almeida2026model Construction 2.17,
+    /// stated in a preprint), and a [`crate::Theory`] cannot state a sort
+    /// equation. The comparison is syntactic modulo the class map and does
+    /// not apply the sort conversions that term equations induce
+    /// (garner2015combinatorial Table 1, stated), so this reason is also
+    /// given for an identification that holds only modulo the diagram's
+    /// term equations and needs no sort equation; that refusal is
+    /// conservative.
     NeedsSortEquation,
 }
 
@@ -182,7 +207,8 @@ impl std::fmt::Display for OpMismatch {
         match self {
             Self::NeedsSortEquation => f.write_str(
                 "operation signatures differ only in dependent sort arguments, \
-                 which would need a sort equation",
+                 which agree only under a sort equation a theory cannot state \
+                 or under a term equation the syntactic comparison does not apply",
             ),
             Self::Signature => f.write_str("operation signatures differ in the quotient"),
         }
@@ -242,6 +268,12 @@ pub(crate) fn translate_op(
 /// Compare two members of one sort class, both already translated into
 /// class names. `first_decl` and `second_decl` are the members as
 /// declared, used to render a parameter-sort mismatch.
+///
+/// Parameter sorts are compared by their name-free forms, each variable
+/// resolved to the nearest enclosing binder of its name (the earlier
+/// parameters, then `Let` and `Case` binders), as
+/// [`crate::sort::sort_params_equivalent_modulo_rename`] does; the result
+/// is exact whether or not the parameter names are pairwise distinct.
 pub(crate) fn sort_class_mismatch(
     first: &crate::sort::Sort,
     second: &crate::sort::Sort,
@@ -254,12 +286,15 @@ pub(crate) fn sort_class_mismatch(
             second: second.arity(),
         });
     }
-    let rename = crate::sort::positional_param_rename(
-        first.params.iter().map(|p| Arc::clone(&p.name)),
-        second.params.iter().map(|p| Arc::clone(&p.name)),
-    );
+    let first_names: Vec<Arc<str>> = first.params.iter().map(|p| Arc::clone(&p.name)).collect();
+    let second_names: Vec<Arc<str>> = second.params.iter().map(|p| Arc::clone(&p.name)).collect();
     for (index, (a, b)) in first.params.iter().zip(&second.params).enumerate() {
-        if !a.sort.subst(&rename).alpha_eq(&b.sort) {
+        if !crate::sort::sort_exprs_agree(
+            &a.sort,
+            &first_names[..index],
+            &b.sort,
+            &second_names[..index],
+        ) {
             return Some(SortMismatch::ParamSort {
                 index,
                 first: Arc::from(first_decl.params[index].sort.to_string()),
@@ -278,6 +313,10 @@ pub(crate) fn sort_class_mismatch(
 
 /// Compare two members of one operation class, both already translated
 /// into class names.
+///
+/// The members agree iff their name-free forms are equal
+/// ([`crate::sort::signatures_equivalent_modulo_param_rename`], exact
+/// whether or not the input names are pairwise distinct).
 pub(crate) fn op_class_mismatch(
     first: &crate::op::Operation,
     second: &crate::op::Operation,
@@ -1048,8 +1087,19 @@ pub enum CompositionError {
         /// Another member.
         second: SymRef,
     },
-    /// Two operations the diagram identifies could only be identified by
-    /// an equation a theory cannot state.
+    /// Two operations the diagram identifies have signatures that agree
+    /// only under a sort equation, or only modulo term equations, once
+    /// every sort and operation is sent to its class.
+    ///
+    /// The refusal is a representability limit: the colimit exists among
+    /// Cartmell's generalized algebraic theories, adding a sort-equality
+    /// axiom when one is needed (almeida2026model Construction 2.17, stated
+    /// in a preprint), and a theory cannot state a sort equation. The
+    /// check is syntactic modulo the class map, so it also refuses an
+    /// identification that needs no sort equation because the diagram's
+    /// term equations already make the sorts derivably equal
+    /// (garner2015combinatorial Table 1, stated). See
+    /// [`NotRepresentableReason`].
     QuotientNotRepresentable {
         /// One member.
         first: SymRef,
@@ -1140,8 +1190,10 @@ impl std::fmt::Display for CompositionError {
             } => match reason {
                 NotRepresentableReason::NeedsSortEquation => write!(
                     f,
-                    "identifying operations {first} and {second} needs a sort equation, \
-                     which a theory cannot state"
+                    "cannot identify operations {first} and {second}: their signatures \
+                     agree only under a sort equation, which a theory cannot state, \
+                     or under a term equation, which the syntactic comparison does \
+                     not apply"
                 ),
             },
             Self::NameConflict {
@@ -1259,21 +1311,41 @@ impl NodeInfo<'_> {
 ///    order in which names are visited nor on how sorts are named.
 /// 3. The edges identify each sort with its image and each operation with
 ///    the operation it is renamed to; in [`CompositionMode::Amalgamate`],
-///    same-kind symbols with the same name are identified as well.
+///    same-kind symbols with the same name are identified as well. The
+///    classes partition the node-qualified symbols, one partition per
+///    kind: signatures over equivalence classes of names
+///    (sannellatarlecki1985program Sec 2, stated), the colimit as
+///    equivalence classes over the disjoint union (smith2006composition
+///    Sec 2, stated), computed by a union-find as for colimit quotients
+///    (pattersonlynchfairbanks2022categorical Sec 5.4, stated). Keying the
+///    partition by [`SymKind`] is an implementation choice (inferred).
 /// 4. Every class's members must agree on arity, parameter sort classes
-///    (modulo renaming the parameters), kind and closure (sorts), or on
-///    their signature once every sort and operation is sent to its class
-///    (operations). A mismatch only in the term arguments of dependent
-///    sorts would need a sort equation and is
-///    [`CompositionError::QuotientNotRepresentable`].
+///    (by their name-free forms, which do not depend on the parameter
+///    names), kind and closure (sorts), or on their signature once every
+///    sort and operation is sent to its class (operations). Identifying
+///    first and then checking that the identified members agree follows
+///    the sharing rule of milnertofteharpermacqueen1997definition rule 78
+///    and the order of kilpatrickdreyerpeytonjonesmarlow2014backpack Secs
+///    3.2 to 3.3, which unifies module identities and then refuses a kind
+///    mismatch (stated; the correspondence is inferred). The comparison
+///    is syntactic modulo the class map: it does not apply the sort
+///    conversions that term equations induce (garner2015combinatorial
+///    Table 1, stated), including the equations step 5 adds. A mismatch
+///    only in the term arguments of dependent sorts is
+///    [`CompositionError::QuotientNotRepresentable`], whether
+///    the identification needs a sort equation, which a theory cannot
+///    state, or holds modulo a term equation, which this conservative
+///    check refuses although the colimit needs no sort equation.
 /// 5. An edge that sends an operation `o` to a derived term `t` adds the
 ///    equation `o(params) = t` under the name
 ///    `"{src label}.{o}~{k}"`, with `k` the edge's position in the
 ///    canonical edge order (source label, target label, canonical bytes
-///    of the morphism); isaev2017algebraic Prop. 2.1 and
+///    of the morphism). A coequalizer of generalized algebraic theories
+///    adjoins such term-equality judgements (garner2015combinatorial
+///    Prop 12, proved); isaev2017algebraic Prop. 2.1 and
 ///    schultzwisnesky2017algebraic §6.1 build coequalizers this way in the
-///    non-dependent setting (stated), and carrying it to dependent sorts is
-///    inferred.
+///    non-dependent setting (stated); the span case and the name scheme
+///    are inferred.
 /// 6. Each class becomes one sort or operation. Equations, directed
 ///    equations and policies are translated and collected as sets by
 ///    content, keeping every source in the provenance.
@@ -1283,9 +1355,11 @@ impl NodeInfo<'_> {
 /// Class names: the result theory is named `opts.result_name`; a class is
 /// named by the member name that occurs most often among its members, ties
 /// going to the least name by bytes (majority names in the sense of
-/// mossakowskirabecodescu2017canonical Def. 10, stated; the tiebreak is
-/// ours). Clashes, possible only in [`CompositionMode::ExplicitIdentity`],
-/// follow `opts.clash`. Result vectors are in ascending name order, so the
+/// mossakowskirabecodescu2017canonical Def. 10, stated, which is Hets'
+/// naming convention, kutzneuhausmossakowskicodescu2014blending, stated;
+/// no precedent for the tiebreak was found in the venues searched).
+/// Clashes, possible only in [`CompositionMode::ExplicitIdentity`], follow
+/// `opts.clash`. Result vectors are in ascending name order, so the
 /// result does not depend on the order of the diagram's nodes or edges.
 ///
 /// # Errors
@@ -4139,6 +4213,37 @@ mod tests {
         Ok(())
     }
 
+    /// Two directed equations named alike with different content are two
+    /// classes in explicit-identity mode, and each takes its freshened
+    /// result name, not its source name.
+    #[test]
+    fn clashing_directed_equations_take_their_freshened_names() -> TestResult {
+        let fc = rule(
+            "rule",
+            Term::app("f", vec![Term::constant("c")]),
+            Term::constant("c"),
+        );
+        let ff = rule("rule", Term::app("f", vec![Term::var("x")]), Term::var("x"));
+        let d = TheoryDiagram::discrete(vec![
+            ("T1", with_directed("T1", vec![fc])),
+            ("T2", with_directed("T2", vec![ff])),
+        ]);
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(
+            names(&c.theory.directed_eqs, |e| &e.name),
+            ["T1.rule", "T2.rule"]
+        );
+        for label in ["T1", "T2"] {
+            let result = format!("{label}.rule");
+            assert_eq!(
+                c.provenance.members(SymKind::DirectedEq, &result),
+                [sym(label, "rule")]
+            );
+            assert!(c.theory.find_directed_eq(&result).is_some());
+        }
+        Ok(())
+    }
+
     #[test]
     fn policies_are_transported_with_provenance() -> TestResult {
         use crate::theory::ConflictStrategy::KeepLeft;
@@ -5930,6 +6035,1330 @@ mod tests {
                     prop_assert_eq!(classes(&a), unrename(classes(&b), &rename));
                     prop_assert_eq!(a.report.name_clash_free, b.report.name_clash_free);
                 }
+            }
+        }
+    }
+
+    /// The tier 1 class comparisons against an oracle.
+    ///
+    /// The oracle holds a signature in a name-free form: a variable is the
+    /// position of the input that binds it. Two signatures are
+    /// alpha-equivalent exactly when their name-free forms are equal, and
+    /// they differ only in term arguments exactly when every position
+    /// carries the same head, the same number of arguments and the same
+    /// implicit flag. The oracle renders each form with binder names, which
+    /// are pairwise distinct within one signature, and compares the
+    /// verdicts of [`op_class_mismatch`] and [`sort_class_mismatch`] with
+    /// its own; it calls neither function nor the renaming helpers they use.
+    mod class_agreement {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// An oracle term of sort `X`.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum OTerm {
+            /// The variable bound by the input (or parameter) at this
+            /// position.
+            Bound(usize),
+            /// An operation applied to arguments; a constant has none.
+            App(&'static str, Vec<Self>),
+        }
+
+        /// An oracle sort expression: a head and, for an application, its
+        /// arguments (`None` is the bare name).
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OSort {
+            head: &'static str,
+            args: Option<Vec<OTerm>>,
+        }
+
+        /// An oracle operation signature: input sorts with their implicit
+        /// flags, and the output sort.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OOp {
+            inputs: Vec<(OSort, bool)>,
+            output: OSort,
+        }
+
+        /// An oracle sort declaration: parameter sorts, whether its kind is
+        /// a value kind, and whether it is closed.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct OSortDecl {
+            params: Vec<OSort>,
+            value_kind: bool,
+            closed: bool,
+        }
+
+        /// The oracle's verdict on two members of one class.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum Verdict {
+            Agree,
+            OnlyTermArguments,
+            Signature,
+        }
+
+        fn arg_count(s: &OSort) -> usize {
+            s.args.as_ref().map_or(0, Vec::len)
+        }
+
+        fn same_shape(a: &OSort, b: &OSort) -> bool {
+            a.head == b.head && arg_count(a) == arg_count(b)
+        }
+
+        fn op_verdict(p: &OOp, q: &OOp) -> Verdict {
+            if p == q {
+                return Verdict::Agree;
+            }
+            let shaped = p.inputs.len() == q.inputs.len()
+                && p.inputs
+                    .iter()
+                    .zip(&q.inputs)
+                    .all(|((a, ia), (b, ib))| ia == ib && same_shape(a, b))
+                && same_shape(&p.output, &q.output);
+            if shaped {
+                Verdict::OnlyTermArguments
+            } else {
+                Verdict::Signature
+            }
+        }
+
+        fn render_term(t: &OTerm, names: &[&'static str]) -> Term {
+            match t {
+                OTerm::Bound(i) => Term::var(names[*i]),
+                OTerm::App(op, args) => {
+                    Term::app(*op, args.iter().map(|a| render_term(a, names)).collect())
+                }
+            }
+        }
+
+        /// Render a sort. A bare name is spelled `Name(head)`, or, when
+        /// `empty_app` holds and the head is the nullary `X`, as the
+        /// application `App { head, args: [] }`; both spellings have the
+        /// same head and the same (empty) argument list, so they share one
+        /// name-free form.
+        fn render_sort(s: &OSort, names: &[&'static str], empty_app: bool) -> SortExpr {
+            s.args.as_ref().map_or_else(
+                || {
+                    if empty_app && s.head == "X" {
+                        SortExpr::App {
+                            name: Arc::from(s.head),
+                            args: vec![],
+                        }
+                    } else {
+                        SortExpr::Name(Arc::from(s.head))
+                    }
+                },
+                |args| SortExpr::App {
+                    name: Arc::from(s.head),
+                    args: args.iter().map(|a| render_term(a, names)).collect(),
+                },
+            )
+        }
+
+        fn render_op(o: &OOp, names: &[&'static str], empty_app: bool) -> Operation {
+            Operation::with_implicit(
+                "member",
+                o.inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (s, imp))| {
+                        (
+                            Arc::from(names[i]),
+                            render_sort(s, names, empty_app),
+                            if *imp {
+                                crate::op::Implicit::Yes
+                            } else {
+                                crate::op::Implicit::No
+                            },
+                        )
+                    })
+                    .collect(),
+                render_sort(&o.output, names, empty_app),
+            )
+        }
+
+        fn render_sort_decl(
+            d: &OSortDecl,
+            names: &[&'static str],
+            empty_app: bool,
+        ) -> crate::sort::Sort {
+            crate::sort::Sort {
+                name: Arc::from("W"),
+                params: d
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| SortParam::new(names[i], render_sort(s, names, empty_app)))
+                    .collect(),
+                kind: if d.value_kind {
+                    crate::sort::SortKind::Val(crate::sort::ValueKind::Int)
+                } else {
+                    crate::sort::SortKind::Structural
+                },
+                closure: if d.closed {
+                    crate::sort::SortClosure::Closed(vec![Arc::from("a")])
+                } else {
+                    crate::sort::SortClosure::Open
+                },
+            }
+        }
+
+        /// The theory every rendered signature lives in: `X`,
+        /// `Y(x : X)`, `H(p : X, q : X)`, constants `a, b, c : X`,
+        /// `s : X -> X` and `m : X, X -> X`.
+        fn ambient(extra_ops: Vec<Operation>, extra_sorts: Vec<crate::sort::Sort>) -> Theory {
+            let x = || SortExpr::Name(Arc::from("X"));
+            let mut sorts = vec![
+                crate::sort::Sort::simple("X"),
+                crate::sort::Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                crate::sort::Sort::dependent(
+                    "H",
+                    vec![SortParam::new("p", "X"), SortParam::new("q", "X")],
+                ),
+            ];
+            sorts.extend(extra_sorts);
+            let mut ops = vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("c", vec![], "X"),
+                Operation::new("s", vec![(Arc::from("u"), x())], "X"),
+                Operation::new("m", vec![(Arc::from("u"), x()), (Arc::from("v"), x())], "X"),
+            ];
+            ops.extend(extra_ops);
+            Theory::new("Ambient", sorts, ops, vec![])
+        }
+
+        fn op_oracle(p: &OOp, q: &OOp) -> Option<OpMismatch> {
+            match op_verdict(p, q) {
+                Verdict::Agree => None,
+                Verdict::OnlyTermArguments => Some(OpMismatch::NeedsSortEquation),
+                Verdict::Signature => Some(OpMismatch::Signature),
+            }
+        }
+
+        /// The oracle's verdict on two sort declarations, rendered as `pr`
+        /// and `qr`: arity, then the first parameter whose name-free sort
+        /// differs, then kind, then closure.
+        fn sort_oracle(
+            p: &OSortDecl,
+            q: &OSortDecl,
+            pr: &crate::sort::Sort,
+            qr: &crate::sort::Sort,
+        ) -> Option<SortMismatch> {
+            if p.params.len() != q.params.len() {
+                return Some(SortMismatch::Arity {
+                    first: p.params.len(),
+                    second: q.params.len(),
+                });
+            }
+            if let Some(index) = (0..p.params.len()).find(|&i| p.params[i] != q.params[i]) {
+                return Some(SortMismatch::ParamSort {
+                    index,
+                    first: Arc::from(pr.params[index].sort.to_string()),
+                    second: Arc::from(qr.params[index].sort.to_string()),
+                });
+            }
+            if p.value_kind != q.value_kind {
+                return Some(SortMismatch::Kind);
+            }
+            if p.closed != q.closed {
+                return Some(SortMismatch::Closure);
+            }
+            None
+        }
+
+        /// The positions of a prefix of inputs or parameters whose sort is
+        /// `X`, the ones a term argument may name.
+        fn x_bound(prefix: &[OSort]) -> Vec<usize> {
+            prefix
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.head == "X")
+                .map(|(i, _)| i)
+                .collect()
+        }
+
+        fn constant(name: &'static str) -> OTerm {
+            OTerm::App(name, vec![])
+        }
+
+        /// The sorts of the exhaustive scope over `x_bound`: `X`, the bare
+        /// `Y`, `Y(t)`, and when `with_h` also `H(t, u)`, where `t` and `u`
+        /// range over the constants `a`, `b` and the variables `x_bound`
+        /// names.
+        fn scope_sorts(x_bound: &[usize], with_h: bool) -> Vec<OSort> {
+            let mut atoms = vec![constant("a"), constant("b")];
+            atoms.extend(x_bound.iter().map(|&i| OTerm::Bound(i)));
+            let mut out = vec![
+                OSort {
+                    head: "X",
+                    args: None,
+                },
+                OSort {
+                    head: "Y",
+                    args: None,
+                },
+            ];
+            for t in &atoms {
+                out.push(OSort {
+                    head: "Y",
+                    args: Some(vec![t.clone()]),
+                });
+            }
+            if with_h {
+                for t in &atoms {
+                    for u in &atoms {
+                        out.push(OSort {
+                            head: "H",
+                            args: Some(vec![t.clone(), u.clone()]),
+                        });
+                    }
+                }
+            }
+            out
+        }
+
+        /// The binder names of the exhaustive scope for `k` positions: both
+        /// orders of two distinct names.
+        fn scope_names(k: usize) -> Vec<Vec<&'static str>> {
+            match k {
+                0 => vec![vec![]],
+                1 => vec![vec!["x"], vec!["y"]],
+                _ => vec![vec!["x", "y"], vec!["y", "x"]],
+            }
+        }
+
+        fn extend_ops(prefix: &mut Vec<(OSort, bool)>, out: &mut Vec<OOp>) {
+            let sorts: Vec<OSort> = prefix.iter().map(|(s, _)| s.clone()).collect();
+            let bound = x_bound(&sorts);
+            for output in scope_sorts(&bound, true) {
+                out.push(OOp {
+                    inputs: prefix.clone(),
+                    output,
+                });
+            }
+            if prefix.len() < 2 {
+                for s in scope_sorts(&bound, false) {
+                    for implicit in [false, true] {
+                        prefix.push((s.clone(), implicit));
+                        extend_ops(prefix, out);
+                        prefix.pop();
+                    }
+                }
+            }
+        }
+
+        /// Every operation signature of the exhaustive scope: at most two
+        /// inputs of sort `X`, `Y` or `Y(t)` with either implicit flag, and
+        /// an output `X`, `Y`, `Y(t)` or `H(t, u)`, each rendered under
+        /// every binder naming of [`scope_names`].
+        fn op_scope() -> Vec<(OOp, Operation)> {
+            let mut forms = Vec::new();
+            extend_ops(&mut Vec::new(), &mut forms);
+            let mut out = Vec::new();
+            for form in forms {
+                for names in scope_names(form.inputs.len()) {
+                    for empty_app in [false, true] {
+                        let rendered = render_op(&form, &names, empty_app);
+                        out.push((form.clone(), rendered));
+                    }
+                }
+            }
+            out
+        }
+
+        fn extend_sorts(prefix: &mut Vec<OSort>, out: &mut Vec<OSortDecl>) {
+            for value_kind in [false, true] {
+                for closed in [false, true] {
+                    out.push(OSortDecl {
+                        params: prefix.clone(),
+                        value_kind,
+                        closed,
+                    });
+                }
+            }
+            if prefix.len() < 2 {
+                for s in scope_sorts(&x_bound(prefix), false) {
+                    prefix.push(s);
+                    extend_sorts(prefix, out);
+                    prefix.pop();
+                }
+            }
+        }
+
+        /// Every sort declaration of the exhaustive scope: at most two
+        /// parameters of sort `X`, `Y` or `Y(t)`, a structural or value
+        /// kind, open or closed, rendered under every binder naming of
+        /// [`scope_names`].
+        fn sort_scope() -> Vec<(OSortDecl, crate::sort::Sort)> {
+            let mut forms = Vec::new();
+            extend_sorts(&mut Vec::new(), &mut forms);
+            let mut out = Vec::new();
+            for form in forms {
+                for names in scope_names(form.params.len()) {
+                    for empty_app in [false, true] {
+                        let rendered = render_sort_decl(&form, &names, empty_app);
+                        out.push((form.clone(), rendered));
+                    }
+                }
+            }
+            out
+        }
+
+        #[test]
+        fn op_class_comparison_agrees_with_the_oracle_on_the_exhaustive_scope() {
+            let scope = op_scope();
+            for (_, op) in &scope {
+                assert_eq!(
+                    crate::typecheck::typecheck_signature(&ambient(vec![op.clone()], vec![])),
+                    Ok(()),
+                    "the scope holds well-formed signatures only: {op:?}"
+                );
+            }
+            let mut counts = [0_usize; 3];
+            for (p, p_op) in &scope {
+                for (q, q_op) in &scope {
+                    let expected = op_oracle(p, q);
+                    assert_eq!(
+                        op_class_mismatch(p_op, q_op),
+                        expected,
+                        "{p_op:?} against {q_op:?}"
+                    );
+                    counts[match expected {
+                        None => 0,
+                        Some(OpMismatch::NeedsSortEquation) => 1,
+                        Some(OpMismatch::Signature) => 2,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "op scope: {} signatures, {} ordered pairs; agree {}, term arguments only {}, signature {}",
+                scope.len(),
+                scope.len() * scope.len(),
+                counts[0],
+                counts[1],
+                counts[2]
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+        }
+
+        #[test]
+        fn sort_class_comparison_agrees_with_the_oracle_on_the_exhaustive_scope() {
+            let scope = sort_scope();
+            for (_, sort) in &scope {
+                assert_eq!(
+                    crate::typecheck::typecheck_signature(&ambient(vec![], vec![sort.clone()])),
+                    Ok(()),
+                    "the scope holds well-formed sorts only: {sort:?}"
+                );
+            }
+            let mut counts = [0_usize; 5];
+            for (p, p_sort) in &scope {
+                for (q, q_sort) in &scope {
+                    let expected = sort_oracle(p, q, p_sort, q_sort);
+                    assert_eq!(
+                        sort_class_mismatch(p_sort, q_sort, p_sort, q_sort),
+                        expected,
+                        "{p_sort:?} against {q_sort:?}"
+                    );
+                    counts[match expected {
+                        None => 0,
+                        Some(SortMismatch::Arity { .. }) => 1,
+                        Some(SortMismatch::ParamSort { .. }) => 2,
+                        Some(SortMismatch::Kind) => 3,
+                        Some(SortMismatch::Closure) => 4,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "sort scope: {} declarations, {} ordered pairs; agree {}, arity {}, parameter sort {}, kind {}, closure {}",
+                scope.len(),
+                scope.len() * scope.len(),
+                counts[0],
+                counts[1],
+                counts[2],
+                counts[3],
+                counts[4]
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+        }
+
+        /// A stream of choices that drives the generators below.
+        struct Choices<'a> {
+            data: &'a [u32],
+            at: usize,
+        }
+
+        impl Choices<'_> {
+            /// A choice in `0..n`.
+            fn pick(&mut self, n: usize) -> usize {
+                let value = self.data.get(self.at).copied().unwrap_or(0);
+                self.at += 1;
+                usize::try_from(value).unwrap_or(0) % n
+            }
+        }
+
+        /// A term of sort `X` of depth at most `depth`: a constant `a`, `b`
+        /// or `c`, a variable named by `x_bound`, `s(t)` or `m(t, u)`.
+        fn gen_term(ch: &mut Choices<'_>, x_bound: &[usize], depth: usize) -> OTerm {
+            let leaves = 3 + x_bound.len();
+            let k = ch.pick(if depth == 0 { leaves } else { leaves + 2 });
+            if k < 3 {
+                constant(["a", "b", "c"][k])
+            } else if k < leaves {
+                OTerm::Bound(x_bound[k - 3])
+            } else if k == leaves {
+                OTerm::App("s", vec![gen_term(ch, x_bound, depth - 1)])
+            } else {
+                OTerm::App(
+                    "m",
+                    vec![
+                        gen_term(ch, x_bound, depth - 1),
+                        gen_term(ch, x_bound, depth - 1),
+                    ],
+                )
+            }
+        }
+
+        /// `X`, the bare `Y`, `Y(t)` or `H(t, u)` over `x_bound`.
+        fn gen_sort(ch: &mut Choices<'_>, x_bound: &[usize]) -> OSort {
+            match ch.pick(4) {
+                0 => OSort {
+                    head: "X",
+                    args: None,
+                },
+                1 => OSort {
+                    head: "Y",
+                    args: None,
+                },
+                2 => OSort {
+                    head: "Y",
+                    args: Some(vec![gen_term(ch, x_bound, 2)]),
+                },
+                _ => OSort {
+                    head: "H",
+                    args: Some(vec![gen_term(ch, x_bound, 2), gen_term(ch, x_bound, 2)]),
+                },
+            }
+        }
+
+        /// The term-argument context of position `at` of a signature with
+        /// sorts `sorts`; the output is position `sorts.len()`.
+        fn context_at(sorts: &[OSort], at: usize) -> Vec<usize> {
+            x_bound(&sorts[..at])
+        }
+
+        fn gen_op(ch: &mut Choices<'_>) -> OOp {
+            let k = ch.pick(4);
+            let mut inputs: Vec<(OSort, bool)> = Vec::new();
+            for _ in 0..k {
+                let sorts: Vec<OSort> = inputs.iter().map(|(s, _)| s.clone()).collect();
+                let s = gen_sort(ch, &x_bound(&sorts));
+                inputs.push((s, ch.pick(2) == 1));
+            }
+            let sorts: Vec<OSort> = inputs.iter().map(|(s, _)| s.clone()).collect();
+            let output = gen_sort(ch, &x_bound(&sorts));
+            OOp { inputs, output }
+        }
+
+        /// Replace one term argument of `s`, if it has any, by a fresh term
+        /// over `x_bound`.
+        fn perturb_sort(ch: &mut Choices<'_>, s: &OSort, x_bound: &[usize]) -> OSort {
+            let mut out = s.clone();
+            if let Some(args) = out.args.as_mut() {
+                let at = ch.pick(args.len());
+                args[at] = gen_term(ch, x_bound, 2);
+            }
+            out
+        }
+
+        /// The same signature, or one changed at one position: an implicit
+        /// flag flipped, one term argument replaced, or a sort regenerated.
+        fn perturb_op(ch: &mut Choices<'_>, o: &OOp) -> OOp {
+            let mut out = o.clone();
+            let sorts: Vec<OSort> = o.inputs.iter().map(|(s, _)| s.clone()).collect();
+            let at = ch.pick(o.inputs.len() + 1);
+            let context = context_at(&sorts, at);
+            let edit = ch.pick(4);
+            let slot = if at == o.inputs.len() {
+                &mut out.output
+            } else {
+                if edit == 1 {
+                    out.inputs[at].1 = !out.inputs[at].1;
+                }
+                &mut out.inputs[at].0
+            };
+            match edit {
+                2 => *slot = perturb_sort(ch, slot, &context),
+                // Regenerating an input's sort can change which later
+                // positions may name it; only an `X` stays `X`.
+                3 if at == o.inputs.len() || slot.head != "X" => {
+                    let fresh = gen_sort(ch, &context);
+                    if at == o.inputs.len() || fresh.head != "X" {
+                        *slot = fresh;
+                    }
+                }
+                _ => {}
+            }
+            out
+        }
+
+        /// `k` pairwise distinct binder names from `x`, `y`, `z`, `w`.
+        fn gen_names(ch: &mut Choices<'_>, k: usize) -> Vec<&'static str> {
+            let mut pool = vec!["x", "y", "z", "w"];
+            (0..k).map(|_| pool.remove(ch.pick(pool.len()))).collect()
+        }
+
+        fn gen_sort_decl(ch: &mut Choices<'_>) -> OSortDecl {
+            let k = ch.pick(4);
+            let mut params: Vec<OSort> = Vec::new();
+            for _ in 0..k {
+                let s = gen_sort(ch, &x_bound(&params));
+                params.push(s);
+            }
+            OSortDecl {
+                params,
+                value_kind: ch.pick(2) == 1,
+                closed: ch.pick(2) == 1,
+            }
+        }
+
+        /// The same declaration, or one changed in one place: a term
+        /// argument of one parameter, its kind, or its closure.
+        fn perturb_sort_decl(ch: &mut Choices<'_>, d: &OSortDecl) -> OSortDecl {
+            let mut out = d.clone();
+            match ch.pick(4) {
+                0 if !d.params.is_empty() => {
+                    let at = ch.pick(d.params.len());
+                    let context = context_at(&d.params, at);
+                    out.params[at] = perturb_sort(ch, &d.params[at], &context);
+                }
+                1 => out.value_kind = !out.value_kind,
+                2 => out.closed = !out.closed,
+                _ => {}
+            }
+            out
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(2048))]
+
+            #[test]
+            fn op_class_comparison_agrees_with_the_oracle(
+                first in proptest::collection::vec(any::<u32>(), 96),
+                second in proptest::collection::vec(any::<u32>(), 96),
+                relation in 0_usize..4,
+                spellings in any::<[bool; 2]>(),
+            ) {
+                let mut ch = Choices { data: &first, at: 0 };
+                let p = gen_op(&mut ch);
+                let p_names = gen_names(&mut ch, p.inputs.len());
+                let mut ch2 = Choices { data: &second, at: 0 };
+                let q = match relation {
+                    0 => gen_op(&mut ch2),
+                    1 => p.clone(),
+                    _ => perturb_op(&mut ch2, &p),
+                };
+                let q_names = gen_names(&mut ch2, q.inputs.len());
+                let (p_op, q_op) = (
+                    render_op(&p, &p_names, spellings[0]),
+                    render_op(&q, &q_names, spellings[1]),
+                );
+                for op in [&p_op, &q_op] {
+                    prop_assert_eq!(
+                        crate::typecheck::typecheck_signature(&ambient(vec![op.clone()], vec![])),
+                        Ok(())
+                    );
+                }
+                prop_assert_eq!(op_class_mismatch(&p_op, &q_op), op_oracle(&p, &q));
+            }
+
+            #[test]
+            fn sort_class_comparison_agrees_with_the_oracle(
+                first in proptest::collection::vec(any::<u32>(), 64),
+                second in proptest::collection::vec(any::<u32>(), 64),
+                relation in 0_usize..4,
+                spellings in any::<[bool; 2]>(),
+            ) {
+                let mut ch = Choices { data: &first, at: 0 };
+                let p = gen_sort_decl(&mut ch);
+                let p_names = gen_names(&mut ch, p.params.len());
+                let mut ch2 = Choices { data: &second, at: 0 };
+                let q = match relation {
+                    0 => gen_sort_decl(&mut ch2),
+                    1 => p.clone(),
+                    _ => perturb_sort_decl(&mut ch2, &p),
+                };
+                let q_names = gen_names(&mut ch2, q.params.len());
+                let (p_sort, q_sort) = (
+                    render_sort_decl(&p, &p_names, spellings[0]),
+                    render_sort_decl(&q, &q_names, spellings[1]),
+                );
+                for sort in [&p_sort, &q_sort] {
+                    prop_assert_eq!(
+                        crate::typecheck::typecheck_signature(&ambient(vec![], vec![sort.clone()])),
+                        Ok(())
+                    );
+                }
+                prop_assert_eq!(
+                    sort_class_mismatch(&p_sort, &q_sort, &p_sort, &q_sort),
+                    sort_oracle(&p, &q, &p_sort, &q_sort)
+                );
+            }
+        }
+    }
+
+    /// The signature comparisons against a name-free oracle over named
+    /// syntax, repeated binder names and `Let` and `Case` binders inside
+    /// sort arguments included. The oracle replaces each variable by the
+    /// binder it resolves to (the innermost local binder of its name, else
+    /// the last signature binder of its name, else the variable is free)
+    /// and compares the results with `==`; it calls none of the
+    /// comparisons under test, `SortExpr::alpha_eq`, `SortExpr::subst` or
+    /// `Term::substitute`.
+    mod name_free_oracle {
+        use super::*;
+        use crate::eq::CaseBranch;
+        use crate::op::Implicit;
+        use crate::sort::{
+            signatures_equivalent_modulo_param_rename, sort_params_equivalent_modulo_rename,
+        };
+        use proptest::prelude::*;
+
+        /// A term with each variable replaced by the binder it resolves
+        /// to.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum Nf {
+            /// The signature binder at this position.
+            Sig(usize),
+            /// The local binder at this depth of the local stack, outermost
+            /// first.
+            Loc(usize),
+            /// A free variable, by name.
+            Free(String),
+            /// An application.
+            App(String, Vec<Self>),
+            /// A hole, by name.
+            Hole(Option<String>),
+            /// `let _ = bound in body`.
+            Let(Box<Self>, Box<Self>),
+            /// A case analysis: scrutinee, and per branch the constructor,
+            /// the number of binders and the body.
+            Case(Box<Self>, Vec<(String, usize, Self)>),
+        }
+
+        /// The oracle's form of a sort expression: head and arguments.
+        type NfSort = (String, Vec<Nf>);
+
+        fn last_position(names: &[String], x: &str) -> Option<usize> {
+            let mut found = None;
+            for (i, n) in names.iter().enumerate() {
+                if n == x {
+                    found = Some(i);
+                }
+            }
+            found
+        }
+
+        fn nf_term(t: &Term, sig: &[String], local: &mut Vec<String>) -> Nf {
+            match t {
+                Term::Var(x) => last_position(local, x).map_or_else(
+                    || last_position(sig, x).map_or_else(|| Nf::Free(x.to_string()), Nf::Sig),
+                    Nf::Loc,
+                ),
+                Term::App { op, args } => Nf::App(
+                    op.to_string(),
+                    args.iter().map(|a| nf_term(a, sig, local)).collect(),
+                ),
+                Term::Hole { name } => Nf::Hole(name.as_ref().map(ToString::to_string)),
+                Term::Let { name, bound, body } => {
+                    let bound = nf_term(bound, sig, local);
+                    local.push(name.to_string());
+                    let body = nf_term(body, sig, local);
+                    local.pop();
+                    Nf::Let(Box::new(bound), Box::new(body))
+                }
+                Term::Case {
+                    scrutinee,
+                    branches,
+                } => {
+                    let scrutinee = nf_term(scrutinee, sig, local);
+                    let branches = branches
+                        .iter()
+                        .map(|b| {
+                            let depth = local.len();
+                            local.extend(b.binders.iter().map(ToString::to_string));
+                            let body = nf_term(&b.body, sig, local);
+                            local.truncate(depth);
+                            (b.constructor.to_string(), b.binders.len(), body)
+                        })
+                        .collect();
+                    Nf::Case(Box::new(scrutinee), branches)
+                }
+            }
+        }
+
+        fn nf_sort(s: &SortExpr, sig: &[String]) -> NfSort {
+            (
+                s.head().to_string(),
+                s.args()
+                    .iter()
+                    .map(|t| nf_term(t, sig, &mut Vec::new()))
+                    .collect(),
+            )
+        }
+
+        /// An operation's name-free form: each input's sort read under the
+        /// earlier inputs, with its flag, and the output under all inputs.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct NfOp {
+            inputs: Vec<(NfSort, Implicit)>,
+            output: NfSort,
+        }
+
+        fn nf_op(op: &Operation) -> NfOp {
+            let names: Vec<String> = op.inputs.iter().map(|(n, _, _)| n.to_string()).collect();
+            NfOp {
+                inputs: op
+                    .inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, s, imp))| (nf_sort(s, &names[..i]), *imp))
+                    .collect(),
+                output: nf_sort(&op.output, &names),
+            }
+        }
+
+        fn nf_params(params: &[SortParam]) -> Vec<NfSort> {
+            let names: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
+            params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| nf_sort(&p.sort, &names[..i]))
+                .collect()
+        }
+
+        fn shape(s: &NfSort) -> (&str, usize) {
+            (&s.0, s.1.len())
+        }
+
+        fn op_oracle(p: &NfOp, q: &NfOp) -> Option<OpMismatch> {
+            if p == q {
+                return None;
+            }
+            let same_shape = p.inputs.len() == q.inputs.len()
+                && p.inputs
+                    .iter()
+                    .zip(&q.inputs)
+                    .all(|((a, ia), (b, ib))| ia == ib && shape(a) == shape(b))
+                && shape(&p.output) == shape(&q.output);
+            Some(if same_shape {
+                OpMismatch::NeedsSortEquation
+            } else {
+                OpMismatch::Signature
+            })
+        }
+
+        fn sort_oracle(
+            p: &[NfSort],
+            q: &[NfSort],
+            p_sort: &crate::sort::Sort,
+            q_sort: &crate::sort::Sort,
+        ) -> Option<SortMismatch> {
+            if p.len() != q.len() {
+                return Some(SortMismatch::Arity {
+                    first: p.len(),
+                    second: q.len(),
+                });
+            }
+            if let Some(index) = (0..p.len()).find(|&i| p[i] != q[i]) {
+                return Some(SortMismatch::ParamSort {
+                    index,
+                    first: Arc::from(p_sort.params[index].sort.to_string()),
+                    second: Arc::from(q_sort.params[index].sort.to_string()),
+                });
+            }
+            if p_sort.kind != q_sort.kind {
+                return Some(SortMismatch::Kind);
+            }
+            if p_sort.closure != q_sort.closure {
+                return Some(SortMismatch::Closure);
+            }
+            None
+        }
+
+        const SCOPE_NAMES: [&str; 2] = ["x", "y"];
+
+        /// Every list of `k` binder names over `x`, `y`: distinct and
+        /// repeated.
+        fn name_lists(k: usize) -> Vec<Vec<&'static str>> {
+            let mut out = vec![vec![]];
+            for _ in 0..k {
+                out = out
+                    .into_iter()
+                    .flat_map(|prefix: Vec<&'static str>| {
+                        SCOPE_NAMES.iter().map(move |n| {
+                            let mut next = prefix.clone();
+                            next.push(n);
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            out
+        }
+
+        fn sort_of(head: &str, args: Vec<Term>) -> SortExpr {
+            SortExpr::app(head, args)
+        }
+
+        /// The variables `x`, `y` and the constant `a`.
+        fn atoms() -> Vec<Term> {
+            vec![Term::var("x"), Term::var("y"), Term::constant("a")]
+        }
+
+        /// Terms with a local binder: `let n = b in body` for `n` in `u`,
+        /// `x`, `b` in `x`, `a()` and `body` in `u`, `x`, `y`; and
+        /// `case x of s(n) => body` for `n` in `u`, `x` and `body` in `u`,
+        /// `x`, `a()`.
+        fn binder_terms() -> Vec<Term> {
+            let mut out = Vec::new();
+            for n in ["u", "x"] {
+                for bound in [Term::var("x"), Term::constant("a")] {
+                    for body in ["u", "x", "y"] {
+                        out.push(Term::Let {
+                            name: n.into(),
+                            bound: Box::new(bound.clone()),
+                            body: Box::new(Term::var(body)),
+                        });
+                    }
+                }
+                for body in [Term::var("u"), Term::var("x"), Term::constant("a")] {
+                    out.push(Term::Case {
+                        scrutinee: Box::new(Term::var("x")),
+                        branches: vec![CaseBranch {
+                            constructor: "s".into(),
+                            binders: vec![n.into()],
+                            body,
+                        }],
+                    });
+                }
+            }
+            out
+        }
+
+        fn scope_input_sorts() -> Vec<SortExpr> {
+            let mut out = vec![SortExpr::from("X")];
+            out.extend(atoms().into_iter().map(|t| sort_of("Y", vec![t])));
+            out
+        }
+
+        fn scope_output_sorts() -> Vec<SortExpr> {
+            let mut out = vec![SortExpr::from("X")];
+            let extra = [
+                Term::constant("b"),
+                Term::Hole { name: None },
+                Term::Hole {
+                    name: Some(Arc::from("h")),
+                },
+            ];
+            for t in atoms().into_iter().chain(binder_terms()).chain(extra) {
+                out.push(sort_of("Y", vec![t]));
+            }
+            for t in atoms() {
+                for u in atoms() {
+                    out.push(sort_of("H", vec![t.clone(), u]));
+                }
+            }
+            out
+        }
+
+        /// Every operation of the scope: at most two inputs named from
+        /// `x`, `y` (distinct or repeated), each of sort `X`, `Y(x)`,
+        /// `Y(y)` or `Y(a)`, and an output `X`, `Y(t)` or `H(t, u)`, `t`
+        /// over `x`, `y`, `a()` and (for `Y`) `b()`, the holes `?` and
+        /// `?h` and the terms of [`binder_terms`], `u` over `x`, `y`,
+        /// `a()`.
+        fn op_scope() -> Vec<Operation> {
+            let mut out = Vec::new();
+            for k in 0..=2 {
+                for names in name_lists(k) {
+                    let mut sort_lists: Vec<Vec<SortExpr>> = vec![vec![]];
+                    for _ in 0..k {
+                        sort_lists = sort_lists
+                            .into_iter()
+                            .flat_map(|prefix| {
+                                scope_input_sorts().into_iter().map(move |s| {
+                                    let mut next = prefix.clone();
+                                    next.push(s);
+                                    next
+                                })
+                            })
+                            .collect();
+                    }
+                    for sorts in &sort_lists {
+                        for output in scope_output_sorts() {
+                            out.push(Operation::new(
+                                "member",
+                                names
+                                    .iter()
+                                    .zip(sorts)
+                                    .map(|(n, s)| (Arc::from(*n), s.clone()))
+                                    .collect(),
+                                output,
+                            ));
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        fn scope_param_sorts() -> Vec<SortExpr> {
+            let mut out = scope_input_sorts();
+            out.push(sort_of(
+                "Y",
+                vec![Term::Let {
+                    name: "u".into(),
+                    bound: Box::new(Term::var("x")),
+                    body: Box::new(Term::var("u")),
+                }],
+            ));
+            out.push(sort_of(
+                "Y",
+                vec![Term::Let {
+                    name: "x".into(),
+                    bound: Box::new(Term::constant("a")),
+                    body: Box::new(Term::var("x")),
+                }],
+            ));
+            out
+        }
+
+        /// Every sort declaration of the scope: at most three parameters
+        /// named from `x`, `y` (distinct or repeated), each of a sort of
+        /// [`scope_param_sorts`].
+        fn sort_scope() -> Vec<crate::sort::Sort> {
+            let mut out = Vec::new();
+            for k in 0..=3 {
+                for names in name_lists(k) {
+                    let mut sort_lists: Vec<Vec<SortExpr>> = vec![vec![]];
+                    for _ in 0..k {
+                        sort_lists = sort_lists
+                            .into_iter()
+                            .flat_map(|prefix| {
+                                scope_param_sorts().into_iter().map(move |s| {
+                                    let mut next = prefix.clone();
+                                    next.push(s);
+                                    next
+                                })
+                            })
+                            .collect();
+                    }
+                    for sorts in sort_lists {
+                        out.push(crate::sort::Sort::dependent(
+                            "W",
+                            names
+                                .iter()
+                                .zip(sorts)
+                                .map(|(n, s)| SortParam::new(*n, s))
+                                .collect(),
+                        ));
+                    }
+                }
+            }
+            out
+        }
+
+        fn has_repeated_name<'a>(names: impl Iterator<Item = &'a Arc<str>>) -> bool {
+            let mut seen = std::collections::BTreeSet::new();
+            names.into_iter().any(|n| !seen.insert(n))
+        }
+
+        /// Check one ordered pair of operations against the oracle;
+        /// returns the oracle's verdict.
+        fn check_op_pair(p: &Operation, q: &Operation, pn: &NfOp, qn: &NfOp) -> Option<OpMismatch> {
+            let expected = op_oracle(pn, qn);
+            assert_eq!(
+                signatures_equivalent_modulo_param_rename(
+                    &p.inputs, &p.output, &q.inputs, &q.output
+                ),
+                expected.is_none(),
+                "{p:?} against {q:?}"
+            );
+            assert_eq!(op_class_mismatch(p, q), expected, "{p:?} against {q:?}");
+            expected
+        }
+
+        /// Check one ordered pair of sort declarations against the oracle;
+        /// returns the oracle's verdict.
+        fn check_sort_pair(
+            p: &crate::sort::Sort,
+            q: &crate::sort::Sort,
+            pn: &[NfSort],
+            qn: &[NfSort],
+        ) -> Option<SortMismatch> {
+            let expected = sort_oracle(pn, qn, p, q);
+            assert_eq!(
+                sort_params_equivalent_modulo_rename(&p.params, &q.params),
+                pn == qn,
+                "{p:?} against {q:?}"
+            );
+            assert_eq!(
+                sort_class_mismatch(p, q, p, q),
+                expected,
+                "{p:?} against {q:?}"
+            );
+            expected
+        }
+
+        #[test]
+        fn signature_comparisons_agree_with_the_name_free_oracle_on_the_exhaustive_scope() {
+            let ops = op_scope();
+            let op_forms: Vec<NfOp> = ops.iter().map(nf_op).collect();
+            let mut counts = [0_usize; 3];
+            let mut agree_with_repeated = 0_usize;
+            for (p, pn) in ops.iter().zip(&op_forms) {
+                for (q, qn) in ops.iter().zip(&op_forms) {
+                    let verdict = check_op_pair(p, q, pn, qn);
+                    counts[match verdict {
+                        None => 0,
+                        Some(OpMismatch::NeedsSortEquation) => 1,
+                        Some(OpMismatch::Signature) => 2,
+                    }] += 1;
+                    if verdict.is_none()
+                        && (has_repeated_name(p.inputs.iter().map(|(n, _, _)| n))
+                            || has_repeated_name(q.inputs.iter().map(|(n, _, _)| n)))
+                    {
+                        agree_with_repeated += 1;
+                    }
+                }
+            }
+            eprintln!(
+                "op scope: {} signatures, {} ordered pairs; agree {}, term arguments only {}, signature {}; agreeing pairs with a repeated binder {}",
+                ops.len(),
+                ops.len() * ops.len(),
+                counts[0],
+                counts[1],
+                counts[2],
+                agree_with_repeated
+            );
+            assert!(counts.iter().all(|&c| c > 0), "every verdict is reached");
+            assert!(agree_with_repeated > 0);
+
+            let sorts = sort_scope();
+            let sort_forms: Vec<Vec<NfSort>> = sorts.iter().map(|s| nf_params(&s.params)).collect();
+            let mut sort_counts = [0_usize; 3];
+            for (p, pn) in sorts.iter().zip(&sort_forms) {
+                for (q, qn) in sorts.iter().zip(&sort_forms) {
+                    sort_counts[match check_sort_pair(p, q, pn, qn) {
+                        None => 0,
+                        Some(SortMismatch::Arity { .. }) => 1,
+                        Some(_) => 2,
+                    }] += 1;
+                }
+            }
+            eprintln!(
+                "sort scope: {} declarations, {} ordered pairs; agree {}, arity {}, parameter sort {}",
+                sorts.len(),
+                sorts.len() * sorts.len(),
+                sort_counts[0],
+                sort_counts[1],
+                sort_counts[2]
+            );
+            assert!(
+                sort_counts.iter().all(|&c| c > 0),
+                "every verdict is reached"
+            );
+        }
+
+        /// Names a generated binder or variable may take.
+        const GEN_NAMES: [&str; 4] = ["x", "y", "z", "u"];
+
+        fn gen_term() -> impl Strategy<Value = Term> {
+            let leaf = prop_oneof![
+                proptest::sample::select(&GEN_NAMES[..]).prop_map(Term::var),
+                proptest::sample::select(&["a", "b"][..]).prop_map(Term::constant),
+                Just(Term::Hole { name: None }),
+            ];
+            leaf.prop_recursive(3, 12, 2, |inner| {
+                prop_oneof![
+                    (
+                        proptest::sample::select(&["s", "m"][..]),
+                        proptest::collection::vec(inner.clone(), 1..=2)
+                    )
+                        .prop_map(|(op, args)| Term::app(op, args)),
+                    (
+                        proptest::sample::select(&GEN_NAMES[..]),
+                        inner.clone(),
+                        inner.clone()
+                    )
+                        .prop_map(|(n, bound, body)| Term::Let {
+                            name: n.into(),
+                            bound: Box::new(bound),
+                            body: Box::new(body),
+                        }),
+                    (
+                        inner.clone(),
+                        proptest::collection::vec(proptest::sample::select(&GEN_NAMES[..]), 0..=2),
+                        inner
+                    )
+                        .prop_map(|(scrutinee, binders, body)| Term::Case {
+                            scrutinee: Box::new(scrutinee),
+                            branches: vec![CaseBranch {
+                                constructor: "k".into(),
+                                binders: binders.into_iter().map(Arc::from).collect(),
+                                body,
+                            }],
+                        }),
+                ]
+            })
+        }
+
+        fn gen_sort() -> impl Strategy<Value = SortExpr> {
+            prop_oneof![
+                Just(SortExpr::from("X")),
+                gen_term().prop_map(|t| sort_of("Y", vec![t])),
+                (gen_term(), gen_term()).prop_map(|(t, u)| sort_of("H", vec![t, u])),
+            ]
+        }
+
+        fn gen_op() -> impl Strategy<Value = Operation> {
+            (
+                proptest::collection::vec(
+                    (
+                        proptest::sample::select(&GEN_NAMES[..]),
+                        gen_sort(),
+                        any::<bool>(),
+                    ),
+                    0..=3,
+                ),
+                gen_sort(),
+            )
+                .prop_map(|(inputs, output)| {
+                    Operation::with_implicit(
+                        "member",
+                        inputs
+                            .into_iter()
+                            .map(|(n, s, imp)| {
+                                (
+                                    Arc::from(n),
+                                    s,
+                                    if imp { Implicit::Yes } else { Implicit::No },
+                                )
+                            })
+                            .collect(),
+                        output,
+                    )
+                })
+        }
+
+        /// Rename every signature binder of `op` by `rename`, rewriting the
+        /// variables of its sorts by name without regard to capture; the
+        /// oracle then decides whether the result has the same name-free
+        /// form.
+        fn rename_naively(op: &Operation, rename: &[&'static str; 4]) -> Operation {
+            fn term(t: &Term, f: &dyn Fn(&str) -> Arc<str>) -> Term {
+                match t {
+                    Term::Var(x) => Term::Var(f(x)),
+                    Term::App { op, args } => Term::App {
+                        op: Arc::clone(op),
+                        args: args.iter().map(|a| term(a, f)).collect(),
+                    },
+                    Term::Hole { .. } => t.clone(),
+                    Term::Let { name, bound, body } => Term::Let {
+                        name: Arc::clone(name),
+                        bound: Box::new(term(bound, f)),
+                        body: Box::new(term(body, f)),
+                    },
+                    Term::Case {
+                        scrutinee,
+                        branches,
+                    } => Term::Case {
+                        scrutinee: Box::new(term(scrutinee, f)),
+                        branches: branches
+                            .iter()
+                            .map(|b| CaseBranch {
+                                constructor: Arc::clone(&b.constructor),
+                                binders: b.binders.clone(),
+                                body: term(&b.body, f),
+                            })
+                            .collect(),
+                    },
+                }
+            }
+            let f = |x: &str| -> Arc<str> {
+                GEN_NAMES
+                    .iter()
+                    .position(|n| *n == x)
+                    .map_or_else(|| Arc::from(x), |i| Arc::from(rename[i]))
+            };
+            let sort =
+                |s: &SortExpr| sort_of(s.head(), s.args().iter().map(|t| term(t, &f)).collect());
+            Operation::with_implicit(
+                "member",
+                op.inputs
+                    .iter()
+                    .map(|(n, s, imp)| (f(n), sort(s), *imp))
+                    .collect(),
+                sort(&op.output),
+            )
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(2048))]
+
+            #[test]
+            fn signature_comparisons_agree_with_the_name_free_oracle(
+                p in gen_op(),
+                other in gen_op(),
+                rename in [
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                ],
+                relation in 0_usize..3,
+            ) {
+                let q = match relation {
+                    0 => other,
+                    1 => p.clone(),
+                    _ => rename_naively(&p, &rename),
+                };
+                let (pn, qn) = (nf_op(&p), nf_op(&q));
+                check_op_pair(&p, &q, &pn, &qn);
+                check_op_pair(&q, &p, &qn, &pn);
+            }
+
+            #[test]
+            fn sort_parameter_comparisons_agree_with_the_name_free_oracle(
+                p in gen_op(),
+                other in gen_op(),
+                rename in [
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                    proptest::sample::select(&GEN_NAMES[..]),
+                ],
+                relation in 0_usize..3,
+            ) {
+                // A sort declaration's parameters are read off an
+                // operation's inputs.
+                let q = match relation {
+                    0 => other,
+                    1 => p.clone(),
+                    _ => rename_naively(&p, &rename),
+                };
+                let as_sort = |o: &Operation| {
+                    crate::sort::Sort::dependent(
+                        "W",
+                        o.inputs.iter().map(|(n, s, _)| SortParam::new(Arc::clone(n), s.clone())).collect(),
+                    )
+                };
+                let (ps, qs) = (as_sort(&p), as_sort(&q));
+                let (pn, qn) = (nf_params(&ps.params), nf_params(&qs.params));
+                check_sort_pair(&ps, &qs, &pn, &qn);
+                check_sort_pair(&qs, &ps, &qn, &pn);
             }
         }
     }

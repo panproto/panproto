@@ -38,6 +38,11 @@ pub fn decode_complement(bytes: &[u8], what: &str) -> Result<lens::Complement, W
                 "{what}: decoded a table complement where a tree complement was required"
             ),
         }),
+        AnyComplement::Resolution(_) => Err(WasmError::DeserializationFailed {
+            reason: format!(
+                "{what}: decoded a resolution complement where a tree complement was required"
+            ),
+        }),
     }
 }
 
@@ -59,6 +64,11 @@ pub fn decode_complements(bytes: &[u8], what: &str) -> Result<Vec<lens::Compleme
             AnyComplement::Functor(_) => Err(WasmError::DeserializationFailed {
                 reason: format!(
                     "{what}: decoded a table complement where a tree complement was required"
+                ),
+            }),
+            AnyComplement::Resolution(_) => Err(WasmError::DeserializationFailed {
+                reason: format!(
+                    "{what}: decoded a resolution complement where a tree complement was required"
                 ),
             }),
         })

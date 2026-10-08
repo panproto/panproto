@@ -72,6 +72,9 @@ pub mod traits;
 /// Protocol registry mapping names to parser/emitter implementations.
 pub mod registry;
 
+/// Provider-indexed reference resolution and semantic shape conversion.
+pub mod resolution;
+
 /// Lossless JSON pathway for schema-guided instance parsing.
 pub mod json_pathway;
 
@@ -143,7 +146,17 @@ pub mod web_document;
 
 // Re-exports for convenience.
 pub use error::{EmitInstanceError, ParseInstanceError};
-pub use registry::ProtocolRegistry;
+pub use registry::{PresentationComplement, ProtocolRegistry, ResolvedState};
+pub use resolution::{
+    AnyInstance, AssemblyDomainReason, AssemblyPlanId, AssemblyResidue, AssemblyTrace,
+    DefinitionKey, ExternalTextStore, OffsetUnitReason, PathResolution, RedirectedArc,
+    RedirectedAttachment, RedirectedFragment, RefOccurrence, Resolution, ResolutionComplement,
+    ResolutionContextKind, ResolutionFeature, ResolutionInstanceError, ResolutionKind,
+    ResolutionLawReport, ResolutionLawViolation, ResolutionProvider, ResolutionProviderId,
+    ResolutionSpan, ResolutionSpec, ResolutionTextId, ResolutionValueSite, ResolveContext,
+    ResolveDomainError, ResolveError, ResolveOptions, TokenBoundaryProvider, UnresolvedReason,
+    UnresolvedRef, check_resolution_laws,
+};
 pub use traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// Create a [`ProtocolRegistry`] with all available protocol codecs registered.

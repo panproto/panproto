@@ -260,31 +260,53 @@ const fn len(n: u64) -> [u8; 8] {
 
 #[test]
 fn new_value_variants_take_tags_thirteen_to_fifteen() {
-    // Decimal 1.50: tag 13, sign, digits behind their length, exponent.
+    // Decimal 1.50: tag 13, sign, digits behind their length, then the
+    // exponent -2 as its sign byte and its magnitude's digits behind their
+    // length.
     let mut expected = vec![13, 0];
     expected.extend_from_slice(&len(3));
     expected.extend_from_slice(b"150");
-    expected.extend_from_slice(&(-2_i64).to_le_bytes());
+    expected.push(1);
+    expected.extend_from_slice(&len(1));
+    expected.extend_from_slice(b"2");
     assert_eq!(canonical(&Value::Decimal(decimal("1.50"))), expected);
 
-    // BigInt -10^29: tag 14, sign 1, thirty digits.
+    // BigInt -10^29: tag 14, sign 1, the significand "1" behind its length,
+    // then the count of trailing zeros, "29", behind its length.
     let mut expected = vec![14, 1];
-    expected.extend_from_slice(&len(30));
-    expected.extend_from_slice(format!("1{}", "0".repeat(29)).as_bytes());
+    expected.extend_from_slice(&len(1));
+    expected.extend_from_slice(b"1");
+    expected.extend_from_slice(&len(2));
+    expected.extend_from_slice(b"29");
     assert_eq!(
         canonical(&Value::BigInt(big(&format!("-1{}", "0".repeat(29))))),
         expected
     );
 
-    // A local date-time: tag 15, form 2, date, time, offset 0 (local).
+    // A local date-time: tag 15, form 2, date, the separator `T`, time
+    // (with a fraction digit count of zero), offset 0 (local).
     let mut expected = vec![15, 2];
     expected.extend_from_slice(&2026_i64.to_le_bytes());
-    expected.extend_from_slice(&[1, 2, 3, 4, 5]);
-    expected.extend_from_slice(&0_u32.to_le_bytes());
-    expected.extend_from_slice(&[0, 0]);
+    expected.extend_from_slice(&[1, 2, b'T', 3, 4, 5]);
+    expected.extend_from_slice(&0_u64.to_le_bytes());
+    expected.push(0);
     assert_eq!(
         canonical(&Value::Temporal(
             Temporal::parse("2026-01-02T03:04:05").unwrap()
+        )),
+        expected
+    );
+    // A fraction is its digit count and its digits; `Z` is offset 1
+    // followed by the letter's byte.
+    let mut expected = vec![15, 2];
+    expected.extend_from_slice(&2026_i64.to_le_bytes());
+    expected.extend_from_slice(&[1, 2, b'T', 3, 4, 5]);
+    expected.extend_from_slice(&2_u64.to_le_bytes());
+    expected.extend_from_slice(b"50");
+    expected.extend_from_slice(&[1, b'Z']);
+    assert_eq!(
+        canonical(&Value::Temporal(
+            Temporal::parse("2026-01-02T03:04:05.50Z").unwrap()
         )),
         expected
     );
@@ -400,16 +422,26 @@ fn every_value_variant_round_trips_in_every_serde_format() {
     // The exact variants' JSON form holds their fields.
     assert_eq!(
         serde_json::to_string(&Value::Decimal(decimal("1.50"))).unwrap(),
-        r#"{"Decimal":{"negative":false,"digits":"150","exponent":-2}}"#
+        r#"{"Decimal":{"negative":false,"digits":"150","exponent":"-2"}}"#
     );
     assert_eq!(
         serde_json::to_string(&Value::Temporal(Temporal::parse("2026-09-28").unwrap())).unwrap(),
         r#"{"Temporal":{"date":{"year":2026,"month":9,"day":28}}}"#
     );
-    // A BigInt that fits i64 is not a representation of anything.
-    assert!(
-        serde_json::from_str::<Value>(r#"{"BigInt":{"negative":false,"digits":"5"}}"#).is_err()
+    // A BigInt holds its significand and its count of trailing zeros.
+    assert_eq!(
+        serde_json::to_string(&Value::BigInt(big(&format!("-1{}", "0".repeat(29))))).unwrap(),
+        r#"{"BigInt":{"negative":true,"significand":"1","zeros":"29"}}"#
     );
+    // A BigInt that fits i64 is not a representation of anything, and the
+    // former shape with written-out digits is refused.
+    for refused in [
+        r#"{"BigInt":{"negative":false,"significand":"5","zeros":"0"}}"#,
+        r#"{"BigInt":{"negative":false,"significand":"10","zeros":"19"}}"#,
+        r#"{"BigInt":{"negative":false,"digits":"100000000000000000000"}}"#,
+    ] {
+        assert!(serde_json::from_str::<Value>(refused).is_err(), "{refused}");
+    }
 }
 
 // ---------------------------------------------------------------------------

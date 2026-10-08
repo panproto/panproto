@@ -20,7 +20,9 @@ use panproto_schema::{CanonicalWriter, ScalarKind};
 use serde::{Deserialize, Serialize};
 
 pub use panproto_expr::exact::{
-    BigIntValue, CivilDate, CivilTime, DecimalValue, ExactInteger, Offset, Temporal,
+    BigIntValue, CANONICAL_NAN, CivilDate, CivilTime, DateTimeSeparator, DecimalValue,
+    ExactInteger, Fraction, NEGATIVE_CANONICAL_NAN, Offset, Temporal, WideInt, ZuluCase,
+    binary32_bits,
 };
 pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason};
 
@@ -100,9 +102,12 @@ impl FieldPresence {
 /// variants are only ever appended, so the variant index of each is fixed.
 /// Two payloads depend on the format. In a human-readable format (JSON,
 /// and the Python and JavaScript object models) a non-finite
-/// [`Self::Float`] is the string `"NaN"`, `"Infinity"` or `"-Infinity"`,
-/// since JSON has no literal for it; msgpack and CBOR keep the native
-/// float. [`Self::Bytes`] is written as a byte string (a msgpack bin, a
+/// [`Self::Float`] is a string, since JSON has no literal for it:
+/// `"Infinity"` or `"-Infinity"` for an infinity, `"NaN"` for
+/// [`CANONICAL_NAN`], `"-NaN"` for [`NEGATIVE_CANONICAL_NAN`], and
+/// `"NaN:0x"` followed by the sixteen lowercase hexadecimal digits of its
+/// bits for every other NaN, so that a NaN reads back with its bits;
+/// msgpack and CBOR keep the native float. [`Self::Bytes`] is written as a byte string (a msgpack bin, a
 /// CBOR byte string, an integer array in JSON) and read from either a byte
 /// string or an integer sequence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

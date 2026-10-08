@@ -120,6 +120,11 @@ pub enum ParseInstanceError {
         /// Zero-based byte offset of the tag, when recorded by the CST.
         byte_offset: Option<u64>,
     },
+
+    /// The syntactic source parsed, and resolving it into its semantic
+    /// shape failed with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when emitting an instance to raw format bytes.
@@ -183,6 +188,11 @@ pub enum EmitInstanceError {
         /// The column containing the placeholder.
         column: String,
     },
+
+    /// Putting the semantic instance back to its syntactic source failed
+    /// with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when constructing a [`UnifiedCodec`](super::unified_codec::UnifiedCodec).
