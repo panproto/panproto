@@ -28,6 +28,9 @@ use crate::{Lens, LensError};
 
 /// Forward table-lens direction.
 ///
+/// The table restrict plan is compiled once for this call and retained by a
+/// bound lens for the plan-taking engine.
+///
 /// # Errors
 ///
 /// Returns table-plan compilation or restrict errors.
@@ -36,15 +39,51 @@ pub fn get(
     source: &FInstance,
     protocols: BoundaryProtocols<'_>,
 ) -> Result<(FInstance, TableComplement), LensError> {
-    let plan = RestrictPlan::compile_for_tables(
-        &lens.src_schema,
-        &lens.tgt_schema,
-        &lens.compiled,
-        protocols,
-    )?;
-    let (view, mut complement) = restrict_finite_rows(lens, source, &plan, protocols.src)?;
-    complement.stamp(lens.identity(ComplementShape::Functor), &lens.src_schema);
-    Ok((view, complement))
+    let source_protocol = protocols.src;
+    Bound::compile(lens, protocols)?.get(source, source_protocol)
+}
+
+/// A table lens paired with the restrict plan compiled for one boundary.
+struct Bound<'a> {
+    lens: &'a Lens,
+    plan: RestrictPlan,
+}
+
+impl<'a> Bound<'a> {
+    fn compile(lens: &'a Lens, protocols: BoundaryProtocols<'_>) -> Result<Self, LensError> {
+        Self::compile_with(lens, || {
+            RestrictPlan::compile_for_tables(
+                &lens.src_schema,
+                &lens.tgt_schema,
+                &lens.compiled,
+                protocols,
+            )
+        })
+    }
+
+    fn compile_with<F>(lens: &'a Lens, compile: F) -> Result<Self, LensError>
+    where
+        F: FnOnce() -> Result<RestrictPlan, RestrictError>,
+    {
+        Ok(Self {
+            lens,
+            plan: compile()?,
+        })
+    }
+
+    fn get(
+        &self,
+        source: &FInstance,
+        source_protocol: &Protocol,
+    ) -> Result<(FInstance, TableComplement), LensError> {
+        let (view, mut complement) =
+            restrict_finite_rows(self.lens, source, &self.plan, source_protocol)?;
+        complement.stamp(
+            self.lens.identity(ComplementShape::Functor),
+            &self.lens.src_schema,
+        );
+        Ok((view, complement))
+    }
 }
 
 fn law_context(protocols: BoundaryProtocols<'_>) -> crate::TableContext {
@@ -242,6 +281,14 @@ pub fn check_laws_exhaustive(
 ///
 /// A deleted surviving row is an SPO-style deletion: hidden foreign-key
 /// pairs incident to it are not restored. A hidden row itself remains.
+/// The baseline-and-pullback is a relational view-update translation in the
+/// sense of `dayalbernstein1982correct`, Section 5.4, modulo functional
+/// dependencies (inferred), and follows criteria 4 and 2 of
+/// `keller1985algorithms`. A many-to-one rename is handled as drop-then-rename:
+/// the last structural writer receives an edit and complement residue restores
+/// the other sources, matching PostgreSQL updatable-view behaviour. A derived
+/// output is refused as in `postgresql2026createview`; an explicitly registered
+/// inverse pulls the edit back as in `virtuososqlinverse`.
 ///
 /// # Errors
 ///
@@ -928,6 +975,11 @@ fn structural_column_output(source: &str, fates: &[CellFate]) -> Option<String> 
 /// Every reason `view` lies outside the table put domain.
 ///
 /// Reports are sorted by variant, table element and rendered detail.
+/// The domain is the run-time-checked constraint domain of
+/// `trankatohu2020programmable`, and a total source-view put domain with strong
+/// `PutGet` is the domain of `kohu2018axiomatic`, Definition 3.2 and Theorems 2.2
+/// and 3.3. This is a comparison of domain structures, not a claim that this
+/// domain strictly contains earlier domains.
 ///
 /// # Errors
 ///
@@ -1975,4 +2027,57 @@ where
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use panproto_inst::CompiledMigration;
+    use panproto_schema::SchemaBuilder;
+
+    use super::*;
+
+    #[test]
+    fn table_get_compiles_its_plan_once() {
+        let protocol = Protocol {
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        };
+        let Ok(builder) = SchemaBuilder::new(&protocol).vertex("row", "record", None) else {
+            panic!("row schema must build")
+        };
+        let Ok(schema) = builder.build() else {
+            panic!("schema must build")
+        };
+        let lens = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: schema.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: schema.clone(),
+            tgt_schema: schema,
+        };
+        let calls = Cell::new(0_u8);
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let Ok(bound) = Bound::compile_with(&lens, || {
+            calls.set(calls.get() + 1);
+            RestrictPlan::compile_for_tables(
+                &lens.src_schema,
+                &lens.tgt_schema,
+                &lens.compiled,
+                protocols,
+            )
+        }) else {
+            panic!("table plan must compile")
+        };
+        let Ok(source) = FInstance::new().with_rows("row", [(RowId(0), Row::new())]) else {
+            panic!("source row must be admitted")
+        };
+        assert!(bound.get(&source, &protocol).is_ok());
+        assert_eq!(calls.get(), 1);
+    }
 }

@@ -10,9 +10,9 @@ use panproto_inst::identity::{
     AnyComplement, Encoding, IdentityCarrier, IdentityField, decode_complement,
 };
 use panproto_inst::{
-    BoundaryProtocols, CompiledMigration, ComplementShape, EdgeId, FInstance, FieldTransform,
-    IdentityError, PutDomainError, RowId, SynthIndex, TableComplement, TableEmbedding, Value,
-    ViewRef,
+    BoundaryProtocols, CompiledMigration, ComplementShape, EdgeId, FInstance, FidelityReason,
+    FieldTransform, GInstance, IdentityError, Node, NotTableReason, PutDomainError, RestrictError,
+    RowId, SynthIndex, TableComplement, TableEmbedding, TableShapeReport, Value, ViewRef,
 };
 use panproto_lens::asymmetric::ComplementCompose;
 use panproto_lens::table_lens;
@@ -21,8 +21,8 @@ use panproto_lens::{
     TableContext, TableShape,
 };
 use panproto_schema::{
-    ConstraintSemantics, Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, ScalarKind, Schema,
-    SchemaBuilder,
+    Cardinality, ConstraintSemantics, Edge, Key, KeyPart, KeyRole, KeyScope, OnUnresolved,
+    PathSyntax, Protocol, RefSource, Reference, ResolveMode, ScalarKind, Schema, SchemaBuilder,
 };
 use proptest::prelude::*;
 use serde::Deserialize;
@@ -258,6 +258,461 @@ fn one_column() -> (Protocol, Schema, Lens, FInstance) {
         .with_rows("t", [(RowId(0), row(&[("a", Value::Int(1))]))])
         .unwrap();
     (p, schema, lens, source)
+}
+
+fn reference_for(edge: &Edge, cardinality: Cardinality, nullable: bool) -> Reference {
+    Reference {
+        id: "reference".into(),
+        holder: edge.src.clone(),
+        source: RefSource::Path {
+            field: Vec::new(),
+            syntax: PathSyntax::IdRef,
+        },
+        target_vertex: edge.tgt.clone(),
+        target_key: None,
+        edge: Some(edge.clone()),
+        cardinality,
+        nullable,
+        on_unresolved: OnUnresolved::Error,
+        mode: ResolveMode::AddEdge,
+    }
+}
+
+fn two_lifts(edge: &Edge) -> GInstance {
+    GInstance::new()
+        .with_node(Node::new(0, edge.src.clone()))
+        .with_node(Node::new(1, edge.tgt.clone()))
+        .with_node(Node::new(2, edge.tgt.clone()))
+        .with_edge_id(EdgeId(7), 0, 1, edge.clone())
+        .with_edge_id(EdgeId(9), 0, 2, edge.clone())
+}
+
+fn no_lift(edge: &Edge) -> GInstance {
+    GInstance::new()
+        .with_node(Node::new(0, edge.src.clone()))
+        .with_node(Node::new(1, edge.tgt.clone()))
+}
+
+#[test]
+fn an_fk_is_functional_exactly_when_a_one_reference_declares_it() {
+    let edge = fk("holder", "target", "target");
+    let base = tables(&[("holder", &[]), ("target", &[])], &[&edge]);
+    let multiple = two_lifts(&edge);
+    let missing = no_lift(&edge);
+
+    for nullable in [false, true] {
+        let mut many = base.clone();
+        many.declarations.references.insert(
+            "reference".into(),
+            reference_for(&edge, Cardinality::Many, nullable),
+        );
+        assert_eq!(multiple.table_shape(&many), TableShapeReport::Table);
+        assert_eq!(missing.table_shape(&many), TableShapeReport::Table);
+    }
+
+    let mut optional_one = base.clone();
+    optional_one.declarations.references.insert(
+        "reference".into(),
+        reference_for(&edge, Cardinality::One, true),
+    );
+    assert!(matches!(
+        multiple.table_shape(&optional_one),
+        TableShapeReport::NotTable {
+            reason: NotTableReason::MultipleLifts { node: 0, edge: found, .. }
+        } if found == edge
+    ));
+    assert_eq!(missing.table_shape(&optional_one), TableShapeReport::Table);
+
+    let mut required_one = base;
+    required_one.declarations.references.insert(
+        "reference".into(),
+        reference_for(&edge, Cardinality::One, false),
+    );
+    assert!(matches!(
+        multiple.table_shape(&required_one),
+        TableShapeReport::NotTable {
+            reason: NotTableReason::MultipleLifts { node: 0, edge: found, .. }
+        } if found == edge
+    ));
+    assert_eq!(
+        missing.table_shape(&required_one),
+        TableShapeReport::NotTable {
+            reason: NotTableReason::MissingLift { node: 0, edge },
+        }
+    );
+}
+
+#[test]
+fn a_schema_without_references_treats_every_fk_as_a_relation() {
+    let edge = fk("holder", "target", "target");
+    let schema = tables(&[("holder", &[]), ("target", &[])], &[&edge]);
+    assert!(schema.declarations.references.is_empty());
+    assert_eq!(
+        two_lifts(&edge).table_shape(&schema),
+        TableShapeReport::Table
+    );
+    assert_eq!(no_lift(&edge).table_shape(&schema), TableShapeReport::Table);
+}
+
+#[test]
+fn table_get_stamps_its_complement() {
+    let (protocol, _, lens, source) = one_column();
+    let (_, complement) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    assert_eq!(
+        complement.identity,
+        Some(lens.identity(ComplementShape::Functor))
+    );
+    assert!(
+        complement
+            .verify(&lens, panproto_inst::IdentityPolicy::Strict)
+            .is_ok()
+    );
+}
+
+#[test]
+fn every_get_path_stamps_its_complement() {
+    let (protocol, schema, lens, source) = one_column();
+    let expected = lens.identity(ComplementShape::Functor);
+    let (_, direct) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    assert_eq!(direct.identity.as_ref(), Some(&expected));
+
+    let path = LensPath::single(identity(&schema));
+    let (_, path_complement) = path
+        .get_table(&source, &[protocol.clone(), protocol])
+        .unwrap();
+    assert_eq!(path_complement.entries().len(), 1);
+    assert_eq!(path_complement.entries()[0].envelope, expected);
+    assert_eq!(
+        path_complement.entries()[0].complement.identity.as_ref(),
+        Some(&expected)
+    );
+}
+
+fn binary32_table_lens(output: f64) -> (Lens, Protocol) {
+    let protocol = Protocol {
+        value_kinds: BTreeMap::from([("float32".to_owned(), ScalarKind::Float { bits: 32 })]),
+        non_value_kinds: BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    };
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("row", "record", None)
+        .unwrap()
+        .vertex("row.x", "float32", None)
+        .unwrap()
+        .edge("row", "row.x", "column", Some("x"))
+        .unwrap()
+        .build()
+        .unwrap();
+    let lens = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: schema.vertices.keys().cloned().collect(),
+            surviving_edges: schema.edges.keys().cloned().collect(),
+            field_transforms: HashMap::from([(
+                "row".into(),
+                vec![FieldTransform::ComputeField {
+                    target_key: "x".to_owned(),
+                    expr: Expr::Lit(Literal::Float(output)),
+                    inverse: None,
+                    coercion_class: CoercionClass::Opaque,
+                }],
+            )]),
+            ..CompiledMigration::default()
+        },
+        src_schema: schema.clone(),
+        tgt_schema: schema,
+    };
+    (lens, protocol)
+}
+
+#[test]
+fn a_float_that_is_not_a_binary32_is_refused_by_table_get() {
+    let (lens, protocol) = binary32_table_lens(0.1);
+    let source = FInstance::new()
+        .with_rows("row", [(RowId(0), row(&[]))])
+        .unwrap();
+    let error = table_lens::get(&lens, &source, contexts(&protocol))
+        .expect_err("0.1 is not exactly binary32");
+    assert!(
+        matches!(
+            &error,
+            LensError::Restrict(restrict)
+                if matches!(
+                    restrict.unlocated(),
+                    RestrictError::ValueFidelity { node: 0, error }
+                        if error.site.vertex.as_str() == "row.x"
+                            && error.reason == FidelityReason::PrecisionExceeded { max: 9 }
+                )
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_exact_binary32_table_cell_is_restored_by_put() {
+    let exact = f64::from(0.1_f32);
+    let (lens, protocol) = binary32_table_lens(exact);
+    let source = FInstance::new()
+        .with_rows("row", [(RowId(0), row(&[("x", Value::Int(7))]))])
+        .unwrap();
+    let (view, complement) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["x"], Value::Float(exact));
+    assert_eq!(
+        table_lens::put(&lens, &view, &complement, contexts(&protocol)).unwrap(),
+        source
+    );
+}
+
+fn structural_column_lens(
+    source_columns: &[&str],
+    target_columns: &[&str],
+    renames: &[(&str, &str)],
+) -> Lens {
+    let source = tables(
+        &[(
+            "t",
+            &source_columns
+                .iter()
+                .map(|column| (*column, "int"))
+                .collect::<Vec<_>>(),
+        )],
+        &[],
+    );
+    let target = tables(
+        &[(
+            "t",
+            &target_columns
+                .iter()
+                .map(|column| (*column, "int"))
+                .collect::<Vec<_>>(),
+        )],
+        &[],
+    );
+    Lens {
+        compiled: CompiledMigration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges.keys().cloned().collect(),
+            vertex_remap: renames
+                .iter()
+                .map(|(source, target)| {
+                    (format!("t.{source}").into(), format!("t.{target}").into())
+                })
+                .collect(),
+            edge_remap: renames
+                .iter()
+                .map(|(source, target)| (column("t", source), column("t", target)))
+                .collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: source,
+        tgt_schema: target,
+    }
+}
+
+#[test]
+fn a_column_swap_writes_the_swapped_source() {
+    let protocol = protocol();
+    let lens = structural_column_lens(&["a", "b"], &["a", "b"], &[("a", "b"), ("b", "a")]);
+    let source = FInstance::new()
+        .with_rows(
+            "t",
+            [(RowId(0), row(&[("a", Value::Int(1)), ("b", Value::Int(2))]))],
+        )
+        .unwrap();
+    let (mut view, complement) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).unwrap(),
+        &row(&[("a", Value::Int(2)), ("b", Value::Int(1))])
+    );
+    view.row_mut(RowId(0))
+        .unwrap()
+        .insert("a".into(), Value::Int(9));
+    assert_eq!(
+        table_lens::put(&lens, &view, &complement, contexts(&protocol)).unwrap(),
+        FInstance::new()
+            .with_rows(
+                "t",
+                [(RowId(0), row(&[("a", Value::Int(1)), ("b", Value::Int(9))]))],
+            )
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_many_to_one_rename_writes_the_last_source() {
+    let protocol = protocol();
+    let lens = structural_column_lens(&["a", "b"], &["c"], &[("a", "c"), ("b", "c")]);
+    let source = FInstance::new()
+        .with_rows(
+            "t",
+            [(RowId(0), row(&[("a", Value::Int(1)), ("b", Value::Int(2))]))],
+        )
+        .unwrap();
+    let (mut view, complement) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["c"], Value::Int(2));
+    view.row_mut(RowId(0))
+        .unwrap()
+        .insert("c".into(), Value::Int(9));
+    let updated = table_lens::put(&lens, &view, &complement, contexts(&protocol)).unwrap();
+    assert_eq!(
+        updated.row(RowId(0)).unwrap(),
+        &row(&[("a", Value::Int(1)), ("b", Value::Int(9))])
+    );
+}
+
+#[test]
+fn a_transform_fixing_its_input_round_trips_or_refuses() {
+    let (protocol, _, mut square, source) = one_column();
+    square.compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ApplyExpr {
+            key: "a".into(),
+            expr: Expr::Builtin(
+                BuiltinOp::Mul,
+                vec![Expr::Var("a".into()), Expr::Var("a".into())],
+            ),
+            inverse: Some(Expr::Lit(Literal::Int(1))),
+            coercion_class: CoercionClass::Iso,
+        }],
+    );
+    let (view, complement) = table_lens::get(&square, &source, contexts(&protocol)).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["a"], Value::Int(1));
+    assert_eq!(
+        table_lens::put(&square, &view, &complement, contexts(&protocol)).unwrap(),
+        source
+    );
+
+    let (_, _, mut absolute, _) = one_column();
+    absolute.compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ApplyExpr {
+            key: "a".into(),
+            expr: Expr::Builtin(BuiltinOp::Abs, vec![Expr::Var("a".into())]),
+            inverse: None,
+            coercion_class: CoercionClass::Projection,
+        }],
+    );
+    let negative = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(-1))]))])
+        .unwrap();
+    let (mut view, complement) =
+        table_lens::get(&absolute, &negative, contexts(&protocol)).unwrap();
+    view.row_mut(RowId(0))
+        .unwrap()
+        .insert("a".into(), Value::Int(2));
+    assert!(matches!(
+        table_lens::put(&absolute, &view, &complement, contexts(&protocol)),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::TransformNotInvertible {
+                elem: ViewRef::Row(RowId(0)), ref field
+            } if field == "a")
+    ));
+}
+
+#[test]
+fn a_rename_into_an_unfated_name_writes_that_name() {
+    let protocol = protocol();
+    let lens = structural_column_lens(&["b"], &["a"], &[("b", "a")]);
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("b", Value::Int(2))]))])
+        .unwrap();
+    let (mut view, complement) = table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+    view.row_mut(RowId(0))
+        .unwrap()
+        .insert("a".into(), Value::Int(9));
+    let updated = table_lens::put(&lens, &view, &complement, contexts(&protocol)).unwrap();
+    assert_eq!(updated.row(RowId(0)).unwrap()["b"], Value::Int(9));
+}
+
+#[test]
+fn table_writer_matches_the_independent_finite_oracle() {
+    const SOURCES: [&str; 2] = ["x", "y"];
+    const IMAGES: [Option<&str>; 3] = [None, Some("a"), Some("b")];
+    const VALUES: [i64; 3] = [-1, 0, 1];
+    const EDITS: [i64; 2] = [-2, 2];
+
+    let protocol = protocol();
+    let mut mappings = 0_usize;
+    let mut source_rows = 0_usize;
+    let mut edited_views = 0_usize;
+    for x_image in IMAGES {
+        for y_image in IMAGES {
+            mappings += 1;
+            let images = [x_image, y_image];
+            let target_columns = [x_image, y_image]
+                .into_iter()
+                .flatten()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let renames = SOURCES
+                .into_iter()
+                .zip(images)
+                .filter_map(|(source, target)| target.map(|target| (source, target)))
+                .collect::<Vec<_>>();
+            let lens = structural_column_lens(&SOURCES, &target_columns, &renames);
+
+            for x_value in VALUES {
+                for y_value in VALUES {
+                    source_rows += 1;
+                    let source = FInstance::new()
+                        .with_rows(
+                            "t",
+                            [(
+                                RowId(0),
+                                row(&[("x", Value::Int(x_value)), ("y", Value::Int(y_value))]),
+                            )],
+                        )
+                        .unwrap();
+                    let (view, complement) =
+                        table_lens::get(&lens, &source, contexts(&protocol)).unwrap();
+
+                    let mut oracle_view = HashMap::new();
+                    for ((_, image), value) in
+                        SOURCES.into_iter().zip(images).zip([x_value, y_value])
+                    {
+                        if let Some(image) = image {
+                            oracle_view.insert(image.to_owned(), Value::Int(value));
+                        }
+                    }
+                    assert_eq!(view.row(RowId(0)).unwrap(), &oracle_view);
+
+                    for target in &target_columns {
+                        for edit in EDITS {
+                            edited_views += 1;
+                            let mut edited = view.clone();
+                            edited
+                                .row_mut(RowId(0))
+                                .unwrap()
+                                .insert((*target).to_owned(), Value::Int(edit));
+                            let writer = SOURCES
+                                .into_iter()
+                                .zip(images)
+                                .rev()
+                                .find_map(|(source, image)| {
+                                    (image == Some(*target)).then_some(source)
+                                })
+                                .expect("an image column has a writer");
+                            let mut oracle_source = source.clone();
+                            oracle_source
+                                .row_mut(RowId(0))
+                                .unwrap()
+                                .insert(writer.to_owned(), Value::Int(edit));
+                            assert_eq!(
+                                table_lens::put(&lens, &edited, &complement, contexts(&protocol))
+                                    .unwrap(),
+                                oracle_source,
+                                "mapping={images:?}, values=({x_value},{y_value}), target={target}, edit={edit}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "table writer exhaustive bound: source_columns=2, image_choices=3, mappings={mappings}, value_alphabet=3, source_rows={source_rows}, edit_alphabet=2, edited_views={edited_views}"
+    );
+    assert_eq!((mappings, source_rows, edited_views), (9, 81, 180));
 }
 
 fn raw_complement_free_put(
@@ -2137,6 +2592,46 @@ fn table_synth_keys_use_the_pair_embedding() {
     );
 }
 
+fn contraction_case(chain_count: usize) -> (Protocol, Lens, FInstance) {
+    let protocol = protocol();
+    let am = fk("a", "m", "am");
+    let mb = fk("m", "b", "mb");
+    let ab = fk("a", "b", "ab");
+    let source_schema = tables(&[("a", &[]), ("m", &[]), ("b", &[])], &[&am, &mb]);
+    let target_schema = tables(&[("a", &[]), ("b", &[])], &[&ab]);
+    let lens = Lens {
+        compiled: identity(&target_schema).compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let rows = |offset: u32| {
+        (0..chain_count).map(move |index| {
+            (
+                RowId(u32::try_from(index).expect("small generated index") * 3 + offset),
+                HashMap::new(),
+            )
+        })
+    };
+    let pairs = |source_offset: u32, target_offset: u32| {
+        (0..chain_count).map(move |index| {
+            let base = u32::try_from(index).expect("small generated index") * 3;
+            (RowId(base + source_offset), RowId(base + target_offset))
+        })
+    };
+    let source = FInstance::new()
+        .with_rows("a", rows(0))
+        .unwrap()
+        .with_rows("m", rows(1))
+        .unwrap()
+        .with_rows("b", rows(2))
+        .unwrap()
+        .with_foreign_key(am, pairs(0, 1))
+        .unwrap()
+        .with_foreign_key(mb, pairs(1, 2))
+        .unwrap();
+    (protocol, lens, source)
+}
+
 proptest! {
     #[test]
     fn identity_round_trips_integer_cells(value in any::<i64>()) {
@@ -2230,6 +2725,184 @@ proptest! {
             table_lens::put(&first, &middle, &first_complement, contexts(&p))
                 .expect("first put");
         prop_assert_eq!(compiled_source, sequential_source);
+    }
+
+    #[test]
+    fn graph_and_table_composition_follow_the_identity_table(
+        values in prop::collection::vec(any::<i16>(), 0..12),
+    ) {
+        let protocol = protocol();
+        let schema = tables(&[("t", &[("a", "int")])], &[]);
+        let lens = identity(&schema);
+        let left = table_lens::compose(&identity(&schema), &lens, &protocol, &protocol, &protocol)
+            .expect("left identity composition");
+        let right = table_lens::compose(&lens, &identity(&schema), &protocol, &protocol, &protocol)
+            .expect("right identity composition");
+        let GraphComposite::Compiled(left) = left else {
+            return Err(TestCaseError::fail("left table identity did not fuse"));
+        };
+        let GraphComposite::Compiled(right) = right else {
+            return Err(TestCaseError::fail("right table identity did not fuse"));
+        };
+        let source = FInstance::new()
+            .with_rows(
+                "t",
+                values.iter().enumerate().map(|(index, value)| {
+                    (
+                        RowId(u32::try_from(index).expect("small generated index")),
+                        row(&[("a", Value::Int(i64::from(*value)))]),
+                    )
+                }),
+            )
+            .expect("generated rows");
+        for composite in [&*left, &*right] {
+            let (view, complement) = table_lens::get(composite, &source, contexts(&protocol))
+                .expect("identity get");
+            prop_assert_eq!(&view, &source);
+            prop_assert_eq!(
+                table_lens::put(composite, &view, &complement, contexts(&protocol))
+                    .expect("identity put"),
+                source.clone()
+            );
+        }
+    }
+
+    #[test]
+    fn table_normal_form_agrees_with_the_folds_around_synthesizing_stages(
+        chain_count in 0_usize..8,
+    ) {
+        let (protocol, contraction, source) = contraction_case(chain_count);
+        let target_schema = contraction.tgt_schema.clone();
+        let path = LensPath::single(contraction)
+            .then(&LensPath::single(identity(&target_schema)))
+            .expect("first path boundary")
+            .then(&LensPath::single(identity(&target_schema)))
+            .expect("second path boundary");
+        let protocols = [
+            protocol.clone(),
+            protocol.clone(),
+            protocol.clone(),
+            protocol,
+        ];
+
+        let mut atomic_view = source.clone();
+        let mut atomic_complements = Vec::new();
+        for (index, stage) in path.stages().iter().enumerate() {
+            let (next, complement) = table_lens::get(
+                stage,
+                &atomic_view,
+                BoundaryProtocols {
+                    src: &protocols[index],
+                    tgt: &protocols[index + 1],
+                },
+            )
+            .expect("atomic get");
+            atomic_view = next;
+            atomic_complements.push(complement);
+        }
+        let (normal_view, normal_complement) = path
+            .get_table(&source, &protocols)
+            .expect("normal-form get");
+        prop_assert_eq!(&normal_view, &atomic_view);
+        if chain_count > 0 {
+            prop_assert!(
+                normal_complement
+                    .entries()
+                    .iter()
+                    .any(|entry| !entry.complement.synthesized_fk_pairs.is_empty())
+            );
+        }
+
+        let mut atomic_source = atomic_view;
+        for index in (0..path.stages().len()).rev() {
+            atomic_source = table_lens::put(
+                &path.stages()[index],
+                &atomic_source,
+                &atomic_complements[index],
+                BoundaryProtocols {
+                    src: &protocols[index],
+                    tgt: &protocols[index + 1],
+                },
+            )
+            .expect("atomic put");
+        }
+        let normal_source = path
+            .put_table(&normal_view, &normal_complement, &protocols)
+            .expect("normal-form put");
+        prop_assert_eq!(&normal_source, &atomic_source);
+        prop_assert_eq!(normal_source, source);
+    }
+
+    #[test]
+    fn every_fusion_preserves_sequential_behaviour_on_tables(
+        values in prop::collection::vec(any::<i16>(), 0..12),
+    ) {
+        let protocol = protocol();
+        let schema = tables(&[("t", &[("a", "int")])], &[]);
+        let source = FInstance::new()
+            .with_rows(
+                "t",
+                values.iter().enumerate().map(|(index, value)| {
+                    (
+                        RowId(u32::try_from(index).expect("small generated index")),
+                        row(&[("a", Value::Int(i64::from(*value)))]),
+                    )
+                }),
+            )
+            .expect("generated rows");
+        let mut filtered = identity(&schema);
+        filtered.compiled.add_conditional_survival(
+            "t",
+            Expr::Builtin(
+                BuiltinOp::Gte,
+                vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(0))],
+            ),
+        );
+        let pairs = [
+            (identity(&schema), identity(&schema)),
+            (filtered, identity(&schema)),
+        ];
+        for (first, second) in pairs {
+            let composite = table_lens::compose(&first, &second, &protocol, &protocol, &protocol)
+                .expect("composition");
+            let GraphComposite::Compiled(compiled) = composite else {
+                return Err(TestCaseError::fail("fusible table pair did not fuse"));
+            };
+            let (compiled_view, compiled_complement) = table_lens::get(
+                &compiled,
+                &source,
+                contexts(&protocol),
+            )
+            .expect("compiled get");
+            let (middle, first_complement) =
+                table_lens::get(&first, &source, contexts(&protocol)).expect("first get");
+            let (sequential_view, second_complement) =
+                table_lens::get(&second, &middle, contexts(&protocol)).expect("second get");
+            prop_assert_eq!(&compiled_view, &sequential_view);
+            let compiled_source = table_lens::put(
+                &compiled,
+                &compiled_view,
+                &compiled_complement,
+                contexts(&protocol),
+            )
+                .expect("compiled put");
+            let middle = table_lens::put(
+                &second,
+                &sequential_view,
+                &second_complement,
+                contexts(&protocol),
+            )
+            .expect("second put");
+            let sequential_source = table_lens::put(
+                &first,
+                &middle,
+                &first_complement,
+                contexts(&protocol),
+            )
+            .expect("first put");
+            prop_assert_eq!(&compiled_source, &sequential_source);
+            prop_assert_eq!(compiled_source, source.clone());
+        }
     }
 
     #[test]
