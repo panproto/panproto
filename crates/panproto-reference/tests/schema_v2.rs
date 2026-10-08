@@ -16,7 +16,10 @@ use panproto_reference::resolution::{rfc3986, standoff_form, standoff_inverse};
 use panproto_reference::schema::{
     Change, Key, KeyPart, KeyRole, KeyScope, Schema, canonical_bytes, classify_change,
 };
-use panproto_reference::temporal::{TimeUnit, from_epoch_count, to_epoch_count};
+use panproto_reference::temporal::{
+    TemporalKind, TimeUnit, cmp_chronological, day_number, from_epoch_count, parse, parse_display,
+    to_epoch_count,
+};
 use panproto_reference::value::Value;
 
 fn read_dialect(
@@ -287,6 +290,64 @@ fn epoch_count_conversions_are_two_sided_on_the_contract_centre() {
             }
         }
     }
+}
+
+#[test]
+fn epoch_count_conversions_are_two_sided_at_each_exact_domain_bound() {
+    let epoch = day_number(1970, 1, 1);
+    let first_second = (day_number(i64::MIN, 1, 1) - epoch)
+        .checked_mul(86_400)
+        .unwrap();
+    let after_last_second = (day_number(i64::MAX, 12, 31) + 1 - epoch)
+        .checked_mul(86_400)
+        .unwrap();
+    for unit in [
+        TimeUnit::Seconds,
+        TimeUnit::Millis,
+        TimeUnit::Micros,
+        TimeUnit::Nanos,
+    ] {
+        let ticks = match unit {
+            TimeUnit::Seconds => 1,
+            TimeUnit::Millis => 1_000,
+            TimeUnit::Micros => 1_000_000,
+            TimeUnit::Nanos => 1_000_000_000,
+        };
+        let lower = first_second.checked_mul(ticks).unwrap();
+        let upper_exclusive = after_last_second.checked_mul(ticks).unwrap();
+        for instant in [false, true] {
+            assert_eq!(from_epoch_count(lower - 1, unit, instant), None);
+            assert_eq!(from_epoch_count(upper_exclusive, unit, instant), None);
+            for distance in 0..=10_000 {
+                for count in [lower + distance, upper_exclusive - 1 - distance] {
+                    let value = from_epoch_count(count, unit, instant).unwrap();
+                    assert_eq!(to_epoch_count(&value, unit, instant), Some(count));
+                }
+            }
+            assert_eq!(from_epoch_count(i128::MIN, unit, instant), None);
+            assert_eq!(from_epoch_count(i128::MAX, unit, instant), None);
+        }
+    }
+}
+
+#[test]
+fn extreme_years_parse_display_and_compare_without_narrow_arithmetic() {
+    let minimum = "-9223372036854775808-01-01";
+    let maximum = "9223372036854775807-12-31";
+    assert!(parse_display(TemporalKind::Date, minimum));
+    assert!(parse_display(TemporalKind::Date, maximum));
+    let min_value = parse(TemporalKind::Date, minimum).unwrap();
+    let max_value = parse(TemporalKind::Date, maximum).unwrap();
+    assert_eq!(min_value.to_string(), minimum);
+    assert_eq!(max_value.to_string(), maximum);
+    assert_eq!(
+        cmp_chronological(&min_value, &max_value),
+        Some(Ordering::Less)
+    );
+    assert_eq!(
+        cmp_chronological(&max_value, &min_value),
+        Some(Ordering::Greater)
+    );
 }
 
 #[test]

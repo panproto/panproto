@@ -3522,13 +3522,24 @@ pub mod temporal {
         }
     }
 
+    /// Ceiling division for a positive divisor, exact for negative dividends.
+    const fn div_ceil(value: i128, divisor: i128) -> i128 {
+        let quotient = value.div_euclid(divisor);
+        if value.rem_euclid(divisor) == 0 {
+            quotient
+        } else {
+            quotient + 1
+        }
+    }
+
     /// Days from 0000-03-01 style counting avoided: the number of days before
     /// January 1 of year `y` since January 1 of year 0, proleptic Gregorian,
     /// from the leap rule (divisible by 4, except by 100 unless by 400).
-    fn days_before_year(y: i64) -> i64 {
+    fn days_before_year(y: i64) -> i128 {
         // Leap years in [0, y): ceil(y/4) - ceil(y/100) + ceil(y/400), which for
         // negative y counts backwards; div_euclid keeps it exact both ways.
-        let leaps = |k: i64| (y + k - 1).div_euclid(k);
+        let y = i128::from(y);
+        let leaps = |k| div_ceil(y, k);
         365 * y + leaps(4) - leaps(100) + leaps(400)
     }
 
@@ -3557,9 +3568,9 @@ pub mod temporal {
 
     /// The day number of a full date since January 1 of year 0.
     #[must_use]
-    pub fn day_number(y: i64, m: u8, d: u8) -> i64 {
-        let months: i64 = (1..m).map(|k| i64::from(month_length(y, k))).sum();
-        days_before_year(y) + months + i64::from(d) - 1
+    pub fn day_number(y: i64, m: u8, d: u8) -> i128 {
+        let months: i128 = (1..m).map(|k| i128::from(month_length(y, k))).sum();
+        days_before_year(y) + months + i128::from(d) - 1
     }
 
     /// The key a value is ordered by within its comparability class.
@@ -3571,35 +3582,40 @@ pub mod temporal {
     /// minute, after second 59 and before the next minute's second 0. For a
     /// value without a year that is not truncated (a time): the same with no
     /// days. For a truncated value: its present fields, most significant first.
-    fn order_key(v: &Temporal) -> (Vec<i64>, String) {
+    fn order_key(v: &Temporal) -> Option<(Vec<i128>, String)> {
         let fraction = v
             .time
             .as_ref()
             .map(|t| t.fraction.clone())
             .unwrap_or_default();
-        let second = v.time.as_ref().and_then(|t| t.second).map_or(0, i64::from);
+        let second = v.time.as_ref().and_then(|t| t.second).map_or(0, i128::from);
         if v.is_truncated() {
             let mut fields = Vec::new();
             if let Some(d) = v.date {
-                fields.extend(d.month.map(i64::from));
-                fields.extend(d.day.map(i64::from));
+                fields.extend(d.month.map(i128::from));
+                fields.extend(d.day.map(i128::from));
             }
             if let Some(t) = &v.time {
-                fields.extend(t.hour.map(i64::from));
-                fields.extend(t.minute.map(i64::from));
-                fields.extend(t.second.map(i64::from));
+                fields.extend(t.hour.map(i128::from));
+                fields.extend(t.minute.map(i128::from));
+                fields.extend(t.second.map(i128::from));
             }
-            return (fields, fraction);
+            return Some((fields, fraction));
         }
         let days = v.date.and_then(|d| {
             d.year
                 .map(|y| day_number(y.value, d.month.unwrap_or(1), d.day.unwrap_or(1)))
         });
-        let hour = v.time.as_ref().and_then(|t| t.hour).map_or(0, i64::from);
-        let minute = v.time.as_ref().and_then(|t| t.minute).map_or(0, i64::from);
-        let shift = v.offset.minutes().unwrap_or(0);
-        let minutes = days.unwrap_or(0) * 1440 + hour * 60 + minute - shift;
-        (vec![minutes, second], fraction)
+        let hour = v.time.as_ref().and_then(|t| t.hour).map_or(0, i128::from);
+        let minute = v.time.as_ref().and_then(|t| t.minute).map_or(0, i128::from);
+        let shift = i128::from(v.offset.minutes().unwrap_or(0));
+        let minutes = days
+            .unwrap_or(0)
+            .checked_mul(1440)?
+            .checked_add(hour.checked_mul(60)?)?
+            .checked_add(minute)?
+            .checked_sub(shift)?;
+        Some((vec![minutes, second], fraction))
     }
 
     /// Compare two fractional-second digit strings as decimal fractions: the
@@ -3630,8 +3646,8 @@ pub mod temporal {
         if !comparable(a, b) {
             return None;
         }
-        let (ka, fa) = order_key(a);
-        let (kb, fb) = order_key(b);
+        let (ka, fa) = order_key(a)?;
+        let (kb, fb) = order_key(b)?;
         Some(ka.cmp(&kb).then_with(|| cmp_fraction(&fa, &fb)))
     }
 
@@ -3663,9 +3679,14 @@ pub mod temporal {
         if !ok {
             return None;
         }
-        let magnitude: i64 = body.parse().ok()?;
+        let magnitude: u64 = body.parse().ok()?;
+        let value = if neg {
+            i64::try_from(-i128::from(magnitude)).ok()?
+        } else {
+            i64::try_from(magnitude).ok()?
+        };
         Some(Year {
-            value: if neg { -magnitude } else { magnitude },
+            value,
             negative_zero: neg && magnitude == 0,
             width: body.len(),
         })
@@ -3970,22 +3991,25 @@ pub mod temporal {
         }
     }
 
-    fn days_before_year_wide(year: i128) -> i128 {
-        let leaps = |divisor: i128| (year + divisor - 1).div_euclid(divisor);
-        365 * year + leaps(4) - leaps(100) + leaps(400)
+    fn days_before_year_wide(year: i128) -> Option<i128> {
+        let leaps = |divisor| div_ceil(year, divisor);
+        year.checked_mul(365)?
+            .checked_add(leaps(4))?
+            .checked_sub(leaps(100))?
+            .checked_add(leaps(400))
     }
 
     fn date_from_day(day: i128) -> Option<(i64, u8, u8)> {
         let cycle = day.div_euclid(146_097);
         let mut year = cycle.checked_mul(400)?;
-        while days_before_year_wide(year + 1) <= day {
-            year += 1;
+        while days_before_year_wide(year.checked_add(1)?)? <= day {
+            year = year.checked_add(1)?;
         }
-        while days_before_year_wide(year) > day {
-            year -= 1;
+        while days_before_year_wide(year)? > day {
+            year = year.checked_sub(1)?;
         }
         let year_i64 = i64::try_from(year).ok()?;
-        let mut within = day - days_before_year_wide(year);
+        let mut within = day.checked_sub(days_before_year_wide(year)?)?;
         let mut month = 1u8;
         while month <= 12 {
             let length = i128::from(month_length(year_i64, month));
@@ -4011,15 +4035,16 @@ pub mod temporal {
         let fraction = count.rem_euclid(ticks);
         let days = seconds.div_euclid(86_400);
         let in_day = seconds.rem_euclid(86_400);
-        let epoch = i128::from(day_number(1970, 1, 1));
+        let epoch = day_number(1970, 1, 1);
         let (year, month, day) = date_from_day(epoch.checked_add(days)?)?;
         let width = usize::try_from(unit.digits()).ok()?;
+        let year_width = year.unsigned_abs().to_string().len().max(4);
         Some(Temporal {
             date: Some(DateFields {
                 year: Some(Year {
                     value: year,
                     negative_zero: false,
-                    width: 4,
+                    width: year_width,
                 }),
                 month: Some(month),
                 day: Some(day),
@@ -4080,8 +4105,8 @@ pub mod temporal {
         } else {
             time.fraction.parse::<i128>().ok()?
         };
-        let epoch = i128::from(day_number(1970, 1, 1));
-        let days = i128::from(day_number(year.value, month, day)).checked_sub(epoch)?;
+        let epoch = day_number(1970, 1, 1);
+        let days = day_number(year.value, month, day).checked_sub(epoch)?;
         let seconds = days
             .checked_mul(86_400)?
             .checked_add(i128::from(hour) * 3_600)?
@@ -4121,7 +4146,7 @@ pub mod temporal {
                 } else {
                     ""
                 };
-                write!(f, "{sign}{:0w$}", y.value.abs(), w = y.width)?;
+                write!(f, "{sign}{:0w$}", y.value.unsigned_abs(), w = y.width)?;
                 if let Some(m) = d.month {
                     write!(f, "-{m:02}")?;
                 }
