@@ -116,8 +116,29 @@ fn an_edge_to_a_missing_node_is_an_endpoint_finding_not_a_panic() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
 fn path_and_many_references_are_executable_or_explicitly_incomplete() {
+    let (schema, graph) = path_and_many_fixture();
+    let report = validation::validate(&schema, &BTreeMap::new(), &graph).unwrap();
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        matches!(
+            &diagnostic.violation,
+            panproto_reference::validation::Violation::DanglingReference(reference, values)
+                if reference == "path" && values == &[Value::Str("/missing".into())]
+        )
+    }));
+    assert!(report.incomplete.iter().any(|(check, _, subject, detail)| {
+        check.kind == CheckKind::ReferenceResolves
+            && subject == &Some(panproto_reference::lens::ViewRef::Node(0))
+            && detail.contains("ReferenceCardinalityMismatch")
+    }));
+    assert_eq!(report.status, CheckStatus::Failed);
+
+    let mut invalid = schema;
+    invalid.references.get_mut("path").unwrap().target_key = Some("absent".into());
+    assert!(validation::validate(&invalid, &BTreeMap::new(), &graph).is_none());
+}
+
+fn path_and_many_fixture() -> (Schema, Graph) {
     let path = SEdge::new("holder", "scalar", "prop", Some("path"));
     let left = SEdge::new("holder", "scalar", "prop", Some("left"));
     let right = SEdge::new("holder", "scalar", "prop", Some("right"));
@@ -202,7 +223,11 @@ fn path_and_many_references_are_executable_or_explicitly_incomplete() {
             many_link,
         ),
     );
-    let graph = Graph {
+    (schema, path_and_many_graph())
+}
+
+fn path_and_many_graph() -> Graph {
+    Graph {
         nodes: BTreeMap::from([
             (
                 0,
@@ -220,23 +245,5 @@ fn path_and_many_references_are_executable_or_explicitly_incomplete() {
             ),
         ]),
         edges: BTreeMap::new(),
-    };
-    let report = validation::validate(&schema, &BTreeMap::new(), &graph).unwrap();
-    assert!(report.diagnostics.iter().any(|diagnostic| {
-        matches!(
-            &diagnostic.violation,
-            panproto_reference::validation::Violation::DanglingReference(reference, values)
-                if reference == "path" && values == &[Value::Str("/missing".into())]
-        )
-    }));
-    assert!(report.incomplete.iter().any(|(check, _, subject, detail)| {
-        check.kind == CheckKind::ReferenceResolves
-            && subject == &Some(panproto_reference::lens::ViewRef::Node(0))
-            && detail.contains("ReferenceCardinalityMismatch")
-    }));
-    assert_eq!(report.status, CheckStatus::Failed);
-
-    let mut invalid = schema;
-    invalid.references.get_mut("path").unwrap().target_key = Some("absent".into());
-    assert!(validation::validate(&invalid, &BTreeMap::new(), &graph).is_none());
+    }
 }

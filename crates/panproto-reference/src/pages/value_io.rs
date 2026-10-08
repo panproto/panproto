@@ -92,30 +92,13 @@ pub mod implementation {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn parse_string(route: Route, text: &str) -> Result<String, ValueIoError> {
         if route == Route::Xml {
             return crate::xml::expand_entities(text, &std::collections::BTreeMap::new())
                 .map_err(|_| ValueIoError::Malformed);
         }
         if route == Route::Csv {
-            if !text.starts_with('"') {
-                return (!text.contains([',', '"', '\r', '\n']))
-                    .then(|| text.to_owned())
-                    .ok_or(ValueIoError::Malformed);
-            }
-            if text.len() < 2 || !text.ends_with('"') {
-                return Err(ValueIoError::Malformed);
-            }
-            let mut output = String::new();
-            let mut characters = text[1..text.len() - 1].chars();
-            while let Some(character) = characters.next() {
-                if character == '"' && characters.next() != Some('"') {
-                    return Err(ValueIoError::Malformed);
-                }
-                output.push(character);
-            }
-            return Ok(output);
+            return parse_csv_string(text);
         }
         if route == Route::Tsv {
             return (!text.contains(['\t', '\r', '\n']))
@@ -127,22 +110,49 @@ pub mod implementation {
             && text.ends_with('\'')
             && text.len() >= 2
         {
-            let body = &text[1..text.len() - 1];
-            if route == Route::Toml {
-                return (!body.contains(['\'', '\r', '\n']))
-                    .then(|| body.to_owned())
-                    .ok_or(ValueIoError::Malformed);
-            }
-            let mut output = String::new();
-            let mut characters = body.chars().peekable();
-            while let Some(character) = characters.next() {
-                if character == '\'' && characters.next_if_eq(&'\'').is_none() {
-                    return Err(ValueIoError::Malformed);
-                }
-                output.push(character);
-            }
-            return Ok(output);
+            return parse_single_quoted(route, &text[1..text.len() - 1]);
         }
+        parse_double_quoted(route, text)
+    }
+
+    fn parse_csv_string(text: &str) -> Result<String, ValueIoError> {
+        if !text.starts_with('"') {
+            return (!text.contains([',', '"', '\r', '\n']))
+                .then(|| text.to_owned())
+                .ok_or(ValueIoError::Malformed);
+        }
+        if text.len() < 2 || !text.ends_with('"') {
+            return Err(ValueIoError::Malformed);
+        }
+        let mut output = String::new();
+        let mut characters = text[1..text.len() - 1].chars();
+        while let Some(character) = characters.next() {
+            if character == '"' && characters.next() != Some('"') {
+                return Err(ValueIoError::Malformed);
+            }
+            output.push(character);
+        }
+        Ok(output)
+    }
+
+    fn parse_single_quoted(route: Route, body: &str) -> Result<String, ValueIoError> {
+        if route == Route::Toml {
+            return (!body.contains(['\'', '\r', '\n']))
+                .then(|| body.to_owned())
+                .ok_or(ValueIoError::Malformed);
+        }
+        let mut output = String::new();
+        let mut characters = body.chars().peekable();
+        while let Some(character) = characters.next() {
+            if character == '\'' && characters.next_if_eq(&'\'').is_none() {
+                return Err(ValueIoError::Malformed);
+            }
+            output.push(character);
+        }
+        Ok(output)
+    }
+
+    fn parse_double_quoted(route: Route, text: &str) -> Result<String, ValueIoError> {
         let bytes = text.as_bytes();
         if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
             return Err(ValueIoError::Malformed);

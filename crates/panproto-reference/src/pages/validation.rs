@@ -21,7 +21,7 @@ pub mod implementation {
     use crate::lens::ViewRef;
     use crate::model::{Graph, Name, NodeShape, SEdge};
     use crate::restrict::is_fan_kind;
-    use crate::schema::{KeyRole, KeyScope, OnUnresolved, RefSource, Schema};
+    use crate::schema::{KeyRole, KeyScope, OnUnresolved, RefSource, Reference, Schema};
     use crate::value::{Presence, Value};
 
     /// Index/null matching uses the same predicate as key semantics.
@@ -851,130 +851,173 @@ pub mod implementation {
     /// Reference resolution on the finite graph carrier. Unsupported route
     /// services are reported as required incomplete checks rather than making
     /// the entire validation call disappear.
-    #[allow(clippy::too_many_lines)]
     fn references(
         schema: &Schema,
         g: &Graph,
         out: &mut Vec<Diagnostic>,
         incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
     ) {
-        for r in schema.references.values() {
-            let requirement = if r.on_unresolved == OnUnresolved::Error {
-                Requirement::Required
-            } else {
-                Requirement::Advisory
-            };
-            let decl = SchemaRef::Reference(r.id.clone());
+        for reference in schema.references.values() {
             for (h, _) in g
                 .nodes
                 .iter()
-                .filter(|(i, n)| n.anchor == r.holder && non_fan(g, **i))
+                .filter(|(i, n)| n.anchor == reference.holder && non_fan(g, **i))
             {
-                let me = ViewRef::Node(*h);
-                let mut push = |elements: Vec<ViewRef>, v: Violation| {
-                    let mut d = diag(
-                        CheckKind::ReferenceResolves,
-                        decl.clone(),
-                        Some(me.clone()),
-                        elements,
-                        v,
-                    );
-                    d.requirement = requirement;
-                    out.push(d);
-                };
-                if let Some(guard) = &r.guard
-                    && keys::path_value(g, *h, &guard.field)
-                        .as_ref()
-                        .is_none_or(|actual| {
-                            crate::value::representation(actual, &guard.equals) != Some(true)
-                        })
-                {
-                    continue;
-                }
-                let tuples = match crate::resolution::reference_tuples(schema, g, *h, r) {
-                    Ok(tuples) => tuples,
-                    Err(detail) => {
-                        incomplete.push((
-                            CheckKey {
-                                kind: CheckKind::ReferenceResolves,
-                                decl: decl.clone(),
-                            },
-                            requirement,
-                            Some(me.clone()),
-                            format!("{detail:?}"),
-                        ));
-                        continue;
-                    }
-                };
-                if tuples.is_empty() {
-                    if !r.nullable {
-                        let field = match &r.source {
-                            RefSource::KeyValue { parts } => parts.first(),
-                            RefSource::Path { field, .. }
-                            | RefSource::Variable { field, .. }
-                            | RefSource::Inline { field } => Some(field),
-                            RefSource::Standoff { start, .. } => Some(start),
-                        }
-                        .and_then(|path| path.last())
-                        .map(|edge| edge.column().to_owned());
-                        push(vec![me.clone()], Violation::MissingValue(field));
-                    }
-                    continue;
-                }
-                for values in tuples {
-                    match crate::resolution::reference_is_null(schema, g, r, &values) {
-                        Ok(true) => continue,
-                        Ok(false) => {}
-                        Err(error) => {
-                            incomplete.push((
-                                CheckKey {
-                                    kind: CheckKind::ReferenceResolves,
-                                    decl: decl.clone(),
-                                },
-                                requirement,
-                                Some(me.clone()),
-                                format!("{error:?}"),
-                            ));
-                            continue;
-                        }
-                    }
-                    let candidates =
-                        match crate::resolution::reference_candidates(schema, g, r, *h, &values) {
-                            Ok(candidates) => candidates
-                                .into_iter()
-                                .map(ViewRef::Node)
-                                .collect::<Vec<_>>(),
-                            Err(error) => {
-                                incomplete.push((
-                                    CheckKey {
-                                        kind: CheckKind::ReferenceResolves,
-                                        decl: decl.clone(),
-                                    },
-                                    requirement,
-                                    Some(me.clone()),
-                                    format!("{error:?}"),
-                                ));
-                                continue;
-                            }
-                        };
-                    match candidates.len() {
-                        1 => {}
-                        0 => push(
-                            vec![me.clone()],
-                            Violation::DanglingReference(r.id.clone(), values),
-                        ),
-                        _ => {
-                            let mut elements = candidates.clone();
-                            elements.push(me.clone());
-                            push(
-                                elements,
-                                Violation::AmbiguousReference(r.id.clone(), values, candidates),
-                            );
-                        }
-                    }
-                }
+                validate_reference_holder(schema, g, reference, *h, out, incomplete);
             }
         }
+        unselected_guards(schema, g, out);
+    }
+
+    fn reference_requirement(reference: &Reference) -> Requirement {
+        if reference.on_unresolved == OnUnresolved::Error {
+            Requirement::Required
+        } else {
+            Requirement::Advisory
+        }
+    }
+
+    fn incomplete_reference(
+        reference: &Reference,
+        holder: u32,
+        detail: impl std::fmt::Debug,
+    ) -> (CheckKey, Requirement, Option<ViewRef>, String) {
+        (
+            CheckKey {
+                kind: CheckKind::ReferenceResolves,
+                decl: SchemaRef::Reference(reference.id.clone()),
+            },
+            reference_requirement(reference),
+            Some(ViewRef::Node(holder)),
+            format!("{detail:?}"),
+        )
+    }
+
+    fn push_reference_diag(
+        out: &mut Vec<Diagnostic>,
+        reference: &Reference,
+        holder: u32,
+        elements: Vec<ViewRef>,
+        violation: Violation,
+    ) {
+        let mut diagnostic = diag(
+            CheckKind::ReferenceResolves,
+            SchemaRef::Reference(reference.id.clone()),
+            Some(ViewRef::Node(holder)),
+            elements,
+            violation,
+        );
+        diagnostic.requirement = reference_requirement(reference);
+        out.push(diagnostic);
+    }
+
+    fn validate_reference_holder(
+        schema: &Schema,
+        graph: &Graph,
+        reference: &Reference,
+        holder: u32,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
+        if let Some(guard) = &reference.guard
+            && keys::path_value(graph, holder, &guard.field)
+                .as_ref()
+                .is_none_or(|actual| {
+                    crate::value::representation(actual, &guard.equals) != Some(true)
+                })
+        {
+            return;
+        }
+        let tuples = match crate::resolution::reference_tuples(schema, graph, holder, reference) {
+            Ok(tuples) => tuples,
+            Err(detail) => {
+                incomplete.push(incomplete_reference(reference, holder, detail));
+                return;
+            }
+        };
+        if tuples.is_empty() {
+            if !reference.nullable {
+                let field = missing_reference_field(reference);
+                push_reference_diag(
+                    out,
+                    reference,
+                    holder,
+                    vec![ViewRef::Node(holder)],
+                    Violation::MissingValue(field),
+                );
+            }
+            return;
+        }
+        for values in tuples {
+            validate_reference_tuple(schema, graph, reference, holder, values, out, incomplete);
+        }
+    }
+
+    fn missing_reference_field(reference: &Reference) -> Option<String> {
+        match &reference.source {
+            RefSource::KeyValue { parts } => parts.first().map(Vec::as_slice),
+            RefSource::Path { field, .. }
+            | RefSource::Variable { field, .. }
+            | RefSource::Inline { field } => Some(field.as_slice()),
+            RefSource::Standoff { start, .. } => Some(start.as_slice()),
+        }
+        .and_then(|path| path.last())
+        .map(|edge| edge.column().to_owned())
+    }
+
+    fn validate_reference_tuple(
+        schema: &Schema,
+        graph: &Graph,
+        reference: &Reference,
+        holder: u32,
+        values: Vec<Value>,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
+        match crate::resolution::reference_is_null(schema, graph, reference, &values) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                incomplete.push(incomplete_reference(reference, holder, error));
+                return;
+            }
+        }
+        let candidates = match crate::resolution::reference_candidates(
+            schema, graph, reference, holder, &values,
+        ) {
+            Ok(candidates) => candidates
+                .into_iter()
+                .map(ViewRef::Node)
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                incomplete.push(incomplete_reference(reference, holder, error));
+                return;
+            }
+        };
+        match candidates.len() {
+            1 => {}
+            0 => push_reference_diag(
+                out,
+                reference,
+                holder,
+                vec![ViewRef::Node(holder)],
+                Violation::DanglingReference(reference.id.clone(), values),
+            ),
+            _ => {
+                let mut elements = candidates.clone();
+                elements.push(ViewRef::Node(holder));
+                push_reference_diag(
+                    out,
+                    reference,
+                    holder,
+                    elements,
+                    Violation::AmbiguousReference(reference.id.clone(), values, candidates),
+                );
+            }
+        }
+    }
+
+    fn unselected_guards(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) {
         let guarded: Vec<_> = schema
             .references
             .values()

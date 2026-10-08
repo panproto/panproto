@@ -519,40 +519,51 @@ pub mod implementation {
     /// [`ResolveError::ReferenceCardinalityMismatch`] when the sequences of a
     /// `Many` reference have unequal lengths, or all have length 0 and the
     /// reference is not nullable.
-    #[allow(clippy::too_many_lines)]
     fn tuples(
         schema: &Schema,
         g: &Graph,
         holder: u32,
         r: &Reference,
     ) -> Result<Vec<Vec<Value>>, ResolveError> {
-        let parts = match &r.source {
-            RefSource::KeyValue { parts } => parts,
+        let RefSource::KeyValue { parts } = &r.source else {
+            return non_key_tuples(schema, g, holder, r);
+        };
+        match r.cardinality {
+            Cardinality::One => Ok(one_tuple(g, holder, r, parts)),
+            Cardinality::Many => many_tuples(g, holder, r, parts),
+        }
+    }
+
+    fn non_key_tuples(
+        schema: &Schema,
+        graph: &Graph,
+        holder: u32,
+        reference: &Reference,
+    ) -> Result<Vec<Vec<Value>>, ResolveError> {
+        match &reference.source {
+            RefSource::KeyValue { .. } => unreachable!("key-value sources are handled by tuples"),
             RefSource::Path { field, syntax } => {
-                let Some(Value::Str(written)) = keys::path_value(g, holder, field) else {
+                let Some(Value::Str(written)) = keys::path_value(graph, holder, field) else {
                     return Ok(Vec::new());
                 };
-                let resolved = resolve_path(schema, g, holder, syntax, &written);
-                return Ok(resolved
+                let resolved = resolve_path(schema, graph, holder, syntax, &written);
+                Ok(resolved
                     .map(|value| vec![vec![Value::Str(value)]])
-                    .unwrap_or_default());
+                    .unwrap_or_default())
             }
-            RefSource::Variable { field, .. } => {
-                return Ok(keys::path_value(g, holder, field)
-                    .map(|value| vec![vec![value]])
-                    .unwrap_or_default());
-            }
-            RefSource::Standoff { .. } => {
-                return standoff_occurrences(schema, g, holder, r)
-                    .map(|spans| spans.into_iter().map(|(_, tuple, _)| tuple).collect());
-            }
+            RefSource::Variable { field, .. } => Ok(keys::path_value(graph, holder, field)
+                .map(|value| vec![vec![value]])
+                .unwrap_or_default()),
+            RefSource::Standoff { .. } => standoff_occurrences(schema, graph, holder, reference)
+                .map(|spans| spans.into_iter().map(|(_, tuple, _)| tuple).collect()),
             RefSource::Inline { field } => {
                 let mut frontier = vec![holder];
                 for hop in field {
                     frontier = frontier
                         .iter()
                         .flat_map(|source| {
-                            g.edges
+                            graph
+                                .edges
                                 .values()
                                 .filter(move |edge| edge.src == *source && edge.label == *hop)
                                 .map(|edge| edge.tgt)
@@ -562,60 +573,69 @@ pub mod implementation {
                 let Some(target) = frontier.into_iter().next() else {
                     return Ok(Vec::new());
                 };
-                return Ok(target_tuple(schema, g, &r.id, target)
+                Ok(target_tuple(schema, graph, &reference.id, target)
                     .map(|tuple| vec![tuple])
-                    .unwrap_or_default());
-            }
-        };
-        match r.cardinality {
-            Cardinality::One => {
-                let present: Option<Vec<Value>> = parts
-                    .iter()
-                    .map(|part| path_value_or_null(g, holder, part))
-                    .collect();
-                Ok(present
-                    .filter(|tuple| match r.null_match {
-                        crate::schema::NullMatch::Simple => {
-                            tuple.iter().all(|value| *value != Value::Null)
-                        }
-                        crate::schema::NullMatch::Full => {
-                            !tuple.iter().all(|value| *value == Value::Null)
-                        }
-                    })
-                    .into_iter()
-                    .collect())
-            }
-            Cardinality::Many => {
-                let seqs: Vec<Vec<Value>> = parts
-                    .iter()
-                    .map(|p| sequence(keys::path_value(g, holder, p)))
-                    .collect();
-                let lengths: Vec<u64> = seqs
-                    .iter()
-                    .map(|s| u64::try_from(s.len()).unwrap_or(u64::MAX))
-                    .collect();
-                let n = seqs.first().map_or(0, Vec::len);
-                let equal = seqs.iter().all(|s| s.len() == n);
-                if !equal || (n == 0 && !r.nullable && !parts.is_empty()) {
-                    return Err(ResolveError::ReferenceCardinalityMismatch {
-                        reference: r.id.clone(),
-                        at: ViewRef::Node(holder),
-                        lengths,
-                    });
-                }
-                Ok((0..n)
-                    .map(|i| seqs.iter().map(|s| s[i].clone()).collect::<Vec<_>>())
-                    .filter(|tuple| match r.null_match {
-                        crate::schema::NullMatch::Simple => {
-                            tuple.iter().all(|value| *value != Value::Null)
-                        }
-                        crate::schema::NullMatch::Full => {
-                            !tuple.iter().all(|value| *value == Value::Null)
-                        }
-                    })
-                    .collect())
+                    .unwrap_or_default())
             }
         }
+    }
+
+    fn tuple_is_present(reference: &Reference, tuple: &[Value]) -> bool {
+        match reference.null_match {
+            crate::schema::NullMatch::Simple => tuple.iter().all(|value| *value != Value::Null),
+            crate::schema::NullMatch::Full => tuple.iter().any(|value| *value != Value::Null),
+        }
+    }
+
+    fn one_tuple(
+        graph: &Graph,
+        holder: u32,
+        reference: &Reference,
+        parts: &[Vec<SEdge>],
+    ) -> Vec<Vec<Value>> {
+        let present: Option<Vec<Value>> = parts
+            .iter()
+            .map(|part| path_value_or_null(graph, holder, part))
+            .collect();
+        present
+            .filter(|tuple| tuple_is_present(reference, tuple))
+            .into_iter()
+            .collect()
+    }
+
+    fn many_tuples(
+        graph: &Graph,
+        holder: u32,
+        reference: &Reference,
+        parts: &[Vec<SEdge>],
+    ) -> Result<Vec<Vec<Value>>, ResolveError> {
+        let sequences: Vec<Vec<Value>> = parts
+            .iter()
+            .map(|part| sequence(keys::path_value(graph, holder, part)))
+            .collect();
+        let lengths: Vec<u64> = sequences
+            .iter()
+            .map(|sequence| u64::try_from(sequence.len()).unwrap_or(u64::MAX))
+            .collect();
+        let count = sequences.first().map_or(0, Vec::len);
+        if sequences.iter().any(|sequence| sequence.len() != count)
+            || (count == 0 && !reference.nullable && !parts.is_empty())
+        {
+            return Err(ResolveError::ReferenceCardinalityMismatch {
+                reference: reference.id.clone(),
+                at: ViewRef::Node(holder),
+                lengths,
+            });
+        }
+        Ok((0..count)
+            .map(|index| {
+                sequences
+                    .iter()
+                    .map(|sequence| sequence[index].clone())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|tuple| tuple_is_present(reference, tuple))
+            .collect())
     }
 
     type StandoffOccurrence = (ResolutionSpan, Vec<Value>, Option<Vec<u8>>);
@@ -626,17 +646,7 @@ pub mod implementation {
         holder: u32,
         reference: &Reference,
     ) -> Result<Vec<StandoffOccurrence>, ResolveError> {
-        let RefSource::Standoff {
-            text,
-            start,
-            end,
-            unit,
-            end_inclusive,
-            end_form,
-            origin,
-            fragments,
-        } = &reference.source
-        else {
+        let RefSource::Standoff { fragments, .. } = &reference.source else {
             return Ok(Vec::new());
         };
         let holders: Vec<u32> = fragments.as_ref().map_or_else(
@@ -652,37 +662,29 @@ pub mod implementation {
                 edges.into_iter().map(|(_, _, target)| target).collect()
             },
         );
-        standoff_spans(
-            schema,
-            graph,
-            holder,
-            reference,
-            &holders,
-            text,
-            start,
-            end,
-            *unit,
-            *end_inclusive,
-            *end_form,
-            *origin,
-        )
+        standoff_spans(schema, graph, holder, reference, &holders)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn standoff_spans(
         schema: &Schema,
         graph: &Graph,
         holder: u32,
         reference: &Reference,
         coordinate_holders: &[u32],
-        text_source: &RefTextSource,
-        start_path: &[SEdge],
-        end_path: &[SEdge],
-        unit: OffsetUnit,
-        end_inclusive: bool,
-        end_form: SpanEnd,
-        origin: u64,
     ) -> Result<Vec<StandoffOccurrence>, ResolveError> {
+        let RefSource::Standoff {
+            text: text_source,
+            start: start_path,
+            end: end_path,
+            unit,
+            end_inclusive,
+            end_form,
+            origin,
+            ..
+        } = &reference.source
+        else {
+            return Ok(Vec::new());
+        };
         let text = standoff_text(schema, graph, holder, text_source).map_err(|length| {
             ResolveError::ReferenceCardinalityMismatch {
                 reference: reference.id.clone(),
@@ -692,12 +694,15 @@ pub mod implementation {
         })?;
         let mut spans = Vec::new();
         for coordinate_holder in coordinate_holders {
-            let Some(written_start) =
-                unsigned(keys::path_value(graph, *coordinate_holder, start_path))
+            let Some(written_start) = keys::path_value(graph, *coordinate_holder, start_path)
+                .as_ref()
+                .and_then(unsigned)
             else {
                 continue;
             };
-            let Some(written_end) = unsigned(keys::path_value(graph, *coordinate_holder, end_path))
+            let Some(written_end) = keys::path_value(graph, *coordinate_holder, end_path)
+                .as_ref()
+                .and_then(unsigned)
             else {
                 continue;
             };
@@ -705,10 +710,10 @@ pub mod implementation {
                 &text.text,
                 written_start,
                 written_end,
-                origin,
-                end_form,
-                end_inclusive,
-                unit,
+                *origin,
+                *end_form,
+                *end_inclusive,
+                *unit,
             ) else {
                 continue;
             };
@@ -815,10 +820,9 @@ pub mod implementation {
         ))
     }
 
-    #[allow(clippy::needless_pass_by_value)]
-    fn unsigned(value: Option<Value>) -> Option<u64> {
+    fn unsigned(value: &Value) -> Option<u64> {
         match value {
-            Some(Value::Int(value)) => u64::try_from(value).ok(),
+            Value::Int(value) => u64::try_from(*value).ok(),
             _ => None,
         }
     }
@@ -1088,7 +1092,6 @@ pub mod implementation {
         bytes
     }
 
-    #[allow(clippy::too_many_lines)]
     fn standoff_text(
         schema: &Schema,
         graph: &Graph,
@@ -1110,111 +1113,146 @@ pub mod implementation {
                 })
             }
             RefTextSource::External(field) | RefTextSource::ExternalUri { field, .. } => {
-                let mut sites = string_sites(graph, holder, field);
-                if sites.len() != 1 {
-                    return Err(sites.len());
-                }
-                let site = sites.remove(0);
-                let key = crate::canonical::value_bytes(&site.value).ok_or(0usize)?;
                 let route = match source {
                     RefTextSource::External(_) => "finite-external",
                     RefTextSource::ExternalUri { .. } => "finite-external-uri",
                     _ => unreachable!(),
                 };
-                let context = external_context(route, &key, &site.text);
-                Ok(TextContext {
-                    text: site.text,
-                    base_byte: 0,
-                    identity: ResolutionTextId::ExternalKey(site.site),
-                    context: Some(context),
-                })
+                external_text_context(graph, holder, field, route)
             }
             RefTextSource::Referenced {
                 reference,
                 text,
                 external,
             } => {
-                let declaration = schema.references.get(reference).ok_or(0usize)?;
-                let tuple = tuples(schema, graph, holder, declaration)
-                    .map_err(|_| 0usize)?
-                    .into_iter()
-                    .next()
-                    .ok_or(0usize)?;
-                let target =
-                    candidates(schema, graph, declaration, holder, &tuple).map_err(|_| 0usize)?;
-                let [target] = target.as_slice() else {
-                    return Err(target.len());
-                };
-                let mut local = string_sites(graph, *target, text);
-                let mut loaded = external
-                    .as_ref()
-                    .map_or_else(Vec::new, |field| string_sites(graph, *target, field));
-                let count = local.len() + loaded.len();
-                if count != 1 {
-                    return Err(count);
-                }
-                if let Some(site) = local.pop() {
-                    Ok(TextContext {
-                        text: site.text,
-                        base_byte: 0,
-                        identity: ResolutionTextId::Local(site.site),
-                        context: None,
-                    })
-                } else {
-                    let site = loaded.pop().ok_or(0usize)?;
-                    let key = crate::canonical::value_bytes(&site.value).ok_or(0usize)?;
-                    let context = external_context("finite-referenced-external", &key, &site.text);
-                    Ok(TextContext {
-                        text: site.text,
-                        base_byte: 0,
-                        identity: ResolutionTextId::ExternalKey(site.site),
-                        context: Some(context),
-                    })
-                }
+                referenced_text_context(schema, graph, holder, reference, text, external.as_deref())
             }
             RefTextSource::Span { reference } => {
-                let outer = schema.references.get(reference).ok_or(0usize)?;
-                let RefSource::Standoff {
-                    text,
-                    start,
-                    end,
-                    unit,
-                    end_inclusive,
-                    end_form,
-                    origin,
-                    fragments: None,
-                } = &outer.source
-                else {
-                    return Err(0);
-                };
-                let source = standoff_text(schema, graph, holder, text)?;
-                let start = unsigned(keys::path_value(graph, holder, start)).ok_or(0usize)?;
-                let end = unsigned(keys::path_value(graph, holder, end)).ok_or(0usize)?;
-                let (start, end) = standoff_bytes(
-                    &source.text,
-                    start,
-                    end,
-                    *origin,
-                    *end_form,
-                    *end_inclusive,
-                    *unit,
-                )
-                .ok_or(0usize)?;
-                let start_index = usize::try_from(start).map_err(|_| 0usize)?;
-                let end_index = usize::try_from(end).map_err(|_| 0usize)?;
-                let substring = source
-                    .text
-                    .get(start_index..end_index)
-                    .map(str::to_owned)
-                    .ok_or(0usize)?;
-                Ok(TextContext {
-                    text: substring,
-                    base_byte: source.base_byte.checked_add(start).ok_or(0usize)?,
-                    identity: source.identity,
-                    context: source.context,
-                })
+                span_text_context(schema, graph, holder, reference)
             }
         }
+    }
+
+    fn external_text_context(
+        graph: &Graph,
+        holder: u32,
+        field: &[SEdge],
+        route: &str,
+    ) -> Result<TextContext, usize> {
+        let mut sites = string_sites(graph, holder, field);
+        if sites.len() != 1 {
+            return Err(sites.len());
+        }
+        let site = sites.remove(0);
+        let key = crate::canonical::value_bytes(&site.value).ok_or(0usize)?;
+        Ok(TextContext {
+            context: Some(external_context(route, &key, &site.text)),
+            text: site.text,
+            base_byte: 0,
+            identity: ResolutionTextId::ExternalKey(site.site),
+        })
+    }
+
+    fn referenced_text_context(
+        schema: &Schema,
+        graph: &Graph,
+        holder: u32,
+        reference: &str,
+        text: &[SEdge],
+        external: Option<&[SEdge]>,
+    ) -> Result<TextContext, usize> {
+        let declaration = schema.references.get(reference).ok_or(0usize)?;
+        let tuple = tuples(schema, graph, holder, declaration)
+            .map_err(|_| 0usize)?
+            .into_iter()
+            .next()
+            .ok_or(0usize)?;
+        let targets = candidates(schema, graph, declaration, holder, &tuple).map_err(|_| 0usize)?;
+        let [target] = targets.as_slice() else {
+            return Err(targets.len());
+        };
+        let mut local = string_sites(graph, *target, text);
+        let mut loaded =
+            external.map_or_else(Vec::new, |field| string_sites(graph, *target, field));
+        let count = local.len() + loaded.len();
+        if count != 1 {
+            return Err(count);
+        }
+        if let Some(site) = local.pop() {
+            return Ok(TextContext {
+                text: site.text,
+                base_byte: 0,
+                identity: ResolutionTextId::Local(site.site),
+                context: None,
+            });
+        }
+        let site = loaded.pop().ok_or(0usize)?;
+        let key = crate::canonical::value_bytes(&site.value).ok_or(0usize)?;
+        Ok(TextContext {
+            context: Some(external_context(
+                "finite-referenced-external",
+                &key,
+                &site.text,
+            )),
+            text: site.text,
+            base_byte: 0,
+            identity: ResolutionTextId::ExternalKey(site.site),
+        })
+    }
+
+    fn span_text_context(
+        schema: &Schema,
+        graph: &Graph,
+        holder: u32,
+        reference: &str,
+    ) -> Result<TextContext, usize> {
+        let outer = schema.references.get(reference).ok_or(0usize)?;
+        let RefSource::Standoff {
+            text,
+            start,
+            end,
+            unit,
+            end_inclusive,
+            end_form,
+            origin,
+            fragments: None,
+        } = &outer.source
+        else {
+            return Err(0);
+        };
+        let source = standoff_text(schema, graph, holder, text)?;
+        let start = keys::path_value(graph, holder, start)
+            .as_ref()
+            .and_then(unsigned)
+            .ok_or(0usize)?;
+        let end = keys::path_value(graph, holder, end)
+            .as_ref()
+            .and_then(unsigned)
+            .ok_or(0usize)?;
+        let (start, end) = standoff_bytes(
+            &source.text,
+            start,
+            end,
+            *origin,
+            *end_form,
+            *end_inclusive,
+            *unit,
+        )
+        .ok_or(0usize)?;
+        let substring = source
+            .text
+            .get(
+                usize::try_from(start).map_err(|_| 0usize)?
+                    ..usize::try_from(end).map_err(|_| 0usize)?,
+            )
+            .map(str::to_owned)
+            .ok_or(0usize)?;
+        Ok(TextContext {
+            text: substring,
+            base_byte: source.base_byte.checked_add(start).ok_or(0usize)?,
+            identity: source.identity,
+            context: source.context,
+        })
     }
 
     fn unit_boundary(text: &str, offset: u64, unit: OffsetUnit) -> Option<u64> {
@@ -1562,7 +1600,6 @@ pub mod implementation {
     /// Resolve identified inline occurrences before ordinary reference
     /// resolution. Missing identities remain inline and therefore do not
     /// enter the complement.
-    #[allow(clippy::too_many_lines)]
     fn resolve_inline(
         schema: &Schema,
         base: &Graph,
@@ -1597,96 +1634,141 @@ pub mod implementation {
                 }
             }
             for (_, sites) in groups {
-                let representative = sites[0].2;
-                let representative_node = base
-                    .nodes
-                    .get(&representative)
-                    .ok_or(ResolveError::NotATree)?;
-                let mut merged_fields = representative_node.fields.clone();
-                let representative_value = representative_node.value.clone();
-                for (_, _, node) in sites.iter().skip(1) {
-                    let occurrence = base.nodes.get(node).ok_or(ResolveError::NotATree)?;
-                    if let (Some(left), Some(right)) =
-                        (representative_value.as_ref(), occurrence.value.as_ref())
-                        && left != right
-                    {
-                        return Err(ResolveError::InlineConflict {
-                            reference: reference.id.clone(),
-                            at: ViewRef::Node(*node),
-                            field: "$value".into(),
-                        });
-                    }
-                    for (field, value) in &occurrence.fields {
-                        if let Some(existing) = merged_fields.get(field)
-                            && crate::value::representation(existing, value) != Some(true)
-                        {
-                            return Err(ResolveError::InlineConflict {
-                                reference: reference.id.clone(),
-                                at: ViewRef::Node(*node),
-                                field: field.clone(),
-                            });
-                        }
-                        merged_fields
-                            .entry(field.clone())
-                            .or_insert_with(|| value.clone());
-                    }
-                    let existing = outgoing_fields(graph, representative);
-                    for (field, edges) in outgoing_fields(base, *node) {
-                        if let Some(representative_edges) = existing.get(&field) {
-                            if !inline_field_equal(schema, base, representative_edges, &edges)? {
-                                return Err(ResolveError::InlineConflict {
-                                    reference: reference.id.clone(),
-                                    at: ViewRef::Node(*node),
-                                    field,
-                                });
-                            }
-                        } else {
-                            for edge in edges {
-                                graph
-                                    .edges
-                                    .get_mut(&edge)
-                                    .ok_or(ResolveError::NotATree)?
-                                    .src = representative;
-                            }
-                        }
-                    }
+                merge_inline_group(schema, base, graph, complement, reference, sites)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn merge_inline_group(
+        schema: &Schema,
+        base: &Graph,
+        graph: &mut Graph,
+        complement: &mut ResComplement,
+        reference: &Reference,
+        sites: Vec<(u32, u32, u32)>,
+    ) -> Result<(), ResolveError> {
+        let representative = sites[0].2;
+        let representative_node = base
+            .nodes
+            .get(&representative)
+            .ok_or(ResolveError::NotATree)?;
+        let mut merged_fields = representative_node.fields.clone();
+        let representative_value = representative_node.value.clone();
+        for (_, _, node) in sites.iter().skip(1) {
+            let occurrence = base.nodes.get(node).ok_or(ResolveError::NotATree)?;
+            if let (Some(left), Some(right)) =
+                (representative_value.as_ref(), occurrence.value.as_ref())
+                && left != right
+            {
+                return Err(ResolveError::InlineConflict {
+                    reference: reference.id.clone(),
+                    at: ViewRef::Node(*node),
+                    field: "$value".into(),
+                });
+            }
+            merge_inline_fields(reference, *node, occurrence, &mut merged_fields)?;
+            merge_inline_edges(schema, base, graph, reference, representative, *node)?;
+        }
+        graph
+            .nodes
+            .get_mut(&representative)
+            .ok_or(ResolveError::NotATree)?
+            .fields = merged_fields;
+        record_inline_sites(base, graph, complement, reference, representative, sites)
+    }
+
+    fn merge_inline_fields(
+        reference: &Reference,
+        node: u32,
+        occurrence: &Node,
+        merged_fields: &mut BTreeMap<String, Value>,
+    ) -> Result<(), ResolveError> {
+        for (field, value) in &occurrence.fields {
+            if let Some(existing) = merged_fields.get(field)
+                && crate::value::representation(existing, value) != Some(true)
+            {
+                return Err(ResolveError::InlineConflict {
+                    reference: reference.id.clone(),
+                    at: ViewRef::Node(node),
+                    field: field.clone(),
+                });
+            }
+            merged_fields
+                .entry(field.clone())
+                .or_insert_with(|| value.clone());
+        }
+        Ok(())
+    }
+
+    fn merge_inline_edges(
+        schema: &Schema,
+        base: &Graph,
+        graph: &mut Graph,
+        reference: &Reference,
+        representative: u32,
+        node: u32,
+    ) -> Result<(), ResolveError> {
+        let existing = outgoing_fields(graph, representative);
+        for (field, edges) in outgoing_fields(base, node) {
+            if let Some(representative_edges) = existing.get(&field) {
+                if !inline_field_equal(schema, base, representative_edges, &edges)? {
+                    return Err(ResolveError::InlineConflict {
+                        reference: reference.id.clone(),
+                        at: ViewRef::Node(node),
+                        field,
+                    });
                 }
-                graph
-                    .nodes
-                    .get_mut(&representative)
-                    .ok_or(ResolveError::NotATree)?
-                    .fields = merged_fields;
-                for (index, (holder, edge, node)) in sites.into_iter().enumerate() {
-                    let fields = base.nodes[&node].fields.keys().cloned().collect();
-                    let edge_fields = outgoing_fields(base, node).into_keys().collect();
-                    complement.inline.insert(
-                        edge,
-                        InlineOccurrence {
-                            reference: reference.id.clone(),
-                            holder,
-                            node,
-                            representative,
-                            fields,
-                            edge_fields,
-                            redirected: index != 0,
-                        },
-                    );
-                    if index == 0 {
-                        continue;
-                    }
-                    let mut exact = base.clone();
-                    let exact_fragment = capture(&mut exact, node).ok_or(ResolveError::NotATree)?;
-                    let removed = capture(graph, node).ok_or(ResolveError::NotATree)?;
-                    let mut incoming = removed
+            } else {
+                for edge in edges {
+                    graph
                         .edges
-                        .get(&edge)
-                        .cloned()
-                        .ok_or(ResolveError::NotATree)?;
-                    incoming.tgt = representative;
-                    graph.edges.insert(edge, incoming);
-                    complement.inline_fragments.insert(node, exact_fragment);
+                        .get_mut(&edge)
+                        .ok_or(ResolveError::NotATree)?
+                        .src = representative;
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn record_inline_sites(
+        base: &Graph,
+        graph: &mut Graph,
+        complement: &mut ResComplement,
+        reference: &Reference,
+        representative: u32,
+        sites: Vec<(u32, u32, u32)>,
+    ) -> Result<(), ResolveError> {
+        for (index, (holder, edge, node)) in sites.into_iter().enumerate() {
+            let fields = base.nodes[&node].fields.keys().cloned().collect();
+            let edge_fields = outgoing_fields(base, node).into_keys().collect();
+            complement.inline.insert(
+                edge,
+                InlineOccurrence {
+                    reference: reference.id.clone(),
+                    holder,
+                    node,
+                    representative,
+                    fields,
+                    edge_fields,
+                    redirected: index != 0,
+                },
+            );
+            if index == 0 {
+                continue;
+            }
+            let mut exact = base.clone();
+            let exact_fragment = capture(&mut exact, node).ok_or(ResolveError::NotATree)?;
+            let removed = capture(graph, node).ok_or(ResolveError::NotATree)?;
+            let mut incoming = removed
+                .edges
+                .get(&edge)
+                .cloned()
+                .ok_or(ResolveError::NotATree)?;
+            incoming.tgt = representative;
+            graph.edges.insert(edge, incoming);
+            complement.inline_fragments.insert(node, exact_fragment);
         }
         Ok(())
     }
@@ -1789,7 +1871,6 @@ pub mod implementation {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)]
     fn resolve_occurrences(
         schema: &Schema,
         base: &Graph,
@@ -1801,135 +1882,226 @@ pub mod implementation {
             if n.shape == NodeShape::HyperEdge {
                 continue;
             }
-            let declarations: Vec<&Reference> = schema
-                .references
-                .values()
-                .filter(|reference| {
-                    reference.holder == n.anchor
-                        && !matches!(reference.source, RefSource::Inline { .. })
-                })
-                .collect();
-            let mut guard_groups: Vec<(RefSource, Vec<SEdge>)> = Vec::new();
-            for declaration in &declarations {
-                let Some(guard) = &declaration.guard else {
-                    continue;
-                };
-                let group_key = (declaration.source.clone(), guard.field.clone());
-                if guard_groups.contains(&group_key) {
-                    continue;
-                }
-                guard_groups.push(group_key);
-                let Some(actual) = keys::path_value(base, *h, &guard.field) else {
-                    continue;
-                };
-                let mut group: Vec<&Reference> = declarations
-                    .iter()
-                    .copied()
-                    .filter(|candidate| {
-                        candidate.source == declaration.source
-                            && candidate
-                                .guard
-                                .as_ref()
-                                .is_some_and(|candidate| candidate.field == guard.field)
-                    })
-                    .collect();
-                group.sort_by_key(|candidate| &candidate.id);
-                let selected = group.iter().any(|candidate| {
-                    candidate.guard.as_ref().is_some_and(|candidate| {
-                        crate::value::representation(&candidate.equals, &actual) == Some(true)
-                    })
-                });
-                if !selected && let Some(first) = group.first() {
-                    complement.unresolved.push((
-                        Occurrence {
-                            holder: *h,
-                            reference: first.id.clone(),
-                            index: 0,
-                            literal: actual.clone(),
-                        },
-                        Unresolved::Unselected(actual),
-                    ));
-                }
-            }
-            for r in declarations {
-                if let Some(guard) = &r.guard {
-                    let actual = keys::path_value(base, *h, &guard.field);
-                    if actual.as_ref().is_none_or(|actual| {
-                        crate::value::representation(actual, &guard.equals) != Some(true)
-                    }) {
-                        continue;
-                    }
-                }
-                for (index, values) in tuples(schema, base, *h, r)?.into_iter().enumerate() {
-                    let index = u32::try_from(index).ok().ok_or_else(|| {
-                        ResolveError::OccurrenceIndexExhausted {
-                            reference: r.id.clone(),
-                        }
-                    })?;
-                    let occ = Occurrence {
-                        holder: *h,
-                        reference: r.id.clone(),
-                        index,
-                        literal: occurrence_literal(base, *h, r, &values),
-                    };
-                    let nulls = null_candidates(schema, base, r, &values)?;
-                    if matches!(nulls.as_slice(), [_]) {
-                        complement.unresolved.push((occ, Unresolved::Null));
-                        continue;
-                    }
-                    let mut found = candidates(schema, base, r, *h, &values)?;
-                    if found.is_empty()
-                        && matches!(r.source, RefSource::Standoff { .. })
-                        && !has_concrete_targets(schema, base, r)
-                        && let Some((span, _, _)) = standoff_occurrences(schema, base, *h, r)?
-                            .get(usize::try_from(index).unwrap_or(usize::MAX))
-                        && let Some((target, _)) = complement
-                            .span_nodes
-                            .iter()
-                            .find(|(_, candidate)| *candidate == span)
-                    {
-                        found.push(*target);
-                    }
-                    match found.as_slice() {
-                        [target] => resolved.push(Resolved {
-                            occurrence: occ,
-                            target: *target,
-                            redirect: r.mode == ResolveMode::Redirect,
-                        }),
-                        found => {
-                            let reason = if found.is_empty() {
-                                Unresolved::Dangling
-                            } else {
-                                Unresolved::Ambiguous(found.to_vec())
-                            };
-                            if r.on_unresolved == OnUnresolved::Error && !lenient {
-                                return Err(match reason {
-                                    Unresolved::Dangling => ResolveError::DanglingReference {
-                                        reference: r.id.clone(),
-                                        at: ViewRef::Node(*h),
-                                        key: values,
-                                    },
-                                    Unresolved::Ambiguous(cs) => ResolveError::AmbiguousReference {
-                                        reference: r.id.clone(),
-                                        at: ViewRef::Node(*h),
-                                        key: values,
-                                        candidates: cs.into_iter().map(ViewRef::Node).collect(),
-                                    },
-                                    Unresolved::Unselected(_) => unreachable!(
-                                        "guard selection is handled before target lookup"
-                                    ),
-                                    Unresolved::Null => unreachable!(
-                                        "null-sentinel positions are handled before target lookup"
-                                    ),
-                                });
-                            }
-                            complement.unresolved.push((occ, reason));
-                        }
-                    }
-                }
-            }
+            resolve_node_occurrences(schema, base, *h, n, lenient, complement, &mut resolved)?;
         }
         Ok(resolved)
+    }
+
+    fn resolve_node_occurrences(
+        schema: &Schema,
+        base: &Graph,
+        holder: u32,
+        node: &Node,
+        lenient: bool,
+        complement: &mut ResComplement,
+        resolved: &mut Vec<Resolved>,
+    ) -> Result<(), ResolveError> {
+        let declarations: Vec<&Reference> = schema
+            .references
+            .values()
+            .filter(|reference| {
+                reference.holder == node.anchor
+                    && !matches!(reference.source, RefSource::Inline { .. })
+            })
+            .collect();
+        record_unselected_guards(base, holder, &declarations, complement);
+        for reference in declarations {
+            if guard_rejects(base, holder, reference) {
+                continue;
+            }
+            resolve_reference_occurrences(
+                schema, base, holder, reference, lenient, complement, resolved,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn record_unselected_guards(
+        base: &Graph,
+        holder: u32,
+        declarations: &[&Reference],
+        complement: &mut ResComplement,
+    ) {
+        let mut guard_groups: Vec<(RefSource, Vec<SEdge>)> = Vec::new();
+        for declaration in declarations {
+            let Some(guard) = &declaration.guard else {
+                continue;
+            };
+            let group_key = (declaration.source.clone(), guard.field.clone());
+            if guard_groups.contains(&group_key) {
+                continue;
+            }
+            guard_groups.push(group_key);
+            let Some(actual) = keys::path_value(base, holder, &guard.field) else {
+                continue;
+            };
+            let mut group: Vec<&Reference> = declarations
+                .iter()
+                .copied()
+                .filter(|candidate| {
+                    candidate.source == declaration.source
+                        && candidate
+                            .guard
+                            .as_ref()
+                            .is_some_and(|candidate| candidate.field == guard.field)
+                })
+                .collect();
+            group.sort_by_key(|candidate| &candidate.id);
+            let selected = group.iter().any(|candidate| {
+                candidate.guard.as_ref().is_some_and(|candidate| {
+                    crate::value::representation(&candidate.equals, &actual) == Some(true)
+                })
+            });
+            if !selected && let Some(first) = group.first() {
+                complement.unresolved.push((
+                    Occurrence {
+                        holder,
+                        reference: first.id.clone(),
+                        index: 0,
+                        literal: actual.clone(),
+                    },
+                    Unresolved::Unselected(actual),
+                ));
+            }
+        }
+    }
+
+    fn guard_rejects(base: &Graph, holder: u32, reference: &Reference) -> bool {
+        reference.guard.as_ref().is_some_and(|guard| {
+            keys::path_value(base, holder, &guard.field)
+                .as_ref()
+                .is_none_or(|actual| {
+                    crate::value::representation(actual, &guard.equals) != Some(true)
+                })
+        })
+    }
+
+    fn resolve_reference_occurrences(
+        schema: &Schema,
+        base: &Graph,
+        holder: u32,
+        reference: &Reference,
+        lenient: bool,
+        complement: &mut ResComplement,
+        resolved: &mut Vec<Resolved>,
+    ) -> Result<(), ResolveError> {
+        for (index, values) in tuples(schema, base, holder, reference)?
+            .into_iter()
+            .enumerate()
+        {
+            let index = u32::try_from(index).ok().ok_or_else(|| {
+                ResolveError::OccurrenceIndexExhausted {
+                    reference: reference.id.clone(),
+                }
+            })?;
+            let occurrence = Occurrence {
+                holder,
+                reference: reference.id.clone(),
+                index,
+                literal: occurrence_literal(base, holder, reference, &values),
+            };
+            let nulls = null_candidates(schema, base, reference, &values)?;
+            if matches!(nulls.as_slice(), [_]) {
+                complement.unresolved.push((occurrence, Unresolved::Null));
+                continue;
+            }
+            let mut found = candidates(schema, base, reference, holder, &values)?;
+            add_materialized_span_candidate(
+                schema, base, holder, reference, index, complement, &mut found,
+            )?;
+            record_resolution(
+                reference,
+                holder,
+                ResolutionDecision {
+                    values,
+                    occurrence,
+                    found,
+                },
+                lenient,
+                complement,
+                resolved,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn add_materialized_span_candidate(
+        schema: &Schema,
+        base: &Graph,
+        holder: u32,
+        reference: &Reference,
+        index: u32,
+        complement: &ResComplement,
+        found: &mut Vec<u32>,
+    ) -> Result<(), ResolveError> {
+        if found.is_empty()
+            && matches!(reference.source, RefSource::Standoff { .. })
+            && !has_concrete_targets(schema, base, reference)
+            && let Some((span, _, _)) = standoff_occurrences(schema, base, holder, reference)?
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+            && let Some((target, _)) = complement
+                .span_nodes
+                .iter()
+                .find(|(_, candidate)| *candidate == span)
+        {
+            found.push(*target);
+        }
+        Ok(())
+    }
+
+    struct ResolutionDecision {
+        values: Vec<Value>,
+        occurrence: Occurrence,
+        found: Vec<u32>,
+    }
+
+    fn record_resolution(
+        reference: &Reference,
+        holder: u32,
+        decision: ResolutionDecision,
+        lenient: bool,
+        complement: &mut ResComplement,
+        resolved: &mut Vec<Resolved>,
+    ) -> Result<(), ResolveError> {
+        let ResolutionDecision {
+            values,
+            occurrence,
+            found,
+        } = decision;
+        match found.as_slice() {
+            [target] => resolved.push(Resolved {
+                occurrence,
+                target: *target,
+                redirect: reference.mode == ResolveMode::Redirect,
+            }),
+            candidates => {
+                let reason = if candidates.is_empty() {
+                    Unresolved::Dangling
+                } else {
+                    Unresolved::Ambiguous(candidates.to_vec())
+                };
+                if reference.on_unresolved == OnUnresolved::Error && !lenient {
+                    return Err(match reason {
+                        Unresolved::Dangling => ResolveError::DanglingReference {
+                            reference: reference.id.clone(),
+                            at: ViewRef::Node(holder),
+                            key: values,
+                        },
+                        Unresolved::Ambiguous(candidates) => ResolveError::AmbiguousReference {
+                            reference: reference.id.clone(),
+                            at: ViewRef::Node(holder),
+                            key: values,
+                            candidates: candidates.into_iter().map(ViewRef::Node).collect(),
+                        },
+                        Unresolved::Unselected(_) | Unresolved::Null => {
+                            unreachable!("non-target outcomes are handled before target lookup")
+                        }
+                    });
+                }
+                complement.unresolved.push((occurrence, reason));
+            }
+        }
+        Ok(())
     }
 
     /// Redirect each maximal redirected holder (one no redirected ancestor holds).
@@ -2354,7 +2526,6 @@ pub mod implementation {
     /// Reconstitute every identified-inline occurrence with exactly its
     /// original field set. Fields introduced on the merged representative in
     /// the edited view are assigned to the first surviving occurrence only.
-    #[allow(clippy::too_many_lines)]
     fn restore_inline_occurrences(
         view: &Graph,
         complement: &ResComplement,
@@ -2387,80 +2558,114 @@ pub mod implementation {
         }
 
         for occurrences in groups.values() {
-            let union: BTreeSet<Name> = occurrences
-                .iter()
-                .flat_map(|(_, occurrence)| occurrence.fields.iter().cloned())
-                .collect();
-            let surviving: Vec<u32> = occurrences
-                .iter()
-                .filter_map(|(edge, _)| snapshots.contains_key(edge).then_some(*edge))
-                .collect();
-            let new_field_holder = surviving.first().copied();
+            restore_inline_group(view, complement, graph, occurrences, &snapshots)?;
+        }
+        Ok(())
+    }
 
-            for (edge, occurrence) in occurrences {
-                let Some((edited_edge, edited_target)) = snapshots.get(edge) else {
-                    if !occurrence.redirected && graph.nodes.contains_key(&occurrence.node) {
-                        drop_subtree(graph, occurrence.node);
-                    }
-                    continue;
-                };
-                let mut attachment = if occurrence.redirected {
-                    let fragment = complement
-                        .inline_fragments
-                        .get(&occurrence.node)
-                        .ok_or(ResolveError::NotATree)?;
-                    graph
-                        .nodes
-                        .extend(fragment.nodes.iter().map(|(id, node)| (*id, node.clone())));
-                    graph
-                        .edges
-                        .extend(fragment.edges.iter().map(|(id, edge)| (*id, edge.clone())));
-                    fragment
-                        .edges
-                        .get(edge)
-                        .cloned()
-                        .ok_or(ResolveError::NotATree)?
-                } else {
-                    edited_edge.clone()
-                };
-                let target = graph
-                    .nodes
-                    .get_mut(&occurrence.node)
-                    .ok_or(ResolveError::NotATree)?;
-                target.fields.retain(|field, _| {
-                    occurrence.fields.contains(field)
-                        || (new_field_holder == Some(*edge) && !union.contains(field))
-                });
-                for field in &occurrence.fields {
-                    match edited_target.fields.get(field) {
-                        Some(value) => {
-                            target.fields.insert(field.clone(), value.clone());
-                        }
-                        None => {
-                            target.fields.remove(field);
-                        }
-                    }
+    fn restore_inline_group(
+        view: &Graph,
+        complement: &ResComplement,
+        graph: &mut Graph,
+        occurrences: &[(u32, &InlineOccurrence)],
+        snapshots: &BTreeMap<u32, (GEdge, Node)>,
+    ) -> Result<(), ResolveError> {
+        let union: BTreeSet<Name> = occurrences
+            .iter()
+            .flat_map(|(_, occurrence)| occurrence.fields.iter().cloned())
+            .collect();
+        let new_field_holder = occurrences
+            .iter()
+            .find_map(|(edge, _)| snapshots.contains_key(edge).then_some(*edge));
+        for (edge, occurrence) in occurrences {
+            let Some((edited_edge, edited_target)) = snapshots.get(edge) else {
+                if !occurrence.redirected && graph.nodes.contains_key(&occurrence.node) {
+                    drop_subtree(graph, occurrence.node);
                 }
-                if new_field_holder == Some(*edge) {
-                    for (field, value) in &edited_target.fields {
-                        if !union.contains(field) {
-                            target.fields.insert(field.clone(), value.clone());
-                        }
-                    }
+                continue;
+            };
+            let mut attachment =
+                restore_inline_attachment(complement, graph, *edge, occurrence, edited_edge)?;
+            restore_inline_node_fields(
+                graph,
+                occurrence,
+                edited_target,
+                &union,
+                new_field_holder == Some(*edge),
+            )?;
+            if occurrence.redirected {
+                for field in &occurrence.edge_fields {
+                    restore_inline_edge_field(
+                        view,
+                        edited_edge.tgt,
+                        graph,
+                        occurrence.node,
+                        field,
+                    )?;
                 }
-                if occurrence.redirected {
-                    for field in &occurrence.edge_fields {
-                        restore_inline_edge_field(
-                            view,
-                            edited_edge.tgt,
-                            graph,
-                            occurrence.node,
-                            field,
-                        )?;
-                    }
+            }
+            attachment.tgt = occurrence.node;
+            graph.edges.insert(*edge, attachment);
+        }
+        Ok(())
+    }
+
+    fn restore_inline_attachment(
+        complement: &ResComplement,
+        graph: &mut Graph,
+        edge: u32,
+        occurrence: &InlineOccurrence,
+        edited_edge: &GEdge,
+    ) -> Result<GEdge, ResolveError> {
+        if !occurrence.redirected {
+            return Ok(edited_edge.clone());
+        }
+        let fragment = complement
+            .inline_fragments
+            .get(&occurrence.node)
+            .ok_or(ResolveError::NotATree)?;
+        graph
+            .nodes
+            .extend(fragment.nodes.iter().map(|(id, node)| (*id, node.clone())));
+        graph
+            .edges
+            .extend(fragment.edges.iter().map(|(id, edge)| (*id, edge.clone())));
+        fragment
+            .edges
+            .get(&edge)
+            .cloned()
+            .ok_or(ResolveError::NotATree)
+    }
+
+    fn restore_inline_node_fields(
+        graph: &mut Graph,
+        occurrence: &InlineOccurrence,
+        edited_target: &Node,
+        union: &BTreeSet<Name>,
+        receives_new_fields: bool,
+    ) -> Result<(), ResolveError> {
+        let target = graph
+            .nodes
+            .get_mut(&occurrence.node)
+            .ok_or(ResolveError::NotATree)?;
+        target.fields.retain(|field, _| {
+            occurrence.fields.contains(field) || (receives_new_fields && !union.contains(field))
+        });
+        for field in &occurrence.fields {
+            match edited_target.fields.get(field) {
+                Some(value) => {
+                    target.fields.insert(field.clone(), value.clone());
                 }
-                attachment.tgt = occurrence.node;
-                graph.edges.insert(*edge, attachment);
+                None => {
+                    target.fields.remove(field);
+                }
+            }
+        }
+        if receives_new_fields {
+            for (field, value) in &edited_target.fields {
+                if !union.contains(field) {
+                    target.fields.insert(field.clone(), value.clone());
+                }
             }
         }
         Ok(())
@@ -2980,7 +3185,6 @@ pub mod implementation {
     /// Write each holder's occurrence sequences at its key sites: for `One`
     /// the one tuple's values (none removes the sites), for `Many` each part's
     /// list of the tuples' values in index order.
-    #[allow(clippy::too_many_lines)]
     fn write_sequences(
         schema: &Schema,
         comp: &ResComplement,
@@ -2993,169 +3197,194 @@ pub mod implementation {
             .map(|o| (o.holder, o.reference.clone()))
             .collect();
         touched.extend(sequences.keys().cloned());
+        let empty = BTreeMap::new();
         for (holder, reference) in touched {
-            let r = &schema.references[&reference];
             if !graph.nodes.contains_key(&holder) {
                 continue;
             }
-            let seq: Vec<&Written> = sequences
+            let by_index = sequences
                 .get(&(holder, reference.clone()))
-                .map(|s| s.values().collect())
-                .unwrap_or_default();
-            if !seq.is_empty()
-                && let Some(guard) = &r.guard
-            {
-                let site = path_site(graph, holder, &guard.field)
-                    .ok_or_else(|| unrepresentable(holder, &reference))?;
-                write_site(graph, &site, Some(guard.equals.clone()));
+                .unwrap_or(&empty);
+            write_sequence(schema, graph, holder, &reference, by_index)?;
+        }
+        Ok(())
+    }
+
+    fn write_sequence(
+        schema: &Schema,
+        graph: &mut Graph,
+        holder: u32,
+        reference_name: &str,
+        by_index: &BTreeMap<u32, Written>,
+    ) -> Result<(), ResolveError> {
+        let reference = &schema.references[reference_name];
+        let sequence: Vec<&Written> = by_index.values().collect();
+        if !sequence.is_empty()
+            && let Some(guard) = &reference.guard
+        {
+            let site = path_site(graph, holder, &guard.field)
+                .ok_or_else(|| unrepresentable(holder, reference_name))?;
+            write_site(graph, &site, Some(guard.equals.clone()));
+        }
+        match &reference.source {
+            RefSource::KeyValue { parts } => {
+                write_parts(graph, holder, reference, parts, &sequence)
             }
-            let write_parts = |graph: &mut Graph,
-                               parts: &[Vec<SEdge>],
-                               seq: &[&Written]|
-             -> Result<(), ResolveError> {
-                for (k, part) in parts.iter().enumerate() {
-                    let site = path_site(graph, holder, part).ok_or_else(|| {
-                        ResolveError::UnrepresentableReference {
-                            carrier: ViewRef::Node(holder),
-                            reference: Some(reference.clone()),
-                        }
-                    })?;
-                    let value = match r.cardinality {
-                        Cardinality::One => seq.first().and_then(|w| w.tuple.get(k).cloned()),
-                        Cardinality::Many => Some(Value::List(
-                            seq.iter().filter_map(|w| w.tuple.get(k).cloned()).collect(),
-                        )),
-                    };
-                    write_site(graph, &site, value);
-                }
-                Ok(())
+            RefSource::Path { field, .. } | RefSource::Variable { field, .. } => write_parts(
+                graph,
+                holder,
+                reference,
+                std::slice::from_ref(field),
+                &sequence,
+            ),
+            RefSource::Standoff { .. } => {
+                write_standoff_sequence(schema, graph, holder, reference, by_index)
+            }
+            RefSource::Inline { field } => {
+                write_inline_sequence(graph, holder, reference_name, field, &sequence)
+            }
+        }
+    }
+
+    fn write_parts(
+        graph: &mut Graph,
+        holder: u32,
+        reference: &Reference,
+        parts: &[Vec<SEdge>],
+        sequence: &[&Written],
+    ) -> Result<(), ResolveError> {
+        for (index, part) in parts.iter().enumerate() {
+            let site = path_site(graph, holder, part)
+                .ok_or_else(|| unrepresentable(holder, &reference.id))?;
+            let value = match reference.cardinality {
+                Cardinality::One => sequence
+                    .first()
+                    .and_then(|written| written.tuple.get(index).cloned()),
+                Cardinality::Many => Some(Value::List(
+                    sequence
+                        .iter()
+                        .filter_map(|written| written.tuple.get(index).cloned())
+                        .collect(),
+                )),
             };
-            match &r.source {
-                RefSource::KeyValue { parts } => write_parts(graph, parts, &seq)?,
-                RefSource::Path { field, .. } | RefSource::Variable { field, .. } => {
-                    write_parts(graph, std::slice::from_ref(field), &seq)?;
-                }
-                RefSource::Standoff {
-                    text,
-                    start,
-                    end,
-                    unit,
-                    end_inclusive,
-                    end_form,
-                    origin,
-                    fragments,
-                } => {
-                    let by_index = sequences
-                        .get(&(holder, reference.clone()))
-                        .cloned()
-                        .unwrap_or_default();
-                    let coordinate_holders = fragment_holders(graph, holder, fragments.as_ref());
-                    if fragments.is_none() && by_index.len() > 1 {
-                        return Err(unrepresentable(holder, &reference));
-                    }
-                    if by_index.keys().any(|index| {
-                        usize::try_from(*index).map_or(true, |i| i >= coordinate_holders.len())
-                    }) {
-                        // Creating a fragment requires a route's concrete node
-                        // constructor. This finite carrier can rewrite or remove
-                        // declared fragments, but never invents an ill-typed one.
-                        return Err(unrepresentable(holder, &reference));
-                    }
-                    if let Some(fragment_edge) = fragments {
-                        for (index, (edge_id, fragment)) in
-                            coordinate_holders.iter().enumerate().rev()
-                        {
-                            if !by_index.contains_key(
-                                &u32::try_from(index)
-                                    .map_err(|_| unrepresentable(holder, &reference))?,
-                            ) {
-                                if let Some(discarded) = capture(graph, *fragment) {
-                                    let _ = discarded;
-                                } else {
-                                    graph.edges.remove(edge_id);
-                                    graph.nodes.remove(fragment);
-                                }
-                            }
-                        }
-                        // The edge label is used above to select the exact
-                        // fragment carriers; keeping this binding explicit
-                        // prevents an accidental all-child rewrite.
-                        let _ = fragment_edge;
-                    }
-                    if by_index.is_empty() && fragments.is_none() {
-                        for path in [start, end] {
-                            let site = path_site(graph, holder, path)
-                                .ok_or_else(|| unrepresentable(holder, &reference))?;
-                            write_site(graph, &site, None);
-                        }
-                        continue;
-                    }
-                    for (index, written) in by_index {
-                        let coordinate_holder = if fragments.is_some() {
-                            coordinate_holders[usize::try_from(index)
-                                .map_err(|_| unrepresentable(holder, &reference))?]
-                            .1
-                        } else {
-                            holder
-                        };
-                        write_standoff_coordinates(
-                            schema,
-                            graph,
-                            holder,
-                            coordinate_holder,
-                            text,
-                            start,
-                            end,
-                            *unit,
-                            *end_inclusive,
-                            *end_form,
-                            *origin,
-                            &written,
-                            &reference,
-                        )?;
-                    }
-                }
-                RefSource::Inline { field } => {
-                    let Some((last, prefix)) = field.split_last() else {
-                        return Err(ResolveError::UnrepresentableReference {
-                            carrier: ViewRef::Node(holder),
-                            reference: Some(reference.clone()),
-                        });
-                    };
-                    let mut frontier = vec![holder];
-                    for hop in prefix {
-                        frontier = frontier
-                            .iter()
-                            .flat_map(|source| {
-                                graph
-                                    .edges
-                                    .values()
-                                    .filter(move |edge| edge.src == *source && edge.label == *hop)
-                                    .map(|edge| edge.tgt)
-                            })
-                            .collect();
-                    }
-                    let target = seq.first().and_then(|written| written.target);
-                    let candidate = graph
-                        .edges
-                        .iter_mut()
-                        .find(|(_, edge)| frontier.contains(&edge.src) && edge.label == *last);
-                    match (candidate, target) {
-                        (Some((_, edge)), Some(target)) => edge.tgt = target,
-                        (Some((id, _)), None) => {
-                            let id = *id;
-                            graph.edges.remove(&id);
-                        }
-                        (None, None) => {}
-                        (None, Some(_)) => {
-                            return Err(ResolveError::UnrepresentableReference {
-                                carrier: ViewRef::Node(holder),
-                                reference: Some(reference.clone()),
-                            });
-                        }
-                    }
-                }
+            write_site(graph, &site, value);
+        }
+        Ok(())
+    }
+
+    fn write_standoff_sequence(
+        schema: &Schema,
+        graph: &mut Graph,
+        holder: u32,
+        reference: &Reference,
+        by_index: &BTreeMap<u32, Written>,
+    ) -> Result<(), ResolveError> {
+        let RefSource::Standoff {
+            start,
+            end,
+            fragments,
+            ..
+        } = &reference.source
+        else {
+            unreachable!("caller selected a standoff source");
+        };
+        let coordinate_holders = fragment_holders(graph, holder, fragments.as_ref());
+        if fragments.is_none() && by_index.len() > 1 {
+            return Err(unrepresentable(holder, &reference.id));
+        }
+        if by_index.keys().any(|index| {
+            usize::try_from(*index).map_or(true, |index| index >= coordinate_holders.len())
+        }) {
+            return Err(unrepresentable(holder, &reference.id));
+        }
+        remove_unused_fragments(graph, holder, reference, by_index, &coordinate_holders)?;
+        if by_index.is_empty() && fragments.is_none() {
+            for path in [start, end] {
+                let site = path_site(graph, holder, path)
+                    .ok_or_else(|| unrepresentable(holder, &reference.id))?;
+                write_site(graph, &site, None);
             }
+            return Ok(());
+        }
+        for (index, written) in by_index {
+            let coordinate_holder = if fragments.is_some() {
+                coordinate_holders
+                    [usize::try_from(*index).map_err(|_| unrepresentable(holder, &reference.id))?]
+                .1
+            } else {
+                holder
+            };
+            write_standoff_coordinates(
+                schema,
+                graph,
+                holder,
+                coordinate_holder,
+                reference,
+                written,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn remove_unused_fragments(
+        graph: &mut Graph,
+        holder: u32,
+        reference: &Reference,
+        by_index: &BTreeMap<u32, Written>,
+        coordinate_holders: &[(u32, u32)],
+    ) -> Result<(), ResolveError> {
+        let RefSource::Standoff {
+            fragments: Some(_), ..
+        } = &reference.source
+        else {
+            return Ok(());
+        };
+        for (index, (edge_id, fragment)) in coordinate_holders.iter().enumerate().rev() {
+            let index = u32::try_from(index).map_err(|_| unrepresentable(holder, &reference.id))?;
+            if !by_index.contains_key(&index) && capture(graph, *fragment).is_none() {
+                graph.edges.remove(edge_id);
+                graph.nodes.remove(fragment);
+            }
+        }
+        Ok(())
+    }
+
+    fn write_inline_sequence(
+        graph: &mut Graph,
+        holder: u32,
+        reference: &str,
+        field: &[SEdge],
+        sequence: &[&Written],
+    ) -> Result<(), ResolveError> {
+        let Some((last, prefix)) = field.split_last() else {
+            return Err(unrepresentable(holder, reference));
+        };
+        let mut frontier = vec![holder];
+        for hop in prefix {
+            frontier = frontier
+                .iter()
+                .flat_map(|source| {
+                    graph
+                        .edges
+                        .values()
+                        .filter(move |edge| edge.src == *source && edge.label == *hop)
+                        .map(|edge| edge.tgt)
+                })
+                .collect();
+        }
+        let target = sequence.first().and_then(|written| written.target);
+        let candidate = graph
+            .edges
+            .iter_mut()
+            .find(|(_, edge)| frontier.contains(&edge.src) && edge.label == *last);
+        match (candidate, target) {
+            (Some((_, edge)), Some(target)) => edge.tgt = target,
+            (Some((id, _)), None) => {
+                let id = *id;
+                graph.edges.remove(&id);
+            }
+            (None, None) => {}
+            (None, Some(_)) => return Err(unrepresentable(holder, reference)),
         }
         Ok(())
     }
@@ -3184,54 +3413,59 @@ pub mod implementation {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn write_standoff_coordinates(
         schema: &Schema,
         graph: &mut Graph,
         holder: u32,
         coordinate_holder: u32,
-        source: &RefTextSource,
-        start_path: &[SEdge],
-        end_path: &[SEdge],
-        unit: OffsetUnit,
-        end_inclusive: bool,
-        end_form: SpanEnd,
-        origin: u64,
+        reference: &Reference,
         written: &Written,
-        reference: &str,
     ) -> Result<(), ResolveError> {
+        let RefSource::Standoff {
+            text: source,
+            start: start_path,
+            end: end_path,
+            unit,
+            end_inclusive,
+            end_form,
+            origin,
+            ..
+        } = &reference.source
+        else {
+            unreachable!("caller selected a standoff source");
+        };
         let [Value::Int(start_byte), Value::Int(end_byte)] = written.tuple.as_slice() else {
-            return Err(unrepresentable(holder, reference));
+            return Err(unrepresentable(holder, &reference.id));
         };
         let context = standoff_text(schema, graph, holder, source)
-            .map_err(|_| unrepresentable(holder, reference))?;
+            .map_err(|_| unrepresentable(holder, &reference.id))?;
         let relative = |byte: i64| {
             u64::try_from(byte)
                 .ok()
                 .and_then(|byte| byte.checked_sub(context.base_byte))
-                .ok_or_else(|| unrepresentable(holder, reference))
+                .ok_or_else(|| unrepresentable(holder, &reference.id))
         };
-        let start_unit = boundary_unit(&context.text, relative(*start_byte)?, unit)
-            .ok_or_else(|| unrepresentable(holder, reference))?;
-        let end_unit = boundary_unit(&context.text, relative(*end_byte)?, unit)
-            .ok_or_else(|| unrepresentable(holder, reference))?;
+        let start_unit = boundary_unit(&context.text, relative(*start_byte)?, *unit)
+            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
+        let end_unit = boundary_unit(&context.text, relative(*end_byte)?, *unit)
+            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
         let start_written = start_unit
-            .checked_add(origin)
-            .ok_or_else(|| unrepresentable(holder, reference))?;
+            .checked_add(*origin)
+            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
         let end_written = match end_form {
             SpanEnd::Length => end_unit.checked_sub(start_unit),
-            SpanEnd::Offset if end_inclusive => end_unit
+            SpanEnd::Offset if *end_inclusive => end_unit
                 .checked_sub(1)
-                .and_then(|end| end.checked_add(origin)),
-            SpanEnd::Offset => end_unit.checked_add(origin),
+                .and_then(|end| end.checked_add(*origin)),
+            SpanEnd::Offset => end_unit.checked_add(*origin),
         }
-        .ok_or_else(|| unrepresentable(holder, reference))?;
+        .ok_or_else(|| unrepresentable(holder, &reference.id))?;
         for (path, coordinate) in [(start_path, start_written), (end_path, end_written)] {
             let site = path_site(graph, coordinate_holder, path)
-                .ok_or_else(|| unrepresentable(holder, reference))?;
+                .ok_or_else(|| unrepresentable(holder, &reference.id))?;
             let coordinate = i64::try_from(coordinate)
                 .map(Value::Int)
-                .map_err(|_| unrepresentable(holder, reference))?;
+                .map_err(|_| unrepresentable(holder, &reference.id))?;
             write_site(graph, &site, Some(coordinate));
         }
         Ok(())

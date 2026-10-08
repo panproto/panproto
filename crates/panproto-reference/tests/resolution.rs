@@ -378,8 +378,12 @@ fn nearest_preceding_variable_binding_selects_the_shadowing_definition() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
 fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
+    path_form_round_trips();
+    utf16_standoff_resolves_to_byte_span();
+}
+
+fn path_form_round_trips() {
     let path = SEdge::new("holder", "scalar", "prop", Some("path"));
     let base = SEdge::new("holder", "scalar", "prop", Some("base"));
     let iri = SEdge::new("target", "scalar", "prop", Some("iri"));
@@ -454,7 +458,20 @@ fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
         resolution::put(&path_schema, &view, &complement),
         Ok(path_tree)
     );
+}
 
+fn utf16_standoff_resolves_to_byte_span() {
+    let (span_schema, span_tree) = standoff_fixture();
+    materialized_spans_have_site_identity(&span_schema, &span_tree);
+    external_context_is_separate_from_identity(&span_schema, &span_tree);
+    let (view, complement) = resolution::get(&span_schema, &span_tree, false).unwrap();
+    assert_eq!(
+        resolution::put(&span_schema, &view, &complement),
+        Ok(span_tree)
+    );
+}
+
+fn standoff_fixture() -> (Schema, Tree) {
     let text = SEdge::new("annotation", "scalar", "prop", Some("text"));
     let start = SEdge::new("annotation", "scalar", "prop", Some("start"));
     let end = SEdge::new("annotation", "scalar", "prop", Some("end"));
@@ -545,6 +562,10 @@ fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
         fans: vec![],
         root: 0,
     };
+    (span_schema, span_tree)
+}
+
+fn materialized_spans_have_site_identity(span_schema: &Schema, span_tree: &Tree) {
     let mut materialized_tree = span_tree.clone();
     materialized_tree.nodes.remove(&2);
     materialized_tree.arcs.retain(|(_, target, _)| *target != 2);
@@ -561,7 +582,7 @@ fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
         SEdge::new("root", "annotation", "child", Some("annotation")),
     ));
     let (materialized_view, materialized_complement) =
-        resolution::get(&span_schema, &materialized_tree, false).unwrap();
+        resolution::get(span_schema, &materialized_tree, false).unwrap();
     assert_eq!(materialized_complement.span_nodes.len(), 2);
     let spans: Vec<_> = materialized_complement.span_nodes.values().collect();
     assert_eq!((spans[0].start, spans[0].end), (4, 5));
@@ -576,10 +597,12 @@ fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
         2
     );
     assert_eq!(
-        resolution::put(&span_schema, &materialized_view, &materialized_complement),
+        resolution::put(span_schema, &materialized_view, &materialized_complement),
         Ok(materialized_tree)
     );
+}
 
+fn external_context_is_separate_from_identity(span_schema: &Schema, span_tree: &Tree) {
     let site = resolution::ResolutionValueSite::Field {
         holder: 1,
         field: "text".into(),
@@ -626,11 +649,6 @@ fn path_forms_round_trip_and_utf16_standoff_resolves_to_byte_span() {
         resolution::put(&external_schema, &external_view, &external_complement),
         Err(ResolveError::ContextMismatch { .. })
     ));
-    let (view, complement) = resolution::get(&span_schema, &span_tree, false).unwrap();
-    assert_eq!(
-        resolution::put(&span_schema, &view, &complement),
-        Ok(span_tree)
-    );
 }
 
 fn inline_fixture(conflict: bool) -> (Schema, Tree) {

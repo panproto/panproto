@@ -548,8 +548,14 @@ fn a_term_image_of_the_wrong_sort_is_no_morphism() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
 fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
+    morphism_kinds_and_closure();
+    morphism_axiom_preservation();
+    morphism_full_term_typing();
+    morphism_equation_rewriting();
+}
+
+fn morphism_kinds_and_closure() {
     let mut open = th("Open", &["S"]);
     open.sorts[0].kind = "source-kind".into();
     let mut other_kind = th("Other", &["T"]);
@@ -588,7 +594,9 @@ fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
         .ops
         .insert("c2".into(), theory::OpImage::Op("k2".into()));
     assert!(theory::check_morphism(&source, &target, &constructors));
+}
 
+fn morphism_axiom_preservation() {
     let mut axiom_source = th("AxiomSource", &["S"]);
     axiom_source.ops.push(op("f", &[("x", "S")], "S"));
     axiom_source.eqs.push(theory::Equation {
@@ -608,19 +616,23 @@ fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
         &axiom_target,
         &identity
     ));
-    axiom_target.eqs = axiom_source.eqs.clone();
+    axiom_target.eqs.clone_from(&axiom_source.eqs);
     assert!(!theory::check_morphism(
         &axiom_source,
         &axiom_target,
         &identity
     ));
-    axiom_target.directed_eqs = axiom_source.directed_eqs.clone();
+    axiom_target
+        .directed_eqs
+        .clone_from(&axiom_source.directed_eqs);
     assert!(theory::check_morphism(
         &axiom_source,
         &axiom_target,
         &identity
     ));
+}
 
+fn morphism_full_term_typing() {
     let mut nested_source = th("NestedSource", &["A", "D"]);
     nested_source.ops.push(op("out", &[("x", "A")], "D"));
     let mut nested_target = th("NestedTarget", &["A", "B", "C", "D"]);
@@ -640,7 +652,9 @@ fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
         &nested_target,
         &nested
     ));
+}
 
+fn morphism_equation_rewriting() {
     // Ordinary equations may be preserved by the target's directed theory,
     // not only by a same-shaped declaration.
     let mut equational_source = th("EquationalSource", &["A"]);

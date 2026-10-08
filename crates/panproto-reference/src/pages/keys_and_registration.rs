@@ -1292,9 +1292,21 @@ pub mod schema {
     /// # Errors
     ///
     /// Every declaration defect, in deterministic declaration order.
-    #[allow(clippy::too_many_lines)]
     pub fn validate_declarations(schema: &Schema) -> Result<(), Vec<DeclarationError>> {
         let mut errors = Vec::new();
+        validate_keys(schema, &mut errors);
+        validate_target_sets(schema, &mut errors);
+        let (guards, binder_modes) = validate_references(schema, &mut errors);
+        validate_binder_modes(schema, binder_modes, &mut errors);
+        validate_guards(&guards, &mut errors);
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn validate_keys(schema: &Schema, errors: &mut Vec<DeclarationError>) {
         for (vertex, keys) in &schema.keys {
             let mut ids = BTreeSet::new();
             for key in keys {
@@ -1333,6 +1345,9 @@ pub mod schema {
                 }
             }
         }
+    }
+
+    fn validate_target_sets(schema: &Schema, errors: &mut Vec<DeclarationError>) {
         for (id, set) in &schema.target_sets {
             if schema.vertices.contains_key(id) {
                 errors.push(DeclarationError::TargetSetNameClash { set: id.clone() });
@@ -1364,132 +1379,179 @@ pub mod schema {
                 }
             }
         }
+    }
+
+    type GuardDeclaration<'a> = (&'a str, &'a RefSource, &'a [SEdge], &'a str, &'a Value);
+    type BinderModes<'a> = BTreeMap<(&'a str, &'a str), Vec<(&'a str, VariableBinding)>>;
+
+    fn validate_references<'a>(
+        schema: &'a Schema,
+        errors: &mut Vec<DeclarationError>,
+    ) -> (Vec<GuardDeclaration<'a>>, BinderModes<'a>) {
         let mut guards: Vec<(&str, &RefSource, &[SEdge], &str, &Value)> = Vec::new();
-        let mut binder_modes: BTreeMap<(&str, &str), Vec<(&str, VariableBinding)>> =
-            BTreeMap::new();
+        let mut binder_modes = BTreeMap::new();
         for reference in schema.references.values() {
-            let targets = target_members(schema, reference);
-            if targets.is_empty() {
-                errors.push(DeclarationError::UnknownTarget {
-                    reference: reference.id.clone(),
-                });
-                continue;
-            }
-            if targets
-                .iter()
-                .any(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
-            {
-                errors.push(DeclarationError::KeyNotResolvable {
-                    reference: reference.id.clone(),
-                    key: targets[0].1.id.clone(),
-                });
-            }
-            let expected = targets[0].1.parts.len();
-            if let Some(set) = schema.target_sets.get(&reference.target_vertex) {
-                if reference.target_key.is_some() {
-                    errors.push(DeclarationError::TargetSetHasKey {
-                        reference: reference.id.clone(),
-                    });
-                }
-                if let Some(edge) = &reference.edge {
-                    let valid = edge.tgt == reference.target_vertex
-                        && set.members.iter().all(|(vertex, _)| {
-                            let mut member = edge.clone();
-                            member.tgt.clone_from(vertex);
-                            schema.edges.contains(&member)
-                        });
-                    if !valid {
-                        errors.push(DeclarationError::EdgeMismatch {
-                            reference: reference.id.clone(),
-                        });
-                    }
-                }
-            } else if reference.edge.as_ref().is_some_and(|edge| {
-                edge.src != reference.holder
-                    || edge.tgt != reference.target_vertex
-                    || !schema.edges.contains(edge)
-            }) {
-                errors.push(DeclarationError::EdgeMismatch {
-                    reference: reference.id.clone(),
-                });
-            }
-            if let RefSource::KeyValue { parts } = &reference.source
-                && parts.len() != expected
-            {
-                errors.push(DeclarationError::ReferenceArity {
-                    reference: reference.id.clone(),
-                    expected,
-                    found: parts.len(),
-                });
-            }
-            if matches!(reference.source, RefSource::Inline { .. })
-                && reference.mode != ResolveMode::Redirect
-            {
-                errors.push(DeclarationError::InlineRequiresRedirect {
-                    reference: reference.id.clone(),
-                });
-            }
-            if matches!(reference.source, RefSource::Inline { .. })
-                && !schema.target_sets.contains_key(&reference.target_vertex)
-            {
-                errors.push(DeclarationError::InlineRequiresTargetSet {
-                    reference: reference.id.clone(),
-                });
-            }
-            if let RefSource::Variable {
-                binder_key,
-                binding,
-                ..
-            } = &reference.source
-            {
-                if targets
-                    .first()
-                    .is_none_or(|(_, key)| key.id != *binder_key || key.role != KeyRole::Identifier)
-                {
-                    errors.push(DeclarationError::VariableBinderInvalid {
-                        reference: reference.id.clone(),
-                        key: binder_key.clone(),
-                    });
-                }
-                binder_modes
-                    .entry((reference.target_vertex.as_str(), binder_key.as_str()))
-                    .or_default()
-                    .push((reference.id.as_str(), *binding));
-            }
-            if let RefSource::Standoff {
-                end_inclusive,
-                end_form,
-                fragments,
-                ..
-            } = &reference.source
-            {
-                if *end_form == SpanEnd::Length && *end_inclusive {
-                    errors.push(DeclarationError::LengthInclusive {
-                        reference: reference.id.clone(),
-                    });
-                }
-                if let Some(edge) = fragments
-                    && (reference.cardinality != Cardinality::Many
-                        || edge.src != reference.holder
-                        || !schema.orderings.contains_key(edge))
-                {
-                    errors.push(DeclarationError::InvalidFragments {
-                        reference: reference.id.clone(),
-                    });
-                }
-            }
-            if let Some(guard) = &reference.guard {
-                guards.push((
-                    reference.holder.as_str(),
-                    &reference.source,
-                    &guard.field,
-                    reference.id.as_str(),
-                    &guard.equals,
-                ));
-            }
-            validate_text_reference(schema, reference, &mut errors);
-            validate_scope_via(schema, reference, &mut errors);
+            validate_reference(schema, reference, errors, &mut guards, &mut binder_modes);
         }
+        (guards, binder_modes)
+    }
+
+    fn validate_reference<'a>(
+        schema: &'a Schema,
+        reference: &'a Reference,
+        errors: &mut Vec<DeclarationError>,
+        guards: &mut Vec<GuardDeclaration<'a>>,
+        binder_modes: &mut BinderModes<'a>,
+    ) {
+        let Some(targets) = validate_reference_target(schema, reference, errors) else {
+            return;
+        };
+        let expected = targets[0].1.parts.len();
+        if let RefSource::KeyValue { parts } = &reference.source
+            && parts.len() != expected
+        {
+            errors.push(DeclarationError::ReferenceArity {
+                reference: reference.id.clone(),
+                expected,
+                found: parts.len(),
+            });
+        }
+        validate_reference_source(schema, reference, &targets, errors, binder_modes);
+        if let Some(guard) = &reference.guard {
+            guards.push((
+                reference.holder.as_str(),
+                &reference.source,
+                &guard.field,
+                reference.id.as_str(),
+                &guard.equals,
+            ));
+        }
+        validate_text_reference(schema, reference, errors);
+        validate_scope_via(schema, reference, errors);
+    }
+
+    fn validate_reference_target<'a>(
+        schema: &'a Schema,
+        reference: &'a Reference,
+        errors: &mut Vec<DeclarationError>,
+    ) -> Option<Vec<(&'a Name, &'a Key)>> {
+        let targets = target_members(schema, reference);
+        if targets.is_empty() {
+            errors.push(DeclarationError::UnknownTarget {
+                reference: reference.id.clone(),
+            });
+            return None;
+        }
+        if targets
+            .iter()
+            .any(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
+        {
+            errors.push(DeclarationError::KeyNotResolvable {
+                reference: reference.id.clone(),
+                key: targets[0].1.id.clone(),
+            });
+        }
+        if let Some(set) = schema.target_sets.get(&reference.target_vertex) {
+            if reference.target_key.is_some() {
+                errors.push(DeclarationError::TargetSetHasKey {
+                    reference: reference.id.clone(),
+                });
+            }
+            if let Some(edge) = &reference.edge {
+                let valid = edge.tgt == reference.target_vertex
+                    && set.members.iter().all(|(vertex, _)| {
+                        let mut member = edge.clone();
+                        member.tgt.clone_from(vertex);
+                        schema.edges.contains(&member)
+                    });
+                if !valid {
+                    errors.push(DeclarationError::EdgeMismatch {
+                        reference: reference.id.clone(),
+                    });
+                }
+            }
+        } else if reference.edge.as_ref().is_some_and(|edge| {
+            edge.src != reference.holder
+                || edge.tgt != reference.target_vertex
+                || !schema.edges.contains(edge)
+        }) {
+            errors.push(DeclarationError::EdgeMismatch {
+                reference: reference.id.clone(),
+            });
+        }
+        Some(targets)
+    }
+
+    fn validate_reference_source<'a>(
+        schema: &'a Schema,
+        reference: &'a Reference,
+        targets: &[(&Name, &Key)],
+        errors: &mut Vec<DeclarationError>,
+        binder_modes: &mut BinderModes<'a>,
+    ) {
+        if matches!(reference.source, RefSource::Inline { .. })
+            && reference.mode != ResolveMode::Redirect
+        {
+            errors.push(DeclarationError::InlineRequiresRedirect {
+                reference: reference.id.clone(),
+            });
+        }
+        if matches!(reference.source, RefSource::Inline { .. })
+            && !schema.target_sets.contains_key(&reference.target_vertex)
+        {
+            errors.push(DeclarationError::InlineRequiresTargetSet {
+                reference: reference.id.clone(),
+            });
+        }
+        if let RefSource::Variable {
+            binder_key,
+            binding,
+            ..
+        } = &reference.source
+        {
+            if targets
+                .first()
+                .is_none_or(|(_, key)| key.id != *binder_key || key.role != KeyRole::Identifier)
+            {
+                errors.push(DeclarationError::VariableBinderInvalid {
+                    reference: reference.id.clone(),
+                    key: binder_key.clone(),
+                });
+            }
+            binder_modes
+                .entry((reference.target_vertex.as_str(), binder_key.as_str()))
+                .or_default()
+                .push((reference.id.as_str(), *binding));
+        }
+        if let RefSource::Standoff {
+            end_inclusive,
+            end_form,
+            fragments,
+            ..
+        } = &reference.source
+        {
+            if *end_form == SpanEnd::Length && *end_inclusive {
+                errors.push(DeclarationError::LengthInclusive {
+                    reference: reference.id.clone(),
+                });
+            }
+            if let Some(edge) = fragments
+                && (reference.cardinality != Cardinality::Many
+                    || edge.src != reference.holder
+                    || !schema.orderings.contains_key(edge))
+            {
+                errors.push(DeclarationError::InvalidFragments {
+                    reference: reference.id.clone(),
+                });
+            }
+        }
+    }
+
+    fn validate_binder_modes(
+        schema: &Schema,
+        binder_modes: BinderModes<'_>,
+        errors: &mut Vec<DeclarationError>,
+    ) {
         for (vertex_key, modes) in binder_modes {
             let distinct: BTreeSet<_> = modes.iter().map(|(_, mode)| *mode).collect();
             let targeted_elsewhere = schema.references.values().any(|reference| {
@@ -1516,6 +1578,9 @@ pub mod schema {
                 });
             }
         }
+    }
+
+    fn validate_guards(guards: &[GuardDeclaration<'_>], errors: &mut Vec<DeclarationError>) {
         for (index, (holder, source, field, _, _)) in guards.iter().enumerate() {
             if guards[..index].iter().any(
                 |(candidate_holder, candidate_source, candidate_field, _, _)| {
@@ -1555,11 +1620,6 @@ pub mod schema {
                     references: duplicates,
                 });
             }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
         }
     }
 
@@ -1839,11 +1899,37 @@ pub mod schema {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn write_reference(writer: &mut Writer, reference: &Reference) {
         writer.str(&reference.id);
         writer.str(&reference.holder);
-        match &reference.source {
+        write_reference_source(writer, &reference.source);
+        writer.str(&reference.target_vertex);
+        writer.opt_name(reference.target_key.as_deref());
+        match &reference.edge {
+            None => writer.tag(0),
+            Some(edge) => {
+                writer.tag(1);
+                writer.edge(edge);
+            }
+        }
+        writer.tag(match reference.cardinality {
+            Cardinality::One => 0,
+            Cardinality::Many => 1,
+        });
+        writer.tag(u8::from(reference.nullable));
+        writer.tag(match reference.on_unresolved {
+            OnUnresolved::Error => 0,
+            OnUnresolved::Complement => 1,
+        });
+        writer.tag(match reference.mode {
+            ResolveMode::AddEdge => 0,
+            ResolveMode::Redirect => 1,
+        });
+        write_reference_extensions(writer, reference);
+    }
+
+    fn write_reference_source(writer: &mut Writer, source: &RefSource) {
+        match source {
             RefSource::KeyValue { parts } => {
                 writer.tag(0);
                 writer.len(parts.len());
@@ -1916,28 +2002,9 @@ pub mod schema {
                 write_edges(writer, field.iter().cloned());
             }
         }
-        writer.str(&reference.target_vertex);
-        writer.opt_name(reference.target_key.as_deref());
-        match &reference.edge {
-            None => writer.tag(0),
-            Some(edge) => {
-                writer.tag(1);
-                writer.edge(edge);
-            }
-        }
-        writer.tag(match reference.cardinality {
-            Cardinality::One => 0,
-            Cardinality::Many => 1,
-        });
-        writer.tag(u8::from(reference.nullable));
-        writer.tag(match reference.on_unresolved {
-            OnUnresolved::Error => 0,
-            OnUnresolved::Complement => 1,
-        });
-        writer.tag(match reference.mode {
-            ResolveMode::AddEdge => 0,
-            ResolveMode::Redirect => 1,
-        });
+    }
+
+    fn write_reference_extensions(writer: &mut Writer, reference: &Reference) {
         let has_extensions = reference.guard.is_some()
             || reference.null_match != NullMatch::Simple
             || reference.null_vertex.is_some()
@@ -2215,7 +2282,7 @@ pub mod schema {
             /// Whether this is the instance recipe.
             instance: bool,
             /// Replay refusal.
-            error: RecomposeError,
+            error: Box<RecomposeError>,
         },
         /// A recipe replayed to bytes different from its declared result.
         ReplayMismatch {
@@ -2255,7 +2322,6 @@ pub mod schema {
     /// replay and same-name order.
     ///
     /// Book anchors: `L-keys-and-registration-5`, `L-keys-and-registration-6`, `L-keys-and-registration-7`.
-    #[allow(clippy::result_large_err)]
     pub fn register(
         registry: &mut BTreeMap<Name, Registration>,
         theory_registry: &BTreeMap<Name, Theory>,
@@ -2284,8 +2350,12 @@ pub mod schema {
                 &registration.instance_theory,
             ),
         ] {
-            let replayed = recompose(recipe, theory_registry)
-                .map_err(|error| RegistrationConflict::Replay { instance, error })?;
+            let replayed = recompose(recipe, theory_registry).map_err(|error| {
+                RegistrationConflict::Replay {
+                    instance,
+                    error: Box::new(error),
+                }
+            })?;
             if canonical_theory_bytes(&replayed) != canonical_theory_bytes(declared) {
                 return Err(RegistrationConflict::ReplayMismatch { instance });
             }

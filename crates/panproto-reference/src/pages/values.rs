@@ -506,12 +506,24 @@ pub mod canonical {
         })
     }
 
-    #[allow(clippy::option_option)]
-    fn read_option_u8(r: &mut Reader<'_>) -> Option<Option<u8>> {
+    #[derive(Clone, Copy)]
+    enum OptionalU8 {
+        Absent,
+        Present(u8),
+    }
+
+    fn read_option_u8(r: &mut Reader<'_>) -> Option<OptionalU8> {
         match r.tag()? {
-            0 => Some(None),
-            1 => Some(Some(r.tag()?)),
+            0 => Some(OptionalU8::Absent),
+            1 => Some(OptionalU8::Present(r.tag()?)),
             _ => None,
+        }
+    }
+
+    const fn optional_u8(value: OptionalU8) -> Option<u8> {
+        match value {
+            OptionalU8::Absent => None,
+            OptionalU8::Present(value) => Some(value),
         }
     }
 
@@ -527,16 +539,16 @@ pub mod canonical {
         };
         Some(DateFields {
             year,
-            month: read_option_u8(r)?,
-            day: read_option_u8(r)?,
+            month: optional_u8(read_option_u8(r)?),
+            day: optional_u8(read_option_u8(r)?),
         })
     }
 
     fn read_time_form(r: &mut Reader<'_>) -> Option<TimeFields> {
         Some(TimeFields {
-            hour: read_option_u8(r)?,
-            minute: read_option_u8(r)?,
-            second: read_option_u8(r)?,
+            hour: optional_u8(read_option_u8(r)?),
+            minute: optional_u8(read_option_u8(r)?),
+            second: optional_u8(read_option_u8(r)?),
             fraction: r.str()?,
         })
     }
@@ -3673,25 +3685,23 @@ pub mod temporal {
     impl Offset {
         /// Minutes east of UTC; `None` for a local value.
         #[must_use]
-        #[allow(clippy::missing_const_for_fn)]
-        pub fn minutes(self) -> Option<i64> {
+        pub const fn minutes(self) -> Option<i64> {
             match self {
                 Self::Local => None,
                 Self::Zulu(_) | Self::NegZero(_) => Some(0),
-                Self::Fixed(m, _) => Some(i64::from(m)),
-                Self::FixedSeconds(seconds) => Some(i64::from(seconds) / 60),
+                Self::Fixed(m, _) => Some(m as i64),
+                Self::FixedSeconds(seconds) => Some(seconds as i64 / 60),
             }
         }
 
         /// Seconds east of UTC; `None` for a local value.
         #[must_use]
-        #[allow(clippy::missing_const_for_fn)]
-        pub fn seconds(self) -> Option<i64> {
+        pub const fn seconds(self) -> Option<i64> {
             match self {
                 Self::Local => None,
                 Self::Zulu(_) | Self::NegZero(_) => Some(0),
-                Self::Fixed(m, _) => Some(i64::from(m) * 60),
-                Self::FixedSeconds(seconds) => Some(i64::from(seconds)),
+                Self::Fixed(m, _) => Some(m as i64 * 60),
+                Self::FixedSeconds(seconds) => Some(seconds as i64),
             }
         }
 
@@ -5377,7 +5387,6 @@ pub mod value {
         eval_runtime(&body, &environment)
     }
 
-    #[allow(clippy::option_if_let_else)]
     fn match_pattern(
         pattern: &Pattern,
         value: &Value,
@@ -5386,8 +5395,8 @@ pub mod value {
         match pattern {
             Pattern::Wildcard => true,
             Pattern::Variable(name) => {
-                if let Some(bound) = bindings.get(name) {
-                    representation(bound, value) == Some(true)
+                if bindings.contains_key(name) {
+                    representation(&bindings[name], value) == Some(true)
                 } else {
                     bindings.insert(name.clone(), value.clone());
                     true
@@ -5424,7 +5433,6 @@ pub mod value {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn eval_runtime(
         expr: &Expr,
         environment: &BTreeMap<String, Value>,
@@ -5462,44 +5470,9 @@ pub mod value {
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::List)
                 .map(Runtime::Value),
-            Expr::Field(record, field) => match eval_runtime(record, environment)?.value()? {
-                Value::Unknown(fields) | Value::Opaque { fields, .. } => fields
-                    .get(field)
-                    .cloned()
-                    .map(Runtime::Value)
-                    .ok_or_else(|| EvalError::FieldNotFound(field.clone())),
-                other => Err(type_error("record", &other)),
-            },
-            Expr::Index(list, index) => {
-                let list = eval_runtime(list, environment)?.value()?;
-                let index = eval_runtime(index, environment)?.value()?;
-                match (list, index) {
-                    (Value::List(items), Value::Int(index)) => {
-                        let selected = usize::try_from(index)
-                            .ok()
-                            .and_then(|index| items.get(index).cloned());
-                        selected
-                            .map(Runtime::Value)
-                            .ok_or(EvalError::IndexOutOfBounds {
-                                index,
-                                len: items.len(),
-                            })
-                    }
-                    (other, _) => Err(type_error("list and int", &other)),
-                }
-            }
-            Expr::Match { scrutinee, arms } => {
-                let scrutinee = eval_runtime(scrutinee, environment)?.value()?;
-                for (pattern, body) in arms {
-                    let mut bindings = BTreeMap::new();
-                    if match_pattern(pattern, &scrutinee, &mut bindings) {
-                        let mut nested = environment.clone();
-                        nested.extend(bindings);
-                        return eval_runtime(body, &nested);
-                    }
-                }
-                Err(EvalError::NonExhaustiveMatch)
-            }
+            Expr::Field(record, field) => eval_field(record, field, environment),
+            Expr::Index(list, index) => eval_index(list, index, environment),
+            Expr::Match { scrutinee, arms } => eval_match(scrutinee, arms, environment),
             Expr::Let { name, value, body } => {
                 let value = eval_runtime(value, environment)?.value()?;
                 let mut nested = environment.clone();
@@ -5521,21 +5494,82 @@ pub mod value {
                     other => Err(type_error("bool", &other)),
                 }
             }
-            Expr::Builtin(op, arguments) => {
-                if matches!(
-                    op,
-                    BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap
-                ) {
-                    return eval_higher_order(*op, arguments, environment);
-                }
-                arguments
-                    .iter()
-                    .map(|argument| eval_runtime(argument, environment).and_then(Runtime::value))
-                    .collect::<Result<Vec<_>, _>>()
-                    .and_then(|values| apply_builtin(*op, &values))
+            Expr::Builtin(op, arguments) => eval_builtin_expr(*op, arguments, environment),
+        }
+    }
+
+    fn eval_field(
+        record: &Expr,
+        field: &str,
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
+        match eval_runtime(record, environment)?.value()? {
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields
+                .get(field)
+                .cloned()
+                .map(Runtime::Value)
+                .ok_or_else(|| EvalError::FieldNotFound(field.to_owned())),
+            other => Err(type_error("record", &other)),
+        }
+    }
+
+    fn eval_index(
+        list: &Expr,
+        index: &Expr,
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
+        let list = eval_runtime(list, environment)?.value()?;
+        let index = eval_runtime(index, environment)?.value()?;
+        match (list, index) {
+            (Value::List(items), Value::Int(index)) => {
+                let selected = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| items.get(index).cloned());
+                selected
                     .map(Runtime::Value)
+                    .ok_or(EvalError::IndexOutOfBounds {
+                        index,
+                        len: items.len(),
+                    })
+            }
+            (other, _) => Err(type_error("list and int", &other)),
+        }
+    }
+
+    fn eval_match(
+        scrutinee: &Expr,
+        arms: &[(Pattern, Expr)],
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
+        let scrutinee = eval_runtime(scrutinee, environment)?.value()?;
+        for (pattern, body) in arms {
+            let mut bindings = BTreeMap::new();
+            if match_pattern(pattern, &scrutinee, &mut bindings) {
+                let mut nested = environment.clone();
+                nested.extend(bindings);
+                return eval_runtime(body, &nested);
             }
         }
+        Err(EvalError::NonExhaustiveMatch)
+    }
+
+    fn eval_builtin_expr(
+        op: BuiltinOp,
+        arguments: &[Expr],
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
+        if matches!(
+            op,
+            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap
+        ) {
+            return eval_higher_order(op, arguments, environment);
+        }
+        arguments
+            .iter()
+            .map(|argument| eval_runtime(argument, environment).and_then(Runtime::value))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|values| apply_builtin(op, &values))
+            .map(Runtime::Value)
     }
 
     fn eval_higher_order(
@@ -5692,7 +5726,6 @@ pub mod value {
     /// Returns [`EvalError::ArityMismatch`] for the wrong number of arguments,
     /// or the operation's typed domain, arithmetic, parsing, or representation
     /// error.
-    #[allow(clippy::too_many_lines)]
     pub fn apply_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
         let expected = expected_arity(op);
         if arguments.len() != expected {
@@ -5744,8 +5777,57 @@ pub mod value {
                 Value::Bool(value) => Ok(Value::Bool(!value)),
                 other => Err(type_error("bool", other)),
             },
-            BuiltinOp::Concat => strings2(&arguments[0], &arguments[1], |a, b| {
-                Value::Str(format!("{a}{b}"))
+            BuiltinOp::Concat
+            | BuiltinOp::Len
+            | BuiltinOp::Slice
+            | BuiltinOp::Upper
+            | BuiltinOp::Lower
+            | BuiltinOp::Trim
+            | BuiltinOp::Split
+            | BuiltinOp::Join
+            | BuiltinOp::Replace
+            | BuiltinOp::Contains => string_builtin(op, arguments),
+            BuiltinOp::Append
+            | BuiltinOp::Head
+            | BuiltinOp::Tail
+            | BuiltinOp::Reverse
+            | BuiltinOp::Length
+            | BuiltinOp::Range
+            | BuiltinOp::MergeRecords
+            | BuiltinOp::Keys
+            | BuiltinOp::Values
+            | BuiltinOp::HasField
+            | BuiltinOp::DefaultVal
+            | BuiltinOp::Clamp
+            | BuiltinOp::TruncateStr => collection_builtin(op, arguments),
+            BuiltinOp::IntToFloat
+            | BuiltinOp::FloatToInt
+            | BuiltinOp::IntToStr
+            | BuiltinOp::FloatToStr
+            | BuiltinOp::StrToInt
+            | BuiltinOp::StrToFloat
+            | BuiltinOp::TypeOf
+            | BuiltinOp::IsNull
+            | BuiltinOp::IsList
+            | BuiltinOp::ToString
+            | BuiltinOp::ParseDecimal
+            | BuiltinOp::DecimalToFloat => conversion_builtin(op, arguments),
+            BuiltinOp::Edge
+            | BuiltinOp::Children
+            | BuiltinOp::HasEdge
+            | BuiltinOp::EdgeCount
+            | BuiltinOp::Anchor
+            | BuiltinOp::Edges => Err(EvalError::NoInstanceContext { op }),
+            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
+                Err(EvalError::NotAFunction)
+            }
+        }
+    }
+
+    fn string_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
+        match op {
+            BuiltinOp::Concat => strings2(&arguments[0], &arguments[1], |left, right| {
+                Value::Str(format!("{left}{right}"))
             }),
             BuiltinOp::Len => match &arguments[0] {
                 Value::Str(value) => i64::try_from(value.len())
@@ -5782,6 +5864,12 @@ pub mod value {
                 (Value::List(items), needle) => Ok(Value::Bool(items.contains(needle))),
                 (other, _) => Err(type_error("string|string or list|any", other)),
             },
+            _ => unreachable!("caller selected a string builtin"),
+        }
+    }
+
+    fn collection_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
+        match op {
             BuiltinOp::Append => match &arguments[0] {
                 Value::List(items) => {
                     let mut output = items.clone();
@@ -5829,6 +5917,12 @@ pub mod value {
             }),
             BuiltinOp::Clamp => clamp(&arguments[0], &arguments[1], &arguments[2]),
             BuiltinOp::TruncateStr => truncate_string(&arguments[0], &arguments[1]),
+            _ => unreachable!("caller selected a collection builtin"),
+        }
+    }
+
+    fn conversion_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
+        match op {
             BuiltinOp::IntToFloat => match arguments[0] {
                 Value::Int(value) => Ok(Value::Float(canonical_float(int_as_f64(value)))),
                 ref other => Err(type_error("int", other)),
@@ -5861,18 +5955,10 @@ pub mod value {
             BuiltinOp::TypeOf => Ok(Value::Str(type_name(&arguments[0]).to_owned())),
             BuiltinOp::IsNull => Ok(Value::Bool(arguments[0] == Value::Null)),
             BuiltinOp::IsList => Ok(Value::Bool(matches!(arguments[0], Value::List(_)))),
-            BuiltinOp::Edge
-            | BuiltinOp::Children
-            | BuiltinOp::HasEdge
-            | BuiltinOp::EdgeCount
-            | BuiltinOp::Anchor
-            | BuiltinOp::Edges => Err(EvalError::NoInstanceContext { op }),
-            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
-                Err(EvalError::NotAFunction)
-            }
             BuiltinOp::ToString => to_string_value(&arguments[0]).map(Value::Str),
             BuiltinOp::ParseDecimal => parse_decimal_value(&arguments[0]),
             BuiltinOp::DecimalToFloat => decimal_to_float(&arguments[0]),
+            _ => unreachable!("caller selected a conversion builtin"),
         }
     }
 
