@@ -1338,10 +1338,16 @@ impl EditLens {
             return fan.clone();
         };
 
-        let reverse_labels: HashMap<String, String> = label_map
-            .iter()
-            .map(|(k, v)| (v.to_string(), k.to_string()))
-            .collect();
+        let mut label_pairs: Vec<_> = label_map.iter().collect();
+        label_pairs.sort_unstable_by(|(source_a, target_a), (source_b, target_b)| {
+            target_a.cmp(target_b).then_with(|| source_a.cmp(source_b))
+        });
+        let mut reverse_labels = HashMap::new();
+        for (source, target) in label_pairs {
+            reverse_labels
+                .entry(target.to_string())
+                .or_insert_with(|| source.to_string());
+        }
         let children = fan
             .children
             .iter()
@@ -1965,6 +1971,31 @@ mod tests {
         match result {
             TreeEdit::InsertFan { .. } => {}
             other => panic!("expected InsertFan, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backward_fan_label_ambiguity_uses_the_least_source_label() {
+        for _ in 0..128 {
+            let schema = three_node_schema();
+            let mut lens = identity_lens(&schema);
+            lens.compiled.hyper_resolver.insert(
+                ("source".into(), vec!["a".into(), "b".into()]),
+                (
+                    "target".into(),
+                    std::collections::HashMap::from([
+                        ("b".into(), "z".into()),
+                        ("a".into(), "z".into()),
+                    ]),
+                ),
+            );
+            let edit_lens = EditLens::from_lens(lens, test_protocol());
+            let restored = edit_lens
+                .remap_fan_backward(&panproto_inst::Fan::new("target", 0).with_child("z", 1));
+            assert_eq!(
+                restored,
+                panproto_inst::Fan::new("source", 0).with_child("a", 1)
+            );
         }
     }
 

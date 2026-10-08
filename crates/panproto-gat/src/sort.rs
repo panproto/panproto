@@ -213,6 +213,13 @@ impl SortExpr {
 /// Identity pairs (where the two names agree) are omitted, so the
 /// returned substitution is the identity when both sides already use the
 /// same names and `subst` becomes a no-op on short-circuit paths.
+///
+/// The substitution is a bijection between the two name lists only when
+/// each list is pairwise distinct. With a repeated name it is not: a
+/// repeated domain name keeps only the image of its last position, and
+/// two domain names may go to one repeated codomain name. Comparisons of
+/// signatures therefore do not use it; they compare name-free forms (see
+/// [`signatures_equivalent_modulo_param_rename`]).
 #[must_use]
 pub fn positional_param_rename<I, J>(
     domain_params: I,
@@ -231,18 +238,160 @@ where
     rename
 }
 
-/// Compare two operation or sort signatures modulo positional alpha-rename
-/// of the declared parameter names.
+/// Where a variable occurrence resolves in the name-free reading of a
+/// sort expression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Resolution<'a> {
+    /// The signature binder at this position of the telescope.
+    Signature(usize),
+    /// The local binder (`Let` or `Case`) at this depth of the local stack.
+    Local(usize),
+    /// No binder: a free variable, which keeps its name.
+    Free(&'a str),
+}
+
+/// The binders in scope at one point of a sort expression: the
+/// signature's binders visible there, then the local binders around it,
+/// innermost last.
+struct Scope<'a> {
+    signature: &'a [Arc<str>],
+    local: Vec<&'a str>,
+}
+
+impl<'a> Scope<'a> {
+    const fn new(signature: &'a [Arc<str>]) -> Self {
+        Self {
+            signature,
+            local: Vec::new(),
+        }
+    }
+
+    /// The nearest enclosing binder of `name`: the innermost local binder
+    /// of that name, else the last signature binder of that name.
+    fn resolve(&self, name: &'a str) -> Resolution<'a> {
+        self.local.iter().rposition(|b| *b == name).map_or_else(
+            || {
+                self.signature
+                    .iter()
+                    .rposition(|b| &**b == name)
+                    .map_or(Resolution::Free(name), Resolution::Signature)
+            },
+            Resolution::Local,
+        )
+    }
+}
+
+/// Whether two terms have the same name-free form, each read in its own
+/// scope.
 ///
-/// Each signature is a list of `(param_name, param_sort)` pairs plus an
-/// output sort expression. Parameter names are local binders and are in
-/// scope in every later parameter sort and in the output. Two signatures
-/// are considered equivalent when the substitution that sends the left
-/// side's parameter names to the right side's (positionally) makes the
-/// sort expressions pairwise equal under [`SortExpr::alpha_eq`].
+/// The two terms are walked in lockstep, so both local stacks always have
+/// the same depth and a local binder is identified by its depth. Two
+/// variables agree iff they resolve to the same signature position, to
+/// the same local depth, or are both free with the same name. Operation
+/// symbols, `Case` constructors and hole names are compared by name.
+fn terms_agree<'a>(a: &'a Term, sa: &mut Scope<'a>, b: &'a Term, sb: &mut Scope<'a>) -> bool {
+    match (a, b) {
+        (Term::Var(x), Term::Var(y)) => sa.resolve(x) == sb.resolve(y),
+        (Term::Hole { name: m }, Term::Hole { name: n }) => m == n,
+        (Term::App { op: f, args: xs }, Term::App { op: g, args: ys }) => {
+            f == g
+                && xs.len() == ys.len()
+                && xs.iter().zip(ys).all(|(x, y)| terms_agree(x, sa, y, sb))
+        }
+        (
+            Term::Let {
+                name: x,
+                bound: bx,
+                body: tx,
+            },
+            Term::Let {
+                name: y,
+                bound: by,
+                body: ty,
+            },
+        ) => {
+            if !terms_agree(bx, sa, by, sb) {
+                return false;
+            }
+            sa.local.push(x);
+            sb.local.push(y);
+            let agree = terms_agree(tx, sa, ty, sb);
+            sa.local.pop();
+            sb.local.pop();
+            agree
+        }
+        (
+            Term::Case {
+                scrutinee: ea,
+                branches: ba,
+            },
+            Term::Case {
+                scrutinee: eb,
+                branches: bb,
+            },
+        ) => {
+            terms_agree(ea, sa, eb, sb)
+                && ba.len() == bb.len()
+                && ba.iter().zip(bb).all(|(x, y)| {
+                    if x.constructor != y.constructor || x.binders.len() != y.binders.len() {
+                        return false;
+                    }
+                    let depth = sa.local.len();
+                    sa.local.extend(x.binders.iter().map(|n| &**n));
+                    sb.local.extend(y.binders.iter().map(|n| &**n));
+                    let agree = terms_agree(&x.body, sa, &y.body, sb);
+                    sa.local.truncate(depth);
+                    sb.local.truncate(depth);
+                    agree
+                })
+        }
+        _ => false,
+    }
+}
+
+/// Whether two sort expressions have the same name-free form, `a` read
+/// under the signature binders `a_binders` and `b` under `b_binders`.
 ///
-/// Arity mismatches fail. If either side has fewer parameters than the
-/// other this function returns `false`.
+/// The heads and argument counts must agree (so `Name(s)` and
+/// `App { name: s, args: [] }` agree), and the arguments pairwise by
+/// [`terms_agree`]. A variable resolves to the nearest enclosing binder of
+/// its name: a `Let` or `Case` binder around it, else the last of the
+/// signature binders with that name. This is the reading
+/// `typecheck_signature` gives a variable, and it does not depend on the
+/// binder names being distinct.
+pub fn sort_exprs_agree(
+    a: &SortExpr,
+    a_binders: &[Arc<str>],
+    b: &SortExpr,
+    b_binders: &[Arc<str>],
+) -> bool {
+    if a.head() != b.head() || a.args().len() != b.args().len() {
+        return false;
+    }
+    a.args()
+        .iter()
+        .zip(b.args())
+        .all(|(x, y)| terms_agree(x, &mut Scope::new(a_binders), y, &mut Scope::new(b_binders)))
+}
+
+/// Compare two operation signatures modulo the names of their binders.
+///
+/// Each signature is a list of `(param_name, param_sort, implicit)`
+/// inputs plus an output sort expression. Input names are binders: input
+/// `i`'s sort sees inputs `0..i`, and the output sees every input. The two
+/// signatures are equivalent when they have the same number of inputs,
+/// the same implicit flags, and, position by position, sort expressions
+/// with the same name-free form: each variable resolved to the nearest
+/// enclosing binder of its name (the earlier inputs, then the `Let` and
+/// `Case` binders inside the argument), two bound occurrences agreeing iff
+/// they resolve to the same binder position and two free ones iff they
+/// have the same name.
+///
+/// The comparison is symmetric and exact on every input: it does not
+/// assume that the binder names of either side are pairwise distinct. So
+/// `(a : X, b : X) : Y(b)` and `(z : X, z : X) : Y(z)` are equivalent (both
+/// name the second input), while `(a : X, b : X) : Y(a)` is equivalent to
+/// neither.
 #[must_use]
 pub fn signatures_equivalent_modulo_param_rename(
     lhs_inputs: &[(Arc<str>, SortExpr, crate::op::Implicit)],
@@ -253,39 +402,39 @@ pub fn signatures_equivalent_modulo_param_rename(
     if lhs_inputs.len() != rhs_inputs.len() {
         return false;
     }
-    let rename = positional_param_rename(
-        lhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-        rhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-    );
-    for ((_, lhs_sort, l_imp), (_, rhs_sort, r_imp)) in lhs_inputs.iter().zip(rhs_inputs.iter()) {
-        if l_imp != r_imp {
-            return false;
-        }
-        if !lhs_sort.subst(&rename).alpha_eq(rhs_sort) {
+    let lhs_names: Vec<Arc<str>> = lhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    let rhs_names: Vec<Arc<str>> = rhs_inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    for (i, ((_, lhs_sort, l_imp), (_, rhs_sort, r_imp))) in
+        lhs_inputs.iter().zip(rhs_inputs).enumerate()
+    {
+        if l_imp != r_imp || !sort_exprs_agree(lhs_sort, &lhs_names[..i], rhs_sort, &rhs_names[..i])
+        {
             return false;
         }
     }
-    lhs_output.subst(&rename).alpha_eq(rhs_output)
+    sort_exprs_agree(lhs_output, &lhs_names, rhs_output, &rhs_names)
 }
 
-/// Compare two sort declarations' parameter blocks modulo positional
-/// alpha-rename of the declared parameter names.
+/// Compare two sort declarations' parameter blocks modulo the names of
+/// their binders.
 ///
 /// Sort parameter sorts may themselves be dependent (e.g.
-/// `(Γ : Ctx, A : Ty(Γ))`), so the rename is accumulated positionally
-/// and applied to every later parameter sort.
+/// `(Γ : Ctx, A : Ty(Γ))`): parameter `i`'s sort sees parameters `0..i`.
+/// The blocks are equivalent when they have the same length and,
+/// position by position, parameter sorts with the same name-free form, as
+/// in [`signatures_equivalent_modulo_param_rename`]. The comparison is
+/// symmetric and exact whether or not the names are pairwise distinct.
 #[must_use]
 pub fn sort_params_equivalent_modulo_rename(lhs: &[SortParam], rhs: &[SortParam]) -> bool {
     if lhs.len() != rhs.len() {
         return false;
     }
-    let rename = positional_param_rename(
-        lhs.iter().map(|p| Arc::clone(&p.name)),
-        rhs.iter().map(|p| Arc::clone(&p.name)),
-    );
+    let lhs_names: Vec<Arc<str>> = lhs.iter().map(|p| Arc::clone(&p.name)).collect();
+    let rhs_names: Vec<Arc<str>> = rhs.iter().map(|p| Arc::clone(&p.name)).collect();
     lhs.iter()
-        .zip(rhs.iter())
-        .all(|(l, r)| l.sort.subst(&rename).alpha_eq(&r.sort))
+        .zip(rhs)
+        .enumerate()
+        .all(|(i, (l, r))| sort_exprs_agree(&l.sort, &lhs_names[..i], &r.sort, &rhs_names[..i]))
 }
 
 impl PartialEq for SortExpr {
@@ -1441,6 +1590,186 @@ mod tests {
         let lhs = vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")];
         let rhs = vec![SortParam::new("p", "Ob"), SortParam::new("q", "Ob")];
         assert!(sort_params_equivalent_modulo_rename(&lhs, &rhs));
+    }
+
+    // --- sort_exprs_agree: the name-free comparison ---
+
+    fn hole(name: Option<&str>) -> Term {
+        Term::Hole {
+            name: name.map(Arc::from),
+        }
+    }
+
+    fn let_in(name: &str, bound: Term, body: Term) -> Term {
+        Term::Let {
+            name: name.into(),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        }
+    }
+
+    fn case_of(scrutinee: Term, branches: Vec<(&str, Vec<&str>, Term)>) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: branches
+                .into_iter()
+                .map(|(constructor, binders, body)| crate::eq::CaseBranch {
+                    constructor: constructor.into(),
+                    binders: binders.into_iter().map(Arc::from).collect(),
+                    body,
+                })
+                .collect(),
+        }
+    }
+
+    /// Whether `Y(a)` under the binder `x` agrees with `Y(b)` under the
+    /// binder `x`.
+    fn args_agree(a: Term, b: Term) -> bool {
+        let sig: Vec<Arc<str>> = vec![Arc::from("x")];
+        sort_exprs_agree(
+            &SortExpr::app("Y", vec![a]),
+            &sig,
+            &SortExpr::app("Y", vec![b]),
+            &sig,
+        )
+    }
+
+    #[test]
+    fn name_free_comparison_compares_operations_and_holes_by_name_and_arity() {
+        let (x, a, b) = (Term::var("x"), Term::constant("a"), Term::constant("b"));
+        assert!(args_agree(a.clone(), a.clone()));
+        assert!(!args_agree(a.clone(), b));
+        let s1 = Term::app("s", vec![x.clone()]);
+        let s2 = Term::app("s", vec![x.clone(), x.clone()]);
+        assert!(!args_agree(s1.clone(), s2.clone()));
+        assert!(!args_agree(s2, s1));
+        assert!(args_agree(hole(None), hole(None)));
+        assert!(args_agree(hole(Some("h")), hole(Some("h"))));
+        assert!(!args_agree(hole(Some("h")), hole(Some("k"))));
+        assert!(!args_agree(hole(None), hole(Some("h"))));
+        assert!(!args_agree(x.clone(), a.clone()));
+        assert!(!args_agree(a, hole(None)));
+        assert!(!args_agree(hole(None), x));
+    }
+
+    #[test]
+    fn name_free_comparison_reads_let_binders_by_depth() {
+        let (x, a, b) = (Term::var("x"), Term::constant("a"), Term::constant("b"));
+        let u = Term::var("u");
+        assert!(args_agree(
+            let_in("u", a.clone(), u.clone()),
+            let_in("v", a.clone(), Term::var("v"))
+        ));
+        assert!(!args_agree(
+            let_in("u", a.clone(), u.clone()),
+            let_in("u", b, u.clone())
+        ));
+        // A body that names the local binder is not one that names the
+        // signature binder, even when the names coincide.
+        assert!(!args_agree(
+            let_in("x", a.clone(), x.clone()),
+            let_in("u", a.clone(), x.clone())
+        ));
+        assert!(!args_agree(let_in("u", a.clone(), u), a));
+        assert!(!args_agree(let_in("u", x.clone(), x.clone()), x));
+    }
+
+    #[test]
+    fn name_free_comparison_reads_case_branches_by_constructor_arity_and_depth() {
+        let (x, a) = (Term::var("x"), Term::constant("a"));
+        let u = Term::var("u");
+        let base = || case_of(x.clone(), vec![("k", vec!["u"], u.clone())]);
+        assert!(args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["v"], Term::var("v"))])
+        ));
+        // The scrutinee.
+        assert!(!args_agree(
+            base(),
+            case_of(a.clone(), vec![("k", vec!["u"], u.clone())])
+        ));
+        // The number of branches, either way.
+        let two = case_of(
+            x.clone(),
+            vec![("k", vec!["u"], u.clone()), ("j", vec![], a.clone())],
+        );
+        assert!(!args_agree(base(), two.clone()));
+        assert!(!args_agree(two, base()));
+        // The constructor.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("j", vec!["u"], u.clone())])
+        ));
+        // The number of binders, even when the body reads the same depth.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["u", "w"], u.clone())])
+        ));
+        // The body.
+        assert!(!args_agree(
+            base(),
+            case_of(x.clone(), vec![("k", vec!["u"], a.clone())])
+        ));
+        // A later branch reads the signature binder again once the
+        // earlier branch's binders are out of scope.
+        assert!(args_agree(
+            case_of(
+                x.clone(),
+                vec![("k", vec!["x"], x.clone()), ("j", vec![], x.clone())]
+            ),
+            case_of(
+                x.clone(),
+                vec![("k", vec!["u"], u.clone()), ("j", vec![], x.clone())]
+            )
+        ));
+        assert!(!args_agree(base(), a));
+    }
+
+    #[test]
+    fn name_free_comparison_compares_heads_and_argument_counts() {
+        let sig: Vec<Arc<str>> = vec![Arc::from("x")];
+        let a = || Term::constant("a");
+        let y = SortExpr::app("Y", vec![a()]);
+        assert!(!sort_exprs_agree(
+            &y,
+            &sig,
+            &SortExpr::app("Z", vec![a()]),
+            &sig
+        ));
+        assert!(!sort_exprs_agree(
+            &SortExpr::from("X"),
+            &sig,
+            &SortExpr::from("W"),
+            &sig
+        ));
+        assert!(!sort_exprs_agree(
+            &y,
+            &sig,
+            &SortExpr::app("Y", vec![a(), a()]),
+            &sig
+        ));
+        assert!(sort_exprs_agree(
+            &SortExpr::from("X"),
+            &sig,
+            &SortExpr::App {
+                name: Arc::from("X"),
+                args: vec![]
+            },
+            &[]
+        ));
+        // A variable bound in one signature and free in the other.
+        assert!(!sort_exprs_agree(
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &sig,
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[]
+        ));
+        assert!(sort_exprs_agree(
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[],
+            &SortExpr::app("Y", vec![Term::var("x")]),
+            &[]
+        ));
     }
 
     #[test]

@@ -13,7 +13,8 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    Fan, Node, PutDomainError, RestrictPlan, ViewRef, WInstance, wtype_restrict_with_plan,
+    Fan, FanResolver, Node, PutDomainError, RestrictError, RestrictPlan, ViewRef, WInstance,
+    canonical_label_shape, wtype_restrict_with_plan,
 };
 use panproto_schema::Edge;
 
@@ -488,6 +489,59 @@ fn undetermined_arc_edges(
     arc_edges
 }
 
+/// Project one source fan by the same survivor and [`FanResolver`] rule as
+/// the tree restrict engine.
+///
+/// Keeping this operation explicit lets `get` decide whether the source fan
+/// itself is recoverable from its projection, and lets `put` remove exactly
+/// that projection before restoring recorded source residue.
+fn project_source_fan(
+    fan: &Fan,
+    surviving: &HashSet<u32>,
+    resolver: &FanResolver<'_>,
+) -> Result<Option<Fan>, LensError> {
+    if !surviving.contains(&fan.parent) {
+        return Ok(None);
+    }
+
+    let mut surviving_children: Vec<(&String, u32)> = fan
+        .children
+        .iter()
+        .filter(|(_, node)| surviving.contains(node))
+        .map(|(label, node)| (label, *node))
+        .collect();
+    if surviving_children.is_empty() {
+        return Ok(None);
+    }
+    surviving_children.sort_unstable();
+
+    let surviving_shape = canonical_label_shape(surviving_children.iter().map(|(label, _)| label));
+    let full_shape = canonical_label_shape(fan.children.keys());
+    let entry = resolver.resolve(&fan.hyper_edge_id, &surviving_shape, &full_shape);
+    let hyper_edge_id = entry.map_or_else(
+        || fan.hyper_edge_id.clone(),
+        |(target, _)| target.to_string(),
+    );
+    let mut children = HashMap::new();
+    for (source_label, node) in surviving_children {
+        let target_label = entry
+            .and_then(|(_, labels)| labels.get(source_label.as_str()))
+            .map_or_else(|| source_label.clone(), ToString::to_string);
+        if children.insert(target_label.clone(), node).is_some() {
+            return Err(RestrictError::FanReconstructionFailed {
+                hyper_edge_id,
+                detail: format!("two children are relabelled `{target_label}`"),
+            }
+            .into());
+        }
+    }
+    Ok(Some(Fan {
+        hyper_edge_id,
+        parent: fan.parent,
+        children,
+    }))
+}
+
 /// [`get`] with the lens's envelope already computed, for callers that run
 /// many `get`s through one lens.
 pub(crate) fn get_with_identity(
@@ -537,15 +591,14 @@ pub(crate) fn get_with_identity(
         }
     }
 
-    // Capture fans whose parent or any children were dropped
+    // A source fan is residue exactly when its forward projection is absent
+    // or non-identical. Besides dropped children, this records resolver
+    // retargeting and relabelling that the view alone cannot invert.
+    let resolver = FanResolver::new(&lens.compiled);
+    let surviving: HashSet<u32> = view.nodes.keys().copied().collect();
     let mut dropped_fans = Vec::new();
     for fan in &instance.fans {
-        let parent_survives = view.nodes.contains_key(&fan.parent);
-        let all_children_survive = fan
-            .children
-            .values()
-            .all(|node_id| view.nodes.contains_key(node_id));
-        if !parent_survives || !all_children_survive {
+        if project_source_fan(fan, &surviving, &resolver)?.as_ref() != Some(fan) {
             dropped_fans.push(fan.clone());
         }
     }
@@ -1420,6 +1473,68 @@ fn put_domain(error: PutDomainError) -> LensError {
     LensError::PutDomain(Box::new(error))
 }
 
+/// Replace each recorded source fan's surviving projection with that source
+/// fan, leaving edited or unrelated view fans in place.
+fn restore_source_fans(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    nodes: &HashMap<u32, Node>,
+) -> Result<Vec<Fan>, LensError> {
+    let resolver = FanResolver::new(&lens.compiled);
+    let surviving: HashSet<u32> = view.nodes.keys().copied().collect();
+    let mut projected_fans = view.fans.clone();
+    let mut restored_source_fans = Vec::new();
+    for source_fan in &complement.dropped_fans {
+        let parent_present = nodes.contains_key(&source_fan.parent);
+        let all_children_present = source_fan
+            .children
+            .values()
+            .all(|node_id| nodes.contains_key(node_id));
+        if parent_present && all_children_present {
+            if let Some(projected) = project_source_fan(source_fan, &surviving, &resolver)?
+                && let Some(index) = projected_fans.iter().position(|fan| fan == &projected)
+            {
+                projected_fans.remove(index);
+            }
+            restored_source_fans.push(source_fan.clone());
+        }
+    }
+
+    let fans = projected_fans
+        .into_iter()
+        .map(|mut restored_fan| {
+            let shape = canonical_label_shape(restored_fan.children.keys());
+            if let Some((source_id, (_, label_map))) =
+                resolver.resolve_backward(&restored_fan.hyper_edge_id, &shape)
+            {
+                let mut label_pairs: Vec<_> = label_map.iter().collect();
+                label_pairs.sort_unstable_by(|(source_a, target_a), (source_b, target_b)| {
+                    target_a.cmp(target_b).then_with(|| source_a.cmp(source_b))
+                });
+                let mut reverse_labels = HashMap::new();
+                for (source, target) in label_pairs {
+                    reverse_labels
+                        .entry(target.to_string())
+                        .or_insert_with(|| source.to_string());
+                }
+                restored_fan.hyper_edge_id = source_id.to_string();
+                restored_fan.children = restored_fan
+                    .children
+                    .into_iter()
+                    .map(|(label, node)| {
+                        let source_label = reverse_labels.get(&label).cloned().unwrap_or(label);
+                        (source_label, node)
+                    })
+                    .collect();
+            }
+            restored_fan
+        })
+        .chain(restored_source_fans)
+        .collect();
+    Ok(fans)
+}
+
 /// The backward direction proper, once the complement's identity is
 /// accepted.
 fn reassemble(
@@ -1457,7 +1572,6 @@ fn reassemble(
     // nest-style `expansion_path` mechanism: they exist only in the view,
     // not in the source, so collapsing them back means dropping them.
     let mut nodes = HashMap::new();
-    let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
     let edge_preimages = EdgePreimages::new(lens);
     // The arc into each view node: its parent and the edge it carries. A
@@ -1553,33 +1667,11 @@ fn reassemble(
     // multiple arcs to *distinct* children, which this key preserves.
     let arcs = rebuild_source_arcs(lens, view, complement, &nodes);
 
-    // Reconstruct fans: start with the view's fans (un-remapping vertex
-    // references), then re-insert dropped fans from the complement whose
-    // parent and children are all present in the restored node set.
-    let mut fans: Vec<Fan> = view
-        .fans
-        .iter()
-        .map(|fan| {
-            let mut restored_fan = fan.clone();
-            // Un-remap the hyper-edge ID if needed
-            if let Some(original_he) = reverse_remap.get(fan.hyper_edge_id.as_str()) {
-                restored_fan.hyper_edge_id = original_he.to_string();
-            }
-            restored_fan
-        })
-        .collect();
-
-    // Re-insert dropped fans whose nodes are all present after restoration
-    for fan in &complement.dropped_fans {
-        let parent_present = nodes.contains_key(&fan.parent);
-        let all_children_present = fan
-            .children
-            .values()
-            .all(|node_id| nodes.contains_key(node_id));
-        if parent_present && all_children_present {
-            fans.push(fan.clone());
-        }
-    }
+    // Reconstruct fans by replacing each matching projected form with its
+    // recorded source form. Removing exactly one projection matters when a
+    // source fan survived only partially: retaining the partial fan and then
+    // appending the source fan would duplicate one relation after GetPut.
+    let fans = restore_source_fans(lens, view, complement, &nodes)?;
 
     // The root's restored anchor is the source's schema root; the remap's
     // inverse is the fallback when the root is not among the nodes.
@@ -2276,7 +2368,8 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
 /// predicate; two source vertices with one image (their nodes' anchors are
 /// then residue); a source edge with no image in the target; two source
 /// edges between the same vertices with one image (their arcs' edges are
-/// then residue); and a value transform that is not an isomorphism.
+/// then residue); a fan resolver whose source labels cannot be recovered
+/// from the view; and a value transform that is not an isomorphism.
 pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
     let compiled = &lens.compiled;
     let mut vertices: Vec<&Name> = lens.src_schema.vertices.keys().collect();
@@ -2323,6 +2416,13 @@ pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
                 other.name, e.name
             ));
         }
+    }
+    if !compiled.hyper_resolver.is_empty() {
+        return Some(
+            "a hyper-edge resolver retargets a fan or its child labels, which the tree view does \
+             not determine without residue"
+                .to_owned(),
+        );
     }
     let class = lens.coercion_class();
     if !matches!(class, panproto_gat::CoercionClass::Iso) {

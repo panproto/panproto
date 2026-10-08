@@ -11,12 +11,12 @@ use panproto_schema::{
 use serde::{Deserialize, Serialize};
 
 use crate::identity::{CanonicalSink, Digest, VALIDATION_PLAN_CONTEXT, schema_digest};
-use crate::locality::Locality;
+use crate::locality::{Locality, SummaryKind};
 use crate::view_ref::ViewRef;
 
 use super::report::{
     CheckClass, CheckKey, CheckKind, IncompleteCheck, Requirement, SchemaRef, SchemaSourceMap,
-    write_requirement, write_schema_ref, write_source,
+    SourceLocation, write_requirement, write_schema_ref, write_source,
 };
 
 /// What a caller adds to a schema's own declarations when compiling a plan.
@@ -54,6 +54,21 @@ pub struct ExternalCheckDecl {
 /// charged in ascending [`CheckInstance`](super::CheckInstance) order, so the
 /// cut point is the same on every platform. The default, `None`, is
 /// unlimited.
+///
+/// This is a counted budget with a typed unknown on exhaustion, as SMT-LIB
+/// 2.6 specifies its reproducible resource limit (Barrett et al. 2021, Sec
+/// 4.1.7, stated: a check that cannot decide within the limit answers
+/// unknown, and its answer depends deterministically on the limit on the
+/// same machine). Here the cut is deterministic on every platform, not only
+/// on one machine, since the units are footprint elements charged in a
+/// fixed order (inferred). An instance the budget cannot pay for is
+/// reported `Incomplete` with the cut, never approximated, as CBMC reports a
+/// loop it did not unwind far enough by a failing unwinding assertion
+/// rather than a bounded answer (Kroening et al. 2023, Sec 3.1, stated). A
+/// limit at least the unlimited run's `spent` gives the unlimited report,
+/// the analogue of the clock-add lemma of Owens et al. 2016 (Sec 3.4,
+/// proved there for a functional big-step semantics; transfer inferred),
+/// and the verdicts of the evaluated prefix are kept under any limit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ValidationBudget {
     /// The most reads allowed, or `None` for no limit.
@@ -282,7 +297,13 @@ mod rows {
         K::KeyUnique,
         K::ReferenceResolves,
     ];
-    pub const ATTR_META: &[K] = &[K::NodeAnchor, K::FanWellFormed, K::KeyUnique, K::External];
+    pub const ATTR_META: &[K] = &[
+        K::NodeAnchor,
+        K::FanWellFormed,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
     pub const ATTR_ANCHOR: &[K] = &[
         K::NodeAnchor,
         K::EndpointCoherence,
@@ -312,7 +333,12 @@ mod rows {
         K::Acyclic,
         K::External,
     ];
-    pub const ATTR_EDGE_POSITION: &[K] = &[K::PositionDistinct, K::KeyUnique];
+    pub const ATTR_EDGE_POSITION: &[K] = &[
+        K::PositionDistinct,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
     pub const ADD_ROW: &[K] = &[
         K::NodeAnchor,
         K::RequiredEdge,
@@ -368,11 +394,13 @@ mod rows {
         K::ReservedVocabulary,
         K::EdgeDeclared,
         K::EndpointCoherence,
+        K::FanWellFormed,
         K::RequiredEdge,
         K::OutDegree,
         K::ValueConstraint,
         K::RequiredValue,
         K::Attribute,
+        K::TreeRoot,
         K::TreeParentMap,
         K::KeyUnique,
         K::ReferenceResolves,
@@ -454,16 +482,16 @@ mod rows {
 /// | `DelEdge` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
 /// | `AttrValue` | `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves` |
 /// | `AttrField`, `SetField`, `RemoveField` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
-/// | `AttrMeta` | `NodeAnchor`, `FanWellFormed`, `KeyUnique`, `External` |
+/// | `AttrMeta` | `NodeAnchor`, `FanWellFormed`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `AttrAnchor` | `NodeAnchor`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
 /// | `AttrEdgeLabel` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
-/// | `AttrEdgePosition` | `PositionDistinct`, `KeyUnique` |
+/// | `AttrEdgePosition` | `PositionDistinct`, `RequiredValue`, `KeyUnique`, `ReferenceResolves` |
 /// | `AddRow` | `NodeAnchor`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `AddPair` | `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `DelPair` | `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `Cell` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
 /// | `Table` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
-/// | `InsertNode` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `InsertNode` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `DeleteNode` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `ContractNode`, `JoinFeatures` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `RelabelNode` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
@@ -755,6 +783,12 @@ impl ValidationPlan {
         &self.triggers
     }
 
+    /// Source location attached to one declaration, for crate-internal
+    /// diagnostics produced outside the ordinary instance evaluator.
+    pub(crate) fn source(&self, declaration: &SchemaRef) -> Option<SourceLocation> {
+        self.options.sources.0.get(declaration).cloned()
+    }
+
     /// The schema the plan was compiled from.
     #[must_use]
     pub const fn schema(&self) -> &Schema {
@@ -882,12 +916,11 @@ impl<'a> Builder<'a> {
         let mut keys = vec![static_key];
         keys.extend(dependents.iter().cloned());
         for key in keys {
-            let requirement = self
-                .checks
-                .get(&key)
-                .map_or(Requirement::Required, |s| s.requirement);
+            let spec = self.checks.get(&key);
+            let class = spec.map_or_else(|| key.kind.class(), |s| s.class);
+            let requirement = spec.map_or(Requirement::Required, |s| s.requirement);
             self.findings.push(IncompleteCheck {
-                class: key.kind.class(),
+                class,
                 check: key,
                 requirement,
                 subject: None,
@@ -1237,8 +1270,13 @@ impl Builder<'_> {
             };
             let anchors = BTreeSet::from([vertex.clone()]);
             if key.role == panproto_schema::KeyRole::Primary {
+                let required = CheckKey::new(CheckKind::RequiredValue, decl.clone());
+                let needs_summary = key.parts.iter().any(|part| match part {
+                    panproto_schema::KeyPart::Path(path) => !path.is_empty(),
+                    panproto_schema::KeyPart::Position { .. } => true,
+                });
                 self.add(
-                    CheckKey::new(CheckKind::RequiredValue, decl.clone()),
+                    required.clone(),
                     Compiled::RequiredValue {
                         vertex: vertex.clone(),
                         parts: Some(key.parts.clone()),
@@ -1246,6 +1284,12 @@ impl Builder<'_> {
                     None,
                     anchors.clone(),
                 );
+                if needs_summary && let Some(spec) = self.checks.get_mut(&required) {
+                    spec.class = CheckClass::MaintainedGlobal;
+                    for locality in spec.locality.values_mut() {
+                        *locality = Locality::Summary(SummaryKind::SortedMerge);
+                    }
+                }
             }
             self.add(
                 CheckKey::new(CheckKind::KeyUnique, decl),

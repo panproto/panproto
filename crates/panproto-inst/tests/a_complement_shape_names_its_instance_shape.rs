@@ -138,12 +138,9 @@ fn undecodable_bytes_name_every_kind_tried() {
     let IdentityError::Undecodable(message) = err else {
         panic!("expected Undecodable, got {err:?}");
     };
-    for shape in ComplementShape::ALL {
-        assert!(message.contains(&format!("as {shape}:")), "{message}");
-    }
-    assert!(
-        message.starts_with("as functor:"),
-        "the expected kind comes first: {message}"
+    assert_eq!(
+        message,
+        "as functor: expected ident at line 1 column 2; as wtype: expected ident at line 1 column 2; as graph: this build has no graph complement type; as resolution: expected ident at line 1 column 2"
     );
 }
 
@@ -177,6 +174,9 @@ fn every_frozen_complement_still_decodes_as_a_tree_complement() {
                     }
                     Ok(AnyComplement::Functor(_)) => {
                         panic!("{} decoded as a table complement", path.display())
+                    }
+                    Ok(AnyComplement::Resolution(_)) => {
+                        panic!("{} decoded as a resolution complement", path.display())
                     }
                     Err(e) => panic!("{}: {e}", path.display()),
                 }

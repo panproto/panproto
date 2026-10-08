@@ -1377,6 +1377,16 @@ pub enum SignatureDefect {
         /// Their shared name.
         name: Arc<str>,
     },
+    /// A sort parameter, or an operation input, binds a name that an
+    /// earlier parameter of the same sort, or an earlier input of the same
+    /// operation, already binds.
+    DuplicateBinder {
+        /// The later declaration: `SortParam { sort, index }` or
+        /// `OpInput { op, index }`.
+        site: SignatureSite,
+        /// The repeated binder name.
+        name: Arc<str>,
+    },
 }
 
 impl SignatureDefect {
@@ -1425,6 +1435,10 @@ impl std::fmt::Display for SignatureDefect {
             Self::DuplicateSymbol { kind, name } => {
                 write!(f, "{kind} `{name}` is declared more than once")
             }
+            Self::DuplicateBinder { site, name } => write!(
+                f,
+                "{site}: binder `{name}` is already bound by an earlier declaration"
+            ),
         }
     }
 }
@@ -1451,7 +1465,32 @@ impl std::fmt::Display for SignatureDefect {
 ///   ([`SignatureDefect::ParamIllTyped`]);
 /// - every variable in an argument is bound by an earlier parameter of the
 ///   sort, or by an earlier input of the operation, or for the output by
-///   any input ([`SignatureDefect::UnboundParamVar`]).
+///   any input ([`SignatureDefect::UnboundParamVar`]);
+/// - the parameter names of one sort, and the input names of one
+///   operation, are pairwise distinct: one
+///   [`SignatureDefect::DuplicateBinder`] is reported per parameter or
+///   input whose name an earlier one of the same telescope binds, at that
+///   later declaration. This is the freshness condition of contexts:
+///   palmgren2019categories Def 4.1 takes `x_k` from a set disjoint from
+///   `{x_1, ..., x_(k-1)}`, and rule R2 extends a context only by a
+///   variable in `Fresh(Γ)` (stated).
+///
+/// These rules are the equation-free core of the well-formedness
+/// judgements for generalized algebraic theories: the context, sort and
+/// term formation rules of palmgren2019categories Defs 4.4 and 4.7 and
+/// the sort and operation declarations of
+/// bezemcoquanddybjerescardo2021generalized Def 4 (stated). Admitting
+/// the unapplied name of a dependent sort is specific to panproto
+/// (inferred).
+///
+/// The judgement is syntactic: an argument's sort must equal the
+/// parameter's sort up to the substitution of earlier arguments, and no
+/// conversion along the theory's equations is applied. Well-formedness of
+/// a generalized algebraic theory can depend on its equations
+/// (jamner2025pyrosome Sec 2, stated), so this check is incomplete for
+/// theories whose typing needs conversion: it reports
+/// [`SignatureDefect::ParamIllTyped`] for an argument whose sort equals
+/// the parameter's only modulo an equation.
 ///
 /// [`typecheck_theory`] runs this check first.
 ///
@@ -1473,12 +1512,13 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
             let head = param.sort.head();
             if theory.has_sort(head) && !ordered.contains(head) {
                 defects.push(SignatureDefect::UndeclaredSort {
-                    site,
+                    site: site.clone(),
                     sort: Arc::clone(head),
                 });
             } else {
                 check_sort_expr(&param.sort, &site, &ctx, theory, &mut defects);
             }
+            fresh_binder(&param.name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(&param.name), param.sort.clone());
         }
     }
@@ -1491,6 +1531,7 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
                 index,
             };
             check_sort_expr(sort, &site, &ctx, theory, &mut defects);
+            fresh_binder(name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(name), sort.clone());
         }
         let site = SignatureSite::OpOutput {
@@ -1503,6 +1544,23 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
         Ok(())
     } else {
         Err(defects)
+    }
+}
+
+/// Report `name` as a [`SignatureDefect::DuplicateBinder`] at `site` when
+/// `bound`, the binders of the earlier declarations of the telescope,
+/// already binds it.
+fn fresh_binder(
+    name: &Arc<str>,
+    site: SignatureSite,
+    bound: &VarContext,
+    defects: &mut Vec<SignatureDefect>,
+) {
+    if bound.contains_key(name) {
+        defects.push(SignatureDefect::DuplicateBinder {
+            site,
+            name: Arc::clone(name),
+        });
     }
 }
 
@@ -3624,6 +3682,162 @@ mod tests {
         ]
     }
 
+    /// The judgement is syntactic: `w : Z(u)` with `u : Y(b)` and `Z`'s
+    /// parameter of sort `Y(a)` is refused although the equation `a = b`
+    /// makes the two sorts derivably equal.
+    #[test]
+    fn typecheck_signature_applies_no_conversion_along_equations() {
+        let theory = Theory::new(
+            "Conv",
+            vec![
+                Sort::simple("X"),
+                Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                Sort::dependent(
+                    "Z",
+                    vec![SortParam::new(
+                        "y",
+                        SortExpr::app("Y", vec![Term::constant("a")]),
+                    )],
+                ),
+            ],
+            vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("u", vec![], SortExpr::app("Y", vec![Term::constant("b")])),
+                Operation::new("w", vec![], SortExpr::app("Z", vec![Term::constant("u")])),
+            ],
+            vec![crate::eq::Equation::new(
+                "a_is_b",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        );
+        assert_eq!(
+            typecheck_signature(&theory),
+            Err(vec![SignatureDefect::ParamIllTyped {
+                site: SignatureSite::OpOutput { op: "w".into() },
+                sort: "Z".into(),
+                index: 0,
+                expected: "Y(a())".into(),
+                found: "Y(b())".into(),
+            }])
+        );
+    }
+
+    /// The theory of the conversion test with `u : Y(fibre)` and the given
+    /// equations `e0`, `e1` and directed equation `d0`.
+    fn conversion_theory(fibre: &str, contents: [(&Term, &Term); 3]) -> Theory {
+        let [e0, e1, d0] = contents;
+        Theory::full(
+            "Conv",
+            vec![],
+            vec![
+                Sort::simple("X"),
+                Sort::dependent("Y", vec![SortParam::new("x", "X")]),
+                Sort::dependent(
+                    "Z",
+                    vec![SortParam::new(
+                        "y",
+                        SortExpr::app("Y", vec![Term::constant("a")]),
+                    )],
+                ),
+            ],
+            vec![
+                Operation::new("a", vec![], "X"),
+                Operation::new("b", vec![], "X"),
+                Operation::new("u", vec![], SortExpr::app("Y", vec![Term::constant(fibre)])),
+                Operation::new("w", vec![], SortExpr::app("Z", vec![Term::constant("u")])),
+            ],
+            vec![
+                crate::eq::Equation::new("e0", e0.0.clone(), e0.1.clone()),
+                crate::eq::Equation::new("e1", e1.0.clone(), e1.1.clone()),
+            ],
+            vec![crate::eq::DirectedEquation::new(
+                "d0",
+                d0.0.clone(),
+                d0.1.clone(),
+                panproto_expr::Expr::Var("_".into()),
+            )],
+            vec![],
+        )
+    }
+
+    /// The judgement reads no equation's sides: over every choice of the
+    /// sides of `e0`, `e1` and `d0` among `a`, `b` and `x`, the verdict
+    /// on `u : Y(a)` (well formed) and `u : Y(b)` (refused) is the one
+    /// given with every equation reading `a = a`.
+    #[test]
+    fn typecheck_signature_verdict_ignores_every_equation_side() {
+        let terms = [Term::constant("a"), Term::constant("b"), Term::var("x")];
+        let trivial = (&terms[0], &terms[0]);
+        let mut checked = 0;
+        for fibre in ["a", "b"] {
+            let reference = typecheck_signature(&conversion_theory(fibre, [trivial; 3]));
+            assert_eq!(reference.is_ok(), fibre == "a");
+            let sides: Vec<(&Term, &Term)> = terms
+                .iter()
+                .flat_map(|l| terms.iter().map(move |r| (l, r)))
+                .collect();
+            for e0 in &sides {
+                for e1 in &sides {
+                    for d0 in &sides {
+                        assert_eq!(
+                            typecheck_signature(&conversion_theory(fibre, [*e0, *e1, *d0])),
+                            reference,
+                            "{fibre}: {e0:?} {e1:?} {d0:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 2 * 9 * 9 * 9);
+    }
+
+    mod equation_independence {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Terms of depth at most 2 over the variables `x`, `y` and the
+        /// operations `a`, `b`, `u`, `w` and an undeclared `k`.
+        fn arb_side() -> impl Strategy<Value = Term> {
+            let leaf = prop_oneof![
+                Just(Term::var("x")),
+                Just(Term::var("y")),
+                Just(Term::constant("a")),
+                Just(Term::constant("b")),
+                Just(Term::constant("u")),
+                Just(Term::constant("w")),
+            ];
+            leaf.prop_recursive(2, 8, 2, |inner| {
+                (
+                    prop_oneof![Just("a"), Just("u"), Just("k")],
+                    proptest::collection::vec(inner, 0..=2),
+                )
+                    .prop_map(|(op, args)| Term::app(op, args))
+            })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn typecheck_signature_verdict_ignores_equation_sides(
+                fibre in prop_oneof![Just("a"), Just("b")],
+                sides in proptest::collection::vec((arb_side(), arb_side()), 3),
+            ) {
+                let a = Term::constant("a");
+                let reference = typecheck_signature(&conversion_theory(fibre, [(&a, &a); 3]));
+                let contents = [
+                    (&sides[0].0, &sides[0].1),
+                    (&sides[1].0, &sides[1].1),
+                    (&sides[2].0, &sides[2].1),
+                ];
+                prop_assert_eq!(typecheck_signature(&conversion_theory(fibre, contents)), reference);
+            }
+        }
+    }
+
     /// A signature that no rule admits: `id : (x : Ob) -> Cell(x, x)` where
     /// `Cell` takes two `Mor`s, and `mk : (o : Ob) -> V(o)` where `V` takes
     /// no parameters. One further negative per defect, and every
@@ -3880,6 +4094,13 @@ mod tests {
                 kind: SymKind::Op,
                 name: "f".into(),
             },
+            SignatureDefect::DuplicateBinder {
+                site: SignatureSite::OpInput {
+                    op: "f".into(),
+                    index: 1,
+                },
+                name: "z".into(),
+            },
         ];
         let tags = [
             "undeclared_sort",
@@ -3887,6 +4108,7 @@ mod tests {
             "param_ill_typed",
             "unbound_param_var",
             "duplicate_symbol",
+            "duplicate_binder",
         ];
         for (defect, tag) in defects.iter().zip(tags) {
             let json = serde_json::to_value(defect)?;

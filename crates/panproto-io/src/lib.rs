@@ -32,7 +32,7 @@
 //!
 //! - [`traits`]: Core [`InstanceParser`] and [`InstanceEmitter`] traits
 //! - [`registry`]: [`ProtocolRegistry`] mapping protocol names to implementations
-//! - [`json_pathway`]: Shared SIMD-accelerated JSON → `WInstance` builder
+//! - [`json_pathway`]: Shared lossless JSON → `WInstance` builder
 //! - [`error`]: Error types for parse and emit operations
 //! - [`arena`]: Arena allocation helpers for zero-copy hot paths
 //!
@@ -56,7 +56,6 @@
 //! ## Performance
 //!
 //! Parsing and emitting are designed to never be the bottleneck:
-//! - SIMD JSON parsing via `simd-json` (2-4x over `serde_json`)
 //! - SIMD byte scanning via `memchr` for delimited formats
 //! - Arena allocation via `bumpalo` for hot paths
 //! - Zero-copy parsing where format permits
@@ -73,7 +72,10 @@ pub mod traits;
 /// Protocol registry mapping names to parser/emitter implementations.
 pub mod registry;
 
-/// SIMD-accelerated JSON pathway for schema-guided instance parsing.
+/// Provider-indexed reference resolution and semantic shape conversion.
+pub mod resolution;
+
+/// Lossless JSON pathway for schema-guided instance parsing.
 pub mod json_pathway;
 
 /// Arena allocation helpers for zero-copy hot paths.
@@ -144,7 +146,17 @@ pub mod web_document;
 
 // Re-exports for convenience.
 pub use error::{EmitInstanceError, ParseInstanceError};
-pub use registry::ProtocolRegistry;
+pub use registry::{PresentationComplement, ProtocolRegistry, ResolvedState};
+pub use resolution::{
+    AnyInstance, AssemblyDomainReason, AssemblyPlanId, AssemblyResidue, AssemblyTrace,
+    DefinitionKey, ExternalTextStore, OffsetUnitReason, PathResolution, RedirectedArc,
+    RedirectedAttachment, RedirectedFragment, RefOccurrence, Resolution, ResolutionComplement,
+    ResolutionContextKind, ResolutionFeature, ResolutionInstanceError, ResolutionKind,
+    ResolutionLawReport, ResolutionLawViolation, ResolutionProvider, ResolutionProviderId,
+    ResolutionSpan, ResolutionSpec, ResolutionTextId, ResolutionValueSite, ResolveContext,
+    ResolveDomainError, ResolveError, ResolveOptions, TokenBoundaryProvider, UnresolvedReason,
+    UnresolvedRef, check_resolution_laws,
+};
 pub use traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// Create a [`ProtocolRegistry`] with all available protocol codecs registered.

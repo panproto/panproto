@@ -524,5 +524,336 @@
         ]
       }
     }
-  ]
+  ],
+  "incremental": {
+    "edit": {
+      "RemoveEdge": {
+        "id": 2,
+        "edge": {
+          "src": 2,
+          "tgt": 0,
+          "edge": {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          },
+          "position": null
+        }
+      }
+    },
+    "policy": "require_passed",
+    "budget": {
+      "max_reads": null
+    },
+    "external": [],
+    "options": {
+      "digests": true
+    },
+    "outcome": {
+      "applied": {
+        "validation": {
+          "report": {
+            "shape": "graph",
+            "scope": {
+              "edit": {
+                "baseline_seq": 0,
+                "baseline_status": "failed"
+              }
+            },
+            "plan": "6cd55aa3cf352ffda9f6d4df018aeaa9c6ee97fa985e9e62f3e16022f6700de7",
+            "status": "passed",
+            "diagnostics": [],
+            "incomplete": [],
+            "coverage": [
+              [
+                {
+                  "kind": "schema_well_formed",
+                  "decl": "schema"
+                },
+                {
+                  "class": "static",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "declaration_interpretable",
+                  "decl": "schema"
+                },
+                {
+                  "class": "static",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "node_anchor",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 3,
+                  "passed": 3,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "edge_declared",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 2,
+                  "passed": 2,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "endpoint_coherence",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 2,
+                  "passed": 2,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "fan_well_formed",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 0,
+                  "passed": 0,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "acyclic",
+                  "decl": {
+                    "constraint": {
+                      "vertex": "item",
+                      "constraint": {
+                        "sort": "acyclic",
+                        "value": "next"
+                      }
+                    }
+                  }
+                },
+                {
+                  "class": "maintained_global",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ]
+            ]
+          },
+          "footprint": {
+            "rerun": [
+              {
+                "check": {
+                  "kind": "acyclic",
+                  "decl": {
+                    "constraint": {
+                      "vertex": "item",
+                      "constraint": {
+                        "sort": "acyclic",
+                        "value": "next"
+                      }
+                    }
+                  }
+                },
+                "subject": null
+              }
+            ],
+            "created": [],
+            "retired": [
+              {
+                "check": {
+                  "kind": "edge_declared",
+                  "decl": "schema"
+                },
+                "subject": {
+                  "edge": 2
+                }
+              },
+              {
+                "check": {
+                  "kind": "endpoint_coherence",
+                  "decl": "schema"
+                },
+                "subject": {
+                  "edge": 2
+                }
+              }
+            ],
+            "reads": [
+              {
+                "node": 0
+              },
+              {
+                "node": 1
+              },
+              {
+                "node": 2
+              },
+              {
+                "edge": 0
+              },
+              {
+                "edge": 1
+              },
+              {
+                "edge": 2
+              }
+            ],
+            "touched": [
+              {
+                "node": 0
+              },
+              {
+                "node": 2
+              },
+              {
+                "edge": 2
+              }
+            ]
+          },
+          "affected": [
+            {
+              "node": 0
+            },
+            {
+              "node": 2
+            },
+            {
+              "edge": 2
+            }
+          ]
+        },
+        "witness": {
+          "plan": "6cd55aa3cf352ffda9f6d4df018aeaa9c6ee97fa985e9e62f3e16022f6700de7",
+          "baseline_seq": 0,
+          "baseline_status": "failed",
+          "delta": "41f3f3c291c666cf5d9e8876cbf2522ba790343dd9b9b35f85dbfc5aa929bc90",
+          "result_status": "passed",
+          "runs": [
+            {
+              "instance": {
+                "check": {
+                  "kind": "acyclic",
+                  "decl": {
+                    "constraint": {
+                      "vertex": "item",
+                      "constraint": {
+                        "sort": "acyclic",
+                        "value": "next"
+                      }
+                    }
+                  }
+                },
+                "subject": null
+              },
+              "reads": [
+                {
+                  "node": 0
+                },
+                {
+                  "node": 1
+                },
+                {
+                  "node": 2
+                },
+                {
+                  "edge": 0
+                },
+                {
+                  "edge": 1
+                }
+              ],
+              "verdict": {
+                "evaluated": {
+                  "findings": [],
+                  "incomplete": []
+                }
+              }
+            }
+          ],
+          "not_triggered": [
+            "schema_well_formed",
+            "declaration_interpretable",
+            "node_anchor",
+            "reserved_vocabulary",
+            "edge_declared",
+            "endpoint_coherence",
+            "tree_root",
+            "tree_parent_map",
+            "tree_reachable"
+          ],
+          "options": {
+            "digests": true
+          },
+          "prior": "dc571143fbb4ac1d5bc5baf0dad2d2fc29ba1b29c5dfad8050deb9302c0bd6d4",
+          "result": "086cd2d6d0901878338073063b1250e3f05dfc45e9655944ecb2af9734672cec"
+        }
+      }
+    }
+  },
+  "expected_violations": {
+    "initial": [
+      {
+        "check": "acyclic",
+        "subject": null,
+        "violation": {
+          "cycle": {
+            "scc": [
+              {
+                "node": 0
+              },
+              {
+                "node": 1
+              },
+              {
+                "node": 2
+              }
+            ],
+            "witness": [
+              0,
+              1,
+              2
+            ]
+          }
+        }
+      }
+    ],
+    "after_edits": [
+      []
+    ]
+  }
 }

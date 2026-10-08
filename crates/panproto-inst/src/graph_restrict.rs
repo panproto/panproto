@@ -791,6 +791,14 @@ pub fn graph_restrict_validated(
 /// vertex before the node is relabelled. Both schema boundaries are validated
 /// under their respective protocols.
 ///
+/// Refusing an element with no image follows the explicit validation pattern
+/// of CQL `Mapping.validate`; related boundary precedents include Avro's
+/// `avrospec`, Protocol Buffers' `protobufprotojson`, EMF `XMLResource`, and
+/// the DPO dangling condition. Callers that intend deletion should use the
+/// partial form and inspect its report. Skolemization, labelled nulls, and
+/// preservation as unknown are different policies; no one of them makes
+/// refusal a law uniformly across tree, graph, and table Sigma.
+///
 /// # Errors
 ///
 /// [`RestrictError::UnmappedAnchor`] or [`RestrictError::UnmappedEdge`] for

@@ -31,5 +31,9 @@ divan = { workspace = true }
 name = "inst_bench"
 harness = false
 
+[[bench]]
+name = "validation"
+harness = false
+
 [lints]
 workspace = true

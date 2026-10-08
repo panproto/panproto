@@ -9,7 +9,8 @@ use panproto_inst::functor::Row;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{
     EdgeId, FInstance, GEdge, GInstance, InstError, Node, NodeShape, NotTableReason, RowId,
-    TableEmbedding, TableShapeReport, Value, ViewRef, write_edge_record, write_node_record,
+    TableEmbedding, TableShapeReport, Value, ViewRef, WInstance, write_edge_record,
+    write_node_record,
 };
 use panproto_schema::{
     CanonicalWriter, Cardinality, Edge, OnUnresolved, RefSource, Reference, ResolveMode, Schema,
@@ -270,6 +271,33 @@ fn the_graph_form_of_a_table_is_a_table() {
     let (back, read_embedding) = graph.try_to_finstance(&schema()).unwrap();
     assert_eq!(back, tables());
     assert_eq!(read_embedding, embedding);
+}
+
+#[test]
+fn a_tree_with_values_does_not_convert_to_a_table() {
+    let tree = WInstance::new(
+        HashMap::from([(
+            4,
+            Node::new(4, "user").with_value(FieldPresence::Present(Value::Int(7))),
+        )]),
+        Vec::new(),
+        Vec::new(),
+        4,
+        "user".into(),
+    );
+    let graph = GInstance::from_wtype(&tree).unwrap();
+    assert_eq!(
+        graph.table_shape(&schema()),
+        TableShapeReport::NotTable {
+            reason: NotTableReason::NodeDataNotRepresentable { node: 4 }
+        }
+    );
+    assert!(matches!(
+        graph.try_to_finstance(&schema()),
+        Err(InstError::NotATable {
+            reason: NotTableReason::NodeDataNotRepresentable { node: 4 }
+        })
+    ));
 }
 
 #[test]

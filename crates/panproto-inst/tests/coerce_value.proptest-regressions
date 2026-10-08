@@ -5,3 +5,7 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 85768e1d951a7d49a5795b22033218b64883933d3975d9809fc09069dd71d73a # shrinks to value = Float(0.1), index = 7
+cc a2747e3d158b9d43fd4e0f869b8af5976e7d6f716ad658599ca9cbc6012cdd91 # shrinks to float = "0e0", exact = "0", precision = None, scale = None, int_bits = 8, signed = false, value = Float(1e300), index = 1
+cc ed8dcee4083a00a2ffd8384730f65370d766814ccb736701c12cc6f2d84070a9 # shrinks to float = "-0e0", exact = "0"
+cc 469d546c5f08e3b84dec5b89da26c4a7a49ad904894f34ba4d3945bf1dacee97 # shrinks to float = "0e0", exact = "0", precision = None, scale = None, int_bits = 8, signed = false, value = Float(1e300), index = 10
+cc d8a4fc5b27f7c30991dcccafe9d1468a87d694c3d5438c2c79b0868b005f7a22 # shrinks to float = "0e0", exact = "0", precision = None, scale = None, int_bits = 8, signed = false, value = BigInt(BigIntValue { negative: false, significand: "1", zeros: WideInt { negative: false, magnitude: "19" } }), index = 11

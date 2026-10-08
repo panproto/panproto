@@ -82,6 +82,12 @@ fn fixture(case: &str, producer: &str, extension: &str) -> Vec<u8> {
 fn decode(bytes: &[u8], encoding: Encoding) -> Complement {
     match decode_complement(bytes, encoding, ComplementShape::WType) {
         Ok(AnyComplement::WType(c)) => *c,
+        Ok(AnyComplement::Functor(_)) => {
+            panic!("a legacy tree complement decoded as a table complement")
+        }
+        Ok(AnyComplement::Resolution(_)) => {
+            panic!("a legacy tree complement decoded as a resolution complement")
+        }
         Err(e) => panic!("a legacy complement decodes: {e}"),
     }
 }

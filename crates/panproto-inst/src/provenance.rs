@@ -115,6 +115,11 @@ pub fn graph_provenance(
             ) => {
                 vec![*src, *tgt]
             }
+            // Resolution keys name objects of a resolved document, never of a
+            // graph restrict, so they have no source node in `source`.
+            Some(SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. }) => {
+                Vec::new()
+            }
         };
         sources.sort_unstable();
         sources.dedup();

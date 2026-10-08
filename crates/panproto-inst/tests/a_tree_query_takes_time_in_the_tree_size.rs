@@ -135,27 +135,26 @@ fn run_time(instance: &WInstance, n: usize) -> Duration {
 #[test]
 fn a_tree_query_and_extend_are_not_charged_per_element_and_arc() {
     // Quadrupling the mids quadruples the elements and the arcs. Work that
-    // scans every arc at every element grows sixteenfold, fourfold in units
-    // of a linear baseline over the same tree (one clone of it); work linear
-    // in the tree up to a logarithmic factor keeps its size in those units.
-    // The bound 2 is the geometric mean of the two growths.
+    // scans every arc at every element grows sixteenfold, fourfold against
+    // the growth of the tree; work linear in the tree up to a logarithmic
+    // factor grows by about 1 against it. The bound 2 is the geometric mean
+    // of the two growths.
     let (small_tree, large_tree) = (tree(2000), tree(8000));
-    let (small, large) = common::sizes_in_units(
-        7,
-        common::Probe {
-            work: || run_time(&small_tree, 2000),
-            unit: || drop(std::hint::black_box(small_tree.clone())),
-        },
-        common::Probe {
-            work: || run_time(&large_tree, 8000),
-            unit: || drop(std::hint::black_box(large_tree.clone())),
-        },
+    let measured = common::growth(
+        15,
+        4,
+        || run_time(&small_tree, 2000),
+        || run_time(&large_tree, 8000),
     );
-    let growth = large / small;
-    eprintln!("2000 mids: {small:.1} units; 8000 mids: {large:.1} units; growth {growth:.2}");
+    let growth = measured.growth;
+    eprintln!(
+        "an 8000-mid run takes {:.1} 2000-mid runs; growth {growth:.2}",
+        measured.small_runs
+    );
     assert!(
         growth < 2.0,
-        "quadrupling the tree multiplied the time in baseline units by {growth:.2} \
-         ({small:.1} to {large:.1})"
+        "quadrupling the tree multiplied the time per element by {growth:.2} \
+         (an 8000-mid run took {:.1} 2000-mid runs)",
+        measured.small_runs
     );
 }

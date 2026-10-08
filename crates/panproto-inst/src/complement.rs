@@ -50,7 +50,13 @@ pub struct Complement {
     pub dropped_nodes: HashMap<u32, Node>,
     /// Arcs from the source that do not appear in the target view.
     pub dropped_arcs: Vec<(u32, u32, Edge)>,
-    /// Fans from the source whose parent or children were dropped.
+    /// Source fans whose forward image is absent or differs from the source.
+    ///
+    /// This includes fans whose parent or every child was dropped, partially
+    /// pruned fans, and fans retargeted or relabelled by a resolver. The
+    /// backward direction removes one matching projected fan before restoring
+    /// each recorded source fan, so this existing field carries fan residue
+    /// without changing the serialized complement shape.
     pub dropped_fans: Vec<Fan>,
     /// Resolver decisions made during ancestor contraction.
     #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
@@ -201,12 +207,12 @@ impl Complement {
     /// complement's fields divide into two kinds under that reading, and
     /// only one of them is `C`:
     ///
-    /// * **Residue.** Dropped nodes, arcs, and fans; snapshots of values
-    ///   the forward pass overwrote; source anchors a non-injective remap
-    ///   made unrecoverable; and the source edge of an arc whose view label
-    ///   does not determine it. This is the information present in `S`
-    ///   and absent from `V`, so it *is* the complement, and no amount of
-    ///   looking at `V` recovers it.
+    /// * **Residue.** Dropped nodes and arcs; source fans whose projection is
+    ///   absent or non-identical; snapshots of values the forward pass
+    ///   overwrote; source anchors a non-injective remap made unrecoverable;
+    ///   and the source edge of an arc whose view label does not determine
+    ///   it. This is the information present in `S` and absent from `V`, so
+    ///   it *is* the complement, and no amount of looking at `V` recovers it.
     /// * **Bookkeeping.** `original_parent`, `arc_order`, the contraction
     ///   choices and `contracted_into`, `id_floor`, `synthesized_keys`.
     ///   These record the shape of the reassembly, which is a function of
@@ -294,7 +300,9 @@ impl Complement {
                         hop: next,
                     },
                 ),
-                SynthKey::Contract { .. } => (None, chain),
+                SynthKey::Contract { .. }
+                | SynthKey::ResolutionReference { .. }
+                | SynthKey::ResolutionSpan { .. } => (None, chain),
             };
             if let Some(edge) = endpoint.and_then(|child| embedding.arcs.get(&child)) {
                 edges.insert(*edge, key);
@@ -338,7 +346,9 @@ fn chain_of(key: &SynthKey) -> (SynthKey, u16) {
             },
             *hop,
         ),
-        SynthKey::Contract { .. } => (key.clone(), 0),
+        SynthKey::Contract { .. }
+        | SynthKey::ResolutionReference { .. }
+        | SynthKey::ResolutionSpan { .. } => (key.clone(), 0),
     }
 }
 

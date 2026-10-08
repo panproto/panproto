@@ -205,11 +205,13 @@ impl LensPath {
             .collect()
     }
 
-    /// Deterministic tree normal form.
+    /// Deterministic tree normal form for the leftmost-first fusion strategy.
     ///
     /// Starting from one group per atomic stage, this repeatedly fuses the
     /// leftmost adjacent pair admitted by the tree fusion predicate until
-    /// no adjacent pair is admitted.
+    /// no adjacent pair is admitted. The result is a function of the atomic
+    /// stages. It is neither a canonical form of lens behaviour nor
+    /// necessarily minimal in the number of groups.
     #[must_use]
     pub fn tree_normal_form(&self) -> Vec<NormalGroup> {
         let mut groups: Vec<NormalGroup> = self
@@ -239,10 +241,15 @@ impl LensPath {
         groups
     }
 
-    /// Deterministic graph normal form.
+    /// Deterministic graph normal form for the leftmost-first fusion strategy.
     ///
     /// Starting with the atomic stages, repeatedly fuses the leftmost
-    /// adjacent pair admitted by the graph fusion predicate.
+    /// adjacent pair admitted by the graph fusion predicate. The result is a
+    /// function of the atomic stages, not a canonical form of graph-lens
+    /// behaviour, and it need not use the fewest possible groups. Reading the
+    /// rightmost failing group as Kleisli composition of partial puts in the
+    /// error monad, and one complement entry per group as its product
+    /// complement, is inferred from `xie2025effectful`, Sections 2.1 and 2.4.
     #[must_use]
     pub fn graph_normal_form(&self) -> Vec<NormalGroup> {
         let mut groups: Vec<NormalGroup> = self
@@ -272,10 +279,16 @@ impl LensPath {
         groups
     }
 
-    /// Deterministic table normal form under the supplied boundary protocols.
+    /// Deterministic table normal form for the leftmost-first fusion strategy.
     ///
     /// There must be one protocol for the source boundary, every shared
     /// boundary and the target boundary, in atomic-stage order.
+    /// Starting with those atomic stages, this repeatedly fuses the leftmost
+    /// adjacent pair admitted by table fusion at its three protocol
+    /// boundaries. The result is a function of the stages and protocols, not
+    /// a canonical form of table-lens behaviour, and it need not minimize the
+    /// number of groups. The partial-put and product-complement interpretation
+    /// is inferred from `xie2025effectful`, Sections 2.1 and 2.4.
     ///
     /// # Errors
     ///

@@ -487,8 +487,50 @@ fn an_incoherent_instance_pair_is_no_edge_found() {
 fn fans_are_decided_after_contraction() {
     // A fan over r with children c (kept) and d (dropped): it survives
     // with its surviving label; its edge to d goes to the complement.
-    let s = schema(&["r", "c", "d"], &[&e("r", "c", "c"), &e("r", "d", "d")]);
-    let tgt = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let protocol = Protocol::default();
+    let s = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .unwrap()
+        .vertex("c", "record", None)
+        .unwrap()
+        .vertex("d", "record", None)
+        .unwrap()
+        .edge("r", "c", "prop", Some("c"))
+        .unwrap()
+        .edge("r", "d", "prop", Some("d"))
+        .unwrap()
+        .hyper_edge(
+            "h",
+            "rel",
+            HashMap::from([
+                ("p".to_owned(), "r".to_owned()),
+                ("x".to_owned(), "c".to_owned()),
+                ("y".to_owned(), "d".to_owned()),
+            ]),
+            "p",
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+    let tgt = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .unwrap()
+        .vertex("c", "record", None)
+        .unwrap()
+        .edge("r", "c", "prop", Some("c"))
+        .unwrap()
+        .hyper_edge(
+            "h",
+            "rel",
+            HashMap::from([
+                ("p".to_owned(), "r".to_owned()),
+                ("x".to_owned(), "c".to_owned()),
+            ]),
+            "p",
+        )
+        .unwrap()
+        .build()
+        .unwrap();
     let tree = WInstance::new(
         [
             (0, Node::new(0, "r")),
@@ -801,7 +843,7 @@ proptest! {
 fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
     // The resolver sends both labels of the fan over r to `z`: the tree may
     // not keep one child and lose the other, so both shapes refuse.
-    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let s = fanned_schema(&[("h", "p")]);
     let tree = WInstance::new(
         [
             (0, Node::new(0, "r")),
@@ -890,6 +932,7 @@ fn fanned_schema(hyper: &[(&str, &str)]) -> Schema {
         let sig = HashMap::from([
             ((*parent).to_owned(), "r".to_owned()),
             ("x".to_owned(), "c".to_owned()),
+            ("x2".to_owned(), "c".to_owned()),
             ("y".to_owned(), "c".to_owned()),
             ("z".to_owned(), "c".to_owned()),
         ]);
@@ -923,7 +966,7 @@ fn a_kept_fan_edge_is_recorded_only_when_its_label_does_not_map_back() {
     // recorded exactly when that is not its source label. A fan node is
     // recorded when the reverse vertex map does not return its source
     // anchor, as every node is.
-    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let s = fanned_schema(&[("h", "p"), ("h2", "p")]);
     let g = GInstance::from_wtype(&fanned_tree()).unwrap();
     let edges = fan_edges(&g);
     assert_eq!(edges.len(), 3, "{edges:?}");

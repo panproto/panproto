@@ -3279,7 +3279,12 @@ pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotE
 ///
 /// A float stays a float, integral or not: the column a value is written
 /// to decides its kind ([`coerce_value`](crate::value::coerce::coerce_value)),
-/// not the evaluator.
+/// not the evaluator. A float keeps its bits, a NaN included: a NaN that
+/// evaluation computed is already the canonical quiet NaN
+/// [`CANONICAL_NAN`](crate::value::CANONICAL_NAN) (bits
+/// `0x7ff8000000000000`), so two computed NaN cells are equal value for
+/// value and digest for digest, and a NaN that a transform read from a
+/// cell and returned unchanged is written back with the bits it had.
 ///
 /// `Literal::Closure` has no instance counterpart and converts to
 /// `Value::Null`: a closure is an intermediate of evaluation, never a
@@ -3290,6 +3295,11 @@ pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotE
 /// use panproto_expr::Literal;
 ///
 /// assert_eq!(expr_literal_to_value(&Literal::Float(2.0)), Value::Float(2.0));
+/// let odd_nan = f64::from_bits(0xfff8_0000_0000_1234);
+/// let Value::Float(x) = expr_literal_to_value(&Literal::Float(odd_nan)) else {
+///     unreachable!()
+/// };
+/// assert_eq!(x.to_bits(), 0xfff8_0000_0000_1234);
 /// ```
 #[must_use]
 pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
@@ -3449,7 +3459,7 @@ pub(crate) fn total_extension_migration(
         .cloned()
         .collect();
     for edge in overlapping_images {
-        total.edge_remap.insert(edge.clone(), edge);
+        total.edge_remap.entry(edge.clone()).or_insert(edge);
     }
     total
 }
@@ -3471,6 +3481,13 @@ pub(crate) fn total_extension_migration(
 ///
 /// The input and output are validated against `src_schema` and `tgt_schema`
 /// under their respective protocols.
+///
+/// Refusing an element with no image follows the explicit validation pattern
+/// of CQL `Mapping.validate`; related boundary precedents include Avro's
+/// `avrospec`, Protocol Buffers' `protobufprotojson`, EMF `XMLResource`, and
+/// the DPO dangling condition. Deletion is available through the partial
+/// form. Skolemization, labelled nulls, and preservation as unknown are
+/// different policies; none makes refusal a law uniformly across shapes.
 ///
 /// # Errors
 ///

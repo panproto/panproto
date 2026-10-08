@@ -71,30 +71,27 @@ fn compiling_a_plan_is_not_charged_per_pair_and_edge() {
     // Multiplying the spokes by eight multiplies the pairs, and the size of
     // the regions the plan returns, by 64, and the edges by eight. A
     // compilation that scans every edge for every pair grows 512-fold,
-    // eightfold in units of a baseline linear in the plan it returns (one
-    // clone of it); one bounded by the schema searches and the regions it
-    // returns keeps its size in those units up to a logarithmic factor from
-    // the ordered sets. The bound 2.8 is about the geometric mean of the two
-    // growths.
+    // eightfold against the growth of the plan it returns; one bounded by
+    // the schema searches and the regions it returns grows by about 1
+    // against it, up to a logarithmic factor from the ordered sets. The
+    // bound 2.8 is about the geometric mean of the two growths.
     let (small_hub, large_hub) = (hub(50), hub(400));
-    let small_plan = ContractionPlan::compile(&small_hub.0, &small_hub.1, &small_hub.2).unwrap();
-    let large_plan = ContractionPlan::compile(&large_hub.0, &large_hub.1, &large_hub.2).unwrap();
-    let (small, large) = common::sizes_in_units(
-        7,
-        common::Probe {
-            work: || compile_time(&small_hub, 50),
-            unit: || drop(std::hint::black_box(small_plan.clone())),
-        },
-        common::Probe {
-            work: || compile_time(&large_hub, 400),
-            unit: || drop(std::hint::black_box(large_plan.clone())),
-        },
+    let measured = common::growth(
+        15,
+        64,
+        || compile_time(&small_hub, 50),
+        || compile_time(&large_hub, 400),
     );
-    let growth = large / small;
-    eprintln!("50 spokes: {small:.1} units; 400 spokes: {large:.1} units; growth {growth:.2}");
+    let growth = measured.growth;
+    eprintln!(
+        "a 400-spoke compile takes {:.1} 50-spoke compiles; growth {growth:.2}",
+        measured.small_runs
+    );
     assert!(
         growth < 2.8,
         "multiplying the spokes by eight multiplied the compile time \
-         in baseline units by {growth:.2} ({small:.1} to {large:.1})"
+         per planned pair by {growth:.2} (a 400-spoke compile took {:.1} \
+         50-spoke compiles)",
+        measured.small_runs
     );
 }

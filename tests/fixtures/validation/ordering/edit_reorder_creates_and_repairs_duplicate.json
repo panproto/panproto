@@ -663,5 +663,312 @@
         ]
       }
     }
-  ]
+  ],
+  "incremental": {
+    "edit": {
+      "Batch": [
+        {
+          "SetEdgePosition": {
+            "id": 1,
+            "old": 1,
+            "new": 0
+          }
+        },
+        {
+          "SetEdgePosition": {
+            "id": 0,
+            "old": 0,
+            "new": 1
+          }
+        }
+      ]
+    },
+    "policy": "require_passed",
+    "budget": {
+      "max_reads": null
+    },
+    "external": [],
+    "options": {
+      "digests": true
+    },
+    "outcome": {
+      "applied": {
+        "validation": {
+          "report": {
+            "shape": "graph",
+            "scope": {
+              "edit": {
+                "baseline_seq": 0,
+                "baseline_status": "passed"
+              }
+            },
+            "plan": "6ab4069ec505d68d14a2cfbee92221759a05d040a05652677f48af53ff89a17e",
+            "status": "passed",
+            "diagnostics": [],
+            "incomplete": [],
+            "coverage": [
+              [
+                {
+                  "kind": "schema_well_formed",
+                  "decl": "schema"
+                },
+                {
+                  "class": "static",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "declaration_interpretable",
+                  "decl": "schema"
+                },
+                {
+                  "class": "static",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "node_anchor",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 3,
+                  "passed": 3,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "edge_declared",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 2,
+                  "passed": 2,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "endpoint_coherence",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 2,
+                  "passed": 2,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "fan_well_formed",
+                  "decl": "schema"
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 0,
+                  "passed": 0,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "position_distinct",
+                  "decl": {
+                    "ordering": {
+                      "src": "list",
+                      "tgt": "item",
+                      "kind": "prop",
+                      "name": "items"
+                    }
+                  }
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "list"
+                  }
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ]
+            ]
+          },
+          "footprint": {
+            "rerun": [
+              {
+                "check": {
+                  "kind": "position_distinct",
+                  "decl": {
+                    "ordering": {
+                      "src": "list",
+                      "tgt": "item",
+                      "kind": "prop",
+                      "name": "items"
+                    }
+                  }
+                },
+                "subject": {
+                  "node": 0
+                }
+              }
+            ],
+            "created": [],
+            "retired": [],
+            "reads": [
+              {
+                "node": 0
+              },
+              {
+                "edge": 0
+              },
+              {
+                "edge": 1
+              }
+            ],
+            "touched": [
+              {
+                "edge": 0
+              },
+              {
+                "edge": 1
+              }
+            ]
+          },
+          "affected": [
+            {
+              "node": 0
+            },
+            {
+              "edge": 0
+            },
+            {
+              "edge": 1
+            }
+          ]
+        },
+        "witness": {
+          "plan": "6ab4069ec505d68d14a2cfbee92221759a05d040a05652677f48af53ff89a17e",
+          "baseline_seq": 0,
+          "baseline_status": "passed",
+          "delta": "15772ccfb3f10f768e1ac252346c72dac5690c1943a020a7736f51c9abe6030e",
+          "result_status": "passed",
+          "runs": [
+            {
+              "instance": {
+                "check": {
+                  "kind": "position_distinct",
+                  "decl": {
+                    "ordering": {
+                      "src": "list",
+                      "tgt": "item",
+                      "kind": "prop",
+                      "name": "items"
+                    }
+                  }
+                },
+                "subject": {
+                  "node": 0
+                }
+              },
+              "reads": [
+                {
+                  "node": 0
+                },
+                {
+                  "edge": 0
+                },
+                {
+                  "edge": 1
+                }
+              ],
+              "verdict": {
+                "evaluated": {
+                  "findings": [],
+                  "incomplete": []
+                }
+              }
+            }
+          ],
+          "not_triggered": [
+            "schema_well_formed",
+            "declaration_interpretable",
+            "node_anchor",
+            "reserved_vocabulary",
+            "edge_declared",
+            "endpoint_coherence",
+            "fan_well_formed",
+            "attribute",
+            "tree_root",
+            "tree_parent_map",
+            "tree_reachable"
+          ],
+          "options": {
+            "digests": true
+          },
+          "prior": "306ba35617099d4bb082c313f5c3b327945a280463f8dfe0f654e42747342111",
+          "result": "c61f46fb2072d28b30c2c8b499198dc24eef0a9aba26cd34a904656c634f558a"
+        }
+      }
+    }
+  },
+  "expected_violations": {
+    "initial": [],
+    "after_edits": [
+      [
+        {
+          "check": "position_distinct",
+          "subject": {
+            "node": 0
+          },
+          "violation": {
+            "duplicate_position": {
+              "position": 0,
+              "edges": [
+                0,
+                1
+              ]
+            }
+          }
+        }
+      ],
+      []
+    ]
+  }
 }
