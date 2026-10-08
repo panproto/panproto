@@ -52,6 +52,26 @@ pub mod segment {
         pub specs: Vec<SegmentSpec>,
     }
 
+    /// What is malformed about a partition or its supplied segment set.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum PartitionDefect {
+        /// The spec at this position carries another id.
+        NotDense {
+            /// The id found in the spec.
+            found: u32,
+        },
+        /// One spec's node ranges are not ascending.
+        UnsortedRanges,
+        /// The node allocation range is not wholly covered by the node ranges.
+        AllocationOutsideNodes,
+        /// No record was supplied for a partition segment.
+        SegmentMissing,
+        /// A record was supplied more than once.
+        SegmentRepeated,
+        /// A record names no segment of the partition.
+        UnknownSegment,
+    }
+
     /// A violation of the segment contract.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     pub enum SegmentError {
@@ -67,8 +87,13 @@ pub mod segment {
             /// The second.
             b: u32,
         },
-        /// Segment ids are not `0..S` in order.
-        NonDense,
+        /// A partition or its supplied segment set is malformed.
+        MalformedPartition {
+            /// The affected segment position or id.
+            segment: u32,
+            /// The defect.
+            defect: PartitionDefect,
+        },
         /// An element no range owns.
         Unowned {
             /// The node id.
@@ -112,7 +137,8 @@ pub mod segment {
     }
 
     impl Partition {
-        /// Check dense ids, ordered ranges and disjointness across segments.
+        /// Check dense ids, valid ascending ranges, allocation coverage, and
+        /// disjointness across segments.
         ///
         /// # Errors
         ///
@@ -120,14 +146,39 @@ pub mod segment {
         pub fn validate(&self) -> Result<(), SegmentError> {
             for (i, s) in self.specs.iter().enumerate() {
                 if usize::try_from(s.id).ok() != Some(i) {
-                    return Err(SegmentError::NonDense);
+                    return Err(SegmentError::MalformedPartition {
+                        segment: u32::try_from(i).unwrap_or(u32::MAX),
+                        defect: PartitionDefect::NotDense { found: s.id },
+                    });
                 }
-                if s.nodes
-                    .iter()
-                    .chain(s.alloc_nodes.iter())
-                    .chain(s.alloc_edges.iter())
-                    .any(|r| r.lo > r.hi)
-                {
+                if s.nodes.iter().any(|r| r.lo > r.hi) {
+                    return Err(SegmentError::InvertedRange { segment: s.id });
+                }
+                for pair in s.nodes.windows(2) {
+                    let (previous, current) = (pair[0], pair[1]);
+                    if current.lo > previous.hi {
+                        continue;
+                    }
+                    if current.hi < previous.lo {
+                        return Err(SegmentError::MalformedPartition {
+                            segment: s.id,
+                            defect: PartitionDefect::UnsortedRanges,
+                        });
+                    }
+                    return Err(SegmentError::OverlappingRanges { a: s.id, b: s.id });
+                }
+                if let Some(alloc) = s.alloc_nodes {
+                    if alloc.lo > alloc.hi {
+                        return Err(SegmentError::InvertedRange { segment: s.id });
+                    }
+                    if !covered(&s.nodes, alloc) {
+                        return Err(SegmentError::MalformedPartition {
+                            segment: s.id,
+                            defect: PartitionDefect::AllocationOutsideNodes,
+                        });
+                    }
+                }
+                if s.alloc_edges.is_some_and(|r| r.lo > r.hi) {
                     return Err(SegmentError::InvertedRange { segment: s.id });
                 }
             }
@@ -155,6 +206,25 @@ pub mod segment {
                 .find(|s| s.nodes.iter().any(|r| r.contains(id)))
                 .map(|s| s.id)
         }
+    }
+
+    /// Whether ascending, disjoint `ranges` cover all of `target`, including
+    /// across adjacent ranges.
+    fn covered(ranges: &[IdRange], target: IdRange) -> bool {
+        let mut next = u64::from(target.lo);
+        for range in ranges {
+            if u64::from(range.hi) < next {
+                continue;
+            }
+            if u64::from(range.lo) > next {
+                return false;
+            }
+            next = u64::from(range.hi) + 1;
+            if next > u64::from(target.hi) {
+                return true;
+            }
+        }
+        false
     }
 
     /// A remote target of an owned edge.
@@ -194,6 +264,42 @@ pub mod segment {
         pub ghosts: BTreeMap<u32, Ghost>,
         /// In-stubs by edge.
         pub in_stubs: BTreeMap<u32, InStub>,
+    }
+
+    /// Lay the supplied records out by id, requiring every partition segment
+    /// exactly once.
+    fn arrange<'a>(
+        segs: &'a [GraphSegment],
+        p: &Partition,
+    ) -> Result<Vec<&'a GraphSegment>, SegmentError> {
+        let mut ordered: Vec<Option<&GraphSegment>> = vec![None; p.specs.len()];
+        for s in segs {
+            let Some(slot) = usize::try_from(s.segment)
+                .ok()
+                .and_then(|id| ordered.get_mut(id))
+            else {
+                return Err(SegmentError::MalformedPartition {
+                    segment: s.segment,
+                    defect: PartitionDefect::UnknownSegment,
+                });
+            };
+            if slot.replace(s).is_some() {
+                return Err(SegmentError::MalformedPartition {
+                    segment: s.segment,
+                    defect: PartitionDefect::SegmentRepeated,
+                });
+            }
+        }
+        ordered
+            .into_iter()
+            .enumerate()
+            .map(|(id, segment)| {
+                segment.ok_or_else(|| SegmentError::MalformedPartition {
+                    segment: u32::try_from(id).unwrap_or(u32::MAX),
+                    defect: PartitionDefect::SegmentMissing,
+                })
+            })
+            .collect()
     }
 
     /// Definition: Split a graph by a valid partition.
@@ -258,21 +364,25 @@ pub mod segment {
 
     /// Definition: Glue segments into the whole instance, checking the segment contract:
     ///
-    /// every node is owned by its holder and keyed by its id, every edge's
-    /// source is owned by its holder, every remote target is a ghost naming
-    /// its true owner and anchor, ghosts are exactly the remote targets, every
-    /// in-stub matches the edge its source owner holds, in-stubs are exactly
-    /// the incoming cross edges, and no edge id is held twice.
+    /// every partition segment is supplied exactly once, every node is owned
+    /// by its holder and keyed by its id, every edge's source is owned by its
+    /// holder, every remote target is a ghost naming its true owner and anchor,
+    /// ghosts are exactly the remote targets, every in-stub matches the edge
+    /// its source owner holds, in-stubs are exactly the incoming cross edges,
+    /// and no edge id is held twice.
     ///
     /// # Errors
     ///
-    /// The first violation, in segment then element order.
+    /// The first violation: unknown or repeated records in input order, then a
+    /// missing record in segment-id order, then contents in segment and element
+    /// order.
     ///
     /// Book anchors: `L-segments-1`, `L-segments-5`.
     pub fn glue(segs: &[GraphSegment], p: &Partition) -> Result<Graph, SegmentError> {
         p.validate()?;
+        let ordered = arrange(segs, p)?;
         let mut g = Graph::default();
-        for s in segs {
+        for s in &ordered {
             for (k, n) in &s.nodes {
                 if *k != n.id {
                     return Err(SegmentError::NodeIdMismatch { key: *k });
@@ -289,7 +399,7 @@ pub mod segment {
             }
         }
         let mut cross: BTreeSet<u32> = BTreeSet::new();
-        for s in segs {
+        for s in &ordered {
             for (id, e) in &s.edges {
                 if !s.nodes.contains_key(&e.src) {
                     let expected = p
@@ -325,7 +435,7 @@ pub mod segment {
                 return Err(SegmentError::GhostMismatch { node: *extra });
             }
         }
-        for s in segs {
+        for s in &ordered {
             for (id, st) in &s.in_stubs {
                 let ok = g
                     .edges

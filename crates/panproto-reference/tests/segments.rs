@@ -3,7 +3,9 @@
 //! small graph, and a tampered ghost is caught.
 
 use panproto_reference::model::{GEdge, Graph, Node, SEdge};
-use panproto_reference::segment::{self, IdRange, Partition, SegmentError, SegmentSpec};
+use panproto_reference::segment::{
+    self, IdRange, Partition, PartitionDefect, SegmentError, SegmentSpec,
+};
 
 fn spec(id: u32, lo: u32, hi: u32) -> SegmentSpec {
     SegmentSpec {
@@ -34,6 +36,93 @@ fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_partition() {
     };
     let refused = segment::partition(&g, &p);
     assert_eq!(format!("{refused:?}"), "Err(DanglingEdge { edge: 0 })");
+}
+
+#[test]
+fn malformed_ranges_and_node_allocation_are_typed_refusals() {
+    let partition = |nodes, alloc_nodes| Partition {
+        specs: vec![SegmentSpec {
+            id: 0,
+            nodes,
+            alloc_nodes,
+            alloc_edges: None,
+        }],
+    };
+    assert_eq!(
+        partition(
+            vec![IdRange { lo: 5, hi: 9 }, IdRange { lo: 0, hi: 4 }],
+            None,
+        )
+        .validate(),
+        Err(SegmentError::MalformedPartition {
+            segment: 0,
+            defect: PartitionDefect::UnsortedRanges,
+        })
+    );
+    assert_eq!(
+        partition(
+            vec![IdRange { lo: 0, hi: 5 }, IdRange { lo: 5, hi: 9 }],
+            None,
+        )
+        .validate(),
+        Err(SegmentError::OverlappingRanges { a: 0, b: 0 })
+    );
+    for allocation in [IdRange { lo: 10, hi: 12 }, IdRange { lo: 3, hi: 6 }] {
+        assert_eq!(
+            partition(
+                vec![IdRange { lo: 0, hi: 4 }, IdRange { lo: 6, hi: 9 }],
+                Some(allocation),
+            )
+            .validate(),
+            Err(SegmentError::MalformedPartition {
+                segment: 0,
+                defect: PartitionDefect::AllocationOutsideNodes,
+            })
+        );
+    }
+    assert_eq!(
+        partition(
+            vec![IdRange { lo: 0, hi: 4 }, IdRange { lo: 5, hi: 9 }],
+            Some(IdRange { lo: 3, hi: 6 }),
+        )
+        .validate(),
+        Ok(())
+    );
+}
+
+#[test]
+fn glue_requires_every_known_segment_exactly_once() {
+    let p = Partition {
+        specs: vec![spec(0, 0, 4), spec(1, 5, 9)],
+    };
+    let mut g = Graph::default();
+    g.nodes.insert(0, Node::new(0, "a"));
+    let segments = segment::partition(&g, &p).unwrap();
+    assert_eq!(
+        segment::glue(&segments[..1], &p),
+        Err(SegmentError::MalformedPartition {
+            segment: 1,
+            defect: PartitionDefect::SegmentMissing,
+        })
+    );
+    let mut repeated = segments.clone();
+    repeated.push(segments[0].clone());
+    assert_eq!(
+        segment::glue(&repeated, &p),
+        Err(SegmentError::MalformedPartition {
+            segment: 0,
+            defect: PartitionDefect::SegmentRepeated,
+        })
+    );
+    let mut unknown = segments;
+    unknown[1].segment = 7;
+    assert_eq!(
+        segment::glue(&unknown, &p),
+        Err(SegmentError::MalformedPartition {
+            segment: 7,
+            defect: PartitionDefect::UnknownSegment,
+        })
+    );
 }
 
 #[test]

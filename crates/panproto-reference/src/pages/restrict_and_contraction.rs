@@ -24,6 +24,10 @@ pub mod restrict {
     /// The reserved edge kind of a fan's child edges.
     pub const HYPER_LABEL: &str = "hyper_label";
 
+    /// The most edges an expansion can have: synthesized keys number hops
+    /// with all values of a `u16`.
+    const MAX_EXPANSION_LABELS: usize = 1 << 16;
+
     /// Why a pair or hop has no target edge.
     #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub enum UnresolvedReason {
@@ -110,6 +114,26 @@ pub mod restrict {
             /// The incoherent label.
             image: Box<SEdge>,
         },
+        /// An expansion has more hops than a synthesized key can number.
+        ExpansionTooLong {
+            /// The target anchor the expansion leaves.
+            src: Name,
+            /// The target anchor the expansion enters.
+            tgt: Name,
+            /// The number of edges in the expansion.
+            hops: usize,
+        },
+    }
+
+    fn check_plan_expansion(src: &str, tgt: &str, labels: &[SEdge]) -> Result<(), PlanError> {
+        if labels.len() <= MAX_EXPANSION_LABELS {
+            return Ok(());
+        }
+        Err(PlanError::ExpansionTooLong {
+            src: src.to_owned(),
+            tgt: tgt.to_owned(),
+            hops: labels.len(),
+        })
     }
 
     /// The direct image of a source edge between surviving endpoints.
@@ -218,7 +242,9 @@ pub mod restrict {
     ///
     /// # Errors
     ///
-    /// [`PlanError::IncoherentEdgeImage`] for the least incoherent edge.
+    /// [`PlanError::IncoherentEdgeImage`] for the least incoherent edge, then
+    /// [`PlanError::ExpansionTooLong`] when its expansion has more than 65536
+    /// edges.
     pub fn edge_image(
         tgt: &Schema,
         src: &Schema,
@@ -268,6 +294,9 @@ pub mod restrict {
                     source_edge: Box::new(edge.clone()),
                     image: Box::new(image),
                 });
+            }
+            if let EdgeFate::Expand { labels, .. } = &fate {
+                check_plan_expansion(from, to, labels)?;
             }
             fates.insert(edge.clone(), fate);
         }
@@ -334,7 +363,9 @@ pub mod restrict {
     ///
     /// # Errors
     ///
-    /// [`PlanError::IncoherentPairImage`] for the least incoherent pair.
+    /// [`PlanError::IncoherentPairImage`] for the least incoherent pair, then
+    /// [`PlanError::ExpansionTooLong`] when its expansion has more than 65536
+    /// edges.
     ///
     /// Book anchors: `L-restrict-and-contraction-2`.
     pub fn contraction_plan(
@@ -403,6 +434,9 @@ pub mod restrict {
                         pair: Box::new((ta, tb)),
                         image: Box::new(image),
                     });
+                }
+                if let PairResolution::Expand { labels, .. } = &resolution {
+                    check_plan_expansion(&ta, &tb, labels)?;
                 }
                 out.insert(
                     (a.clone(), b.clone()),
@@ -629,6 +663,15 @@ pub mod restrict {
             /// Whether node ids ran out.
             nodes: bool,
         },
+        /// An expansion has more hops than a synthesized key can number.
+        ExpansionTooLong {
+            /// The target anchor the expansion leaves.
+            src: Name,
+            /// The target anchor the expansion enters.
+            tgt: Name,
+            /// The number of edges in the expansion.
+            hops: usize,
+        },
     }
 
     /// A restrict refusal.
@@ -737,31 +780,53 @@ pub mod restrict {
     fn path_objects(
         s: u32,
         t: u32,
+        path_src: &str,
+        path_tgt: &str,
         intermediates: &[Name],
         labels: &[SEdge],
         key: &dyn Fn(u16) -> SynthKey,
-    ) -> Vec<(SynthKey, Pending)> {
+    ) -> Result<Vec<(SynthKey, Pending)>, EngineError> {
+        let hops = labels.len().max(intermediates.len().saturating_add(1));
+        if hops > MAX_EXPANSION_LABELS {
+            return Err(EngineError::ExpansionTooLong {
+                src: path_src.to_owned(),
+                tgt: path_tgt.to_owned(),
+                hops,
+            });
+        }
         let mut out = Vec::new();
         let n = intermediates.len();
         for (h, a) in intermediates.iter().enumerate() {
-            out.push((
-                key(u16::try_from(h).unwrap_or(u16::MAX)),
-                Pending::Node { anchor: a.clone() },
-            ));
+            let hop = u16::try_from(h).map_err(|_| EngineError::ExpansionTooLong {
+                src: path_src.to_owned(),
+                tgt: path_tgt.to_owned(),
+                hops,
+            })?;
+            out.push((key(hop), Pending::Node { anchor: a.clone() }));
         }
         for (h, l) in labels.iter().enumerate() {
+            let hop = u16::try_from(h).map_err(|_| EngineError::ExpansionTooLong {
+                src: path_src.to_owned(),
+                tgt: path_tgt.to_owned(),
+                hops,
+            })?;
             let src = if h == 0 {
                 Endpoint::Source(s)
             } else {
-                Endpoint::Synth(Box::new(key(u16::try_from(h - 1).unwrap_or(u16::MAX))))
+                let previous = u16::try_from(h - 1).map_err(|_| EngineError::ExpansionTooLong {
+                    src: path_src.to_owned(),
+                    tgt: path_tgt.to_owned(),
+                    hops,
+                })?;
+                Endpoint::Synth(Box::new(key(previous)))
             };
             let tgt = if h == n {
                 Endpoint::Source(t)
             } else {
-                Endpoint::Synth(Box::new(key(u16::try_from(h).unwrap_or(u16::MAX))))
+                Endpoint::Synth(Box::new(key(hop)))
             };
             out.push((
-                key(u16::try_from(h).unwrap_or(u16::MAX)),
+                key(hop),
                 Pending::Edge {
                     src,
                     tgt,
@@ -769,7 +834,7 @@ pub mod restrict {
                 },
             ));
         }
-        out
+        Ok(out)
     }
 
     const fn at(stage: u8, id: u32, id2: u32, error: EngineError) -> RestrictError {
@@ -874,13 +939,19 @@ pub mod restrict {
                         labels,
                     } => {
                         let source_edge = *id;
-                        self.pending.extend(path_objects(
+                        let path_src = self.m.vertex_image(&e.label.src);
+                        let path_tgt = self.m.vertex_image(&e.label.tgt);
+                        let objects = path_objects(
                             e.src,
                             e.tgt,
+                            path_src,
+                            path_tgt,
                             intermediates,
                             labels,
                             &|hop| SynthKey::Expand { source_edge, hop },
-                        ));
+                        )
+                        .map_err(|error| at(1, *id, 0, error))?;
+                        self.pending.extend(objects);
                         self.c.dropped_edges.insert(*id, e.clone());
                     }
                     EdgeFate::Unresolved(x, y, r) => {
@@ -964,9 +1035,11 @@ pub mod restrict {
                         intermediates,
                         labels,
                     } => {
-                        self.pending.extend(path_objects(
+                        let objects = path_objects(
                             src_node,
                             tgt_node,
+                            &pair.target.0,
+                            &pair.target.1,
                             intermediates,
                             labels,
                             &|hop| SynthKey::ContractExpand {
@@ -974,7 +1047,9 @@ pub mod restrict {
                                 tgt: tgt_node,
                                 hop,
                             },
-                        ));
+                        )
+                        .map_err(|error| at(2, src_node, tgt_node, error))?;
+                        self.pending.extend(objects);
                     }
                     PairResolution::Unresolved(hop_src, hop_tgt, reason) => {
                         return Err(at(
@@ -1240,7 +1315,9 @@ pub mod restrict {
     ///
     /// # Errors
     ///
-    /// [`RestrictError::Plan`] or the first [`RestrictError::At`].
+    /// [`RestrictError::Plan`] or the first [`RestrictError::At`], including
+    /// an [`EngineError::ExpansionTooLong`] located at the source edge in stage
+    /// 1 or source-node pair in stage 2 when public plan fields were mutated.
     ///
     /// Book anchors: `L-restrict-and-contraction-1`, `L-restrict-and-contraction-4`, `L-restrict-and-contraction-5`, `L-restrict-and-contraction-6`, `L-restrict-and-contraction-7`, `L-restrict-and-contraction-8`, `L-restrict-and-contraction-9`, `L-restrict-and-contraction-10`, `L-restrict-and-contraction-11`, `L-restrict-and-contraction-12`, `L-restrict-and-contraction-13`.
     pub fn get(

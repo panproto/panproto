@@ -437,8 +437,9 @@ pub mod theory {
     ///
     /// Every sort parameter's sort is declared earlier; every sort expression of an operation names a
     /// declared sort, an application with the declared arity whose argument terms are typed against the
-    /// parameters (with substitution) and whose variables are bound by earlier inputs; binder names and
-    /// symbol names are distinct.
+    /// parameters (with substitution) and whose variables are bound by earlier inputs; binder names are
+    /// pairwise distinct within each telescope, and sort names and operation names are pairwise distinct
+    /// within their respective namespaces.
     ///
     /// # Errors
     ///
