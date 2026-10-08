@@ -1,6 +1,6 @@
 //! Frozen, executable graph and table lens-law corpus.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -11,9 +11,12 @@ use panproto_inst::{
     Node, PutDomainError, RowId, Value, WInstance,
 };
 use panproto_lens::graph_lens;
-use panproto_lens::laws::{FamilyReport, LawReport, LawShape, Mutation, MutationCases, SkipReason};
+use panproto_lens::laws::{
+    FamilyReport, LawReport, LawShape, Mutation, MutationCases, SkipReason, SmallScope,
+};
+use panproto_lens::symmetric::{SymmetricLens, TraceObservation, check_observational_equality};
 use panproto_lens::table_lens;
-use panproto_lens::{GraphShape, Lens, LensError, TableContext, TableShape, TreeShape};
+use panproto_lens::{GraphShape, Lens, LensError, LensShape, TableContext, TableShape, TreeShape};
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
 use serde::Deserialize;
 
@@ -821,4 +824,350 @@ fn corpus_does_not_accept_untyped_operational_failures_as_refusals() {
         Err(LensError::PutDomain(error))
             if matches!(*error, panproto_inst::PutDomainError::ContractedEdgeInserted { .. })
     ));
+}
+
+fn assert_tree_sync_words() {
+    let child = edge("root", "leaf", "rel", "child");
+    let schema = graph_schema(
+        &[("root", "record"), ("leaf", "record")],
+        std::slice::from_ref(&child),
+    );
+    let first = SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema))
+        .expect("first identity span");
+    let second = SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema))
+        .expect("second identity span");
+    let middle = WInstance::new(
+        HashMap::from([(7, Node::new(7, "root")), (19, Node::new(19, "leaf"))]),
+        vec![(7, 19, child)],
+        Vec::new(),
+        7,
+        "root".into(),
+    );
+    let first_state = TreeShape::get(&first.left, &middle, &()).expect("first observation");
+    let second_state = TreeShape::get(&second.left, &middle, &()).expect("second observation");
+    let report = check_observational_equality::<TreeShape>(
+        &TraceObservation {
+            lens: &first,
+            left_context: &(),
+            right_context: &(),
+            view: &first_state.0,
+            complement: &first_state.1,
+        },
+        &TraceObservation {
+            lens: &second,
+            left_context: &(),
+            right_context: &(),
+            view: &second_state.0,
+            complement: &second_state.1,
+        },
+    )
+    .expect("identical spans agree on every bounded word");
+    assert_eq!(report.max_word_len, 4);
+    assert_eq!(report.words_checked, 2 + 4 + 8 + 16);
+}
+
+fn assert_graph_sync_words() {
+    let (graph_identity, graph_middle) = dense_graph_fixture();
+    let graph_schema = graph_identity.src_schema;
+    let graph_first =
+        SymmetricLens::from_span(identity_lens(&graph_schema), identity_lens(&graph_schema))
+            .expect("first graph identity span");
+    let graph_second =
+        SymmetricLens::from_span(identity_lens(&graph_schema), identity_lens(&graph_schema))
+            .expect("second graph identity span");
+    let graph_first_state =
+        GraphShape::get(&graph_first.left, &graph_middle, &()).expect("first graph observation");
+    let graph_second_state =
+        GraphShape::get(&graph_second.left, &graph_middle, &()).expect("second graph observation");
+    let graph_report = check_observational_equality::<GraphShape>(
+        &TraceObservation {
+            lens: &graph_first,
+            left_context: &(),
+            right_context: &(),
+            view: &graph_first_state.0,
+            complement: &graph_first_state.1,
+        },
+        &TraceObservation {
+            lens: &graph_second,
+            left_context: &(),
+            right_context: &(),
+            view: &graph_second_state.0,
+            complement: &graph_second_state.1,
+        },
+    )
+    .expect("identical graph spans agree on every bounded word");
+    assert_eq!(graph_report.max_word_len, 4);
+    assert_eq!(graph_report.words_checked, 30);
+}
+
+fn assert_table_sync_words() {
+    let protocol = table_protocol();
+    let (table_identity, table_middle) = dense_table_fixture(&protocol);
+    let table_schema = table_identity.src_schema;
+    let table_first =
+        SymmetricLens::from_span(identity_lens(&table_schema), identity_lens(&table_schema))
+            .expect("first table identity span");
+    let table_second =
+        SymmetricLens::from_span(identity_lens(&table_schema), identity_lens(&table_schema))
+            .expect("second table identity span");
+    let table_context = TableContext {
+        src: protocol.clone(),
+        tgt: protocol,
+    };
+    let table_first_state = TableShape::get(&table_first.left, &table_middle, &table_context)
+        .expect("first table observation");
+    let table_second_state = TableShape::get(&table_second.left, &table_middle, &table_context)
+        .expect("second table observation");
+    let table_report = check_observational_equality::<TableShape>(
+        &TraceObservation {
+            lens: &table_first,
+            left_context: &table_context,
+            right_context: &table_context,
+            view: &table_first_state.0,
+            complement: &table_first_state.1,
+        },
+        &TraceObservation {
+            lens: &table_second,
+            left_context: &table_context,
+            right_context: &table_context,
+            view: &table_second_state.0,
+            complement: &table_second_state.1,
+        },
+    )
+    .expect("identical table spans agree on every bounded word");
+    assert_eq!(table_report.max_word_len, 4);
+    assert_eq!(table_report.words_checked, 30);
+}
+
+#[test]
+fn symmetric_observation_runs_every_sync_word_up_to_the_bound() {
+    assert_tree_sync_words();
+    assert_graph_sync_words();
+    assert_table_sync_words();
+}
+
+fn value_family_counts(reports: &[LawReport]) -> Vec<u32> {
+    reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .ran
+                .iter()
+                .find(|family| family.mutation == Mutation::ValueEdit)
+        })
+        .map(|family| family.in_domain)
+        .collect()
+}
+
+fn assert_graph_exhaustive_values(protocol: &Protocol, expected: &[Value]) {
+    let graph_schema = SchemaBuilder::new(protocol)
+        .vertex("value", "any", None)
+        .and_then(SchemaBuilder::build)
+        .expect("one-value graph schema");
+    let graph_identity = identity_lens(&graph_schema);
+    let graph_source =
+        GInstance::new().with_node(Node::new(0, "value").with_value(FieldPresence::Null));
+    let (graph_view, graph_complement) =
+        GraphShape::get(&graph_identity, &graph_source, &()).expect("graph get");
+    let graph_candidates = GraphShape::exhaustive_value_cases(
+        &graph_identity,
+        &graph_source,
+        &graph_view,
+        &graph_complement,
+        &(),
+    );
+    let graph_values = graph_candidates
+        .iter()
+        .map(|candidate| candidate.node(0).expect("value node"))
+        .map(|node| node.value.as_ref().expect("value coordinate"))
+        .map(|presence| match presence {
+            FieldPresence::Null => Value::Null,
+            FieldPresence::Present(value) => value.clone(),
+            FieldPresence::Absent => panic!("enumerated value coordinate became absent"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        graph_values.as_slice(),
+        expected,
+        "graph value coordinate reaches every other alphabet member"
+    );
+    let graph_reports = graph_lens::check_laws_exhaustive(
+        &graph_identity,
+        &graph_schema,
+        SmallScope {
+            max_nodes: 1,
+            max_edges: 0,
+        },
+    )
+    .expect("the exhaustive graph wrapper checks every full-alphabet edit");
+    assert_eq!(graph_reports.len(), 7, "empty plus six valued graphs");
+    assert_eq!(value_family_counts(&graph_reports), vec![5; 6]);
+}
+
+fn assert_tree_exhaustive_values(protocol: &Protocol, expected: &[Value]) {
+    let graph_schema = SchemaBuilder::new(protocol)
+        .vertex("value", "any", None)
+        .and_then(SchemaBuilder::build)
+        .expect("one-value tree schema");
+    let tree_lens = identity_lens(&graph_schema);
+    let tree_source = WInstance::new(
+        HashMap::from([(0, Node::new(0, "value").with_value(FieldPresence::Null))]),
+        Vec::new(),
+        Vec::new(),
+        0,
+        "value".into(),
+    );
+    let (tree_view, tree_complement) =
+        TreeShape::get(&tree_lens, &tree_source, &()).expect("tree get");
+    let tree_candidates = TreeShape::exhaustive_value_cases(
+        &tree_lens,
+        &tree_source,
+        &tree_view,
+        &tree_complement,
+        &(),
+    );
+    let tree_values = tree_candidates
+        .iter()
+        .map(|candidate| candidate.nodes.get(&0).expect("value node"))
+        .map(|node| node.value.as_ref().expect("value coordinate"))
+        .map(|presence| match presence {
+            FieldPresence::Null => Value::Null,
+            FieldPresence::Present(value) => value.clone(),
+            FieldPresence::Absent => panic!("enumerated value coordinate became absent"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tree_values.as_slice(),
+        expected,
+        "tree value coordinate reaches every other alphabet member"
+    );
+    let tree_reports = panproto_lens::laws::check_laws_exhaustive(
+        &tree_lens,
+        &graph_schema,
+        SmallScope {
+            max_nodes: 1,
+            max_edges: 0,
+        },
+    )
+    .expect("the exhaustive tree wrapper checks every full-alphabet edit");
+    assert_eq!(tree_reports.len(), 6, "six one-node valued trees");
+    assert_eq!(value_family_counts(&tree_reports), vec![5; 6]);
+}
+
+fn assert_table_exhaustive_values(protocol: &Protocol, expected: &[Value]) {
+    let schema = table_schema(protocol, &[("row", &[("value", "any")])], &[]);
+    let lens = identity_lens(&schema);
+    let source = FInstance::new()
+        .with_rows("row", [(RowId(0), row(&[("value", Value::Null)]))])
+        .expect("one-row any-valued table");
+    let context = TableContext {
+        src: protocol.clone(),
+        tgt: protocol.clone(),
+    };
+    let (view, complement) = TableShape::get(&lens, &source, &context).expect("table get");
+    let candidates =
+        TableShape::exhaustive_value_cases(&lens, &source, &view, &complement, &context);
+    assert_eq!(
+        candidates.len(),
+        5,
+        "six-value alphabet minus the source value"
+    );
+    let observed = candidates
+        .iter()
+        .filter_map(|candidate| candidate.row(RowId(0)))
+        .filter_map(|row| row.get("value"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(observed.as_slice(), expected);
+    let reports = table_lens::check_laws_exhaustive(
+        &lens,
+        &schema,
+        BoundaryProtocols {
+            src: protocol,
+            tgt: protocol,
+        },
+        SmallScope {
+            max_nodes: 1,
+            max_edges: 0,
+        },
+    )
+    .expect("the exhaustive wrapper checks every full-alphabet edit");
+    assert_eq!(reports.len(), 8, "empty plus seven one-row cell states");
+    assert_eq!(
+        value_family_counts(&reports),
+        vec![5; 6],
+        "each of the six valued sources reports all five other values"
+    );
+}
+
+#[test]
+fn exhaustive_value_edits_reach_every_other_alphabet_value() {
+    let protocol = Protocol {
+        value_kinds: BTreeMap::from([("any".to_owned(), ScalarKind::Any)]),
+        non_value_kinds: BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    };
+    let expected_other_values = [
+        Value::Bool(false),
+        Value::Bool(true),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Str(String::new()),
+    ];
+
+    assert_graph_exhaustive_values(&protocol, &expected_other_values);
+    assert_tree_exhaustive_values(&protocol, &expected_other_values);
+    assert_table_exhaustive_values(&protocol, &expected_other_values);
+}
+
+#[test]
+fn small_scope_graph_count_matches_labelled_product_formula() {
+    let loop_edge = edge("a", "a", "rel", "loop");
+    let schema = graph_schema(&[("a", "record")], std::slice::from_ref(&loop_edge));
+    let scope = SmallScope {
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let instances = GraphShape::enumerate_small(&schema, scope, &());
+    // Empty plus, for n=1 and n=2 labelled nodes, sum_{e=0}^2 (n^2)^e.
+    let independent = 1 + (1 + 1 + 1) + (1 + 4 + 16);
+    println!(
+        "labelled graph SmallScope(max_nodes=2,max_edges=2): closed-product count={independent}"
+    );
+    assert_eq!(instances.len(), independent);
+}
+
+#[test]
+fn small_scope_tree_count_matches_labelled_rooted_formula() {
+    let loop_edge = edge("a", "a", "rel", "loop");
+    let schema = graph_schema(&[("a", "record")], std::slice::from_ref(&loop_edge));
+    let scope = SmallScope {
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let instances = TreeShape::enumerate_small(&schema, scope, &());
+    // The canonical root is id 0: one one-node tree and the labelled 0 -> 1 tree.
+    println!("labelled tree SmallScope(max_nodes=2,max_edges=2): rooted count=2");
+    assert_eq!(instances.len(), 2);
+}
+
+#[test]
+fn small_scope_table_count_matches_labelled_pair_formula() {
+    let protocol = table_protocol();
+    let self_fk = edge("row", "row", "fk", "self");
+    let schema = table_schema(&protocol, &[("row", &[])], &[self_fk]);
+    let context = TableContext {
+        src: protocol.clone(),
+        tgt: protocol,
+    };
+    let scope = SmallScope {
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let instances = TableShape::enumerate_small(&schema, scope, &context);
+    // Empty plus n=1: C(1,0)+C(1,1), and n=2:
+    // C(4,0)+C(4,1)+C(4,2). Foreign-key pairs form labelled sets.
+    let independent = 1 + 2 + (1 + 4 + 6);
+    println!("labelled table SmallScope(max_nodes=2,max_edges=2): pair-set count={independent}");
+    assert_eq!(instances.len(), independent);
 }

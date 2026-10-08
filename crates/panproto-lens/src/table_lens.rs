@@ -256,10 +256,14 @@ pub fn check_locality(
     )
 }
 
-/// Check the gating laws on every table in a finite canonical scope.
+/// Check the gating laws on every labelled table in a finite canonical scope.
 ///
-/// A pass means "no counterexample found" in `scope`; it is not a
-/// proof outside that finite universe.
+/// No labelled isomorphs are pruned. Each value-bearing coordinate is checked
+/// against every other admitted member of the fixed six-value alphabet. A
+/// pass means "no counterexample found" in `scope`; it is not a proof outside
+/// that finite universe. At each table the Single-Step Basis covers only its
+/// single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and E.6
+/// exercise multi-step behaviour separately.
 ///
 /// # Errors
 ///
@@ -273,7 +277,9 @@ pub fn check_laws_exhaustive(
     let ctx = law_context(protocols);
     <crate::TableShape as crate::laws::LawShape>::enumerate_small(schema, scope, &ctx)
         .iter()
-        .map(|source| crate::laws::check_laws_report::<crate::TableShape>(lens, source, &ctx))
+        .map(|source| {
+            crate::laws::check_laws_report_exhaustive::<crate::TableShape>(lens, source, &ctx)
+        })
         .collect()
 }
 
@@ -354,7 +360,11 @@ pub fn put_without_complement(
 
 /// Whether a table source is determined by its view alone.
 ///
-/// This includes table-plan executability under both boundary protocols;
+/// This classifies bijective lenses whose complement is `Unit`, a class
+/// narrower than isomorphism in the category of lenses. A `false` result is
+/// an obstruction to complement-free put, not the absence of an inverse lens,
+/// and does not decide whether the lens is forgetful. This includes
+/// table-plan executability under both boundary protocols;
 /// schema-level losslessness alone is insufficient when the migration is not
 /// a table functor on those boundaries. The domain is all finite,
 /// schema-supported table instances on which get is defined, including
@@ -368,9 +378,12 @@ pub fn is_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>) -> bool {
 
 /// The first table coordinate that prevents complement-free reconstruction.
 ///
-/// A pass means that no obstruction was found by the complete static table
-/// classifier for these protocols; it is not a claim about other protocol
-/// boundaries.
+/// This concerns the same narrower, bijective (complement `Unit`) class as
+/// [`is_isomorphism`]. It reports an obstruction to complement-free put, not
+/// proof that no inverse lens exists, and does not decide whether the lens is
+/// forgetful. A pass means that no obstruction was found by the complete
+/// static table classifier for these protocols; it is not a claim about other
+/// protocol boundaries.
 #[must_use]
 pub fn obstruction_to_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>) -> Option<String> {
     let plan = match RestrictPlan::compile_for_tables(

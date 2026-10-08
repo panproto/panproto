@@ -127,7 +127,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::symmetric::{TraceObservation, TraceSide, check_observational_trace};
+    use crate::symmetric::{TraceObservation, check_observational_equality};
     use crate::tests::identity_lens;
     use panproto_inst::{BoundaryProtocols, RowId};
     use panproto_schema::{Schema, SchemaBuilder};
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn table_trace_observes_the_same_stable_keyed_mutation() {
+    fn table_words_observe_the_same_stable_keyed_mutation() {
         let protocol = Protocol {
             non_value_kinds: std::iter::once("record".to_owned()).collect(),
             ..Protocol::default()
@@ -208,7 +208,7 @@ mod tests {
             tgt: protocol,
         };
 
-        check_observational_trace::<TableShape>(
+        check_observational_equality::<TableShape>(
             &TraceObservation {
                 lens: &first,
                 left_context: &shape_context,
@@ -223,8 +223,6 @@ mod tests {
                 view: &second_state.0,
                 complement: &second_state.1,
             },
-            TraceSide::Left,
-            6,
         )
         .unwrap();
     }

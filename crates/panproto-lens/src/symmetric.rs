@@ -86,13 +86,25 @@ fn observation_divergence<S: LensShape>(
         .map(|detail| format!("complements differ: {detail}"))
 }
 
-/// Boundary occupied by the first observation in an alternating sync trace.
+/// One letter in a synchronization word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceSide {
     /// The supplied observation is a left-boundary view.
     Left,
     /// The supplied observation is a right-boundary view.
     Right,
+}
+
+/// Default maximum word length for bounded observational equality.
+pub const DEFAULT_OBSERVATION_DEPTH: usize = 4;
+
+/// Coverage reported by bounded observational equality.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObservationReport {
+    /// Greatest synchronization-word length checked.
+    pub max_word_len: usize,
+    /// Number of nonempty words checked.
+    pub words_checked: usize,
 }
 
 /// One implementation and its initial observation in a finite sync trace.
@@ -115,96 +127,213 @@ fn errors_observationally_equal(left: &LensError, right: &LensError) -> bool {
         && left.to_string() == right.to_string()
 }
 
-/// Compare two implementations on a finite alternating synchronization trace.
-///
-/// Callers apply the same stable-keyed, in-domain mutation to both supplied
-/// initial views. At every successful step, both the indexed view and the
-/// complete complement are compared. Equal typed refusals at the same step
-/// terminate the trace successfully; any other error pair is a mismatch.
-///
-/// # Errors
-///
-/// Returns a law violation at the first distinguishable trace observation.
-pub fn check_observational_trace<S: LensShape>(
+type Observation<S> = (<S as LensShape>::Instance, <S as LensShape>::Complement);
+type SpanState<S> = (Observation<S>, Option<Observation<S>>);
+
+fn initial_span_state<S: LensShape>(observation: &TraceObservation<'_, S>) -> SpanState<S> {
+    (
+        (observation.view.clone(), observation.complement.clone()),
+        None,
+    )
+}
+
+fn initial_right<S: LensShape>(
+    observation: &TraceObservation<'_, S>,
+    left: &Observation<S>,
+) -> Result<Observation<S>, LensError> {
+    let middle = S::put(
+        &observation.lens.left,
+        &left.0,
+        &left.1,
+        observation.left_context,
+    )?;
+    S::get(&observation.lens.right, &middle, observation.right_context)
+}
+
+#[allow(
+    clippy::type_complexity,
+    reason = "the tuple exposes both observations in a local comparison helper"
+)]
+fn compare_observation_results<S: LensShape>(
+    first: Result<Observation<S>, LensError>,
+    second: Result<Observation<S>, LensError>,
+    word: &[TraceSide],
+    step: &str,
+) -> Result<Option<(Observation<S>, Observation<S>)>, crate::error::LawViolation> {
+    use crate::error::LawViolation;
+
+    match (first, second) {
+        (Ok(expected), Ok(actual)) => {
+            if let Some(detail) = observation_divergence::<S>(&expected, &actual) {
+                return Err(LawViolation::PutGet {
+                    detail: format!("word {word:?} step {step} differs: {detail}"),
+                });
+            }
+            Ok(Some((expected, actual)))
+        }
+        (Err(left), Err(right)) if errors_observationally_equal(&left, &right) => Ok(None),
+        (Err(left), Err(right)) => Err(LawViolation::PutGet {
+            detail: format!("word {word:?} step {step} has unequal refusals: {left}; {right}"),
+        }),
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(LawViolation::PutGet {
+            detail: format!("word {word:?} step {step} refuses in one implementation: {error}"),
+        }),
+    }
+}
+
+fn advance_span<S: LensShape>(
+    observation: &TraceObservation<'_, S>,
+    state: &SpanState<S>,
+    side: TraceSide,
+) -> Option<Result<Observation<S>, LensError>> {
+    match side {
+        TraceSide::Left => Some(sync_left_to_right_shape::<S>(
+            observation.lens,
+            &state.0.0,
+            &state.0.1,
+            observation.left_context,
+            observation.right_context,
+        )),
+        TraceSide::Right => state.1.as_ref().map(|right| {
+            sync_right_to_left_shape::<S>(
+                observation.lens,
+                &right.0,
+                &right.1,
+                observation.left_context,
+                observation.right_context,
+            )
+        }),
+    }
+}
+
+fn check_span_word<S: LensShape>(
     first: &TraceObservation<'_, S>,
     second: &TraceObservation<'_, S>,
-    starting_side: TraceSide,
-    steps: usize,
+    first_initial: &SpanState<S>,
+    second_initial: &SpanState<S>,
+    word: &[TraceSide],
 ) -> Result<(), crate::error::LawViolation> {
     use crate::error::LawViolation;
 
-    let mut first_state = (first.view.clone(), first.complement.clone());
-    let mut second_state = (second.view.clone(), second.complement.clone());
-    if let Some(detail) = observation_divergence::<S>(&first_state, &second_state) {
+    let mut first_state = first_initial.clone();
+    let mut second_state = second_initial.clone();
+    if let Some(detail) = observation_divergence::<S>(&first_state.0, &second_state.0) {
         return Err(LawViolation::PutGet {
-            detail: format!("initial trace observations differ: {detail}"),
+            detail: format!("initial left observations differ: {detail}"),
         });
     }
+    if word.first() == Some(&TraceSide::Right) {
+        let Some((first_right, second_right)) = compare_observation_results::<S>(
+            initial_right(first, &first_state.0),
+            initial_right(second, &second_state.0),
+            word,
+            "initial-right",
+        )?
+        else {
+            return Ok(());
+        };
+        first_state.1 = Some(first_right);
+        second_state.1 = Some(second_right);
+    }
 
-    let mut side = starting_side;
-    for step in 0..steps {
-        let first_next = match side {
-            TraceSide::Left => sync_left_to_right_shape::<S>(
-                first.lens,
-                &first_state.0,
-                &first_state.1,
-                first.left_context,
-                first.right_context,
-            ),
-            TraceSide::Right => sync_right_to_left_shape::<S>(
-                first.lens,
-                &first_state.0,
-                &first_state.1,
-                first.left_context,
-                first.right_context,
-            ),
+    for (offset, side) in word.iter().copied().enumerate() {
+        let Some(first_next) = advance_span(first, &first_state, side) else {
+            return Err(LawViolation::PutGet {
+                detail: format!("word {word:?} has no first right-boundary state"),
+            });
         };
-        let second_next = match side {
-            TraceSide::Left => sync_left_to_right_shape::<S>(
-                second.lens,
-                &second_state.0,
-                &second_state.1,
-                second.left_context,
-                second.right_context,
-            ),
-            TraceSide::Right => sync_right_to_left_shape::<S>(
-                second.lens,
-                &second_state.0,
-                &second_state.1,
-                second.left_context,
-                second.right_context,
-            ),
+        let Some(second_next) = advance_span(second, &second_state, side) else {
+            return Err(LawViolation::PutGet {
+                detail: format!("word {word:?} has no second right-boundary state"),
+            });
         };
-        match (first_next, second_next) {
-            (Ok(left), Ok(right)) => {
-                if let Some(detail) = observation_divergence::<S>(&left, &right) {
-                    return Err(LawViolation::PutGet {
-                        detail: format!("trace step {step} differs: {detail}"),
-                    });
-                }
-                first_state = left;
-                second_state = right;
+        let Some((expected, actual)) =
+            compare_observation_results::<S>(first_next, second_next, word, &offset.to_string())?
+        else {
+            return Ok(());
+        };
+        match side {
+            TraceSide::Left => {
+                first_state.1 = Some(expected);
+                second_state.1 = Some(actual);
             }
-            (Err(left), Err(right)) if errors_observationally_equal(&left, &right) => return Ok(()),
-            (Err(left), Err(right)) => {
-                return Err(LawViolation::PutGet {
-                    detail: format!("trace step {step} has unequal refusals: {left}; {right}"),
-                });
-            }
-            (Err(error), Ok(_)) | (Ok(_), Err(error)) => {
-                return Err(LawViolation::PutGet {
-                    detail: format!(
-                        "trace step {step} refuses in only one implementation: {error}"
-                    ),
-                });
+            TraceSide::Right => {
+                first_state.0 = expected;
+                second_state.0 = actual;
             }
         }
-        side = match side {
-            TraceSide::Left => TraceSide::Right,
-            TraceSide::Right => TraceSide::Left,
-        };
     }
     Ok(())
+}
+
+/// Compare two implementations on every nonempty synchronization word whose
+/// length is at most `max_word_len`.
+///
+/// The alphabet is `{left-to-right, right-to-left}`. Thus consecutive
+/// same-direction synchronizations are included, rather than checking only
+/// alternating traces. The supplied left observation is first put into the
+/// common middle and observed through the right leg. Each word then updates
+/// only its destination boundary and retains the other boundary, so a repeated
+/// direction is a genuine second synchronization from the same source side.
+/// A pass means no counterexample was found up to the reported bound; it does
+/// not establish unbounded observational equivalence, and no cutoff theorem is
+/// assumed.
+///
+/// # Errors
+///
+/// Returns a law violation for the first distinguishable observation, using
+/// length-first and then binary lexical word order.
+pub fn check_observational_words<S: LensShape>(
+    first: &TraceObservation<'_, S>,
+    second: &TraceObservation<'_, S>,
+    max_word_len: usize,
+) -> Result<ObservationReport, crate::error::LawViolation> {
+    let first_initial = initial_span_state(first);
+    let second_initial = initial_span_state(second);
+
+    let mut words_checked = 0usize;
+    let mut checked_depth = 0usize;
+    for len in 1..=max_word_len {
+        let Ok(shift) = u32::try_from(len) else {
+            break;
+        };
+        let Some(word_count) = 1usize.checked_shl(shift) else {
+            break;
+        };
+        for bits in 0..word_count {
+            let word = (0..len)
+                .map(|offset| {
+                    if bits & (1usize << (len - offset - 1)) == 0 {
+                        TraceSide::Left
+                    } else {
+                        TraceSide::Right
+                    }
+                })
+                .collect::<Vec<_>>();
+            check_span_word(first, second, &first_initial, &second_initial, &word)?;
+            words_checked += 1;
+        }
+        checked_depth = len;
+    }
+    Ok(ObservationReport {
+        max_word_len: checked_depth,
+        words_checked,
+    })
+}
+
+/// Compare two implementations at the default observational bound.
+///
+/// The default bound is [`DEFAULT_OBSERVATION_DEPTH`]. The returned report
+/// records both the bound and the number of nonempty words actually checked.
+///
+/// # Errors
+///
+/// Returns a law violation at the first distinguishable observation.
+pub fn check_observational_equality<S: LensShape>(
+    first: &TraceObservation<'_, S>,
+    second: &TraceObservation<'_, S>,
+) -> Result<ObservationReport, crate::error::LawViolation> {
+    check_observational_words(first, second, DEFAULT_OBSERVATION_DEPTH)
 }
 
 pub(crate) fn verify_complement_coherence_shape<S: LensShape>(
@@ -512,6 +641,88 @@ mod tests {
         CoercionSpec, Constraint, HyperEdge, Key, KeyRole, KeyScope, RecursionPoint, Variant,
     };
 
+    struct DirectionalProbe;
+
+    struct DirectionalContext {
+        activation: i32,
+        delta: i32,
+    }
+
+    impl LensShape for DirectionalProbe {
+        type Instance = i32;
+        type Complement = ();
+        type Context = DirectionalContext;
+
+        fn get(
+            _lens: &Lens,
+            source: &Self::Instance,
+            _ctx: &Self::Context,
+        ) -> Result<(Self::Instance, Self::Complement), LensError> {
+            Ok((*source, ()))
+        }
+
+        fn put(
+            _lens: &Lens,
+            view: &Self::Instance,
+            _complement: &Self::Complement,
+            ctx: &Self::Context,
+        ) -> Result<Self::Instance, LensError> {
+            Ok(view + 1 + i32::from(*view >= ctx.activation) * ctx.delta)
+        }
+
+        fn check_put_domain(
+            _lens: &Lens,
+            _view: &Self::Instance,
+            _complement: &Self::Complement,
+            _ctx: &Self::Context,
+        ) -> Result<(), Vec<panproto_inst::PutDomainError>> {
+            Ok(())
+        }
+
+        fn synth_index(_instance: &Self::Instance, _complement: &Self::Complement) -> SynthIndex {
+            SynthIndex::default()
+        }
+
+        fn equivalent(
+            a: &Self::Instance,
+            _ia: &SynthIndex,
+            b: &Self::Instance,
+            _ib: &SynthIndex,
+        ) -> bool {
+            a == b
+        }
+
+        fn divergence(
+            a: &Self::Instance,
+            _ia: &SynthIndex,
+            b: &Self::Instance,
+            _ib: &SynthIndex,
+        ) -> Option<String> {
+            (a != b).then(|| format!("{a} != {b}"))
+        }
+
+        fn divergence_modulo_derived(
+            a: &Self::Instance,
+            ia: &SynthIndex,
+            b: &Self::Instance,
+            ib: &SynthIndex,
+            _derived: &crate::derived::DerivedMap,
+        ) -> Option<String> {
+            Self::divergence(a, ia, b, ib)
+        }
+
+        fn complement_divergence(_a: &Self::Complement, _b: &Self::Complement) -> Option<String> {
+            None
+        }
+
+        fn congruence_witnesses(
+            _instance: &Self::Instance,
+            _index: &SynthIndex,
+        ) -> Vec<(Self::Instance, SynthIndex)> {
+            Vec::new()
+        }
+    }
+
     #[test]
     fn from_span_identical_schemas() {
         let schema = three_node_schema();
@@ -777,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn finite_alternating_trace_observes_every_state() {
+    fn finite_words_observe_every_state() {
         let schema = three_node_schema();
         let first =
             SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
@@ -786,7 +997,7 @@ mod tests {
         let middle = crate::tests::three_node_instance();
         let first_state = get(&first.left, &middle).unwrap();
         let second_state = get(&second.left, &middle).unwrap();
-        check_observational_trace::<TreeShape>(
+        let report = check_observational_equality::<TreeShape>(
             &TraceObservation {
                 lens: &first,
                 left_context: &(),
@@ -801,10 +1012,121 @@ mod tests {
                 view: &second_state.0,
                 complement: &second_state.1,
             },
-            TraceSide::Left,
-            6,
         )
         .unwrap();
+        assert_eq!(report.max_word_len, DEFAULT_OBSERVATION_DEPTH);
+        assert_eq!(report.words_checked, 30);
+    }
+
+    #[test]
+    fn finite_words_use_length_first_binary_lexical_order() {
+        let schema = three_node_schema();
+        let lens =
+            SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
+        let view = 0;
+        let complement = ();
+        let neutral = DirectionalContext {
+            activation: i32::MAX,
+            delta: 0,
+        };
+        let distinguish_left = DirectionalContext {
+            activation: 0,
+            delta: 1,
+        };
+        let error = check_observational_words::<DirectionalProbe>(
+            &TraceObservation {
+                lens: &lens,
+                left_context: &neutral,
+                right_context: &neutral,
+                view: &view,
+                complement: &complement,
+            },
+            &TraceObservation {
+                lens: &lens,
+                left_context: &distinguish_left,
+                right_context: &neutral,
+                view: &view,
+                complement: &complement,
+            },
+            1,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("word [Left]"), "{error}");
+    }
+
+    #[test]
+    fn finite_words_include_the_right_left_word() {
+        let schema = three_node_schema();
+        let lens =
+            SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
+        let view = 0;
+        let complement = ();
+        let neutral = DirectionalContext {
+            activation: i32::MAX,
+            delta: 0,
+        };
+        let distinguish_after_right = DirectionalContext {
+            activation: 2,
+            delta: 1,
+        };
+        let error = check_observational_words::<DirectionalProbe>(
+            &TraceObservation {
+                lens: &lens,
+                left_context: &neutral,
+                right_context: &neutral,
+                view: &view,
+                complement: &complement,
+            },
+            &TraceObservation {
+                lens: &lens,
+                left_context: &distinguish_after_right,
+                right_context: &neutral,
+                view: &view,
+                complement: &complement,
+            },
+            2,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("word [Right, Left]"), "{error}");
+    }
+
+    #[test]
+    fn finite_words_include_the_right_left_right_word() {
+        let schema = three_node_schema();
+        let lens =
+            SymmetricLens::from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
+        let view = 0;
+        let complement = ();
+        let neutral = DirectionalContext {
+            activation: i32::MAX,
+            delta: 0,
+        };
+        let distinguish_after_right_left = DirectionalContext {
+            activation: 3,
+            delta: 1,
+        };
+        let error = check_observational_words::<DirectionalProbe>(
+            &TraceObservation {
+                lens: &lens,
+                left_context: &neutral,
+                right_context: &neutral,
+                view: &view,
+                complement: &complement,
+            },
+            &TraceObservation {
+                lens: &lens,
+                left_context: &neutral,
+                right_context: &distinguish_after_right_left,
+                view: &view,
+                complement: &complement,
+            },
+            3,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("word [Right, Left, Right]"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -820,7 +1142,7 @@ mod tests {
         first_state.1.identity.as_mut().unwrap().version += 1;
         second_state.1.identity.as_mut().unwrap().version += 1;
 
-        check_observational_trace::<TreeShape>(
+        check_observational_equality::<TreeShape>(
             &TraceObservation {
                 lens: &first,
                 left_context: &(),
@@ -835,10 +1157,20 @@ mod tests {
                 view: &second_state.0,
                 complement: &second_state.1,
             },
-            TraceSide::Left,
-            2,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn unequal_typed_refusals_at_the_same_step_are_observationally_distinct() {
+        let error = compare_observation_results::<TreeShape>(
+            Err(LensError::VertexNotFound("left".to_owned())),
+            Err(LensError::VertexNotFound("right".to_owned())),
+            &[TraceSide::Left],
+            "left",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("unequal refusals"));
     }
 
     #[test]
@@ -853,7 +1185,7 @@ mod tests {
         let mut second_state = get(&second.left, &middle).unwrap();
         second_state.1.identity.as_mut().unwrap().version += 1;
 
-        let error = check_observational_trace::<TreeShape>(
+        let error = check_observational_equality::<TreeShape>(
             &TraceObservation {
                 lens: &first,
                 left_context: &(),
@@ -868,15 +1200,9 @@ mod tests {
                 view: &second_state.0,
                 complement: &second_state.1,
             },
-            TraceSide::Left,
-            2,
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("refuses in only one implementation")
-        );
+        assert!(error.to_string().contains("refuses in one implementation"));
     }
 
     #[test]

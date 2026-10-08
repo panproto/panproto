@@ -61,6 +61,9 @@ pub trait LensShape {
     fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex;
 
     /// Law equivalence, indexed by synthesized keys.
+    ///
+    /// Unequal node or edge `SynthKey` sets are never equivalent, even when
+    /// the affected objects happen to use the same raw presentation ids.
     fn equivalent(a: &Self::Instance, ia: &SynthIndex, b: &Self::Instance, ib: &SynthIndex)
     -> bool;
 
@@ -131,9 +134,24 @@ impl LensShape for TreeShape {
     }
 
     fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
+        // `contraction_choices` also records the arcs of an expansion chain.
+        // Index those arcs by their expansion keys, which are stable under a
+        // coherent presentation-id change, rather than by a `Contract` key
+        // containing the chain's current presentation endpoints.
+        let mut indexed_complement = complement.clone();
+        indexed_complement
+            .contraction_choices
+            .retain(|&(parent, child), _| {
+                !complement.synthesized_keys.contains_key(&parent)
+                    && !complement.synthesized_keys.contains_key(&child)
+            });
         GInstance::from_wtype_embedded(instance, None).map_or_else(
             |_| SynthIndex::default(),
-            |(_, embedding)| complement.synth_index(&embedding),
+            |(_, embedding)| {
+                let mut index = indexed_complement.synth_index(&embedding);
+                index.nodes.retain(|id, _| instance.nodes.contains_key(id));
+                index
+            },
         )
     }
 
@@ -290,8 +308,11 @@ impl LensShape for GraphShape {
         crate::graph_lens::check_put_domain(lens, view, complement)
     }
 
-    fn synth_index(_instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
-        complement.synth_index()
+    fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
+        let mut index = complement.synth_index();
+        index.nodes.retain(|id, _| instance.node(*id).is_some());
+        index.edges.retain(|id, _| instance.edge(*id).is_some());
+        index
     }
 
     fn equivalent(
@@ -375,6 +396,10 @@ fn tree_divergence(
     (left.fans != right.fans).then(|| "ordered fans differ".to_owned())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "keep the structural comparison in one auditable decision procedure"
+)]
 fn graph_divergence(
     a: &GInstance,
     ia: &SynthIndex,
@@ -382,6 +407,16 @@ fn graph_divergence(
     ib: &SynthIndex,
     derived: Option<&DerivedMap>,
 ) -> Option<String> {
+    let a_node_keys: BTreeSet<&SynthKey> = ia.nodes.values().collect();
+    let b_node_keys: BTreeSet<&SynthKey> = ib.nodes.values().collect();
+    if a_node_keys != b_node_keys {
+        return Some("synthesized node key sets differ".to_owned());
+    }
+    let a_edge_keys: BTreeSet<&SynthKey> = ia.edges.values().collect();
+    let b_edge_keys: BTreeSet<&SynthKey> = ib.edges.values().collect();
+    if a_edge_keys != b_edge_keys {
+        return Some("synthesized edge key sets differ".to_owned());
+    }
     if a.node_count() != b.node_count() {
         return Some(format!(
             "node count: {} vs {}",
@@ -572,6 +607,11 @@ fn tree_normalized(
     if a_keys != b_keys {
         return None;
     }
+    let a_edge_keys: BTreeSet<&SynthKey> = ia.edges.values().collect();
+    let b_edge_keys: BTreeSet<&SynthKey> = ib.edges.values().collect();
+    if a_edge_keys != b_edge_keys {
+        return None;
+    }
     let b_by_key: BTreeMap<&SynthKey, u32> = ib.nodes.iter().map(|(&id, key)| (key, id)).collect();
     let remap: HashMap<u32, u32> = ia
         .nodes
@@ -699,7 +739,8 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use panproto_inst::{
-        EdgeId, FieldPresence, GEdge, GInstance, Node, NodeShape, SynthIndex, SynthKey, Value,
+        EdgeId, FieldPresence, GEdge, GInstance, GraphComplement, Node, NodeShape, SynthIndex,
+        SynthKey, Value,
     };
     use panproto_schema::Edge;
 
@@ -790,6 +831,153 @@ mod tests {
             &right,
             &right_index,
         ));
+    }
+
+    #[test]
+    fn graph_equivalence_rejects_mismatched_keys_at_the_same_raw_ids() {
+        let label = edge("root", "leaf", "leaf");
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"))
+            .with_edge_id(EdgeId(7), 0, 1, label.clone());
+        let node_key = SynthKey::Expand {
+            source_edge: EdgeId(1),
+            hop: 0,
+        };
+        let other_node_key = SynthKey::Expand {
+            source_edge: EdgeId(2),
+            hop: 0,
+        };
+        let edge_key = SynthKey::Contract {
+            src: 0,
+            tgt: 1,
+            edge: label,
+        };
+        let other_edge_key = SynthKey::Expand {
+            source_edge: EdgeId(3),
+            hop: 1,
+        };
+        let baseline = SynthIndex {
+            nodes: BTreeMap::from([(0, node_key.clone())]),
+            edges: BTreeMap::from([(EdgeId(7), edge_key.clone())]),
+        };
+        let mismatched_node = SynthIndex {
+            nodes: BTreeMap::from([(0, other_node_key)]),
+            edges: BTreeMap::from([(EdgeId(7), edge_key)]),
+        };
+        let mismatched_edge = SynthIndex {
+            nodes: BTreeMap::from([(0, node_key)]),
+            edges: BTreeMap::from([(EdgeId(7), other_edge_key)]),
+        };
+
+        assert!(!GraphShape::equivalent(
+            &graph,
+            &baseline,
+            &graph,
+            &mismatched_node,
+        ));
+        assert!(!GraphShape::equivalent(
+            &graph,
+            &baseline,
+            &graph,
+            &mismatched_edge,
+        ));
+    }
+
+    #[test]
+    fn synthesized_indices_exclude_stale_complement_entries() {
+        let label = edge("root", "leaf", "leaf");
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"))
+            .with_edge_id(EdgeId(7), 0, 1, label.clone());
+        let node_key = SynthKey::Expand {
+            source_edge: EdgeId(1),
+            hop: 0,
+        };
+        let stale_node_key = SynthKey::Expand {
+            source_edge: EdgeId(2),
+            hop: 0,
+        };
+        let edge_key = SynthKey::Contract {
+            src: 0,
+            tgt: 1,
+            edge: label.clone(),
+        };
+        let stale_edge_key = SynthKey::Expand {
+            source_edge: EdgeId(3),
+            hop: 1,
+        };
+        let mut graph_complement = GraphComplement::default();
+        graph_complement
+            .synthesized_nodes
+            .insert(0, node_key.clone());
+        graph_complement
+            .synthesized_nodes
+            .insert(99, stale_node_key.clone());
+        graph_complement
+            .synthesized_edges
+            .insert(EdgeId(7), edge_key.clone());
+        graph_complement
+            .synthesized_edges
+            .insert(EdgeId(8), stale_edge_key);
+        let graph_index = GraphShape::synth_index(&graph, &graph_complement);
+        assert_eq!(graph_index.nodes, BTreeMap::from([(0, node_key.clone())]));
+        assert_eq!(graph_index.edges, BTreeMap::from([(EdgeId(7), edge_key)]));
+
+        let tree = panproto_inst::WInstance::new(
+            HashMap::from([(0, Node::new(0, "root")), (1, Node::new(1, "leaf"))]),
+            vec![(0, 1, label)],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let mut tree_complement = Complement::default();
+        tree_complement.synthesized_keys.insert(1, node_key.clone());
+        tree_complement.synthesized_keys.insert(99, stale_node_key);
+        assert_eq!(
+            TreeShape::synth_index(&tree, &tree_complement).nodes,
+            BTreeMap::from([(1, node_key)])
+        );
+    }
+
+    #[test]
+    fn tree_equivalence_rejects_mismatched_edge_keys_at_the_same_raw_ids() {
+        let label = edge("root", "leaf", "leaf");
+        let tree = panproto_inst::WInstance::new(
+            HashMap::from([(0, Node::new(0, "root")), (1, Node::new(1, "leaf"))]),
+            vec![(0, 1, label.clone())],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let node_key = SynthKey::Expand {
+            source_edge: EdgeId(1),
+            hop: 0,
+        };
+        let baseline = SynthIndex {
+            nodes: BTreeMap::from([(1, node_key.clone())]),
+            edges: BTreeMap::from([(
+                EdgeId(0),
+                SynthKey::Contract {
+                    src: 0,
+                    tgt: 1,
+                    edge: label,
+                },
+            )]),
+        };
+        let mismatched = SynthIndex {
+            nodes: BTreeMap::from([(1, node_key)]),
+            edges: BTreeMap::from([(
+                EdgeId(0),
+                SynthKey::Expand {
+                    source_edge: EdgeId(4),
+                    hop: 1,
+                },
+            )]),
+        };
+
+        assert!(!TreeShape::equivalent(&tree, &baseline, &tree, &mismatched,));
     }
 
     #[test]
