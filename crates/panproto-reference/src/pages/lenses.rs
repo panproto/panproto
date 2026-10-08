@@ -388,7 +388,7 @@ pub mod lens {
             if let Some(r) = c.original_edges.get(&id)
                 && r.src == e.src
                 && r.tgt == e.tgt
-                && self.image_of(r, e)
+                && self.image_of(c, view, r, e)
             {
                 return Ok(r.label.clone());
             }
@@ -416,23 +416,53 @@ pub mod lens {
             }
         }
 
-        /// Whether the view label of `e` is the image of the recorded edge `r`:
-        /// for a non-fan edge, the label its fate keeps; for a fan edge, its
-        /// kind and its name or that name's image under a fan resolution of
-        /// the recorded hyper-edge.
-        fn image_of(&self, r: &GEdge, e: &GEdge) -> bool {
+        /// Whether the view label of `e` is the image of the recorded edge
+        /// `r`: for a non-fan edge, the label its fate keeps; for a fan edge,
+        /// the complete label selected by the fan's governing surviving/full
+        /// shape, target hyper-edge and endpoint anchors.
+        fn image_of(&self, c: &Complement, view: &Graph, r: &GEdge, e: &GEdge) -> bool {
             if is_fan_kind(&r.label.kind) {
-                let renamed = self
-                    .m
-                    .hyper_resolver
-                    .iter()
-                    .filter(|((h, _), _)| *h == r.label.src)
-                    .any(|(_, (_, map))| {
-                        r.label.name.as_ref().and_then(|l| map.get(l)) == e.label.name.as_ref()
-                    });
-                return r.label.kind == e.label.kind && (r.label.name == e.label.name || renamed);
+                return self.expected_view_fan_label(c, view, r).as_ref() == Some(&e.label);
             }
             matches!(self.plan.fates.get(&r.label), Some(EdgeFate::Keep(i)) if *i == e.label)
+        }
+
+        /// The exact forward label of a recorded source fan edge in `view`.
+        fn expected_view_fan_label(
+            &self,
+            c: &Complement,
+            view: &Graph,
+            recorded: &GEdge,
+        ) -> Option<SEdge> {
+            let fan = c
+                .original_anchors
+                .get(&recorded.src)
+                .or_else(|| view.nodes.get(&recorded.src).map(|node| &node.anchor))?;
+            let target = view.nodes.get(&recorded.tgt)?;
+            let (surviving, full) = source_fan_shapes(view, c, recorded.src);
+            let entry = fan_resolver_entry(self.m, fan, &surviving, &full);
+            let hyper = entry.map_or_else(|| fan.clone(), |(target, _)| target.clone());
+            let name = if recorded.label.kind == crate::restrict::HYPER_PARENT {
+                recorded.label.name.as_ref().map(|_| {
+                    self.tgt.hyper_edges.get(&hyper).map_or_else(
+                        || recorded.label.name.clone().unwrap_or_default(),
+                        |h| h.parent_label.clone(),
+                    )
+                })
+            } else {
+                recorded.label.name.as_ref().map(|name| {
+                    entry
+                        .and_then(|(_, labels)| labels.get(name))
+                        .cloned()
+                        .unwrap_or_else(|| name.clone())
+                })
+            };
+            Some(SEdge {
+                src: hyper,
+                tgt: target.anchor.clone(),
+                kind: recorded.label.kind.clone(),
+                name,
+            })
         }
 
         /// The domain check of put: every violation, sorted by report order.
@@ -489,7 +519,13 @@ pub mod lens {
             for (id, key) in &comp.synthesized_nodes {
                 let ok = view.nodes.get(id).map_or_else(
                     || explained(key),
-                    |node| matches!(expected_synth(self, comp, key, true, anchor_of), Some(Expected::Node(anchor)) if anchor == node.anchor && node.value.is_none()),
+                    |node| matches!(expected_synth(self, comp, key, true, anchor_of), Some(Expected::Node(anchor)) if anchor == node.anchor
+                        && node.value.is_none()
+                        && node.fields.is_empty()
+                        && node.discriminator.is_none()
+                        && node.position.is_none()
+                        && node.shape == crate::model::NodeShape::Plain
+                        && node.annotations.is_empty()),
                 );
                 if !ok {
                     out.push(PutDomainError::SynthesizedEdited {
@@ -669,15 +705,68 @@ pub mod lens {
                     }
                 }
             }
-            if let Some(n) = candidates(out)
-                .into_iter()
-                .find(|n| !violations_at(out, *n, Some(self.src)).is_empty())
-            {
-                let reason = violations_at(out, n, Some(self.src)).remove(0);
-                errs.push(PutDomainError::MalformedFan { node: n, reason });
-            }
+            errs.extend(candidates(out).into_iter().flat_map(|node| {
+                violations_at(out, node, Some(self.src))
+                    .into_iter()
+                    .map(move |reason| PutDomainError::MalformedFan { node, reason })
+            }));
             errs
         }
+    }
+
+    /// The source child-label shapes of a view fan after and before pruning.
+    fn source_fan_shapes(
+        view: &Graph,
+        complement: &Complement,
+        fan: u32,
+    ) -> (BTreeSet<Name>, BTreeSet<Name>) {
+        let mut surviving = BTreeSet::new();
+        let mut full = BTreeSet::new();
+        for (id, edge) in &view.edges {
+            if edge.src != fan || edge.label.kind != crate::restrict::HYPER_LABEL {
+                continue;
+            }
+            let source = complement.original_edges.get(id).unwrap_or(edge);
+            if let Some(name) = &source.label.name {
+                surviving.insert(name.clone());
+                full.insert(name.clone());
+            }
+        }
+        full.extend(
+            complement
+                .dropped_edges
+                .values()
+                .filter(|edge| edge.src == fan && edge.label.kind == crate::restrict::HYPER_LABEL)
+                .filter_map(|edge| edge.label.name.clone()),
+        );
+        (surviving, full)
+    }
+
+    /// Select the resolver for a fan: surviving shape, full shape, then the
+    /// source hyper-edge's sole unambiguous entry.
+    fn fan_resolver_entry<'a>(
+        migration: &'a Migration,
+        fan: &str,
+        surviving: &BTreeSet<Name>,
+        full: &BTreeSet<Name>,
+    ) -> Option<&'a (Name, BTreeMap<Name, Name>)> {
+        let surviving_key = (fan.to_owned(), surviving.clone());
+        if let Some(entry) = migration.hyper_resolver.get(&surviving_key) {
+            return Some(entry);
+        }
+        let full_key = (fan.to_owned(), full.clone());
+        if full != surviving
+            && let Some(entry) = migration.hyper_resolver.get(&full_key)
+        {
+            return Some(entry);
+        }
+        let mut entries = migration
+            .hyper_resolver
+            .iter()
+            .filter(|((source, _), _)| source == fan)
+            .map(|(_, entry)| entry);
+        let only = entries.next()?;
+        entries.next().is_none().then_some(only)
     }
 
     fn part_column(p: &crate::schema::KeyPart) -> String {
@@ -884,7 +973,9 @@ pub mod lens {
         }
         for (k, f) in view.fans.iter().enumerate() {
             let known = emb.fans.get(k);
-            let fid = if let Some((node, _, _)) = known {
+            let fid = if let Some((node, _, _)) =
+                known.filter(|(node, _, _)| !g.nodes.contains_key(node))
+            {
                 *node
             } else {
                 take_fresh(&mut next_node)

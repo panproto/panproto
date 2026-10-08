@@ -3,12 +3,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use panproto_reference::fan::FanViolation;
 use panproto_reference::lens::{GraphLens, PutDomainError, ViewRef};
 use panproto_reference::migration::Migration;
-use panproto_reference::model::{GEdge, Graph, Node, NodeShape, SEdge};
+use panproto_reference::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Tree};
 use panproto_reference::restrict::{
-    self, EdgeFate, EngineError, ErrorKey, NoValueLayer, PairResolution, Plan, PlanError,
-    PlannedPair, RestrictError, SynthKey,
+    self, Complement, EdgeFate, EngineError, ErrorKey, NoValueLayer, PairResolution, Plan,
+    PlanError, PlannedPair, RestrictError, SynthKey,
 };
 use panproto_reference::schema::{HyperEdge, Schema};
 
@@ -404,7 +405,7 @@ fn fan_fixture() -> (Schema, Schema, Migration, Graph) {
     (source, target, migration, graph)
 }
 
-fn empty_plan() -> Plan {
+const fn empty_plan() -> Plan {
     Plan {
         fates: BTreeMap::new(),
         pairs: BTreeMap::new(),
@@ -522,5 +523,236 @@ fn colliding_fan_child_renames_are_refused_at_stage_three() {
                 label: "z".to_owned(),
             },
         })
+    );
+}
+
+#[test]
+fn synthesized_nodes_refuse_every_noncanonical_coordinate() {
+    let source = Schema::default()
+        .vertex("a", "obj")
+        .vertex("b", "obj")
+        .edge("a", "b", "source", Some("ab"));
+    let target = Schema::default()
+        .vertex("a", "obj")
+        .vertex("x", "obj")
+        .vertex("b", "obj")
+        .edge("a", "x", "hop", Some("ax"))
+        .edge("x", "b", "hop", Some("xb"));
+    let migration = Migration {
+        surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+        ..Migration::default()
+    };
+    let source_edge = source.edges.iter().next().unwrap().clone();
+    let plan = Plan {
+        fates: [(
+            source_edge.clone(),
+            EdgeFate::Expand {
+                intermediates: vec!["x".to_owned()],
+                labels: vec![
+                    SEdge::new("a", "x", "hop", Some("ax")),
+                    SEdge::new("x", "b", "hop", Some("xb")),
+                ],
+            },
+        )]
+        .into(),
+        pairs: BTreeMap::new(),
+    };
+    let graph = Graph {
+        nodes: [(0, Node::new(0, "a")), (1, Node::new(1, "b"))].into(),
+        edges: [(
+            0,
+            GEdge {
+                src: 0,
+                tgt: 1,
+                label: source_edge,
+                position: None,
+            },
+        )]
+        .into(),
+    };
+    let (view, complement) =
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
+            .unwrap();
+    let synthesized = *complement.synthesized_nodes.keys().next().unwrap();
+    let lens = GraphLens {
+        src: &source,
+        tgt: &target,
+        m: &migration,
+        plan: &plan,
+        vl: &NoValueLayer,
+    };
+
+    for coordinate in 0..5 {
+        let mut edited = view.clone();
+        let node = edited.nodes.get_mut(&synthesized).unwrap();
+        match coordinate {
+            0 => {
+                node.fields
+                    .insert("field".to_owned(), panproto_reference::value::Value::Int(1));
+            }
+            1 => node.discriminator = Some("tag".to_owned()),
+            2 => node.position = Some(0),
+            3 => node.shape = NodeShape::List,
+            4 => {
+                node.annotations.insert(
+                    "annotation".to_owned(),
+                    panproto_reference::value::Value::Bool(true),
+                );
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            lens.check_put_domain(&edited, &complement)
+                .unwrap_err()
+                .contains(&PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Node(synthesized),
+                }),
+            "coordinate {coordinate}"
+        );
+    }
+}
+
+#[test]
+fn every_fan_domain_violation_is_reported_in_node_and_reason_order() {
+    let mut schema = Schema::default();
+    schema.hyper_edges.insert(
+        "declared".to_owned(),
+        HyperEdge {
+            kind: "kind".to_owned(),
+            signature: BTreeMap::new(),
+            parent_label: "parent".to_owned(),
+        },
+    );
+    let migration = Migration::default();
+    let plan = empty_plan();
+    let lens = GraphLens {
+        src: &schema,
+        tgt: &schema,
+        m: &migration,
+        plan: &plan,
+        vl: &NoValueLayer,
+    };
+    let mut view = Graph::default();
+    for (id, anchor) in [(4, "declared"), (9, "unknown")] {
+        let mut node = Node::new(id, anchor);
+        node.shape = NodeShape::HyperEdge;
+        view.nodes.insert(id, node);
+    }
+    assert_eq!(
+        lens.check_put_domain(&view, &Complement::default()),
+        Err(vec![
+            PutDomainError::MalformedFan {
+                node: 4,
+                reason: FanViolation::MissingParent,
+            },
+            PutDomainError::MalformedFan {
+                node: 9,
+                reason: FanViolation::MissingParent,
+            },
+            PutDomainError::MalformedFan {
+                node: 9,
+                reason: FanViolation::UnknownHyperEdge {
+                    hyper_edge: "unknown".to_owned(),
+                },
+            },
+        ])
+    );
+}
+
+#[test]
+fn a_recorded_fan_edge_uses_only_its_governing_resolver_entry() {
+    let (source, mut target, mut migration, graph) = fan_fixture();
+    target.hyper_edges.get_mut("target_h").unwrap().signature =
+        [("q".to_owned(), "a".to_owned())].into();
+    migration.hyper_resolver.insert(
+        ("h".to_owned(), ["x".to_owned(), "y".to_owned()].into()),
+        (
+            "target_h".to_owned(),
+            [("x".to_owned(), "q".to_owned())].into(),
+        ),
+    );
+    migration.hyper_resolver.insert(
+        ("h".to_owned(), ["unrelated".to_owned()].into()),
+        (
+            "other_target".to_owned(),
+            [("x".to_owned(), "z".to_owned())].into(),
+        ),
+    );
+    let plan = empty_plan();
+    let (mut view, complement) =
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
+            .unwrap();
+    assert!(complement.original_edges.contains_key(&11));
+    assert_eq!(view.edges[&11].label.name.as_deref(), Some("q"));
+    view.edges.get_mut(&11).unwrap().label.name = Some("z".to_owned());
+    let lens = GraphLens {
+        src: &source,
+        tgt: &target,
+        m: &migration,
+        plan: &plan,
+        vl: &NoValueLayer,
+    };
+    assert!(
+        lens.check_put_domain(&view, &complement)
+            .unwrap_err()
+            .contains(&PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(11),
+            })
+    );
+}
+
+#[test]
+fn tree_put_relocates_a_fan_hidden_under_a_new_tree_node_id() {
+    let edge = SEdge::new("r", "a", "prop", Some("a"));
+    let mut schema = Schema::default()
+        .vertex("r", "obj")
+        .vertex("a", "obj")
+        .edge("r", "a", "prop", Some("a"));
+    schema.hyper_edges.insert(
+        "h".to_owned(),
+        HyperEdge {
+            kind: "kind".to_owned(),
+            signature: [("x".to_owned(), "a".to_owned())].into(),
+            parent_label: "parent".to_owned(),
+        },
+    );
+    let migration = Migration {
+        surviving_verts: ["r".to_owned(), "a".to_owned()].into(),
+        surviving_edges: [edge.clone()].into(),
+        ..Migration::default()
+    };
+    let plan = restrict::compile(&schema, &schema, &migration).unwrap();
+    let lens = GraphLens {
+        src: &schema,
+        tgt: &schema,
+        m: &migration,
+        plan: &plan,
+        vl: &NoValueLayer,
+    };
+    let source = Tree {
+        nodes: [(0, Node::new(0, "r")), (1, Node::new(1, "a"))].into(),
+        arcs: vec![(0, 1, edge.clone())],
+        fans: vec![Fan {
+            parent: 0,
+            hyper_edge: "h".to_owned(),
+            children: [("x".to_owned(), 1)].into(),
+        }],
+        root: 0,
+    };
+    let (mut view, complement, embedding) = panproto_reference::lens::tree_get(&lens, &source)
+        .unwrap()
+        .unwrap();
+    let hidden_fan = embedding.fans[0].0;
+    view.nodes.insert(hidden_fan, Node::new(hidden_fan, "a"));
+    view.arcs.push((0, hidden_fan, edge));
+    let restored =
+        panproto_reference::lens::tree_put(&lens, &view, &embedding, &complement).unwrap();
+    assert_eq!(restored.nodes[&hidden_fan].anchor, "a");
+    assert_eq!(restored.fans, source.fans);
+    assert!(
+        restored
+            .arcs
+            .iter()
+            .any(|(_, child, _)| *child == hidden_fan)
     );
 }

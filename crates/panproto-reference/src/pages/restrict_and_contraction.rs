@@ -881,6 +881,34 @@ pub mod restrict {
         pending: Vec<(SynthKey, Pending)>,
     }
 
+    /// Select a fan resolver by surviving shape, full pre-pruning shape, then
+    /// the source hyper-edge's sole unambiguous entry.
+    fn fan_resolution(
+        migration: &Migration,
+        source: &str,
+        surviving: &BTreeSet<Name>,
+        full: &BTreeSet<Name>,
+    ) -> (Name, BTreeMap<Name, Name>) {
+        let surviving_key = (source.to_owned(), surviving.clone());
+        if let Some(entry) = migration.hyper_resolver.get(&surviving_key) {
+            return entry.clone();
+        }
+        let full_key = (source.to_owned(), full.clone());
+        if full != surviving
+            && let Some(entry) = migration.hyper_resolver.get(&full_key)
+        {
+            return entry.clone();
+        }
+        let mut entries = migration
+            .hyper_resolver
+            .iter()
+            .filter(|((hyper, _), _)| hyper == source)
+            .map(|(_, entry)| entry);
+        let sole = entries.next().filter(|_| entries.next().is_none());
+        sole.cloned()
+            .unwrap_or_else(|| (source.to_owned(), BTreeMap::new()))
+    }
+
     impl Run<'_> {
         /// Stage 0: survival and transforms of every non-fan node, ascending.
         fn nodes(&mut self, vl: &dyn ValueLayer) -> Result<(), RestrictError> {
@@ -1122,39 +1150,19 @@ pub mod restrict {
                     .filter(|(_, e)| e.label.kind == HYPER_LABEL)
                     .filter_map(|(_, e)| e.label.name.clone())
                     .collect();
-                let surviving_key = (node.anchor.clone(), labels.clone());
-                let full_key = (node.anchor.clone(), full_labels);
-                let exact = self.m.hyper_resolver.get(&surviving_key).or_else(|| {
-                    (full_key != surviving_key)
-                        .then(|| self.m.hyper_resolver.get(&full_key))
-                        .flatten()
-                });
-                let sole = || {
-                    let mut entries = self
-                        .m
-                        .hyper_resolver
-                        .iter()
-                        .filter(|((source, _), _)| source == &node.anchor)
-                        .map(|(_, entry)| entry);
-                    let only = entries.next()?;
-                    entries.next().is_none().then_some(only)
-                };
-                let (hyper, label_map) = exact
-                    .or_else(sole)
-                    .cloned()
-                    .unwrap_or_else(|| (node.anchor.clone(), BTreeMap::new()));
-                let target_hyper = self.tgt.hyper_edges.get(&hyper);
-                let survives = parent_ok && !labels.is_empty() && target_hyper.is_some();
-                if !survives {
+                let (hyper, label_map) =
+                    fan_resolution(self.m, &node.anchor, &labels, &full_labels);
+                let target_hyper = (parent_ok && !labels.is_empty())
+                    .then(|| self.tgt.hyper_edges.get(&hyper))
+                    .flatten();
+                let Some(target_hyper) = target_hyper else {
                     self.c.dropped_nodes.insert(f, node.clone());
                     for (i, e) in out {
                         self.c.dropped_edges.insert(i, e.clone());
                     }
                     continue;
-                }
-                let parent_label = &target_hyper
-                    .expect("survival checks the target hyper-edge")
-                    .parent_label;
+                };
+                let parent_label = &target_hyper.parent_label;
                 self.view.nodes.insert(
                     f,
                     Node {
