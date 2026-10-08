@@ -1,10 +1,11 @@
 //! Validation of one segment against a compiled validation plan.
 //!
-//! The ordinary checks of a tree run on its native local forest. Fan
-//! well-formedness instead runs on the segment's stored reified graph: that
-//! is the view in which a remote in-edge can be seen to enter a fan node.
-//! In every shape, ghosts and in-stubs are context only. A report retains
-//! check instances whose subjects are owned by the segment.
+//! The local checks of a tree run on its native local forest. Tree fan
+//! well-formedness is a sorted-merge summary, so a segment reports those
+//! instances as outside its local scope; graph fan well-formedness remains a
+//! local check over the stored reified graph. In every shape, ghosts and
+//! in-stubs are context only. A report retains check instances whose subjects
+//! are owned by the segment.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -39,11 +40,12 @@ use panproto_schema::Schema;
 ///
 /// A finite `budget` evaluates exactly the ordered prefix of check instances
 /// whose complete footprints fit. It never performs an unlimited validation
-/// and filters the report afterward, and no carrier construction or footprint
-/// discovery for the unadmitted suffix is left uncharged. This explicit
-/// prefix discipline avoids the resource-accounting failures illustrated by
-/// Z3 issues #56 and #10939; it is a bound on this implementation, not a
-/// novelty claim about budgeted validation.
+/// and filters the report afterward. The segment contract, local indices and
+/// candidate subjects are prepared before that semantic-evaluation budget;
+/// the budget meters each admitted check instance's complete footprint. This
+/// explicit prefix discipline avoids the resource-accounting failures
+/// illustrated by Z3 issues #56 and #10939; it is a bound on this
+/// implementation, not a novelty claim about budgeted validation.
 ///
 /// # Errors
 ///
@@ -392,66 +394,25 @@ fn run_tree_candidates(
     if admitted.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let before_fan: BTreeSet<CheckInstance> = admitted
-        .iter()
-        .filter(|instance| instance.check.kind < CheckKind::FanWellFormed)
-        .cloned()
-        .collect();
-    let fan: BTreeSet<CheckInstance> = admitted
-        .iter()
-        .filter(|instance| instance.check.kind == CheckKind::FanWellFormed)
-        .cloned()
-        .collect();
-    let after_fan: BTreeSet<CheckInstance> = admitted
-        .iter()
-        .filter(|instance| instance.check.kind > CheckKind::FanWellFormed)
-        .cloned()
-        .collect();
+    debug_assert!(
+        admitted
+            .iter()
+            .all(|instance| instance.check.kind != CheckKind::FanWellFormed),
+        "tree fan checks are sorted-merge summaries, not local candidates"
+    );
 
     let tree = tree_view(segment);
     let mut cursor = SubsetBudget::new(budget);
     let mut diagnostics = Vec::new();
     let mut incomplete = Vec::new();
-    if !before_fan.is_empty() {
-        let report = plan.validate_tree_subset_cursor(
-            &tree,
-            &before_fan,
-            &mut cursor,
-            external,
-            segment_scope(segment),
-        );
-        append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
-    }
-    if !fan.is_empty() {
-        if cursor.is_exhausted() {
-            record_exhausted_suffix(&mut cursor, fan);
-        } else {
-            let (graph, edge_refs) = graph_view(segment);
-            let report = plan.validate_graph_subset_cursor(
-                &graph,
-                &fan,
-                &mut cursor,
-                external,
-                segment_scope(segment),
-            );
-            let report = remap_graph_report(report, &edge_refs);
-            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
-        }
-    }
-    if !after_fan.is_empty() {
-        if cursor.is_exhausted() {
-            record_exhausted_suffix(&mut cursor, after_fan);
-        } else {
-            let report = plan.validate_tree_subset_cursor(
-                &tree,
-                &after_fan,
-                &mut cursor,
-                external,
-                segment_scope(segment),
-            );
-            append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
-        }
-    }
+    let report = plan.validate_tree_subset_cursor(
+        &tree,
+        admitted,
+        &mut cursor,
+        external,
+        segment_scope(segment),
+    );
+    append_subset_report(report, plan, &mut diagnostics, &mut incomplete);
     incomplete.extend(cursor.incomplete(plan));
     (diagnostics, incomplete)
 }
@@ -535,7 +496,11 @@ fn run_table_candidates(
         let reads = if cursor.is_exhausted() {
             0
         } else {
-            direct_reads(index, &instance, residual_reads(&cursor))
+            direct_reads(
+                index,
+                &instance,
+                cursor.limit.map(|limit| limit.saturating_sub(cursor.spent)),
+            )
         };
         if cursor.charge(&instance, reads) {
             manual.insert(instance);
@@ -562,7 +527,11 @@ fn run_table_candidates(
         let reads = if cursor.is_exhausted() {
             0
         } else {
-            direct_reads(index, &instance, residual_reads(&cursor))
+            direct_reads(
+                index,
+                &instance,
+                cursor.limit.map(|limit| limit.saturating_sub(cursor.spent)),
+            )
         };
         if cursor.charge(&instance, reads) {
             manual.insert(instance);
@@ -570,14 +539,18 @@ fn run_table_candidates(
     }
 
     if !manual.is_empty() {
-        // The subset evaluator is a trusted selected-subject path. Do not
-        // submit the malformed synthetic pair subjects that `table_view`
-        // deliberately omits: their two structural checks are implemented
-        // directly below. Representable pairs and External row subjects
-        // still use the ordinary evaluator.
+        // Structural pair checks use the complete direct oracle below.
+        // Only External row subjects need the ordinary table evaluator;
+        // submitting pair subjects absent from `table_view` would be an
+        // observationally redundant no-op.
         let concrete: BTreeSet<CheckInstance> = manual
             .iter()
-            .filter(|instance| table_instance_representable(segment, instance))
+            .filter(|instance| {
+                matches!(
+                    (instance.check.kind, instance.subject.as_ref()),
+                    (CheckKind::External, Some(ViewRef::Row(_)))
+                )
+            })
             .cloned()
             .collect();
         if !concrete.is_empty() {
@@ -731,9 +704,7 @@ fn tree_view(segment: &AnySegment) -> WInstance {
     let mut arcs: Vec<(u32, u32, panproto_schema::Edge)> = tree
         .arcs
         .iter()
-        .filter(|(id, (src, tgt, _))| {
-            !fan_edges.contains(id) && !fan_nodes.contains(src) && !fan_nodes.contains(tgt)
-        })
+        .filter(|(id, _)| !fan_edges.contains(id))
         .map(|(_, arc)| arc.clone())
         .collect();
     for ghost in tree.boundary.ghosts.values() {
@@ -807,27 +778,11 @@ fn table_pair_representable(
         && table_anchor(table, tgt).is_some_and(|anchor| anchor == &edge.tgt)
 }
 
-/// Whether a directly charged table instance also inhabits `table_view`.
-/// Only malformed structural pair subjects are synthetic; the External row
-/// subjects and every representable pair are concrete evaluator subjects.
-fn table_instance_representable(segment: &AnySegment, instance: &CheckInstance) -> bool {
-    let AnySegment::Table(table) = segment else {
-        return false;
-    };
-    match (instance.check.kind, instance.subject.as_ref()) {
-        (
-            CheckKind::EdgeDeclared | CheckKind::EndpointCoherence,
-            Some(ViewRef::Pair { edge, src, tgt }),
-        ) => table_pair_representable(table, edge, *src, *tgt),
-        (CheckKind::External, Some(ViewRef::Row(_))) => true,
-        _ => false,
-    }
-}
-
-/// Endpoint-coherence diagnostics for table pairs which cannot be put in an
-/// [`FInstance`]: that representation requires endpoint tables to equal the
-/// edge's declared endpoints, while validation must retain the malformed
-/// pair long enough to diagnose each endpoint.
+/// Structural diagnostics for directly charged table pairs.
+///
+/// The direct oracle handles both representable and malformed pairs. The
+/// latter cannot inhabit [`FInstance`], but validation must retain them long
+/// enough to diagnose the declaration and each endpoint.
 fn table_direct_diagnostics(
     segment: &AnySegment,
     plan: &ValidationPlan,
@@ -837,21 +792,19 @@ fn table_direct_diagnostics(
         return Vec::new();
     };
     let checks = DirectTableChecks::new(table, plan, admitted);
-    let malformed: BTreeSet<_> = admitted
+    let pairs: BTreeSet<_> = admitted
         .iter()
         .filter_map(
             |instance| match (instance.check.kind, instance.subject.as_ref()) {
                 (
                     CheckKind::EdgeDeclared | CheckKind::EndpointCoherence,
                     Some(ViewRef::Pair { edge, src, tgt }),
-                ) if !table_pair_representable(table, edge, *src, *tgt) => {
-                    Some((edge.clone(), *src, *tgt))
-                }
+                ) => Some((edge.clone(), *src, *tgt)),
                 _ => None,
             },
         )
         .collect();
-    malformed
+    pairs
         .iter()
         .flat_map(|(edge, src, tgt)| checks.diagnostics(edge, *src, *tgt))
         .collect()
@@ -1182,12 +1135,12 @@ fn collect_ordinary_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, &panproto_
             .collect(),
         AnySegment::Tree(tree) => {
             let fan_edges = tree.fan_edge_ids();
-            let fan_nodes = tree.fan_node_ids();
             tree.arcs
                 .iter()
-                .filter(|(id, (src, tgt, _))| {
-                    !fan_edges.contains(id) && !fan_nodes.contains(src) && !fan_nodes.contains(tgt)
-                })
+                // `check_segment` rejects ordinary arcs incident to a fan node
+                // before this index is built. Excluding the fan-edge carrier is
+                // therefore the complete ordinary-edge test on admitted trees.
+                .filter(|(id, _)| !fan_edges.contains(id))
                 .map(|(_, (src, tgt, edge))| {
                     (
                         ViewRef::Arc {
@@ -1343,11 +1296,10 @@ fn check_subjects(
     }
 }
 
-/// Whether an owned edge inhabits the concrete validation view. Graph and
-/// tree views carry every edge returned by [`collect_context_edges`]. A
-/// table view cannot carry a pair whose rows are not in the endpoint tables
-/// named by its edge; that pair is retained only for the direct structural
-/// checks.
+/// Whether an ordinary edge inhabits the concrete validation view. Graph and
+/// checked-tree ordinary edges do. A table view cannot carry a pair whose rows
+/// are not in the endpoint tables named by its edge; that pair is retained only
+/// for the direct structural checks.
 fn edge_visible_in_validation_view(segment: &AnySegment, at: &ViewRef, src: u32, tgt: u32) -> bool {
     match (segment, at) {
         (AnySegment::Table(table), ViewRef::Pair { edge, .. }) => {
@@ -1359,6 +1311,10 @@ fn edge_visible_in_validation_view(segment: &AnySegment, at: &ViewRef, src: u32,
 
 /// The ordinary/native edges visible to checks about logical elements. A
 /// graph keeps its reified fan edges; a tree's native view does not.
+/// Raw owned adjacency for the local index. For trees, fan filtering belongs
+/// to [`collect_ordinary_edges`]; the other adjacency maps are consumed only by
+/// direct table checks, so filtering the tree carrier here is observationally
+/// redundant.
 fn collect_context_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, u32)> {
     match segment {
         AnySegment::Graph(graph) => graph
@@ -1381,32 +1337,21 @@ fn collect_context_edges(segment: &AnySegment) -> Vec<(ViewRef, u32, u32)> {
                 )
             })
             .collect(),
-        AnySegment::Tree(tree) => {
-            let fan_edges = tree.fan_edge_ids();
-            let fan_nodes = tree.fan_node_ids();
-            tree.arcs
-                .iter()
-                .filter(|(id, (src, tgt, _))| {
-                    !fan_edges.contains(id) && !fan_nodes.contains(src) && !fan_nodes.contains(tgt)
-                })
-                .map(|(_, (src, tgt, _))| {
-                    (
-                        ViewRef::Arc {
-                            parent: *src,
-                            child: *tgt,
-                        },
-                        *src,
-                        *tgt,
-                    )
-                })
-                .collect()
-        }
+        AnySegment::Tree(tree) => tree
+            .arcs
+            .iter()
+            .map(|(_, (src, tgt, _))| {
+                (
+                    ViewRef::Arc {
+                        parent: *src,
+                        child: *tgt,
+                    },
+                    *src,
+                    *tgt,
+                )
+            })
+            .collect(),
     }
-}
-
-/// The unspent part of the shared segment-validation read budget.
-fn residual_reads(cursor: &SubsetBudget) -> Option<u64> {
-    cursor.limit.map(|limit| limit.saturating_sub(cursor.spent))
 }
 
 /// Count at most the residual budget plus its first unpaid distinct read.
