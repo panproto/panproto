@@ -91,6 +91,12 @@ pub enum LensError {
 
     /// A path complement has a different number of entries from the
     /// normal-form groups of the path receiving it.
+    ///
+    /// Adding a fusion condition can regroup an unchanged atomic path and
+    /// therefore invalidate an older grouped complement. One complement
+    /// entry per group is the product complement for the inferred Kleisli
+    /// composition of partial puts in the error monad (`xie2025effectful`,
+    /// Sections 2.1 and 2.4).
     #[error("path complement has {found} entries; expected {expected}")]
     PathComplementMismatch {
         /// Number of normal-form groups.
@@ -346,12 +352,6 @@ impl LensError {
                 expected: expected.clone(),
                 found: found.clone(),
             }),
-            Self::Identity(IdentityError::LegacyComplementRejected { reason }) => {
-                Some(ErrorDetail::LegacyRejected {
-                    reason: *reason,
-                    fingerprint: 0,
-                })
-            }
             Self::Identity(IdentityError::UnboundComplement) => {
                 Some(ErrorDetail::UnboundComplement {})
             }
@@ -360,6 +360,9 @@ impl LensError {
             }),
             Self::Restrict(error) => Some(error.detail()),
             Self::AtStage { error, .. } => error.detail(),
+            // This includes `LegacyComplementRejected`: its typed source
+            // error has no fingerprint, so the binding detail's required
+            // fingerprint field cannot be filled without fabrication.
             _ => None,
         }
     }
