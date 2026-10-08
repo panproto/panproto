@@ -27,6 +27,7 @@ mod laws;
 mod manifest;
 mod partition;
 mod segments;
+mod validation;
 
 /// The result of a test that reports its failures as errors.
 pub(super) type TestResult = Result<(), Box<dyn std::error::Error>>;

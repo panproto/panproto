@@ -836,6 +836,20 @@ const ALL_SHAPES: [InstanceShapeKind; 3] = [
     InstanceShapeKind::Graph,
 ];
 
+/// The locality of `kind` after applying shape-specific plan rules.
+///
+/// Equal native tree fans are one semantic fan and therefore one finding.
+/// Their reified fan nodes may occupy different segments, so eliminating
+/// duplicates by [`super::FanRecord`] is a sorted merge rather than a local
+/// bag homomorphism. Graph fan nodes remain independently owned subjects.
+fn locality_for(kind: CheckKind, shape: InstanceShapeKind) -> Locality {
+    if kind == CheckKind::FanWellFormed && shape == InstanceShapeKind::Tree {
+        Locality::Summary(SummaryKind::SortedMerge)
+    } else {
+        kind.locality()
+    }
+}
+
 impl<'a> Builder<'a> {
     fn new(schema: &'a Schema, protocol: &'a Protocol, options: &'a ValidationOptions) -> Self {
         Self {
@@ -884,7 +898,7 @@ impl<'a> Builder<'a> {
         let locality = shapes
             .iter()
             .filter(|s| key.kind.applies_to(**s))
-            .map(|s| (*s, key.kind.locality()))
+            .map(|s| (*s, locality_for(key.kind, *s)))
             .collect();
         let requirement = self
             .options

@@ -8,7 +8,9 @@ use super::{TestResult, label};
 use crate::error::RestrictError;
 use crate::error_detail::{ErrorDetail, PutDomainError};
 use crate::ginstance::EdgeId;
-use crate::identity::{Digest, IdentityError, IdentityField};
+use crate::identity::{
+    Digest, IdentityError, IdentityField, SEGMENT_FORMAT_VERSION, SEGMENT_MANIFEST_VERSION,
+};
 use crate::locality::{GlobalReason, SegmentOp};
 use crate::segment::{
     ArtifactKind, ErrorAt, ErrorKey, IdKind, IdRange, PartitionDefect, Phase, Residual, Resource,
@@ -45,6 +47,29 @@ fn every_segment_error() -> Vec<SegmentError> {
     all
 }
 
+/// Variant names of enum `name` in their source declaration order.
+fn declared_variants(source: &str, name: &str) -> Vec<String> {
+    let Some(start) = source.find(&format!("pub enum {name} {{")) else {
+        panic!("the enum is declared");
+    };
+    let body = &source[start..];
+    let Some(end) = body.find("\n}\n") else {
+        panic!("the enum is closed");
+    };
+    body[..end]
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let rest = line.strip_prefix("    ")?;
+            rest.chars().next()?.is_ascii_uppercase().then(|| {
+                rest.chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect()
+            })
+        })
+        .collect()
+}
+
 /// One value of every variant about ranges, ownership, digests and
 /// allocation.
 fn range_and_digest_errors(pair: &ViewRef) -> Vec<SegmentError> {
@@ -63,6 +88,7 @@ fn range_and_digest_errors(pair: &ViewRef) -> Vec<SegmentError> {
             expected: s(1),
             found: s(0),
         },
+        SegmentError::NodeIdMismatch { key: 3, found: 9 },
         SegmentError::GhostMismatch { node: 3 },
         SegmentError::InStubMismatch {
             elem: ViewRef::Arc {
@@ -160,6 +186,10 @@ fn payload_errors(pair: ViewRef) -> Vec<SegmentError> {
         SegmentError::NotEmbedded {
             elem: ViewRef::Node(0),
         },
+        SegmentError::ValidationViewUnrepresentable {
+            segment: s(3),
+            edges: (1_u64 << u32::BITS) + 1,
+        },
     ]
 }
 
@@ -179,6 +209,109 @@ fn segment_error_round_trips_every_variant() -> TestResult {
         assert_eq!(tag, error.kind());
         assert!(!error.to_string().is_empty());
     }
+    Ok(())
+}
+
+#[test]
+fn validation_view_unrepresentable_is_appended_without_changing_existing_error_bytes() -> TestResult
+{
+    let errors = every_segment_error();
+    let kinds: Vec<_> = errors.iter().map(SegmentError::kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            "inverted_range",
+            "overlapping_ranges",
+            "unowned",
+            "wrong_owner",
+            "node_id_mismatch",
+            "ghost_mismatch",
+            "in_stub_mismatch",
+            "duplicate_edge_id",
+            "cross_mismatch",
+            "digest_mismatch",
+            "schema_mismatch",
+            "shape_mismatch",
+            "no_allocation_range",
+            "allocation_exhausted",
+            "allocation_below_floor",
+            "edge_id_outside_allocation",
+            "invalid",
+            "restrict",
+            "put_domain",
+            "edit",
+            "identity",
+            "decode",
+            "malformed_partition",
+            "dangling_endpoint",
+            "not_embedded",
+            "validation_view_unrepresentable",
+        ]
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[4])?,
+        br#"{"node_id_mismatch":{"key":3,"found":9}}"#
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[24])?,
+        br#"{"not_embedded":{"elem":{"node":0}}}"#
+    );
+    assert_eq!(
+        serde_json::to_vec(&errors[25])?,
+        br#"{"validation_view_unrepresentable":{"segment":3,"edges":4294967297}}"#
+    );
+    assert_eq!(SEGMENT_FORMAT_VERSION, 1);
+    assert_eq!(SEGMENT_MANIFEST_VERSION, 1);
+
+    let declared = declared_variants(include_str!("../error.rs"), "SegmentError");
+    assert_eq!(
+        declared,
+        [
+            "InvertedRange",
+            "OverlappingRanges",
+            "Unowned",
+            "WrongOwner",
+            "NodeIdMismatch",
+            "GhostMismatch",
+            "InStubMismatch",
+            "DuplicateEdgeId",
+            "CrossMismatch",
+            "DigestMismatch",
+            "SchemaMismatch",
+            "ShapeMismatch",
+            "NoAllocationRange",
+            "AllocationExhausted",
+            "AllocationBelowFloor",
+            "EdgeIdOutsideAllocation",
+            "Invalid",
+            "Restrict",
+            "PutDomain",
+            "Edit",
+            "Identity",
+            "Decode",
+            "MalformedPartition",
+            "DanglingEndpoint",
+            "NotEmbedded",
+            "ValidationViewUnrepresentable",
+        ]
+    );
+
+    // Length-delimited JSON bytes of every pre-existing variant. The digest
+    // pins all 24 old wire encodings, including nested payloads, while the
+    // declaration assertion above pins their positions around both additions.
+    let mut old_bytes = blake3::Hasher::new();
+    for (index, error) in errors.iter().enumerate() {
+        if matches!(index, 4 | 25) {
+            continue;
+        }
+        let bytes = serde_json::to_vec(error)?;
+        old_bytes.update(&u64::try_from(bytes.len())?.to_le_bytes());
+        old_bytes.update(&bytes);
+    }
+    assert_eq!(
+        old_bytes.finalize().to_hex().as_str(),
+        "bdef94b07c81e51bc8923cdc72a174937b96fe5d1107f9ffa2ee2c8c6a749c63"
+    );
     Ok(())
 }
 

@@ -1083,13 +1083,16 @@ fn check_spec_locality_is_the_contract_table() {
             CheckKind::Acyclic | CheckKind::TreeReachable => Locality::Summary(SummaryKind::Reach),
             _ => Locality::Local,
         };
-        let expected =
-            if key.kind == CheckKind::RequiredValue && matches!(key.decl, SchemaRef::Key { .. }) {
+        for (shape, locality) in &spec.locality {
+            let expected = if (key.kind == CheckKind::FanWellFormed
+                && *shape == InstanceShapeKind::Tree)
+                || (key.kind == CheckKind::RequiredValue
+                    && matches!(key.decl, SchemaRef::Key { .. }))
+            {
                 Locality::Summary(SummaryKind::SortedMerge)
             } else {
                 kind_default.clone()
             };
-        for locality in spec.locality.values() {
             assert_eq!(locality, &expected, "{key:?}");
         }
         assert_eq!(key.kind.locality(), kind_default);
