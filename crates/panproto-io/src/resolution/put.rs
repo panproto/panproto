@@ -377,9 +377,9 @@ fn without_carriers(graph: &GInstance, violations: &Violations) -> Option<GInsta
                     .copied()
                     .collect();
                 for edge in incident {
-                    reduced
-                        .remove_edge(edge)
-                        .expect("an incident edge enumerated from the graph exists");
+                    if reduced.remove_edge(edge).is_err() {
+                        return None;
+                    }
                 }
                 removed |= reduced.remove_node(*node).is_ok();
             }
@@ -486,26 +486,32 @@ mod tests {
         let selected = select_writer(carrier, &other, Some(&declared), &compiled);
         assert!(matches!(selected, Ok(writer) if writer.reference.id == "a"));
 
+        let Err(one) = select_writer(carrier, &wanted, None, &compiled) else {
+            panic!("one undeclared writer must be unrepresentable");
+        };
         assert_eq!(
-            select_writer(carrier, &wanted, None, &compiled)
-                .expect_err("one undeclared writer is unrepresentable"),
+            one,
             ResolveDomainError::UnrepresentableReference {
                 carrier: ViewRef::Edge(carrier),
                 reference: "a".into(),
             }
         );
+        let Err(zero) = select_writer(carrier, &label("missing"), None, &compiled) else {
+            panic!("zero writers must have no placement");
+        };
         assert_eq!(
-            select_writer(carrier, &label("missing"), None, &compiled)
-                .expect_err("no writer has no placement"),
+            zero,
             ResolveDomainError::NoPlacement {
                 carrier: ViewRef::Edge(carrier),
             }
         );
 
         compiled.insert("b".into(), compiled_reference("b", wanted.clone()));
+        let Err(many) = select_writer(carrier, &wanted, None, &compiled) else {
+            panic!("two writers must be ambiguous");
+        };
         assert_eq!(
-            select_writer(carrier, &wanted, None, &compiled)
-                .expect_err("two writers are ambiguous"),
+            many,
             ResolveDomainError::AmbiguousPlacement {
                 carrier: ViewRef::Edge(carrier),
                 references: vec!["a".into(), "b".into()],
@@ -524,8 +530,9 @@ mod tests {
         let node = Violations::one(ResolveDomainError::NoPlacement {
             carrier: ViewRef::Node(1),
         });
-        let without_node = without_carriers(&graph, &node)
-            .expect("an existing named node and its incident edge are removed");
+        let Some(without_node) = without_carriers(&graph, &node) else {
+            panic!("an existing named node and its incident edge must be removed");
+        };
         assert!(without_node.node(1).is_none());
         assert!(without_node.node(2).is_some());
         assert!(without_node.edge(EdgeId(7)).is_none());
@@ -533,8 +540,9 @@ mod tests {
         let edge = Violations::one(ResolveDomainError::NoPlacement {
             carrier: ViewRef::Edge(EdgeId(7)),
         });
-        let without_edge =
-            without_carriers(&graph, &edge).expect("an existing named edge is removed");
+        let Some(without_edge) = without_carriers(&graph, &edge) else {
+            panic!("an existing named edge must be removed");
+        };
         assert_eq!(without_edge.nodes().len(), 2);
         assert!(without_edge.edge(EdgeId(7)).is_none());
 
