@@ -14,7 +14,6 @@ use super::{
     next_free,
 };
 use crate::fan::Fan;
-use crate::fan_violation::FanViolation;
 use crate::functor::FInstance;
 use crate::ginstance::{
     EdgeId, FanEmbedding, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
@@ -1076,13 +1075,18 @@ fn tree_ordinary_checks_use_the_native_forest_and_fans_use_the_reified_graph() -
             segment: SegmentId(1)
         }
     );
-    assert!(report.diagnostics.iter().any(|entry| {
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|entry| { entry.check.kind != CheckKind::FanWellFormed })
+    );
+    assert!(report.incomplete.iter().any(|entry| {
         entry.check.kind == CheckKind::FanWellFormed
             && entry.subject == Some(ViewRef::Node(10))
-            && entry.violation
-                == Violation::MalformedFan {
-                    reason: FanViolation::ForeignIncidentEdge { edge: EdgeId(7) },
-                    fan: None,
+            && entry.reason
+                == IncompleteReason::OutsideSegment {
+                    locality: Locality::Summary(SummaryKind::SortedMerge),
                 }
     }));
     assert!(report.diagnostics.iter().any(|entry| {
