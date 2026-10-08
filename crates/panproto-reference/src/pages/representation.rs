@@ -759,9 +759,11 @@ pub mod encode {
 
     /// The graph form of a table.
     ///
-    /// Row r is node r anchored at its table with its cells as fields; pair (e, s, t) is an edge s -> t
-    /// labelled e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the pair ids as
-    /// the embedding. The id `u32::MAX` is reserved and is never allocated.
+    /// Domain: a [`Table::well_formed`] input. Row r is node r anchored at its
+    /// table with its cells as fields; pair (e, s, t) is an edge s -> t labelled
+    /// e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the
+    /// pair ids as the embedding. The id `u32::MAX` is reserved and is never
+    /// allocated.
     ///
     /// # Errors
     ///
@@ -803,6 +805,9 @@ pub mod encode {
     /// every edge unpositioned, no two edges with one label and endpoints. `None` otherwise.
     #[must_use]
     pub fn graph_to_table(g: &Graph) -> Option<Table> {
+        if !g.well_formed() {
+            return None;
+        }
         let mut t = Table::default();
         for (id, n) in &g.nodes {
             let plain = n.value.is_none()

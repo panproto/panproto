@@ -118,6 +118,7 @@ fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_encoding() {
     );
     let refused = encode::encode_graph(&g, &side);
     assert_eq!(format!("{refused:?}"), "Err(DanglingEdge { edge: 0 })");
+    assert_eq!(encode::graph_to_table(&g), None);
 }
 
 #[test]
