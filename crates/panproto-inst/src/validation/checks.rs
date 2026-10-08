@@ -113,13 +113,7 @@ fn record_read_set(reads: &BTreeSet<ViewRef>) -> bool {
             }
             return true;
         }
-        if active.reads.len() < reads.len() {
-            let mut merged = reads.clone();
-            merged.append(&mut active.reads);
-            active.reads = merged;
-        } else {
-            active.reads.extend(reads.iter().cloned());
-        }
+        active.reads.extend(reads.iter().cloned());
         true
     })
 }
@@ -572,7 +566,10 @@ impl<'a> InstanceView<'a> {
                     out.push(record);
                 }
             }
-            if !trace_overflowed() && edge.tgt == *table {
+            if trace_overflowed() {
+                break;
+            }
+            if edge.tgt == *table {
                 for source in f.sources_of(edge, id) {
                     if edge.src == *table && source == id {
                         continue;
@@ -736,11 +733,10 @@ impl<'a> InstanceView<'a> {
                 };
                 let mut siblings = self.out_edges(&into.src);
                 siblings.sort_by_key(|edge| {
-                    let edge_id = match edge.at {
-                        ViewRef::Edge(id) => id,
-                        _ => EdgeId(u32::MAX),
+                    let ViewRef::Edge(edge_id) = &edge.at else {
+                        unreachable!("a graph adjacency contains only graph edges")
                     };
-                    (edge.position, edge_id)
+                    (edge.position, *edge_id)
                 });
                 let index = siblings
                     .into_iter()
