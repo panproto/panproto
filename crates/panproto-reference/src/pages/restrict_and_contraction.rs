@@ -733,6 +733,10 @@ pub mod restrict {
 
     /// The floor of a set of ids: one above the greatest (saturating at
     /// `u32::MAX`), 0 for none.
+    ///
+    /// `u32::MAX` is the reserved exhaustion sentinel. Allocating callers use
+    /// this floor as the lower bound of a range ending before `u32::MAX`, so
+    /// saturation makes that range empty and never hands out the sentinel.
     #[must_use]
     pub fn floor_of(ids: impl Iterator<Item = u32>) -> u32 {
         ids.max().map_or(0, |m| m.saturating_add(1))
@@ -1174,14 +1178,18 @@ pub mod restrict {
                     return Err(at(5, 1, 0, EngineError::IdsExhausted { nodes: false }));
                 };
                 let id_of = |p: &Endpoint| match p {
-                    Endpoint::Source(n) => *n,
-                    Endpoint::Synth(key) => ids.get(key.as_ref()).copied().unwrap_or(u32::MAX),
+                    Endpoint::Source(n) => Some(*n),
+                    Endpoint::Synth(key) => ids.get(key.as_ref()).copied(),
                 };
+                let src = id_of(&s)
+                    .ok_or_else(|| at(5, 0, 0, EngineError::IdsExhausted { nodes: true }))?;
+                let tgt = id_of(&t)
+                    .ok_or_else(|| at(5, 0, 0, EngineError::IdsExhausted { nodes: true }))?;
                 self.view.edges.insert(
                     next,
                     GEdge {
-                        src: id_of(&s),
-                        tgt: id_of(&t),
+                        src,
+                        tgt,
                         label,
                         position: None,
                     },

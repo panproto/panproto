@@ -387,6 +387,19 @@ pub mod encode {
         DanglingFan,
         /// An arc endpoint is not a node.
         DanglingArc,
+        /// No node id below the reserved maximum remains for a fan.
+        NodeIdsExhausted,
+        /// No edge id below the reserved maximum remains for an arc or fan edge.
+        EdgeIdsExhausted,
+    }
+
+    /// Draw the counter's current id and advance it, reserving `u32::MAX` as
+    /// the exhausted sentinel because no following `u32` counter exists.
+    fn take_id<E>(counter: &mut u32, exhausted: E) -> Result<u32, E> {
+        let id = *counter;
+        let next = id.checked_add(1).ok_or(exhausted)?;
+        *counter = next;
+        Ok(id)
     }
 
     /// Definition: The graph form of a tree.
@@ -399,8 +412,9 @@ pub mod encode {
     ///
     /// # Errors
     ///
-    /// [`TreeEncodeError`] for reserved vocabulary, a second parent or a
-    /// dangling arc or fan.
+    /// [`TreeEncodeError`] for reserved vocabulary, a second parent, a
+    /// dangling arc or fan, or exhausted node or edge ids. The id `u32::MAX`
+    /// is reserved and is never allocated.
     ///
     /// Book anchors: `L-representation-1`.
     pub fn tree_to_graph(
@@ -422,11 +436,12 @@ pub mod encode {
             if !t.nodes.contains_key(p) || !t.nodes.contains_key(c) {
                 return Err(TreeEncodeError::DanglingArc);
             }
-            if emb.arcs.insert(*c, next_edge).is_some() {
+            if emb.arcs.contains_key(c) {
                 return Err(TreeEncodeError::SecondParent { node: *c });
             }
+            let edge_id = take_id(&mut next_edge, TreeEncodeError::EdgeIdsExhausted)?;
             g.edges.insert(
-                next_edge,
+                edge_id,
                 GEdge {
                     src: *p,
                     tgt: *c,
@@ -434,12 +449,11 @@ pub mod encode {
                     position: None,
                 },
             );
-            next_edge += 1;
+            emb.arcs.insert(*c, edge_id);
         }
         let mut next_node = crate::restrict::floor_of(t.nodes.keys().copied());
         for f in &t.fans {
-            let id = next_node;
-            next_node += 1;
+            let id = take_id(&mut next_node, TreeEncodeError::NodeIdsExhausted)?;
             let parent_name = schema
                 .and_then(|s| s.hyper_edges.get(&f.hyper_edge))
                 .map(|h| h.parent_label.clone());
@@ -455,8 +469,9 @@ pub mod encode {
                 kind: HYPER_PARENT.into(),
                 name: parent_name,
             };
+            let parent_edge = take_id(&mut next_edge, TreeEncodeError::EdgeIdsExhausted)?;
             g.edges.insert(
-                next_edge,
+                parent_edge,
                 GEdge {
                     src: id,
                     tgt: f.parent,
@@ -464,8 +479,6 @@ pub mod encode {
                     position: None,
                 },
             );
-            let parent_edge = next_edge;
-            next_edge += 1;
             let mut children = BTreeMap::new();
             for (l, c) in &f.children {
                 let label = SEdge {
@@ -474,8 +487,9 @@ pub mod encode {
                     kind: HYPER_LABEL.into(),
                     name: Some(l.clone()),
                 };
+                let child_edge = take_id(&mut next_edge, TreeEncodeError::EdgeIdsExhausted)?;
                 g.edges.insert(
-                    next_edge,
+                    child_edge,
                     GEdge {
                         src: id,
                         tgt: *c,
@@ -483,8 +497,7 @@ pub mod encode {
                         position: None,
                     },
                 );
-                children.insert(l.clone(), next_edge);
-                next_edge += 1;
+                children.insert(l.clone(), child_edge);
             }
             let mut node = Node::new(id, &f.hyper_edge);
             node.shape = NodeShape::HyperEdge;
@@ -730,13 +743,31 @@ pub mod encode {
         graph_to_tree(&graph, tree.root, &parent_name).ok()
     }
 
+    /// Why a table has no graph form.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum TableEncodeError {
+        /// The first pair for which no edge id below the reserved maximum
+        /// remains.
+        EdgeIdsExhausted {
+            /// The unrepresentable pair.
+            pair: Box<(SEdge, u32, u32)>,
+        },
+    }
+
+    /// Pair-to-edge-id record returned by [`table_to_graph`].
+    pub type TableEmbedding = BTreeMap<(SEdge, u32, u32), u32>;
+
     /// The graph form of a table.
     ///
     /// Row r is node r anchored at its table with its cells as fields; pair (e, s, t) is an edge s -> t
     /// labelled e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the pair ids as
-    /// the embedding.
-    #[must_use]
-    pub fn table_to_graph(t: &Table) -> (Graph, BTreeMap<(SEdge, u32, u32), u32>) {
+    /// the embedding. The id `u32::MAX` is reserved and is never allocated.
+    ///
+    /// # Errors
+    ///
+    /// [`TableEncodeError::EdgeIdsExhausted`] for the first pair beyond the
+    /// representable edge-id carrier.
+    pub fn table_to_graph(t: &Table) -> Result<(Graph, TableEmbedding), TableEncodeError> {
         let mut g = Graph::default();
         for (id, (table, cells)) in &t.rows {
             let mut n = Node::new(*id, table);
@@ -744,8 +775,14 @@ pub mod encode {
             g.nodes.insert(*id, n);
         }
         let mut emb = BTreeMap::new();
-        for (i, (e, s, d)) in t.pairs.iter().enumerate() {
-            let id = u32::try_from(i).unwrap_or(u32::MAX);
+        let mut next_edge = 0;
+        for (e, s, d) in &t.pairs {
+            let id = take_id(
+                &mut next_edge,
+                TableEncodeError::EdgeIdsExhausted {
+                    pair: Box::new((e.clone(), *s, *d)),
+                },
+            )?;
             g.edges.insert(
                 id,
                 GEdge {
@@ -757,7 +794,7 @@ pub mod encode {
             );
             emb.insert((e.clone(), *s, *d), id);
         }
-        (g, emb)
+        Ok((g, emb))
     }
 
     /// The table form of a table-shaped graph.
@@ -784,6 +821,39 @@ pub mod encode {
             }
         }
         Some(t)
+    }
+
+    #[cfg(test)]
+    mod allocation_tests {
+        use super::{TableEncodeError, TreeEncodeError, take_id};
+
+        fn table_exhausted() -> TableEncodeError {
+            TableEncodeError::EdgeIdsExhausted {
+                pair: Box::new((crate::model::SEdge::new("a", "b", "e", None), 0, 1)),
+            }
+        }
+
+        #[test]
+        fn representation_counters_allocate_max_minus_one_but_never_max() {
+            let mut nodes = u32::MAX - 1;
+            assert_eq!(
+                take_id(&mut nodes, TreeEncodeError::NodeIdsExhausted),
+                Ok(u32::MAX - 1)
+            );
+            assert_eq!(nodes, u32::MAX);
+            assert_eq!(
+                take_id(&mut nodes, TreeEncodeError::NodeIdsExhausted),
+                Err(TreeEncodeError::NodeIdsExhausted)
+            );
+
+            let mut edges = u32::MAX - 1;
+            assert_eq!(take_id(&mut edges, table_exhausted()), Ok(u32::MAX - 1));
+            assert_eq!(edges, u32::MAX);
+            assert_eq!(
+                take_id(&mut edges, table_exhausted()),
+                Err(table_exhausted())
+            );
+        }
     }
 }
 

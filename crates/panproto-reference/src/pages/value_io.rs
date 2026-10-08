@@ -261,6 +261,18 @@ pub mod xml {
         Malformed,
     }
 
+    fn append(output: &mut String, text: &str) -> Result<(), EntityError> {
+        let new_len = output
+            .len()
+            .checked_add(text.len())
+            .ok_or(EntityError::Bytes)?;
+        if new_len > MAX_XML_ENTITY_EXPANSION_BYTES {
+            return Err(EntityError::Bytes);
+        }
+        output.push_str(text);
+        Ok(())
+    }
+
     fn expand(
         text: &str,
         declarations: &BTreeMap<String, String>,
@@ -272,37 +284,36 @@ pub mod xml {
         }
         let mut rest = text;
         while let Some(start) = rest.find('&') {
-            output.push_str(&rest[..start]);
+            append(output, &rest[..start])?;
             let after = &rest[start + 1..];
             let Some(end) = after.find(';') else {
                 return Err(EntityError::Malformed);
             };
             let name = &after[..end];
-            let replacement = match name {
-                "amp" => "&",
-                "lt" => "<",
-                "gt" => ">",
-                "apos" => "'",
-                "quot" => "\"",
-                _ => declarations
-                    .get(name)
-                    .ok_or_else(|| EntityError::Undeclared(name.to_owned()))?,
-            };
+            if let Some(replacement) = match name {
+                "amp" => Some("&"),
+                "lt" => Some("<"),
+                "gt" => Some(">"),
+                "apos" => Some("'"),
+                "quot" => Some("\""),
+                _ => None,
+            } {
+                append(output, replacement)?;
+                rest = &after[end + 1..];
+                continue;
+            }
+            let replacement = declarations
+                .get(name)
+                .ok_or_else(|| EntityError::Undeclared(name.to_owned()))?;
             if stack.iter().any(|item| item == name) {
                 return Err(EntityError::Recursive(name.to_owned()));
             }
             stack.push(name.to_owned());
             expand(replacement, declarations, stack, output)?;
             stack.pop();
-            if output.len() > MAX_XML_ENTITY_EXPANSION_BYTES {
-                return Err(EntityError::Bytes);
-            }
             rest = &after[end + 1..];
         }
-        output.push_str(rest);
-        (output.len() <= MAX_XML_ENTITY_EXPANSION_BYTES)
-            .then_some(())
-            .ok_or(EntityError::Bytes)
+        append(output, rest)
     }
 
     /// Expand internal general entities with explicit byte and depth bounds.

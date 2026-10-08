@@ -159,6 +159,11 @@ pub mod lens {
             /// Why.
             reason: crate::encode::NotATree,
         },
+        /// No non-reserved id remains for a synthesized tree-view carrier.
+        IdsExhausted {
+            /// Whether node ids, rather than edge ids, ran out.
+            nodes: bool,
+        },
         /// The value layer refuses to transform a row's baseline source cells,
         /// so the row has no baseline view to pull an edit back against (get
         /// itself would refuse the baseline source).
@@ -190,6 +195,7 @@ pub mod lens {
                 Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
                 Self::BaselineRefused { elem, .. } => (12, Some(elem.clone())),
                 Self::RestoredNotATree { .. } => (13, None),
+                Self::IdsExhausted { .. } => (14, None),
             }
         }
     }
@@ -784,7 +790,7 @@ pub mod lens {
         emb: &crate::encode::TreeEmbedding,
         c: &Complement,
     ) -> Result<crate::model::Tree, Vec<PutDomainError>> {
-        let g = tree_view_graph(lens, view, emb, c);
+        let g = tree_view_graph(lens, view, emb, c)?;
         let restored = lens.restore(&g, c).map_err(|mut v| {
             v.sort_by_key(PutDomainError::order_key);
             v
@@ -832,21 +838,21 @@ pub mod lens {
         view: &crate::model::Tree,
         emb: &crate::encode::TreeEmbedding,
         c: &Complement,
-    ) -> Graph {
+    ) -> Result<Graph, Vec<PutDomainError>> {
         let mut g = Graph {
             nodes: view.nodes.clone(),
             edges: BTreeMap::new(),
         };
-        let mut node_floor = crate::restrict::floor_of(
+        let mut next_node = fresh_after(
             view.nodes
                 .keys()
                 .copied()
                 .chain(c.dropped_nodes.keys().copied())
-                .chain(c.synthesized_nodes.keys().copied())
-                .chain(std::iter::once(c.floor.0.saturating_sub(1))),
+                .chain(c.synthesized_nodes.keys().copied()),
+            c.floor.0,
         );
         let mut used: BTreeSet<u32> = BTreeSet::new();
-        let mut fresh_edge = crate::restrict::floor_of(
+        let mut next_edge = fresh_after(
             emb.arcs
                 .values()
                 .copied()
@@ -856,20 +862,16 @@ pub mod lens {
                     emb.fans
                         .iter()
                         .flat_map(|(_, p, ch)| std::iter::once(*p).chain(ch.values().copied())),
-                )
-                .chain(std::iter::once(c.floor.1.saturating_sub(1))),
+                ),
+            c.floor.1,
         );
-        let mut next = || {
-            fresh_edge += 1;
-            fresh_edge - 1
-        };
         for (p, ch, label) in &view.arcs {
-            let id = emb
-                .arcs
-                .get(ch)
-                .copied()
-                .filter(|i| used.insert(*i))
-                .unwrap_or_else(&mut next);
+            let id = if let Some(id) = emb.arcs.get(ch).copied().filter(|i| used.insert(*i)) {
+                id
+            } else {
+                take_fresh(&mut next_edge)
+                    .ok_or_else(|| vec![PutDomainError::IdsExhausted { nodes: false }])?
+            };
             g.edges.insert(
                 id,
                 GEdge {
@@ -882,13 +884,12 @@ pub mod lens {
         }
         for (k, f) in view.fans.iter().enumerate() {
             let known = emb.fans.get(k);
-            let fid = known.map_or_else(
-                || {
-                    node_floor += 1;
-                    node_floor - 1
-                },
-                |(n, _, _)| *n,
-            );
+            let fid = if let Some((node, _, _)) = known {
+                *node
+            } else {
+                take_fresh(&mut next_node)
+                    .ok_or_else(|| vec![PutDomainError::IdsExhausted { nodes: true }])?
+            };
             let mut node = Node::new(fid, &f.hyper_edge);
             node.shape = crate::model::NodeShape::HyperEdge;
             g.nodes.insert(fid, node);
@@ -898,7 +899,12 @@ pub mod lens {
                     .map(|x| x.anchor.clone())
                     .unwrap_or_default()
             };
-            let pid = known.map_or_else(&mut next, |(_, p, _)| *p);
+            let pid = if let Some((_, parent, _)) = known {
+                *parent
+            } else {
+                take_fresh(&mut next_edge)
+                    .ok_or_else(|| vec![PutDomainError::IdsExhausted { nodes: false }])?
+            };
             let parent_name = lens_parent_name(lens, &f.hyper_edge);
             g.edges.insert(
                 pid,
@@ -911,9 +917,12 @@ pub mod lens {
                 ),
             );
             for (l, ch) in &f.children {
-                let cid = known
-                    .and_then(|(_, _, m)| m.get(l).copied())
-                    .unwrap_or_else(&mut next);
+                let cid = if let Some(id) = known.and_then(|(_, _, m)| m.get(l).copied()) {
+                    id
+                } else {
+                    take_fresh(&mut next_edge)
+                        .ok_or_else(|| vec![PutDomainError::IdsExhausted { nodes: false }])?
+                };
                 g.edges.insert(
                     cid,
                     fan_edge(
@@ -926,7 +935,24 @@ pub mod lens {
                 );
             }
         }
-        g
+        Ok(g)
+    }
+
+    fn fresh_after(ids: impl Iterator<Item = u32>, floor: u32) -> Option<u32> {
+        let existing = ids.max();
+        let reserved = floor.checked_sub(1);
+        existing
+            .into_iter()
+            .chain(reserved)
+            .max()
+            .map_or(Some(0), |id| id.checked_add(1))
+            .filter(|id| *id != u32::MAX)
+    }
+
+    fn take_fresh(next: &mut Option<u32>) -> Option<u32> {
+        let id = (*next)?;
+        *next = id.checked_add(1).filter(|next| *next != u32::MAX);
+        Some(id)
     }
 
     /// The name a view fan's parent edge carries: the source parent label of
@@ -941,6 +967,21 @@ pub mod lens {
                 .and_then(|((s, _), _)| lens.src.hyper_edges.get(s))
         });
         source.map(|h| h.parent_label.clone())
+    }
+
+    #[cfg(test)]
+    mod allocation_tests {
+        use super::{fresh_after, take_fresh};
+
+        #[test]
+        fn tree_view_carriers_use_max_minus_one_but_never_reserved_max() {
+            let mut next = fresh_after([u32::MAX - 2].into_iter(), 0);
+            assert_eq!(take_fresh(&mut next), Some(u32::MAX - 1));
+            assert_eq!(take_fresh(&mut next), None);
+            assert_eq!(fresh_after([u32::MAX - 1].into_iter(), 0), None);
+            assert_eq!(fresh_after([u32::MAX].into_iter(), 0), None);
+            assert_eq!(fresh_after(std::iter::empty(), u32::MAX), None);
+        }
     }
 }
 
@@ -1055,14 +1096,14 @@ pub mod table {
 
     use std::collections::{BTreeMap, BTreeSet};
 
-    use crate::encode::table_to_graph;
+    use crate::encode::{TableEncodeError, table_to_graph};
     use crate::lens::{PutDomainError, ViewRef};
     use crate::migration::Migration;
     use crate::model::{Graph, Name, SEdge, Table};
     use crate::rel::{FunctorError, RelFunctor, RelSchema, entity_functor};
     use crate::restrict::{
-        self, EdgeFate, PairResolution, Plan, PlanError, RestrictError, SynthKey, ValueLayer,
-        reverse_anchor,
+        self, EdgeFate, EngineError, ErrorKey, PairResolution, Plan, PlanError, RestrictError,
+        SynthKey, ValueLayer, reverse_anchor,
     };
     use crate::schema::Schema;
     use crate::value::Value;
@@ -1074,6 +1115,16 @@ pub mod table {
         Drop(String),
         /// The column is renamed.
         Rename(String, String),
+    }
+
+    fn table_encoding_domain(error: TableEncodeError) -> PutDomainError {
+        match error {
+            TableEncodeError::EdgeIdsExhausted { pair } => {
+                PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Pair(Box::new(pair.0), pair.1, pair.2),
+                }
+            }
+        }
     }
 
     /// The element on which the two survival rules disagree.
@@ -1284,7 +1335,14 @@ pub mod table {
         vl: &dyn ValueLayer,
         source: &Table,
     ) -> Result<(Table, TableComplement), RestrictError> {
-        let (graph, _) = table_to_graph(source);
+        let (graph, _) = table_to_graph(source).map_err(|_| RestrictError::At {
+            key: ErrorKey {
+                stage: 5,
+                id: 1,
+                id2: 0,
+            },
+            error: EngineError::IdsExhausted { nodes: false },
+        })?;
         let (vg, gc) = restrict::get_with_plan(src, tgt, mig, &tp.plan, vl, &graph)?;
         let mut view = Table::default();
         let mut comp = TableComplement {
@@ -1616,7 +1674,14 @@ pub mod table {
             // read it.
             let mut source0 = out.clone();
             source0.rows.extend(baselines.clone());
-            let (g0, _) = table_to_graph(&source0);
+            let (g0, _) = match table_to_graph(&source0) {
+                Ok(encoded) => encoded,
+                Err(error) => {
+                    errs.push(table_encoding_domain(error));
+                    errs.sort_by_key(PutDomainError::order_key);
+                    return Err(errs);
+                }
+            };
             for (r, (s, s0)) in baselines {
                 match self.cells(r, &s, &s0, &g0, &view.rows[&r].1) {
                     Ok(restored) => {
@@ -1657,7 +1722,10 @@ pub mod table {
         /// Survival predicates of restored view rows and declared keys, read on
         /// the restored source as a graph.
         fn source_violations(&self, view: &Table, out: &Table) -> Vec<PutDomainError> {
-            let (g, _) = table_to_graph(out);
+            let (g, _) = match table_to_graph(out) {
+                Ok(encoded) => encoded,
+                Err(error) => return vec![table_encoding_domain(error)],
+            };
             let mut errs = Vec::new();
             for (r, n) in g.nodes.iter().filter(|(r, _)| view.rows.contains_key(r)) {
                 if self.m.conditional.contains(&n.anchor) {

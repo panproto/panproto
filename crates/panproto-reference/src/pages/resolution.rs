@@ -138,6 +138,13 @@ pub mod implementation {
             /// Reference.
             reference: Name,
         },
+        /// No non-reserved edge id remains for a resolution edge.
+        EdgeIdsExhausted,
+        /// An occurrence index is not representable as a `u32`.
+        OccurrenceIndexExhausted {
+            /// Reference id.
+            reference: Name,
+        },
         /// A resolved target lies in a subtree a redirect removed.
         TargetRemoved {
             /// Reference.
@@ -403,10 +410,15 @@ pub mod implementation {
             }
             for r in schema.references.values().filter(|r| r.holder == n.anchor) {
                 for (index, values) in tuples(base, *h, r)?.into_iter().enumerate() {
+                    let index = u32::try_from(index).ok().ok_or_else(|| {
+                        ResolveError::OccurrenceIndexExhausted {
+                            reference: r.id.clone(),
+                        }
+                    })?;
                     let occ = Occurrence {
                         holder: *h,
                         reference: r.id.clone(),
-                        index: u32::try_from(index).unwrap_or(u32::MAX),
+                        index,
                         literal: literal(&values),
                     };
                     match candidates(schema, base, r, *h, &values).as_slice() {
@@ -486,7 +498,7 @@ pub mod implementation {
         inside: &BTreeSet<u32>,
         complement: &mut ResComplement,
     ) -> Result<(), ResolveError> {
-        let mut next = crate::restrict::floor_of(graph.edges.keys().copied());
+        let mut next = fresh_after(graph.edges.keys().copied());
         for x in resolved {
             let holder = x.occurrence.holder;
             let visible = !inside.contains(&holder)
@@ -509,8 +521,9 @@ pub mod implementation {
                 .get(&x.occurrence.reference)
                 .and_then(|r| r.edge.clone())
                 .unwrap_or_else(|| SEdge::new("", "", "", None));
+            let id = next.ok_or(ResolveError::EdgeIdsExhausted)?;
             graph.edges.insert(
-                next,
+                id,
                 GEdge {
                     src: source,
                     tgt: x.target,
@@ -518,11 +531,17 @@ pub mod implementation {
                     position: None,
                 },
             );
-            complement.resolved.insert(next, x.occurrence);
-            complement.targets.insert(next, x.target);
-            next += 1;
+            complement.resolved.insert(id, x.occurrence);
+            complement.targets.insert(id, x.target);
+            next = id.checked_add(1).filter(|next| *next != u32::MAX);
         }
         Ok(())
+    }
+
+    fn fresh_after(ids: impl Iterator<Item = u32>) -> Option<u32> {
+        ids.max()
+            .map_or(Some(0), |id| id.checked_add(1))
+            .filter(|id| *id != u32::MAX)
     }
 
     /// Where a key path's value lives at a holder: a node's own value, or a
@@ -1133,6 +1152,18 @@ pub mod implementation {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod allocation_tests {
+        use super::fresh_after;
+
+        #[test]
+        fn resolution_edges_start_at_max_minus_one_but_never_at_reserved_max() {
+            assert_eq!(fresh_after([u32::MAX - 2].into_iter()), Some(u32::MAX - 1));
+            assert_eq!(fresh_after([u32::MAX - 1].into_iter()), None);
+            assert_eq!(fresh_after([u32::MAX].into_iter()), None);
+        }
     }
 }
 

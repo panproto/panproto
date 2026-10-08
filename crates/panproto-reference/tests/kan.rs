@@ -312,6 +312,51 @@ fn pi_allocates_fresh_rows_above_every_input_row_in_fibre_order() {
 }
 
 #[test]
+fn delta_and_pi_allocate_the_maximum_once_then_report_exhaustion() {
+    let source = Schema::default()
+        .vertex("a", "record")
+        .vertex("b", "record");
+    let target = Schema::default().vertex("m", "record");
+    let migration = Migration {
+        vertex_remap: [
+            ("a".to_owned(), "m".to_owned()),
+            ("b".to_owned(), "m".to_owned()),
+        ]
+        .into(),
+        ..Migration::default()
+    };
+    let f = functor(&source, &target, &migration);
+
+    let target_instance = |id| Table {
+        rows: BTreeMap::from([(id, row("m", &[]))]),
+        pairs: BTreeSet::new(),
+    };
+    let (delta_near, _) = rel::delta(&f, &target_instance(u32::MAX - 1)).unwrap();
+    assert_eq!(
+        delta_near.rows.keys().copied().collect::<Vec<_>>(),
+        vec![u32::MAX - 1, u32::MAX]
+    );
+    assert_eq!(
+        rel::delta(&f, &target_instance(u32::MAX)),
+        Err(KanError::RowIdsExhausted)
+    );
+
+    let source_instance = |high| Table {
+        rows: BTreeMap::from([(0, row("a", &[])), (high, row("b", &[]))]),
+        pairs: BTreeSet::new(),
+    };
+    let (pi_near, _) = rel::pi(&f, &source_instance(u32::MAX - 1)).unwrap();
+    assert_eq!(
+        pi_near.rows.keys().copied().collect::<Vec<_>>(),
+        vec![u32::MAX]
+    );
+    assert_eq!(
+        rel::pi(&f, &source_instance(u32::MAX)),
+        Err(KanError::RowIdsExhausted)
+    );
+}
+
+#[test]
 fn sigma_numbers_fresh_nulls_above_every_input_null() {
     // The input's greatest null (7) sits at the unmapped table u; the fresh
     // null of the target column z starts above it.

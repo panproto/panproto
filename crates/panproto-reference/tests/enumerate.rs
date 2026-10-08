@@ -289,7 +289,7 @@ fn enumerate_tables_and_check_their_bytes_are_injective() {
         let b = canonical::table_bytes(t).unwrap();
         assert_eq!(canonical::decode_table(&b).as_ref(), Some(t));
         assert!(seen.insert(b));
-        let (g, _) = encode::table_to_graph(t);
+        let (g, _) = encode::table_to_graph(t).unwrap();
         assert_eq!(encode::graph_to_table(&g).as_ref(), Some(t));
     }
 }

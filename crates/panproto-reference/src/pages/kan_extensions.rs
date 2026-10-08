@@ -410,17 +410,35 @@ pub mod encode {
         Ok(t)
     }
 
+    /// Why decoding a table into its graph carrier can refuse.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum DecodeTableError {
+        /// No non-reserved node id remains for a cell-value node.
+        NodeIdsExhausted,
+        /// No non-reserved edge id remains for a cell or relation edge.
+        EdgeIdsExhausted,
+    }
+
     /// Decode a conforming table over a side without a record.
     ///
     /// A table node per row (its id); per cell, in ascending (row, column), one leaf value node (a
     /// fresh id above every row id) holding the cell (a null presence for `Null`) and its attribute
     /// edge; one edge per pair. Attribute edges take ids from 0 in (row, column) order, then relation
     /// edges in (relation, source, target) order.
-    #[must_use]
-    pub fn decode_table(t: &Table, side: &GraphSide) -> Graph {
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeTableError`] before an allocation would use the reserved id
+    /// `u32::MAX`.
+    pub fn decode_table(t: &Table, side: &GraphSide) -> Result<Graph, DecodeTableError> {
         let mut g = Graph::default();
-        let mut next_node = crate::restrict::floor_of(t.rows.keys().copied());
-        let mut next_edge = 0u32;
+        let mut next_node = t
+            .rows
+            .keys()
+            .next_back()
+            .map_or(Some(0), |id| id.checked_add(1))
+            .filter(|id| *id != u32::MAX);
+        let mut next_edge = Some(0u32);
         for (id, (table, _)) in &t.rows {
             g.nodes.insert(*id, Node::new(*id, table));
         }
@@ -429,29 +447,30 @@ pub mod encode {
                 let Some(arrow) = side.columns.get(table).and_then(|c| c.get(column)) else {
                     continue;
                 };
-                let mut leaf = Node::new(next_node, &arrow.tgt);
+                let node_id = take_id(&mut next_node).ok_or(DecodeTableError::NodeIdsExhausted)?;
+                let edge_id = take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
+                let mut leaf = Node::new(node_id, &arrow.tgt);
                 leaf.value = Some(if *v == Value::Null {
                     Presence::Null
                 } else {
                     Presence::Present(v.clone())
                 });
-                g.nodes.insert(next_node, leaf);
+                g.nodes.insert(node_id, leaf);
                 g.edges.insert(
-                    next_edge,
+                    edge_id,
                     GEdge {
                         src: *id,
-                        tgt: next_node,
+                        tgt: node_id,
                         label: arrow.clone(),
                         position: None,
                     },
                 );
-                next_node += 1;
-                next_edge += 1;
             }
         }
         for (e, s, d) in &t.pairs {
+            let edge_id = take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
             g.edges.insert(
-                next_edge,
+                edge_id,
                 GEdge {
                     src: *s,
                     tgt: *d,
@@ -459,9 +478,14 @@ pub mod encode {
                     position: None,
                 },
             );
-            next_edge += 1;
         }
-        g
+        Ok(g)
+    }
+
+    fn take_id(next: &mut Option<u32>) -> Option<u32> {
+        let id = (*next)?;
+        *next = id.checked_add(1).filter(|next| *next != u32::MAX);
+        Some(id)
     }
 
     /// Why a graph Kan extension refuses.
@@ -471,6 +495,8 @@ pub mod encode {
         NotEncodable(Box<NotEncodable>),
         /// The table functor refused.
         Kan(Box<KanError>),
+        /// Decoding the result would exhaust a reserved graph id.
+        Decode(DecodeTableError),
     }
 
     /// Graph Delta: decode over the kept part of Delta of the encoding over
@@ -483,7 +509,7 @@ pub mod encode {
         let t = encode_graph(h, &GraphSide::whole(&f.tgt))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
         let (d, _) = rel::delta(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        Ok(decode_table(&d, &GraphSide::kept(f)))
+        decode_table(&d, &GraphSide::kept(f)).map_err(GraphKanError::Decode)
     }
 
     /// Graph Sigma: decode over the target of Sigma of the encoding over the
@@ -496,7 +522,7 @@ pub mod encode {
         let t = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
         let (s, _) = rel::sigma(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        Ok(decode_table(&s, &GraphSide::whole(&f.tgt)))
+        decode_table(&s, &GraphSide::whole(&f.tgt)).map_err(GraphKanError::Decode)
     }
 
     /// Graph Pi: decode over the target of Pi of the encoding over the source.
@@ -508,7 +534,7 @@ pub mod encode {
         let t = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
         let (p, _) = rel::pi(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        Ok(decode_table(&p, &GraphSide::whole(&f.tgt)))
+        decode_table(&p, &GraphSide::whole(&f.tgt)).map_err(GraphKanError::Decode)
     }
 
     /// Why a tree Kan extension refuses.
@@ -1342,9 +1368,11 @@ pub mod rel {
         NullIdsExhausted,
     }
 
-    /// The fresh ids above a set of used ids: one above the greatest, 0 for
-    /// none, handed out ascending; `None` once the next would pass the type's
-    /// greatest value.
+    /// Fresh ids above a set of used ids.
+    ///
+    /// Allocation starts one above the greatest id (0 for none) and proceeds
+    /// upward. The type's greatest value is returned once when it is the
+    /// checked successor; only the following allocation exhausts.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Fresh<T> {
         next: Option<T>,

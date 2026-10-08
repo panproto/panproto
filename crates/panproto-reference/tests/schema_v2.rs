@@ -388,12 +388,40 @@ fn standoff_forms_are_left_inverses_and_entities_are_bounded() {
         panproto_reference::xml::expand_entities("x&b;y", &declarations).as_deref(),
         Ok("xABy")
     );
+    assert_eq!(
+        panproto_reference::xml::expand_entities(
+            "&amp;&lt;&gt;&apos;&quot; &b; &amp;b;",
+            &declarations,
+        )
+        .as_deref(),
+        Ok("&<>'\" AB &b;")
+    );
     let recursive = BTreeMap::from([("r".to_owned(), "&r;".to_owned())]);
     assert_eq!(
         panproto_reference::xml::expand_entities("&r;", &recursive),
         Err(panproto_reference::xml::EntityError::Recursive(
             "r".to_owned()
         ))
+    );
+
+    let mut sixteen = BTreeMap::new();
+    for depth in 0..16 {
+        let replacement = if depth == 15 {
+            "x".to_owned()
+        } else {
+            format!("&e{};", depth + 1)
+        };
+        sixteen.insert(format!("e{depth}"), replacement);
+    }
+    assert_eq!(
+        panproto_reference::xml::expand_entities("&e0;", &sixteen).as_deref(),
+        Ok("x")
+    );
+    sixteen.insert("e15".to_owned(), "&e16;".to_owned());
+    sixteen.insert("e16".to_owned(), "x".to_owned());
+    assert_eq!(
+        panproto_reference::xml::expand_entities("&e0;", &sixteen),
+        Err(panproto_reference::xml::EntityError::Depth)
     );
 }
 

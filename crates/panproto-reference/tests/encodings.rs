@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_reference::encode::{self, GraphSide};
+use panproto_reference::encode::{DecodeTableError, TreeEncodeError};
 use panproto_reference::migration::Migration;
 use panproto_reference::model::{Fan, Node, SEdge, Table, Tree};
 use panproto_reference::rel;
@@ -54,6 +55,42 @@ fn a_tree_with_a_fan_round_trips_through_its_graph() {
 }
 
 #[test]
+fn tree_fan_nodes_use_max_minus_one_but_never_the_reserved_maximum() {
+    let fan = Fan {
+        parent: 0,
+        hyper_edge: "h".to_owned(),
+        children: BTreeMap::new(),
+    };
+    let near = Tree {
+        nodes: BTreeMap::from([
+            (0, Node::new(0, "r")),
+            (u32::MAX - 2, Node::new(u32::MAX - 2, "leaf")),
+        ]),
+        arcs: Vec::new(),
+        fans: vec![fan.clone()],
+        root: 0,
+    };
+    let (graph, embedding) = encode::tree_to_graph(&near, None).unwrap();
+    assert!(graph.nodes.contains_key(&(u32::MAX - 1)));
+    assert!(!graph.nodes.contains_key(&u32::MAX));
+    assert_eq!(embedding.next_node, u32::MAX);
+
+    let at_max = Tree {
+        nodes: BTreeMap::from([(u32::MAX, Node::new(u32::MAX, "r"))]),
+        arcs: Vec::new(),
+        fans: vec![Fan {
+            parent: u32::MAX,
+            ..fan
+        }],
+        root: u32::MAX,
+    };
+    assert_eq!(
+        encode::tree_to_graph(&at_max, None),
+        Err(TreeEncodeError::NodeIdsExhausted)
+    );
+}
+
+#[test]
 fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_encoding() {
     // Edge 0 runs from node 0 to node 5, which the graph does not hold.
     let schema = Schema::default()
@@ -93,7 +130,7 @@ fn a_table_round_trips_through_its_graph_and_its_encoding() {
     table
         .pairs
         .insert((SEdge::new("a", "b", "fk", Some("f")), 3, 7));
-    let (graph, emb) = encode::table_to_graph(&table);
+    let (graph, emb) = encode::table_to_graph(&table).unwrap();
     assert_eq!(emb.len(), 1);
     assert_eq!(encode::graph_to_table(&graph), Some(table.clone()));
     let schema = Schema::default()
@@ -109,7 +146,7 @@ fn a_table_round_trips_through_its_graph_and_its_encoding() {
     )
     .unwrap();
     let side = GraphSide::whole(&side_schema);
-    let decoded = encode::decode_table(&table, &side);
+    let decoded = encode::decode_table(&table, &side).unwrap();
     assert_eq!(encode::encode_graph(&decoded, &side), Ok(table.clone()));
     let id = Migration {
         surviving_verts: schema.vertices.keys().cloned().collect(),
@@ -119,4 +156,32 @@ fn a_table_round_trips_through_its_graph_and_its_encoding() {
     let functor = rel::entity_functor(&side_schema, &side_schema, &id).unwrap();
     assert_eq!(encode::g_sigma(&functor, &decoded), Ok(decoded.clone()));
     assert_eq!(encode::g_delta(&functor, &decoded), Ok(decoded));
+}
+
+#[test]
+fn table_decode_uses_max_minus_one_but_never_the_reserved_maximum() {
+    let arrow = SEdge::new("a", "value", "prop", Some("x"));
+    let side = GraphSide {
+        tables: BTreeSet::from(["a".to_owned()]),
+        columns: BTreeMap::from([("a".to_owned(), BTreeMap::from([("x".to_owned(), arrow)]))]),
+        ..GraphSide::default()
+    };
+    let table = |row| Table {
+        rows: BTreeMap::from([(
+            row,
+            (
+                "a".to_owned(),
+                BTreeMap::from([("x".to_owned(), Value::Int(1))]),
+            ),
+        )]),
+        pairs: BTreeSet::new(),
+    };
+    let near = encode::decode_table(&table(u32::MAX - 2), &side).unwrap();
+    assert!(near.nodes.contains_key(&(u32::MAX - 1)));
+    for reserved in [u32::MAX - 1, u32::MAX] {
+        assert_eq!(
+            encode::decode_table(&table(reserved), &side),
+            Err(DecodeTableError::NodeIdsExhausted)
+        );
+    }
 }
