@@ -570,13 +570,31 @@ pub mod implementation {
                 })
                 .collect();
         }
-        let x = *frontier.first()?;
-        let target = g
-            .edges
-            .values()
-            .find(|e| e.src == x && e.label == *last)
-            .map(|e| e.tgt);
-        Some(target.map_or_else(|| Site::Field(x, last.column().to_owned()), Site::Own))
+        frontier.into_iter().find_map(|x| {
+            let targets: Vec<u32> = g
+                .edges
+                .values()
+                .filter(|e| e.src == x && e.label == *last)
+                .map(|e| e.tgt)
+                .collect();
+            if targets.is_empty() {
+                g.nodes
+                    .get(&x)?
+                    .fields
+                    .get(last.column())
+                    .filter(|value| **value != Value::Null)
+                    .map(|_| Site::Field(x, last.column().to_owned()))
+            } else {
+                targets.into_iter().find_map(|target| {
+                    g.nodes
+                        .get(&target)?
+                        .value
+                        .as_ref()
+                        .filter(|value| matches!(value, Presence::Present(v) if *v != Value::Null))
+                        .map(|_| Site::Own(target))
+                })
+            }
+        })
     }
 
     /// Write `value` at a site (`None` removes it).

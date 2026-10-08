@@ -236,7 +236,7 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "A2(c) parse/display accepted-lexeme round trip"
+              "clause": "A2(c) exact-descriptor parse/display accepted-lexeme implication"
             }
           ],
           "references": [
@@ -250,7 +250,7 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "A2(c) display/parse value round trip"
+              "clause": "A2(c) exact-descriptor display/parse value round trip"
             }
           ],
           "references": [

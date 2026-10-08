@@ -194,7 +194,17 @@ pub mod theory {
                 .map(|(_, s)| s.clone()),
             Term::App(o, args) => {
                 let op = t.ops.iter().find(|op| op.name == *o)?;
-                (op.inputs.len() == args.len()).then(|| subst_sort(&op.output, &op.inputs, args))
+                if op.inputs.len() != args.len() {
+                    return None;
+                }
+                for (i, arg) in args.iter().enumerate() {
+                    let found = term_sort(t, ctx, arg)?;
+                    let expected = subst_sort(&op.inputs[i].1, &op.inputs[..i], &args[..i]);
+                    if found != expected {
+                        return None;
+                    }
+                }
+                Some(subst_sort(&op.output, &op.inputs, args))
             }
             Term::Hole(_) => None,
             Term::Let(x, bound, body) => {
@@ -202,19 +212,113 @@ pub mod theory {
                 inner.push((x.clone(), term_sort(t, ctx, bound)?));
                 term_sort(t, &inner, body)
             }
-            Term::Case(_, branches) => {
-                let first = branches.first()?;
-                let op = t.ops.iter().find(|op| op.name == first.constructor)?;
-                let mut inner = ctx.to_vec();
-                inner.extend(
-                    first
-                        .binders
-                        .iter()
-                        .cloned()
-                        .zip(op.inputs.iter().map(|(_, s)| s.clone())),
-                );
-                term_sort(t, &inner, &first.body)
+            Term::Case(scrutinee, branches) => {
+                let scrutinee_sort = term_sort(t, ctx, scrutinee)?;
+                let mut result = None;
+                for branch in branches {
+                    let op = t.ops.iter().find(|op| op.name == branch.constructor)?;
+                    if branch.binders.len() != op.inputs.len() {
+                        return None;
+                    }
+                    let binder_terms: Vec<Term> =
+                        branch.binders.iter().cloned().map(Term::Var).collect();
+                    if subst_sort(&op.output, &op.inputs, &binder_terms) != scrutinee_sort {
+                        return None;
+                    }
+                    let mut inner = ctx.to_vec();
+                    for (i, binder) in branch.binders.iter().enumerate() {
+                        inner.push((
+                            binder.clone(),
+                            subst_sort(&op.inputs[i].1, &op.inputs[..i], &binder_terms[..i]),
+                        ));
+                    }
+                    let found = term_sort(t, &inner, &branch.body)?;
+                    if result.as_ref().is_some_and(|expected| *expected != found) {
+                        return None;
+                    }
+                    result = Some(found);
+                }
+                result
             }
+        }
+    }
+
+    /// Infer the sorts of an equation's free variables from operation-input
+    /// positions, then require both sides to be fully well typed at one sort.
+    fn equation_well_typed(t: &Theory, lhs: &Term, rhs: &Term) -> Result<(), String> {
+        fn collect(
+            t: &Theory,
+            term: &Term,
+            bound: &BTreeSet<Name>,
+            ctx: &mut BTreeMap<Name, SortExpr>,
+        ) -> Result<(), String> {
+            match term {
+                Term::Var(_) => Ok(()),
+                Term::Hole(_) => Err("an equation contains a hole".to_owned()),
+                Term::App(name, args) => {
+                    let op = t
+                        .ops
+                        .iter()
+                        .find(|op| op.name == *name)
+                        .ok_or_else(|| format!("operation {name} is not declared"))?;
+                    if args.len() != op.inputs.len() {
+                        return Err(format!(
+                            "operation {name} expects {} arguments but has {}",
+                            op.inputs.len(),
+                            args.len()
+                        ));
+                    }
+                    for (i, arg) in args.iter().enumerate() {
+                        let expected = subst_sort(&op.inputs[i].1, &op.inputs[..i], &args[..i]);
+                        if let Term::Var(variable) = arg
+                            && !bound.contains(variable)
+                        {
+                            if let Some(previous) = ctx.get(variable) {
+                                if previous != &expected {
+                                    return Err(format!(
+                                        "variable {variable} is constrained at both {previous:?} and {expected:?}"
+                                    ));
+                                }
+                            } else {
+                                ctx.insert(variable.clone(), expected);
+                            }
+                        }
+                        collect(t, arg, bound, ctx)?;
+                    }
+                    Ok(())
+                }
+                Term::Let(name, value, body) => {
+                    collect(t, value, bound, ctx)?;
+                    let mut inner = bound.clone();
+                    inner.insert(name.clone());
+                    collect(t, body, &inner, ctx)
+                }
+                Term::Case(scrutinee, branches) => {
+                    collect(t, scrutinee, bound, ctx)?;
+                    for branch in branches {
+                        let mut inner = bound.clone();
+                        inner.extend(branch.binders.iter().cloned());
+                        collect(t, &branch.body, &inner, ctx)?;
+                    }
+                    Ok(())
+                }
+            }
+        }
+
+        let mut inferred = BTreeMap::new();
+        collect(t, lhs, &BTreeSet::new(), &mut inferred)?;
+        collect(t, rhs, &BTreeSet::new(), &mut inferred)?;
+        let ctx: Vec<(Name, SortExpr)> = inferred.into_iter().collect();
+        let left = term_sort(t, &ctx, lhs)
+            .ok_or_else(|| "the left side is not a well-typed term".to_owned())?;
+        let right = term_sort(t, &ctx, rhs)
+            .ok_or_else(|| "the right side is not a well-typed term".to_owned())?;
+        if left == right {
+            Ok(())
+        } else {
+            Err(format!(
+                "the equation relates terms of different sorts: {left:?} and {right:?}"
+            ))
         }
     }
 
@@ -410,16 +514,22 @@ pub mod theory {
                 continue;
             }
             let expected = subst_sort(&sort.params[i].1, &sort.params[..i], &args[..i]);
-            if let Some(found) = term_sort(t, ctx, a)
-                && found.head() != expected.head()
-            {
-                out.push(Defect::ParamIllTyped(
+            match term_sort(t, ctx, a) {
+                Some(found) if found != expected => out.push(Defect::ParamIllTyped(
                     site.clone(),
                     sort.name.clone(),
                     i,
                     expected.head().to_owned(),
                     found.head().to_owned(),
-                ));
+                )),
+                None => out.push(Defect::ParamIllTyped(
+                    site.clone(),
+                    sort.name.clone(),
+                    i,
+                    expected.head().to_owned(),
+                    "ill-typed".to_owned(),
+                )),
+                Some(_) => {}
             }
         }
     }
@@ -567,22 +677,245 @@ pub mod theory {
         NameConflict(SymKind, Name, SymRef, SymRef),
         /// Two classes of one kind get one name (rejecting policy).
         NameClash(SymKind, Name, Box<Vec<Vec<SymRef>>>),
+        /// A transported or generated equation is not well typed.
+        IllTypedTransport {
+            /// The source equation, or the generated equation's source op.
+            source: SymRef,
+            /// The independent typing judgement's failure.
+            detail: String,
+        },
         /// The result fails signature checking with defects other than the
         /// free names of implicit sorts.
         IllTypedResult(Vec<Defect>),
+        /// Proposed cocone legs disagree on one result class.
+        NotACocone(Vec<SymRef>),
     }
 
-    /// The colimit: the theory and where every source symbol went.
+    /// A generated equation and the diagram operation whose term image
+    /// generated it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct AddedEquation {
+        /// The edge's index in the caller's diagram.
+        pub edge: usize,
+        /// The source operation.
+        pub op: SymRef,
+    }
+
+    /// Total source-to-result provenance, separated by symbol kind.
+    #[derive(Clone, Debug, PartialEq, Eq, Default)]
+    pub struct Provenance {
+        /// Source sorts.
+        pub sorts: BTreeMap<SymRef, Name>,
+        /// Source operations.
+        pub ops: BTreeMap<SymRef, Name>,
+        /// Source equations.
+        pub eqs: BTreeMap<SymRef, Name>,
+        /// Source directed equations.
+        pub directed_eqs: BTreeMap<SymRef, Name>,
+        /// Source conflict policies.
+        pub policies: BTreeMap<SymRef, Name>,
+        /// Equations generated by term-valued legs.
+        pub added_eqs: BTreeMap<Name, AddedEquation>,
+    }
+
+    impl Provenance {
+        const fn map(&self, kind: SymKind) -> &BTreeMap<SymRef, Name> {
+            match kind {
+                SymKind::Sort => &self.sorts,
+                SymKind::Op => &self.ops,
+                SymKind::Eq => &self.eqs,
+                SymKind::DirectedEq => &self.directed_eqs,
+                SymKind::Policy => &self.policies,
+            }
+        }
+
+        const fn map_mut(&mut self, kind: SymKind) -> &mut BTreeMap<SymRef, Name> {
+            match kind {
+                SymKind::Sort => &mut self.sorts,
+                SymKind::Op => &mut self.ops,
+                SymKind::Eq => &mut self.eqs,
+                SymKind::DirectedEq => &mut self.directed_eqs,
+                SymKind::Policy => &mut self.policies,
+            }
+        }
+
+        /// The image of one source symbol.
+        #[must_use]
+        pub fn image(&self, kind: SymKind, source: &SymRef) -> Option<&Name> {
+            self.map(kind).get(source)
+        }
+
+        /// The source members of a result class, in ascending order.
+        #[must_use]
+        pub fn members(&self, kind: SymKind, result: &str) -> Vec<SymRef> {
+            self.map(kind)
+                .iter()
+                .filter(|(_, image)| image.as_str() == result)
+                .map(|(source, _)| source.clone())
+                .collect()
+        }
+
+        /// Compatibility lookup by the former flat provenance key.
+        #[must_use]
+        pub fn get(&self, key: &(SymKind, SymRef)) -> Option<&Name> {
+            self.image(key.0, &key.1)
+        }
+    }
+
+    /// One result-name freshening.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Freshening {
+        /// Symbol kind.
+        pub kind: SymKind,
+        /// Complete source class.
+        pub members: Vec<SymRef>,
+        /// Majority candidate.
+        pub candidate: Name,
+        /// Fresh result name.
+        pub result: Name,
+    }
+
+    /// A composition check.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum CompositionCheckKind {
+        /// A diagram edge is a morphism.
+        LegIsMorphism,
+        /// A diagram node is well formed.
+        NodeWellFormed,
+        /// Quotient-class signatures agree.
+        ClassSignaturesAgree,
+        /// A cocone square commutes.
+        CoconeCommutes,
+        /// A generated inclusion is a morphism.
+        InclusionIsMorphism,
+        /// A node equation has a result image.
+        EquationImage,
+        /// A mediator preserves result equations.
+        EquationEntailed,
+        /// The identity cocone has the universal property.
+        UniversalIdentity,
+        /// A supplied cocone has the universal property.
+        UniversalAgainst,
+        /// The result theory is well typed.
+        ResultWellTyped,
+        /// Edge equivalence relates every shared source name.
+        NameClashFree,
+    }
+
+    /// The subject of a composition check.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum CheckSubject {
+        /// The whole diagram.
+        Diagram,
+        /// One node label.
+        Node(Name),
+        /// One edge index.
+        Edge(usize),
+        /// One cocone leg index.
+        Cocone(usize),
+    }
+
+    /// Why a check does not apply.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum InapplicableReason {
+        /// Open signatures name undeclared result sorts.
+        OpenTheory {
+            /// Free sort names that prevent a total inclusion.
+            missing_sorts: Vec<Name>,
+        },
+        /// The target theory contains no equations.
+        NoEquations,
+    }
+
+    /// Why a composition check did not decide.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum CompositionIncomplete {
+        /// Rewriting exhausted its explicit step budget.
+        RewriteBudgetExhausted {
+            /// Equation whose entailment was being checked.
+            equation: Name,
+            /// Rewrite steps consumed.
+            steps: u32,
+        },
+        /// No terminating rewrite system is available.
+        NoTerminatingRewriteSystem,
+    }
+
+    /// The outcome of one composition check.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum CheckOutcome {
+        /// Established directly.
+        Passed,
+        /// Established by a generated equation.
+        PassedByEquation {
+            /// Equation that establishes the check.
+            equation: Name,
+        },
+        /// Refuted.
+        Failed {
+            /// Deterministic failure explanation.
+            detail: String,
+        },
+        /// Outside the check's domain.
+        Inapplicable {
+            /// Why this check has no subject in this composition.
+            reason: InapplicableReason,
+        },
+        /// The bounded procedure did not decide.
+        Incomplete {
+            /// Why the check could not be completed.
+            reason: CompositionIncomplete,
+        },
+    }
+
+    /// One recorded composition check.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct CheckRecord {
+        /// Check kind.
+        pub check: CompositionCheckKind,
+        /// Check subject.
+        pub subject: CheckSubject,
+        /// Check outcome.
+        pub outcome: CheckOutcome,
+    }
+
+    /// Kleene-style aggregate status of the composition report.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum CheckStatus {
+        /// Every applicable check passed.
+        Passed,
+        /// At least one check failed.
+        Failed,
+        /// No check failed and at least one was incomplete or inapplicable.
+        Incomplete,
+    }
+
+    /// Structured evidence emitted by composition.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct CompositionReport {
+        /// Composition mode.
+        pub mode: Mode,
+        /// Aggregate of `checks`.
+        pub status: CheckStatus,
+        /// Whether all shared source names are related by diagram edges.
+        pub name_clash_free: bool,
+        /// Checks sorted by kind and subject.
+        pub checks: Vec<CheckRecord>,
+        /// Freshenings sorted by kind and source class.
+        pub freshened: Vec<Freshening>,
+    }
+
+    /// The colimit, its inclusions, total provenance and structured report.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Composition {
         /// The result theory.
         pub theory: Theory,
-        /// Every source sort, operation, equation, directed equation and
-        /// policy to its result name.
-        pub provenance: BTreeMap<(SymKind, SymRef), Name>,
-        /// The free sort names: classes of implicit sort symbols only, used
-        /// by the result's signatures and declared by none.
-        pub free_sorts: BTreeSet<Name>,
+        /// One cocone inclusion per input node, in input order.
+        pub inclusions: Vec<Morphism>,
+        /// Total source and generated-equation provenance.
+        pub provenance: Provenance,
+        /// Check outcomes and name choices.
+        pub report: CompositionReport,
     }
 
     /// A name-free form: every variable replaced by the index of its binder in
@@ -740,12 +1073,253 @@ pub mod theory {
         }
     }
 
+    /// The constructor operation denoted by a constructor image. Besides a
+    /// plain operation rename, the image may be its eta expansion over the
+    /// constructor's own inputs.
+    fn constructor_image(src: &Theory, m: &Morphism, constructor: &str) -> Option<Name> {
+        match m.ops.get(constructor)? {
+            OpImage::Op(image) => Some(image.clone()),
+            OpImage::Term(Term::App(image, args)) => {
+                let op = src.ops.iter().find(|op| op.name == constructor)?;
+                (args.len() == op.inputs.len()
+                    && args.iter().enumerate().all(|(i, arg)| {
+                        matches!(arg, Term::Var(name)
+                            if op.inputs.iter().rposition(|(binder, _)| binder == name) == Some(i))
+                    }))
+                .then(|| image.clone())
+            }
+            OpImage::Term(_) => None,
+        }
+    }
+
+    fn match_rule(pattern: &Term, value: &Term, substitution: &mut BTreeMap<Name, Term>) -> bool {
+        match (pattern, value) {
+            (Term::Var(name), value) => match substitution.entry(name.clone()) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.get() == value,
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(value.clone());
+                    true
+                }
+            },
+            (Term::App(left, left_args), Term::App(right, right_args)) => {
+                left == right
+                    && left_args.len() == right_args.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| match_rule(left, right, substitution))
+            }
+            (Term::Hole(left), Term::Hole(right)) => left == right,
+            (
+                Term::Let(left_name, left_bound, left_body),
+                Term::Let(right_name, right_bound, right_body),
+            ) => {
+                if !match_rule(left_bound, right_bound, substitution) {
+                    return false;
+                }
+                let saved = substitution.clone();
+                substitution.insert(left_name.clone(), Term::Var(right_name.clone()));
+                let matched = match_rule(left_body, right_body, substitution);
+                *substitution = saved;
+                matched
+            }
+            (
+                Term::Case(left_scrutinee, left_branches),
+                Term::Case(right_scrutinee, right_branches),
+            ) => {
+                match_rule(left_scrutinee, right_scrutinee, substitution)
+                    && left_branches.len() == right_branches.len()
+                    && left_branches
+                        .iter()
+                        .zip(right_branches)
+                        .all(|(left, right)| {
+                            if left.constructor != right.constructor
+                                || left.binders.len() != right.binders.len()
+                            {
+                                return false;
+                            }
+                            let saved = substitution.clone();
+                            for (left, right) in left.binders.iter().zip(&right.binders) {
+                                substitution.insert(left.clone(), Term::Var(right.clone()));
+                            }
+                            let matched = match_rule(&left.body, &right.body, substitution);
+                            *substitution = saved;
+                            matched
+                        })
+            }
+            _ => false,
+        }
+    }
+
+    fn instantiate_rule(template: &Term, substitution: &BTreeMap<Name, Term>) -> Term {
+        let binders: Vec<(Name, SortExpr)> = substitution
+            .keys()
+            .cloned()
+            .map(|name| (name, SortExpr::Name(String::new())))
+            .collect();
+        let arguments: Vec<Term> = binders
+            .iter()
+            .filter_map(|(name, _)| substitution.get(name).cloned())
+            .collect();
+        subst_term(template, &binders, &arguments)
+    }
+
+    fn rewrite_root(term: &Term, rules: &[(Term, Term)]) -> Option<Term> {
+        for (lhs, rhs) in rules {
+            let mut substitution = BTreeMap::new();
+            if match_rule(lhs, term, &mut substitution) {
+                return Some(instantiate_rule(rhs, &substitution));
+            }
+        }
+        None
+    }
+
+    fn term_depth(term: &Term) -> usize {
+        match term {
+            Term::Var(_) | Term::Hole(_) => 1,
+            Term::App(_, arguments) => 1 + arguments.iter().map(term_depth).max().unwrap_or(0),
+            Term::Let(_, bound, body) => 1 + term_depth(bound).max(term_depth(body)),
+            Term::Case(scrutinee, branches) => {
+                1 + branches
+                    .iter()
+                    .map(|branch| term_depth(&branch.body))
+                    .fold(term_depth(scrutinee), usize::max)
+            }
+        }
+    }
+
+    fn normalize_bounded(term: &Term, rules: &[(Term, Term)]) -> Option<Term> {
+        fn inner(
+            term: &Term,
+            rules: &[(Term, Term)],
+            steps: &mut usize,
+            depth_limit: usize,
+        ) -> Option<Term> {
+            let mut current = term.clone();
+            loop {
+                if *steps >= 512 || term_depth(&current) > depth_limit {
+                    return None;
+                }
+                let normalized = match current {
+                    Term::Var(_) | Term::Hole(_) => current,
+                    Term::App(operation, arguments) => Term::App(
+                        operation,
+                        arguments
+                            .iter()
+                            .map(|argument| inner(argument, rules, steps, depth_limit))
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                    Term::Let(name, bound, body) => {
+                        let bound = inner(&bound, rules, steps, depth_limit)?;
+                        current =
+                            subst_term(&body, &[(name, SortExpr::Name(String::new()))], &[bound]);
+                        continue;
+                    }
+                    Term::Case(scrutinee, branches) => {
+                        let scrutinee = inner(&scrutinee, rules, steps, depth_limit)?;
+                        if let Term::App(operation, arguments) = &scrutinee
+                            && let Some(branch) = branches.iter().find(|branch| {
+                                branch.constructor == *operation
+                                    && branch.binders.len() == arguments.len()
+                            })
+                        {
+                            let binders = branch
+                                .binders
+                                .iter()
+                                .cloned()
+                                .map(|name| (name, SortExpr::Name(String::new())))
+                                .collect::<Vec<_>>();
+                            current = subst_term(&branch.body, &binders, arguments);
+                            continue;
+                        }
+                        Term::Case(
+                            Box::new(scrutinee),
+                            branches
+                                .iter()
+                                .map(|branch| {
+                                    Some(CaseBranch {
+                                        constructor: branch.constructor.clone(),
+                                        binders: branch.binders.clone(),
+                                        body: inner(&branch.body, rules, steps, depth_limit)?,
+                                    })
+                                })
+                                .collect::<Option<Vec<_>>>()?,
+                        )
+                    }
+                };
+                if *steps >= 512 {
+                    return None;
+                }
+                let Some(next) = rewrite_root(&normalized, rules) else {
+                    return Some(normalized);
+                };
+                *steps += 1;
+                current = next;
+            }
+        }
+
+        let depth_limit = rules
+            .iter()
+            .map(|(lhs, rhs)| term_depth(lhs).max(term_depth(rhs)))
+            .fold(term_depth(term), usize::max)
+            + 64;
+        let mut steps = 0;
+        inner(term, rules, &mut steps, depth_limit)
+    }
+
+    fn derivable(lhs: &Term, rhs: &Term, target: &Theory) -> bool {
+        let directed: Vec<(Term, Term)> = target
+            .directed_eqs
+            .iter()
+            .map(|equation| (equation.lhs.clone(), equation.rhs.clone()))
+            .collect();
+        let common = |rules: &[(Term, Term)]| {
+            normalize_bounded(lhs, rules)
+                .zip(normalize_bounded(rhs, rules))
+                .is_some_and(|(left, right)| alpha(&left, &left).0 == alpha(&right, &right).0)
+        };
+        if common(&directed) {
+            return true;
+        }
+        let mut full = directed;
+        for equation in &target.eqs {
+            full.push((equation.lhs.clone(), equation.rhs.clone()));
+            full.push((equation.rhs.clone(), equation.lhs.clone()));
+        }
+        common(&full)
+    }
+
+    /// Whether every ordinary equation and directed equation of `src` has
+    /// its translated axiom in `tgt`. Ordinary equations are unoriented;
+    /// directed equations retain their orientation.
+    fn equations_preserved(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
+        let ordinary = src.eqs.iter().all(|equation| {
+            let lhs = translate_term(src, m, &equation.lhs);
+            let rhs = translate_term(src, m, &equation.rhs);
+            let image = alpha(&lhs, &rhs);
+            tgt.eqs.iter().any(|candidate| {
+                alpha(&candidate.lhs, &candidate.rhs) == image
+                    || alpha(&candidate.rhs, &candidate.lhs) == image
+            }) || derivable(&lhs, &rhs, tgt)
+        });
+        let directed = src.directed_eqs.iter().all(|equation| {
+            let lhs = translate_term(src, m, &equation.lhs);
+            let rhs = translate_term(src, m, &equation.rhs);
+            let image = alpha(&lhs, &rhs);
+            tgt.directed_eqs
+                .iter()
+                .any(|candidate| alpha(&candidate.lhs, &candidate.rhs) == image)
+        });
+        ordinary && directed
+    }
+
     /// Definition: Whether a leg is a morphism.
     ///
     /// Definition: every source sort maps to a declared target sort of the
     /// same arity whose parameter sorts are the images of the source's, and a
     /// closed source sort to a closed target sort whose constructors are the
-    /// images of the source's (an open one to an open one); every source
+    /// images of the source's; an open source sort imposes no closure
+    /// condition. Every source
     /// operation maps to a target operation whose name-free signature is the
     /// image of the source signature, or to a term whose variables are the
     /// operation's inputs and whose sort, in the context of the translated
@@ -758,37 +1332,37 @@ pub mod theory {
     pub fn check_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
         let id = |x: &str| x.to_owned();
         let name_free = |binders: &[Name], s: &SortExpr| name_free_sort(binders, s, &id, &id);
-        let sorts_ok =
-            src.sorts.iter().all(|s| {
-                let Some(ts) = m
-                    .sorts
-                    .get(&s.name)
-                    .and_then(|t| tgt.sorts.iter().find(|ts| ts.name == *t))
-                else {
-                    return false;
-                };
-                let names: Vec<Name> = s.params.iter().map(|(n, _)| n.clone()).collect();
-                let tnames: Vec<Name> = ts.params.iter().map(|(n, _)| n.clone()).collect();
-                let params_ok =
-                    ts.params.len() == s.params.len()
-                        && s.params.iter().zip(&ts.params).enumerate().all(
-                            |(i, ((_, x), (_, y)))| {
-                                name_free(&names[..i], &translate_sort(src, m, x))
-                                    == name_free(&tnames[..i], y)
-                            },
-                        );
-                let closure_ok = match (&s.constructors, &ts.constructors) {
-                    (None, None) => true,
-                    (Some(cs), Some(ds)) => {
-                        cs.len() == ds.len()
-                            && cs.iter().zip(ds).all(
-                                |(c, d)| matches!(m.ops.get(c), Some(OpImage::Op(o)) if o == d),
-                            )
-                    }
-                    _ => false,
-                };
-                params_ok && closure_ok
+        let sorts_ok = src.sorts.iter().all(|s| {
+            let Some(ts) = m
+                .sorts
+                .get(&s.name)
+                .and_then(|t| tgt.sorts.iter().find(|ts| ts.name == *t))
+            else {
+                return false;
+            };
+            let names: Vec<Name> = s.params.iter().map(|(n, _)| n.clone()).collect();
+            let tnames: Vec<Name> = ts.params.iter().map(|(n, _)| n.clone()).collect();
+            let params_ok = ts.params.len() == s.params.len()
+                && s.params
+                    .iter()
+                    .zip(&ts.params)
+                    .enumerate()
+                    .all(|(i, ((_, x), (_, y)))| {
+                        name_free(&names[..i], &translate_sort(src, m, x))
+                            == name_free(&tnames[..i], y)
+                    });
+            let closure_ok = s.constructors.as_ref().is_none_or(|cs| {
+                ts.constructors.as_ref().is_some_and(|ds| {
+                    let images: Option<BTreeSet<Name>> = cs
+                        .iter()
+                        .map(|constructor| constructor_image(src, m, constructor))
+                        .collect();
+                    images
+                        .is_some_and(|images| images == ds.iter().cloned().collect::<BTreeSet<_>>())
+                })
             });
+            s.kind == ts.kind && params_ok && closure_ok
+        });
         let ops_ok = src.ops.iter().all(|o| {
             let names: Vec<Name> = o.inputs.iter().map(|(n, _)| n.clone()).collect();
             let inputs: Vec<(Name, SortExpr)> = o
@@ -827,7 +1401,7 @@ pub mod theory {
                 None => false,
             }
         });
-        sorts_ok && ops_ok
+        sorts_ok && ops_ok && equations_preserved(src, tgt, m)
     }
 
     /// Naive classes: each member's class label; joining relabels.
@@ -885,6 +1459,7 @@ pub mod theory {
         classes: &[Vec<SymRef>],
         mode: Mode,
         clash: ClashPolicy,
+        freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<Name>, ComposeError> {
         let cands: Vec<Name> = classes.iter().map(|c| majority(c)).collect();
         let mut names = cands.clone();
@@ -914,6 +1489,16 @@ pub mod theory {
                     *n = format!("{n}#{k}");
                 }
                 *k += 1;
+            }
+        }
+        for ((members, candidate), result) in classes.iter().zip(cands).zip(&names) {
+            if candidate != *result {
+                freshened.push(Freshening {
+                    kind,
+                    members: members.clone(),
+                    candidate,
+                    result: result.clone(),
+                });
             }
         }
         Ok(names)
@@ -1244,6 +1829,7 @@ pub mod theory {
         clash: ClashPolicy,
     }
 
+    #[allow(clippy::too_many_lines)]
     fn finish(
         input: &Input<'_>,
         cl: &Classes,
@@ -1255,14 +1841,15 @@ pub mod theory {
         check_signatures(nodes, cl, legs, implicit, mode)?;
         let theory = |l: &str| node_theory(nodes, l);
         let class_id = |k: SymKind, node: &str, name: &str| class_id(cl, k, node, name);
-        let mut provenance = BTreeMap::new();
+        let mut provenance = Provenance::default();
+        let mut freshened = Vec::new();
         let mut result_of: BTreeMap<(SymKind, String), Name> = BTreeMap::new();
         for kind in [SymKind::Sort, SymKind::Op] {
             let classes = cl.members(kind);
-            let names = name_classes(kind, &classes, mode, clash)?;
+            let names = name_classes(kind, &classes, mode, clash, &mut freshened)?;
             for (c, n) in classes.iter().zip(names) {
                 for m in c {
-                    provenance.insert((kind, m.clone()), n.clone());
+                    provenance.map_mut(kind).insert(m.clone(), n.clone());
                     result_of.insert((kind, class_id(kind, &m.node, &m.name)), n.clone());
                 }
             }
@@ -1324,10 +1911,36 @@ pub mod theory {
                 });
             }
         }
-        let eqs = equation_inputs(nodes, edges, &res);
-        out.eqs = equations(&eqs, mode, clash, &mut provenance)?;
-        out.directed_eqs = directed_equations(nodes, &res, mode, clash, &mut provenance)?;
-        out.policies = policies(nodes, mode, clash, &mut provenance)?;
+        let (eqs, added_eqs) = equation_inputs(nodes, edges, &res);
+        provenance.added_eqs = added_eqs;
+        for (source, _, lhs, rhs) in &eqs {
+            equation_well_typed(&out, lhs, rhs).map_err(|detail| {
+                ComposeError::IllTypedTransport {
+                    source: source.clone(),
+                    detail,
+                }
+            })?;
+        }
+        for (label, node) in nodes {
+            let op = |name: &str| res(SymKind::Op, label, name);
+            for equation in &node.directed_eqs {
+                let lhs = rename_term(&equation.lhs, &op);
+                let rhs = rename_term(&equation.rhs, &op);
+                equation_well_typed(&out, &lhs, &rhs).map_err(|detail| {
+                    ComposeError::IllTypedTransport {
+                        source: SymRef {
+                            node: label.clone(),
+                            name: equation.name.clone(),
+                        },
+                        detail,
+                    }
+                })?;
+            }
+        }
+        out.eqs = equations(&eqs, mode, clash, &mut provenance, &mut freshened)?;
+        out.directed_eqs =
+            directed_equations(nodes, &res, mode, clash, &mut provenance, &mut freshened)?;
+        out.policies = policies(nodes, mode, clash, &mut provenance, &mut freshened)?;
         out.sorts.sort_by(|a, b| a.name.cmp(&b.name));
         out.ops.sort_by(|a, b| a.name.cmp(&b.name));
         if let Err(defects) = typecheck_signature(&out) {
@@ -1339,11 +1952,373 @@ pub mod theory {
                 return Err(ComposeError::IllTypedResult(ill));
             }
         }
+        let inclusions: Vec<Morphism> = nodes
+            .iter()
+            .map(|(label, node)| Morphism {
+                sorts: node
+                    .sorts
+                    .iter()
+                    .filter_map(|sort| {
+                        provenance
+                            .sorts
+                            .get(&SymRef {
+                                node: label.clone(),
+                                name: sort.name.clone(),
+                            })
+                            .map(|image| (sort.name.clone(), image.clone()))
+                    })
+                    .collect(),
+                ops: node
+                    .ops
+                    .iter()
+                    .filter_map(|op| {
+                        provenance
+                            .ops
+                            .get(&SymRef {
+                                node: label.clone(),
+                                name: op.name.clone(),
+                            })
+                            .map(|image| (op.name.clone(), OpImage::Op(image.clone())))
+                    })
+                    .collect(),
+            })
+            .collect();
+        let name_clash_free = source_names_are_related(legs);
+        let mut checks = Vec::new();
+        for (label, _) in nodes {
+            checks.push(CheckRecord {
+                check: CompositionCheckKind::NodeWellFormed,
+                subject: CheckSubject::Node(label.clone()),
+                outcome: CheckOutcome::Passed,
+            });
+        }
+        for (edge, _) in edges.iter().enumerate() {
+            checks.push(CheckRecord {
+                check: CompositionCheckKind::LegIsMorphism,
+                subject: CheckSubject::Edge(edge),
+                outcome: CheckOutcome::Passed,
+            });
+            let equation = provenance
+                .added_eqs
+                .iter()
+                .find(|(_, added)| added.edge == edge)
+                .map(|(name, _)| name.clone());
+            checks.push(CheckRecord {
+                check: CompositionCheckKind::CoconeCommutes,
+                subject: CheckSubject::Edge(edge),
+                outcome: equation.map_or(CheckOutcome::Passed, |equation| {
+                    CheckOutcome::PassedByEquation { equation }
+                }),
+            });
+        }
+        for (index, (label, node)) in nodes.iter().enumerate() {
+            let missing_sorts: Vec<Name> = undeclared_sorts(node)
+                .into_iter()
+                .filter_map(|name| {
+                    provenance
+                        .sorts
+                        .get(&SymRef {
+                            node: label.clone(),
+                            name,
+                        })
+                        .filter(|image| free_sorts.contains(*image))
+                        .cloned()
+                })
+                .collect();
+            let outcome = if missing_sorts.is_empty() {
+                CheckOutcome::Passed
+            } else {
+                CheckOutcome::Inapplicable {
+                    reason: InapplicableReason::OpenTheory { missing_sorts },
+                }
+            };
+            checks.push(CheckRecord {
+                check: CompositionCheckKind::InclusionIsMorphism,
+                subject: CheckSubject::Cocone(index),
+                outcome,
+            });
+            checks.push(CheckRecord {
+                check: CompositionCheckKind::EquationImage,
+                subject: CheckSubject::Node(label.clone()),
+                outcome: CheckOutcome::Passed,
+            });
+        }
+        checks.push(CheckRecord {
+            check: CompositionCheckKind::ClassSignaturesAgree,
+            subject: CheckSubject::Diagram,
+            outcome: CheckOutcome::Passed,
+        });
+        checks.push(CheckRecord {
+            check: CompositionCheckKind::UniversalIdentity,
+            subject: CheckSubject::Diagram,
+            outcome: if free_sorts.is_empty() {
+                CheckOutcome::Passed
+            } else {
+                CheckOutcome::Inapplicable {
+                    reason: InapplicableReason::OpenTheory {
+                        missing_sorts: free_sorts.iter().cloned().collect(),
+                    },
+                }
+            },
+        });
+        checks.push(CheckRecord {
+            check: CompositionCheckKind::ResultWellTyped,
+            subject: CheckSubject::Diagram,
+            outcome: CheckOutcome::Passed,
+        });
+        checks.push(CheckRecord {
+            check: CompositionCheckKind::NameClashFree,
+            subject: CheckSubject::Diagram,
+            outcome: if name_clash_free {
+                CheckOutcome::Passed
+            } else {
+                CheckOutcome::Failed {
+                    detail: "two source nodes share an unrelated symbol name".to_owned(),
+                }
+            },
+        });
+        checks.sort();
+        freshened.sort();
+        let status = aggregate_status(&checks);
         Ok(Composition {
             theory: out,
+            inclusions,
             provenance,
-            free_sorts,
+            report: CompositionReport {
+                mode,
+                status,
+                name_clash_free,
+                checks,
+                freshened,
+            },
         })
+    }
+
+    /// Whether every same-kind, same-name pair is already related by the
+    /// diagram's edge equivalence, before amalgamation adds name joins.
+    fn source_names_are_related(legs: &Classes) -> bool {
+        let keys: Vec<&(SymKind, SymRef)> = legs.label.keys().collect();
+        keys.iter().all(|left| {
+            keys.iter().all(|right| {
+                left.0 != right.0
+                    || left.1.name != right.1.name
+                    || left.1.node == right.1.node
+                    || legs.label.get(*left) == legs.label.get(*right)
+            })
+        })
+    }
+
+    fn aggregate_status(checks: &[CheckRecord]) -> CheckStatus {
+        if checks
+            .iter()
+            .any(|record| matches!(record.outcome, CheckOutcome::Failed { .. }))
+        {
+            CheckStatus::Failed
+        } else if checks.iter().any(|record| {
+            matches!(
+                record.outcome,
+                CheckOutcome::Incomplete { .. } | CheckOutcome::Inapplicable { .. }
+            )
+        }) {
+            CheckStatus::Incomplete
+        } else {
+            CheckStatus::Passed
+        }
+    }
+
+    fn op_images_equal(left: &OpImage, right: &OpImage) -> bool {
+        match (left, right) {
+            (OpImage::Op(left), OpImage::Op(right)) => left == right,
+            (OpImage::Term(left), OpImage::Term(right)) => {
+                alpha(left, left).0 == alpha(right, right).0
+            }
+            _ => false,
+        }
+    }
+
+    fn image_through(target: &Theory, leg: &Morphism, image: &OpImage) -> Option<OpImage> {
+        match image {
+            OpImage::Op(operation) => leg.ops.get(operation).cloned(),
+            OpImage::Term(term) => Some(OpImage::Term(translate_term(target, leg, term))),
+        }
+    }
+
+    impl Composition {
+        /// Verify the universal arrow against one proposed cocone and return
+        /// the uniquely induced mediator together with the extended report.
+        ///
+        /// Every proposed leg must be a morphism, every diagram square must
+        /// commute under the whole action on terms, and all members of a
+        /// result class must have one image. The mediator is then checked as a
+        /// morphism, including equation preservation.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`ComposeError::NotACocone`] if the supplied legs do not
+        /// commute or disagree on a result class, or
+        /// [`ComposeError::InvalidLeg`] if the induced mediator is not a
+        /// morphism.
+        #[allow(clippy::too_many_lines)]
+        pub fn verify_universal(
+            &self,
+            nodes: &[(Name, Theory)],
+            edges: &[(Name, Name, Morphism)],
+            target: &Theory,
+            legs: &[Morphism],
+        ) -> Result<(Morphism, CompositionReport), ComposeError> {
+            if legs.len() != nodes.len() {
+                return Err(ComposeError::NotACocone(Vec::new()));
+            }
+            for ((_, node), leg) in nodes.iter().zip(legs) {
+                if !check_morphism(node, target, leg) {
+                    return Err(ComposeError::NotACocone(Vec::new()));
+                }
+            }
+            let positions: BTreeMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(index, (label, _))| (label.as_str(), index))
+                .collect();
+            for (source, target_label, edge) in edges {
+                let Some(&source_index) = positions.get(source.as_str()) else {
+                    return Err(ComposeError::NotACocone(Vec::new()));
+                };
+                let Some(&target_index) = positions.get(target_label.as_str()) else {
+                    return Err(ComposeError::NotACocone(Vec::new()));
+                };
+                let target_node = &nodes[target_index].1;
+                for (sort, image) in &edge.sorts {
+                    if legs[source_index].sorts.get(sort) != legs[target_index].sorts.get(image) {
+                        let class = self
+                            .provenance
+                            .image(
+                                SymKind::Sort,
+                                &SymRef {
+                                    node: source.clone(),
+                                    name: sort.clone(),
+                                },
+                            )
+                            .map_or_else(Vec::new, |result| {
+                                self.provenance.members(SymKind::Sort, result)
+                            });
+                        return Err(ComposeError::NotACocone(class));
+                    }
+                }
+                for (operation, image) in &edge.ops {
+                    let left = legs[source_index].ops.get(operation);
+                    let right = image_through(target_node, &legs[target_index], image);
+                    if left.is_none_or(|left| {
+                        right
+                            .as_ref()
+                            .is_none_or(|right| !op_images_equal(left, right))
+                    }) {
+                        let class = self
+                            .provenance
+                            .image(
+                                SymKind::Op,
+                                &SymRef {
+                                    node: source.clone(),
+                                    name: operation.clone(),
+                                },
+                            )
+                            .map_or_else(Vec::new, |result| {
+                                self.provenance.members(SymKind::Op, result)
+                            });
+                        return Err(ComposeError::NotACocone(class));
+                    }
+                }
+            }
+
+            let mut mediator = Morphism::default();
+            for result_sort in &self.theory.sorts {
+                let members = self.provenance.members(SymKind::Sort, &result_sort.name);
+                let mut image: Option<Name> = None;
+                for member in &members {
+                    let Some(&index) = positions.get(member.node.as_str()) else {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    };
+                    let Some(candidate) = legs[index].sorts.get(&member.name) else {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    };
+                    if image.as_ref().is_some_and(|first| first != candidate) {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    }
+                    image = Some(candidate.clone());
+                }
+                if let Some(image) = image {
+                    mediator.sorts.insert(result_sort.name.clone(), image);
+                }
+            }
+            for result_op in &self.theory.ops {
+                let members = self.provenance.members(SymKind::Op, &result_op.name);
+                let mut image: Option<OpImage> = None;
+                for member in &members {
+                    let Some(&index) = positions.get(member.node.as_str()) else {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    };
+                    let Some(source_op) = nodes[index]
+                        .1
+                        .ops
+                        .iter()
+                        .find(|operation| operation.name == member.name)
+                    else {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    };
+                    let Some(candidate) = legs[index].ops.get(&member.name) else {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    };
+                    let rebound = match candidate {
+                        OpImage::Op(name) => OpImage::Op(name.clone()),
+                        OpImage::Term(term) => OpImage::Term(subst_term(
+                            term,
+                            &source_op.inputs,
+                            &result_op
+                                .inputs
+                                .iter()
+                                .map(|(name, _)| Term::Var(name.clone()))
+                                .collect::<Vec<_>>(),
+                        )),
+                    };
+                    if image
+                        .as_ref()
+                        .is_some_and(|first| !op_images_equal(first, &rebound))
+                    {
+                        return Err(ComposeError::NotACocone(members.clone()));
+                    }
+                    image = Some(rebound);
+                }
+                if let Some(image) = image {
+                    mediator.ops.insert(result_op.name.clone(), image);
+                }
+            }
+            if !check_morphism(&self.theory, target, &mediator) {
+                let members = self.theory.ops.first().map_or_else(Vec::new, |operation| {
+                    self.provenance.members(SymKind::Op, &operation.name)
+                });
+                return Err(ComposeError::NotACocone(members));
+            }
+
+            let mut report = self.report.clone();
+            report.checks.push(CheckRecord {
+                check: CompositionCheckKind::EquationEntailed,
+                subject: CheckSubject::Diagram,
+                outcome: if target.eqs.is_empty() && target.directed_eqs.is_empty() {
+                    CheckOutcome::Inapplicable {
+                        reason: InapplicableReason::NoEquations,
+                    }
+                } else {
+                    CheckOutcome::Passed
+                },
+            });
+            report.checks.push(CheckRecord {
+                check: CompositionCheckKind::UniversalAgainst,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Passed,
+            });
+            report.checks.sort();
+            report.status = aggregate_status(&report.checks);
+            Ok((mediator, report))
+        }
     }
 
     /// The theory at node label `l` (empty when there is none).
@@ -1440,6 +2415,11 @@ pub mod theory {
         Ok(())
     }
 
+    type EquationInputs = (
+        Vec<(SymRef, Name, Term, Term)>,
+        BTreeMap<Name, AddedEquation>,
+    );
+
     /// The equations to classify: every node theory's equations renamed into
     /// the result, then one per term-valued operation image, for the edges in
     /// (source, target, morphism) order.
@@ -1447,9 +2427,10 @@ pub mod theory {
         nodes: &[(Name, Theory)],
         edges: &[(Name, Name, Morphism)],
         res: &dyn Fn(SymKind, &str, &str) -> Name,
-    ) -> Vec<(SymRef, Name, Term, Term)> {
+    ) -> EquationInputs {
         let theory = |l: &str| node_theory(nodes, l);
         let mut eqs: Vec<(SymRef, Name, Term, Term)> = Vec::new();
+        let mut added = BTreeMap::new();
         for (l, t) in nodes {
             for e in &t.eqs {
                 let op = |n: &str| res(SymKind::Op, l, n);
@@ -1468,7 +2449,7 @@ pub mod theory {
         ordered.sort_by(|a, b| {
             (&a.1.0, &a.1.1, format!("{:?}", a.1.2)).cmp(&(&b.1.0, &b.1.1, format!("{:?}", b.1.2)))
         });
-        for (rank, (_, (s, t, m))) in ordered.iter().enumerate() {
+        for (rank, (edge_index, (s, t, m))) in ordered.iter().enumerate() {
             for (o, img) in &m.ops {
                 let OpImage::Term(term) = img else { continue };
                 let Some(op) = theory(s).ops.into_iter().find(|x| x.name == *o) else {
@@ -1483,6 +2464,16 @@ pub mod theory {
                 );
                 let rhs = rename_term(term, &|n| res(SymKind::Op, t, n));
                 let name = format!("{s}.{o}~{rank}");
+                added.insert(
+                    name.clone(),
+                    AddedEquation {
+                        edge: *edge_index,
+                        op: SymRef {
+                            node: s.clone(),
+                            name: o.clone(),
+                        },
+                    },
+                );
                 eqs.push((
                     SymRef {
                         node: s.clone(),
@@ -1494,7 +2485,7 @@ pub mod theory {
                 ));
             }
         }
-        eqs
+        (eqs, added)
     }
 
     /// A class of equation-like items: its members, its content key, and the
@@ -1511,7 +2502,8 @@ pub mod theory {
         items: Vec<(SymRef, Name, K, T)>,
         mode: Mode,
         clash: ClashPolicy,
-        provenance: &mut BTreeMap<(SymKind, SymRef), Name>,
+        provenance: &mut Provenance,
+        freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<(Name, T)>, ComposeError> {
         let mut classes: Vec<ItemClass<K, T>> = Vec::new();
         for (r, name, key, item) in items {
@@ -1534,11 +2526,11 @@ pub mod theory {
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         let members: Vec<Vec<SymRef>> = classes.iter().map(|c| c.0.clone()).collect();
-        let names = name_classes(kind, &members, mode, clash)?;
+        let names = name_classes(kind, &members, mode, clash, freshened)?;
         let mut out = Vec::new();
         for (c, n) in classes.into_iter().zip(names) {
             for m in &c.0 {
-                provenance.insert((kind, m.clone()), n.clone());
+                provenance.map_mut(kind).insert(m.clone(), n.clone());
             }
             out.push((n, c.2));
         }
@@ -1553,7 +2545,8 @@ pub mod theory {
         eqs: &[(SymRef, Name, Term, Term)],
         mode: Mode,
         clash: ClashPolicy,
-        provenance: &mut BTreeMap<(SymKind, SymRef), Name>,
+        provenance: &mut Provenance,
+        freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<Equation>, ComposeError> {
         let items = eqs
             .iter()
@@ -1566,10 +2559,12 @@ pub mod theory {
                 )
             })
             .collect();
-        Ok(classify_items(SymKind::Eq, items, mode, clash, provenance)?
-            .into_iter()
-            .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
-            .collect())
+        Ok(
+            classify_items(SymKind::Eq, items, mode, clash, provenance, freshened)?
+                .into_iter()
+                .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
+                .collect(),
+        )
     }
 
     /// The result directed equations: each node's directed equations with
@@ -1581,7 +2576,8 @@ pub mod theory {
         res: &dyn Fn(SymKind, &str, &str) -> Name,
         mode: Mode,
         clash: ClashPolicy,
-        provenance: &mut BTreeMap<(SymKind, SymRef), Name>,
+        provenance: &mut Provenance,
+        freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<DirectedEquation>, ComposeError> {
         let mut items = Vec::new();
         for (l, t) in nodes {
@@ -1607,12 +2603,17 @@ pub mod theory {
                 items.push((r, d.name.clone(), key, translated));
             }
         }
-        Ok(
-            classify_items(SymKind::DirectedEq, items, mode, clash, provenance)?
-                .into_iter()
-                .map(|(name, d)| DirectedEquation { name, ..d })
-                .collect(),
-        )
+        Ok(classify_items(
+            SymKind::DirectedEq,
+            items,
+            mode,
+            clash,
+            provenance,
+            freshened,
+        )?
+        .into_iter()
+        .map(|(name, d)| DirectedEquation { name, ..d })
+        .collect())
     }
 
     /// The result policies: transported unchanged (a policy mentions no sort
@@ -1622,7 +2623,8 @@ pub mod theory {
         nodes: &[(Name, Theory)],
         mode: Mode,
         clash: ClashPolicy,
-        provenance: &mut BTreeMap<(SymKind, SymRef), Name>,
+        provenance: &mut Provenance,
+        freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<Policy>, ComposeError> {
         let mut items = Vec::new();
         for (l, t) in nodes {
@@ -1636,7 +2638,7 @@ pub mod theory {
             }
         }
         Ok(
-            classify_items(SymKind::Policy, items, mode, clash, provenance)?
+            classify_items(SymKind::Policy, items, mode, clash, provenance, freshened)?
                 .into_iter()
                 .map(|(name, p)| Policy { name, ..p })
                 .collect(),

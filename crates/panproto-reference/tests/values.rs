@@ -2,13 +2,15 @@
 //! Worked examples of the coercion and printing reference, each taken from
 //! the value-layer definitions (law (i), the narrowing rules, the NaN rules).
 
+use std::collections::BTreeMap;
+
 use panproto_reference::coerce::{
     FidelityReason as R, FloatReading, LexClass, ScalarKind as K, ValueSpec, coerce, coerce_value,
 };
 use panproto_reference::exact::{
     Decimal, ExactInteger, integer_of_numeral, parse_decimal, parse_numeral,
 };
-use panproto_reference::value::Value;
+use panproto_reference::value::{BuiltinOp, EvalError, Expr, Value, apply_builtin, eval};
 
 fn num(text: &str, kind: K) -> Result<Value, R> {
     coerce(text, &LexClass::Number, &ValueSpec::of(kind)).unwrap()
@@ -229,11 +231,40 @@ fn coerce_value_narrows_only_exact_values() {
         Err(R::PrecisionExceeded { max: 9 })
     );
     assert_eq!(v(f(f64::NAN), K::Decimal), Err(R::NonFinite));
+    for text in ["NaN", "-sNaN7", "Infinity", "-Infinity"] {
+        let special = Value::Decimal(parse_decimal(text).unwrap());
+        assert_eq!(v(special.clone(), K::Decimal), Ok(special.clone()));
+        assert_eq!(v(special.clone(), K::BigInt), Err(R::NonFinite));
+        assert_eq!(v(special, K::Str), Err(R::NotANumberForKind), "{text}");
+    }
     assert_eq!(
         v(Value::List(vec![Value::Int(1)]), F32),
         Ok(Value::List(vec![Value::Int(1)]))
     );
     assert!(matches!(ExactInteger::Int(0), ExactInteger::Int(0)));
+}
+
+#[test]
+fn sql_special_decimals_reach_the_decimal_parser() {
+    use panproto_reference::coerce::NumeralDialect;
+
+    let spec = ValueSpec {
+        numeral: Some(NumeralDialect::Sql),
+        ..ValueSpec::of(K::Decimal)
+    };
+    for (text, canonical) in [
+        ("nan", "NaN"),
+        ("-nan", "-NaN"),
+        ("inf", "Infinity"),
+        ("+infinity", "Infinity"),
+        ("-inf", "-Infinity"),
+    ] {
+        assert_eq!(
+            coerce(text, &LexClass::Number, &spec),
+            Some(Ok(Value::Decimal(parse_decimal(canonical).unwrap()))),
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -296,6 +327,122 @@ fn coerce_value_is_idempotent_and_fixes_what_coerce_returns() {
             assert_eq!(twice, once, "idempotence: {t} under {kind:?}");
         }
     }
+}
+
+#[test]
+fn exact_expression_operations_compare_convert_and_refuse_arithmetic() {
+    let decimal = Value::Decimal(parse_decimal("1.50").unwrap());
+    let big = num("100000000000000000000", K::BigInt).unwrap();
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Eq,
+            &[
+                decimal.clone(),
+                Value::Decimal(parse_decimal("1.5").unwrap())
+            ]
+        ),
+        Ok(Value::Bool(false))
+    );
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Gt,
+            &[
+                big.clone(),
+                Value::Decimal(parse_decimal("99999999999999999999.5").unwrap())
+            ]
+        ),
+        Ok(Value::Bool(true))
+    );
+    assert_eq!(
+        apply_builtin(BuiltinOp::ToString, std::slice::from_ref(&decimal)),
+        Ok(Value::Str("1.50".into()))
+    );
+    assert_eq!(
+        apply_builtin(BuiltinOp::ParseDecimal, &[Value::Str("1.50".into())]),
+        Ok(decimal.clone())
+    );
+    assert_eq!(
+        apply_builtin(BuiltinOp::DecimalToFloat, std::slice::from_ref(&decimal)),
+        Ok(f(1.5))
+    );
+    for op in [
+        BuiltinOp::Add,
+        BuiltinOp::Sub,
+        BuiltinOp::Mul,
+        BuiltinOp::Div,
+        BuiltinOp::Mod,
+    ] {
+        assert!(matches!(
+            apply_builtin(op, &[decimal.clone(), Value::Int(1)]),
+            Err(EvalError::ExactArithmetic {
+                operand: "decimal",
+                ..
+            })
+        ));
+        assert!(matches!(
+            apply_builtin(op, &[big.clone(), Value::Int(1)]),
+            Err(EvalError::ExactArithmetic {
+                operand: "bigint",
+                ..
+            })
+        ));
+    }
+    assert!(matches!(
+        apply_builtin(
+            BuiltinOp::Lt,
+            &[Value::Decimal(parse_decimal("NaN").unwrap()), Value::Int(1)]
+        ),
+        Err(EvalError::TypeError { .. })
+    ));
+}
+
+#[test]
+fn expression_evaluation_canonicalizes_only_computed_nans() {
+    const PAYLOAD_NAN: u64 = 0x7ff8_0000_0000_0042;
+    const CANONICAL_NAN: u64 = 0x7ff8_0000_0000_0000;
+    let environment = BTreeMap::from([("x".into(), Value::Float(PAYLOAD_NAN))]);
+    assert_eq!(
+        eval(&Expr::Variable("x".into()), &environment),
+        Ok(Value::Float(PAYLOAD_NAN))
+    );
+    assert_eq!(
+        eval(
+            &Expr::If(
+                Box::new(Expr::Literal(Value::Bool(true))),
+                Box::new(Expr::Variable("x".into())),
+                Box::new(Expr::Literal(Value::Null)),
+            ),
+            &environment,
+        ),
+        Ok(Value::Float(PAYLOAD_NAN))
+    );
+    assert_eq!(
+        eval(
+            &Expr::Builtin(
+                BuiltinOp::Add,
+                vec![
+                    Expr::Literal(f(f64::INFINITY)),
+                    Expr::Literal(f(f64::NEG_INFINITY)),
+                ],
+            ),
+            &environment,
+        ),
+        Ok(Value::Float(CANONICAL_NAN))
+    );
+    assert_eq!(
+        eval(
+            &Expr::Builtin(BuiltinOp::Neg, vec![Expr::Variable("x".into())]),
+            &environment,
+        ),
+        Ok(Value::Float(CANONICAL_NAN))
+    );
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::DecimalToFloat,
+            &[Value::Decimal(parse_decimal("-sNaN7").unwrap())],
+        ),
+        Ok(Value::Float(CANONICAL_NAN))
+    );
 }
 
 #[test]

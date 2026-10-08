@@ -17,7 +17,8 @@ pub mod canonical {
     use crate::model::SEdge;
     use crate::num::{Int, Nat};
     use crate::temporal::{
-        DateFields, Offset, OffsetForm, Separator, Temporal, TimeFields, Year, ZuluCase,
+        DateFields, Offset, OffsetForm, Separator, Temporal, TemporalForm, TemporalInfinity,
+        TimeFields, Year, ZuluCase,
     };
     use crate::value::Value;
 
@@ -284,7 +285,7 @@ pub mod canonical {
         let offset_ok = match t.offset {
             Offset::Local | Offset::Zulu(ZuluCase::Upper | ZuluCase::Lower) => true,
             Offset::Fixed(_, form) | Offset::NegZero(form) => form == OffsetForm::Extended,
-            Offset::Zulu(ZuluCase::Unwritten) => false,
+            Offset::Zulu(ZuluCase::Unwritten) | Offset::FixedSeconds(_) => false,
         };
         let date_ok = t.date.is_none_or(|d| {
             d.month.is_some()
@@ -294,61 +295,167 @@ pub mod canonical {
                 })
         });
         let date_only_local = !(t.date.is_some() && t.time.is_none()) || t.offset == Offset::Local;
-        t.is_complete() && offset_ok && date_ok && date_only_local
+        t.infinity.is_none() && t.is_complete() && offset_ok && date_ok && date_only_local
     }
 
-    /// The canonical bytes of a temporal in the complete-form layout.
+    /// The canonical bytes of every temporal form.
     ///
     /// A form byte (0 date, 1 time, 2 date-time); a date as a little-endian `i64` year and a month and
     /// a day byte; a date-time's separator byte (`T`, `t` or a space, as ASCII) between date and time;
     /// a time as hour, minute and second bytes and its fraction digits behind a length; the offset as 0
     /// local, 1 `Z` followed by its case byte (`Z` or `z` as ASCII), 2 fixed followed by its minutes as
-    /// an `i64`, 3 negative zero. `None` for a form outside that layout (reduced, truncated, or another
-    /// written offset form).
+    /// an `i64`, 3 negative zero. Those historical layouts remain byte-for-byte
+    /// unchanged. New form tags encode reduced/truncated fields, numeric-offset
+    /// spelling, second offsets, unwritten offsets and temporal infinities.
     #[must_use]
     pub fn write_temporal(w: &mut Writer, t: &Temporal) -> Option<()> {
-        if !complete_layout(t) {
+        if complete_layout(t) {
+            let form = match (&t.date, &t.time) {
+                (Some(_), None) => 0,
+                (None, Some(_)) => 1,
+                _ => 2,
+            };
+            w.tag(form);
+            if let Some(d) = &t.date {
+                w.i64(d.year.map_or(0, |y| y.value));
+                w.tag(d.month.unwrap_or(0));
+                w.tag(d.day.unwrap_or(0));
+            }
+            if let Some(s) = t.separator {
+                write_separator(w, s);
+            }
+            if let Some(tm) = &t.time {
+                w.tag(tm.hour.unwrap_or(0));
+                w.tag(tm.minute.unwrap_or(0));
+                w.tag(tm.second.unwrap_or(0));
+                w.str(&tm.fraction);
+            }
+            if t.time.is_some() {
+                match t.offset {
+                    Offset::Local => w.tag(0),
+                    Offset::Zulu(case) => {
+                        w.tag(1);
+                        w.tag(if case == ZuluCase::Lower { b'z' } else { b'Z' });
+                    }
+                    Offset::Fixed(m, _) => {
+                        w.tag(2);
+                        w.i64(i64::from(m));
+                    }
+                    Offset::NegZero(_) => w.tag(3),
+                    Offset::FixedSeconds(_) => return None,
+                }
+            }
+            return Some(());
+        }
+
+        if !t.well_formed() {
             return None;
         }
-        let form = match (&t.date, &t.time) {
-            (Some(_), None) => 0,
-            (None, Some(_)) => 1,
-            _ => 2,
-        };
-        w.tag(form);
-        if let Some(d) = &t.date {
-            w.i64(d.year.map_or(0, |y| y.value));
-            w.tag(d.month.unwrap_or(0));
-            w.tag(d.day.unwrap_or(0));
-        }
-        if let Some(s) = t.separator {
-            w.tag(match s {
-                Separator::Upper => b'T',
-                Separator::Lower => b't',
-                Separator::Space => b' ',
+        if let Some((infinity, form)) = t.infinity {
+            w.tag(match form {
+                TemporalForm::Date => 6,
+                TemporalForm::DateTime => 7,
+                TemporalForm::Time => return None,
             });
+            w.tag(match infinity {
+                TemporalInfinity::Negative => 0,
+                TemporalInfinity::Positive => 1,
+            });
+            write_offset_form(w, t.offset);
+            return Some(());
         }
-        if let Some(tm) = &t.time {
-            w.tag(tm.hour.unwrap_or(0));
-            w.tag(tm.minute.unwrap_or(0));
-            w.tag(tm.second.unwrap_or(0));
-            w.str(&tm.fraction);
+        w.tag(match t.form()? {
+            TemporalForm::Date => 3,
+            TemporalForm::Time => 4,
+            TemporalForm::DateTime => 5,
+        });
+        if let Some(date) = t.date {
+            write_date_form(w, date);
         }
-        if t.time.is_some() {
-            match t.offset {
-                Offset::Local => w.tag(0),
-                Offset::Zulu(case) => {
-                    w.tag(1);
-                    w.tag(if case == ZuluCase::Lower { b'z' } else { b'Z' });
-                }
-                Offset::Fixed(m, _) => {
-                    w.tag(2);
-                    w.i64(i64::from(m));
-                }
-                Offset::NegZero(_) => w.tag(3),
+        if let Some(separator) = t.separator {
+            write_separator(w, separator);
+        }
+        if let Some(time) = &t.time {
+            write_time_form(w, time);
+        }
+        write_offset_form(w, t.offset);
+        Some(())
+    }
+
+    fn write_separator(w: &mut Writer, separator: Separator) {
+        w.tag(match separator {
+            Separator::Upper => b'T',
+            Separator::Lower => b't',
+            Separator::Space => b' ',
+        });
+    }
+
+    fn write_option_u8(w: &mut Writer, value: Option<u8>) {
+        match value {
+            None => w.tag(0),
+            Some(value) => {
+                w.tag(1);
+                w.tag(value);
             }
         }
-        Some(())
+    }
+
+    fn write_date_form(w: &mut Writer, date: DateFields) {
+        match date.year {
+            None => w.tag(0),
+            Some(year) => {
+                w.tag(1);
+                w.i64(year.value);
+                w.tag(u8::from(year.negative_zero));
+                w.u64(u64::try_from(year.width).unwrap_or(u64::MAX));
+            }
+        }
+        write_option_u8(w, date.month);
+        write_option_u8(w, date.day);
+    }
+
+    fn write_time_form(w: &mut Writer, time: &TimeFields) {
+        write_option_u8(w, time.hour);
+        write_option_u8(w, time.minute);
+        write_option_u8(w, time.second);
+        w.str(&time.fraction);
+    }
+
+    const fn offset_form_tag(form: OffsetForm) -> u8 {
+        match form {
+            OffsetForm::Extended => 0,
+            OffsetForm::Basic => 1,
+            OffsetForm::HourOnly => 2,
+            OffsetForm::ExtendedSeconds => 3,
+            OffsetForm::Unwritten => 4,
+        }
+    }
+
+    fn write_offset_form(w: &mut Writer, offset: Offset) {
+        match offset {
+            Offset::Local => w.tag(0),
+            Offset::Zulu(case) => {
+                w.tag(1);
+                w.tag(match case {
+                    ZuluCase::Upper => 0,
+                    ZuluCase::Lower => 1,
+                    ZuluCase::Unwritten => 2,
+                });
+            }
+            Offset::Fixed(minutes, form) => {
+                w.tag(2);
+                w.i64(i64::from(minutes));
+                w.tag(offset_form_tag(form));
+            }
+            Offset::NegZero(form) => {
+                w.tag(3);
+                w.tag(offset_form_tag(form));
+            }
+            Offset::FixedSeconds(seconds) => {
+                w.tag(4);
+                w.i64(i64::from(seconds));
+            }
+        }
     }
 
     pub(crate) fn read_date(r: &mut Reader<'_>) -> Option<DateFields> {
@@ -399,6 +506,80 @@ pub mod canonical {
         })
     }
 
+    #[allow(clippy::option_option)]
+    fn read_option_u8(r: &mut Reader<'_>) -> Option<Option<u8>> {
+        match r.tag()? {
+            0 => Some(None),
+            1 => Some(Some(r.tag()?)),
+            _ => None,
+        }
+    }
+
+    fn read_date_form(r: &mut Reader<'_>) -> Option<DateFields> {
+        let year = match r.tag()? {
+            0 => None,
+            1 => Some(Year {
+                value: r.i64()?,
+                negative_zero: read_bool(r)?,
+                width: usize::try_from(r.u64()?).ok()?,
+            }),
+            _ => return None,
+        };
+        Some(DateFields {
+            year,
+            month: read_option_u8(r)?,
+            day: read_option_u8(r)?,
+        })
+    }
+
+    fn read_time_form(r: &mut Reader<'_>) -> Option<TimeFields> {
+        Some(TimeFields {
+            hour: read_option_u8(r)?,
+            minute: read_option_u8(r)?,
+            second: read_option_u8(r)?,
+            fraction: r.str()?,
+        })
+    }
+
+    fn read_offset_form_tag(r: &mut Reader<'_>) -> Option<OffsetForm> {
+        match r.tag()? {
+            0 => Some(OffsetForm::Extended),
+            1 => Some(OffsetForm::Basic),
+            2 => Some(OffsetForm::HourOnly),
+            3 => Some(OffsetForm::ExtendedSeconds),
+            4 => Some(OffsetForm::Unwritten),
+            _ => None,
+        }
+    }
+
+    fn read_offset_form(r: &mut Reader<'_>) -> Option<Offset> {
+        match r.tag()? {
+            0 => Some(Offset::Local),
+            1 => Some(Offset::Zulu(match r.tag()? {
+                0 => ZuluCase::Upper,
+                1 => ZuluCase::Lower,
+                2 => ZuluCase::Unwritten,
+                _ => return None,
+            })),
+            2 => Some(Offset::Fixed(
+                i16::try_from(r.i64()?).ok()?,
+                read_offset_form_tag(r)?,
+            )),
+            3 => Some(Offset::NegZero(read_offset_form_tag(r)?)),
+            4 => Some(Offset::FixedSeconds(i32::try_from(r.i64()?).ok()?)),
+            _ => None,
+        }
+    }
+
+    fn read_separator(r: &mut Reader<'_>) -> Option<Separator> {
+        match r.tag()? {
+            b'T' => Some(Separator::Upper),
+            b't' => Some(Separator::Lower),
+            b' ' => Some(Separator::Space),
+            _ => None,
+        }
+    }
+
     /// The inverse of [`write_temporal`].
     pub fn read_temporal(r: &mut Reader<'_>) -> Option<Temporal> {
         match r.tag()? {
@@ -407,6 +588,7 @@ pub mod canonical {
                 time: None,
                 separator: None,
                 offset: Offset::Local,
+                infinity: None,
             }),
             1 => {
                 let time = read_time(r)?;
@@ -415,6 +597,7 @@ pub mod canonical {
                     time: Some(time),
                     separator: None,
                     offset: read_offset(r)?,
+                    infinity: None,
                 })
             }
             2 => {
@@ -431,7 +614,52 @@ pub mod canonical {
                     time: Some(time),
                     separator: Some(separator),
                     offset: read_offset(r)?,
+                    infinity: None,
                 })
+            }
+            tag @ (3..=5) => {
+                let form = match tag {
+                    3 => TemporalForm::Date,
+                    4 => TemporalForm::Time,
+                    _ => TemporalForm::DateTime,
+                };
+                let date = if matches!(form, TemporalForm::Date | TemporalForm::DateTime) {
+                    Some(read_date_form(r)?)
+                } else {
+                    None
+                };
+                let separator = if form == TemporalForm::DateTime {
+                    Some(read_separator(r)?)
+                } else {
+                    None
+                };
+                let time = if matches!(form, TemporalForm::Time | TemporalForm::DateTime) {
+                    Some(read_time_form(r)?)
+                } else {
+                    None
+                };
+                let value = Temporal {
+                    date,
+                    time,
+                    separator,
+                    offset: read_offset_form(r)?,
+                    infinity: None,
+                };
+                value.well_formed().then_some(value)
+            }
+            tag @ (6 | 7) => {
+                let infinity = match r.tag()? {
+                    0 => TemporalInfinity::Negative,
+                    1 => TemporalInfinity::Positive,
+                    _ => return None,
+                };
+                let form = if tag == 6 {
+                    TemporalForm::Date
+                } else {
+                    TemporalForm::DateTime
+                };
+                let value = Temporal::infinite(infinity, form, read_offset_form(r)?)?;
+                value.well_formed().then_some(value)
             }
             _ => None,
         }
@@ -465,7 +693,7 @@ pub mod canonical {
     /// The canonical bytes of a value.
     ///
     /// A tag (0 `Bool` to 15 `Temporal`) and its payload; maps as their count and entries in ascending
-    /// key order. `None` when a temporal inside lies outside the complete-form layout.
+    /// key order. `None` only when a public temporal carrier is ill formed.
     pub fn write_value(w: &mut Writer, v: &Value) -> Option<()> {
         match v {
             Value::Bool(b) => {
@@ -1223,7 +1451,9 @@ pub mod coerce {
                     json_number(text).then(|| text.to_owned())
                 }
             }
-            NumeralDialect::Sql => normalize_sql(text, float_kind),
+            NumeralDialect::Sql => {
+                normalize_sql(text, float_kind || matches!(kind, ScalarKind::Decimal))
+            }
         }
     }
 
@@ -1519,8 +1749,8 @@ pub mod coerce {
         decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
     }
 
-    fn normalize_sql(text: &str, float_kind: bool) -> Option<String> {
-        if float_kind {
+    fn normalize_sql(text: &str, admits_specials: bool) -> Option<String> {
+        if admits_specials {
             match text.to_ascii_lowercase().as_str() {
                 "nan" => return Some("NaN".to_owned()),
                 "-nan" => return Some("-NaN".to_owned()),
@@ -1846,6 +2076,24 @@ pub mod coerce {
                     LexClass::Number,
                 )
             }
+            Value::Decimal(Decimal::Infinite { negative }) => (
+                if *negative { "-Infinity" } else { "Infinity" }.to_owned(),
+                LexClass::Number,
+            ),
+            Value::Decimal(Decimal::NaN {
+                negative,
+                signalling,
+                payload,
+            }) => {
+                let sign = if *negative { "-" } else { "" };
+                let signal = if *signalling { "s" } else { "" };
+                let tail = if payload.is_zero() {
+                    String::new()
+                } else {
+                    payload.to_string()
+                };
+                (format!("{sign}{signal}NaN{tail}"), LexClass::Number)
+            }
             Value::Float(bits) => {
                 let narrow = match kind {
                     ScalarKind::Float { bits: 32 } => {
@@ -1905,6 +2153,13 @@ pub mod coerce {
         }
         if let Value::Float(bits) = v
             && !matches!(decode(Format::B64, *bits), FloatValue::Finite { .. })
+        {
+            return Some(Err(FidelityReason::NonFinite));
+        }
+        if matches!(
+            v,
+            Value::Decimal(Decimal::Infinite { .. } | Decimal::NaN { .. })
+        ) && spec.kind == ScalarKind::BigInt
         {
             return Some(Err(FidelityReason::NonFinite));
         }
@@ -2587,8 +2842,10 @@ pub mod exact {
         /// Definition: The General Decimal Arithmetic compare-total order, from its rules:
         /// for representations of sign 0, numbers by value and, at equal value,
         /// by exponent (larger higher); every signalling NaN below every quiet
-        /// NaN, NaNs by payload; all of it reversed for sign 1, and every
-        /// representation of sign 1 below every one of sign 0.
+        /// NaN, NaNs by payload; numeric magnitude and the non-finite classes
+        /// are reversed for sign 1, while the equal-number representation tie
+        /// remains ordered by exponent, and every representation of sign 1 is
+        /// below every one of sign 0.
         ///
         /// Book anchors: `L-values-11`, `L-values-37`.
         #[must_use]
@@ -2599,6 +2856,14 @@ pub mod exact {
                     Ordering::Less
                 } else {
                     Ordering::Greater
+                };
+            }
+            if let (Self::Finite(a), Self::Finite(b)) = (self, other) {
+                let numeric = a.cmp_numeric(b);
+                return if numeric.is_eq() {
+                    a.exponent.cmp(&b.exponent)
+                } else {
+                    numeric
                 };
             }
             let positive = cmp_total_positive(self, other);
@@ -2663,17 +2928,17 @@ pub mod exact {
 
         #[test]
         fn compare_total_follows_its_rules() {
-            // Rules applied to the published list: sign 1 reverses the exponent
-            // rule, so -1 sorts below -1.00 and -0 below -0.000.
+            // Equal finite numbers use their exponent as the representation
+            // tie for either sign, so the finer representation sorts first.
             let order = [
                 "-NaN",
                 "-sNaN",
                 "-Infinity",
                 "-127",
-                "-1",
                 "-1.00",
-                "-0",
+                "-1",
                 "-0.000",
+                "-0",
                 "0",
                 "1.2300",
                 "1.23",
@@ -3382,6 +3647,10 @@ pub mod temporal {
         Basic,
         /// `+hh`.
         HourOnly,
+        /// `+hh:mm:00`; a written seconds field whose value is zero.
+        ExtendedSeconds,
+        /// No offset text was written, though the value carries this offset.
+        Unwritten,
     }
 
     /// The offset a value was written with.
@@ -3394,6 +3663,9 @@ pub mod temporal {
         /// A numeric offset in minutes east of UTC, with its written form; zero
         /// minutes is `+00:00` (or `+0000`, `+00`).
         Fixed(i16, OffsetForm),
+        /// A numeric offset in seconds east of UTC whose seconds component is
+        /// nonzero, written as `+hh:mm:ss` or `-hh:mm:ss`.
+        FixedSeconds(i32),
         /// `-00:00` (or `-0000`, `-00`): UTC known, local offset unknown.
         NegZero(OffsetForm),
     }
@@ -3401,11 +3673,25 @@ pub mod temporal {
     impl Offset {
         /// Minutes east of UTC; `None` for a local value.
         #[must_use]
-        pub const fn minutes(self) -> Option<i64> {
+        #[allow(clippy::missing_const_for_fn)]
+        pub fn minutes(self) -> Option<i64> {
             match self {
                 Self::Local => None,
                 Self::Zulu(_) | Self::NegZero(_) => Some(0),
-                Self::Fixed(m, _) => Some(m as i64),
+                Self::Fixed(m, _) => Some(i64::from(m)),
+                Self::FixedSeconds(seconds) => Some(i64::from(seconds) / 60),
+            }
+        }
+
+        /// Seconds east of UTC; `None` for a local value.
+        #[must_use]
+        #[allow(clippy::missing_const_for_fn)]
+        pub fn seconds(self) -> Option<i64> {
+            match self {
+                Self::Local => None,
+                Self::Zulu(_) | Self::NegZero(_) => Some(0),
+                Self::Fixed(m, _) => Some(i64::from(m) * 60),
+                Self::FixedSeconds(seconds) => Some(i64::from(seconds)),
             }
         }
 
@@ -3462,6 +3748,50 @@ pub mod temporal {
         Space,
     }
 
+    /// The declared form used to parse or classify a temporal value.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum TemporalForm {
+        /// A date form.
+        Date,
+        /// A time form.
+        Time,
+        /// A date-time form.
+        DateTime,
+    }
+
+    /// The exact lexical descriptor used by the display/parse laws.
+    ///
+    /// A carrier kind alone is insufficient: `1973-06` can be a local
+    /// year-month or the year 1973 with an hour-only `-06` offset. This
+    /// descriptor records the field shape and every written-form choice that
+    /// selects one of those values. The exact offset value is retained so an
+    /// unwritten offset can round-trip even though its magnitude is absent
+    /// from the lexeme.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct TemporalLexicalForm {
+        /// Date, time, or date-time carrier.
+        pub kind: TemporalForm,
+        /// Presence of `(year, month, day)`, or no date part.
+        pub date_shape: Option<(bool, bool, bool)>,
+        /// Presence of `(hour, minute, second)`, or no time part.
+        pub time_shape: Option<(bool, bool, bool)>,
+        /// The date/time separator, if any.
+        pub separator: Option<Separator>,
+        /// The exact written or unwritten offset representation.
+        pub offset: Offset,
+        /// The infinity sign, if this descriptor is for an infinity.
+        pub infinity: Option<TemporalInfinity>,
+    }
+
+    /// A temporal infinity, ordered outside every finite value of its form.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum TemporalInfinity {
+        /// Negative infinity.
+        Negative,
+        /// Positive infinity.
+        Positive,
+    }
+
     /// A temporal value: a date, a time, or both, and an offset.
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub struct Temporal {
@@ -3473,6 +3803,8 @@ pub mod temporal {
         pub separator: Option<Separator>,
         /// The offset.
         pub offset: Offset,
+        /// A date or date-time infinity; finite values carry `None`.
+        pub infinity: Option<(TemporalInfinity, TemporalForm)>,
     }
 
     /// Which fields a value has: the comparability classes of the order.
@@ -3482,6 +3814,8 @@ pub mod temporal {
         pub date: Option<(bool, bool, bool)>,
         /// Time fields present (hour, minute, second).
         pub time: Option<(bool, bool, bool)>,
+        /// The form of an infinity, absent for a finite value.
+        pub infinity: Option<TemporalForm>,
     }
 
     impl Temporal {
@@ -3496,15 +3830,162 @@ pub mod temporal {
                     .time
                     .as_ref()
                     .map(|t| (t.hour.is_some(), t.minute.is_some(), t.second.is_some())),
+                infinity: self.infinity.map(|(_, form)| form),
             }
+        }
+
+        /// The declared form of this value.
+        #[must_use]
+        pub const fn form(&self) -> Option<TemporalForm> {
+            if let Some((_, form)) = self.infinity {
+                return Some(form);
+            }
+            match (self.date.is_some(), self.time.is_some()) {
+                (true, false) => Some(TemporalForm::Date),
+                (false, true) => Some(TemporalForm::Time),
+                (true, true) => Some(TemporalForm::DateTime),
+                (false, false) => None,
+            }
+        }
+
+        /// The exact descriptor needed to parse this value's displayed
+        /// lexeme without choosing between colliding standard forms.
+        #[must_use]
+        pub fn lexical_form(&self) -> Option<TemporalLexicalForm> {
+            if !self.well_formed() {
+                return None;
+            }
+            Some(TemporalLexicalForm {
+                kind: self.form()?,
+                date_shape: self.date.map(|date| {
+                    (
+                        date.year.is_some(),
+                        date.month.is_some(),
+                        date.day.is_some(),
+                    )
+                }),
+                time_shape: self.time.as_ref().map(|time| {
+                    (
+                        time.hour.is_some(),
+                        time.minute.is_some(),
+                        time.second.is_some(),
+                    )
+                }),
+                separator: self.separator,
+                offset: self.offset,
+                infinity: self.infinity.map(|(sign, _)| sign),
+            })
+        }
+
+        /// Construct a date or date-time infinity with its local or carried
+        /// offset. Time-only infinities are outside the carrier.
+        #[must_use]
+        pub fn infinite(
+            sign: TemporalInfinity,
+            form: TemporalForm,
+            offset: Offset,
+        ) -> Option<Self> {
+            (form != TemporalForm::Time).then_some(Self {
+                date: None,
+                time: None,
+                separator: None,
+                offset,
+                infinity: Some((sign, form)),
+            })
+        }
+
+        /// Whether the public fields denote one admitted finite form or one
+        /// admitted date/date-time infinity.
+        #[must_use]
+        pub fn well_formed(&self) -> bool {
+            let offset_ok = match self.offset {
+                Offset::Local | Offset::Zulu(_) => true,
+                Offset::Fixed(minutes, form) => {
+                    minutes.unsigned_abs() < 24 * 60
+                        && (form != OffsetForm::HourOnly || minutes % 60 == 0)
+                }
+                Offset::FixedSeconds(seconds) => {
+                    seconds.unsigned_abs() < 24 * 60 * 60 && seconds % 60 != 0
+                }
+                Offset::NegZero(form) => form != OffsetForm::Unwritten,
+            };
+            if !offset_ok {
+                return false;
+            }
+            if let Some((_, form)) = self.infinity {
+                return form != TemporalForm::Time
+                    && self.date.is_none()
+                    && self.time.is_none()
+                    && self.separator.is_none();
+            }
+            let Some(form) = self.form() else {
+                return false;
+            };
+            if self.separator.is_some() != (form == TemporalForm::DateTime) {
+                return false;
+            }
+            if let Some(date) = self.date {
+                let shape = (
+                    date.year.is_some(),
+                    date.month.is_some(),
+                    date.day.is_some(),
+                );
+                if !matches!(
+                    shape,
+                    (true, false | true, false)
+                        | (true | false, true, true)
+                        | (false, true, false)
+                        | (false, false, true)
+                ) || !valid_date(&date)
+                {
+                    return false;
+                }
+                if let Some(year) = date.year {
+                    let width = year.value.unsigned_abs().to_string().len().max(4);
+                    if year.width != width || (year.negative_zero && year.value != 0) {
+                        return false;
+                    }
+                }
+            }
+            if let Some(time) = &self.time {
+                let shape = (
+                    time.hour.is_some(),
+                    time.minute.is_some(),
+                    time.second.is_some(),
+                );
+                if !matches!(
+                    shape,
+                    (true, false | true, false)
+                        | (true | false, true, true)
+                        | (false, true, false)
+                        | (false, false, true)
+                ) || time.hour.is_some_and(|hour| hour > 23)
+                    || time.minute.is_some_and(|minute| minute > 59)
+                    || time.second.is_some_and(|second| second > 60)
+                    || (!time.fraction.is_empty()
+                        && (time.second.is_none()
+                            || !time.fraction.bytes().all(|byte| byte.is_ascii_digit())))
+                {
+                    return false;
+                }
+            }
+            form != TemporalForm::DateTime
+                || (self.date.is_some_and(|date| {
+                    let full = date.year.is_some() && date.month.is_some() && date.day.is_some();
+                    let day_only =
+                        date.year.is_none() && date.month.is_none() && date.day.is_some();
+                    full || day_only
+                }) && self.time.as_ref().is_some_and(|time| time.hour.is_some()))
         }
 
         /// Whether the shape is front-truncated (a date without its year, or a
         /// time-only value without its hour).
         #[must_use]
         pub fn is_truncated(&self) -> bool {
-            self.date.is_some_and(|d| d.year.is_none())
-                || (self.date.is_none() && self.time.as_ref().is_some_and(|t| t.hour.is_none()))
+            self.infinity.is_none()
+                && (self.date.is_some_and(|d| d.year.is_none())
+                    || (self.date.is_none()
+                        && self.time.as_ref().is_some_and(|t| t.hour.is_none())))
         }
 
         /// Whether this is one of the complete forms: a full date, a full time,
@@ -3518,7 +3999,10 @@ pub mod temporal {
                 .time
                 .as_ref()
                 .is_none_or(|t| t.hour.is_some() && t.minute.is_some() && t.second.is_some());
-            full_date && full_time && (self.date.is_some() || self.time.is_some())
+            self.infinity.is_none()
+                && full_date
+                && full_time
+                && (self.date.is_some() || self.time.is_some())
         }
     }
 
@@ -3575,11 +4059,10 @@ pub mod temporal {
 
     /// The key a value is ordered by within its comparability class.
     ///
-    /// For a value with a year: the minute index of its first moment (days of
-    /// its first day times 1440 plus hour times 60 plus minute, missing fields
-    /// taken at their least value) less its offset in minutes when zoned, then
-    /// the second and the fraction. A leap second is the second 60 of its
-    /// minute, after second 59 and before the next minute's second 0. For a
+    /// For a value with a year: twice the second index of its first moment,
+    /// with a leap second placed on the odd point between second 59 and the
+    /// next minute, less twice its offset in seconds. Missing fields take
+    /// their least value. For a
     /// value without a year that is not truncated (a time): the same with no
     /// days. For a truncated value: its present fields, most significant first.
     fn order_key(v: &Temporal) -> Option<(Vec<i128>, String)> {
@@ -3608,14 +4091,19 @@ pub mod temporal {
         });
         let hour = v.time.as_ref().and_then(|t| t.hour).map_or(0, i128::from);
         let minute = v.time.as_ref().and_then(|t| t.minute).map_or(0, i128::from);
-        let shift = i128::from(v.offset.minutes().unwrap_or(0));
-        let minutes = days
+        let shift = i128::from(v.offset.seconds().unwrap_or(0));
+        let minute_index = days
             .unwrap_or(0)
             .checked_mul(1440)?
             .checked_add(hour.checked_mul(60)?)?
-            .checked_add(minute)?
-            .checked_sub(shift)?;
-        Some((vec![minutes, second], fraction))
+            .checked_add(minute)?;
+        let ordinary_second = second.min(59);
+        let seconds_twice = minute_index
+            .checked_mul(120)?
+            .checked_add(ordinary_second.checked_mul(2)?)?
+            .checked_add(i128::from(second == 60))?
+            .checked_sub(shift.checked_mul(2)?)?;
+        Some((vec![seconds_twice], fraction))
     }
 
     /// Compare two fractional-second digit strings as decimal fractions: the
@@ -3631,9 +4119,14 @@ pub mod temporal {
     /// and, for a truncated shape, offsets of equal minutes.
     #[must_use]
     pub fn comparable(a: &Temporal, b: &Temporal) -> bool {
-        a.shape() == b.shape()
+        let same_shape = if a.infinity.is_some() || b.infinity.is_some() {
+            a.form() == b.form()
+        } else {
+            a.shape() == b.shape()
+        };
+        same_shape
             && a.offset.is_zoned() == b.offset.is_zoned()
-            && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
+            && (!a.is_truncated() || a.offset.seconds() == b.offset.seconds())
     }
 
     /// Definition: The partial chronological order: `None` for incomparable values, else
@@ -3646,20 +4139,30 @@ pub mod temporal {
         if !comparable(a, b) {
             return None;
         }
+        match (a.infinity, b.infinity) {
+            (Some((left, _)), Some((right, _))) => return Some(left.cmp(&right)),
+            (Some((TemporalInfinity::Negative, _)), None)
+            | (None, Some((TemporalInfinity::Positive, _))) => return Some(Ordering::Less),
+            (Some((TemporalInfinity::Positive, _)), None)
+            | (None, Some((TemporalInfinity::Negative, _))) => return Some(Ordering::Greater),
+            (None, None) => {}
+        }
         let (ka, fa) = order_key(a)?;
         let (kb, fb) = order_key(b)?;
         Some(ka.cmp(&kb).then_with(|| cmp_fraction(&fa, &fb)))
     }
 
-    /// The kind a parser reads.
+    /// Backward-compatible name for the form-indexed parser discriminant.
+    pub type TemporalKind = TemporalForm;
+
+    /// Why the kind-union parser refused a temporal lexeme.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum TemporalKind {
-        /// Date forms (complete, reduced, front-truncated).
-        Date,
-        /// Time forms (complete, reduced, front-truncated).
-        Time,
-        /// Date-time forms.
-        DateTime,
+    pub enum TemporalParseError {
+        /// No form accepts the lexeme.
+        InvalidTemporal,
+        /// More than one form accepts the lexeme, so guessing would discard
+        /// a standard value.
+        AmbiguousTemporal,
     }
 
     fn digits_n(s: &str, n: usize) -> Option<u8> {
@@ -3821,8 +4324,40 @@ pub mod temporal {
             Some(b'-') => (true, &s[1..]),
             _ => return None,
         };
-        let (h, m, form) = if let Some((h, m)) = body.split_once(':') {
-            (digits_n(h, 2)?, digits_n(m, 2)?, OffsetForm::Extended)
+        let pieces: Vec<&str> = body.split(':').collect();
+        if pieces.len() == 3 {
+            let (h, m, second) = (
+                digits_n(pieces[0], 2)?,
+                digits_n(pieces[1], 2)?,
+                digits_n(pieces[2], 2)?,
+            );
+            if h > 23 || m > 59 || second > 59 {
+                return None;
+            }
+            let minutes = i16::from(h) * 60 + i16::from(m);
+            if second == 0 {
+                return Some(if minutes == 0 && negative {
+                    Offset::NegZero(OffsetForm::ExtendedSeconds)
+                } else {
+                    Offset::Fixed(
+                        if negative { -minutes } else { minutes },
+                        OffsetForm::ExtendedSeconds,
+                    )
+                });
+            }
+            let seconds = i32::from(minutes) * 60 + i32::from(second);
+            return Some(Offset::FixedSeconds(if negative {
+                -seconds
+            } else {
+                seconds
+            }));
+        }
+        let (h, m, form) = if pieces.len() == 2 {
+            (
+                digits_n(pieces[0], 2)?,
+                digits_n(pieces[1], 2)?,
+                OffsetForm::Extended,
+            )
         } else if body.len() == 4 {
             (
                 digits_n(&body[..2], 2)?,
@@ -3858,93 +4393,167 @@ pub mod temporal {
         out
     }
 
-    fn single<T>(mut v: Vec<T>) -> Option<T> {
-        if v.len() == 1 { v.pop() } else { None }
-    }
-
-    fn longest_body<T>(v: Vec<T>) -> Option<T> {
-        v.into_iter().next()
-    }
-
-    /// Read a lexeme of `kind`; `None` when it is not one form of that kind.
-    ///
-    /// When a lexeme splits into a body and an offset in more than one way the
-    /// longest body is read: `1973-06` is a year and month, not the year 1973
-    /// at offset `-06`. (A year or year-month with an hour-only or basic
-    /// offset whose digits could continue the date is therefore not
-    /// readable; its `Display` reads back as the longer date.)
-    #[must_use]
-    pub fn parse(kind: TemporalKind, s: &str) -> Option<Temporal> {
-        match kind {
-            TemporalKind::Date => {
-                longest_body(splits(s, parse_date_body)).map(|(d, offset)| Temporal {
-                    date: Some(d),
+    fn parse_candidates(form: TemporalForm, s: &str) -> Vec<Temporal> {
+        let infinity = match s {
+            "-infinity" => Some(TemporalInfinity::Negative),
+            "infinity" => Some(TemporalInfinity::Positive),
+            _ => None,
+        };
+        if let Some(sign) = infinity {
+            return Temporal::infinite(sign, form, Offset::Local)
+                .into_iter()
+                .collect();
+        }
+        match form {
+            TemporalForm::Date => splits(s, parse_date_body)
+                .into_iter()
+                .map(|(date, offset)| Temporal {
+                    date: Some(date),
                     time: None,
                     separator: None,
                     offset,
+                    infinity: None,
                 })
-            }
-            TemporalKind::Time => {
-                longest_body(splits(s, parse_time_body)).map(|(t, offset)| Temporal {
+                .collect(),
+            TemporalForm::Time => splits(s, parse_time_body)
+                .into_iter()
+                .map(|(time, offset)| Temporal {
                     date: None,
-                    time: Some(t),
+                    time: Some(time),
                     separator: None,
                     offset,
+                    infinity: None,
                 })
+                .collect(),
+            TemporalForm::DateTime => splits(s, |body| {
+                let at = body.find(['T', 't', ' '])?;
+                let separator = match &body[at..=at] {
+                    "T" => Separator::Upper,
+                    "t" => Separator::Lower,
+                    _ => Separator::Space,
+                };
+                let date = parse_date_body(&body[..at])?;
+                let full = date.year.is_some() && date.month.is_some() && date.day.is_some();
+                let day_only = date.year.is_none() && date.month.is_none() && date.day.is_some();
+                let time = parse_time_body(&body[at + 1..])?;
+                (time.hour.is_some() && (full || day_only)).then_some((date, separator, time))
+            })
+            .into_iter()
+            .map(|((date, separator, time), offset)| Temporal {
+                date: Some(date),
+                time: Some(time),
+                separator: Some(separator),
+                offset,
+                infinity: None,
+            })
+            .collect(),
+        }
+    }
+
+    /// Read a lexeme using its exact lexical descriptor.
+    ///
+    /// Definition: among all standard parses of `text`, return the unique
+    /// value with descriptor `form`. An unwritten offset is supplied by the
+    /// descriptor because its magnitude has no lexical representation.
+    ///
+    /// Book anchors: `L-values-15`, `L-values-16`.
+    #[must_use]
+    pub fn parse_as(form: TemporalLexicalForm, text: &str) -> Option<Temporal> {
+        if let Some(sign) = form.infinity {
+            let spelling = match sign {
+                TemporalInfinity::Negative => "-infinity",
+                TemporalInfinity::Positive => "infinity",
+            };
+            return (text == spelling)
+                .then(|| Temporal::infinite(sign, form.kind, form.offset))
+                .flatten()
+                .filter(|value| value.lexical_form() == Some(form));
+        }
+        let unwritten = matches!(
+            form.offset,
+            Offset::Zulu(ZuluCase::Unwritten) | Offset::Fixed(_, OffsetForm::Unwritten)
+        );
+        let mut matches = parse_candidates(form.kind, text)
+            .into_iter()
+            .filter_map(|mut value| {
+                if unwritten && value.offset == Offset::Local {
+                    value.offset = form.offset;
+                }
+                (value.lexical_form() == Some(form)).then_some(value)
+            });
+        let value = matches.next()?;
+        matches.next().is_none().then_some(value)
+    }
+
+    /// Compatibility parser for a declared carrier kind.
+    ///
+    /// If the body/offset split is ambiguous within the kind, this preserves
+    /// the historical longest-body policy. Exact round trips use [`parse_as`]
+    /// with [`Temporal::lexical_form`] instead.
+    #[must_use]
+    pub fn parse(kind: TemporalKind, s: &str) -> Option<Temporal> {
+        parse_candidates(kind, s).into_iter().next()
+    }
+
+    impl Temporal {
+        /// Read `text` under an exact lexical descriptor.
+        #[must_use]
+        pub fn parse_as(form: TemporalLexicalForm, text: &str) -> Option<Self> {
+            parse_as(form, text)
+        }
+    }
+
+    /// Read a lexeme with no descriptor, refusing ambiguity both across
+    /// carrier kinds and between body/offset splits within one kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TemporalParseError::InvalidTemporal`] when no form accepts
+    /// the lexeme and [`TemporalParseError::AmbiguousTemporal`] when more than
+    /// one distinct value accepts it.
+    pub fn parse_union(s: &str) -> Result<Temporal, TemporalParseError> {
+        let mut all = Vec::new();
+        for kind in [
+            TemporalForm::Date,
+            TemporalForm::Time,
+            TemporalForm::DateTime,
+        ] {
+            for value in parse_candidates(kind, s) {
+                if !all.contains(&value) {
+                    all.push(value);
+                }
             }
-            TemporalKind::DateTime => {
-                let parsed = splits(s, |body| {
-                    let at = body.find(['T', 't', ' '])?;
-                    let separator = match &body[at..=at] {
-                        "T" => Separator::Upper,
-                        "t" => Separator::Lower,
-                        _ => Separator::Space,
-                    };
-                    let date = parse_date_body(&body[..at])?;
-                    let full = date.year.is_some() && date.month.is_some() && date.day.is_some();
-                    let day_only =
-                        date.year.is_none() && date.month.is_none() && date.day.is_some();
-                    let time = parse_time_body(&body[at + 1..])?;
-                    (time.hour.is_some() && (full || day_only)).then_some((date, separator, time))
-                });
-                longest_body(parsed).map(|((date, separator, time), offset)| Temporal {
-                    date: Some(date),
-                    time: Some(time),
-                    separator: Some(separator),
-                    offset,
-                })
-            }
+        }
+        match all.as_slice() {
+            [one] => Ok(one.clone()),
+            [] => Err(TemporalParseError::InvalidTemporal),
+            _ => Err(TemporalParseError::AmbiguousTemporal),
         }
     }
 
     /// Read a lexeme with no declared kind: exactly one kind must read it.
     #[must_use]
     pub fn parse_any(s: &str) -> Option<Temporal> {
-        let all: Vec<Temporal> = [
-            TemporalKind::Date,
-            TemporalKind::Time,
-            TemporalKind::DateTime,
-        ]
-        .into_iter()
-        .filter_map(|k| parse(k, s))
-        .collect();
-        single(all)
+        parse_union(s).ok()
     }
 
-    /// Definition: The parse-then-display law for a kind-directed accepted lexeme.
+    /// Definition: The parse-then-display law for an exact-descriptor accepted lexeme.
     ///
     /// Book anchors: `L-values-15`.
     #[must_use]
-    pub fn parse_display(kind: TemporalKind, text: &str) -> bool {
-        parse(kind, text).is_some_and(|value| value.to_string() == text)
+    pub fn parse_display(form: TemporalLexicalForm, text: &str) -> bool {
+        parse_as(form, text).is_some_and(|value| value.to_string() == text)
     }
 
-    /// Definition: The display-then-parse law for a value of `kind`.
+    /// Definition: The display-then-parse law under the value's exact lexical
+    /// descriptor.
     ///
     /// Book anchors: `L-values-16`.
     #[must_use]
-    pub fn display_parse(kind: TemporalKind, value: &Temporal) -> bool {
-        parse(kind, &value.to_string()).as_ref() == Some(value)
+    pub fn display_parse(value: &Temporal) -> bool {
+        value
+            .lexical_form()
+            .is_some_and(|form| parse_as(form, &value.to_string()).as_ref() == Some(value))
     }
 
     /// Definition: Canonical bytes of a temporal value.
@@ -4065,6 +4674,7 @@ pub mod temporal {
             } else {
                 Offset::Local
             },
+            infinity: None,
         })
     }
 
@@ -4095,6 +4705,17 @@ pub mod temporal {
             time.minute?,
             time.second?,
         );
+        let canonical_width = year.value.unsigned_abs().to_string().len().max(4);
+        if year.width != canonical_width
+            || !(1..=12).contains(&month)
+            || day == 0
+            || day > month_length(year.value, month)
+            || hour > 23
+            || minute > 59
+            || second > 59
+        {
+            return None;
+        }
         let digits = usize::try_from(unit.digits()).ok()?;
         if time.fraction.len() != digits || !time.fraction.bytes().all(|byte| byte.is_ascii_digit())
         {
@@ -4123,6 +4744,8 @@ pub mod temporal {
                     OffsetForm::Extended => write!(f, "{sign}{h:02}:{mm:02}"),
                     OffsetForm::Basic => write!(f, "{sign}{h:02}{mm:02}"),
                     OffsetForm::HourOnly => write!(f, "{sign}{h:02}"),
+                    OffsetForm::ExtendedSeconds => write!(f, "{sign}{h:02}:{mm:02}:00"),
+                    OffsetForm::Unwritten => Ok(()),
                 }
             };
             match *self {
@@ -4133,6 +4756,17 @@ pub mod temporal {
                 Self::Fixed(m, form) => {
                     let sign = if m < 0 { '-' } else { '+' };
                     numeric(f, sign, i64::from(m).abs(), form)
+                }
+                Self::FixedSeconds(seconds) => {
+                    let sign = if seconds < 0 { '-' } else { '+' };
+                    let magnitude = i64::from(seconds).abs();
+                    write!(
+                        f,
+                        "{sign}{:02}:{:02}:{:02}",
+                        magnitude / 3_600,
+                        magnitude % 3_600 / 60,
+                        magnitude % 60
+                    )
                 }
             }
         }
@@ -4195,6 +4829,12 @@ pub mod temporal {
     impl fmt::Display for Temporal {
         /// The lexeme back, in every written form the value records.
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            if let Some((infinity, _)) = self.infinity {
+                return f.write_str(match infinity {
+                    TemporalInfinity::Negative => "-infinity",
+                    TemporalInfinity::Positive => "infinity",
+                });
+            }
             if let Some(d) = &self.date {
                 write_date(f, d)?;
             }
@@ -4336,9 +4976,12 @@ pub mod value {
     //! The instance value model: every variant a cell or a node value can hold,
     //! with floats held by their bit patterns so that equality is bit-wise.
 
+    use std::cmp::Ordering;
     use std::collections::BTreeMap;
 
-    use crate::exact::{BigIntValue, Decimal, ExactInteger};
+    use crate::exact::{BigIntValue, Decimal, DecimalValue, ExactInteger, parse_decimal};
+    use crate::float::CANONICAL_NAN_BITS;
+    use crate::num::Int;
     use crate::temporal::Temporal;
 
     /// An instance value.
@@ -4437,7 +5080,82 @@ pub mod value {
         Some(crate::canonical::value_bytes(left)? == crate::canonical::value_bytes(right)?)
     }
 
-    /// The small, total expression language used by reference predicates.
+    /// Exact-value and numeric operations of the reference expression layer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum BuiltinOp {
+        /// Numeric addition.
+        Add,
+        /// Numeric subtraction.
+        Sub,
+        /// Numeric multiplication.
+        Mul,
+        /// Numeric division.
+        Div,
+        /// Integer remainder.
+        Mod,
+        /// Numeric negation.
+        Neg,
+        /// Numeric absolute value.
+        Abs,
+        /// Representation equality.
+        Eq,
+        /// Representation inequality.
+        Ne,
+        /// Strict ordering.
+        Lt,
+        /// Nonstrict ordering.
+        Lte,
+        /// Strict reverse ordering.
+        Gt,
+        /// Nonstrict reverse ordering.
+        Gte,
+        /// Lossless lexical conversion.
+        ToString,
+        /// Exact decimal parsing/conversion.
+        ParseDecimal,
+        /// Explicit lossy decimal/integer-to-float conversion.
+        DecimalToFloat,
+    }
+
+    /// A typed expression refusal.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum EvalError {
+        /// A variable was not bound.
+        UnboundVariable(String),
+        /// An operation received an inadmissible type.
+        TypeError {
+            /// Expected family.
+            expected: &'static str,
+            /// Actual type.
+            got: &'static str,
+        },
+        /// An arithmetic operation was applied to an exact value.
+        ExactArithmetic {
+            /// Operation.
+            op: BuiltinOp,
+            /// Exact operand type.
+            operand: &'static str,
+        },
+        /// Wrong number of arguments.
+        ArityMismatch {
+            /// Operation.
+            op: BuiltinOp,
+            /// Expected arity.
+            expected: usize,
+            /// Actual arity.
+            got: usize,
+        },
+        /// Integer arithmetic overflowed.
+        Overflow,
+        /// Division or remainder by zero.
+        DivisionByZero,
+        /// A string is not a decimal.
+        InvalidDecimal(String),
+        /// Canonical representation was undefined for an ill-formed carrier.
+        UndefinedRepresentation,
+    }
+
+    /// The small expression language used by reference predicates.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Expr {
         /// A literal.
@@ -4450,36 +5168,424 @@ pub mod value {
         Equal(Box<Self>, Box<Self>),
         /// A conditional; only a boolean condition is defined.
         If(Box<Self>, Box<Self>, Box<Self>),
+        /// A named exact/numeric builtin.
+        Builtin(BuiltinOp, Vec<Self>),
     }
 
     /// Definition: Evaluate an expression in a finite environment.
     ///
-    /// `None` is the deliberately explicit refusal for an unbound variable, a
-    /// non-boolean condition, or a value outside canonical representation
-    /// equality's domain.
+    /// Evaluation is exact. Arithmetic accepts only `Int` and `Float`; exact
+    /// decimals, big integers and temporals require an explicit conversion and
+    /// otherwise return [`EvalError::ExactArithmetic`]. A NaN produced by a
+    /// builtin is canonicalized, while a literal, variable, list member or
+    /// selected branch passes its stored NaN bits through unchanged.
     ///
     /// Book anchors: `L-values-14`.
-    #[must_use]
-    pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Option<Value> {
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed [`EvalError`] for an unbound variable, an ill-typed or
+    /// inexact built-in operation, or an operation outside its exact domain.
+    pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Result<Value, EvalError> {
         match expr {
-            Expr::Literal(value) => Some(value.clone()),
-            Expr::Variable(name) => environment.get(name).cloned(),
+            Expr::Literal(value) => Ok(value.clone()),
+            Expr::Variable(name) => environment
+                .get(name)
+                .cloned()
+                .ok_or_else(|| EvalError::UnboundVariable(name.clone())),
             Expr::List(items) => items
                 .iter()
                 .map(|item| eval(item, environment))
-                .collect::<Option<Vec<_>>>()
+                .collect::<Result<Vec<_>, _>>()
                 .map(Value::List),
             Expr::Equal(left, right) => {
                 let left = eval(left, environment)?;
                 let right = eval(right, environment)?;
-                representation(&left, &right).map(Value::Bool)
+                representation(&left, &right)
+                    .map(Value::Bool)
+                    .ok_or(EvalError::UndefinedRepresentation)
             }
             Expr::If(condition, then_expr, else_expr) => match eval(condition, environment)? {
                 Value::Bool(true) => eval(then_expr, environment),
                 Value::Bool(false) => eval(else_expr, environment),
+                other => Err(type_error("bool", &other)),
+            },
+            Expr::Builtin(op, arguments) => {
+                let values = arguments
+                    .iter()
+                    .map(|argument| eval(argument, environment))
+                    .collect::<Result<Vec<_>, _>>()?;
+                apply_builtin(*op, &values)
+            }
+        }
+    }
+
+    const fn type_name(value: &Value) -> &'static str {
+        match value {
+            Value::Bool(_) => "bool",
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::Str(_) => "string",
+            Value::Bytes(_) => "bytes",
+            Value::CidLink(_) => "cid_link",
+            Value::Blob { .. } => "blob",
+            Value::Token(_) => "token",
+            Value::Null => "null",
+            Value::Opaque { .. } => "opaque",
+            Value::Unknown(_) => "unknown",
+            Value::List(_) => "list",
+            Value::LabeledNull(_) => "labeled_null",
+            Value::Decimal(_) => "decimal",
+            Value::BigInt(_) => "bigint",
+            Value::Temporal(_) => "temporal",
+        }
+    }
+
+    const fn type_error(expected: &'static str, got: &Value) -> EvalError {
+        EvalError::TypeError {
+            expected,
+            got: type_name(got),
+        }
+    }
+
+    const fn is_exact(value: &Value) -> bool {
+        matches!(
+            value,
+            Value::Decimal(_) | Value::BigInt(_) | Value::Temporal(_)
+        )
+    }
+
+    const fn expected_arity(op: BuiltinOp) -> usize {
+        match op {
+            BuiltinOp::Neg
+            | BuiltinOp::Abs
+            | BuiltinOp::ToString
+            | BuiltinOp::ParseDecimal
+            | BuiltinOp::DecimalToFloat => 1,
+            _ => 2,
+        }
+    }
+
+    /// Apply one exact/numeric builtin to already evaluated arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvalError::ArityMismatch`] for the wrong number of arguments,
+    /// or the operation's typed domain, arithmetic, parsing, or representation
+    /// error.
+    pub fn apply_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
+        let expected = expected_arity(op);
+        if arguments.len() != expected {
+            return Err(EvalError::ArityMismatch {
+                op,
+                expected,
+                got: arguments.len(),
+            });
+        }
+        match op {
+            BuiltinOp::Add | BuiltinOp::Sub | BuiltinOp::Mul | BuiltinOp::Div => {
+                numeric_binop(op, &arguments[0], &arguments[1])
+            }
+            BuiltinOp::Mod => integer_remainder(&arguments[0], &arguments[1]),
+            BuiltinOp::Neg | BuiltinOp::Abs => numeric_unary(op, &arguments[0]),
+            BuiltinOp::Eq | BuiltinOp::Ne => {
+                let equal = representation(&arguments[0], &arguments[1])
+                    .ok_or(EvalError::UndefinedRepresentation)?;
+                Ok(Value::Bool(if op == BuiltinOp::Eq {
+                    equal
+                } else {
+                    !equal
+                }))
+            }
+            BuiltinOp::Lt | BuiltinOp::Lte | BuiltinOp::Gt | BuiltinOp::Gte => {
+                let order = compare(&arguments[0], &arguments[1])?;
+                Ok(Value::Bool(match op {
+                    BuiltinOp::Lt => order.is_lt(),
+                    BuiltinOp::Lte => !order.is_gt(),
+                    BuiltinOp::Gt => order.is_gt(),
+                    BuiltinOp::Gte => !order.is_lt(),
+                    _ => false,
+                }))
+            }
+            BuiltinOp::ToString => to_string_value(&arguments[0]).map(Value::Str),
+            BuiltinOp::ParseDecimal => parse_decimal_value(&arguments[0]),
+            BuiltinOp::DecimalToFloat => decimal_to_float(&arguments[0]),
+        }
+    }
+
+    const fn canonical_float(value: f64) -> u64 {
+        if value.is_nan() {
+            CANONICAL_NAN_BITS
+        } else {
+            value.to_bits()
+        }
+    }
+
+    fn exact_arithmetic(op: BuiltinOp, values: &[&Value]) -> Option<EvalError> {
+        values
+            .iter()
+            .find(|value| is_exact(value))
+            .map(|value| EvalError::ExactArithmetic {
+                op,
+                operand: type_name(value),
+            })
+    }
+
+    fn numeric_binop(op: BuiltinOp, left: &Value, right: &Value) -> Result<Value, EvalError> {
+        if let Some(error) = exact_arithmetic(op, &[left, right]) {
+            return Err(error);
+        }
+        match (left, right) {
+            (Value::Int(a), Value::Int(b)) => {
+                if op == BuiltinOp::Div && *b == 0 {
+                    return Err(EvalError::DivisionByZero);
+                }
+                let result = match op {
+                    BuiltinOp::Add => a.checked_add(*b),
+                    BuiltinOp::Sub => a.checked_sub(*b),
+                    BuiltinOp::Mul => a.checked_mul(*b),
+                    BuiltinOp::Div => a.checked_div(*b),
+                    _ => None,
+                };
+                result.map(Value::Int).ok_or(EvalError::Overflow)
+            }
+            (Value::Int(a), Value::Float(b)) => float_binop(op, int_as_f64(*a), f64::from_bits(*b)),
+            (Value::Float(a), Value::Int(b)) => float_binop(op, f64::from_bits(*a), int_as_f64(*b)),
+            (Value::Float(a), Value::Float(b)) => {
+                float_binop(op, f64::from_bits(*a), f64::from_bits(*b))
+            }
+            (other, _) => Err(type_error("int|float", other)),
+        }
+    }
+
+    fn int_as_f64(value: i64) -> f64 {
+        value.to_string().parse().unwrap_or(if value < 0 {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        })
+    }
+
+    fn float_binop(op: BuiltinOp, left: f64, right: f64) -> Result<Value, EvalError> {
+        if op == BuiltinOp::Div && right == 0.0 {
+            return Err(EvalError::DivisionByZero);
+        }
+        let value = match op {
+            BuiltinOp::Add => left + right,
+            BuiltinOp::Sub => left - right,
+            BuiltinOp::Mul => left * right,
+            BuiltinOp::Div => left / right,
+            _ => {
+                return Err(EvalError::TypeError {
+                    expected: "arithmetic",
+                    got: "builtin",
+                });
+            }
+        };
+        Ok(Value::Float(canonical_float(value)))
+    }
+
+    fn integer_remainder(left: &Value, right: &Value) -> Result<Value, EvalError> {
+        if let Some(error) = exact_arithmetic(BuiltinOp::Mod, &[left, right]) {
+            return Err(error);
+        }
+        match (left, right) {
+            (Value::Int(_), Value::Int(0)) => Err(EvalError::DivisionByZero),
+            (Value::Int(a), Value::Int(b)) => {
+                a.checked_rem(*b).map(Value::Int).ok_or(EvalError::Overflow)
+            }
+            (other, _) => Err(type_error("int", other)),
+        }
+    }
+
+    fn numeric_unary(op: BuiltinOp, value: &Value) -> Result<Value, EvalError> {
+        if let Some(error) = exact_arithmetic(op, &[value]) {
+            return Err(error);
+        }
+        match value {
+            Value::Int(value) => match op {
+                BuiltinOp::Neg => value.checked_neg(),
+                BuiltinOp::Abs => value.checked_abs(),
+                _ => None,
+            }
+            .map(Value::Int)
+            .ok_or(EvalError::Overflow),
+            Value::Float(bits) => {
+                let value = f64::from_bits(*bits);
+                let computed = if op == BuiltinOp::Neg {
+                    -value
+                } else {
+                    value.abs()
+                };
+                Ok(Value::Float(canonical_float(computed)))
+            }
+            other => Err(type_error("int|float", other)),
+        }
+    }
+
+    fn exact_decimal(value: &Value) -> Option<DecimalValue> {
+        match value {
+            Value::Int(value) => match parse_decimal(&value.to_string())? {
+                Decimal::Finite(decimal) => Some(decimal),
                 _ => None,
             },
+            Value::BigInt(value) => Some(DecimalValue {
+                negative: value.negative,
+                digits: value.significand.clone(),
+                exponent: Int::new(false, value.zeros.clone()),
+            }),
+            Value::Decimal(Decimal::Finite(value)) => Some(value.clone()),
+            _ => None,
         }
+    }
+
+    fn compare(left: &Value, right: &Value) -> Result<Ordering, EvalError> {
+        if let (Value::Temporal(left), Value::Temporal(right)) = (left, right) {
+            return crate::temporal::cmp_chronological(left, right).ok_or({
+                EvalError::TypeError {
+                    expected: "temporals of one comparable form",
+                    got: "incomparable temporals",
+                }
+            });
+        }
+        if is_exact(left) || is_exact(right) {
+            return match (exact_decimal(left), exact_decimal(right)) {
+                (Some(left), Some(right)) => Ok(left.cmp_numeric(&right)),
+                _ => Err(EvalError::TypeError {
+                    expected: "int|bigint|finite decimal, or comparable temporals",
+                    got: "incomparable exact values",
+                }),
+            };
+        }
+        match (left, right) {
+            (Value::Int(left), Value::Int(right)) => Ok(left.cmp(right)),
+            (Value::Float(left), Value::Float(right)) => {
+                Ok(f64::from_bits(*left).total_cmp(&f64::from_bits(*right)))
+            }
+            (Value::Int(left), Value::Float(right)) => {
+                Ok(int_as_f64(*left).total_cmp(&f64::from_bits(*right)))
+            }
+            (Value::Float(left), Value::Int(right)) => {
+                Ok(f64::from_bits(*left).total_cmp(&int_as_f64(*right)))
+            }
+            (Value::Str(left), Value::Str(right)) => Ok(left.cmp(right)),
+            (other, _) => Err(type_error("comparable values", other)),
+        }
+    }
+
+    fn decimal_text(value: &Decimal) -> String {
+        match value {
+            Decimal::Finite(value) => {
+                let sign = if value.negative { "-" } else { "" };
+                let exponent = value.exponent.to_i64();
+                if value.exponent.is_negative()
+                    && exponent.is_some_and(|exponent| {
+                        exponent
+                            >= -(i64::try_from(value.digits.to_string().len()).unwrap_or(i64::MAX)
+                                + 6)
+                    })
+                {
+                    let digits = value.digits.to_string();
+                    let scale = usize::try_from(exponent.unwrap_or(0).unsigned_abs()).unwrap_or(0);
+                    if scale == 0 {
+                        format!("{sign}{digits}")
+                    } else if scale >= digits.len() {
+                        format!("{sign}0.{}{}", "0".repeat(scale - digits.len()), digits)
+                    } else {
+                        let (integer, fraction) = digits.split_at(digits.len() - scale);
+                        format!("{sign}{integer}.{fraction}")
+                    }
+                } else if value.exponent.is_zero() {
+                    format!("{sign}{}", value.digits)
+                } else {
+                    format!("{sign}{}e{}", value.digits, value.exponent)
+                }
+            }
+            Decimal::Infinite { negative } => {
+                if *negative { "-Infinity" } else { "Infinity" }.to_owned()
+            }
+            Decimal::NaN {
+                negative,
+                signalling,
+                payload,
+            } => {
+                let sign = if *negative { "-" } else { "" };
+                let signal = if *signalling { "s" } else { "" };
+                let payload = if payload.is_zero() {
+                    String::new()
+                } else {
+                    payload.to_string()
+                };
+                format!("{sign}{signal}NaN{payload}")
+            }
+        }
+    }
+
+    fn bigint_text(value: &BigIntValue) -> String {
+        let sign = if value.negative { "-" } else { "" };
+        let zeros = value.zeros.to_u64().and_then(|n| usize::try_from(n).ok());
+        zeros.map_or_else(
+            || format!("{sign}{}e{}", value.significand, value.zeros),
+            |zeros| format!("{sign}{}{}", value.significand, "0".repeat(zeros)),
+        )
+    }
+
+    fn to_string_value(value: &Value) -> Result<String, EvalError> {
+        match value {
+            Value::Bool(value) => Ok(value.to_string()),
+            Value::Int(value) => Ok(value.to_string()),
+            Value::Float(bits) => Ok(f64::from_bits(*bits).to_string()),
+            Value::Str(value) => Ok(value.clone()),
+            Value::Decimal(value) => Ok(decimal_text(value)),
+            Value::BigInt(value) => Ok(bigint_text(value)),
+            Value::Temporal(value) => Ok(value.to_string()),
+            other => Err(type_error(
+                "bool|int|float|string|decimal|bigint|temporal",
+                other,
+            )),
+        }
+    }
+
+    fn parse_decimal_value(value: &Value) -> Result<Value, EvalError> {
+        match value {
+            Value::Str(text) => parse_decimal(text)
+                .map(Value::Decimal)
+                .ok_or_else(|| EvalError::InvalidDecimal(text.clone())),
+            Value::Int(_) | Value::BigInt(_) | Value::Decimal(Decimal::Finite(_)) => {
+                exact_decimal(value)
+                    .map(|decimal| Value::Decimal(Decimal::Finite(decimal)))
+                    .ok_or_else(|| type_error("string|int|bigint|decimal", value))
+            }
+            Value::Decimal(value) => Ok(Value::Decimal(value.clone())),
+            other => Err(type_error("string|int|bigint|decimal", other)),
+        }
+    }
+
+    fn decimal_to_float(value: &Value) -> Result<Value, EvalError> {
+        if let Value::Decimal(Decimal::Infinite { negative }) = value {
+            return Ok(Value::Float(if *negative {
+                f64::NEG_INFINITY.to_bits()
+            } else {
+                f64::INFINITY.to_bits()
+            }));
+        }
+        if matches!(value, Value::Decimal(Decimal::NaN { .. })) {
+            return Ok(Value::Float(CANONICAL_NAN_BITS));
+        }
+        let text = match value {
+            Value::Decimal(value) => decimal_text(value),
+            Value::BigInt(value) => format!(
+                "{}{}e{}",
+                if value.negative { "-" } else { "" },
+                value.significand,
+                value.zeros
+            ),
+            other => return Err(type_error("decimal|bigint", other)),
+        };
+        let parsed = text
+            .parse::<f64>()
+            .map_err(|_| EvalError::InvalidDecimal(text))?;
+        Ok(Value::Float(canonical_float(parsed)))
     }
 }
 
@@ -4498,4 +5604,4 @@ pub use self::temporal::{
     canonical_bytes, cmp_chronological, display_parse, from_epoch_count, parse_display,
     to_epoch_count, unwritten_zulu,
 };
-pub use self::value::{Value, eval, representation};
+pub use self::value::{BuiltinOp, EvalError, Value, apply_builtin, eval, representation};

@@ -104,6 +104,69 @@ fn a_reference_resolves_and_a_reconnected_edge_rewrites_the_key() {
 }
 
 #[test]
+fn get_put_writes_the_first_nonnull_target_site_of_a_key_path() {
+    let source = SEdge::new("holder", "scalar", "prop", Some("code"));
+    let target_part = SEdge::new("target", "scalar", "prop", Some("id"));
+    let resolved = SEdge::new("holder", "target", "ref", Some("target"));
+    let mut schema = Schema::default()
+        .vertex("root", "obj")
+        .vertex("holder", "obj")
+        .vertex("target", "obj")
+        .vertex("scalar", "int")
+        .edge("root", "holder", "prop", Some("holder"))
+        .edge("root", "target", "prop", Some("target"));
+    schema
+        .edges
+        .extend([source.clone(), target_part.clone(), resolved.clone()]);
+    schema.keys.insert(
+        "target".into(),
+        vec![Key {
+            id: "pk".into(),
+            parts: vec![KeyPart::Path(vec![target_part])],
+            role: KeyRole::Primary,
+            scope: KeyScope::Global,
+        }],
+    );
+    schema.references.insert(
+        "by_code".into(),
+        Reference {
+            id: "by_code".into(),
+            holder: "holder".into(),
+            source: RefSource::KeyValue {
+                parts: vec![vec![source.clone()]],
+            },
+            target_vertex: "target".into(),
+            target_key: Some("pk".into()),
+            edge: Some(resolved),
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+        },
+    );
+    let tree = Tree {
+        nodes: BTreeMap::from([
+            (0, Node::new(0, "root")),
+            (1, Node::new(1, "holder")),
+            (2, Node::new(2, "scalar").with_value(Value::Null)),
+            (3, Node::new(3, "scalar").with_value(Value::Int(1))),
+            (4, Node::new(4, "target").with_field("id", Value::Int(1))),
+        ]),
+        arcs: vec![
+            (0, 1, SEdge::new("root", "holder", "prop", Some("holder"))),
+            (1, 2, source.clone()),
+            (1, 3, source),
+            (0, 4, SEdge::new("root", "target", "prop", Some("target"))),
+        ],
+        fans: vec![],
+        root: 0,
+    };
+
+    let (view, complement) = resolution::get(&schema, &tree, false).unwrap();
+    assert_eq!(resolution::put(&schema, &view, &complement), Ok(tree));
+}
+
+#[test]
 fn a_dangling_reference_is_strict_or_recorded() {
     let (s, mut t) = setup(OnUnresolved::Error);
     t.nodes.insert(

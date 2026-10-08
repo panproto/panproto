@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_reference::bytes;
-use panproto_reference::canonical::{ComplementShape, IdentityEnvelope, identity};
+use panproto_reference::canonical::{ComplementShape, IdentityEnvelope, decode_value, identity};
 use panproto_reference::coerce::{
     FidelityReason, LexClass, NumeralDialect, ScalarKind, ValueSpec, coerce_dialect,
 };
@@ -17,8 +17,9 @@ use panproto_reference::schema::{
     Change, Key, KeyPart, KeyRole, KeyScope, Schema, canonical_bytes, classify_change,
 };
 use panproto_reference::temporal::{
-    TemporalKind, TimeUnit, cmp_chronological, day_number, from_epoch_count, parse, parse_display,
-    to_epoch_count,
+    Offset, OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalKind, TemporalParseError,
+    TimeUnit, cmp_chronological, day_number, display_parse, from_epoch_count, parse, parse_display,
+    parse_union, to_epoch_count,
 };
 use panproto_reference::value::Value;
 
@@ -293,6 +294,57 @@ fn epoch_count_conversions_are_two_sided_on_the_contract_centre() {
 }
 
 #[test]
+fn epoch_inverse_accepts_exactly_the_canonical_calendar_image() {
+    let base = from_epoch_count(0, TimeUnit::Seconds, true).unwrap();
+    let mut witnesses = Vec::new();
+
+    let mut wide_year = base.clone();
+    wide_year
+        .date
+        .as_mut()
+        .unwrap()
+        .year
+        .as_mut()
+        .unwrap()
+        .width = 5;
+    witnesses.push(wide_year);
+
+    let mut bad_month = base.clone();
+    bad_month.date.as_mut().unwrap().month = Some(13);
+    witnesses.push(bad_month);
+
+    let mut bad_day = base.clone();
+    bad_day.date.as_mut().unwrap().day = Some(32);
+    witnesses.push(bad_day);
+
+    let mut bad_february = base.clone();
+    let date = bad_february.date.as_mut().unwrap();
+    date.month = Some(2);
+    date.day = Some(29);
+    witnesses.push(bad_february);
+
+    for (field, value) in [(0, 24), (1, 60), (2, 60)] {
+        let mut invalid = base.clone();
+        let time = invalid.time.as_mut().unwrap();
+        match field {
+            0 => time.hour = Some(value),
+            1 => time.minute = Some(value),
+            _ => time.second = Some(value),
+        }
+        witnesses.push(invalid);
+    }
+
+    for witness in witnesses {
+        assert_eq!(
+            to_epoch_count(&witness, TimeUnit::Seconds, true),
+            None,
+            "{witness:?}"
+        );
+    }
+    assert_eq!(to_epoch_count(&base, TimeUnit::Seconds, true), Some(0));
+}
+
+#[test]
 fn epoch_count_conversions_are_two_sided_at_each_exact_domain_bound() {
     let epoch = day_number(1970, 1, 1);
     let first_second = (day_number(i64::MIN, 1, 1) - epoch)
@@ -334,10 +386,10 @@ fn epoch_count_conversions_are_two_sided_at_each_exact_domain_bound() {
 fn extreme_years_parse_display_and_compare_without_narrow_arithmetic() {
     let minimum = "-9223372036854775808-01-01";
     let maximum = "9223372036854775807-12-31";
-    assert!(parse_display(TemporalKind::Date, minimum));
-    assert!(parse_display(TemporalKind::Date, maximum));
     let min_value = parse(TemporalKind::Date, minimum).unwrap();
     let max_value = parse(TemporalKind::Date, maximum).unwrap();
+    assert!(parse_display(min_value.lexical_form().unwrap(), minimum));
+    assert!(parse_display(max_value.lexical_form().unwrap(), maximum));
     assert_eq!(min_value.to_string(), minimum);
     assert_eq!(max_value.to_string(), maximum);
     assert_eq!(
@@ -347,6 +399,145 @@ fn extreme_years_parse_display_and_compare_without_narrow_arithmetic() {
     assert_eq!(
         cmp_chronological(&max_value, &min_value),
         Some(Ordering::Greater)
+    );
+}
+
+#[test]
+fn form_indexing_retains_both_meanings_of_an_ambiguous_temporal() {
+    let month = parse(TemporalForm::Date, "--04").unwrap();
+    let second = parse(TemporalForm::Time, "--04").unwrap();
+    assert_ne!(month, second);
+    assert_eq!(month.to_string(), "--04");
+    assert_eq!(second.to_string(), "--04");
+    assert_eq!(month.form(), Some(TemporalForm::Date));
+    assert_eq!(second.form(), Some(TemporalForm::Time));
+    assert_eq!(
+        parse_union("--04"),
+        Err(TemporalParseError::AmbiguousTemporal)
+    );
+    assert_eq!(
+        parse_union("not-a-temporal"),
+        Err(TemporalParseError::InvalidTemporal)
+    );
+
+    let year_month = parse(TemporalForm::Date, "1973-06").unwrap();
+    let year_with_offset = Temporal {
+        date: Some(panproto_reference::temporal::DateFields {
+            year: Some(panproto_reference::temporal::Year {
+                value: 1973,
+                negative_zero: false,
+                width: 4,
+            }),
+            month: None,
+            day: None,
+        }),
+        time: None,
+        separator: None,
+        offset: Offset::Fixed(-360, OffsetForm::HourOnly),
+        infinity: None,
+    };
+    assert_ne!(year_month, year_with_offset);
+    assert_eq!(year_month.to_string(), "1973-06");
+    assert_eq!(year_with_offset.to_string(), "1973-06");
+    assert_eq!(
+        year_month.to_string().as_bytes(),
+        year_with_offset.to_string().as_bytes()
+    );
+    assert_eq!(
+        parse(TemporalKind::Date, "1973-06"),
+        Some(year_month.clone())
+    );
+    assert_ne!(
+        parse(TemporalKind::Date, "1973-06"),
+        Some(year_with_offset.clone())
+    );
+    assert_ne!(year_month.lexical_form(), year_with_offset.lexical_form());
+    for value in [&year_month, &year_with_offset] {
+        let descriptor = value.lexical_form().unwrap();
+        assert_eq!(
+            Temporal::parse_as(descriptor, "1973-06"),
+            Some(value.clone())
+        );
+        assert!(display_parse(value));
+    }
+    assert_eq!(
+        parse_union("1973-06"),
+        Err(TemporalParseError::AmbiguousTemporal)
+    );
+}
+
+#[test]
+fn every_extended_temporal_carrier_has_injective_canonical_bytes() {
+    let finite = [
+        (TemporalForm::Date, "2018Z"),
+        (TemporalForm::Date, "1973-06+0400"),
+        (TemporalForm::Date, "--04-12-04"),
+        (TemporalForm::Time, "23:20+04"),
+        (TemporalForm::Time, "-20:50-04:56:02"),
+        (TemporalForm::DateTime, "---15T09:45:00+05:30:00"),
+    ];
+    let mut values: Vec<Temporal> = finite
+        .into_iter()
+        .map(|(form, text)| parse(form, text).unwrap())
+        .collect();
+    values.push(
+        Temporal::infinite(
+            TemporalInfinity::Negative,
+            TemporalForm::Date,
+            Offset::Local,
+        )
+        .unwrap(),
+    );
+    values.push(
+        Temporal::infinite(
+            TemporalInfinity::Positive,
+            TemporalForm::DateTime,
+            Offset::Zulu(panproto_reference::temporal::ZuluCase::Upper),
+        )
+        .unwrap(),
+    );
+    let mut unwritten = parse(TemporalForm::DateTime, "2026-01-01T00:00:00+05:30").unwrap();
+    unwritten.offset = Offset::Fixed(330, OffsetForm::Unwritten);
+    assert_eq!(unwritten.to_string(), "2026-01-01T00:00:00");
+    values.push(unwritten);
+
+    let mut bytes = BTreeSet::new();
+    for value in values {
+        let wrapped = Value::Temporal(value.clone());
+        let encoded = panproto_reference::canonical::value_bytes(&wrapped).unwrap();
+        assert_eq!(decode_value(&encoded), Some(wrapped));
+        assert!(bytes.insert(encoded), "duplicate bytes for {value:?}");
+    }
+}
+
+#[test]
+fn second_offsets_unwritten_offsets_and_infinities_obey_the_order() {
+    let west = parse(TemporalForm::DateTime, "1849-12-31 19:03:58-04:56:02").unwrap();
+    let utc = parse(TemporalForm::DateTime, "1850-01-01T00:00:00Z").unwrap();
+    assert_eq!(cmp_chronological(&west, &utc), Some(Ordering::Equal));
+
+    let mut unwritten = utc.clone();
+    unwritten.offset = Offset::Fixed(0, OffsetForm::Unwritten);
+    assert_eq!(cmp_chronological(&unwritten, &utc), Some(Ordering::Equal));
+
+    let negative = Temporal::infinite(
+        TemporalInfinity::Negative,
+        TemporalForm::DateTime,
+        Offset::Local,
+    )
+    .unwrap();
+    let positive = Temporal::infinite(
+        TemporalInfinity::Positive,
+        TemporalForm::DateTime,
+        Offset::Local,
+    )
+    .unwrap();
+    let finite = parse(TemporalForm::DateTime, "2026-01-01T00:00:00").unwrap();
+    assert_eq!(cmp_chronological(&negative, &finite), Some(Ordering::Less));
+    assert_eq!(cmp_chronological(&finite, &positive), Some(Ordering::Less));
+    assert_eq!(
+        cmp_chronological(&negative, &positive),
+        Some(Ordering::Less)
     );
 }
 

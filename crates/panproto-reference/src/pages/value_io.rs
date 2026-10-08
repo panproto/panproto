@@ -95,7 +95,7 @@ pub mod implementation {
         kind: crate::temporal::TemporalKind,
         value: &crate::temporal::Temporal,
     ) -> bool {
-        crate::temporal::display_parse(kind, value)
+        value.form() == Some(kind) && crate::temporal::display_parse(value)
     }
 
     /// Definition: Agreement of the generic byte writer with the route-specific writer.

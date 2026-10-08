@@ -72,6 +72,33 @@ fn a_dependent_sort_application_is_typed_against_its_parameters() {
 }
 
 #[test]
+fn nested_sort_arguments_are_recursively_typechecked() {
+    let mut t = th("T", &["A", "B", "C", "D"]);
+    t.sorts.push(Sort {
+        name: "Indexed".into(),
+        params: vec![("d".into(), SortExpr::Name("D".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    t.ops.extend([
+        op("f", &[("x", "A")], "B"),
+        op("g", &[("x", "C")], "D"),
+        Op {
+            name: "bad".into(),
+            inputs: vec![("x".into(), SortExpr::Name("A".into()))],
+            output: SortExpr::App(
+                "Indexed".into(),
+                vec![Term::App(
+                    "g".into(),
+                    vec![Term::App("f".into(), vec![Term::Var("x".into())])],
+                )],
+            ),
+        },
+    ]);
+    assert!(theory::typecheck_signature(&t).is_err());
+}
+
+#[test]
 fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
     let nodes = vec![
         ("a".to_owned(), th("A", &["Node"])),
@@ -98,6 +125,8 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
             .collect::<Vec<_>>(),
         vec!["Vertex".to_owned()]
     );
+    assert_eq!(r.inclusions.len(), 3);
+    assert_eq!(r.report.status, theory::CheckStatus::Passed);
     let apart = vec![
         ("l".to_owned(), th("L", &["X"])),
         ("r".to_owned(), th("R", &["X"])),
@@ -129,8 +158,53 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
             .collect::<Vec<_>>(),
         vec!["l.X".to_owned(), "r.X".to_owned()]
     );
+    assert_eq!(fresh.report.freshened.len(), 2);
+    assert!(!fresh.report.name_clash_free);
+    assert_eq!(fresh.report.status, theory::CheckStatus::Failed);
     let merged = theory::compose(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R").unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
+}
+
+#[test]
+fn a_composition_records_total_provenance_and_verifies_its_universal_arrow() {
+    let node = th("A", &["S"]);
+    let nodes = vec![("a".to_owned(), node.clone())];
+    let composition = theory::compose(
+        &nodes,
+        &[],
+        Mode::ExplicitIdentity,
+        ClashPolicy::Reject,
+        "R",
+    )
+    .unwrap();
+    assert_eq!(
+        composition.provenance.sorts,
+        BTreeMap::from([(sym("a", "S"), "S".to_owned())])
+    );
+    assert!(composition.provenance.ops.is_empty());
+    assert!(composition.provenance.eqs.is_empty());
+    assert!(composition.provenance.directed_eqs.is_empty());
+    assert!(composition.provenance.policies.is_empty());
+    assert!(composition.provenance.added_eqs.is_empty());
+
+    let leg = id_on(&[("S", "S")]);
+    let (mediator, report) = composition
+        .verify_universal(&nodes, &[], &node, &[leg])
+        .unwrap();
+    assert_eq!(mediator.sorts, BTreeMap::from([("S".into(), "S".into())]));
+    assert!(report.checks.iter().any(|record| {
+        record.check == theory::CompositionCheckKind::UniversalAgainst
+            && record.outcome == theory::CheckOutcome::Passed
+    }));
+    assert!(report.checks.iter().any(|record| {
+        record.check == theory::CompositionCheckKind::EquationEntailed
+            && matches!(
+                record.outcome,
+                theory::CheckOutcome::Inapplicable {
+                    reason: theory::InapplicableReason::NoEquations
+                }
+            )
+    }));
 }
 
 #[test]
@@ -230,14 +304,22 @@ fn an_undeclared_sort_is_an_implicit_symbol_joined_by_name_or_left_free() {
             .get(&(theory::SymKind::Sort, sym("a", "Vertex"))),
         Some(&"Vertex".to_owned())
     );
-    assert!(r.free_sorts.is_empty());
+    assert_eq!(r.report.status, theory::CheckStatus::Passed);
     // No node declares X: X stays a free name of the result.
     let mut c = th("C", &[]);
     c.ops.push(op("g", &[], "X"));
     let free = compose(&[("c", c)], &[], Mode::ExplicitIdentity).unwrap();
     assert!(free.theory.sorts.is_empty());
-    assert_eq!(free.free_sorts, ["X".to_owned()].into());
     assert_eq!(free.theory.ops[0].output, SortExpr::Name("X".into()));
+    assert_eq!(free.report.status, theory::CheckStatus::Incomplete);
+    assert!(free.report.checks.iter().any(|record| {
+        matches!(
+            &record.outcome,
+            theory::CheckOutcome::Inapplicable {
+                reason: theory::InapplicableReason::OpenTheory { missing_sorts }
+            } if missing_sorts == &["X".to_owned()]
+        )
+    }));
     // Two unidentified declarations of Vertex make the name ambiguous
     // under explicit identity, and are one sort under amalgamation.
     let nodes = [
@@ -461,4 +543,193 @@ fn a_term_image_of_the_wrong_sort_is_no_morphism() {
         .map(|_| ()),
         Err(Box::new(ComposeError::InvalidLeg(0)))
     );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
+    let mut open = th("Open", &["S"]);
+    open.sorts[0].kind = "source-kind".into();
+    let mut other_kind = th("Other", &["T"]);
+    other_kind.sorts[0].kind = "target-kind".into();
+    assert!(!theory::check_morphism(
+        &open,
+        &other_kind,
+        &id_on(&[("S", "T")])
+    ));
+
+    // A16 constrains only a closed domain sort. An open source sort therefore
+    // imposes no closure condition on its image.
+    let mut closed_target = th("ClosedTarget", &["T"]);
+    closed_target.sorts[0].constructors = Some(vec!["k".into()]);
+    closed_target.ops.push(op("k", &[], "T"));
+    assert!(theory::check_morphism(
+        &th("Open", &["S"]),
+        &closed_target,
+        &id_on(&[("S", "T")])
+    ));
+
+    // Closed constructor images are a set, and an eta-expanded derived term
+    // is a constructor image.
+    let mut source = th("Source", &["S"]);
+    source.sorts[0].constructors = Some(vec!["c1".into(), "c2".into()]);
+    source.ops.extend([op("c1", &[], "S"), op("c2", &[], "S")]);
+    let mut target = th("Target", &["T"]);
+    target.sorts[0].constructors = Some(vec!["k2".into(), "k1".into()]);
+    target.ops.extend([op("k1", &[], "T"), op("k2", &[], "T")]);
+    let mut constructors = id_on(&[("S", "T")]);
+    constructors.ops.insert(
+        "c1".into(),
+        theory::OpImage::Term(Term::App("k1".into(), vec![])),
+    );
+    constructors
+        .ops
+        .insert("c2".into(), theory::OpImage::Op("k2".into()));
+    assert!(theory::check_morphism(&source, &target, &constructors));
+
+    let mut axiom_source = th("AxiomSource", &["S"]);
+    axiom_source.ops.push(op("f", &[("x", "S")], "S"));
+    axiom_source.eqs.push(theory::Equation {
+        name: "unit".into(),
+        lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+        rhs: Term::Var("x".into()),
+    });
+    axiom_source.directed_eqs.push(directed("reduce", "impl"));
+    let mut axiom_target = th("AxiomTarget", &["S"]);
+    axiom_target.ops.push(op("f", &[("x", "S")], "S"));
+    let mut identity = id_on(&[("S", "S")]);
+    identity
+        .ops
+        .insert("f".into(), theory::OpImage::Op("f".into()));
+    assert!(!theory::check_morphism(
+        &axiom_source,
+        &axiom_target,
+        &identity
+    ));
+    axiom_target.eqs = axiom_source.eqs.clone();
+    assert!(!theory::check_morphism(
+        &axiom_source,
+        &axiom_target,
+        &identity
+    ));
+    axiom_target.directed_eqs = axiom_source.directed_eqs.clone();
+    assert!(theory::check_morphism(
+        &axiom_source,
+        &axiom_target,
+        &identity
+    ));
+
+    let mut nested_source = th("NestedSource", &["A", "D"]);
+    nested_source.ops.push(op("out", &[("x", "A")], "D"));
+    let mut nested_target = th("NestedTarget", &["A", "B", "C", "D"]);
+    nested_target
+        .ops
+        .extend([op("f", &[("x", "A")], "B"), op("g", &[("x", "C")], "D")]);
+    let mut nested = id_on(&[("A", "A"), ("D", "D")]);
+    nested.ops.insert(
+        "out".into(),
+        theory::OpImage::Term(Term::App(
+            "g".into(),
+            vec![Term::App("f".into(), vec![Term::Var("x".into())])],
+        )),
+    );
+    assert!(!theory::check_morphism(
+        &nested_source,
+        &nested_target,
+        &nested
+    ));
+
+    // Ordinary equations may be preserved by the target's directed theory,
+    // not only by a same-shaped declaration.
+    let mut equational_source = th("EquationalSource", &["A"]);
+    equational_source.ops.push(op("f", &[("x", "A")], "A"));
+    equational_source.eqs.push(theory::Equation {
+        name: "involution".into(),
+        lhs: Term::App(
+            "f".into(),
+            vec![Term::App("f".into(), vec![Term::Var("x".into())])],
+        ),
+        rhs: Term::Var("x".into()),
+    });
+    let mut equational_target = th("EquationalTarget", &["A"]);
+    equational_target.ops.push(op("f", &[("x", "A")], "A"));
+    equational_target
+        .directed_eqs
+        .push(theory::DirectedEquation {
+            name: "idempotent".into(),
+            lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+            rhs: Term::Var("x".into()),
+            implementation: String::new(),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: String::new(),
+        });
+    let mut rewrite_morphism = id_on(&[("A", "A")]);
+    rewrite_morphism
+        .ops
+        .insert("f".into(), theory::OpImage::Op("f".into()));
+    assert!(theory::check_morphism(
+        &equational_source,
+        &equational_target,
+        &rewrite_morphism
+    ));
+}
+
+#[test]
+fn bidirectional_equation_search_rejects_budget_exhaustion() {
+    // Undirected target equations are installed in declaration order in both
+    // directions. This chain cycles under that concrete rule order, so the
+    // 512-step search is inconclusive and must reject rather than accept the
+    // common form produced by a one-way orientation.
+    let mut cycling_source = th("CyclingSource", &["A"]);
+    cycling_source
+        .ops
+        .extend([op("a", &[], "A"), op("b", &[], "A"), op("c", &[], "A")]);
+    cycling_source.eqs.push(theory::Equation {
+        name: "a_is_c".into(),
+        lhs: Term::App("a".into(), vec![]),
+        rhs: Term::App("c".into(), vec![]),
+    });
+    let mut cycling_target = th("CyclingTarget", &["A"]);
+    cycling_target.ops = cycling_source.ops.clone();
+    cycling_target.eqs.extend([
+        theory::Equation {
+            name: "a_is_b".into(),
+            lhs: Term::App("a".into(), vec![]),
+            rhs: Term::App("b".into(), vec![]),
+        },
+        theory::Equation {
+            name: "b_is_c".into(),
+            lhs: Term::App("b".into(), vec![]),
+            rhs: Term::App("c".into(), vec![]),
+        },
+    ]);
+    let mut cycling = id_on(&[("A", "A")]);
+    for operation in ["a", "b", "c"] {
+        cycling
+            .ops
+            .insert(operation.into(), theory::OpImage::Op(operation.into()));
+    }
+    assert!(!theory::check_morphism(
+        &cycling_source,
+        &cycling_target,
+        &cycling
+    ));
+}
+
+#[test]
+fn a_discrete_diagram_refuses_an_ill_typed_transported_equation() {
+    let mut node = th("Bad", &["A", "B"]);
+    node.ops.extend([op("a", &[], "A"), op("b", &[], "B")]);
+    node.eqs.push(theory::Equation {
+        name: "cross_sort".into(),
+        lhs: Term::App("a".into(), vec![]),
+        rhs: Term::App("b".into(), vec![]),
+    });
+
+    assert!(matches!(
+        compose(&[("bad", node)], &[], Mode::ExplicitIdentity),
+        Err(error) if matches!(*error, ComposeError::IllTypedTransport { .. })
+    ));
 }
