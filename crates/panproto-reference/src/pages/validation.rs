@@ -25,8 +25,14 @@ pub mod implementation {
     use crate::value::{Presence, Value};
 
     /// Index/null matching uses the same predicate as key semantics.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-validation-16`.
     pub use crate::keys::index_and_null_match;
     /// Lexical-space validation uses the declared lexical recognizer.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-validation-17`.
     pub use crate::keys::lexical_space;
 
     /// The semantics a protocol gives a constraint sort (the reference's
@@ -788,10 +794,12 @@ pub mod implementation {
         }
     }
 
-    /// Validate a graph.
+    /// Definition: Validate a graph.
     ///
     /// Every kind's diagnostics, sorted by check, subject and elements, the undecided instances, and
     /// the status. `None` when a constraint sort or a reference lies outside the reference's domain.
+    ///
+    /// Book anchors: `L-validation-1`, `L-validation-2`, `L-validation-3`, `L-validation-4`, `L-validation-5`, `L-validation-6`, `L-validation-7`, `L-validation-8`, `L-validation-9`, `L-validation-10`, `L-validation-11`.
     #[must_use]
     pub fn validate(schema: &Schema, sem: &BTreeMap<Name, Semantics>, g: &Graph) -> Option<Report> {
         if schema
@@ -821,12 +829,14 @@ pub mod implementation {
         })
     }
 
-    /// The admission policies over outcome bundles of required check instances.
+    /// Definition: The admission policies over outcome bundles of required check instances.
     ///
     /// `RequirePassed` admits exactly a result with no failed or incomplete bundle; `NoNewFailures`
     /// admits iff every failed or incomplete bundle of the result was already open in the baseline with
     /// equal bytes, where each instance of a baseline budget cut counts as open with the given virtual
     /// incomplete bundle.
+    ///
+    /// Book anchors: `L-validation-12`.
     #[must_use]
     pub fn admits<K: Ord>(
         require_passed: bool,
@@ -842,14 +852,18 @@ pub mod implementation {
             .all(|(k, bytes)| baseline.get(k).or_else(|| baseline_cut.get(k)) == Some(bytes))
     }
 
-    /// The validation-side declared key equality check.
+    /// Definition: The validation-side declared key equality check.
+    ///
+    /// Book anchors: `L-validation-13`.
     #[must_use]
     pub fn key_equality(equality: &keys::KeyEquality, left: &Value, right: &Value) -> Option<bool> {
         keys::key_equivalence(equality, left, right)
     }
 
-    /// Select a variable definition under first-defines or
+    /// Definition: Select a variable definition under first-defines or
     /// nearest-preceding binding.
+    ///
+    /// Book anchors: `L-validation-14`.
     #[must_use]
     pub fn variable_binding(
         definitions: &[(usize, String, u32)],
@@ -871,22 +885,28 @@ pub mod implementation {
         }
     }
 
-    /// The declaration-side guard, target-set and sort-key forms are valid
+    /// Definition: The declaration-side guard, target-set and sort-key forms are valid
     /// exactly when all independently stated predicates pass.
+    ///
+    /// Book anchors: `L-validation-15`.
     #[must_use]
     pub fn key_forms(predicates: &[bool]) -> bool {
         predicates.iter().all(|predicate| *predicate)
     }
 
-    /// Parsing with an advisory format annotation has the same result as
+    /// Definition: Parsing with an advisory format annotation has the same result as
     /// parsing without the annotation.
+    ///
+    /// Book anchors: `L-validation-18`.
     #[must_use]
     pub fn annotated_format_parse<T: Eq>(without: &Option<T>, with: &Option<T>) -> bool {
         without == with
     }
 
-    /// Advisory format validation is exact: it reports precisely the
+    /// Definition: Advisory format validation is exact: it reports precisely the
     /// complement of the declared recognizer.
+    ///
+    /// Book anchors: `L-validation-19`.
     #[must_use]
     pub fn annotated_format_advisory(
         text: &str,
@@ -896,8 +916,10 @@ pub mod implementation {
         reports != accepts(text)
     }
 
-    /// An asserting format accepts exactly the values admitted by its
+    /// Definition: An asserting format accepts exactly the values admitted by its
     /// recognizer.
+    ///
+    /// Book anchors: `L-validation-20`.
     #[must_use]
     pub fn format_assertion_acceptance(
         text: &str,

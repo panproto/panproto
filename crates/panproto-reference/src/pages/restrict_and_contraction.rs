@@ -150,10 +150,12 @@ pub mod restrict {
         }
     }
 
-    /// Pair resolution.
+    /// Definition: Pair resolution.
     ///
     /// The resolver entry, else the unique target edge, else the expansion path with each hop resolved
     /// by `resolve_edge` (the first failing hop's reason), else the reason no unique edge exists.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-3`.
     #[must_use]
     pub fn resolve_pair(tgt: &Schema, m: &Migration, a: &str, b: &str) -> PairResolution {
         match resolve_edge(tgt, m, a, b) {
@@ -316,7 +318,7 @@ pub mod restrict {
         }
     }
 
-    /// The contraction plan.
+    /// Definition: The contraction plan.
     ///
     /// A source vertex is endpoint-capable iff it survives, interior-capable
     /// iff it does not survive or carries a survival predicate. For each
@@ -333,6 +335,8 @@ pub mod restrict {
     /// # Errors
     ///
     /// [`PlanError::IncoherentPairImage`] for the least incoherent pair.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-2`.
     pub fn contraction_plan(
         src: &Schema,
         tgt: &Schema,
@@ -1220,7 +1224,7 @@ pub mod restrict {
         }
     }
 
-    /// Graph get: restrict `g` along `m` from `src` to `tgt` with the value
+    /// Definition: Graph get: restrict `g` along `m` from `src` to `tgt` with the value
     /// layer `vl`, returning the view and the complement.
     ///
     /// Stages, each in ascending element order, the first error returned:
@@ -1237,6 +1241,8 @@ pub mod restrict {
     /// # Errors
     ///
     /// [`RestrictError::Plan`] or the first [`RestrictError::At`].
+    ///
+    /// Book anchors: `L-restrict-and-contraction-1`, `L-restrict-and-contraction-4`, `L-restrict-and-contraction-5`, `L-restrict-and-contraction-6`, `L-restrict-and-contraction-7`, `L-restrict-and-contraction-8`, `L-restrict-and-contraction-9`, `L-restrict-and-contraction-10`, `L-restrict-and-contraction-11`, `L-restrict-and-contraction-12`, `L-restrict-and-contraction-13`.
     pub fn get(
         src: &Schema,
         tgt: &Schema,

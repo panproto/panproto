@@ -1,7 +1,74 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Worked examples for shared parsers and the schema-v2 manifest loader.
 
-use panproto_reference::{json, manifest, pattern};
+use panproto_reference::{json, manifest, model, pattern};
+
+#[test]
+fn shared_model_observables_follow_their_definitions() {
+    let named = model::SEdge::new("s", "t", "prop", Some("column"));
+    let unnamed = model::SEdge::new("s", "target", "prop", None);
+    assert_eq!(named.column(), "column");
+    assert_eq!(unnamed.column(), "target");
+
+    let mut graph = model::Graph::default();
+    graph.nodes.insert(0, model::Node::new(0, "s"));
+    graph.nodes.insert(1, model::Node::new(1, "t"));
+    graph.edges.insert(
+        7,
+        model::GEdge {
+            src: 0,
+            tgt: 1,
+            label: named.clone(),
+            position: Some(1),
+        },
+    );
+    graph.edges.insert(
+        3,
+        model::GEdge {
+            src: 0,
+            tgt: 1,
+            label: named.clone(),
+            position: None,
+        },
+    );
+    graph.edges.insert(
+        5,
+        model::GEdge {
+            src: 0,
+            tgt: 1,
+            label: named.clone(),
+            position: Some(0),
+        },
+    );
+    assert!(graph.well_formed());
+    assert_eq!(graph.ordered_out_edges(0), vec![3, 5, 7]);
+    assert!(graph.ordered_out_edges(1).is_empty());
+
+    let mut bad_id = graph.clone();
+    bad_id.nodes.get_mut(&0).unwrap().id = 9;
+    assert!(!bad_id.well_formed());
+    let mut bad_src = graph.clone();
+    bad_src.edges.get_mut(&3).unwrap().src = 9;
+    assert!(!bad_src.well_formed());
+    let mut bad_tgt = graph;
+    bad_tgt.edges.get_mut(&3).unwrap().tgt = 9;
+    assert!(!bad_tgt.well_formed());
+
+    let mut table = model::Table::default();
+    table
+        .rows
+        .insert(0, ("s".to_owned(), std::collections::BTreeMap::default()));
+    table
+        .rows
+        .insert(1, ("t".to_owned(), std::collections::BTreeMap::default()));
+    table.pairs.insert((named.clone(), 0, 1));
+    assert!(table.well_formed());
+    table.pairs.insert((named.clone(), 9, 1));
+    assert!(!table.well_formed());
+    table.pairs.remove(&(named.clone(), 9, 1));
+    table.pairs.insert((named, 0, 9));
+    assert!(!table.well_formed());
+}
 
 fn repository_root() -> std::path::PathBuf {
     let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

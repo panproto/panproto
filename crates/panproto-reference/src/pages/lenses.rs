@@ -18,13 +18,22 @@ pub mod lens {
     use crate::value::{Presence, Value};
 
     /// The protolens schema transformation (compilation to a restrict plan).
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-lenses-19`.
     pub use crate::restrict::compile as protolens_schema;
     /// The graph-lens get operation.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-lenses-1`, `L-lenses-2`, `L-lenses-3`, `L-lenses-4`, `L-lenses-5`, `L-lenses-6`, `L-lenses-7`, `L-lenses-8`, `L-lenses-9`, `L-lenses-10`.
     pub use crate::restrict::get;
     /// The protolens instance transformation.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-lenses-20`.
     pub use crate::restrict::get as protolens_instance;
 
-    /// The graph-lens put operation.
+    /// Definition: The graph-lens put operation.
     ///
     /// This free-function form is the stable semantic path used by the
     /// correctness manifest; it delegates to [`GraphLens::put`].
@@ -32,6 +41,8 @@ pub mod lens {
     /// # Errors
     ///
     /// The first put-domain violation in report order.
+    ///
+    /// Book anchors: `L-lenses-1`, `L-lenses-2`, `L-lenses-3`, `L-lenses-4`, `L-lenses-5`, `L-lenses-6`, `L-lenses-7`, `L-lenses-8`, `L-lenses-9`, `L-lenses-10`.
     pub fn put(
         lens: &GraphLens<'_>,
         view: &Graph,
@@ -41,8 +52,14 @@ pub mod lens {
     }
 
     /// Observable equality for the F.B graph square.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-lenses-17`.
     pub use crate::migration::graph_square;
     /// Observable equality for the F.B table square.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-lenses-18`.
     pub use crate::migration::table_square;
 
     /// An instance element: graph nodes and edges, table rows and pairs.
@@ -676,13 +693,15 @@ pub mod lens {
         }
     }
 
-    /// The tree lens on the domain where the tree and graph engines agree.
+    /// Definition: The tree lens on the domain where the tree and graph engines agree.
     ///
     /// The lens keeps the tree shape (no source edge between surviving vertices is dropped) and the
     /// root survives. Tree get is the graph get of the tree's graph form, read back as a tree with the
     /// same root; it also returns the view's embedding, which put takes to name the view's edges.
     ///
     /// `None` outside that domain (or when the tree has no graph form).
+    ///
+    /// Book anchors: `L-lenses-11`.
     #[must_use]
     pub fn tree_get(
         lens: &GraphLens<'_>,
@@ -745,7 +764,7 @@ pub mod lens {
         emb
     }
 
-    /// Tree put.
+    /// Definition: Tree put.
     ///
     /// The view tree is laid out as a graph with the edge ids its embedding records (an arc whose child
     /// the embedding names keeps that id while its parent is unchanged, fans keep their nodes and edges
@@ -757,6 +776,8 @@ pub mod lens {
     /// The graph put's violations, or a one-element list holding
     /// `MalformedFan` at node 0 with `MissingParent` when the result is not a
     /// tree.
+    ///
+    /// Book anchors: `L-lenses-11`.
     pub fn tree_put(
         lens: &GraphLens<'_>,
         view: &crate::model::Tree,
@@ -950,7 +971,9 @@ pub mod path {
             Self::Stages(vec![l])
         }
 
-        /// Concatenation: a distinguished identity is a two-sided unit.
+        /// Definition: Concatenation: a distinguished identity is a two-sided unit.
+        ///
+        /// Book anchors: `L-lenses-15`.
         #[must_use]
         pub fn then(&self, other: &Self) -> Self {
             match (self, other) {
@@ -975,12 +998,14 @@ pub mod path {
     /// complement.
     pub type StageGet<'a, I, C, E> = &'a dyn Fn(usize, &I) -> Result<(I, C), E>;
 
-    /// Get through a path: each stage's get on the previous view; returns the
+    /// Definition: Get through a path: each stage's get on the previous view; returns the
     /// last view and every stage's complement in order.
     ///
     /// # Errors
     ///
     /// The first stage error with its stage index.
+    ///
+    /// Book anchors: `L-lenses-13`, `L-lenses-14`, `L-lenses-16`.
     pub fn get_path<I: Clone, C, E>(
         stages: usize,
         get: StageGet<'_, I, C, E>,
@@ -996,13 +1021,15 @@ pub mod path {
         Ok((view, cs))
     }
 
-    /// Put through a path: from the last stage to the first, each stage puts
+    /// Definition: Put through a path: from the last stage to the first, each stage puts
     /// the view against its complement, giving the view of the stage before.
     ///
     /// # Errors
     ///
     /// The first failing stage in put order (the rightmost failing stage whose
     /// right neighbours all succeeded), with its index.
+    ///
+    /// Book anchors: `L-lenses-13`, `L-lenses-14`, `L-lenses-16`.
     pub fn put_path<I: Clone, C, E>(
         put: &dyn Fn(usize, &I, &C) -> Result<I, E>,
         view: &I,
@@ -1240,13 +1267,15 @@ pub mod table {
         pub id_floor: u32,
     }
 
-    /// Table get: rows and pairs restricted as graph nodes and edges (graph restrict and
+    /// Definition: Table get: rows and pairs restricted as graph nodes and edges (graph restrict and
     /// contraction), then the cell fates of each surviving row's source table,
     /// and the table complement.
     ///
     /// # Errors
     ///
     /// The engine's [`RestrictError`].
+    ///
+    /// Book anchors: `L-lenses-12`.
     pub fn get(
         src: &Schema,
         tgt: &Schema,
@@ -1508,11 +1537,13 @@ pub mod table {
                 })
         }
 
-        /// Put by the baseline-and-pullback rule, collecting every violation.
+        /// Definition: Put by the baseline-and-pullback rule, collecting every violation.
         ///
         /// # Errors
         ///
         /// Every violation of the put domain, sorted by report order.
+        ///
+        /// Book anchors: `L-lenses-12`.
         pub fn put(&self, view: &Table, c: &TableComplement) -> Result<Table, Vec<PutDomainError>> {
             let mut errs = Vec::new();
             let mut out = Table::default();

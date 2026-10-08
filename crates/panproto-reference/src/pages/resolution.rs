@@ -38,8 +38,14 @@ pub mod implementation {
     use crate::value::{Presence, Value};
 
     /// Resolution uses the target key's declared equality.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-resolution-14`.
     pub use crate::keys::key_equivalence as declared_key_equality;
     /// Variable resolution uses the validation-independent binding predicate.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-resolution-15`.
     pub use crate::validation::variable_binding as nearest_preceding;
 
     /// A recorded occurrence.
@@ -339,7 +345,7 @@ pub mod implementation {
         })
     }
 
-    /// Resolution get.
+    /// Definition: Resolution get.
     ///
     /// # Errors
     ///
@@ -349,6 +355,8 @@ pub mod implementation {
     /// unresolved occurrence in (holder, reference, index) order; and
     /// [`ResolveError::TargetRemoved`] for a target inside a redirected
     /// subtree.
+    ///
+    /// Book anchors: `L-resolution-1`, `L-resolution-2`.
     pub fn get(
         schema: &Schema,
         t: &Tree,
@@ -587,7 +595,7 @@ pub mod implementation {
         }
     }
 
-    /// Resolution put.
+    /// Definition: Resolution put.
     ///
     /// Every view edge labelled with a reference's edge is a resolution edge:
     /// one the complement records, with its source unchanged (the holder, or
@@ -607,6 +615,8 @@ pub mod implementation {
     /// # Errors
     ///
     /// [`ResolveError::UnrepresentableReference`] or [`ResolveError::NotATree`].
+    ///
+    /// Book anchors: `L-resolution-1`, `L-resolution-2`, `L-resolution-3`, `L-resolution-4`, `L-resolution-5`.
     pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, ResolveError> {
         let mut graph = view.clone();
         let declared: Vec<&Reference> = schema.references.values().collect();
@@ -810,7 +820,9 @@ pub mod implementation {
         }
     }
 
-    /// Partition a guard value by representation equality.
+    /// Definition: Partition a guard value by representation equality.
+    ///
+    /// Book anchors: `L-resolution-9`.
     #[must_use]
     pub fn guarded_partition<'a>(guards: &'a [(Name, Value)], value: &Value) -> Option<&'a str> {
         guards
@@ -819,13 +831,17 @@ pub mod implementation {
             .map(|(name, _)| name.as_str())
     }
 
-    /// A referenced text's identity is its terminal value site, not its text.
+    /// Definition: A referenced text's identity is its terminal value site, not its text.
+    ///
+    /// Book anchors: `L-resolution-8`.
     #[must_use]
     pub fn text_identity(node: u32, field: &str) -> (u32, Name) {
         (node, field.to_owned())
     }
 
-    /// Decode one written standoff form to a half-open byte span.
+    /// Definition: Decode one written standoff form to a half-open byte span.
+    ///
+    /// Book anchors: `L-resolution-10`.
     #[must_use]
     pub fn standoff_form(
         written_start: u64,
@@ -842,7 +858,9 @@ pub mod implementation {
         (start <= end).then_some((start, end))
     }
 
-    /// Encode a half-open byte span in one written standoff form.
+    /// Definition: Encode a half-open byte span in one written standoff form.
+    ///
+    /// Book anchors: `L-resolution-11`.
     #[must_use]
     pub fn standoff_inverse(
         start: u64,
@@ -862,8 +880,10 @@ pub mod implementation {
         Some((written_start, written_end))
     }
 
-    /// An index field selects a position and is not itself a resolvable
+    /// Definition: An index field selects a position and is not itself a resolvable
     /// target identity.
+    ///
+    /// Book anchors: `L-resolution-12`.
     #[must_use]
     pub const fn index_target(index: Option<u64>, target_index: Option<u64>) -> bool {
         matches!((index, target_index), (Some(left), Some(right)) if left == right)
@@ -946,8 +966,10 @@ pub mod implementation {
         )
     }
 
-    /// RFC 3986 section 5.2 reference resolution, with dot-segment removal and
+    /// Definition: RFC 3986 section 5.2 reference resolution, with dot-segment removal and
     /// no additional normalization.
+    ///
+    /// Book anchors: `L-resolution-7`.
     #[must_use]
     pub fn rfc3986(base: &str, reference: &str) -> Option<String> {
         let base = uri(base);
@@ -1004,7 +1026,9 @@ pub mod implementation {
         Some(result)
     }
 
-    /// Fold positional base directives that precede an occurrence.
+    /// Definition: Fold positional base directives that precede an occurrence.
+    ///
+    /// Book anchors: `L-resolution-6`.
     #[must_use]
     pub fn uri_environment(directives: &[String]) -> Option<String> {
         directives.iter().try_fold(None, |base, directive| {
@@ -1016,7 +1040,9 @@ pub mod implementation {
         })?
     }
 
-    /// Resolve against the nearest inherited base, if there is one.
+    /// Definition: Resolve against the nearest inherited base, if there is one.
+    ///
+    /// Book anchors: `L-resolution-13`.
     #[must_use]
     pub fn inherited_base(ancestor_bases: &[Option<String>], reference: &str) -> Option<String> {
         ancestor_bases
@@ -1027,7 +1053,9 @@ pub mod implementation {
             .and_then(|base| rfc3986(base, reference))
     }
 
-    /// Cartesian product of preserving choices, in registry-key order.
+    /// Definition: Cartesian product of preserving choices, in registry-key order.
+    ///
+    /// Book anchors: `L-resolution-16`.
     #[must_use]
     pub fn preserving_registry<T: Clone>(choices: &[Vec<T>]) -> Vec<Vec<T>> {
         choices.iter().fold(vec![Vec::new()], |prefixes, options| {

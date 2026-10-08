@@ -114,7 +114,9 @@ pub mod edit {
             })
         }
 
-        /// The inverse: deleted and added parts swapped, old and new swapped.
+        /// Definition: The inverse: deleted and added parts swapped, old and new swapped.
+        ///
+        /// Book anchors: `L-edits-2`.
         #[must_use]
         pub fn invert(&self) -> Self {
             Self {
@@ -168,12 +170,14 @@ pub mod edit {
             }
         }
 
-        /// The net delta of `self` followed by `next`, element by element by the
+        /// Definition: The net delta of `self` followed by `next`, element by element by the
         /// composition case table; partial.
         ///
         /// # Errors
         ///
         /// The first [`Mismatch`] in element order.
+        ///
+        /// Book anchors: `L-edits-3`.
         pub fn compose(&self, next: &Self) -> Result<Self, Mismatch<S::Elem, S::Key>> {
             let elems: BTreeSet<S::Elem> = self
                 .del
@@ -543,7 +547,7 @@ pub mod edit {
         }
     }
 
-    /// Apply a graph delta (double pushout at the identity match), checked in full first.
+    /// Definition: Apply a graph delta (double pushout at the identity match), checked in full first.
     ///
     /// Deleted nodes, then deleted edges, exist with their payloads; attribute old values hold; every
     /// edge incident to a deleted node is deleted; added ids are free after deletion; added edges'
@@ -552,6 +556,8 @@ pub mod edit {
     /// # Errors
     ///
     /// The first [`ApplyError`] in that order.
+    ///
+    /// Book anchors: `L-edits-1`, `L-edits-7`.
     pub fn apply(d: &GraphDelta, g: &Graph) -> Result<Graph, ApplyError> {
         for (x, p) in &d.del {
             let found = current(g, x);
@@ -621,8 +627,10 @@ pub mod edit {
         Ok(out)
     }
 
-    /// Apply a graph delta to the graph representation of a tree and require
+    /// Definition: Apply a graph delta to the graph representation of a tree and require
     /// the result to remain a tree.
+    ///
+    /// Book anchors: `L-edits-6`.
     #[must_use]
     pub fn apply_tree(
         delta: &GraphDelta,
@@ -859,8 +867,10 @@ pub mod edit {
         out
     }
 
-    /// Every conflict between two deltas, sorted; they are independent iff
+    /// Definition: Every conflict between two deltas, sorted; they are independent iff
     /// there is none.
+    ///
+    /// Book anchors: `L-edits-4`.
     #[must_use]
     pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
         let mut out = BTreeSet::new();
@@ -972,13 +982,15 @@ pub mod edit {
         Ok(out)
     }
 
-    /// The reference translation of a source edit through a lens: the differ
+    /// Definition: The reference translation of a source edit through a lens: the differ
     /// between the views of the source before and after the edit (whole-state
     /// get on both sides).
     ///
     /// # Errors
     ///
     /// The error of applying the edit or of either get, as text.
+    ///
+    /// Book anchors: `L-edits-8`.
     pub fn get_edit<E: Debug>(
         get: &dyn Fn(&Graph) -> Result<Graph, E>,
         s: &Graph,
@@ -991,12 +1003,14 @@ pub mod edit {
         ))
     }
 
-    /// The reference translation of a view edit through a lens: the differ
+    /// Definition: The reference translation of a view edit through a lens: the differ
     /// between the source and the put of the edited view.
     ///
     /// # Errors
     ///
     /// The error of applying the edit or of put, as text.
+    ///
+    /// Book anchors: `L-edits-8`.
     pub fn put_edit<E: Debug>(
         put: &dyn Fn(&Graph) -> Result<Graph, E>,
         s: &Graph,
@@ -1083,7 +1097,7 @@ pub mod edit {
     /// A table delta.
     pub type TableDelta = Delta<TableSpace>;
 
-    /// Apply a table delta.
+    /// Definition: Apply a table delta.
     ///
     /// Deleted rows and pairs exist with their payloads, attribute old values hold, a deleted row's
     /// pairs are deleted, added ids are free, added pairs' rows exist. `Err` names the offending
@@ -1092,6 +1106,8 @@ pub mod edit {
     /// # Errors
     ///
     /// The first offending element.
+    ///
+    /// Book anchors: `L-edits-5`.
     pub fn apply_table(d: &TableDelta, t: &Table) -> Result<Table, TElem> {
         let cur = |x: &TElem| match x {
             TElem::Row(r) => t.rows.get(r).cloned().map(Some),

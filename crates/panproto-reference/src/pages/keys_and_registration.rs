@@ -134,8 +134,10 @@ pub mod keys {
         })
     }
 
-    /// Normalize XML non-CDATA whitespace: replace XML whitespace by U+0020,
+    /// Definition: Normalize XML non-CDATA whitespace: replace XML whitespace by U+0020,
     /// collapse runs, and trim both ends.
+    ///
+    /// Book anchors: `L-keys-and-registration-14`.
     #[must_use]
     pub fn xml_noncdata(text: &str) -> String {
         text.split([' ', '\t', '\r', '\n'])
@@ -144,9 +146,11 @@ pub mod keys {
             .join(" ")
     }
 
-    /// Equality of two part values under a declaration.
+    /// Definition: Equality of two part values under a declaration.
     ///
     /// `None` is the required refusal for text under a named SQL collation.
+    ///
+    /// Book anchors: `L-keys-and-registration-8`.
     #[must_use]
     pub fn key_equivalence(equality: &KeyEquality, left: &Value, right: &Value) -> Option<bool> {
         match equality {
@@ -190,7 +194,9 @@ pub mod keys {
         }
     }
 
-    /// Representation equality refines every computable declared equality.
+    /// Definition: Representation equality refines every computable declared equality.
+    ///
+    /// Book anchors: `L-keys-and-registration-9`.
     #[must_use]
     pub fn representation_refines(
         equality: &KeyEquality,
@@ -201,7 +207,9 @@ pub mod keys {
         Some(!represented || key_equivalence(equality, left, right)?)
     }
 
-    /// Compare values in the sort-key order.
+    /// Definition: Compare values in the sort-key order.
+    ///
+    /// Book anchors: `L-keys-and-registration-11`.
     #[must_use]
     pub fn sort_order(left: &Value, right: &Value) -> Option<std::cmp::Ordering> {
         match (numeric_key(left), numeric_key(right)) {
@@ -215,7 +223,9 @@ pub mod keys {
         }
     }
 
-    /// Whether a sequence has no adjacent sort-key descent.
+    /// Definition: Whether a sequence has no adjacent sort-key descent.
+    ///
+    /// Book anchors: `L-keys-and-registration-12`.
     #[must_use]
     pub fn key_order(values: &[Value]) -> Option<bool> {
         values
@@ -224,8 +234,10 @@ pub mod keys {
             .try_fold(true, |all, ordered| ordered.map(|one| all && one))
     }
 
-    /// Validate a target-set declaration expressed as `(vertex, key, arity,
+    /// Definition: Validate a target-set declaration expressed as `(vertex, key, arity,
     /// equality)` members.
+    ///
+    /// Book anchors: `L-keys-and-registration-13`.
     #[must_use]
     pub fn target_set(members: &[(String, String, usize, Vec<KeyEquality>)]) -> bool {
         let distinct = members
@@ -242,7 +254,9 @@ pub mod keys {
         distinct && compatible
     }
 
-    /// Index matching with an explicit null-match switch.
+    /// Definition: Index matching with an explicit null-match switch.
+    ///
+    /// Book anchors: `L-keys-and-registration-16`.
     #[must_use]
     pub const fn index_and_null_match(
         index: Option<u64>,
@@ -256,13 +270,17 @@ pub mod keys {
         }
     }
 
-    /// Whether a lexeme belongs to a declared lexical space.
+    /// Definition: Whether a lexeme belongs to a declared lexical space.
+    ///
+    /// Book anchors: `L-keys-and-registration-17`.
     #[must_use]
     pub fn lexical_space(text: &str, accepts: impl FnOnce(&str) -> bool) -> bool {
         accepts(text)
     }
 
-    /// A format annotation does not assert validity by itself.
+    /// Definition: A format annotation does not assert validity by itself.
+    ///
+    /// Book anchors: `L-keys-and-registration-18`.
     #[must_use]
     pub const fn annotated_format(annotation: Option<&str>) -> Option<&str> {
         annotation
@@ -311,10 +329,12 @@ pub mod keys {
         })
     }
 
-    /// The key value of `n` under `key`.
+    /// Definition: The key value of `n` under `key`.
     ///
     /// One value per part, or `None` when a part is NULL. A position part is the index of `n` among the
     /// targets of its ordered edge out of `n`'s parent, by position then edge id.
+    ///
+    /// Book anchors: `L-keys-and-registration-1`.
     #[must_use]
     pub fn key_value(g: &Graph, n: u32, key: &Key) -> Option<Vec<Value>> {
         key.parts
@@ -371,11 +391,13 @@ pub mod keys {
     /// Key buckets: (scope, canonical key bytes) to (key value, members).
     pub type Buckets = BTreeMap<(Option<u32>, Vec<u8>), (Vec<Value>, Vec<u32>)>;
 
-    /// The buckets of a key over the non-fan nodes anchored at `vertex`.
+    /// Definition: The buckets of a key over the non-fan nodes anchored at `vertex`.
     ///
     /// Each bucket key is the scope (the nearest ancestor for `Within`, else none) and the canonical
     /// bytes of the key value; elements with a NULL part are left out, and so (separately returned) are
     /// `Within` elements with no ancestor.
+    ///
+    /// Book anchors: `L-keys-and-registration-2`.
     #[must_use]
     pub fn buckets(g: &Graph, vertex: &str, key: &Key) -> (Buckets, Vec<u32>) {
         let mut out = Buckets::new();
@@ -684,12 +706,14 @@ pub mod schema {
         });
     }
 
-    /// Canonical bytes for the finite reference schema.
+    /// Definition: Canonical bytes for the finite reference schema.
     ///
     /// The layout writes every field in declaration order, every ordered map
     /// or set in key order, every sequence behind a `u64` length, and every sum
     /// behind a one-byte discriminant. Strings and edges use [`Writer`]'s
     /// canonical primitive layout.
+    ///
+    /// Book anchors: `L-keys-and-registration-3`, `L-keys-and-registration-10`, `L-keys-and-registration-15`.
     #[must_use]
     pub fn canonical_bytes(schema: &Schema) -> Vec<u8> {
         let mut writer = Writer::default();
@@ -801,7 +825,7 @@ pub mod schema {
             .collect()
     }
 
-    /// Classify key and reference changes by backward compatibility.
+    /// Definition: Classify key and reference changes by backward compatibility.
     ///
     /// Adding a key on an existing vertex is breaking and removing one is a
     /// relaxation. A changed key is breaking exactly when it adds or changes
@@ -809,6 +833,8 @@ pub mod schema {
     /// distinct `Within` scopes. Reference changes follow the corresponding
     /// cardinality, nullability and unresolved-value rules. Changes elsewhere
     /// in this finite carrier fail closed as breaking.
+    ///
+    /// Book anchors: `L-keys-and-registration-4`.
     #[must_use]
     pub fn classify_change(before: &Schema, after: &Schema) -> Change {
         if before == after {
@@ -861,12 +887,14 @@ pub mod schema {
         pub name: Name,
     }
 
-    /// Register a schema by name, accepting an idempotent replay and refusing
+    /// Definition: Register a schema by name, accepting an idempotent replay and refusing
     /// a different schema at the same name.
     ///
     /// # Errors
     ///
     /// [`RegistrationConflict`] when `name` already denotes different bytes.
+    ///
+    /// Book anchors: `L-keys-and-registration-5`, `L-keys-and-registration-6`, `L-keys-and-registration-7`.
     pub fn register(
         registry: &mut BTreeMap<Name, Schema>,
         name: &str,

@@ -584,7 +584,9 @@ pub mod canonical {
         Some(w.bytes)
     }
 
-    /// Decode one value, refusing trailing bytes.
+    /// Definition: Decode one value, refusing trailing bytes.
+    ///
+    /// Book anchors: `L-values-13`.
     #[must_use]
     pub fn decode_value(bytes: &[u8]) -> Option<Value> {
         let mut r = Reader::new(bytes);
@@ -592,7 +594,9 @@ pub mod canonical {
         r.done().then_some(v)
     }
 
-    /// Canonical bytes of an exact decimal, including all special values.
+    /// Definition: Canonical bytes of an exact decimal, including all special values.
+    ///
+    /// Book anchors: `L-values-38`.
     #[must_use]
     pub fn decimal_bytes(value: &Decimal) -> Option<Vec<u8>> {
         value_bytes(&Value::Decimal(value.clone()))
@@ -635,19 +639,23 @@ pub mod bytes {
             .collect()
     }
 
-    /// The Latin-1 decode-then-encode law.
+    /// Definition: The Latin-1 decode-then-encode law.
+    ///
+    /// Book anchors: `L-values-24`.
     #[must_use]
     pub fn latin1_decode_encode(bytes: &[u8]) -> bool {
         latin1_encode(&latin1_decode(bytes)).as_deref() == Ok(bytes)
     }
 
-    /// The Latin-1 encode-then-decode law on its exact domain.
+    /// Definition: The Latin-1 encode-then-decode law on its exact domain.
+    ///
+    /// Book anchors: `L-values-41`.
     #[must_use]
     pub fn latin1_encode_decode(text: &str) -> bool {
         latin1_encode(text).is_ok_and(|bytes| latin1_decode(&bytes) == text)
     }
 
-    /// Normalize optional base64 padding to the unique padded length.
+    /// Definition: Normalize optional base64 padding to the unique padded length.
     ///
     /// This operation checks only the padding shape. Alphabet and quantum
     /// decoding remain the caller's format-specific operation.
@@ -656,6 +664,8 @@ pub mod bytes {
     ///
     /// [`ByteTextError::InvalidPadding`] when padding is misplaced, has the
     /// wrong length, or cannot complete one four-character quantum.
+    ///
+    /// Book anchors: `L-values-26`, `L-values-27`.
     pub fn optional(text: &str) -> Result<String, ByteTextError> {
         let (body, padding) = text
             .find('=')
@@ -755,14 +765,18 @@ pub mod bytes {
         Ok(output)
     }
 
-    /// The padded accepted-text encode/decode law: an accepted padded spelling
+    /// Definition: The padded accepted-text encode/decode law: an accepted padded spelling
     /// is already the optional-padding normal form.
+    ///
+    /// Book anchors: `L-values-25`.
     #[must_use]
     pub fn padded_text_encode_decode(text: &str) -> bool {
         decode_base64(text, true).is_ok_and(|bytes| encode_base64(&bytes) == text)
     }
 
-    /// The padded byte decode/encode law.
+    /// Definition: The padded byte decode/encode law.
+    ///
+    /// Book anchors: `L-values-42`.
     #[must_use]
     pub fn padded_bytes_decode_encode(bytes: &[u8]) -> bool {
         decode_base64(&encode_base64(bytes), true).as_deref() == Ok(bytes)
@@ -1088,7 +1102,7 @@ pub mod coerce {
         )
     }
 
-    /// Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
+    /// Definition: Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
     ///
     /// A lexeme of class `Tagged(tag)` with no discriminator table is read by
     /// the declared kind as a `String` when there is one, and under `Any` by
@@ -1096,6 +1110,8 @@ pub mod coerce {
     /// scalar kind's name reads the lexeme under that kind, and any other tag
     /// keeps it as the opaque value of the tag. A lexeme with a tag under a
     /// discriminator table goes through [`coerce_discriminated`].
+    ///
+    /// Book anchors: `L-values-2`, `L-values-4`, `L-values-6`.
     #[must_use]
     pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
         if *class == LexClass::Null {
@@ -1172,10 +1188,12 @@ pub mod coerce {
         })
     }
 
-    /// Read a lexeme under the numeral dialect carried by `spec`.
+    /// Definition: Read a lexeme under the numeral dialect carried by `spec`.
     ///
     /// This named entry point is used by the schema-v2 manifest; [`coerce`]
     /// itself performs the dispatch so adapters cannot accidentally bypass it.
+    ///
+    /// Book anchors: `L-values-23`.
     #[must_use]
     pub fn coerce_dialect(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
         coerce(text, class, spec)
@@ -1855,7 +1873,7 @@ pub mod coerce {
         }
     }
 
-    /// Coerce an existing value under `spec`.
+    /// Definition: Coerce an existing value under `spec`.
     ///
     /// Rules: under `Any` the value is unchanged. Under a float kind of width b
     /// (and the exact reading): a finite `Float` is kept unchanged iff b holds
@@ -1871,6 +1889,8 @@ pub mod coerce {
     /// `None` under the nearest-keeping-lexeme reading (no rule states how an
     /// existing value is read under it) or a float width other than 16, 32
     /// and 64.
+    ///
+    /// Book anchors: `L-values-3`, `L-values-5`, `L-values-6`.
     #[must_use]
     pub fn coerce_value(v: &Value, spec: &ValueSpec) -> Coerced {
         if spec.kind == ScalarKind::Any {
@@ -1898,6 +1918,9 @@ pub mod coerce {
     ///
     /// This is the manifest name for [`coerce_discriminated`]. The latter is
     /// kept as the descriptive implementation name used by the unit tests.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-values-22`.
     pub use coerce_discriminated as coerce_tagged;
 
     fn coerce_into_float(v: &Value, format: Format) -> Result<Value, FidelityReason> {
@@ -2244,9 +2267,11 @@ pub mod exact {
             Scaled::Value(Rat::from_int(Int::new(self.negative, self.digits.clone())).mul(&e))
         }
 
-        /// Compare as numbers, ignoring scale. Exact for every exponent: the
+        /// Definition: Compare as numbers, ignoring scale. Exact for every exponent: the
         /// position of the leading digit (`len(digits) + exponent`) decides
         /// unless equal, then the digit strings aligned at the leading digit.
+        ///
+        /// Book anchors: `L-values-10`, `L-values-35`, `L-values-36`.
         #[must_use]
         pub fn cmp_numeric(&self, other: &Self) -> Ordering {
             let sign = |d: &Self| {
@@ -2559,11 +2584,13 @@ pub mod exact {
             }
         }
 
-        /// The General Decimal Arithmetic compare-total order, from its rules:
+        /// Definition: The General Decimal Arithmetic compare-total order, from its rules:
         /// for representations of sign 0, numbers by value and, at equal value,
         /// by exponent (larger higher); every signalling NaN below every quiet
         /// NaN, NaNs by payload; all of it reversed for sign 1, and every
         /// representation of sign 1 below every one of sign 0.
+        ///
+        /// Book anchors: `L-values-11`, `L-values-37`.
         #[must_use]
         pub fn compare_total(&self, other: &Self) -> Ordering {
             let (sa, sb) = (self.sign(), other.sign());
@@ -3028,7 +3055,7 @@ pub mod float {
         Some((value, lo, hi))
     }
 
-    /// `C_b`: the closest-shortest decimal of the finite pattern `bits`, ties to
+    /// Definition: `C_b`: the closest-shortest decimal of the finite pattern `bits`, ties to
     /// even.
     ///
     /// Definition: among the decimals with the fewest significant digits that
@@ -3039,6 +3066,8 @@ pub mod float {
     /// candidate of at most k significant digits; each candidate is read back
     /// with [`round_to`], and the first k with a candidate that reads back is
     /// the minimal length. Returns `None` for a NaN or an infinity.
+    ///
+    /// Book anchors: `L-values-9`, `L-values-33`.
     #[must_use]
     pub fn shortest(format: Format, bits: u64) -> Option<Dec> {
         let negative = bits & format.sign_bit() != 0;
@@ -3116,11 +3145,13 @@ pub mod float {
             .clone()
     }
 
-    /// The binary64 pattern that widens the `format` pattern `bits` on the bits.
+    /// Definition: The binary64 pattern that widens the `format` pattern `bits` on the bits.
     ///
     /// A finite value exactly, an infinity to the infinity of its sign, and a NaN to the NaN with its
     /// sign, an all-ones exponent and its fraction shifted to the high fraction bits of binary64 (quiet
     /// or signalling as written; no quieting).
+    ///
+    /// Book anchors: `L-values-8`.
     #[must_use]
     pub fn widen_bits(format: Format, bits: u64) -> u64 {
         match decode(format, bits) {
@@ -3136,10 +3167,12 @@ pub mod float {
         }
     }
 
-    /// The `format` pattern of the binary64 pattern `bits` when `format` holds it exactly, on the bits.
+    /// Definition: The `format` pattern of the binary64 pattern `bits` when `format` holds it exactly, on the bits.
     ///
     /// A finite value iff it is a value of `format`, an infinity always, and a NaN iff its fraction
     /// bits below the narrow fraction are zero (quiet or signalling). `None` otherwise.
+    ///
+    /// Book anchors: `L-values-8`.
     #[must_use]
     pub fn narrow_bits(format: Format, bits: u64) -> Option<u64> {
         match decode(Format::B64, bits) {
@@ -3164,24 +3197,34 @@ pub mod float {
         }
     }
 
-    /// The canonical quiet NaN produced by arithmetic in `format`.
+    /// Definition: The canonical quiet NaN produced by arithmetic in `format`.
+    ///
+    /// Book anchors: `L-values-7`.
     #[must_use]
     pub const fn computed_nan(format: Format) -> u64 {
         format.exponent_mask() << (format.precision() - 1) | 1u64 << (format.precision() - 2)
     }
 
-    /// The binary16 lexical mapping `L_16`: exact round-to-nearest, ties to
+    /// Definition: The binary16 lexical mapping `L_16`: exact round-to-nearest, ties to
     /// even, with the supplied sign retained for zero.
+    ///
+    /// Book anchors: `L-values-30`.
     #[must_use]
     pub fn binary16(value: &Rat, negative: bool) -> Rounded {
         round_to(Format::B16, value, negative)
     }
 
     /// The exact-reading operation used by the default float route.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-values-34`.
     pub use holds_exactly as exact_reading;
 
     /// The nearest-reading operation used by routes that retain their input
     /// lexeme in a complement.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-values-31`, `L-values-32`.
     pub use round_to as nearest_reading;
 
     /// The canonical quiet NaN of binary64, bits `0x7ff8000000000000`.
@@ -3577,9 +3620,11 @@ pub mod temporal {
             && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
     }
 
-    /// The partial chronological order: `None` for incomparable values, else
+    /// Definition: The partial chronological order: `None` for incomparable values, else
     /// the order of `order_key` with the fraction compared as a decimal
     /// fraction.
+    ///
+    /// Book anchors: `L-values-12`, `L-values-17`, `L-values-18`, `L-values-19`, `L-values-20`.
     #[must_use]
     pub fn cmp_chronological(a: &Temporal, b: &Temporal) -> Option<Ordering> {
         if !comparable(a, b) {
@@ -3865,25 +3910,33 @@ pub mod temporal {
         single(all)
     }
 
-    /// The parse-then-display law for a kind-directed accepted lexeme.
+    /// Definition: The parse-then-display law for a kind-directed accepted lexeme.
+    ///
+    /// Book anchors: `L-values-15`.
     #[must_use]
     pub fn parse_display(kind: TemporalKind, text: &str) -> bool {
         parse(kind, text).is_some_and(|value| value.to_string() == text)
     }
 
-    /// The display-then-parse law for a value of `kind`.
+    /// Definition: The display-then-parse law for a value of `kind`.
+    ///
+    /// Book anchors: `L-values-16`.
     #[must_use]
     pub fn display_parse(kind: TemporalKind, value: &Temporal) -> bool {
         parse(kind, &value.to_string()).as_ref() == Some(value)
     }
 
-    /// Canonical bytes of a temporal value.
+    /// Definition: Canonical bytes of a temporal value.
+    ///
+    /// Book anchors: `L-values-21`.
     #[must_use]
     pub fn canonical_bytes(value: &Temporal) -> Option<Vec<u8>> {
         crate::canonical::value_bytes(&crate::value::Value::Temporal(value.clone()))
     }
 
-    /// Whether a value records YAML's unwritten-UTC representation.
+    /// Definition: Whether a value records YAML's unwritten-UTC representation.
+    ///
+    /// Book anchors: `L-values-39`.
     #[must_use]
     pub const fn unwritten_zulu(value: &Temporal) -> bool {
         matches!(value.offset, Offset::Zulu(ZuluCase::Unwritten))
@@ -3945,10 +3998,12 @@ pub mod temporal {
         None
     }
 
-    /// Convert an epoch count to the exact date-time in its unit.
+    /// Definition: Convert an epoch count to the exact date-time in its unit.
     ///
     /// The epoch is 1970-01-01T00:00:00. An instant column writes `Z`; a
     /// wall-clock column writes no offset.
+    ///
+    /// Book anchors: `L-values-28`.
     #[must_use]
     pub fn from_epoch_count(count: i128, unit: TimeUnit, instant: bool) -> Option<Temporal> {
         let ticks = unit.ticks();
@@ -3988,8 +4043,10 @@ pub mod temporal {
         })
     }
 
-    /// Convert a date-time in the image of [`from_epoch_count`] back to its
+    /// Definition: Convert a date-time in the image of [`from_epoch_count`] back to its
     /// count.
+    ///
+    /// Book anchors: `L-values-29`.
     #[must_use]
     pub fn to_epoch_count(value: &Temporal, unit: TimeUnit, instant: bool) -> Option<i128> {
         let date = value.date?;
@@ -4346,8 +4403,10 @@ pub mod value {
         Absent,
     }
 
-    /// Representation equality: equality of canonical bytes on the canonical
+    /// Definition: Representation equality: equality of canonical bytes on the canonical
     /// encoder's domain.
+    ///
+    /// Book anchors: `L-values-1`.
     #[must_use]
     pub fn representation(left: &Value, right: &Value) -> Option<bool> {
         Some(crate::canonical::value_bytes(left)? == crate::canonical::value_bytes(right)?)
@@ -4368,11 +4427,13 @@ pub mod value {
         If(Box<Self>, Box<Self>, Box<Self>),
     }
 
-    /// Evaluate an expression in a finite environment.
+    /// Definition: Evaluate an expression in a finite environment.
     ///
     /// `None` is the deliberately explicit refusal for an unbound variable, a
     /// non-boolean condition, or a value outside canonical representation
     /// equality's domain.
+    ///
+    /// Book anchors: `L-values-14`.
     #[must_use]
     pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Option<Value> {
         match expr {

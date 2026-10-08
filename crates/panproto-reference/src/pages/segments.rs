@@ -196,7 +196,7 @@ pub mod segment {
         pub in_stubs: BTreeMap<u32, InStub>,
     }
 
-    /// Split a graph by a valid partition.
+    /// Definition: Split a graph by a valid partition.
     ///
     /// # Errors
     ///
@@ -204,6 +204,8 @@ pub mod segment {
     /// node no range owns; then, for the least edge whose source or target is
     /// not a node of `g`, [`SegmentError::DanglingEdge`], or
     /// [`SegmentError::Unowned`] when an endpoint lies in no range.
+    ///
+    /// Book anchors: `L-segments-3`, `L-segments-6`, `L-segments-7`, `L-segments-8`.
     pub fn partition(g: &Graph, p: &Partition) -> Result<Vec<GraphSegment>, SegmentError> {
         p.validate()?;
         let owner = |n: u32| p.owner(n).ok_or(SegmentError::Unowned { node: n });
@@ -254,7 +256,7 @@ pub mod segment {
         Ok(segs)
     }
 
-    /// Glue segments into the whole instance, checking the segment contract:
+    /// Definition: Glue segments into the whole instance, checking the segment contract:
     ///
     /// every node is owned by its holder and keyed by its id, every edge's
     /// source is owned by its holder, every remote target is a ghost naming
@@ -265,6 +267,8 @@ pub mod segment {
     /// # Errors
     ///
     /// The first violation, in segment then element order.
+    ///
+    /// Book anchors: `L-segments-1`, `L-segments-5`.
     pub fn glue(segs: &[GraphSegment], p: &Partition) -> Result<Graph, SegmentError> {
         p.validate()?;
         let mut g = Graph::default();
@@ -349,11 +353,13 @@ pub mod segment {
         Ok(g)
     }
 
-    /// A segmented operation: the whole-state operation on the glued state.
+    /// Definition: A segmented operation: the whole-state operation on the glued state.
     ///
     /// # Errors
     ///
     /// The gluing error.
+    ///
+    /// Book anchors: `L-segments-2`, `L-segments-4`, `L-segments-9`.
     pub fn segmented<T>(
         segs: &[GraphSegment],
         p: &Partition,
@@ -362,10 +368,12 @@ pub mod segment {
         glue(segs, p).map(|g| op(&g))
     }
 
-    /// The fresh id of an allocation range.
+    /// Definition: The fresh id of an allocation range.
     ///
     /// The range's floor (its least id, or one above the greatest source id it holds) raised above
     /// every used id it holds; `None` when that passes the range's top or is `u32::MAX`.
+    ///
+    /// Book anchors: `L-segments-10`.
     #[must_use]
     pub fn fresh(range: IdRange, source: &BTreeSet<u32>, used: &BTreeSet<u32>) -> Option<u32> {
         let inside = |s: &BTreeSet<u32>| s.iter().copied().filter(|i| range.contains(*i)).max();

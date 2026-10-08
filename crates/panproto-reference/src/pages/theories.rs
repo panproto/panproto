@@ -433,7 +433,7 @@ pub mod theory {
             .collect()
     }
 
-    /// Signature well-formedness.
+    /// Definition: Signature well-formedness.
     ///
     /// Every sort parameter's sort is declared earlier; every sort expression of an operation names a
     /// declared sort, an application with the declared arity whose argument terms are typed against the
@@ -443,6 +443,8 @@ pub mod theory {
     /// # Errors
     ///
     /// Every defect, sorted.
+    ///
+    /// Book anchors: `L-theories-1`, `L-theories-2`.
     pub fn typecheck_signature(t: &Theory) -> Result<(), Vec<Defect>> {
         let mut out = Vec::new();
         for n in duplicates(&t.sorts.iter().map(|s| &s.name).collect::<Vec<_>>()) {
@@ -737,7 +739,7 @@ pub mod theory {
         }
     }
 
-    /// Whether a leg is a morphism.
+    /// Definition: Whether a leg is a morphism.
     ///
     /// Definition: every source sort maps to a declared target sort of the
     /// same arity whose parameter sorts are the images of the source's, and a
@@ -749,6 +751,8 @@ pub mod theory {
     /// inputs, is the translated output. The image of a sort expression is its
     /// sort renamed with every argument term translated, derived-term images
     /// substituted into sort arguments.
+    ///
+    /// Book anchors: `L-theories-7`.
     #[must_use]
     pub fn check_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
         let id = |x: &str| x.to_owned();
@@ -928,10 +932,12 @@ pub mod theory {
             .collect()
     }
 
-    /// Naive quotient closure of `0..size` by finite identifications.
+    /// Definition: Naive quotient closure of `0..size` by finite identifications.
     ///
     /// Each join relabels the entire current class. A member's final label is
     /// the least member of its equivalence class.
+    ///
+    /// Book anchors: `L-theories-6`.
     #[must_use]
     pub fn quotient(size: usize, identifications: &[(usize, usize)]) -> Option<Vec<usize>> {
         let mut labels: Vec<usize> = (0..size).collect();
@@ -951,9 +957,12 @@ pub mod theory {
     }
 
     /// Replay a recorded composition from the same finite diagram.
+    /// Definition: This is the manifest-stable name of the referenced operation.
+    ///
+    /// Book anchors: `L-theories-8`.
     pub use compose as recompose;
 
-    /// The colimit of a diagram of theories.
+    /// Definition: The colimit of a diagram of theories.
     ///
     /// Definition (the construction, both modes, one engine): (1) validate
     /// the diagram: labels unique and well formed, edge endpoints exist, every
@@ -991,6 +1000,8 @@ pub mod theory {
     /// # Errors
     ///
     /// The first [`ComposeError`] of the steps in that order.
+    ///
+    /// Book anchors: `L-theories-3`, `L-theories-4`, `L-theories-5`.
     pub fn compose(
         nodes: &[(Name, Theory)],
         edges: &[(Name, Name, Morphism)],

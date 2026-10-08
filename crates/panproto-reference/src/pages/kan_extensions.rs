@@ -1387,7 +1387,7 @@ pub mod rel {
     /// The provenance of a Delta row: the source table and target row copied.
     pub type DeltaProvenance = BTreeMap<u32, (Name, u32)>;
 
-    /// Delta along `f` (precomposition).
+    /// Definition: Delta along `f` (precomposition).
     ///
     /// For each kept source table s and each row r of `j` at `F(s)`, a copy row at s holding, at each
     /// kept column c of s, r's cell at `F(s, c)`; for each kept relation e and each pair `(F(e), a, b)`
@@ -1399,6 +1399,8 @@ pub mod rel {
     ///
     /// [`KanError::NonConforming`] when `j` does not conform to the target;
     /// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
+    ///
+    /// Book anchors: `L-kan-extensions-1`, `L-kan-extensions-4`, `L-kan-extensions-5`.
     pub fn delta(f: &RelFunctor, j: &Table) -> Result<(Table, DeltaProvenance), KanError> {
         conform(j, &f.tgt.side()).map_err(KanError::NonConforming)?;
         let mut fresh = Fresh::above(j.rows.keys().copied());
@@ -1483,7 +1485,7 @@ pub mod rel {
             .max()
     }
 
-    /// Sigma along `f`: the quotient of the disjoint union.
+    /// Definition: Sigma along `f`: the quotient of the disjoint union.
     ///
     /// Rows: each row of the kept part keeps its id at the image of its table;
     /// pairs: the set of images `(F(e), a, b)`. Cells: each output slot
@@ -1507,6 +1509,8 @@ pub mod rel {
     ///
     /// [`KanError::NonConforming`], [`KanError::SigmaConstantClash`], or
     /// [`KanError::NullIdsExhausted`] when a fresh null would pass `u64::MAX`.
+    ///
+    /// Book anchors: `L-kan-extensions-2`, `L-kan-extensions-4`.
     pub fn sigma(f: &RelFunctor, i: &Table) -> Result<(Table, SigmaProvenance), KanError> {
         conform(i, &f.src.side()).map_err(KanError::NonConforming)?;
         let mut fresh = Fresh::above_nulls(max_null(i).into_iter());
@@ -1705,7 +1709,7 @@ pub mod rel {
         out
     }
 
-    /// Pi along `f`: compatible families over the comma categories.
+    /// Definition: Pi along `f`: compatible families over the comma categories.
     ///
     /// For a target table d the comma category under d holds the kept source
     /// tables over d and no arrow between them, so a family is a tuple of one
@@ -1730,6 +1734,8 @@ pub mod rel {
     ///
     /// [`KanError::AttributeOutsideImage`] or [`KanError::NonConforming`];
     /// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
+    ///
+    /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
     pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> {
         attribute_surjective(f)?;
         conform(i, &f.src.side()).map_err(KanError::NonConforming)?;
@@ -1901,11 +1907,13 @@ pub mod rel {
         }
     }
 
-    /// Every homomorphism between two instances of one schema.
+    /// Definition: Every homomorphism between two instances of one schema.
     ///
     /// A map of rows preserving tables and pairs, under which each cell of the domain equals the image
     /// row's cell, a labelled null of the domain being sent to the value it first meets (consistently),
     /// every other value compared by canonical bytes. Enumerated naively over all row maps.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-5`, `L-kan-extensions-6`, `L-kan-extensions-7`.
     #[must_use]
     pub fn homs(a: &Table, b: &Table) -> Vec<BTreeMap<u32, u32>> {
         let order: Vec<u32> = a.rows.keys().copied().collect();
@@ -2026,19 +2034,25 @@ pub mod migration {
         }
     }
 
-    /// Observable equality for the graph conjugation square.
+    /// Definition: Observable equality for the graph conjugation square.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     #[must_use]
     pub fn graph_square(left: &crate::model::Graph, right: &crate::model::Graph) -> bool {
         left == right
     }
 
-    /// Observable equality for the table conjugation square.
+    /// Definition: Observable equality for the table conjugation square.
+    ///
+    /// Book anchors: `L-kan-extensions-9`.
     #[must_use]
     pub fn table_square(left: &crate::model::Table, right: &crate::model::Table) -> bool {
         left == right
     }
 
-    /// Observable equality for the tree conjugation square.
+    /// Definition: Observable equality for the tree conjugation square.
+    ///
+    /// Book anchors: `L-kan-extensions-10`.
     #[must_use]
     pub fn tree_square(left: &crate::model::Tree, right: &crate::model::Tree) -> bool {
         left == right

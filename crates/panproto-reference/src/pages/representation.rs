@@ -39,12 +39,14 @@ pub mod canonical {
         pub format_version: u16,
     }
 
-    /// Encode a version-2 identity envelope exactly as the segmented canonical
+    /// Definition: Encode a version-2 identity envelope exactly as the segmented canonical
     /// sink does.
     ///
     /// The layout is little-endian version 2, three 32-byte digests, the shape
     /// tag (`WType = 0`, `Graph = 1`, `Functor = 2`, `Resolution = 3`), and the
     /// little-endian complement-format version.
+    ///
+    /// Book anchors: `L-representation-5`.
     #[must_use]
     pub fn identity(envelope: &IdentityEnvelope) -> [u8; 101] {
         let mut bytes = [0; 101];
@@ -158,8 +160,10 @@ pub mod canonical {
         Some(w.bytes)
     }
 
-    /// The inverse of [`graph_bytes`], refusing records out of ascending order,
+    /// Definition: The inverse of [`graph_bytes`], refusing records out of ascending order,
     /// dangling endpoints and trailing bytes.
+    ///
+    /// Book anchors: `L-representation-4`.
     #[must_use]
     pub fn decode_graph(bytes: &[u8]) -> Option<Graph> {
         let mut r = Reader::new(bytes);
@@ -209,7 +213,9 @@ pub mod canonical {
         Some(w.bytes)
     }
 
-    /// The inverse of [`table_bytes`].
+    /// Definition: The inverse of [`table_bytes`].
+    ///
+    /// Book anchors: `L-representation-4`.
     #[must_use]
     pub fn decode_table(bytes: &[u8]) -> Option<Table> {
         let mut r = Reader::new(bytes);
@@ -276,9 +282,11 @@ pub mod canonical {
         Some(w.bytes)
     }
 
-    /// The inverse of [`tree_bytes`] up to what the bytes do not hold: the
+    /// Definition: The inverse of [`tree_bytes`] up to what the bytes do not hold: the
     /// fans come back in record order and the root is the one node no arc
     /// enters (`None` when that node is not unique).
+    ///
+    /// Book anchors: `L-representation-4`.
     #[must_use]
     pub fn decode_tree(bytes: &[u8]) -> Option<Tree> {
         let mut r = Reader::new(bytes);
@@ -381,7 +389,7 @@ pub mod encode {
         DanglingArc,
     }
 
-    /// The graph form of a tree.
+    /// Definition: The graph form of a tree.
     ///
     /// Arc i (in arc order) becomes edge i with no position; fan k becomes node `max node id + 1 + k`
     /// of the hyper-edge shape, anchored at its hyper-edge, with its edges after every arc's, fan by
@@ -393,6 +401,8 @@ pub mod encode {
     ///
     /// [`TreeEncodeError`] for reserved vocabulary, a second parent or a
     /// dangling arc or fan.
+    ///
+    /// Book anchors: `L-representation-1`.
     pub fn tree_to_graph(
         t: &Tree,
         schema: Option<&Schema>,
@@ -605,7 +615,7 @@ pub mod encode {
         Ok(parent)
     }
 
-    /// The tree form of a graph with this root.
+    /// Definition: The tree form of a graph with this root.
     ///
     /// Definition: the inverse of [`tree_to_graph`] on its image, up to the
     /// ids of fan nodes and edges. A graph has a tree form iff the root is a
@@ -626,6 +636,8 @@ pub mod encode {
     ///
     /// The first [`NotATree`] reason: the root, then each edge in ascending
     /// id, then each fan node in ascending id, then each other node.
+    ///
+    /// Book anchors: `L-representation-2`.
     pub fn graph_to_tree(
         g: &Graph,
         root: u32,
@@ -705,10 +717,12 @@ pub mod encode {
         })
     }
 
-    /// Reify every fan in a tree through its graph representation.
+    /// Definition: Reify every fan in a tree through its graph representation.
     ///
     /// The result is defined exactly when both representation directions are
     /// defined; this makes the image round trip directly executable.
+    ///
+    /// Book anchors: `L-representation-3`.
     #[must_use]
     pub fn reify(tree: &Tree, schema: Option<&Schema>) -> Option<Tree> {
         let (graph, _) = tree_to_graph(tree, schema).ok()?;
