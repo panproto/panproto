@@ -97,6 +97,25 @@ pub mod encode {
                 .get(&e.src)
                 .is_some_and(|cs| cs.values().any(|a| a == e))
         }
+
+        fn table_side(&self) -> rel::Side {
+            rel::Side {
+                tables: self
+                    .tables
+                    .iter()
+                    .map(|table| {
+                        (
+                            table.clone(),
+                            self.columns
+                                .get(table)
+                                .map(|columns| columns.keys().cloned().collect())
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+                relations: self.relations.clone(),
+            }
+        }
     }
 
     /// Why a graph is not encodable over a side.
@@ -371,9 +390,12 @@ pub mod encode {
         Ok(())
     }
 
-    /// Encode a graph over a side: five checks (nodes, edges, parallel edges,
-    /// cells, value nodes), then a row per table node with the folds of its
-    /// cells, and a pair per relation edge.
+    /// Definition: Encode a graph over a relational side by five checks, then
+    /// materialize its rows and relation pairs.
+    ///
+    /// The checks cover nodes, edges, parallel edges, cells and value nodes.
+    /// The result has one row per table node with the folds of its cells, and
+    /// one pair per relation edge.
     ///
     /// The edge check refuses first an edge whose source or target is not a
     /// node (`DanglingEdge`).
@@ -381,6 +403,8 @@ pub mod encode {
     /// # Errors
     ///
     /// The first [`NotEncodable`] reason of the first failing check.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     pub fn encode_graph(g: &Graph, side: &GraphSide) -> Result<Table, NotEncodable> {
         pass_nodes(g, side)?;
         pass_edges(g, side)?;
@@ -411,15 +435,19 @@ pub mod encode {
     }
 
     /// Why decoding a table into its graph carrier can refuse.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum DecodeTableError {
+        /// A relation pair names a row absent from the table.
+        MalformedTable,
+        /// The table does not conform to the relational side.
+        NonConforming(Box<rel::NonConforming>),
         /// No non-reserved node id remains for a cell-value node.
         NodeIdsExhausted,
         /// No non-reserved edge id remains for a cell or relation edge.
         EdgeIdsExhausted,
     }
 
-    /// Decode a conforming table over a side without a record.
+    /// Definition: Decode a conforming, well-formed table over a side without a record.
     ///
     /// A table node per row (its id); per cell, in ascending (row, column), one leaf value node (a
     /// fresh id above every row id) holding the cell (a null presence for `Null`) and its attribute
@@ -428,9 +456,17 @@ pub mod encode {
     ///
     /// # Errors
     ///
-    /// [`DecodeTableError`] before an allocation would use the reserved id
-    /// `u32::MAX`.
+    /// [`DecodeTableError::MalformedTable`] when a pair names an absent row,
+    /// [`DecodeTableError::NonConforming`] for the first table, cell or pair
+    /// outside the side, then an allocation error before an allocation would
+    /// use the reserved id `u32::MAX`.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     pub fn decode_table(t: &Table, side: &GraphSide) -> Result<Graph, DecodeTableError> {
+        if !t.well_formed() {
+            return Err(DecodeTableError::MalformedTable);
+        }
+        rel::conform(t, &side.table_side()).map_err(DecodeTableError::NonConforming)?;
         let mut g = Graph::default();
         let mut next_node = t
             .rows
@@ -495,16 +531,19 @@ pub mod encode {
         NotEncodable(Box<NotEncodable>),
         /// The table functor refused.
         Kan(Box<KanError>),
-        /// Decoding the result would exhaust a reserved graph id.
+        /// Decoding the result refused a malformed or nonconforming table, or
+        /// exhausted a reserved graph id.
         Decode(DecodeTableError),
     }
 
-    /// Graph Delta: decode over the kept part of Delta of the encoding over
+    /// Definition: Graph Delta is decode over the kept part of Delta of the encoding over
     /// the target.
     ///
     /// # Errors
     ///
     /// [`GraphKanError`].
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     pub fn g_delta(f: &RelFunctor, h: &Graph) -> Result<Graph, GraphKanError> {
         let t = encode_graph(h, &GraphSide::whole(&f.tgt))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
@@ -512,12 +551,14 @@ pub mod encode {
         decode_table(&d, &GraphSide::kept(f)).map_err(GraphKanError::Decode)
     }
 
-    /// Graph Sigma: decode over the target of Sigma of the encoding over the
+    /// Definition: Graph Sigma is decode over the target of Sigma of the encoding over the
     /// source.
     ///
     /// # Errors
     ///
     /// [`GraphKanError`].
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     pub fn g_sigma(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
         let t = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
@@ -525,11 +566,13 @@ pub mod encode {
         decode_table(&s, &GraphSide::whole(&f.tgt)).map_err(GraphKanError::Decode)
     }
 
-    /// Graph Pi: decode over the target of Pi of the encoding over the source.
+    /// Definition: Graph Pi is decode over the target of Pi of the encoding over the source.
     ///
     /// # Errors
     ///
     /// [`GraphKanError`].
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
     pub fn g_pi(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
         let t = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
@@ -632,6 +675,8 @@ pub mod encode {
     /// [`TreeKanError::Graph`] when graph Sigma refuses, and
     /// [`TreeKanError::RootCount`] or [`TreeKanError::NotATree`] when its
     /// result is no tree.
+    ///
+    /// Book anchors: `L-kan-extensions-10`.
     pub fn t_sigma(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
         let g = tree_graph(t)?;
         let r = g_sigma(f, &g).map_err(TreeKanError::Graph)?;
@@ -649,6 +694,8 @@ pub mod encode {
     /// # Errors
     ///
     /// As [`t_sigma`], with graph Pi in place of graph Sigma.
+    ///
+    /// Book anchors: `L-kan-extensions-10`.
     pub fn t_pi(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
         let g = tree_graph(t)?;
         let r = g_pi(f, &g).map_err(TreeKanError::Graph)?;
@@ -693,6 +740,8 @@ pub mod encode {
     /// [`TreeKanError::NonInjectiveEdgeMap`] for a merging map, checked in
     /// that order; then as [`t_sigma`], with graph Delta in place of graph
     /// Sigma.
+    ///
+    /// Book anchors: `L-kan-extensions-10`.
     pub fn t_delta(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
         let arrow = |schema: &RelSchema, table: &str, column: &str| -> Option<SEdge> {
             schema
@@ -826,6 +875,9 @@ pub mod rel {
     /// # Errors
     ///
     /// The first of the errors above, in that order.
+    ///
+    /// Book anchors: `L-kan-extensions-12`.
+    ///
     pub fn classify(
         schema: &Schema,
         value_kinds: &BTreeSet<Name>,
@@ -983,7 +1035,7 @@ pub mod rel {
         map.into_iter().any(|(_, w)| w == v)
     }
 
-    /// The entity functor of a migration between two relation-ified schemas.
+    /// Definition: The entity functor of a migration between two relation-ified schemas.
     ///
     /// Steps, each reporting its least offender: (1) a source table is kept iff
     /// `vertex_remap` maps it, or it is listed in `surviving_verts` and is no
@@ -1003,6 +1055,9 @@ pub mod rel {
     /// # Errors
     ///
     /// The first failing step's [`FunctorError`].
+    ///
+    /// Book anchors: `L-kan-extensions-11`.
+    ///
     pub fn entity_functor(
         src: &RelSchema,
         tgt: &RelSchema,
@@ -1865,16 +1920,23 @@ pub mod rel {
         Some(cells)
     }
 
-    /// A structure-preserving bijection between two attributed instances.
+    /// Definition: A structure-preserving bijection between two attributed instances.
     ///
     /// A bijection of rows preserving tables, pairs and cells, with a bijection of labelled nulls under
     /// which cells agree (every other value compared by canonical bytes).
     ///
     /// Found by naive backtracking over row bijections; `None` when none
     /// exists.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-5`,
+    /// `L-kan-extensions-6`, `L-kan-extensions-7`.
     #[must_use]
     pub fn row_bijection(a: &Table, b: &Table) -> Option<BTreeMap<u32, u32>> {
-        if a.rows.len() != b.rows.len() || a.pairs.len() != b.pairs.len() {
+        if !a.well_formed()
+            || !b.well_formed()
+            || a.rows.len() != b.rows.len()
+            || a.pairs.len() != b.pairs.len()
+        {
             return None;
         }
         let order: Vec<u32> = a.rows.keys().copied().collect();

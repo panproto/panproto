@@ -414,6 +414,8 @@
             }
           ],
           "references": [
+            "panproto_reference::bytes::latin1_decode",
+            "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_decode_encode"
           ],
           "due_gate": "phase3"
@@ -428,6 +430,8 @@
             }
           ],
           "references": [
+            "panproto_reference::bytes::decode_base64",
+            "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_text_encode_decode"
           ],
           "due_gate": "phase3"
@@ -638,6 +642,8 @@
             }
           ],
           "references": [
+            "panproto_reference::bytes::latin1_decode",
+            "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_encode_decode"
           ],
           "due_gate": "phase3"
@@ -652,7 +658,23 @@
             }
           ],
           "references": [
+            "panproto_reference::bytes::decode_base64",
+            "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_bytes_decode_encode"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.exact-rounding-ties-even",
+          "anchor": "L-values-43",
+          "contract": [
+            {
+              "section": "O10",
+              "clause": "L_b maps every exact rational to the nearest representable binary16, binary32 or binary64 value when finite, ties to an even significand, preserves the supplied sign of exact zero, and reports signed overflow when the rounded result is infinite"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::round_to"
           ],
           "due_gate": "phase3"
         }
@@ -830,7 +852,8 @@
             }
           ],
           "references": [
-            "panproto_reference::value_io::xml_entity"
+            "panproto_reference::value_io::xml_entity",
+            "panproto_reference::xml::expand_entities"
           ],
           "due_gate": "phase3"
         },
@@ -1026,7 +1049,8 @@
             }
           ],
           "references": [
-            "panproto_reference::xml::bounded_expansion_cst"
+            "panproto_reference::xml::bounded_expansion_cst",
+            "panproto_reference::xml::expand_entities"
           ],
           "due_gate": "final"
         },
@@ -1679,6 +1703,48 @@
             "panproto_reference::canonical::identity"
           ],
           "due_gate": "phase3"
+        },
+        {
+          "id": "representation.table-to-graph-total",
+          "anchor": "L-representation-6",
+          "contract": [
+            {
+              "section": "T.7",
+              "clause": "table-to-graph maps every well-formed table whose pairs fit the nonreserved edge-id carrier to plain row nodes and ascending unpositioned pair edges, while malformed pairs and reserved edge-id exhaustion are typed refusals"
+            }
+          ],
+          "references": [
+            "panproto_reference::encode::table_to_graph"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.graph-to-table-decision",
+          "anchor": "L-representation-7",
+          "contract": [
+            {
+              "section": "T.7",
+              "clause": "graph-to-table returns the row and pair carrier exactly for well-formed table-shaped graphs and returns None for every graph outside that domain"
+            }
+          ],
+          "references": [
+            "panproto_reference::encode::graph_to_table"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.fan-domain",
+          "anchor": "L-representation-8",
+          "contract": [
+            {
+              "section": "F",
+              "clause": "fan-domain decision lists every violation at one node in the specified deterministic order, including reserved kinds outside fans and schema-relative hyper-edge and child-label defects"
+            }
+          ],
+          "references": [
+            "panproto_reference::fan::violations_at"
+          ],
+          "due_gate": "phase3"
         }
       ],
       "due_gate": "phase3"
@@ -1744,7 +1810,8 @@
           "references": [
             "panproto_reference::rel::sigma",
             "panproto_reference::rel::delta",
-            "panproto_reference::rel::homs"
+            "panproto_reference::rel::homs",
+            "panproto_reference::rel::row_bijection"
           ],
           "due_gate": "phase3"
         },
@@ -1760,7 +1827,8 @@
           "references": [
             "panproto_reference::rel::delta",
             "panproto_reference::rel::pi",
-            "panproto_reference::rel::homs"
+            "panproto_reference::rel::homs",
+            "panproto_reference::rel::row_bijection"
           ],
           "due_gate": "phase3"
         },
@@ -1774,7 +1842,8 @@
             }
           ],
           "references": [
-            "panproto_reference::rel::homs"
+            "panproto_reference::rel::homs",
+            "panproto_reference::rel::row_bijection"
           ],
           "due_gate": "phase3"
         },
@@ -1788,7 +1857,8 @@
             }
           ],
           "references": [
-            "panproto_reference::rel::homs"
+            "panproto_reference::rel::homs",
+            "panproto_reference::rel::row_bijection"
           ],
           "due_gate": "phase3"
         },
@@ -1802,6 +1872,11 @@
             }
           ],
           "references": [
+            "panproto_reference::encode::decode_table",
+            "panproto_reference::encode::encode_graph",
+            "panproto_reference::encode::g_delta",
+            "panproto_reference::encode::g_pi",
+            "panproto_reference::encode::g_sigma",
             "panproto_reference::migration::graph_square"
           ],
           "due_gate": "phase3"
@@ -1830,7 +1905,38 @@
             }
           ],
           "references": [
+            "panproto_reference::encode::t_delta",
+            "panproto_reference::encode::t_pi",
+            "panproto_reference::encode::t_sigma",
             "panproto_reference::migration::tree_square"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.entity-functor",
+          "anchor": "L-kan-extensions-11",
+          "contract": [
+            {
+              "section": "O4",
+              "clause": "the entity functor keeps and maps tables, relations, attribute arrows and inner value edges in the stated order, refusing the least incoherent table, relation, attribute or value-structure image"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::entity_functor"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.relation-classification",
+          "anchor": "L-kan-extensions-12",
+          "contract": [
+            {
+              "section": "O4",
+              "clause": "strict relation classification requires disjoint value and non-value kinds, classifies declared and kind-selected tables and the value closure, and refuses the least ambiguity, unclassified vertex, value-to-table edge or duplicate column in that order"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::classify"
           ],
           "due_gate": "phase3"
         }
@@ -1854,7 +1960,8 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::restrict::get",
+            "panproto_reference::restrict::edge_image"
           ],
           "due_gate": "phase3"
         },
@@ -1896,7 +2003,8 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::restrict::get",
+            "panproto_reference::restrict::edge_image"
           ],
           "due_gate": "phase3"
         },
@@ -2092,7 +2200,9 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::independence"
+            "panproto_reference::edit::independence",
+            "panproto_reference::edit::is_benign",
+            "panproto_reference::edit::merge"
           ],
           "due_gate": "phase3"
         },
@@ -2148,6 +2258,7 @@
             }
           ],
           "references": [
+            "panproto_reference::edit::diff",
             "panproto_reference::edit::get_edit",
             "panproto_reference::edit::put_edit"
           ],
@@ -2205,6 +2316,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2251,6 +2364,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2297,6 +2412,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2311,6 +2428,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2325,6 +2444,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2339,6 +2460,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2353,6 +2476,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2367,6 +2492,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2381,6 +2508,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2395,6 +2524,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2409,6 +2540,8 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::CheckStatus::all",
+            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3"
@@ -2709,6 +2842,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2724,6 +2859,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2739,6 +2876,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2754,6 +2893,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2769,6 +2910,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2784,6 +2927,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2799,6 +2944,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2814,6 +2961,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2829,6 +2978,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2844,6 +2995,8 @@
             }
           ],
           "references": [
+            "panproto_reference::lens::GraphLens::check_put_domain",
+            "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
@@ -2874,6 +3027,8 @@
             }
           ],
           "references": [
+            "panproto_reference::table::TablePlan::writer",
+            "panproto_reference::table::compile_for_tables",
             "panproto_reference::table::get",
             "panproto_reference::table::TableLens::put"
           ],

@@ -7,7 +7,7 @@ use panproto_reference::encode::{self, GraphSide};
 use panproto_reference::encode::{DecodeTableError, TreeEncodeError};
 use panproto_reference::migration::Migration;
 use panproto_reference::model::{Fan, Node, SEdge, Table, Tree};
-use panproto_reference::rel;
+use panproto_reference::rel::{self, Conformance, NonConforming};
 use panproto_reference::schema::{HyperEdge, Schema};
 use panproto_reference::value::Value;
 
@@ -185,4 +185,113 @@ fn table_decode_uses_max_minus_one_but_never_the_reserved_maximum() {
             Err(DecodeTableError::NodeIdsExhausted)
         );
     }
+}
+
+#[test]
+fn table_graph_bridges_refuse_a_dangling_pair() {
+    let dangling = Table {
+        rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
+        pairs: BTreeSet::from([(SEdge::new("a", "b", "fk", Some("f")), 0, 1)]),
+    };
+    let pair = dangling.pairs.iter().next().unwrap().clone();
+    assert_eq!(
+        encode::table_to_graph(&dangling),
+        Err(encode::TableEncodeError::MalformedTable {
+            pair: Box::new(pair),
+        })
+    );
+    assert_eq!(
+        encode::decode_table(&dangling, &GraphSide::default()),
+        Err(DecodeTableError::MalformedTable)
+    );
+}
+
+fn nonconforming(row: u32, column: Option<&str>, reason: Conformance) -> DecodeTableError {
+    DecodeTableError::NonConforming(Box::new(NonConforming {
+        row,
+        column: column.map(str::to_owned),
+        reason,
+    }))
+}
+
+#[test]
+fn table_decode_refuses_every_relational_side_violation() {
+    let column = SEdge::new("a", "value", "prop", Some("x"));
+    let relation = SEdge::new("a", "b", "fk", Some("f"));
+    let side = GraphSide {
+        tables: BTreeSet::from(["a".to_owned(), "b".to_owned()]),
+        relations: BTreeSet::from([relation.clone()]),
+        columns: BTreeMap::from([
+            ("a".to_owned(), BTreeMap::from([("x".to_owned(), column)])),
+            ("b".to_owned(), BTreeMap::new()),
+        ]),
+        value_vertices: BTreeSet::from(["value".to_owned()]),
+        inner_edges: BTreeSet::new(),
+    };
+    let table = |table: &str, cells: BTreeMap<String, Value>| Table {
+        rows: BTreeMap::from([(0, (table.to_owned(), cells))]),
+        pairs: BTreeSet::new(),
+    };
+
+    assert_eq!(
+        encode::decode_table(&table("outside", BTreeMap::new()), &GraphSide::default()),
+        Err(nonconforming(0, None, Conformance::TableOutside))
+    );
+    assert_eq!(
+        encode::decode_table(&table("a", BTreeMap::new()), &side),
+        Err(nonconforming(0, Some("x"), Conformance::MissingCell))
+    );
+    assert_eq!(
+        encode::decode_table(
+            &table("b", BTreeMap::from([("unknown".to_owned(), Value::Int(1))]),),
+            &side,
+        ),
+        Err(nonconforming(0, Some("unknown"), Conformance::StrayCell))
+    );
+    assert_eq!(
+        encode::decode_table(
+            &table(
+                "a",
+                BTreeMap::from([("x".to_owned(), Value::List(vec![Value::LabeledNull(7)]),)]),
+            ),
+            &side,
+        ),
+        Err(nonconforming(0, Some("x"), Conformance::NestedLabeledNull,))
+    );
+
+    let rows = BTreeMap::from([
+        (
+            0,
+            (
+                "a".to_owned(),
+                BTreeMap::from([("x".to_owned(), Value::Int(1))]),
+            ),
+        ),
+        (1, ("b".to_owned(), BTreeMap::new())),
+    ]);
+    let outside = SEdge::new("a", "b", "fk", Some("outside"));
+    let outside_pair = Table {
+        rows: rows.clone(),
+        pairs: BTreeSet::from([(outside.clone(), 0, 1)]),
+    };
+    assert_eq!(
+        encode::decode_table(&outside_pair, &side),
+        Err(nonconforming(
+            0,
+            None,
+            Conformance::RelationOutside(Box::new(outside)),
+        ))
+    );
+    let incoherent = Table {
+        rows,
+        pairs: BTreeSet::from([(relation.clone(), 1, 0)]),
+    };
+    assert_eq!(
+        encode::decode_table(&incoherent, &side),
+        Err(nonconforming(
+            1,
+            None,
+            Conformance::IncoherentPair(Box::new(relation)),
+        ))
+    );
 }

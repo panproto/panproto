@@ -465,11 +465,16 @@ pub mod lens {
             })
         }
 
-        /// The domain check of put: every violation, sorted by report order.
+        /// Definition: The graph put domain is empty exactly when restoration
+        /// has no violation; otherwise return every violation in report order.
         ///
         /// # Errors
         ///
         /// The sorted violations.
+        ///
+        /// Book anchors: `L-lenses-1`, `L-lenses-2`, `L-lenses-3`,
+        /// `L-lenses-4`, `L-lenses-5`, `L-lenses-6`, `L-lenses-7`,
+        /// `L-lenses-8`, `L-lenses-9`, `L-lenses-10`.
         pub fn check_put_domain(
             &self,
             view: &Graph,
@@ -480,11 +485,15 @@ pub mod lens {
             if errs.is_empty() { Ok(()) } else { Err(errs) }
         }
 
-        /// Put: the restored source, or the first domain violation.
+        /// Definition: Graph put is the restored source, or the first domain violation.
         ///
         /// # Errors
         ///
         /// The first violation in report order.
+        ///
+        /// Book anchors: `L-lenses-1`, `L-lenses-2`, `L-lenses-3`,
+        /// `L-lenses-4`, `L-lenses-5`, `L-lenses-6`, `L-lenses-7`,
+        /// `L-lenses-8`, `L-lenses-9`, `L-lenses-10`.
         pub fn put(&self, view: &Graph, c: &Complement) -> Result<Graph, PutDomainError> {
             self.restore(view, c).map_err(|mut v| {
                 v.sort_by_key(PutDomainError::order_key);
@@ -1210,7 +1219,8 @@ pub mod table {
 
     fn table_encoding_domain(error: TableEncodeError) -> PutDomainError {
         match error {
-            TableEncodeError::EdgeIdsExhausted { pair } => {
+            TableEncodeError::MalformedTable { pair }
+            | TableEncodeError::EdgeIdsExhausted { pair } => {
                 PutDomainError::UnrepresentableViewEdge {
                     elem: ViewRef::Pair(Box::new(pair.0), pair.1, pair.2),
                 }
@@ -1252,9 +1262,11 @@ pub mod table {
     }
 
     impl TablePlan {
-        /// The writer of target column `t` of rows of source table `s`: the
+        /// Definition: The writer of target column `t` of rows of source table `s` is the
         /// source of the last `Rename(_, t)` in fate order, else `t` itself
         /// when `t` has no fate, else none (a derived cell).
+        ///
+        /// Book anchors: `L-lenses-12`.
         #[must_use]
         pub fn writer(&self, s: &str, t: &str) -> Option<String> {
             let fates = self.fates.get(s).map(Vec::as_slice).unwrap_or_default();
@@ -1293,7 +1305,8 @@ pub mod table {
         }
     }
 
-    /// Compile the table plan.
+    /// Definition: Compile the table plan by the restrict plan, entity functor,
+    /// table-representability and survival-agreement checks, then cell fates.
     ///
     /// The restrict plan, the entity functor, the refusal of expansions and hyper-edge resolution, the
     /// agreement check of the two survival rules (tables ascending, then relations and attribute arrows
@@ -1302,6 +1315,8 @@ pub mod table {
     /// # Errors
     ///
     /// The first [`TablePlanError`] in that order.
+    ///
+    /// Book anchors: `L-lenses-12`.
     pub fn compile_for_tables(
         src: &Schema,
         tgt: &Schema,

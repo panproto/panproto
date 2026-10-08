@@ -213,15 +213,25 @@ pub mod implementation {
             }
         }
 
-        /// The fold of [`Self::and`] with unit `Passed`.
+        /// Definition: Status aggregation is the fold of [`Self::and`] with unit `Passed`.
+        ///
+        /// Book anchors: `L-validation-1`, `L-validation-2`, `L-validation-3`,
+        /// `L-validation-4`, `L-validation-5`, `L-validation-6`,
+        /// `L-validation-7`, `L-validation-8`, `L-validation-9`,
+        /// `L-validation-10`, `L-validation-11`.
         #[must_use]
         pub fn all(items: impl IntoIterator<Item = Self>) -> Self {
             items.into_iter().fold(Self::Passed, Self::and)
         }
     }
 
-    /// The status of a report: `Failed` iff a required diagnostic exists, else
+    /// Definition: The status of a report is `Failed` iff a required diagnostic exists, else
     /// `Incomplete` iff a required undecided check exists, else `Passed`.
+    ///
+    /// Book anchors: `L-validation-1`, `L-validation-2`, `L-validation-3`,
+    /// `L-validation-4`, `L-validation-5`, `L-validation-6`,
+    /// `L-validation-7`, `L-validation-8`, `L-validation-9`,
+    /// `L-validation-10`, `L-validation-11`.
     #[must_use]
     pub fn status(diagnostics: &[Diagnostic], required_incomplete: usize) -> CheckStatus {
         let failed = diagnostics

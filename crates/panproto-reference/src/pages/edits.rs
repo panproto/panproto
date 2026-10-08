@@ -643,11 +643,13 @@ pub mod edit {
         crate::encode::graph_to_tree(&edited, tree.root, &parent_name).ok()
     }
 
-    /// The differ.
+    /// Definition: The differ between two graphs.
     ///
     /// Nodes and edges by id; an element only in `a` is deleted, only in `b` added; an edge whose
     /// endpoints differ is replaced; every other difference is an attribute change (value, each field,
     /// metadata, anchor; label, position). Never a same-payload replacement.
+    ///
+    /// Book anchors: `L-edits-8`.
     #[must_use]
     pub fn diff(before: &Graph, after: &Graph) -> GraphDelta {
         let mut delta = GraphDelta::identity();
@@ -952,8 +954,10 @@ pub mod edit {
         out.into_iter().collect()
     }
 
-    /// Whether a conflict is benign: two deletes of equal payloads, two updates
+    /// Definition: A conflict is benign exactly for two deletes of equal payloads, two updates
     /// to equal new values, or two adds of equal payloads.
+    ///
+    /// Book anchors: `L-edits-4`.
     #[must_use]
     pub fn is_benign(c: &EditConflict, a: &GraphDelta, b: &GraphDelta) -> bool {
         match c {
@@ -966,11 +970,13 @@ pub mod edit {
         }
     }
 
-    /// The union of two independent deltas.
+    /// Definition: Merge is the union of two independent deltas.
     ///
     /// # Errors
     ///
     /// The first conflict when they are not independent.
+    ///
+    /// Book anchors: `L-edits-4`.
     pub fn merge(a: &GraphDelta, b: &GraphDelta) -> Result<GraphDelta, EditConflict> {
         if let Some(c) = independence(a, b).into_iter().next() {
             return Err(c);

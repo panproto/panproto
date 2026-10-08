@@ -863,12 +863,16 @@ pub mod xml {
         append(output, rest)
     }
 
-    /// Expand internal general entities with explicit byte and depth bounds.
+    /// Definition: Expand character references, the five predefined entities,
+    /// and declared internal general entities recursively, with the XML 1.0
+    /// character domain and explicit byte and depth bounds.
     ///
     /// # Errors
     ///
     /// [`EntityError`] for an undeclared, recursive, malformed or over-budget
     /// expansion.
+    ///
+    /// Book anchors: `L-value-io-12`, `L-value-io-26`.
     pub fn expand_entities(
         text: &str,
         declarations: &BTreeMap<String, String>,

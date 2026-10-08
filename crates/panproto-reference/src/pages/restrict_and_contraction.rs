@@ -232,7 +232,7 @@ pub mod restrict {
         Ok(())
     }
 
-    /// The edge image: the fate of every source schema edge.
+    /// Definition: The edge image is the fate of every source schema edge.
     ///
     /// An edge with a non-surviving endpoint is `Drop`; otherwise its direct
     /// image is `Keep`; otherwise, when the expansion path has the endpoint
@@ -245,6 +245,8 @@ pub mod restrict {
     /// [`PlanError::IncoherentEdgeImage`] for the least incoherent edge, then
     /// [`PlanError::ExpansionTooLong`] when its expansion has more than 65536
     /// edges.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-1`, `L-restrict-and-contraction-4`.
     pub fn edge_image(
         tgt: &Schema,
         src: &Schema,

@@ -26,10 +26,11 @@ fn repository_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-fn documented_paths() -> std::collections::BTreeSet<String> {
+fn documented_table_functions() -> std::collections::BTreeSet<String> {
     include_str!("../src/lib.rs")
-        .split("[`")
-        .skip(1)
+        .lines()
+        .filter(|line| line.starts_with("//! |"))
+        .flat_map(|line| line.split("[`").skip(1))
         .filter_map(|tail| tail.split_once("`]").map(|(path, _)| path))
         .filter(|path| !path.contains(char::is_whitespace))
         .map(|path| format!("panproto_reference::{path}"))
@@ -37,7 +38,7 @@ fn documented_paths() -> std::collections::BTreeSet<String> {
 }
 
 #[test]
-fn every_manifest_reference_path_has_a_strict_rustdoc_link() {
+fn the_a13_table_is_exactly_the_manifest_reference_population() {
     let root = repository_root();
     let manifest_text =
         std::fs::read_to_string(root.join("notes/graph-parity/records/correctness_manifest.json"))
@@ -50,9 +51,8 @@ fn every_manifest_reference_path_has_a_strict_rustdoc_link() {
         .flat_map(|law| &law.references)
         .cloned()
         .collect();
-    let documented = documented_paths();
-    let audited: std::collections::BTreeSet<_> =
-        documented.intersection(&expected).cloned().collect();
-    assert_eq!(audited.len(), 144);
-    assert_eq!(audited, expected);
+    let documented = documented_table_functions();
+    assert_eq!(expected.len(), 174);
+    assert_eq!(documented.len(), 174);
+    assert_eq!(documented, expected);
 }

@@ -746,6 +746,11 @@ pub mod encode {
     /// Why a table has no graph form.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TableEncodeError {
+        /// A relation pair names a row absent from the table.
+        MalformedTable {
+            /// The first dangling pair in ascending order.
+            pair: Box<(SEdge, u32, u32)>,
+        },
         /// The first pair for which no edge id below the reserved maximum
         /// remains.
         EdgeIdsExhausted {
@@ -759,7 +764,7 @@ pub mod encode {
 
     /// The graph form of a table.
     ///
-    /// Domain: a [`Table::well_formed`] input. Row r is node r anchored at its
+    /// Definition: on a [`Table::well_formed`] input, row r is node r anchored at its
     /// table with its cells as fields; pair (e, s, t) is an edge s -> t labelled
     /// e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the
     /// pair ids as the embedding. The id `u32::MAX` is reserved and is never
@@ -767,9 +772,21 @@ pub mod encode {
     ///
     /// # Errors
     ///
+    /// [`TableEncodeError::MalformedTable`] for the first dangling pair, then
     /// [`TableEncodeError::EdgeIdsExhausted`] for the first pair beyond the
     /// representable edge-id carrier.
+    ///
+    /// Book anchors: `L-representation-6`.
     pub fn table_to_graph(t: &Table) -> Result<(Graph, TableEmbedding), TableEncodeError> {
+        if let Some(pair) = t
+            .pairs
+            .iter()
+            .find(|(_, src, tgt)| !t.rows.contains_key(src) || !t.rows.contains_key(tgt))
+        {
+            return Err(TableEncodeError::MalformedTable {
+                pair: Box::new(pair.clone()),
+            });
+        }
         let mut g = Graph::default();
         for (id, (table, cells)) in &t.rows {
             let mut n = Node::new(*id, table);
@@ -799,10 +816,12 @@ pub mod encode {
         Ok((g, emb))
     }
 
-    /// The table form of a table-shaped graph.
+    /// Definition: The table form of a table-shaped graph.
     ///
     /// Every node a plain row (no value, discriminator, position, annotations or non-plain shape),
     /// every edge unpositioned, no two edges with one label and endpoints. `None` otherwise.
+    ///
+    /// Book anchors: `L-representation-7`.
     #[must_use]
     pub fn graph_to_table(g: &Graph) -> Option<Table> {
         if !g.well_formed() {
@@ -917,11 +936,13 @@ pub mod fan {
         },
     }
 
-    /// Every violation of the fan rules at `node`, in this order.
+    /// Definition: Every violation of the fan rules at `node`, in this order.
     ///
     /// For a node not of the fan shape, each reserved-kind out-edge; otherwise each in-edge, each
     /// out-edge of no fan kind, the parent count, each duplicated label in label order, and with a
     /// schema an undeclared hyper-edge or each label outside its signature.
+    ///
+    /// Book anchors: `L-representation-8`.
     #[must_use]
     pub fn violations_at(graph: &Graph, node: u32, schema: Option<&Schema>) -> Vec<FanViolation> {
         let Some(fan) = graph.nodes.get(&node) else {

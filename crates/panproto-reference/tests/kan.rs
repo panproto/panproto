@@ -75,6 +75,17 @@ fn every_extension_along_the_identity_returns_the_input() {
 }
 
 #[test]
+fn a_row_bijection_refuses_dangling_pairs_without_panicking() {
+    let malformed = Table {
+        rows: BTreeMap::from([(0, row("a", &[]))]),
+        pairs: BTreeSet::from([(SEdge::new("a", "a", "fk", Some("f")), 0, 1)]),
+    };
+    assert_eq!(rel::row_bijection(&malformed, &malformed), None);
+    assert_eq!(rel::row_bijection(&Table::default(), &malformed), None);
+    assert_eq!(rel::row_bijection(&malformed, &Table::default()), None);
+}
+
+#[test]
 fn a_merge_of_two_tables_makes_product_rows_and_null_cells() {
     // a(x), b(y) -> m(x, y): Pi takes the product, joining on no shared
     // column; Sigma keeps each row with a fresh null for the other column.

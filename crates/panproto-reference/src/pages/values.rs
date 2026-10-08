@@ -860,17 +860,21 @@ pub mod bytes {
         InvalidBase64,
     }
 
-    /// Map each byte `b` to U+0000 + `b`.
+    /// Definition: Map each byte `b` to U+0000 + `b`.
+    ///
+    /// Book anchors: `L-values-24`, `L-values-41`.
     #[must_use]
     pub fn latin1_decode(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| char::from(*byte)).collect()
     }
 
-    /// Map each code point U+0000 through U+00FF to its byte.
+    /// Definition: Map each code point U+0000 through U+00FF to its byte.
     ///
     /// # Errors
     ///
     /// [`ByteTextError::NonLatin1`] when any code point is above U+00FF.
+    ///
+    /// Book anchors: `L-values-24`, `L-values-41`.
     pub fn latin1_encode(text: &str) -> Result<Vec<u8>, ByteTextError> {
         text.chars()
             .map(|character| {
@@ -937,7 +941,9 @@ pub mod bytes {
         })
     }
 
-    /// Encode bytes with the standard base64 alphabet and required padding.
+    /// Definition: Encode bytes with the standard base64 alphabet and required padding.
+    ///
+    /// Book anchors: `L-values-25`, `L-values-42`.
     #[must_use]
     pub fn encode_base64(bytes: &[u8]) -> String {
         const ALPHABET: &[u8; 64] =
@@ -963,12 +969,14 @@ pub mod bytes {
         output
     }
 
-    /// Decode standard base64, optionally requiring its canonical padding.
+    /// Definition: Decode standard base64, optionally requiring its canonical padding.
     ///
     /// # Errors
     ///
     /// [`ByteTextError::InvalidPadding`] or
     /// [`ByteTextError::InvalidBase64`] at the first malformed quantum.
+    ///
+    /// Book anchors: `L-values-25`, `L-values-42`.
     pub fn decode_base64(text: &str, require_padding: bool) -> Result<Vec<u8>, ByteTextError> {
         let normalized = optional(text)?;
         if require_padding && normalized != text {
@@ -3185,6 +3193,8 @@ pub mod float {
     /// `qe = max(e, emin) - p + 1`, the significand is `|q| / 2^qe` rounded to
     /// an integer n by comparing the remainder with 1/2 (ties to even n); a
     /// carry to `2^p` renormalizes; a value of exponent above `emax` overflows.
+    ///
+    /// Book anchors: `L-values-43`.
     #[must_use]
     pub fn round_to(format: Format, value: &Rat, negative_zero: bool) -> Rounded {
         let precision = i64::from(format.precision());
