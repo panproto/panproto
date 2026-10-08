@@ -667,7 +667,7 @@ pub mod lens {
             }
             for (vertex, ks) in &self.src.keys {
                 for key in ks {
-                    let (buckets, _) = keys::buckets(out, vertex, key);
+                    let (buckets, _) = keys::buckets(out, vertex, key).unwrap_or_default();
                     for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
                         let cols = key.parts.iter().map(part_column);
                         let key_cols = cols
@@ -1842,7 +1842,7 @@ pub mod table {
         let mut errs = Vec::new();
         for (vertex, ks) in &src.keys {
             for key in ks {
-                let (buckets, _) = crate::keys::buckets(g, vertex, key);
+                let (buckets, _) = crate::keys::buckets(g, vertex, key).unwrap_or_default();
                 for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
                     let cols = key.parts.iter().map(|p| match p {
                         crate::schema::KeyPart::Path(path) => path

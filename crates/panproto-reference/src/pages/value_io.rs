@@ -33,49 +33,470 @@ pub mod toml {
 pub mod implementation {
     //! Format-independent value-I/O law functions.
     //!
-    //! These definitions take parsers and writers as arguments. Thus the
-    //! reference states the route law once without importing a production
-    //! codec or silently implementing a second format engine.
+    //! The parser and writer below are independent, deliberately small route
+    //! models. Tests compare production routes with these definitions; no
+    //! production parser or writer is injected into the oracle.
 
     use std::collections::BTreeSet;
 
-    /// Definition: Apply a route parser.
-    ///
-    /// # Errors
-    ///
-    /// The injected parser's error, unchanged.
-    ///
-    /// Book anchors: `L-value-io-4`.
-    pub fn parse<T, E>(bytes: &[u8], parser: impl FnOnce(&[u8]) -> Result<T, E>) -> Result<T, E> {
-        parser(bytes)
+    use crate::coerce::{FidelityReason, LexClass, NumeralDialect, ScalarKind, ValueSpec};
+    use crate::exact::Decimal;
+    use crate::float::{
+        CANONICAL_NAN_BITS, FloatValue, Format, NEGATIVE_CANONICAL_NAN_BITS, decode, shortest,
+    };
+    use crate::value::Value;
+
+    /// A value-I/O route whose scalar syntax the reference models.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Route {
+        /// JSON scalar syntax.
+        Json,
+        /// TOML scalar syntax.
+        Toml,
+        /// YAML 1.2 core scalar syntax.
+        Yaml,
+        /// XML character data.
+        Xml,
+        /// CSV cell text.
+        Csv,
+        /// TSV cell text.
+        Tsv,
     }
 
-    /// Definition: Apply a route writer.
+    /// A typed parse or emission refusal.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ValueIoError {
+        /// The input is not a scalar in this route.
+        Malformed,
+        /// The scalar cannot be represented on this route.
+        NotRepresentable,
+        /// Exact coercion refused the lexeme.
+        Fidelity(FidelityReason),
+    }
+
+    /// A preserving concrete-syntax value.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct CstValue {
+        /// Semantic scalar.
+        pub value: Value,
+        /// Exact source bytes.
+        pub source: Vec<u8>,
+    }
+
+    const fn dialect(route: Route) -> NumeralDialect {
+        match route {
+            Route::Json | Route::Csv | Route::Tsv => NumeralDialect::Json,
+            Route::Toml => NumeralDialect::Toml,
+            Route::Yaml => NumeralDialect::Yaml12,
+            Route::Xml => NumeralDialect::Xsd,
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_string(route: Route, text: &str) -> Result<String, ValueIoError> {
+        if route == Route::Xml {
+            return crate::xml::expand_entities(text, &std::collections::BTreeMap::new())
+                .map_err(|_| ValueIoError::Malformed);
+        }
+        if route == Route::Csv {
+            if !text.starts_with('"') {
+                return (!text.contains([',', '"', '\r', '\n']))
+                    .then(|| text.to_owned())
+                    .ok_or(ValueIoError::Malformed);
+            }
+            if text.len() < 2 || !text.ends_with('"') {
+                return Err(ValueIoError::Malformed);
+            }
+            let mut output = String::new();
+            let mut characters = text[1..text.len() - 1].chars();
+            while let Some(character) = characters.next() {
+                if character == '"' && characters.next() != Some('"') {
+                    return Err(ValueIoError::Malformed);
+                }
+                output.push(character);
+            }
+            return Ok(output);
+        }
+        if route == Route::Tsv {
+            return (!text.contains(['\t', '\r', '\n']))
+                .then(|| text.to_owned())
+                .ok_or(ValueIoError::Malformed);
+        }
+        if matches!(route, Route::Toml | Route::Yaml)
+            && text.starts_with('\'')
+            && text.ends_with('\'')
+            && text.len() >= 2
+        {
+            let body = &text[1..text.len() - 1];
+            if route == Route::Toml {
+                return (!body.contains(['\'', '\r', '\n']))
+                    .then(|| body.to_owned())
+                    .ok_or(ValueIoError::Malformed);
+            }
+            let mut output = String::new();
+            let mut characters = body.chars().peekable();
+            while let Some(character) = characters.next() {
+                if character == '\'' && characters.next_if_eq(&'\'').is_none() {
+                    return Err(ValueIoError::Malformed);
+                }
+                output.push(character);
+            }
+            return Ok(output);
+        }
+        let bytes = text.as_bytes();
+        if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
+            return Err(ValueIoError::Malformed);
+        }
+        let mut out = String::new();
+        let mut chars = text[1..text.len() - 1].chars().peekable();
+        while let Some(character) = chars.next() {
+            if character != '\\' {
+                if character.is_control() {
+                    return Err(ValueIoError::Malformed);
+                }
+                out.push(character);
+                continue;
+            }
+            let escaped = chars.next().ok_or(ValueIoError::Malformed)?;
+            match escaped {
+                '"' | '\\' => out.push(escaped),
+                '/' if route != Route::Toml => out.push(escaped),
+                'b' => out.push('\u{8}'),
+                'f' => out.push('\u{c}'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                'u' => {
+                    let first = hex_quad(&mut chars)?;
+                    let scalar = if (0xd800..=0xdbff).contains(&first) {
+                        if chars.next() != Some('\\') || chars.next() != Some('u') {
+                            return Err(ValueIoError::Malformed);
+                        }
+                        let second = hex_quad(&mut chars)?;
+                        if !(0xdc00..=0xdfff).contains(&second) {
+                            return Err(ValueIoError::Malformed);
+                        }
+                        0x1_0000
+                            + ((u32::from(first) - 0xd800) << 10)
+                            + (u32::from(second) - 0xdc00)
+                    } else if (0xdc00..=0xdfff).contains(&first) {
+                        return Err(ValueIoError::Malformed);
+                    } else {
+                        u32::from(first)
+                    };
+                    out.push(char::from_u32(scalar).ok_or(ValueIoError::Malformed)?);
+                }
+                'U' if route == Route::Toml => {
+                    let mut scalar = 0_u32;
+                    for _ in 0..8 {
+                        scalar = scalar
+                            .checked_mul(16)
+                            .and_then(|value| {
+                                chars
+                                    .next()
+                                    .and_then(|character| character.to_digit(16))
+                                    .and_then(|digit| value.checked_add(digit))
+                            })
+                            .ok_or(ValueIoError::Malformed)?;
+                    }
+                    out.push(char::from_u32(scalar).ok_or(ValueIoError::Malformed)?);
+                }
+                '0' if route == Route::Yaml => out.push('\0'),
+                'a' if route == Route::Yaml => out.push('\u{7}'),
+                'v' if route == Route::Yaml => out.push('\u{b}'),
+                'e' if route == Route::Yaml => out.push('\u{1b}'),
+                ' ' if route == Route::Yaml => out.push(' '),
+                '_' if route == Route::Yaml => out.push('\u{a0}'),
+                'N' if route == Route::Yaml => out.push('\u{85}'),
+                'L' if route == Route::Yaml => out.push('\u{2028}'),
+                'P' if route == Route::Yaml => out.push('\u{2029}'),
+                _ => return Err(ValueIoError::Malformed),
+            }
+        }
+        Ok(out)
+    }
+
+    fn hex_quad(
+        chars: &mut std::iter::Peekable<impl Iterator<Item = char>>,
+    ) -> Result<u16, ValueIoError> {
+        let mut value = 0_u16;
+        for _ in 0..4 {
+            let digit = chars
+                .next()
+                .and_then(|character| character.to_digit(16))
+                .ok_or(ValueIoError::Malformed)?;
+            value = value
+                .checked_mul(16)
+                .and_then(|value| value.checked_add(u16::try_from(digit).ok()?))
+                .ok_or(ValueIoError::Malformed)?;
+        }
+        Ok(value)
+    }
+
+    fn parse_number(route: Route, text: &str) -> Result<Value, ValueIoError> {
+        crate::coerce::coerce_dialect(
+            text,
+            &LexClass::Number,
+            &ValueSpec {
+                numeral: Some(dialect(route)),
+                ..ValueSpec::of(ScalarKind::Any)
+            },
+        )
+        .ok_or(ValueIoError::Malformed)?
+        .map_err(ValueIoError::Fidelity)
+    }
+
+    /// Definition: Parse one scalar using an independent route grammar and
+    /// exact numeric coercion.
     ///
     /// # Errors
     ///
-    /// The injected writer's error, unchanged.
+    /// [`ValueIoError`] when the bytes are not one representable scalar.
+    ///
+    /// Book anchors: `L-value-io-4`.
+    pub fn parse(route: Route, bytes: &[u8]) -> Result<Value, ValueIoError> {
+        let raw = std::str::from_utf8(bytes).map_err(|_| ValueIoError::Malformed)?;
+        let text = if matches!(route, Route::Xml | Route::Csv | Route::Tsv) {
+            raw
+        } else {
+            raw.trim()
+        };
+        match (route, text) {
+            (Route::Json, "null") | (Route::Yaml, "null" | "Null" | "NULL" | "~") => {
+                Ok(Value::Null)
+            }
+            (Route::Json | Route::Toml | Route::Yaml, "true") => Ok(Value::Bool(true)),
+            (Route::Json | Route::Toml | Route::Yaml, "false") => Ok(Value::Bool(false)),
+            (Route::Xml | Route::Csv | Route::Tsv, _) => parse_string(route, text).map(Value::Str),
+            (_, value) if value.starts_with('"') => parse_string(route, value).map(Value::Str),
+            (Route::Toml, value)
+                if crate::temporal::parse_union(value)
+                    .is_ok_and(|parsed| temporal(Route::Toml, &parsed)) =>
+            {
+                crate::temporal::parse_union(value)
+                    .map_err(|_| ValueIoError::Malformed)
+                    .map(Value::Temporal)
+            }
+            (Route::Yaml, value) => {
+                parse_number(route, value).or_else(|_| Ok(Value::Str(value.to_owned())))
+            }
+            (_, value) => parse_number(route, value),
+        }
+    }
+
+    fn decimal_text(value: &Decimal) -> String {
+        match value {
+            Decimal::Finite(value) => format!(
+                "{}{}e{}",
+                if value.negative { "-" } else { "" },
+                value.digits,
+                value.exponent
+            ),
+            Decimal::Infinite { negative } => {
+                if *negative { "-Infinity" } else { "Infinity" }.to_owned()
+            }
+            Decimal::NaN { negative, .. } => if *negative { "-NaN" } else { "NaN" }.to_owned(),
+        }
+    }
+
+    fn quote(text: &str) -> String {
+        let mut out = String::from("\"");
+        for character in text.chars() {
+            match character {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                '\u{8}' => out.push_str("\\b"),
+                '\u{c}' => out.push_str("\\f"),
+                other if other.is_control() => {
+                    use std::fmt::Write as _;
+                    let _ = write!(&mut out, "\\u{:04x}", u32::from(other));
+                }
+                other => out.push(other),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    fn xml_quote(text: &str) -> String {
+        text.chars().fold(String::new(), |mut output, character| {
+            output.push_str(match character {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '\'' => "&apos;",
+                '"' => "&quot;",
+                _ => {
+                    output.push(character);
+                    return output;
+                }
+            });
+            output
+        })
+    }
+
+    fn csv_quote(text: &str) -> String {
+        if text.contains([',', '"', '\r', '\n']) {
+            format!("\"{}\"", text.replace('"', "\"\""))
+        } else {
+            text.to_owned()
+        }
+    }
+
+    fn numeric_text(route: Route, value: &Value) -> Result<String, ValueIoError> {
+        let text = match value {
+            Value::Int(value) => value.to_string(),
+            Value::BigInt(value) => format!(
+                "{}{}e{}",
+                if value.negative { "-" } else { "" },
+                value.significand,
+                value.zeros
+            ),
+            Value::Decimal(Decimal::Finite(value)) if route == Route::Xml => {
+                let exponent = value
+                    .exponent
+                    .to_i64()
+                    .filter(|exponent| *exponent <= 0)
+                    .ok_or(ValueIoError::NotRepresentable)?;
+                let digits = value.digits.to_string();
+                let scale = usize::try_from(exponent.unsigned_abs())
+                    .ok()
+                    .filter(|scale| *scale <= 1_048_576)
+                    .ok_or(ValueIoError::NotRepresentable)?;
+                let body = if scale == 0 {
+                    digits
+                } else if scale < digits.len() {
+                    let at = digits.len() - scale;
+                    format!("{}.{}", &digits[..at], &digits[at..])
+                } else {
+                    format!("0.{}{}", "0".repeat(scale - digits.len()), digits)
+                };
+                format!("{}{}", if value.negative { "-" } else { "" }, body)
+            }
+            Value::Decimal(value @ Decimal::Finite(_)) => decimal_text(value),
+            Value::Decimal(Decimal::Infinite { .. } | Decimal::NaN { .. }) => {
+                return Err(ValueIoError::NotRepresentable);
+            }
+            Value::Float(bits) => match decode(Format::B64, *bits) {
+                FloatValue::Finite { .. } => shortest(Format::B64, *bits)
+                    .map(|value| value.to_scientific())
+                    .ok_or(ValueIoError::NotRepresentable)?,
+                FloatValue::Infinite { negative } => match route {
+                    Route::Toml => if negative { "-inf" } else { "inf" }.to_owned(),
+                    Route::Yaml => if negative { "-.inf" } else { ".inf" }.to_owned(),
+                    Route::Xml => if negative { "-INF" } else { "INF" }.to_owned(),
+                    Route::Json | Route::Csv | Route::Tsv => {
+                        return Err(ValueIoError::NotRepresentable);
+                    }
+                },
+                FloatValue::NaN { negative, .. }
+                    if *bits
+                        == if negative {
+                            NEGATIVE_CANONICAL_NAN_BITS
+                        } else {
+                            CANONICAL_NAN_BITS
+                        } =>
+                {
+                    match route {
+                        Route::Toml => if negative { "-nan" } else { "nan" }.to_owned(),
+                        Route::Yaml => if negative { "-.nan" } else { ".nan" }.to_owned(),
+                        Route::Xml => if negative { "-NaN" } else { "NaN" }.to_owned(),
+                        Route::Json | Route::Csv | Route::Tsv => {
+                            return Err(ValueIoError::NotRepresentable);
+                        }
+                    }
+                }
+                FloatValue::NaN { .. } => return Err(ValueIoError::NotRepresentable),
+            },
+            _ => return Err(ValueIoError::NotRepresentable),
+        };
+        Ok(text)
+    }
+
+    /// Definition: Emit one scalar using the route's canonical scalar syntax.
+    ///
+    /// # Errors
+    ///
+    /// [`ValueIoError::NotRepresentable`] when the route has no scalar form.
     ///
     /// Book anchors: `L-value-io-2`.
-    pub fn emit<T, E>(
-        value: &T,
-        writer: impl FnOnce(&T) -> Result<Vec<u8>, E>,
-    ) -> Result<Vec<u8>, E> {
-        writer(value)
+    pub fn emit(route: Route, value: &Value) -> Result<Vec<u8>, ValueIoError> {
+        let text = match value {
+            Value::Null if matches!(route, Route::Json | Route::Yaml) => "null".to_owned(),
+            Value::Bool(value) if !matches!(route, Route::Xml | Route::Csv | Route::Tsv) => {
+                value.to_string()
+            }
+            Value::Str(value) if route == Route::Xml => xml_quote(value),
+            Value::Str(value) if route == Route::Csv => csv_quote(value),
+            Value::Str(value) if route == Route::Tsv => {
+                if value.contains(['\t', '\r', '\n']) {
+                    return Err(ValueIoError::NotRepresentable);
+                }
+                value.clone()
+            }
+            Value::Str(value) => quote(value),
+            Value::Temporal(value) if temporal(route, value) => match route {
+                Route::Json => quote(&value.to_string()),
+                Route::Toml | Route::Yaml | Route::Xml | Route::Csv | Route::Tsv => {
+                    value.to_string()
+                }
+            },
+            value => numeric_text(route, value)?,
+        };
+        Ok(text.into_bytes())
     }
 
     /// Definition: Canonical round trip: parsing emitted values is the identity.
     ///
     /// Book anchors: `L-value-io-1`.
     #[must_use]
-    pub fn round_trip<T: Eq, E>(
-        value: &T,
-        writer: impl FnOnce(&T) -> Result<Vec<u8>, E>,
-        parser: impl FnOnce(&[u8]) -> Result<T, E>,
-    ) -> bool {
-        writer(value)
-            .and_then(|bytes| parser(&bytes))
-            .is_ok_and(|parsed| parsed == *value)
+    pub fn round_trip(route: Route, value: &Value) -> bool {
+        let Ok(bytes) = emit(route, value) else {
+            return false;
+        };
+        if let Value::Temporal(temporal) = value {
+            let Some(form) = temporal.lexical_form() else {
+                return false;
+            };
+            let Ok(written) = std::str::from_utf8(&bytes) else {
+                return false;
+            };
+            let written = if route == Route::Json {
+                let Ok(decoded) = parse_string(route, written) else {
+                    return false;
+                };
+                decoded
+            } else {
+                written.to_owned()
+            };
+            return crate::temporal::parse_as(form, &written).as_ref() == Some(temporal);
+        }
+        let Ok(written) = std::str::from_utf8(&bytes) else {
+            return false;
+        };
+        let typed = match value {
+            Value::BigInt(_) => Some(ScalarKind::BigInt),
+            Value::Decimal(_) => Some(ScalarKind::Decimal),
+            Value::Float(_) => Some(ScalarKind::Float { bits: 64 }),
+            _ => None,
+        };
+        typed.map_or_else(
+            || parse(route, &bytes).is_ok_and(|parsed| parsed == *value),
+            |kind| {
+                crate::coerce::coerce_dialect(
+                    written,
+                    &LexClass::Number,
+                    &ValueSpec {
+                        numeral: Some(dialect(route)),
+                        ..ValueSpec::of(kind)
+                    },
+                )
+                .is_some_and(|result| result.as_ref() == Ok(value))
+            },
+        )
     }
 
     /// Definition: Preserving round trip: an unedited document is byte-exact.
@@ -91,11 +512,80 @@ pub mod implementation {
     ///
     /// Book anchors: `L-value-io-5`.
     #[must_use]
-    pub fn temporal(
-        kind: crate::temporal::TemporalKind,
-        value: &crate::temporal::Temporal,
-    ) -> bool {
-        value.form() == Some(kind) && crate::temporal::display_parse(value)
+    pub fn temporal(route: Route, value: &crate::temporal::Temporal) -> bool {
+        use crate::temporal::{Offset, OffsetForm, TemporalForm};
+        if !crate::temporal::display_parse(value) {
+            return false;
+        }
+        match route {
+            Route::Toml => {
+                if value.infinity.is_some() {
+                    return false;
+                }
+                let full_date = value.date.is_some_and(|date| {
+                    date.year
+                        .is_some_and(|year| year.width == 4 && !year.negative_zero)
+                        && date.month.is_some()
+                        && date.day.is_some()
+                });
+                let full_time = value.time.as_ref().is_some_and(|time| {
+                    time.hour.is_some() && time.minute.is_some() && time.second.is_some()
+                });
+                let offset = matches!(
+                    value.offset,
+                    Offset::Local
+                        | Offset::Zulu(_)
+                        | Offset::Fixed(_, OffsetForm::Extended)
+                        | Offset::NegZero(OffsetForm::Extended)
+                );
+                match value.form() {
+                    Some(TemporalForm::Date) => full_date && value.offset == Offset::Local,
+                    Some(TemporalForm::Time) => full_time && value.offset == Offset::Local,
+                    Some(TemporalForm::DateTime) => full_date && full_time && offset,
+                    None => false,
+                }
+            }
+            Route::Json => value.is_complete(),
+            Route::Yaml | Route::Xml | Route::Csv | Route::Tsv => true,
+        }
+    }
+
+    /// Parse one scalar while preserving its exact bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValueIoError`] when the route grammar rejects the bytes.
+    ///
+    /// Book anchors: `L-value-io-22`.
+    pub fn parse_cst(route: Route, bytes: &[u8]) -> Result<CstValue, ValueIoError> {
+        Ok(CstValue {
+            value: parse(route, bytes)?,
+            source: bytes.to_vec(),
+        })
+    }
+
+    /// Emit an unedited CST byte-for-byte, or canonically emit a replacement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValueIoError`] when a replacement is not representable on
+    /// the selected route.
+    ///
+    /// Book anchors: `L-value-io-20`, `L-value-io-21`.
+    pub fn emit_cst(
+        route: Route,
+        cst: &CstValue,
+        replacement: Option<&Value>,
+    ) -> Result<Vec<u8>, ValueIoError> {
+        replacement.map_or_else(|| Ok(cst.source.clone()), |value| emit(route, value))
+    }
+
+    /// The independent CST parse/emit round trip.
+    #[must_use]
+    pub fn round_trip_cst(route: Route, bytes: &[u8]) -> bool {
+        parse_cst(route, bytes)
+            .and_then(|cst| emit_cst(route, &cst, None))
+            .is_ok_and(|emitted| emitted == bytes)
     }
 
     /// Definition: Agreement of the generic byte writer with the route-specific writer.
@@ -219,21 +709,11 @@ pub mod implementation {
     ///
     /// Book anchors: `L-value-io-24`.
     pub use encoding as encoding_bom_cst;
-    /// CST parsing uses the same injected parser.
-    /// Definition: This is the manifest-stable name of the referenced operation.
-    ///
-    /// Book anchors: `L-value-io-22`.
-    pub use parse as parse_cst;
     /// CST byte preservation uses the same byte equality.
     /// Definition: This is the manifest-stable name of the referenced operation.
     ///
     /// Book anchors: `L-value-io-21`.
     pub use preserve as preserve_cst;
-    /// CST canonical round trip uses the same semantic predicate.
-    /// Definition: This is the manifest-stable name of the referenced operation.
-    ///
-    /// Book anchors: `L-value-io-20`.
-    pub use round_trip as round_trip_cst;
 }
 
 pub mod xml {

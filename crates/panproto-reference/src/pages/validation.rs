@@ -21,7 +21,7 @@ pub mod implementation {
     use crate::lens::ViewRef;
     use crate::model::{Graph, Name, NodeShape, SEdge};
     use crate::restrict::is_fan_kind;
-    use crate::schema::{Cardinality, KeyRole, KeyScope, OnUnresolved, RefSource, Schema};
+    use crate::schema::{KeyRole, KeyScope, OnUnresolved, RefSource, Schema};
     use crate::value::{Presence, Value};
 
     /// Index/null matching uses the same predicate as key semantics.
@@ -85,6 +85,8 @@ pub mod implementation {
         RequiredValue,
         /// Keys are unique.
         KeyUnique,
+        /// Sort-key targets are non-decreasing.
+        KeyOrder,
         /// References resolve.
         ReferenceResolves,
         /// Declared self-edges are acyclic.
@@ -108,6 +110,8 @@ pub mod implementation {
         Constraint(Name, Name, String),
         /// A key `(vertex, key)`.
         Key(Name, Name),
+        /// A cross-vertex target set.
+        TargetSet(Name),
         /// A reference.
         Reference(Name),
     }
@@ -157,12 +161,16 @@ pub mod implementation {
         MissingValue(Option<String>),
         /// A duplicated key: its columns and values.
         DuplicateKey(Vec<(String, Value)>),
+        /// An adjacent sort-key descent.
+        KeyOrder(Name, Vec<ViewRef>),
         /// An element a `Within` key leaves outside its scope (advisory).
         OutsideKeyScope(Name, Name),
         /// A reference with no target.
         DanglingReference(Name, Vec<Value>),
         /// A reference with several targets.
         AmbiguousReference(Name, Vec<Value>, Vec<ViewRef>),
+        /// A present guard value selected no declaration in its group.
+        UnselectedReference(Name, Value),
         /// A cycle: its strongly connected component.
         Cycle(Vec<ViewRef>),
     }
@@ -575,12 +583,33 @@ pub mod implementation {
     }
 
     /// Key uniqueness and primary-key required parts.
-    fn keyed(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) {
+    fn keyed(
+        schema: &Schema,
+        g: &Graph,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
         for (v, ks) in &schema.keys {
             for key in ks {
                 let decl = SchemaRef::Key(v.clone(), key.id.clone());
-                let (buckets, outside) = keys::buckets(g, v, key);
-                for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
+                let (buckets, outside) = match keys::buckets(g, v, key) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        incomplete.push((
+                            CheckKey {
+                                kind: CheckKind::KeyUnique,
+                                decl: decl.clone(),
+                            },
+                            Requirement::Required,
+                            None,
+                            format!("{error:?}"),
+                        ));
+                        continue;
+                    }
+                };
+                for (values, elems) in buckets.into_values().filter(|(_, e)| {
+                    e.len() > 1 && !matches!(key.role, KeyRole::SortKey | KeyRole::Index)
+                }) {
                     let cols: Vec<(String, Value)> = key
                         .parts
                         .iter()
@@ -638,25 +667,198 @@ pub mod implementation {
                         }
                     }
                 }
+                if key.role == KeyRole::SortKey {
+                    validate_sort_key(schema, g, v, key, out, incomplete);
+                }
+            }
+        }
+        validate_target_sets(schema, g, out, incomplete);
+    }
+
+    fn tuple_order(left: &[Value], right: &[Value]) -> Option<std::cmp::Ordering> {
+        for (left, right) in left.iter().zip(right) {
+            let order = keys::sort_order(left, right)?;
+            if !order.is_eq() {
+                return Some(order);
+            }
+        }
+        (left.len() == right.len()).then_some(std::cmp::Ordering::Equal)
+    }
+
+    fn validate_sort_key(
+        schema: &Schema,
+        graph: &Graph,
+        vertex: &str,
+        key: &crate::schema::Key,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
+        let KeyScope::Within(container) = &key.scope else {
+            return;
+        };
+        let carriers: Vec<_> = schema
+            .edges
+            .iter()
+            .filter(|edge| edge.src == *container && edge.tgt == vertex)
+            .collect();
+        let [carrier] = carriers.as_slice() else {
+            return;
+        };
+        let decl = SchemaRef::Key(vertex.to_owned(), key.id.clone());
+        for (parent, _) in graph
+            .nodes
+            .iter()
+            .filter(|(id, node)| node.anchor == *container && non_fan(graph, **id))
+        {
+            let mut children: Vec<(Option<u32>, u32, u32)> = graph
+                .edges
+                .iter()
+                .filter(|(_, edge)| edge.src == *parent && edge.label == **carrier)
+                .map(|(id, edge)| (edge.position, *id, edge.tgt))
+                .collect();
+            children.sort();
+            for pair in children.windows(2) {
+                let (Some(left), Some(right)) = (
+                    keys::key_value(graph, pair[0].2, key),
+                    keys::key_value(graph, pair[1].2, key),
+                ) else {
+                    incomplete.push((
+                        CheckKey {
+                            kind: CheckKind::KeyOrder,
+                            decl: decl.clone(),
+                        },
+                        Requirement::Advisory,
+                        Some(ViewRef::Node(*parent)),
+                        format!("OutsideSortOrder({})", key.id),
+                    ));
+                    continue;
+                };
+                match tuple_order(&left, &right) {
+                    Some(order) if order.is_gt() => {
+                        let mut diagnostic = diag(
+                            CheckKind::KeyOrder,
+                            decl.clone(),
+                            Some(ViewRef::Node(*parent)),
+                            vec![ViewRef::Node(pair[0].2), ViewRef::Node(pair[1].2)],
+                            Violation::KeyOrder(
+                                key.id.clone(),
+                                vec![ViewRef::Node(pair[0].2), ViewRef::Node(pair[1].2)],
+                            ),
+                        );
+                        diagnostic.requirement = Requirement::Advisory;
+                        out.push(diagnostic);
+                    }
+                    Some(_) => {}
+                    None => incomplete.push((
+                        CheckKey {
+                            kind: CheckKind::KeyOrder,
+                            decl: decl.clone(),
+                        },
+                        Requirement::Advisory,
+                        Some(ViewRef::Node(*parent)),
+                        format!("OutsideSortOrder({})", key.id),
+                    )),
+                }
             }
         }
     }
 
-    /// Reference resolution on the syntactic shape: each holder's key value is
-    /// looked up among the targets' values of the target key.
-    fn references(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) -> Option<()> {
-        for r in schema.references.values() {
-            let RefSource::KeyValue { parts } = &r.source else {
-                return None;
+    type TargetBucket = (Vec<Value>, Vec<u32>);
+
+    fn validate_target_sets(
+        schema: &Schema,
+        graph: &Graph,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
+        for (set_id, set) in &schema.target_sets {
+            let Some((first_vertex, first_key_id)) = set.members.first() else {
+                continue;
             };
-            if r.cardinality == Cardinality::Many {
-                return None;
-            }
-            let key = schema
+            let Some(first_key) = schema
                 .keys
-                .get(&r.target_vertex)?
-                .iter()
-                .find(|k| Some(&k.id) == r.target_key.as_ref())?;
+                .get(first_vertex)
+                .and_then(|keys| keys.iter().find(|key| key.id == *first_key_id))
+            else {
+                continue;
+            };
+            let decl = SchemaRef::TargetSet(set_id.clone());
+            let mut buckets: BTreeMap<(Option<u32>, Vec<u8>), TargetBucket> = BTreeMap::new();
+            for (vertex, key_id) in &set.members {
+                let Some(key) = schema
+                    .keys
+                    .get(vertex)
+                    .and_then(|keys| keys.iter().find(|key| key.id == *key_id))
+                else {
+                    continue;
+                };
+                for (node, _) in graph
+                    .nodes
+                    .iter()
+                    .filter(|(id, candidate)| candidate.anchor == *vertex && non_fan(graph, **id))
+                {
+                    let Some(tuple) = keys::key_value(graph, *node, key) else {
+                        continue;
+                    };
+                    let scope = match &set.scope {
+                        KeyScope::Within(owner) => {
+                            match keys::nearest_ancestor(graph, *node, owner) {
+                                Some(scope) => Some(scope),
+                                None => continue,
+                            }
+                        }
+                        KeyScope::Document | KeyScope::Global => None,
+                    };
+                    let key_bytes = match keys::tuple_key(first_key, &tuple) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            incomplete.push((
+                                CheckKey {
+                                    kind: CheckKind::KeyUnique,
+                                    decl: decl.clone(),
+                                },
+                                Requirement::Required,
+                                Some(ViewRef::Node(*node)),
+                                format!("{error:?}"),
+                            ));
+                            continue;
+                        }
+                    };
+                    buckets
+                        .entry((scope, key_bytes))
+                        .or_insert_with(|| (tuple, Vec::new()))
+                        .1
+                        .push(*node);
+                }
+            }
+            for (tuple, nodes) in buckets.into_values().filter(|(_, nodes)| nodes.len() > 1) {
+                let columns = tuple
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, value)| (format!("part-{index}"), value))
+                    .collect();
+                out.push(diag(
+                    CheckKind::KeyUnique,
+                    decl.clone(),
+                    None,
+                    nodes.into_iter().map(ViewRef::Node).collect(),
+                    Violation::DuplicateKey(columns),
+                ));
+            }
+        }
+    }
+
+    /// Reference resolution on the finite graph carrier. Unsupported route
+    /// services are reported as required incomplete checks rather than making
+    /// the entire validation call disappear.
+    #[allow(clippy::too_many_lines)]
+    fn references(
+        schema: &Schema,
+        g: &Graph,
+        out: &mut Vec<Diagnostic>,
+        incomplete: &mut Vec<(CheckKey, Requirement, Option<ViewRef>, String)>,
+    ) {
+        for r in schema.references.values() {
             let requirement = if r.on_unresolved == OnUnresolved::Error {
                 Requirement::Required
             } else {
@@ -669,8 +871,6 @@ pub mod implementation {
                 .filter(|(i, n)| n.anchor == r.holder && non_fan(g, **i))
             {
                 let me = ViewRef::Node(*h);
-                let values: Option<Vec<Value>> =
-                    parts.iter().map(|p| keys::path_value(g, *h, p)).collect();
                 let mut push = |elements: Vec<ViewRef>, v: Violation| {
                     let mut d = diag(
                         CheckKind::ReferenceResolves,
@@ -682,44 +882,157 @@ pub mod implementation {
                     d.requirement = requirement;
                     out.push(d);
                 };
-                let Some(values) = values else {
+                if let Some(guard) = &r.guard
+                    && keys::path_value(g, *h, &guard.field)
+                        .as_ref()
+                        .is_none_or(|actual| {
+                            crate::value::representation(actual, &guard.equals) != Some(true)
+                        })
+                {
+                    continue;
+                }
+                let tuples = match crate::resolution::reference_tuples(schema, g, *h, r) {
+                    Ok(tuples) => tuples,
+                    Err(detail) => {
+                        incomplete.push((
+                            CheckKey {
+                                kind: CheckKind::ReferenceResolves,
+                                decl: decl.clone(),
+                            },
+                            requirement,
+                            Some(me.clone()),
+                            format!("{detail:?}"),
+                        ));
+                        continue;
+                    }
+                };
+                if tuples.is_empty() {
                     if !r.nullable {
-                        let field = parts
-                            .first()
-                            .and_then(|p| p.last())
-                            .map(|e| e.column().to_owned());
+                        let field = match &r.source {
+                            RefSource::KeyValue { parts } => parts.first(),
+                            RefSource::Path { field, .. }
+                            | RefSource::Variable { field, .. }
+                            | RefSource::Inline { field } => Some(field),
+                            RefSource::Standoff { start, .. } => Some(start),
+                        }
+                        .and_then(|path| path.last())
+                        .map(|edge| edge.column().to_owned());
                         push(vec![me.clone()], Violation::MissingValue(field));
                     }
                     continue;
-                };
-                let candidates: Vec<ViewRef> = g
-                    .nodes
-                    .iter()
-                    .filter(|(i, n)| {
-                        n.anchor == r.target_vertex
-                            && non_fan(g, **i)
-                            && keys::key_value(g, **i, key).as_ref() == Some(&values)
-                    })
-                    .map(|(i, _)| ViewRef::Node(*i))
-                    .collect();
-                match candidates.len() {
-                    1 => {}
-                    0 => push(
-                        vec![me.clone()],
-                        Violation::DanglingReference(r.id.clone(), values),
-                    ),
-                    _ => {
-                        let mut elements = candidates.clone();
-                        elements.push(me.clone());
-                        push(
-                            elements,
-                            Violation::AmbiguousReference(r.id.clone(), values, candidates),
-                        );
+                }
+                for values in tuples {
+                    match crate::resolution::reference_is_null(schema, g, r, &values) {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(error) => {
+                            incomplete.push((
+                                CheckKey {
+                                    kind: CheckKind::ReferenceResolves,
+                                    decl: decl.clone(),
+                                },
+                                requirement,
+                                Some(me.clone()),
+                                format!("{error:?}"),
+                            ));
+                            continue;
+                        }
+                    }
+                    let candidates =
+                        match crate::resolution::reference_candidates(schema, g, r, *h, &values) {
+                            Ok(candidates) => candidates
+                                .into_iter()
+                                .map(ViewRef::Node)
+                                .collect::<Vec<_>>(),
+                            Err(error) => {
+                                incomplete.push((
+                                    CheckKey {
+                                        kind: CheckKind::ReferenceResolves,
+                                        decl: decl.clone(),
+                                    },
+                                    requirement,
+                                    Some(me.clone()),
+                                    format!("{error:?}"),
+                                ));
+                                continue;
+                            }
+                        };
+                    match candidates.len() {
+                        1 => {}
+                        0 => push(
+                            vec![me.clone()],
+                            Violation::DanglingReference(r.id.clone(), values),
+                        ),
+                        _ => {
+                            let mut elements = candidates.clone();
+                            elements.push(me.clone());
+                            push(
+                                elements,
+                                Violation::AmbiguousReference(r.id.clone(), values, candidates),
+                            );
+                        }
                     }
                 }
             }
         }
-        Some(())
+        let guarded: Vec<_> = schema
+            .references
+            .values()
+            .filter_map(|reference| {
+                reference.guard.as_ref().map(|guard| {
+                    (
+                        reference.holder.as_str(),
+                        &reference.source,
+                        guard.field.as_slice(),
+                        reference.id.as_str(),
+                        &guard.equals,
+                    )
+                })
+            })
+            .collect();
+        for (index, (holder_anchor, source, field, _, _)) in guarded.iter().enumerate() {
+            if guarded[..index]
+                .iter()
+                .any(|(other_holder, other_source, other_field, _, _)| {
+                    other_holder == holder_anchor && other_source == source && other_field == field
+                })
+            {
+                continue;
+            }
+            let mut declarations: Vec<_> = guarded
+                .iter()
+                .filter(|(other_holder, other_source, other_field, _, _)| {
+                    other_holder == holder_anchor && other_source == source && other_field == field
+                })
+                .map(|(_, _, _, reference, equals)| (*reference, *equals))
+                .collect();
+            declarations.sort_by_key(|(reference, _)| *reference);
+            let reference = declarations[0].0.to_owned();
+            for holder in g.nodes.iter().filter_map(|(id, node)| {
+                (node.anchor == *holder_anchor && non_fan(g, *id)).then_some(*id)
+            }) {
+                let Some(value) = keys::path_value(g, holder, field) else {
+                    continue;
+                };
+                if declarations
+                    .iter()
+                    .any(|(_, guard)| crate::value::representation(&value, guard) == Some(true))
+                {
+                    continue;
+                }
+                let check = CheckKey {
+                    kind: CheckKind::ReferenceResolves,
+                    decl: SchemaRef::Reference(reference.clone()),
+                };
+                out.push(Diagnostic {
+                    check,
+                    requirement: Requirement::Advisory,
+                    subject: Some(ViewRef::Node(holder)),
+                    elements: vec![ViewRef::Node(holder)],
+                    violation: Violation::UnselectedReference(reference.clone(), value),
+                });
+            }
+        }
     }
 
     /// Acyclicity of declared self-edges: every strongly connected component
@@ -797,16 +1110,18 @@ pub mod implementation {
     /// Definition: Validate a graph.
     ///
     /// Every kind's diagnostics, sorted by check, subject and elements, the undecided instances, and
-    /// the status. `None` when a constraint sort or a reference lies outside the reference's domain.
+    /// the status. `None` when the declarations are ill formed or a constraint
+    /// sort lies outside the reference's domain.
     ///
     /// Book anchors: `L-validation-1`, `L-validation-2`, `L-validation-3`, `L-validation-4`, `L-validation-5`, `L-validation-6`, `L-validation-7`, `L-validation-8`, `L-validation-9`, `L-validation-10`, `L-validation-11`.
     #[must_use]
     pub fn validate(schema: &Schema, sem: &BTreeMap<Name, Semantics>, g: &Graph) -> Option<Report> {
-        if schema
-            .constraints
-            .values()
-            .flatten()
-            .any(|(s, _)| sem.get(s).is_none_or(|x| *x == Semantics::Other))
+        if crate::schema::validate_declarations(schema).is_err()
+            || schema
+                .constraints
+                .values()
+                .flatten()
+                .any(|(s, _)| sem.get(s).is_none_or(|x| *x == Semantics::Other))
         {
             return None;
         }
@@ -814,8 +1129,8 @@ pub mod implementation {
         let mut inc = Vec::new();
         structural(schema, g, &mut d);
         constraints(schema, sem, g, &mut d, &mut inc);
-        keyed(schema, g, &mut d);
-        references(schema, g, &mut d)?;
+        keyed(schema, g, &mut d, &mut inc);
+        references(schema, g, &mut d, &mut inc);
         acyclic(schema, sem, g, &mut d);
         d.sort_by(|a, b| {
             (&a.check, &a.subject, &a.elements).cmp(&(&b.check, &b.subject, &b.elements))
@@ -889,9 +1204,12 @@ pub mod implementation {
     /// exactly when all independently stated predicates pass.
     ///
     /// Book anchors: `L-validation-15`.
-    #[must_use]
-    pub fn key_forms(predicates: &[bool]) -> bool {
-        predicates.iter().all(|predicate| *predicate)
+    ///
+    /// # Errors
+    ///
+    /// Returns every declaration error in canonical declaration order.
+    pub fn key_forms(schema: &Schema) -> Result<(), Vec<crate::schema::DeclarationError>> {
+        crate::schema::validate_declarations(schema)
     }
 
     /// Definition: Parsing with an advisory format annotation has the same result as

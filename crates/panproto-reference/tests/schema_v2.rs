@@ -9,18 +9,21 @@ use panproto_reference::canonical::{ComplementShape, IdentityEnvelope, decode_va
 use panproto_reference::coerce::{
     FidelityReason, LexClass, NumeralDialect, ScalarKind, ValueSpec, coerce_dialect,
 };
-use panproto_reference::exact::Decimal;
+use panproto_reference::exact::{BigIntValue, Decimal, DecimalValue};
 use panproto_reference::keys::{KeyEquality, NumericPrimitive, SqlCollation, SqlPad};
 use panproto_reference::model::{GEdge, Graph, Node, NodeShape, SEdge};
+use panproto_reference::num::Nat;
 use panproto_reference::resolution::{rfc3986, standoff_form, standoff_inverse};
 use panproto_reference::schema::{
-    Change, Key, KeyPart, KeyRole, KeyScope, Schema, canonical_bytes, classify_change,
+    Change, Key, KeyPart, KeyRole, KeyScope, Registration, Schema, TargetSet, canonical_bytes,
+    classify_change, register, validate_declarations,
 };
 use panproto_reference::temporal::{
     Offset, OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalKind, TemporalParseError,
     TimeUnit, cmp_chronological, day_number, display_parse, from_epoch_count, parse, parse_display,
     parse_union, to_epoch_count,
 };
+use panproto_reference::theory::{CompositionSpec, CompositionStep, Sort, Theory};
 use panproto_reference::value::Value;
 
 fn read_dialect(
@@ -217,6 +220,7 @@ fn schema_with_key(role: KeyRole, scope: KeyScope) -> Schema {
             )])],
             role,
             scope,
+            equality: Vec::new(),
         }],
     );
     schema
@@ -244,6 +248,136 @@ fn schema_change_classification_has_the_key_boundaries() {
         classify_change(&unique, &no_key),
         Change::BackwardCompatible
     );
+}
+
+#[test]
+fn registration_requires_closed_replayable_theories_and_is_byte_idempotent() {
+    let base = |name: &str| Theory {
+        name: name.into(),
+        sorts: vec![Sort {
+            name: "Vertex".into(),
+            params: vec![],
+            kind: "structural".into(),
+            constructors: None,
+        }],
+        ..Theory::default()
+    };
+    let schema_base = base("SchemaBase");
+    let instance_base = base("InstanceBase");
+    let theories = BTreeMap::from([
+        (schema_base.name.clone(), schema_base.clone()),
+        (instance_base.name.clone(), instance_base.clone()),
+    ]);
+    let mut schema_theory = schema_base;
+    schema_theory.name = "SchemaResult".into();
+    let mut instance_theory = instance_base;
+    instance_theory.name = "InstanceResult".into();
+    let registration = Registration {
+        schema: Schema::default(),
+        schema_theory,
+        instance_theory,
+        schema_composition: CompositionSpec {
+            result_name: "SchemaResult".into(),
+            steps: vec![CompositionStep::Base("SchemaBase".into())],
+            version: 0,
+        },
+        instance_composition: CompositionSpec {
+            result_name: "InstanceResult".into(),
+            steps: vec![CompositionStep::Base("InstanceBase".into())],
+            version: 0,
+        },
+    };
+    let mut registry = BTreeMap::new();
+    assert_eq!(
+        register(&mut registry, &theories, "protocol", registration.clone()),
+        Ok(())
+    );
+    assert_eq!(
+        register(&mut registry, &theories, "protocol", registration),
+        Ok(())
+    );
+}
+
+#[test]
+fn declared_numeric_equality_is_exact_at_unbounded_exponents_and_in_buckets() {
+    let numeric = KeyEquality::NumericValue;
+    let one = Value::Int(1);
+    let one_point_zero = Value::Decimal(Decimal::Finite(DecimalValue::parse("1.0").unwrap()));
+    assert_eq!(
+        panproto_reference::keys::key_equivalence(&numeric, &one, &one_point_zero),
+        Some(true)
+    );
+    let huge = Value::Decimal(Decimal::Finite(
+        DecimalValue::parse("1e9223372036854775808").unwrap(),
+    ));
+    let same_huge = Value::Decimal(Decimal::Finite(
+        DecimalValue::parse("10e9223372036854775807").unwrap(),
+    ));
+    assert_eq!(
+        panproto_reference::keys::key_equivalence(&numeric, &huge, &same_huge),
+        Some(true)
+    );
+    let huge_integer = Value::BigInt(BigIntValue {
+        negative: false,
+        significand: Nat::from_u64(1),
+        zeros: Nat::parse("9223372036854775808").unwrap(),
+    });
+    assert_eq!(
+        panproto_reference::keys::key_equivalence(&numeric, &huge_integer, &huge),
+        Some(true)
+    );
+
+    let id = SEdge::new("record", "scalar", "prop", Some("id"));
+    let key = Key {
+        id: "numeric".into(),
+        parts: vec![KeyPart::Path(vec![id])],
+        role: KeyRole::Unique,
+        scope: KeyScope::Document,
+        equality: vec![numeric],
+    };
+    let graph = Graph {
+        nodes: BTreeMap::from([
+            (0, Node::new(0, "record").with_field("id", one)),
+            (1, Node::new(1, "record").with_field("id", one_point_zero)),
+        ]),
+        edges: BTreeMap::new(),
+    };
+    let (buckets, outside) = panproto_reference::keys::buckets(&graph, "record", &key).unwrap();
+    assert!(outside.is_empty());
+    assert_eq!(buckets.len(), 1);
+    assert_eq!(buckets.into_values().next().unwrap().1, vec![0, 1]);
+}
+
+#[test]
+fn target_sets_require_distinct_compatible_declared_keys() {
+    let mut schema = Schema::default().vertex("a", "obj").vertex("b", "obj");
+    for vertex in ["a", "b"] {
+        schema.keys.insert(
+            vertex.into(),
+            vec![Key {
+                id: "id".into(),
+                parts: vec![KeyPart::Path(vec![SEdge::new(
+                    vertex,
+                    "scalar",
+                    "prop",
+                    Some("id"),
+                )])],
+                role: KeyRole::Identifier,
+                scope: KeyScope::Document,
+                equality: vec![KeyEquality::NumericValue],
+            }],
+        );
+    }
+    schema.target_sets.insert(
+        "ids".into(),
+        TargetSet {
+            members: vec![("a".into(), "id".into()), ("b".into(), "id".into())],
+            scope: KeyScope::Document,
+        },
+    );
+    assert_eq!(validate_declarations(&schema), Ok(()));
+    schema.target_sets.get_mut("ids").unwrap().members[1].1 = "missing".into();
+    assert!(validate_declarations(&schema).is_err());
 }
 
 #[test]
@@ -511,6 +645,101 @@ fn every_extended_temporal_carrier_has_injective_canonical_bytes() {
 }
 
 #[test]
+fn truncated_temporals_compare_offsets_by_minutes_not_written_seconds() {
+    let first = parse(TemporalForm::Time, "-20:50+04:56:01").unwrap();
+    let second = parse(TemporalForm::Time, "-20:50+04:56:02").unwrap();
+    assert_eq!(first.offset.minutes(), second.offset.minutes());
+    assert_eq!(cmp_chronological(&first, &second), Some(Ordering::Equal));
+}
+
+#[test]
+fn value_io_oracles_are_independent_and_toml_rejects_reduced_years() {
+    use panproto_reference::value_io::{
+        Route, emit, parse as parse_scalar, parse_cst, round_trip, round_trip_cst, temporal,
+    };
+
+    assert_eq!(parse_scalar(Route::Json, b"1"), Ok(Value::Int(1)));
+    assert_eq!(emit(Route::Json, &Value::Int(1)), Ok(b"1".to_vec()));
+    assert_ne!(parse_scalar(Route::Json, b"2"), Ok(Value::Int(1)));
+    assert_ne!(emit(Route::Json, &Value::Int(1)), Ok(Vec::new()));
+    assert_eq!(parse_cst(Route::Json, b"1").unwrap().source, b"1");
+    assert!(round_trip_cst(Route::Json, b"\"kept\""));
+    assert_eq!(
+        parse_scalar(Route::Json, br#""\ud83d\ude00\u0001""#),
+        Ok(Value::Str("😀\u{1}".into()))
+    );
+    assert_eq!(
+        emit(Route::Json, &Value::Str("😀\u{1}".into())),
+        Ok("\"😀\\u0001\"".as_bytes().to_vec())
+    );
+    assert_eq!(
+        parse_scalar(Route::Json, br#""\ud83d""#),
+        Err(panproto_reference::value_io::ValueIoError::Malformed)
+    );
+    assert_eq!(
+        parse_scalar(Route::Xml, b"&lt;x&gt;&amp;&#x1F600;"),
+        Ok(Value::Str("<x>&😀".into()))
+    );
+    assert_eq!(
+        emit(Route::Xml, &Value::Str("<x>&\"".into())),
+        Ok(b"&lt;x&gt;&amp;&quot;".to_vec())
+    );
+    assert_eq!(
+        parse_scalar(Route::Csv, br#""a,""b""#),
+        Ok(Value::Str("a,\"b".into()))
+    );
+    assert_eq!(
+        emit(Route::Csv, &Value::Str("a,\"b".into())),
+        Ok(br#""a,""b""#.to_vec())
+    );
+    assert_eq!(
+        emit(Route::Tsv, &Value::Str("a\tb".into())),
+        Err(panproto_reference::value_io::ValueIoError::NotRepresentable)
+    );
+    assert_eq!(
+        parse_scalar(Route::Yaml, b"plain"),
+        Ok(Value::Str("plain".into()))
+    );
+
+    let exact_decimal = Value::Decimal(panproto_reference::exact::parse_decimal("100e-2").unwrap());
+    for route in [
+        Route::Json,
+        Route::Toml,
+        Route::Yaml,
+        Route::Xml,
+        Route::Csv,
+        Route::Tsv,
+    ] {
+        assert!(round_trip(route, &exact_decimal), "{route:?}");
+    }
+    let positive_exponent =
+        Value::Decimal(panproto_reference::exact::parse_decimal("1e1").unwrap());
+    assert_eq!(
+        emit(Route::Xml, &positive_exponent),
+        Err(panproto_reference::value_io::ValueIoError::NotRepresentable)
+    );
+    assert!(round_trip(
+        Route::Yaml,
+        &Value::Float(panproto_reference::float::CANONICAL_NAN_BITS)
+    ));
+    assert_eq!(
+        emit(Route::Yaml, &Value::Float(0x7ff8_0000_0000_0001)),
+        Err(panproto_reference::value_io::ValueIoError::NotRepresentable)
+    );
+
+    let reduced_year = parse(TemporalForm::Date, "2018").unwrap();
+    let full_date = parse(TemporalForm::Date, "2018-01-01").unwrap();
+    assert!(!temporal(Route::Toml, &reduced_year));
+    assert!(temporal(Route::Toml, &full_date));
+    assert!(round_trip(Route::Toml, &Value::Temporal(full_date.clone())));
+    assert!(round_trip(Route::Json, &Value::Temporal(full_date)));
+    assert_eq!(
+        emit(Route::Toml, &Value::Temporal(reduced_year)),
+        Err(panproto_reference::value_io::ValueIoError::NotRepresentable)
+    );
+}
+
+#[test]
 fn second_offsets_unwritten_offsets_and_infinities_obey_the_order() {
     let west = parse(TemporalForm::DateTime, "1849-12-31 19:03:58-04:56:02").unwrap();
     let utc = parse(TemporalForm::DateTime, "1850-01-01T00:00:00Z").unwrap();
@@ -728,6 +957,7 @@ fn fan_incidence_is_neither_ancestry_nor_a_position_parent() {
         parts: vec![KeyPart::Position { within }],
         role: KeyRole::Unique,
         scope: KeyScope::Global,
+        equality: Vec::new(),
     };
     assert_eq!(
         panproto_reference::keys::key_value(&graph, 2, &position_key),

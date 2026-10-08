@@ -10,7 +10,7 @@ use panproto_reference::coerce::{
 use panproto_reference::exact::{
     Decimal, ExactInteger, integer_of_numeral, parse_decimal, parse_numeral,
 };
-use panproto_reference::value::{BuiltinOp, EvalError, Expr, Value, apply_builtin, eval};
+use panproto_reference::value::{BuiltinOp, EvalError, Expr, Pattern, Value, apply_builtin, eval};
 
 fn num(text: &str, kind: K) -> Result<Value, R> {
     coerce(text, &LexClass::Number, &ValueSpec::of(kind)).unwrap()
@@ -443,6 +443,93 @@ fn expression_evaluation_canonicalizes_only_computed_nans() {
         ),
         Ok(Value::Float(CANONICAL_NAN))
     );
+}
+
+#[test]
+fn expression_reference_covers_functions_records_patterns_and_floor() {
+    let empty = BTreeMap::new();
+    let identity = Expr::Apply(
+        Box::new(Expr::Lambda(
+            "x".into(),
+            Box::new(Expr::Variable("x".into())),
+        )),
+        Box::new(Expr::Literal(Value::Int(7))),
+    );
+    assert_eq!(eval(&identity, &empty), Ok(Value::Int(7)));
+
+    let record = Expr::Let {
+        name: "r".into(),
+        value: Box::new(Expr::Record(vec![(
+            "answer".into(),
+            Expr::Literal(Value::Int(42)),
+        )])),
+        body: Box::new(Expr::Field(
+            Box::new(Expr::Variable("r".into())),
+            "answer".into(),
+        )),
+    };
+    assert_eq!(eval(&record, &empty), Ok(Value::Int(42)));
+
+    let matched = Expr::Match {
+        scrutinee: Box::new(Expr::List(vec![
+            Expr::Literal(Value::Int(1)),
+            Expr::Literal(Value::Int(2)),
+        ])),
+        arms: vec![(
+            Pattern::List(vec![
+                Pattern::Literal(Value::Int(1)),
+                Pattern::Variable("x".into()),
+            ]),
+            Expr::Variable("x".into()),
+        )],
+    };
+    assert_eq!(eval(&matched, &empty), Ok(Value::Int(2)));
+    assert_eq!(
+        apply_builtin(BuiltinOp::Floor, &[Value::Float((-1.25f64).to_bits())]),
+        Ok(Value::Int(-2))
+    );
+}
+
+#[test]
+fn expression_string_list_and_clamp_boundaries_match_the_language() {
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Slice,
+            &[Value::Str("a😀b".into()), Value::Int(1), Value::Int(2),],
+        ),
+        Ok(Value::Str("😀".into()))
+    );
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Slice,
+            &[Value::Str("abc".into()), Value::Int(-2), Value::Int(99)],
+        ),
+        Ok(Value::Str("abc".into()))
+    );
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Contains,
+            &[
+                Value::List(vec![Value::Int(1), Value::Int(2)]),
+                Value::Int(2),
+            ],
+        ),
+        Ok(Value::Bool(true))
+    );
+    assert_eq!(
+        apply_builtin(
+            BuiltinOp::Clamp,
+            &[Value::Int(2), Value::Int(3), Value::Int(1)],
+        ),
+        Err(EvalError::TypeError {
+            expected: "clamp requires min <= max",
+            got: "min > max",
+        })
+    );
+    assert!(matches!(
+        apply_builtin(BuiltinOp::Clamp, &[Value::Int(2), f(1.0), f(3.0)],),
+        Err(EvalError::TypeError { .. })
+    ));
 }
 
 #[test]

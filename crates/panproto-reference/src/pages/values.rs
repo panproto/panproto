@@ -4126,7 +4126,7 @@ pub mod temporal {
         };
         same_shape
             && a.offset.is_zoned() == b.offset.is_zoned()
-            && (!a.is_truncated() || a.offset.seconds() == b.offset.seconds())
+            && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
     }
 
     /// Definition: The partial chronological order: `None` for incomparable values, else
@@ -4980,7 +4980,7 @@ pub mod value {
     use std::collections::BTreeMap;
 
     use crate::exact::{BigIntValue, Decimal, DecimalValue, ExactInteger, parse_decimal};
-    use crate::float::CANONICAL_NAN_BITS;
+    use crate::float::{CANONICAL_NAN_BITS, Format, shortest};
     use crate::num::Int;
     use crate::temporal::Temporal;
 
@@ -5097,6 +5097,12 @@ pub mod value {
         Neg,
         /// Numeric absolute value.
         Abs,
+        /// Float floor to integer.
+        Floor,
+        /// Float ceiling to integer.
+        Ceil,
+        /// Float round-to-nearest, ties to even, to integer.
+        Round,
         /// Representation equality.
         Eq,
         /// Representation inequality.
@@ -5109,6 +5115,96 @@ pub mod value {
         Gt,
         /// Nonstrict reverse ordering.
         Gte,
+        /// Boolean conjunction.
+        And,
+        /// Boolean disjunction.
+        Or,
+        /// Boolean negation.
+        Not,
+        /// String concatenation.
+        Concat,
+        /// UTF-8 byte length.
+        Len,
+        /// Byte-indexed, character-boundary-safe string slice.
+        Slice,
+        /// Unicode uppercase mapping.
+        Upper,
+        /// Unicode lowercase mapping.
+        Lower,
+        /// Trim Unicode whitespace.
+        Trim,
+        /// Split a string.
+        Split,
+        /// Join strings.
+        Join,
+        /// Replace string occurrences.
+        Replace,
+        /// String containment.
+        Contains,
+        /// Map a function over a list.
+        Map,
+        /// Keep list items accepted by a predicate.
+        Filter,
+        /// Fold a list from the left.
+        Fold,
+        /// Append an item to a list.
+        Append,
+        /// First list item.
+        Head,
+        /// All but the first list item.
+        Tail,
+        /// Reverse a list.
+        Reverse,
+        /// Map and concatenate list results.
+        FlatMap,
+        /// List length.
+        Length,
+        /// Inclusive integer range.
+        Range,
+        /// Merge records, with right fields winning.
+        MergeRecords,
+        /// Record keys.
+        Keys,
+        /// Record values.
+        Values,
+        /// Record field-membership test.
+        HasField,
+        /// Null-defaulting.
+        DefaultVal,
+        /// Numeric clamp.
+        Clamp,
+        /// Byte-bound, character-safe string truncation.
+        TruncateStr,
+        /// Integer to float.
+        IntToFloat,
+        /// Float to integer by truncation.
+        FloatToInt,
+        /// Integer to string.
+        IntToStr,
+        /// Float to shortest string.
+        FloatToStr,
+        /// String to integer.
+        StrToInt,
+        /// String to float.
+        StrToFloat,
+        /// Runtime value type name.
+        TypeOf,
+        /// Null predicate.
+        IsNull,
+        /// List predicate.
+        IsList,
+        /// Instance traversal, undefined without an instance context.
+        Edge,
+        /// Instance traversal, undefined without an instance context.
+        Children,
+        /// Instance traversal, undefined without an instance context.
+        HasEdge,
+        /// Instance traversal, undefined without an instance context.
+        EdgeCount,
+        /// Instance traversal, undefined without an instance context.
+        Anchor,
+        /// Instance traversal, undefined without an instance context.
+        Edges,
         /// Lossless lexical conversion.
         ToString,
         /// Exact decimal parsing/conversion.
@@ -5153,6 +5249,43 @@ pub mod value {
         InvalidDecimal(String),
         /// Canonical representation was undefined for an ill-formed carrier.
         UndefinedRepresentation,
+        /// List index out of bounds.
+        IndexOutOfBounds {
+            /// Requested zero-based index.
+            index: i64,
+            /// List length.
+            len: usize,
+        },
+        /// A record field was absent.
+        FieldNotFound(String),
+        /// No match arm accepted the scrutinee.
+        NonExhaustiveMatch,
+        /// Application reached a non-function.
+        NotAFunction,
+        /// A float is not a finite in-range integer.
+        FloatNotRepresentable,
+        /// A traversal builtin was evaluated without an instance.
+        NoInstanceContext {
+            /// Traversal operation requiring an instance.
+            op: BuiltinOp,
+        },
+    }
+
+    /// A destructuring pattern.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Pattern {
+        /// Match anything without binding it.
+        Wildcard,
+        /// Bind the matched value.
+        Variable(String),
+        /// Match by representation equality.
+        Literal(Value),
+        /// Match the named fields of a record.
+        Record(Vec<(String, Self)>),
+        /// Match a list of exactly this length.
+        List(Vec<Self>),
+        /// Match an opaque constructor and its fields in key order.
+        Constructor(String, Vec<Self>),
     }
 
     /// The small expression language used by reference predicates.
@@ -5162,8 +5295,34 @@ pub mod value {
         Literal(Value),
         /// A variable.
         Variable(String),
+        /// Lambda abstraction.
+        Lambda(String, Box<Self>),
+        /// Function application.
+        Apply(Box<Self>, Box<Self>),
+        /// Record construction.
+        Record(Vec<(String, Self)>),
         /// A list whose items are evaluated left to right.
         List(Vec<Self>),
+        /// Record field access.
+        Field(Box<Self>, String),
+        /// List indexing.
+        Index(Box<Self>, Box<Self>),
+        /// Pattern matching.
+        Match {
+            /// Scrutinee.
+            scrutinee: Box<Self>,
+            /// Arms in priority order.
+            arms: Vec<(Pattern, Self)>,
+        },
+        /// Lexical let binding.
+        Let {
+            /// Bound name.
+            name: String,
+            /// Bound expression.
+            value: Box<Self>,
+            /// Body.
+            body: Box<Self>,
+        },
         /// Representation equality.
         Equal(Box<Self>, Box<Self>),
         /// A conditional; only a boolean condition is defined.
@@ -5186,38 +5345,271 @@ pub mod value {
     ///
     /// Returns a typed [`EvalError`] for an unbound variable, an ill-typed or
     /// inexact built-in operation, or an operation outside its exact domain.
-    pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Result<Value, EvalError> {
+    #[derive(Clone)]
+    enum Runtime {
+        Value(Value),
+        Closure {
+            parameter: String,
+            body: Box<Expr>,
+            environment: BTreeMap<String, Value>,
+        },
+    }
+
+    impl Runtime {
+        fn value(self) -> Result<Value, EvalError> {
+            match self {
+                Self::Value(value) => Ok(value),
+                Self::Closure { .. } => Err(EvalError::NotAFunction),
+            }
+        }
+    }
+
+    fn apply_runtime(function: Runtime, argument: Value) -> Result<Runtime, EvalError> {
+        let Runtime::Closure {
+            parameter,
+            body,
+            mut environment,
+        } = function
+        else {
+            return Err(EvalError::NotAFunction);
+        };
+        environment.insert(parameter, argument);
+        eval_runtime(&body, &environment)
+    }
+
+    #[allow(clippy::option_if_let_else)]
+    fn match_pattern(
+        pattern: &Pattern,
+        value: &Value,
+        bindings: &mut BTreeMap<String, Value>,
+    ) -> bool {
+        match pattern {
+            Pattern::Wildcard => true,
+            Pattern::Variable(name) => {
+                if let Some(bound) = bindings.get(name) {
+                    representation(bound, value) == Some(true)
+                } else {
+                    bindings.insert(name.clone(), value.clone());
+                    true
+                }
+            }
+            Pattern::Literal(expected) => representation(expected, value) == Some(true),
+            Pattern::Record(fields) => {
+                let (Value::Unknown(record) | Value::Opaque { fields: record, .. }) = value else {
+                    return false;
+                };
+                fields.iter().all(|(name, pattern)| {
+                    record
+                        .get(name)
+                        .is_some_and(|value| match_pattern(pattern, value, bindings))
+                })
+            }
+            Pattern::List(patterns) => match value {
+                Value::List(values) if patterns.len() == values.len() => patterns
+                    .iter()
+                    .zip(values)
+                    .all(|(pattern, value)| match_pattern(pattern, value, bindings)),
+                _ => false,
+            },
+            Pattern::Constructor(type_, patterns) => match value {
+                Value::Opaque {
+                    type_: actual,
+                    fields,
+                } if type_ == actual && patterns.len() == fields.len() => patterns
+                    .iter()
+                    .zip(fields.values())
+                    .all(|(pattern, value)| match_pattern(pattern, value, bindings)),
+                _ => false,
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn eval_runtime(
+        expr: &Expr,
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
         match expr {
-            Expr::Literal(value) => Ok(value.clone()),
+            Expr::Literal(value) => Ok(Runtime::Value(value.clone())),
             Expr::Variable(name) => environment
                 .get(name)
                 .cloned()
+                .map(Runtime::Value)
                 .ok_or_else(|| EvalError::UnboundVariable(name.clone())),
+            Expr::Lambda(parameter, body) => Ok(Runtime::Closure {
+                parameter: parameter.clone(),
+                body: body.clone(),
+                environment: environment.clone(),
+            }),
+            Expr::Apply(function, argument) => {
+                let function = eval_runtime(function, environment)?;
+                let argument = eval_runtime(argument, environment)?.value()?;
+                apply_runtime(function, argument)
+            }
+            Expr::Record(fields) => fields
+                .iter()
+                .map(|(name, value)| {
+                    eval_runtime(value, environment)
+                        .and_then(Runtime::value)
+                        .map(|value| (name.clone(), value))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()
+                .map(Value::Unknown)
+                .map(Runtime::Value),
             Expr::List(items) => items
                 .iter()
-                .map(|item| eval(item, environment))
+                .map(|item| eval_runtime(item, environment).and_then(Runtime::value))
                 .collect::<Result<Vec<_>, _>>()
-                .map(Value::List),
+                .map(Value::List)
+                .map(Runtime::Value),
+            Expr::Field(record, field) => match eval_runtime(record, environment)?.value()? {
+                Value::Unknown(fields) | Value::Opaque { fields, .. } => fields
+                    .get(field)
+                    .cloned()
+                    .map(Runtime::Value)
+                    .ok_or_else(|| EvalError::FieldNotFound(field.clone())),
+                other => Err(type_error("record", &other)),
+            },
+            Expr::Index(list, index) => {
+                let list = eval_runtime(list, environment)?.value()?;
+                let index = eval_runtime(index, environment)?.value()?;
+                match (list, index) {
+                    (Value::List(items), Value::Int(index)) => {
+                        let selected = usize::try_from(index)
+                            .ok()
+                            .and_then(|index| items.get(index).cloned());
+                        selected
+                            .map(Runtime::Value)
+                            .ok_or(EvalError::IndexOutOfBounds {
+                                index,
+                                len: items.len(),
+                            })
+                    }
+                    (other, _) => Err(type_error("list and int", &other)),
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                let scrutinee = eval_runtime(scrutinee, environment)?.value()?;
+                for (pattern, body) in arms {
+                    let mut bindings = BTreeMap::new();
+                    if match_pattern(pattern, &scrutinee, &mut bindings) {
+                        let mut nested = environment.clone();
+                        nested.extend(bindings);
+                        return eval_runtime(body, &nested);
+                    }
+                }
+                Err(EvalError::NonExhaustiveMatch)
+            }
+            Expr::Let { name, value, body } => {
+                let value = eval_runtime(value, environment)?.value()?;
+                let mut nested = environment.clone();
+                nested.insert(name.clone(), value);
+                eval_runtime(body, &nested)
+            }
             Expr::Equal(left, right) => {
-                let left = eval(left, environment)?;
-                let right = eval(right, environment)?;
+                let left = eval_runtime(left, environment)?.value()?;
+                let right = eval_runtime(right, environment)?.value()?;
                 representation(&left, &right)
                     .map(Value::Bool)
+                    .map(Runtime::Value)
                     .ok_or(EvalError::UndefinedRepresentation)
             }
-            Expr::If(condition, then_expr, else_expr) => match eval(condition, environment)? {
-                Value::Bool(true) => eval(then_expr, environment),
-                Value::Bool(false) => eval(else_expr, environment),
-                other => Err(type_error("bool", &other)),
-            },
+            Expr::If(condition, then_expr, else_expr) => {
+                match eval_runtime(condition, environment)?.value()? {
+                    Value::Bool(true) => eval_runtime(then_expr, environment),
+                    Value::Bool(false) => eval_runtime(else_expr, environment),
+                    other => Err(type_error("bool", &other)),
+                }
+            }
             Expr::Builtin(op, arguments) => {
-                let values = arguments
+                if matches!(
+                    op,
+                    BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap
+                ) {
+                    return eval_higher_order(*op, arguments, environment);
+                }
+                arguments
                     .iter()
-                    .map(|argument| eval(argument, environment))
-                    .collect::<Result<Vec<_>, _>>()?;
-                apply_builtin(*op, &values)
+                    .map(|argument| eval_runtime(argument, environment).and_then(Runtime::value))
+                    .collect::<Result<Vec<_>, _>>()
+                    .and_then(|values| apply_builtin(*op, &values))
+                    .map(Runtime::Value)
             }
         }
+    }
+
+    fn eval_higher_order(
+        op: BuiltinOp,
+        arguments: &[Expr],
+        environment: &BTreeMap<String, Value>,
+    ) -> Result<Runtime, EvalError> {
+        let expected = if op == BuiltinOp::Fold { 3 } else { 2 };
+        if arguments.len() != expected {
+            return Err(EvalError::ArityMismatch {
+                op,
+                expected,
+                got: arguments.len(),
+            });
+        }
+        let list = eval_runtime(&arguments[0], environment)?.value()?;
+        let Value::List(items) = list else {
+            return Err(type_error("list", &list));
+        };
+        let function = eval_runtime(arguments.last().unwrap_or(&arguments[0]), environment)?;
+        match op {
+            BuiltinOp::Map => items
+                .into_iter()
+                .map(|item| apply_runtime(function.clone(), item).and_then(Runtime::value))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Value::List)
+                .map(Runtime::Value),
+            BuiltinOp::Filter => {
+                let mut output = Vec::new();
+                for item in items {
+                    match apply_runtime(function.clone(), item.clone())?.value()? {
+                        Value::Bool(true) => output.push(item),
+                        Value::Bool(false) => {}
+                        other => return Err(type_error("bool", &other)),
+                    }
+                }
+                Ok(Runtime::Value(Value::List(output)))
+            }
+            BuiltinOp::FlatMap => {
+                let mut output = Vec::new();
+                for item in items {
+                    match apply_runtime(function.clone(), item)?.value()? {
+                        Value::List(values) => output.extend(values),
+                        other => return Err(type_error("list", &other)),
+                    }
+                }
+                Ok(Runtime::Value(Value::List(output)))
+            }
+            BuiltinOp::Fold => {
+                let mut accumulator = eval_runtime(&arguments[1], environment)?.value()?;
+                for item in items {
+                    let partial = apply_runtime(function.clone(), accumulator)?;
+                    accumulator = apply_runtime(partial, item)?.value()?;
+                }
+                Ok(Runtime::Value(accumulator))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// Definition: Evaluate one exact-value expression in the supplied
+    /// lexical environment.
+    ///
+    /// Lambdas are applied with lexical capture; every builtin returns a
+    /// typed error rather than silently changing a value's carrier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvalError`] for an unbound name, ill-typed operation,
+    /// overflow, failed conversion, or non-exhaustive pattern.
+    ///
+    /// Book anchors: `L-values-14`.
+    pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Result<Value, EvalError> {
+        eval_runtime(expr, environment)?.value()
     }
 
     const fn type_name(value: &Value) -> &'static str {
@@ -5259,9 +5651,36 @@ pub mod value {
         match op {
             BuiltinOp::Neg
             | BuiltinOp::Abs
+            | BuiltinOp::Floor
+            | BuiltinOp::Ceil
+            | BuiltinOp::Round
+            | BuiltinOp::Not
+            | BuiltinOp::Len
+            | BuiltinOp::Upper
+            | BuiltinOp::Lower
+            | BuiltinOp::Trim
+            | BuiltinOp::Head
+            | BuiltinOp::Tail
+            | BuiltinOp::Reverse
+            | BuiltinOp::Length
+            | BuiltinOp::Keys
+            | BuiltinOp::Values
+            | BuiltinOp::IntToFloat
+            | BuiltinOp::FloatToInt
+            | BuiltinOp::IntToStr
+            | BuiltinOp::FloatToStr
+            | BuiltinOp::StrToInt
+            | BuiltinOp::StrToFloat
+            | BuiltinOp::TypeOf
+            | BuiltinOp::IsNull
+            | BuiltinOp::IsList
+            | BuiltinOp::Children
+            | BuiltinOp::EdgeCount
+            | BuiltinOp::Anchor
             | BuiltinOp::ToString
             | BuiltinOp::ParseDecimal
             | BuiltinOp::DecimalToFloat => 1,
+            BuiltinOp::Slice | BuiltinOp::Replace | BuiltinOp::Clamp | BuiltinOp::Fold => 3,
             _ => 2,
         }
     }
@@ -5273,6 +5692,7 @@ pub mod value {
     /// Returns [`EvalError::ArityMismatch`] for the wrong number of arguments,
     /// or the operation's typed domain, arithmetic, parsing, or representation
     /// error.
+    #[allow(clippy::too_many_lines)]
     pub fn apply_builtin(op: BuiltinOp, arguments: &[Value]) -> Result<Value, EvalError> {
         let expected = expected_arity(op);
         if arguments.len() != expected {
@@ -5288,6 +5708,9 @@ pub mod value {
             }
             BuiltinOp::Mod => integer_remainder(&arguments[0], &arguments[1]),
             BuiltinOp::Neg | BuiltinOp::Abs => numeric_unary(op, &arguments[0]),
+            BuiltinOp::Floor | BuiltinOp::Ceil | BuiltinOp::Round => {
+                rounded_integer(op, &arguments[0])
+            }
             BuiltinOp::Eq | BuiltinOp::Ne => {
                 let equal = representation(&arguments[0], &arguments[1])
                     .ok_or(EvalError::UndefinedRepresentation)?;
@@ -5307,10 +5730,315 @@ pub mod value {
                     _ => false,
                 }))
             }
+            BuiltinOp::And | BuiltinOp::Or => match (&arguments[0], &arguments[1]) {
+                (Value::Bool(left), Value::Bool(right)) => {
+                    Ok(Value::Bool(if op == BuiltinOp::And {
+                        *left && *right
+                    } else {
+                        *left || *right
+                    }))
+                }
+                (other, _) => Err(type_error("bool", other)),
+            },
+            BuiltinOp::Not => match &arguments[0] {
+                Value::Bool(value) => Ok(Value::Bool(!value)),
+                other => Err(type_error("bool", other)),
+            },
+            BuiltinOp::Concat => strings2(&arguments[0], &arguments[1], |a, b| {
+                Value::Str(format!("{a}{b}"))
+            }),
+            BuiltinOp::Len => match &arguments[0] {
+                Value::Str(value) => i64::try_from(value.len())
+                    .map(Value::Int)
+                    .map_err(|_| EvalError::Overflow),
+                other => Err(type_error("string", other)),
+            },
+            BuiltinOp::Slice => string_slice(&arguments[0], &arguments[1], &arguments[2]),
+            BuiltinOp::Upper | BuiltinOp::Lower | BuiltinOp::Trim => match &arguments[0] {
+                Value::Str(value) => Ok(Value::Str(match op {
+                    BuiltinOp::Upper => value.to_uppercase(),
+                    BuiltinOp::Lower => value.to_lowercase(),
+                    BuiltinOp::Trim => value.trim().to_owned(),
+                    _ => unreachable!(),
+                })),
+                other => Err(type_error("string", other)),
+            },
+            BuiltinOp::Split => strings2(&arguments[0], &arguments[1], |text, delimiter| {
+                Value::List(
+                    text.split(delimiter)
+                        .map(|part| Value::Str(part.to_owned()))
+                        .collect(),
+                )
+            }),
+            BuiltinOp::Join => join_strings(&arguments[0], &arguments[1]),
+            BuiltinOp::Replace => match (&arguments[0], &arguments[1], &arguments[2]) {
+                (Value::Str(text), Value::Str(from), Value::Str(to)) => {
+                    Ok(Value::Str(text.replace(from, to)))
+                }
+                (other, _, _) => Err(type_error("string", other)),
+            },
+            BuiltinOp::Contains => match (&arguments[0], &arguments[1]) {
+                (Value::Str(text), Value::Str(part)) => Ok(Value::Bool(text.contains(part))),
+                (Value::List(items), needle) => Ok(Value::Bool(items.contains(needle))),
+                (other, _) => Err(type_error("string|string or list|any", other)),
+            },
+            BuiltinOp::Append => match &arguments[0] {
+                Value::List(items) => {
+                    let mut output = items.clone();
+                    output.push(arguments[1].clone());
+                    Ok(Value::List(output))
+                }
+                other => Err(type_error("list", other)),
+            },
+            BuiltinOp::Head => match &arguments[0] {
+                Value::List(items) => items
+                    .first()
+                    .cloned()
+                    .ok_or(EvalError::IndexOutOfBounds { index: 0, len: 0 }),
+                other => Err(type_error("list", other)),
+            },
+            BuiltinOp::Tail => match &arguments[0] {
+                Value::List(items) if !items.is_empty() => Ok(Value::List(items[1..].to_vec())),
+                Value::List(_) => Err(EvalError::IndexOutOfBounds { index: 0, len: 0 }),
+                other => Err(type_error("list", other)),
+            },
+            BuiltinOp::Reverse => match &arguments[0] {
+                Value::List(items) => Ok(Value::List(items.iter().rev().cloned().collect())),
+                other => Err(type_error("list", other)),
+            },
+            BuiltinOp::Length => match &arguments[0] {
+                Value::List(items) => i64::try_from(items.len())
+                    .map(Value::Int)
+                    .map_err(|_| EvalError::Overflow),
+                other => Err(type_error("list", other)),
+            },
+            BuiltinOp::Range => integer_range(&arguments[0], &arguments[1]),
+            BuiltinOp::MergeRecords => merge_records(&arguments[0], &arguments[1]),
+            BuiltinOp::Keys | BuiltinOp::Values => record_projection(op, &arguments[0]),
+            BuiltinOp::HasField => match (&arguments[0], &arguments[1]) {
+                (
+                    Value::Unknown(record) | Value::Opaque { fields: record, .. },
+                    Value::Str(field),
+                ) => Ok(Value::Bool(record.contains_key(field))),
+                (other, _) => Err(type_error("record and string", other)),
+            },
+            BuiltinOp::DefaultVal => Ok(if arguments[0] == Value::Null {
+                arguments[1].clone()
+            } else {
+                arguments[0].clone()
+            }),
+            BuiltinOp::Clamp => clamp(&arguments[0], &arguments[1], &arguments[2]),
+            BuiltinOp::TruncateStr => truncate_string(&arguments[0], &arguments[1]),
+            BuiltinOp::IntToFloat => match arguments[0] {
+                Value::Int(value) => Ok(Value::Float(canonical_float(int_as_f64(value)))),
+                ref other => Err(type_error("int", other)),
+            },
+            BuiltinOp::FloatToInt => float_to_integer(&arguments[0], false),
+            BuiltinOp::IntToStr => match arguments[0] {
+                Value::Int(value) => Ok(Value::Str(value.to_string())),
+                ref other => Err(type_error("int", other)),
+            },
+            BuiltinOp::FloatToStr => match arguments[0] {
+                Value::Float(bits) => shortest(Format::B64, bits)
+                    .map(|text| Value::Str(text.to_scientific()))
+                    .ok_or(EvalError::FloatNotRepresentable),
+                ref other => Err(type_error("float", other)),
+            },
+            BuiltinOp::StrToInt => match &arguments[0] {
+                Value::Str(value) => value
+                    .parse::<i64>()
+                    .map(Value::Int)
+                    .map_err(|_| EvalError::InvalidDecimal(value.clone())),
+                other => Err(type_error("string", other)),
+            },
+            BuiltinOp::StrToFloat => match &arguments[0] {
+                Value::Str(value) => value
+                    .parse::<f64>()
+                    .map(|value| Value::Float(canonical_float(value)))
+                    .map_err(|_| EvalError::InvalidDecimal(value.clone())),
+                other => Err(type_error("string", other)),
+            },
+            BuiltinOp::TypeOf => Ok(Value::Str(type_name(&arguments[0]).to_owned())),
+            BuiltinOp::IsNull => Ok(Value::Bool(arguments[0] == Value::Null)),
+            BuiltinOp::IsList => Ok(Value::Bool(matches!(arguments[0], Value::List(_)))),
+            BuiltinOp::Edge
+            | BuiltinOp::Children
+            | BuiltinOp::HasEdge
+            | BuiltinOp::EdgeCount
+            | BuiltinOp::Anchor
+            | BuiltinOp::Edges => Err(EvalError::NoInstanceContext { op }),
+            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
+                Err(EvalError::NotAFunction)
+            }
             BuiltinOp::ToString => to_string_value(&arguments[0]).map(Value::Str),
             BuiltinOp::ParseDecimal => parse_decimal_value(&arguments[0]),
             BuiltinOp::DecimalToFloat => decimal_to_float(&arguments[0]),
         }
+    }
+
+    fn rounded_integer(op: BuiltinOp, value: &Value) -> Result<Value, EvalError> {
+        let Value::Float(bits) = value else {
+            return Err(type_error("float", value));
+        };
+        let value = f64::from_bits(*bits);
+        if !value.is_finite() {
+            return Err(EvalError::FloatNotRepresentable);
+        }
+        let rounded = match op {
+            BuiltinOp::Floor => value.floor(),
+            BuiltinOp::Ceil => value.ceil(),
+            BuiltinOp::Round => value.round_ties_even(),
+            _ => unreachable!(),
+        };
+        format!("{rounded:.0}")
+            .parse::<i64>()
+            .map(Value::Int)
+            .map_err(|_| EvalError::FloatNotRepresentable)
+    }
+
+    fn strings2(
+        left: &Value,
+        right: &Value,
+        function: impl FnOnce(&str, &str) -> Value,
+    ) -> Result<Value, EvalError> {
+        match (left, right) {
+            (Value::Str(left), Value::Str(right)) => Ok(function(left, right)),
+            (other, _) => Err(type_error("string", other)),
+        }
+    }
+
+    fn string_slice(text: &Value, start: &Value, end: &Value) -> Result<Value, EvalError> {
+        let (Value::Str(text), Value::Int(start), Value::Int(end)) = (text, start, end) else {
+            return Err(type_error("string, int, int", text));
+        };
+        let characters: Vec<char> = text.chars().collect();
+        let start = usize::try_from((*start).max(0)).unwrap_or(usize::MAX);
+        let end = usize::try_from((*end).max(0)).unwrap_or(usize::MAX);
+        let end = end.min(characters.len());
+        let start = start.min(end);
+        Ok(Value::Str(characters[start..end].iter().collect()))
+    }
+
+    fn clamp(value: &Value, minimum: &Value, maximum: &Value) -> Result<Value, EvalError> {
+        match (value, minimum, maximum) {
+            (Value::Int(value), Value::Int(minimum), Value::Int(maximum)) if minimum <= maximum => {
+                Ok(Value::Int((*value).clamp(*minimum, *maximum)))
+            }
+            (Value::Float(value), Value::Float(minimum), Value::Float(maximum)) => {
+                let (value, minimum, maximum) = (
+                    f64::from_bits(*value),
+                    f64::from_bits(*minimum),
+                    f64::from_bits(*maximum),
+                );
+                if minimum.is_nan() || maximum.is_nan() || minimum > maximum {
+                    return Err(EvalError::TypeError {
+                        expected: "clamp requires min <= max",
+                        got: "unordered or reversed bounds",
+                    });
+                }
+                Ok(Value::Float(canonical_float(value.clamp(minimum, maximum))))
+            }
+            (Value::Int(_), Value::Int(_), Value::Int(_)) => Err(EvalError::TypeError {
+                expected: "clamp requires min <= max",
+                got: "min > max",
+            }),
+            (other, _, _) => Err(type_error("three homogeneous ints or floats", other)),
+        }
+    }
+
+    fn join_strings(items: &Value, delimiter: &Value) -> Result<Value, EvalError> {
+        let (Value::List(items), Value::Str(delimiter)) = (items, delimiter) else {
+            return Err(type_error("list and string", items));
+        };
+        let strings: Option<Vec<&str>> = items
+            .iter()
+            .map(|item| match item {
+                Value::Str(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        strings
+            .map(|strings| Value::Str(strings.join(delimiter)))
+            .ok_or_else(|| type_error("list of strings", items.first().unwrap_or(&Value::Null)))
+    }
+
+    fn integer_range(start: &Value, stop: &Value) -> Result<Value, EvalError> {
+        let (Value::Int(start), Value::Int(stop)) = (start, stop) else {
+            return Err(type_error("int", start));
+        };
+        if stop < start {
+            return Ok(Value::List(Vec::new()));
+        }
+        let mut values = Vec::new();
+        let mut current = *start;
+        loop {
+            values.push(Value::Int(current));
+            if current == *stop {
+                break;
+            }
+            current = current.checked_add(1).ok_or(EvalError::Overflow)?;
+        }
+        Ok(Value::List(values))
+    }
+
+    fn merge_records(left: &Value, right: &Value) -> Result<Value, EvalError> {
+        let left_fields = match left {
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields,
+            other => return Err(type_error("record", other)),
+        };
+        let right_fields = match right {
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields,
+            other => return Err(type_error("record", other)),
+        };
+        let mut result = left_fields.clone();
+        result.extend(right_fields.clone());
+        Ok(Value::Unknown(result))
+    }
+
+    fn record_projection(op: BuiltinOp, record: &Value) -> Result<Value, EvalError> {
+        let record = match record {
+            Value::Unknown(fields) | Value::Opaque { fields, .. } => fields,
+            other => return Err(type_error("record", other)),
+        };
+        Ok(Value::List(match op {
+            BuiltinOp::Keys => record.keys().cloned().map(Value::Str).collect(),
+            BuiltinOp::Values => record.values().cloned().collect(),
+            _ => unreachable!(),
+        }))
+    }
+
+    fn truncate_string(text: &Value, maximum: &Value) -> Result<Value, EvalError> {
+        let (Value::Str(text), Value::Int(maximum)) = (text, maximum) else {
+            return Err(type_error("string and int", text));
+        };
+        let maximum = usize::try_from(*maximum).map_err(|_| EvalError::Overflow)?;
+        if text.len() <= maximum {
+            return Ok(Value::Str(text.clone()));
+        }
+        let boundary = (0..=maximum)
+            .rev()
+            .find(|index| text.is_char_boundary(*index))
+            .unwrap_or(0);
+        Ok(Value::Str(text[..boundary].to_owned()))
+    }
+
+    fn float_to_integer(value: &Value, rounded: bool) -> Result<Value, EvalError> {
+        let Value::Float(bits) = value else {
+            return Err(type_error("float", value));
+        };
+        let value = f64::from_bits(*bits);
+        if !value.is_finite() {
+            return Err(EvalError::FloatNotRepresentable);
+        }
+        let value = if rounded {
+            value.round_ties_even()
+        } else {
+            value.trunc()
+        };
+        format!("{value:.0}")
+            .parse::<i64>()
+            .map(Value::Int)
+            .map_err(|_| EvalError::FloatNotRepresentable)
     }
 
     const fn canonical_float(value: f64) -> u64 {

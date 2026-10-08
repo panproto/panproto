@@ -109,7 +109,7 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
         ("a".to_owned(), "b".to_owned(), id_on(&[("Node", "Vertex")])),
         ("a".to_owned(), "c".to_owned(), id_on(&[("Node", "Vertex")])),
     ];
-    let r = theory::compose(
+    let r = theory::compose_legacy(
         &nodes,
         &edges,
         Mode::ExplicitIdentity,
@@ -132,7 +132,7 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
         ("r".to_owned(), th("R", &["X"])),
     ];
     assert!(matches!(
-        theory::compose(
+        theory::compose_legacy(
             &apart,
             &[],
             Mode::ExplicitIdentity,
@@ -141,7 +141,7 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
         ),
         Err(ComposeError::NameClash(..))
     ));
-    let fresh = theory::compose(
+    let fresh = theory::compose_legacy(
         &apart,
         &[],
         Mode::ExplicitIdentity,
@@ -161,7 +161,8 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
     assert_eq!(fresh.report.freshened.len(), 2);
     assert!(!fresh.report.name_clash_free);
     assert_eq!(fresh.report.status, theory::CheckStatus::Failed);
-    let merged = theory::compose(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R").unwrap();
+    let merged =
+        theory::compose_legacy(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R").unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
 }
 
@@ -169,7 +170,7 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
 fn a_composition_records_total_provenance_and_verifies_its_universal_arrow() {
     let node = th("A", &["S"]);
     let nodes = vec![("a".to_owned(), node.clone())];
-    let composition = theory::compose(
+    let composition = theory::compose_legacy(
         &nodes,
         &[],
         Mode::ExplicitIdentity,
@@ -188,8 +189,9 @@ fn a_composition_records_total_provenance_and_verifies_its_universal_arrow() {
     assert!(composition.provenance.added_eqs.is_empty());
 
     let leg = id_on(&[("S", "S")]);
+    let diagram = theory::TheoryDiagram::discrete(nodes);
     let (mediator, report) = composition
-        .verify_universal(&nodes, &[], &node, &[leg])
+        .verify_universal(&diagram, &node, &[leg])
         .unwrap();
     assert_eq!(mediator.sorts, BTreeMap::from([("S".into(), "S".into())]));
     assert!(report.checks.iter().any(|record| {
@@ -238,7 +240,7 @@ fn a_leg_sending_a_sort_to_one_of_another_arity_is_refused() {
     // Q has no parameter in S but D has one in A: the first leg is no
     // morphism, so the composition is refused at that leg.
     assert!(matches!(
-        theory::compose(
+        theory::compose_legacy(
             &nodes,
             &edges,
             Mode::ExplicitIdentity,
@@ -273,7 +275,7 @@ fn compose(
         .iter()
         .map(|(s, t, m)| ((*s).to_owned(), (*t).to_owned(), m.clone()))
         .collect();
-    theory::compose(&nodes, &edges, mode, ClashPolicy::Reject, "R").map_err(Box::new)
+    theory::compose_legacy(&nodes, &edges, mode, ClashPolicy::Reject, "R").map_err(Box::new)
 }
 
 fn sym(node: &str, name: &str) -> theory::SymRef {
@@ -732,4 +734,132 @@ fn a_discrete_diagram_refuses_an_ill_typed_transported_equation() {
         compose(&[("bad", node)], &[], Mode::ExplicitIdentity),
         Err(error) if matches!(*error, ComposeError::IllTypedTransport { .. })
     ));
+}
+
+#[test]
+fn explicit_diagrams_replay_and_budget_exhaustion_is_incomplete() {
+    let mut node = th("A", &["S"]);
+    node.ops
+        .extend([op("a", &[], "S"), op("b", &[], "S"), op("c", &[], "S")]);
+    node.eqs.push(theory::Equation {
+        name: "a_is_c".into(),
+        lhs: Term::App("a".into(), vec![]),
+        rhs: Term::App("c".into(), vec![]),
+    });
+    let diagram = theory::TheoryDiagram::discrete(vec![("a".into(), node.clone())]);
+    let options = theory::ComposeOptions {
+        mode: theory::CompositionMode::ExplicitIdentity,
+        result_name: "R".into(),
+        clash: ClashPolicy::Reject,
+        rewrite_budget: 1,
+    };
+    let composition = theory::compose(&diagram, &options).unwrap();
+
+    let recipe = theory::CompositionSpec {
+        result_name: "R".into(),
+        steps: vec![theory::CompositionStep::Diagram {
+            nodes: vec!["A".into()],
+            edges: vec![],
+            mode: theory::CompositionMode::ExplicitIdentity,
+            clash: ClashPolicy::Reject,
+            rewrite_budget: 1,
+            inline: vec![node.clone()],
+        }],
+        version: 1,
+    };
+    assert_eq!(
+        theory::recompose(&recipe, &BTreeMap::new()).unwrap(),
+        composition.theory
+    );
+    let mut reordered = composition.theory.clone();
+    reordered.ops.reverse();
+    assert_eq!(
+        theory::canonical_theory_bytes(&composition.theory),
+        theory::canonical_theory_bytes(&reordered)
+    );
+
+    let mut target = node.clone();
+    target.eqs = vec![
+        theory::Equation {
+            name: "a_is_b".into(),
+            lhs: Term::App("a".into(), vec![]),
+            rhs: Term::App("b".into(), vec![]),
+        },
+        theory::Equation {
+            name: "b_is_c".into(),
+            lhs: Term::App("b".into(), vec![]),
+            rhs: Term::App("c".into(), vec![]),
+        },
+    ];
+    let mut leg = id_on(&[("S", "S")]);
+    for operation in ["a", "b", "c"] {
+        leg.ops
+            .insert(operation.into(), theory::OpImage::Op(operation.into()));
+    }
+    let (_, report) = composition
+        .verify_universal_within(&diagram, &target, &[leg], 1)
+        .unwrap();
+    assert_eq!(report.status, theory::CheckStatus::Incomplete);
+    assert!(report.checks.iter().any(|record| {
+        matches!(
+            record.outcome,
+            theory::CheckOutcome::Incomplete {
+                reason: theory::CompositionIncomplete::RewriteBudgetExhausted { .. }
+            }
+        )
+    }));
+}
+
+#[test]
+fn universal_cocones_compare_operation_images_after_eta_expansion() {
+    let mut left = th("Left", &["S"]);
+    left.ops.push(op("f", &[("x", "S")], "S"));
+    let right = left.clone();
+    let mut identity = id_on(&[("S", "S")]);
+    identity
+        .ops
+        .insert("f".into(), theory::OpImage::Op("f".into()));
+    let diagram = theory::TheoryDiagram {
+        nodes: vec![
+            theory::DiagramNode {
+                label: "left".into(),
+                theory: left,
+            },
+            theory::DiagramNode {
+                label: "right".into(),
+                theory: right,
+            },
+        ],
+        edges: vec![theory::DiagramEdge {
+            src: "left".into(),
+            tgt: "right".into(),
+            morphism: identity,
+        }],
+    };
+    let composition = theory::compose(
+        &diagram,
+        &theory::ComposeOptions {
+            mode: Mode::ExplicitIdentity,
+            result_name: "R".into(),
+            clash: ClashPolicy::Reject,
+            rewrite_budget: 512,
+        },
+    )
+    .unwrap();
+    let mut target = th("Target", &["S"]);
+    target.ops.push(op("g", &[("x", "S")], "S"));
+    let mut direct = id_on(&[("S", "S")]);
+    direct
+        .ops
+        .insert("f".into(), theory::OpImage::Op("g".into()));
+    let mut expanded = id_on(&[("S", "S")]);
+    expanded.ops.insert(
+        "f".into(),
+        theory::OpImage::Term(Term::App("g".into(), vec![Term::Var("x".into())])),
+    );
+    assert!(
+        composition
+            .verify_universal(&diagram, &target, &[direct, expanded])
+            .is_ok()
+    );
 }

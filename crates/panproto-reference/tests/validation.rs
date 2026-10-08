@@ -5,7 +5,10 @@
 use std::collections::BTreeMap;
 
 use panproto_reference::model::{GEdge, Graph, Node, SEdge};
-use panproto_reference::schema::Schema;
+use panproto_reference::schema::{
+    Cardinality, Key, KeyPart, KeyRole, KeyScope, OnUnresolved, PathSyntax, RefSource, Reference,
+    ResolveMode, Schema,
+};
 use panproto_reference::validation::{self, CheckKind, CheckStatus, Semantics};
 use panproto_reference::value::Value;
 
@@ -110,4 +113,130 @@ fn an_edge_to_a_missing_node_is_an_endpoint_finding_not_a_panic() {
         "DanglingEndpoint(false, 9)"
     );
     assert_eq!(r.status, CheckStatus::Failed);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn path_and_many_references_are_executable_or_explicitly_incomplete() {
+    let path = SEdge::new("holder", "scalar", "prop", Some("path"));
+    let left = SEdge::new("holder", "scalar", "prop", Some("left"));
+    let right = SEdge::new("holder", "scalar", "prop", Some("right"));
+    let id = SEdge::new("target", "scalar", "prop", Some("id"));
+    let x = SEdge::new("target", "scalar", "prop", Some("x"));
+    let y = SEdge::new("target", "scalar", "prop", Some("y"));
+    let path_link = SEdge::new("holder", "target", "ref", Some("path_target"));
+    let many_link = SEdge::new("holder", "target", "ref", Some("many_target"));
+    let mut schema = Schema::default()
+        .vertex("holder", "object")
+        .vertex("target", "object")
+        .vertex("scalar", "value");
+    schema.edges.extend([
+        path.clone(),
+        left.clone(),
+        right.clone(),
+        id.clone(),
+        x.clone(),
+        y.clone(),
+        path_link.clone(),
+        many_link.clone(),
+    ]);
+    schema.keys.insert(
+        "target".into(),
+        vec![
+            Key {
+                id: "id".into(),
+                parts: vec![KeyPart::Path(vec![id])],
+                role: KeyRole::Identifier,
+                scope: KeyScope::Document,
+                equality: Vec::new(),
+            },
+            Key {
+                id: "pair".into(),
+                parts: vec![KeyPart::Path(vec![x]), KeyPart::Path(vec![y])],
+                role: KeyRole::Unique,
+                scope: KeyScope::Document,
+                equality: Vec::new(),
+            },
+        ],
+    );
+    let reference = |id: &str, source: RefSource, key: &str, edge: SEdge| Reference {
+        id: id.into(),
+        holder: "holder".into(),
+        source,
+        target_vertex: "target".into(),
+        target_key: Some(key.into()),
+        edge: Some(edge),
+        cardinality: if id == "many" {
+            Cardinality::Many
+        } else {
+            Cardinality::One
+        },
+        nullable: false,
+        on_unresolved: OnUnresolved::Error,
+        mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: panproto_reference::schema::NullMatch::Simple,
+        null_vertex: None,
+        scope_via: None,
+    };
+    schema.references.insert(
+        "path".into(),
+        reference(
+            "path",
+            RefSource::Path {
+                field: vec![path],
+                syntax: PathSyntax::JsonPointer,
+            },
+            "id",
+            path_link,
+        ),
+    );
+    schema.references.insert(
+        "many".into(),
+        reference(
+            "many",
+            RefSource::KeyValue {
+                parts: vec![vec![left], vec![right]],
+            },
+            "pair",
+            many_link,
+        ),
+    );
+    let graph = Graph {
+        nodes: BTreeMap::from([
+            (
+                0,
+                Node::new(0, "holder")
+                    .with_field("path", Value::Str("/missing".into()))
+                    .with_field("left", Value::List(vec![Value::Int(1), Value::Int(2)]))
+                    .with_field("right", Value::List(vec![Value::Int(1)])),
+            ),
+            (
+                1,
+                Node::new(1, "target")
+                    .with_field("id", Value::Str("/present".into()))
+                    .with_field("x", Value::Int(1))
+                    .with_field("y", Value::Int(1)),
+            ),
+        ]),
+        edges: BTreeMap::new(),
+    };
+    let report = validation::validate(&schema, &BTreeMap::new(), &graph).unwrap();
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        matches!(
+            &diagnostic.violation,
+            panproto_reference::validation::Violation::DanglingReference(reference, values)
+                if reference == "path" && values == &[Value::Str("/missing".into())]
+        )
+    }));
+    assert!(report.incomplete.iter().any(|(check, _, subject, detail)| {
+        check.kind == CheckKind::ReferenceResolves
+            && subject == &Some(panproto_reference::lens::ViewRef::Node(0))
+            && detail.contains("ReferenceCardinalityMismatch")
+    }));
+    assert_eq!(report.status, CheckStatus::Failed);
+
+    let mut invalid = schema;
+    invalid.references.get_mut("path").unwrap().target_key = Some("absent".into());
+    assert!(validation::validate(&invalid, &BTreeMap::new(), &graph).is_none());
 }
