@@ -273,6 +273,54 @@ pub mod xml {
         Ok(())
     }
 
+    fn character_reference(name: &str) -> Option<Result<char, EntityError>> {
+        let digits = name.strip_prefix('#')?;
+        let (radix, digits) = digits
+            .strip_prefix('x')
+            .map_or((10, digits), |hex| (16, hex));
+        if digits.is_empty() {
+            return Some(Err(EntityError::Malformed));
+        }
+        let Ok(value) = u32::from_str_radix(digits, radix) else {
+            return Some(Err(EntityError::Malformed));
+        };
+        let valid = matches!(
+            value,
+            0x9 | 0xa | 0xd | 0x20..=0xd7ff | 0xe000..=0xfffd | 0x0001_0000..=0x0010_ffff
+        );
+        Some(if valid {
+            char::from_u32(value).ok_or(EntityError::Malformed)
+        } else {
+            Err(EntityError::Malformed)
+        })
+    }
+
+    const fn xml_name_start(character: char) -> bool {
+        matches!(
+            character,
+            ':' | 'A'..='Z' | '_' | 'a'..='z'
+                | '\u{c0}'..='\u{d6}' | '\u{d8}'..='\u{f6}' | '\u{f8}'..='\u{2ff}'
+                | '\u{370}'..='\u{37d}' | '\u{37f}'..='\u{1fff}'
+                | '\u{200c}'..='\u{200d}' | '\u{2070}'..='\u{218f}'
+                | '\u{2c00}'..='\u{2fef}' | '\u{3001}'..='\u{d7ff}'
+                | '\u{f900}'..='\u{fdcf}' | '\u{fdf0}'..='\u{fffd}'
+                | '\u{10000}'..='\u{effff}'
+        )
+    }
+
+    const fn xml_name_continue(character: char) -> bool {
+        xml_name_start(character)
+            || matches!(
+                character,
+                '-' | '.' | '0'..='9' | '\u{b7}' | '\u{300}'..='\u{36f}' | '\u{203f}'..='\u{2040}'
+            )
+    }
+
+    fn xml_name(name: &str) -> bool {
+        let mut characters = name.chars();
+        characters.next().is_some_and(xml_name_start) && characters.all(xml_name_continue)
+    }
+
     fn expand(
         text: &str,
         declarations: &BTreeMap<String, String>,
@@ -301,6 +349,15 @@ pub mod xml {
                 append(output, replacement)?;
                 rest = &after[end + 1..];
                 continue;
+            }
+            if let Some(character) = character_reference(name) {
+                let mut bytes = [0; 4];
+                append(output, character?.encode_utf8(&mut bytes))?;
+                rest = &after[end + 1..];
+                continue;
+            }
+            if !xml_name(name) {
+                return Err(EntityError::Malformed);
             }
             let replacement = declarations
                 .get(name)

@@ -396,6 +396,34 @@ fn standoff_forms_are_left_inverses_and_entities_are_bounded() {
         .as_deref(),
         Ok("&<>'\" AB &b;")
     );
+    assert_eq!(
+        panproto_reference::xml::expand_entities(
+            "&#65;&#x41;&#9;&#xA;&#13;&#x10FFFF;",
+            &declarations,
+        )
+        .as_deref(),
+        Ok("AA\t\n\r\u{10ffff}")
+    );
+    for malformed in [
+        "&#;",
+        "&#x;",
+        "&#xg;",
+        "&#0;",
+        "&#1;",
+        "&#xD800;",
+        "&#xFFFE;",
+        "&#xFFFF;",
+        "&#999999999999;",
+        "&;",
+        "&1x;",
+        "&x y;",
+    ] {
+        assert_eq!(
+            panproto_reference::xml::expand_entities(malformed, &declarations),
+            Err(panproto_reference::xml::EntityError::Malformed),
+            "{malformed}",
+        );
+    }
     let recursive = BTreeMap::from([("r".to_owned(), "&r;".to_owned())]);
     assert_eq!(
         panproto_reference::xml::expand_entities("&r;", &recursive),
