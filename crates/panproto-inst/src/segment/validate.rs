@@ -42,7 +42,8 @@ use panproto_schema::Schema;
 /// whose complete footprints fit. It never performs an unlimited validation
 /// and filters the report afterward. The segment contract, local indices and
 /// candidate subjects are prepared before that semantic-evaluation budget;
-/// the budget meters each admitted check instance's complete footprint. This
+/// the budget meters each admitted check instance's complete footprint, so no
+/// unmetered semantic evaluation can escape the deterministic prefix. This
 /// explicit prefix discipline avoids the resource-accounting failures
 /// illustrated by Z3 issues #56 and #10939; it is a bound on this
 /// implementation, not a novelty claim about budgeted validation.
