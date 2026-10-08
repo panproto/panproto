@@ -201,9 +201,12 @@ impl CheckKind {
     /// `TreeRoot` is a fold of per-segment scalars; `KeyUnique` and
     /// `ReferenceResolves` are a sorted merge of per-segment key runs;
     /// `Acyclic` and `TreeReachable` are reachability over the boundary.
-    /// This is the kind-level default: a compiled primary-key
+    /// This is the kind-level default. A compiled primary-key
     /// `RequiredValue` with a nonempty path or position part is also a sorted
-    /// merge, while an empty path remains local to its owner.
+    /// merge, while an empty path remains local to its owner. Compiled
+    /// `FanWellFormed` is local for graphs but a sorted merge for trees,
+    /// because equal native fan records give one diagnostic even when their
+    /// reified fan nodes occupy different segments.
     #[must_use]
     pub const fn locality(self) -> Locality {
         match self {

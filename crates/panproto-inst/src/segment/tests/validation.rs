@@ -7,17 +7,28 @@ use panproto_schema::{
     ConstraintSemantics, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, Protocol,
     SchemaBuilder,
 };
+use proptest::prelude::*;
 
-use super::{TestResult, label};
+use super::{
+    TestResult, arb_finstance, arb_ginstance, arb_partition, arb_winstance, interleaved, label,
+    next_free,
+};
+use crate::fan::Fan;
 use crate::fan_violation::FanViolation;
-use crate::ginstance::{EdgeId, FanEmbedding, GEdge, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::functor::FInstance;
+use crate::ginstance::{
+    EdgeId, FanEmbedding, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
+};
 use crate::identity::Digest;
 use crate::locality::{Locality, SummaryKind};
 use crate::metadata::{Node, NodeShape};
-use crate::segment::validate::check_validation_view_capacity;
+use crate::segment::validate::{
+    check_validation_view_capacity, validate_segment_with_edge_capacity,
+};
 use crate::segment::{
     AnySegment, Boundary, Ghost, GraphSegment, InStub, Partition, SegmentError, SegmentId,
-    TableSegment, TreeSegment, validate_segment as validate_segment_with_external,
+    TableSegment, TreeSegment, partition_graph, partition_table, partition_tree,
+    validate_segment as validate_segment_with_external,
 };
 use crate::validation::{
     CheckClass, CheckKind, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts,
@@ -25,6 +36,7 @@ use crate::validation::{
     ValidationOptions, ValidationPlan, ValidationReport, Violation,
 };
 use crate::view_ref::{RowId, ViewRef};
+use crate::wtype::WInstance;
 
 fn schema() -> Result<(panproto_schema::Schema, Protocol), Box<dyn std::error::Error>> {
     let mut protocol = Protocol::default();
@@ -138,18 +150,63 @@ fn validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next
     let segment = SegmentId(7);
     let capacity = 1_u64 << u32::BITS;
 
-    assert_eq!(check_validation_view_capacity(segment, capacity, 0), Ok(()));
     assert_eq!(
-        check_validation_view_capacity(segment, capacity - 1, 1),
+        check_validation_view_capacity(segment, capacity, 0, capacity),
         Ok(())
     );
     assert_eq!(
-        check_validation_view_capacity(segment, capacity, 1),
+        check_validation_view_capacity(segment, capacity - 1, 1, capacity),
+        Ok(())
+    );
+    assert_eq!(
+        check_validation_view_capacity(segment, capacity, 1, capacity),
         Err(SegmentError::ValidationViewUnrepresentable {
             segment,
             edges: capacity + 1,
         })
     );
+}
+
+#[test]
+fn validate_segment_runs_the_capacity_preflight_before_constructing_the_view() -> TestResult {
+    let partition = Partition::by_node_ranges(InstanceShapeKind::Graph, &[10], 0, 20)?;
+    let segment = AnySegment::Graph(GraphSegment {
+        segment: SegmentId(0),
+        nodes: BTreeMap::from([(0, Node::new(0, "a"))]),
+        edges: BTreeMap::from([(
+            EdgeId(0),
+            GEdge::new(0, 0, label("a", "a", "prop", Some("loop"))),
+        )]),
+        boundary: Boundary {
+            ghosts: BTreeMap::new(),
+            in_stubs: BTreeMap::from([(
+                ViewRef::Edge(EdgeId(1)),
+                InStub {
+                    src: 10,
+                    src_owner: SegmentId(1),
+                    src_anchor: "a".into(),
+                    tgt: 0,
+                    label: label("a", "a", "prop", Some("loop")),
+                },
+            )]),
+        },
+    });
+
+    assert_eq!(
+        validate_segment_with_edge_capacity(
+            &segment,
+            &partition,
+            &plan()?,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+            1,
+        ),
+        Err(SegmentError::ValidationViewUnrepresentable {
+            segment: SegmentId(0),
+            edges: 2,
+        })
+    );
+    Ok(())
 }
 
 #[test]
@@ -519,7 +576,7 @@ fn two_malformed_table_pairs() -> Result<(Partition, AnySegment, ViewRef, ViewRe
             (RowId(1), ("b".into(), HashMap::new())),
         ]),
         pairs: BTreeSet::from([
-            (first_edge.clone(), RowId(0), RowId(10)),
+            (first_edge, RowId(0), RowId(10)),
             (second_edge, RowId(1), RowId(11)),
         ]),
         boundary: Boundary {
@@ -623,7 +680,7 @@ fn table_direct_diagnostics_stop_at_the_exact_budget_cut() -> TestResult {
         .filter(|entry| entry.check.kind == CheckKind::EndpointCoherence)
         .map(|entry| entry.subject.clone())
         .collect();
-    assert_eq!(endpoints, vec![Some(first.clone()), Some(first.clone())]);
+    assert_eq!(endpoints, vec![Some(first.clone()), Some(first)]);
     assert!(endpoint_admitted.incomplete.iter().any(|entry| {
         entry.check.kind == CheckKind::EndpointCoherence
             && matches!(
@@ -816,12 +873,14 @@ fn segment_external_checks_use_the_supplied_verdict_projection() -> TestResult {
             .iter()
             .all(|entry| entry.check.kind != CheckKind::External)
     );
-    let coverage = passed
+    let Some(coverage) = passed
         .coverage
         .iter()
         .find(|(key, _)| key.kind == CheckKind::External)
         .map(|(_, coverage)| coverage)
-        .expect("the application check is compiled");
+    else {
+        panic!("the application check is compiled");
+    };
     assert_eq!(coverage.passed, 1);
     assert_coverage_partitions(&rejected);
     assert_coverage_partitions(&passed);
@@ -1201,18 +1260,16 @@ fn path_primary_required_value_is_non_local_at_a_segment_boundary() -> TestResul
         .build()?;
     let validation_plan =
         ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
-    let (key, spec) = validation_plan
-        .checks()
-        .iter()
-        .find(|(key, _)| {
-            key.kind == CheckKind::RequiredValue
-                && key.decl
-                    == SchemaRef::Key {
-                        vertex: "a".into(),
-                        key: "remote".into(),
-                    }
-        })
-        .expect("the primary key compiles a required-value check");
+    let Some((key, spec)) = validation_plan.checks().iter().find(|(key, _)| {
+        key.kind == CheckKind::RequiredValue
+            && key.decl
+                == SchemaRef::Key {
+                    vertex: "a".into(),
+                    key: "remote".into(),
+                }
+    }) else {
+        panic!("the primary key compiles a required-value check");
+    };
     assert_eq!(spec.class, CheckClass::MaintainedGlobal);
     assert_eq!(
         spec.locality.get(&InstanceShapeKind::Graph),
@@ -1278,18 +1335,16 @@ fn static_key_errors_precede_non_local_position_unknowns() -> TestResult {
         .build()?;
     let validation_plan =
         ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
-    let (key, spec) = validation_plan
-        .checks()
-        .iter()
-        .find(|(key, _)| {
-            key.kind == CheckKind::RequiredValue
-                && key.decl
-                    == SchemaRef::Key {
-                        vertex: "item".into(),
-                        key: "position".into(),
-                    }
-        })
-        .expect("the primary position key compiles a required-value check");
+    let Some((key, spec)) = validation_plan.checks().iter().find(|(key, _)| {
+        key.kind == CheckKind::RequiredValue
+            && key.decl
+                == SchemaRef::Key {
+                    vertex: "item".into(),
+                    key: "position".into(),
+                }
+    }) else {
+        panic!("the primary position key compiles a required-value check");
+    };
     assert_eq!(spec.class, CheckClass::MaintainedGlobal);
     assert_eq!(
         spec.locality.get(&InstanceShapeKind::Graph),
@@ -1332,4 +1387,302 @@ fn static_key_errors_precede_non_local_position_unknowns() -> TestResult {
     assert_eq!(report.coverage[key].incomplete, 1);
     assert_coverage_partitions(&report);
     Ok(())
+}
+
+fn local_completeness_plan() -> Result<ValidationPlan, Box<dyn std::error::Error>> {
+    let protocol = Protocol::default();
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("a", "object", None)?
+        .vertex("b", "object", None)?
+        .vertex("c", "object", None)?
+        .vertex("doc", "object", None)?
+        .vertex("para", "object", None)?
+        .vertex("word", "object", None)?
+        .build()?;
+    let mut options = ValidationOptions::default();
+    options.external.insert(
+        "application".into(),
+        ExternalCheckDecl {
+            name: "application".into(),
+            anchors: BTreeSet::from([
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "doc".into(),
+                "para".into(),
+                "word".into(),
+            ]),
+            requirement: Requirement::Required,
+        },
+    );
+    Ok(ValidationPlan::compile(&schema, &protocol, &options))
+}
+
+#[test]
+fn tree_fan_well_formed_is_a_sorted_merge_while_graph_fans_remain_local() -> TestResult {
+    let plan = local_completeness_plan()?;
+    let Some(spec) = plan
+        .checks()
+        .values()
+        .find(|spec| spec.key.kind == CheckKind::FanWellFormed)
+    else {
+        panic!("the structural fan check is compiled");
+    };
+    assert_eq!(
+        spec.locality.get(&InstanceShapeKind::Tree),
+        Some(&Locality::Summary(SummaryKind::SortedMerge))
+    );
+    assert_eq!(
+        spec.locality.get(&InstanceShapeKind::Graph),
+        Some(&Locality::Local)
+    );
+    assert_eq!(
+        spec.locality.get(&InstanceShapeKind::Table),
+        Some(&Locality::Local),
+        "tables have no fan subjects"
+    );
+    Ok(())
+}
+
+fn external_verdicts(subjects: impl IntoIterator<Item = ViewRef>) -> ExternalVerdicts {
+    let mut verdicts = ExternalVerdicts::default();
+    for subject in subjects {
+        verdicts.insert(
+            "application".into(),
+            subject,
+            ExternalVerdict {
+                passed: false,
+                witness: Digest([7; 32]),
+            },
+        );
+    }
+    verdicts
+}
+
+fn project_external(full: &ExternalVerdicts, segment: &AnySegment) -> ExternalVerdicts {
+    let owned: BTreeSet<ViewRef> = segment
+        .node_anchors()
+        .into_iter()
+        .map(|(id, _)| segment.node_ref(id))
+        .collect();
+    ExternalVerdicts(
+        full.0
+            .iter()
+            .filter(|((_, subject), _)| owned.contains(subject))
+            .map(|(key, verdict)| (key.clone(), *verdict))
+            .collect(),
+    )
+}
+
+fn local_diagnostic_multisets(
+    plan: &ValidationPlan,
+    shape: InstanceShapeKind,
+    reports: impl IntoIterator<Item = ValidationReport>,
+) -> BTreeMap<crate::validation::CheckKey, Vec<Vec<u8>>> {
+    let mut by_check: BTreeMap<_, Vec<Vec<u8>>> = BTreeMap::new();
+    for diagnostic in reports
+        .into_iter()
+        .flat_map(|report| report.diagnostics)
+        .filter(|diagnostic| {
+            plan.checks()
+                .get(&diagnostic.check)
+                .and_then(|spec| spec.locality.get(&shape))
+                == Some(&Locality::Local)
+        })
+    {
+        let bytes = rmp_serde::to_vec_named(&diagnostic)
+            .unwrap_or_else(|error| panic!("a diagnostic is serializable: {error}"));
+        by_check.entry(diagnostic.check).or_default().push(bytes);
+    }
+    for diagnostics in by_check.values_mut() {
+        diagnostics.sort();
+    }
+    by_check
+}
+
+fn assert_local_completeness(
+    plan: &ValidationPlan,
+    shape: InstanceShapeKind,
+    whole: ValidationReport,
+    segments: Vec<ValidationReport>,
+) -> Result<(), TestCaseError> {
+    let whole = local_diagnostic_multisets(plan, shape, [whole]);
+    let segments = local_diagnostic_multisets(plan, shape, segments);
+    prop_assert_eq!(segments, whole);
+    Ok(())
+}
+
+fn graph_local_completeness(
+    graph: &GInstance,
+    partition: &Partition,
+    plan: &ValidationPlan,
+) -> Result<(), TestCaseError> {
+    let external = external_verdicts(graph.nodes().keys().copied().map(ViewRef::Node));
+    let whole = plan.validate_graph(graph, &ValidationBudget::default(), &external);
+    let segments = partition_graph(graph, partition)
+        .map_err(|error| TestCaseError::fail(error.to_string()))?
+        .into_iter()
+        .map(AnySegment::Graph)
+        .map(|segment| {
+            let projection = project_external(&external, &segment);
+            validate_segment_with_external(
+                &segment,
+                partition,
+                plan,
+                &ValidationBudget::default(),
+                &projection,
+            )
+            .map_err(|error| TestCaseError::fail(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_local_completeness(plan, InstanceShapeKind::Graph, whole, segments)
+}
+
+fn table_local_completeness(
+    table: &FInstance,
+    partition: &Partition,
+    plan: &ValidationPlan,
+) -> Result<(), TestCaseError> {
+    let external = external_verdicts(table.row_ids().into_iter().map(ViewRef::Row));
+    let whole = plan.validate_table(table, &ValidationBudget::default(), &external);
+    let segments = partition_table(table, partition)
+        .map_err(|error| TestCaseError::fail(error.to_string()))?
+        .into_iter()
+        .map(AnySegment::Table)
+        .map(|segment| {
+            let projection = project_external(&external, &segment);
+            validate_segment_with_external(
+                &segment,
+                partition,
+                plan,
+                &ValidationBudget::default(),
+                &projection,
+            )
+            .map_err(|error| TestCaseError::fail(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_local_completeness(plan, InstanceShapeKind::Table, whole, segments)
+}
+
+fn tree_local_completeness(
+    tree: &WInstance,
+    embedding: &crate::ginstance::TreeEmbedding,
+    partition: &Partition,
+    plan: &ValidationPlan,
+) -> Result<(), TestCaseError> {
+    let external = external_verdicts(tree.nodes.keys().copied().map(ViewRef::Node));
+    let whole = plan.validate_tree(tree, &ValidationBudget::default(), &external);
+    let segments = partition_tree(tree, embedding, partition)
+        .map_err(|error| TestCaseError::fail(error.to_string()))?
+        .into_iter()
+        .map(AnySegment::Tree)
+        .map(|segment| {
+            let projection = project_external(&external, &segment);
+            validate_segment_with_external(
+                &segment,
+                partition,
+                plan,
+                &ValidationBudget::default(),
+                &projection,
+            )
+            .map_err(|error| TestCaseError::fail(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_local_completeness(plan, InstanceShapeKind::Tree, whole, segments)
+}
+
+#[test]
+fn duplicate_tree_fans_across_segments_are_excluded_from_the_local_key_law() -> TestResult {
+    let nodes = HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "word"))]);
+    let fan = Fan::new("missing", 0).with_child("child", 1);
+    let tree = WInstance::new(
+        nodes,
+        vec![(0, 1, label("doc", "word", "prop", Some("child")))],
+        vec![fan.clone(), fan],
+        0,
+        "doc".into(),
+    );
+    let (_, embedding) = GInstance::from_wtype_embedded(&tree, None)?;
+    let free = next_free(
+        embedding.next_node.checked_sub(1),
+        embedding.next_edge.checked_sub(1),
+    );
+    let partition = interleaved(InstanceShapeKind::Tree, free, 2, 0);
+    let plan = local_completeness_plan()?;
+    let external = external_verdicts(tree.nodes.keys().copied().map(ViewRef::Node));
+    let whole = plan.validate_tree(&tree, &ValidationBudget::default(), &external);
+    assert_eq!(
+        whole
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.check.kind == CheckKind::FanWellFormed)
+            .count(),
+        1,
+        "equal native fans are one semantic fan"
+    );
+
+    let segment_reports: Vec<_> = partition_tree(&tree, &embedding, &partition)?
+        .into_iter()
+        .map(AnySegment::Tree)
+        .map(|segment| {
+            let projection = project_external(&external, &segment);
+            validate_segment_with_external(
+                &segment,
+                &partition,
+                &plan,
+                &ValidationBudget::default(),
+                &projection,
+            )
+        })
+        .collect::<Result<_, _>>()?;
+    assert!(segment_reports.iter().all(|report| {
+        report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.check.kind != CheckKind::FanWellFormed)
+    }));
+    assert!(segment_reports.iter().any(|report| {
+        report.incomplete.iter().any(|entry| {
+            entry.check.kind == CheckKind::FanWellFormed
+                && entry.reason
+                    == IncompleteReason::OutsideSegment {
+                        locality: Locality::Summary(SummaryKind::SortedMerge),
+                    }
+        })
+    }));
+
+    assert_eq!(
+        local_diagnostic_multisets(&plan, InstanceShapeKind::Tree, segment_reports.clone(),),
+        local_diagnostic_multisets(&plan, InstanceShapeKind::Tree, [whole])
+    );
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+
+    #[test]
+    fn local_check_diagnostics_from_all_segments_equal_the_whole_state_diagnostics_for_every_partition(
+        (graph, graph_partition) in arb_ginstance().prop_flat_map(|graph| {
+            let free = next_free(graph.max_node_id(), graph.max_edge_id().map(|edge| edge.0));
+            (Just(graph), arb_partition(InstanceShapeKind::Graph, free))
+        }),
+        (table, table_partition) in arb_finstance().prop_flat_map(|table| {
+            let free = next_free(table.max_row_id().map(|row| row.0), None);
+            (Just(table), arb_partition(InstanceShapeKind::Table, free))
+        }),
+        ((tree, embedding), tree_partition) in arb_winstance().prop_flat_map(|(tree, embedding)| {
+            let free = next_free(
+                embedding.next_node.checked_sub(1),
+                embedding.next_edge.checked_sub(1),
+            );
+            (Just((tree, embedding)), arb_partition(InstanceShapeKind::Tree, free))
+        }),
+    ) {
+        let plan = local_completeness_plan()
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        graph_local_completeness(&graph, &graph_partition, &plan)?;
+        table_local_completeness(&table, &table_partition, &plan)?;
+        tree_local_completeness(&tree, &embedding, &tree_partition, &plan)?;
+    }
 }

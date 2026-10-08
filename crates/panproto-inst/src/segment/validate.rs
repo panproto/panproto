@@ -37,6 +37,14 @@ use panproto_schema::Schema;
 /// Application and external-constraint checks read `external`, the same
 /// verdict projection used by whole-instance validation.
 ///
+/// A finite `budget` evaluates exactly the ordered prefix of check instances
+/// whose complete footprints fit. It never performs an unlimited validation
+/// and filters the report afterward, and no carrier construction or footprint
+/// discovery for the unadmitted suffix is left uncharged. This explicit
+/// prefix discipline avoids the resource-accounting failures illustrated by
+/// Z3 issues #56 and #10939; it is a bound on this implementation, not a
+/// novelty claim about budgeted validation.
+///
 /// # Errors
 ///
 /// As [`super::check_segment`]. In particular, violations of the segment's
@@ -51,8 +59,30 @@ pub fn validate_segment(
     budget: &ValidationBudget,
     external: &ExternalVerdicts,
 ) -> Result<ValidationReport, SegmentError> {
+    validate_segment_with_edge_capacity(
+        segment,
+        partition,
+        plan,
+        budget,
+        external,
+        VALIDATION_VIEW_EDGE_CAPACITY,
+    )
+}
+
+/// The implementation entry point with an injectable edge-carrier capacity.
+///
+/// The injected bound makes the `C`/`C + 1` preflight observable with a
+/// finite carrier while the public entry point remains pinned to [`EdgeId`].
+pub(super) fn validate_segment_with_edge_capacity(
+    segment: &AnySegment,
+    partition: &Partition,
+    plan: &ValidationPlan,
+    budget: &ValidationBudget,
+    external: &ExternalVerdicts,
+    edge_capacity: u64,
+) -> Result<ValidationReport, SegmentError> {
     check_segment(segment, partition)?;
-    preflight_validation_view_capacity(segment)?;
+    preflight_validation_view_capacity(segment, edge_capacity)?;
 
     let shape = segment.shape();
     let index = LocalIndex::new(segment);
@@ -108,14 +138,18 @@ const VALIDATION_VIEW_EDGE_CAPACITY: u64 = 1_u64 << u32::BITS;
 /// # Errors
 ///
 /// [`SegmentError::ValidationViewUnrepresentable`] when the combined count
-/// is greater than [`VALIDATION_VIEW_EDGE_CAPACITY`].
-pub(super) fn check_validation_view_capacity(
+/// is greater than `capacity`. The public validator supplies
+/// [`VALIDATION_VIEW_EDGE_CAPACITY`].
+pub(super) const fn check_validation_view_capacity(
     segment: SegmentId,
     owned_edges: u64,
     incoming_stubs: u64,
+    capacity: u64,
 ) -> Result<(), SegmentError> {
-    let edges = owned_edges.saturating_add(incoming_stubs);
-    if edges > VALIDATION_VIEW_EDGE_CAPACITY {
+    let Some(edges) = owned_edges.checked_add(incoming_stubs) else {
+        panic!("two simultaneously resident collections cannot exceed u64::MAX elements");
+    };
+    if edges > capacity {
         return Err(SegmentError::ValidationViewUnrepresentable { segment, edges });
     }
     Ok(())
@@ -123,15 +157,22 @@ pub(super) fn check_validation_view_capacity(
 
 /// Count graph/tree owned view edges and incoming stubs before constructing
 /// the local graph view. Tables are validated without that view.
-fn preflight_validation_view_capacity(segment: &AnySegment) -> Result<(), SegmentError> {
+fn preflight_validation_view_capacity(
+    segment: &AnySegment,
+    capacity: u64,
+) -> Result<(), SegmentError> {
     let owned_edges = match segment {
         AnySegment::Graph(graph) => graph.edges.len(),
         AnySegment::Tree(tree) => tree.arcs.len(),
         AnySegment::Table(_) => return Ok(()),
     };
-    let owned_edges = u64::try_from(owned_edges).unwrap_or(u64::MAX);
-    let incoming_stubs = u64::try_from(segment.boundary().in_stubs.len()).unwrap_or(u64::MAX);
-    check_validation_view_capacity(segment.segment(), owned_edges, incoming_stubs)
+    let Ok(owned_edges) = u64::try_from(owned_edges) else {
+        unreachable!("an in-memory collection length is representable as u64");
+    };
+    let Ok(incoming_stubs) = u64::try_from(segment.boundary().in_stubs.len()) else {
+        unreachable!("an in-memory collection length is representable as u64");
+    };
+    check_validation_view_capacity(segment.segment(), owned_edges, incoming_stubs, capacity)
 }
 
 #[derive(Clone)]
@@ -212,7 +253,7 @@ struct LocalSelection<'a> {
 }
 
 impl<'a> LocalSelection<'a> {
-    fn new(plan: &'a ValidationPlan) -> Self {
+    const fn new(plan: &'a ValidationPlan) -> Self {
         Self {
             plan,
             incomplete: Vec::new(),
@@ -273,7 +314,7 @@ impl<'a> LocalSelection<'a> {
     }
 }
 
-fn segment_scope(segment: &AnySegment) -> ReportScope {
+const fn segment_scope(segment: &AnySegment) -> ReportScope {
     ReportScope::Segment {
         segment: segment.segment(),
     }
@@ -306,7 +347,7 @@ fn record_exhausted_suffix(
 ) {
     debug_assert!(cursor.is_exhausted());
     for instance in instances {
-        let charged = cursor.charge_direct(&instance, 0);
+        let charged = cursor.charge(&instance, 0);
         debug_assert!(!charged);
     }
 }
@@ -496,7 +537,7 @@ fn run_table_candidates(
         } else {
             direct_reads(index, &instance, residual_reads(&cursor))
         };
-        if cursor.charge_direct(&instance, reads) {
+        if cursor.charge(&instance, reads) {
             manual.insert(instance);
         }
     }
@@ -523,7 +564,7 @@ fn run_table_candidates(
         } else {
             direct_reads(index, &instance, residual_reads(&cursor))
         };
-        if cursor.charge_direct(&instance, reads) {
+        if cursor.charge(&instance, reads) {
             manual.insert(instance);
         }
     }
@@ -1081,7 +1122,8 @@ fn remap_violation(violation: &mut Violation, edge_refs: &GraphEdgeRefs) {
         | Violation::MissingRoot
         | Violation::Unreachable
         | Violation::ParentMismatch { .. }
-        | Violation::ExternalRejected { .. } => {}
+        | Violation::ExternalRejected { .. }
+        | Violation::OutsideKeyScope { .. } => {}
     }
 }
 
@@ -1173,11 +1215,10 @@ fn anchored_subjects(
     index
         .logical_nodes
         .iter()
-        .cloned()
         .filter(|(_, _, anchor, fan)| {
-            !fan && plan.schema().has_vertex(anchor.as_ref()) && spec.anchors.contains(*anchor)
+            !*fan && plan.schema().has_vertex(anchor.as_ref()) && spec.anchors.contains(*anchor)
         })
-        .map(|(at, _, _, _)| at)
+        .map(|(at, _, _, _)| at.clone())
         .collect()
 }
 
@@ -1185,32 +1226,31 @@ fn value_subjects(index: &LocalIndex<'_>, plan: &ValidationPlan, spec: &CheckSpe
     index
         .logical_nodes
         .iter()
-        .cloned()
         .filter(|(_, id, anchor, fan)| {
-            !fan && spec
-                .anchors
-                .iter()
-                .filter(|value_vertex| plan.schema().has_vertex(value_vertex.as_ref()))
-                .any(|value_vertex| {
-                    *anchor == value_vertex
-                        || plan
-                            .schema()
-                            .outgoing_edges(anchor.as_ref())
-                            .iter()
-                            .filter(|edge| {
-                                edge.kind == "prop"
-                                    && edge.name.is_some()
-                                    && &edge.tgt == value_vertex
-                            })
-                            .any(|field| {
-                                index
-                                    .ordinary_labels
-                                    .get(id)
-                                    .is_none_or(|labels| labels.iter().all(|edge| *edge != field))
-                            })
-                })
+            !*fan
+                && spec
+                    .anchors
+                    .iter()
+                    .filter(|value_vertex| plan.schema().has_vertex(value_vertex.as_ref()))
+                    .any(|value_vertex| {
+                        *anchor == value_vertex
+                            || plan
+                                .schema()
+                                .outgoing_edges(anchor.as_ref())
+                                .iter()
+                                .filter(|edge| {
+                                    edge.kind == "prop"
+                                        && edge.name.is_some()
+                                        && &edge.tgt == value_vertex
+                                })
+                                .any(|field| {
+                                    index.ordinary_labels.get(id).is_none_or(|labels| {
+                                        labels.iter().all(|edge| *edge != field)
+                                    })
+                                })
+                    })
         })
-        .map(|(at, _, _, _)| at)
+        .map(|(at, _, _, _)| at.clone())
         .collect()
 }
 
@@ -1235,17 +1275,15 @@ fn check_subjects(
             index
                 .logical_nodes
                 .iter()
-                .cloned()
                 .filter(|(_, _, _, fan)| !fan)
-                .map(|(at, _, _, _)| at)
+                .map(|(at, _, _, _)| at.clone())
                 .collect(),
         ),
         CheckKind::ReservedVocabulary => {
             let mut refs: Vec<ViewRef> = index
                 .logical_nodes
                 .iter()
-                .cloned()
-                .map(|(at, _, _, _)| at)
+                .map(|(at, _, _, _)| at.clone())
                 .collect();
             refs.extend(index.ordinary_edges.iter().map(|(at, _, _)| at.clone()));
             some(refs)

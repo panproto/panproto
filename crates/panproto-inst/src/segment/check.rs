@@ -296,7 +296,15 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
 /// Owned nodes with more than one ordinary incoming tree arc, counting
 /// both locally owned arcs and ordinary cross-boundary in-stubs.
 fn duplicate_ordinary_parents(tree: &TreeSegment) -> Vec<u32> {
-    let fan_nodes = tree.fan_node_ids();
+    // A malformed tree can contain a reified fan-kind node without the
+    // corresponding `FanEmbedding` record. Its incident arcs are still fan
+    // incidences, not ordinary tree parents; `tree_violations` reports the
+    // missing record independently.
+    let fan_nodes: BTreeSet<u32> = tree
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| is_fan_node(node).then_some(*id))
+        .collect();
     let fan_edges = tree.fan_edge_ids();
     let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
     for (id, (src, tgt, _)) in &tree.arcs {
