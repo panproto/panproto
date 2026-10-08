@@ -36,6 +36,10 @@ fn into_tree(decoded: AnyComplement) -> Result<Complement, FfiError> {
             "complement: decoded a table complement where a tree complement was required"
                 .to_owned(),
         )),
+        AnyComplement::Resolution(_) => Err(FfiError::Operation(
+            "complement: decoded a resolution complement where a tree complement was required"
+                .to_owned(),
+        )),
     }
 }
 
