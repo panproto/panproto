@@ -637,6 +637,17 @@ fn table_direct_diagnostics_stop_at_the_exact_budget_cut() -> TestResult {
                 } if *at == second
             )
     }));
+    assert!(report.incomplete.iter().any(|entry| {
+        entry.check.kind == CheckKind::Attribute
+            && matches!(
+                entry.reason,
+                IncompleteReason::Budget {
+                    limit: 3,
+                    spent: 3,
+                    from: Some(ViewRef::Row(RowId(0))),
+                }
+            )
+    }));
     assert_coverage_partitions(&report);
 
     // Both one-read declaration checks fit after the two node checks, but
