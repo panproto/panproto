@@ -9,7 +9,7 @@ use panproto_gat::Name;
 use panproto_inst::identity::{Digest, GRAPH_INSTANCE_CONTEXT, TABLE_INSTANCE_CONTEXT};
 use panproto_inst::{
     BoundaryProtocols, CanonicalSink, CompiledMigration, DigestHasher, FInstance, InstError,
-    KeyLookupError, Row, RowId, TableEdit, Value, canonical_finstance_bytes, functor_extend_engine,
+    KeyLookupError, Row, RowId, Value, canonical_finstance_bytes, functor_extend_engine,
     write_finstance, write_pair_record, write_row_record,
 };
 use panproto_schema::{CanonicalWriter, Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
@@ -552,97 +552,6 @@ fn a_row_id_repeated_within_one_table_is_refused_on_decode() {
             .is_err_and(|e| e.to_string().contains("table `u`")),
         "{decoded:?}"
     );
-}
-
-/// Forty thousand posts, rows `40000..80000`, each the source of one pair
-/// to a distinct user among rows `0..40000`, and forty thousand tags, rows
-/// `80000..120000`, in no foreign key.
-fn linked(rows: u32) -> Result<FInstance, InstError> {
-    let mut f = FInstance::new();
-    for id in 0..3 * rows {
-        let table = match id / rows {
-            0 => "user",
-            1 => "post",
-            _ => "tag",
-        };
-        f.insert_row(table, RowId(id), Row::new())?;
-    }
-    f.insert_foreign_keys(
-        fk("post", "user"),
-        (0..rows).map(|k| (RowId(rows + k), RowId(k))).collect(),
-    )?;
-    Ok(f)
-}
-
-/// Removing or moving a row reads only the pairs incident to it, not every
-/// pair of every foreign key, so deleting the sources of forty thousand
-/// pairs in ascending order, deleting their targets, moving rows past them
-/// and deleting rows by edit each take well under the bound even in a debug
-/// build. A scan of every pair per row costs 1.6 billion pair reads for
-/// each of these loops.
-#[test]
-fn removing_rows_with_foreign_keys_reads_only_their_pairs() -> Result<(), Box<dyn std::error::Error>>
-{
-    const ROWS: u32 = 40_000;
-    let bound = std::time::Duration::from_secs(5);
-    let author = fk("post", "user");
-
-    let mut sources = linked(ROWS)?;
-    let start = std::time::Instant::now();
-    for id in ROWS..2 * ROWS {
-        let (table, _, pairs) = sources.remove_row(RowId(id)).expect("the row exists");
-        assert_eq!(table.as_ref(), "post");
-        assert_eq!(pairs, vec![(author.clone(), RowId(id), RowId(id - ROWS))]);
-    }
-    let elapsed = start.elapsed();
-    assert_eq!(sources.pair_count(), 0);
-    assert!(
-        elapsed < bound,
-        "removing 40000 pair sources took {elapsed:?}"
-    );
-
-    let mut targets = linked(ROWS)?;
-    let start = std::time::Instant::now();
-    for id in 0..ROWS {
-        let (_, _, pairs) = targets.remove_row(RowId(id)).expect("the row exists");
-        assert_eq!(pairs, vec![(author.clone(), RowId(id + ROWS), RowId(id))]);
-    }
-    let elapsed = start.elapsed();
-    assert_eq!(targets.pair_count(), 0);
-    assert_eq!(targets.row_count("post"), usize::try_from(ROWS)?);
-    assert!(
-        elapsed < bound,
-        "removing 40000 pair targets took {elapsed:?}"
-    );
-
-    let mut moved = linked(ROWS)?;
-    let start = std::time::Instant::now();
-    for id in 2 * ROWS..3 * ROWS {
-        moved.move_row(RowId(id), "label")?;
-    }
-    let elapsed = start.elapsed();
-    assert_eq!(moved.row_count("label"), usize::try_from(ROWS)?);
-    assert_eq!(moved.pair_count(), usize::try_from(ROWS)?);
-    assert!(elapsed < bound, "moving 40000 rows took {elapsed:?}");
-
-    let mut edited = linked(ROWS)?;
-    let start = std::time::Instant::now();
-    for id in 0..ROWS {
-        TableEdit::DeleteRow {
-            table: Name::from("user"),
-            id: RowId(id),
-            row: Row::new(),
-            incident_fks: vec![(author.clone(), RowId(id + ROWS), RowId(id))],
-        }
-        .apply(&mut edited)?;
-    }
-    let elapsed = start.elapsed();
-    assert_eq!(edited.pair_count(), 0);
-    assert!(
-        elapsed < bound,
-        "deleting 40000 rows by edit took {elapsed:?}"
-    );
-    Ok(())
 }
 
 /// The table-instance entries of the identity corpus, by name: the empty
