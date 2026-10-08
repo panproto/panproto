@@ -21,6 +21,17 @@
 //! `WInstance` node IDs to CST vertex names. This enables the injection
 //! direction to update literal values in the CST without disturbing
 //! formatting (interstitials, whitespace, indentation).
+//!
+//! ## Prop1 waiver list
+//!
+//! - A scalar whose written text would exceed the default 64 MiB output-byte
+//!   allowance is refused with a typed limit error.
+//!
+//! ## Departures from the format standard
+//!
+//! - The YAML CST writer emits a negative canonical NaN as `-.nan` so its
+//!   sign survives an exact round trip. This is a deliberate departure from
+//!   YAML 1.2.2, Section 10.3.2.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -28,7 +39,9 @@ use std::fmt::Write as _;
 use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::metadata::Node;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
-use panproto_inst::value::{FieldPresence, Value};
+use panproto_inst::value::{
+    BigIntValue, CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
+};
 use panproto_inst::wtype::WInstance;
 use panproto_inst::{FInstance, ValueFidelityError, ValueSite};
 use panproto_schema::{BytesText, Constraint, Edge, Protocol, ScalarKind, Schema, ValueSpec};
@@ -41,6 +54,32 @@ use crate::xml_pathway::{
 };
 
 const XML_SCHEMA_INSTANCE_NS: &str = "http://www.w3.org/2001/XMLSchema-instance";
+
+fn cst_bigint_text(
+    value: &BigIntValue,
+    site: &ValueSite,
+    format: &str,
+    allow_exponent: bool,
+) -> Result<String, CstCodecError> {
+    crate::json_pathway::bigint_lexeme(value, allow_exponent).map_err(|limit| {
+        EmitValueError::new(
+            site.clone(),
+            "bigint",
+            format,
+            EmitValueReason::LimitExceeded(limit),
+        )
+        .into()
+    })
+}
+
+fn cst_value_error(
+    site: &ValueSite,
+    value_type: &str,
+    format: &str,
+    reason: EmitValueReason,
+) -> CstCodecError {
+    EmitValueError::new(site.clone(), value_type, format, reason).into()
+}
 
 /// The complement of the CST-to-Instance extraction lens.
 ///
@@ -1768,7 +1807,9 @@ fn json_present_value_text(
             EmitValueError::new(site.clone(), "float", "json", EmitValueReason::NonFinite).into(),
         );
     }
-    if !crate::json_pathway::json_value_roundtrips(value, spec) {
+    if !matches!(value, Value::BigInt(_))
+        && !crate::json_pathway::json_value_roundtrips(value, spec)
+    {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -1786,7 +1827,19 @@ fn json_present_value_text(
         Value::Bool(value) => Ok(value.to_string()),
         Value::Bytes(bytes) => json_bytes_text(bytes, spec, site),
         Value::Decimal(number) => Ok(number.to_string()),
-        Value::BigInt(number) => Ok(number.to_string()),
+        Value::BigInt(number) => {
+            let text = cst_bigint_text(number, site, "json", spec.kind == ScalarKind::BigInt)?;
+            if crate::json_pathway::json_number_reparses_as(value, &text, spec) {
+                Ok(text)
+            } else {
+                Err(cst_value_error(
+                    site,
+                    "bigint",
+                    "json",
+                    EmitValueReason::NotRepresentable,
+                ))
+            }
+        }
         Value::Temporal(value) => Ok(format!(
             "\"{}\"",
             json_encode_string_content(&value.to_string())
@@ -1858,12 +1911,7 @@ fn json_encode_string_content(s: &str) -> String {
 /// the original lexical category.
 fn json_format_float(f: f64) -> String {
     debug_assert!(f.is_finite(), "callers reject non-finite JSON floats");
-    let s = f.to_string();
-    if s.contains('.') || s.contains('e') || s.contains('E') {
-        s
-    } else {
-        format!("{s}.0")
-    }
+    crate::json_pathway::finite_float_lexeme(f, true).unwrap_or_else(|| f.to_string())
 }
 
 /// Update the `literal-value` and co-occurring interstitial constraints
@@ -3073,6 +3121,10 @@ fn toml_presence_text(
             format!("\"{}\"", toml_encode_string_content(&encoded))
         }
         FieldPresence::Present(Value::Temporal(value)) => value.to_string(),
+        FieldPresence::Present(Value::Decimal(value)) => value.to_string(),
+        FieldPresence::Present(Value::BigInt(value)) => {
+            cst_bigint_text(value, site, "toml", spec.kind == ScalarKind::BigInt)?
+        }
         FieldPresence::Present(Value::Null) | FieldPresence::Null => {
             return Err(EmitValueError::new(
                 site.clone(),
@@ -3101,18 +3153,34 @@ fn toml_presence_text(
             .into());
         }
     };
-    if let FieldPresence::Present(value) = presence {
-        if !crate::toml_pathway::toml_scalar_roundtrips(value, spec) {
-            return Err(EmitValueError::new(
-                site.clone(),
-                value.type_name(),
-                "toml",
-                EmitValueReason::NotRepresentable,
-            )
-            .into());
-        }
-    }
+    ensure_toml_presence_roundtrips(presence, &text, spec, site)?;
     Ok(text)
+}
+
+fn ensure_toml_presence_roundtrips(
+    presence: &FieldPresence,
+    text: &str,
+    spec: &ValueSpec,
+    site: &ValueSite,
+) -> Result<(), CstCodecError> {
+    let FieldPresence::Present(value) = presence else {
+        return Ok(());
+    };
+    let roundtrips = if matches!(value, Value::BigInt(_)) {
+        crate::toml_pathway::toml_number_reparses_as(value, text, spec)
+    } else {
+        crate::toml_pathway::toml_scalar_roundtrips(value, spec)
+    };
+    if roundtrips {
+        Ok(())
+    } else {
+        Err(cst_value_error(
+            site,
+            value.type_name(),
+            "toml",
+            EmitValueReason::NotRepresentable,
+        ))
+    }
 }
 
 // ── XML extraction ────────────────────────────────────────────────────
@@ -4254,27 +4322,8 @@ fn field_presence_to_text(
     spec: &ValueSpec,
     site: &ValueSite,
 ) -> Result<String, CstCodecError> {
-    if matches!(presence, FieldPresence::Present(Value::Null)) {
-        return Err(EmitValueError::new(
-            site.clone(),
-            "null",
-            "xml",
-            EmitValueReason::NotRepresentable,
-        )
-        .into());
-    }
+    let bigint_text = preflight_plain_text_presence(presence, spec, site, "xml")?;
     let text = match presence {
-        FieldPresence::Present(value)
-            if !crate::json_pathway::plain_text_value_roundtrips(value, spec) =>
-        {
-            return Err(EmitValueError::new(
-                site.clone(),
-                value.type_name(),
-                "xml",
-                EmitValueReason::NotRepresentable,
-            )
-            .into());
-        }
         FieldPresence::Present(Value::Str(s) | Value::Token(s)) => s.clone(),
         FieldPresence::Present(Value::Int(i)) => i.to_string(),
         FieldPresence::Present(value @ Value::Float(number)) => {
@@ -4308,7 +4357,9 @@ fn field_presence_to_text(
             })?
         }
         FieldPresence::Present(Value::Decimal(value)) => value.to_string(),
-        FieldPresence::Present(Value::BigInt(value)) => value.to_string(),
+        FieldPresence::Present(Value::BigInt(_)) => bigint_text.ok_or_else(|| {
+            cst_value_error(site, "bigint", "xml", EmitValueReason::NotRepresentable)
+        })?,
         FieldPresence::Present(Value::Temporal(value)) => value.to_string(),
         FieldPresence::Null | FieldPresence::Present(Value::Null) => String::new(),
         FieldPresence::Absent => {
@@ -4342,6 +4393,44 @@ fn field_presence_to_text(
         .into());
     }
     Ok(text)
+}
+
+fn preflight_plain_text_presence(
+    presence: &FieldPresence,
+    spec: &ValueSpec,
+    site: &ValueSite,
+    format: &str,
+) -> Result<Option<String>, CstCodecError> {
+    let FieldPresence::Present(value) = presence else {
+        return Ok(None);
+    };
+    if matches!(value, Value::Null) {
+        return Err(cst_value_error(
+            site,
+            "null",
+            format,
+            EmitValueReason::NotRepresentable,
+        ));
+    }
+    let bigint_text = if let Value::BigInt(number) = value {
+        Some(cst_bigint_text(number, site, format, false)?)
+    } else {
+        None
+    };
+    let roundtrips = bigint_text.as_ref().map_or_else(
+        || crate::json_pathway::plain_text_value_roundtrips(value, spec),
+        |text| crate::json_pathway::plain_text_reparses_as(value, text, spec),
+    );
+    if roundtrips {
+        Ok(bigint_text)
+    } else {
+        Err(cst_value_error(
+            site,
+            value.type_name(),
+            format,
+            EmitValueReason::NotRepresentable,
+        ))
+    }
 }
 
 // ── YAML extraction ───────────────────────────────────────────────────
@@ -5337,13 +5426,12 @@ fn field_presence_to_yaml_text(
     site: &ValueSite,
 ) -> Result<String, CstCodecError> {
     if matches!(presence, FieldPresence::Present(Value::Null)) {
-        return Err(EmitValueError::new(
-            site.clone(),
+        return Err(cst_value_error(
+            site,
             "null",
             "yaml",
             EmitValueReason::NotRepresentable,
-        )
-        .into());
+        ));
     }
     let text = match presence {
         FieldPresence::Present(Value::Str(s) | Value::Token(s)) => serde_json::to_string(s)
@@ -5351,18 +5439,27 @@ fn field_presence_to_yaml_text(
                 CstCodecError::Structure(format!("YAML string encoding failed: {error}"))
             })?,
         FieldPresence::Present(Value::Int(i)) => i.to_string(),
-        FieldPresence::Present(Value::Float(f)) if f.to_bits() == f64::NAN.to_bits() => {
+        FieldPresence::Present(Value::Float(f)) if f.to_bits() == CANONICAL_NAN.to_bits() => {
             ".nan".to_owned()
         }
-        FieldPresence::Present(Value::Float(f)) if f.to_bits() == (-f64::NAN).to_bits() => {
+        FieldPresence::Present(Value::Float(f))
+            if f.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits() =>
+        {
             "-.nan".to_owned()
         }
-        FieldPresence::Present(Value::Float(f)) if f.is_nan() => ".nan".to_owned(),
+        FieldPresence::Present(Value::Float(f)) if f.is_nan() => {
+            return Err(EmitValueError::new(
+                site.clone(),
+                "float",
+                "yaml",
+                EmitValueReason::NotRepresentable,
+            )
+            .into());
+        }
         FieldPresence::Present(Value::Float(f)) if *f == f64::INFINITY => ".inf".to_owned(),
         FieldPresence::Present(Value::Float(f)) if *f == f64::NEG_INFINITY => "-.inf".to_owned(),
         FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
-        FieldPresence::Present(Value::Bool(true)) => "true".to_owned(),
-        FieldPresence::Present(Value::Bool(false)) => "false".to_owned(),
+        FieldPresence::Present(Value::Bool(value)) => value.to_string(),
         FieldPresence::Present(Value::Bytes(bytes)) => yaml_bytes_text(bytes, spec, site)?,
         FieldPresence::Present(Value::Decimal(value)) => {
             if spec.kind == ScalarKind::Any {
@@ -5372,10 +5469,11 @@ fn field_presence_to_yaml_text(
             }
         }
         FieldPresence::Present(Value::BigInt(value)) => {
+            let text = cst_bigint_text(value, site, "yaml", false)?;
             if spec.kind == ScalarKind::Any {
-                format!("!!int {value}")
+                format!("!!int {text}")
             } else {
-                value.to_string()
+                text
             }
         }
         FieldPresence::Present(Value::Temporal(value)) => {
@@ -5517,7 +5615,7 @@ pub fn extract_tabular_cst_with_protocol(
     let header_fields = cst_children_by_edge_kind(cst, row_vertices[0], "child_of");
     let headers: Vec<String> = header_fields
         .iter()
-        .map(|f| decode_tabular_field(&literal_text_deep(cst, f)))
+        .map(|f| decode_tabular_field(&literal_text_deep(cst, f), cst.protocol.as_ref()))
         .collect();
     let mut distinct_headers = HashSet::with_capacity(headers.len());
     if let Some(duplicate) = headers
@@ -5550,19 +5648,17 @@ pub fn extract_tabular_cst_with_protocol(
         for (col_idx, (field_name, col)) in fields.iter().zip(&headers).enumerate() {
             let col = col.clone();
             let raw = literal_text_deep(cst, field_name);
-            if raw != "_" {
-                let text = decode_tabular_field(&raw);
-                let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
-                match crate::json_pathway::coerce_exact_lexeme(
-                    &Lexeme::new(&text, LexClass::String),
-                    &spec,
-                ) {
-                    Ok(value) => {
-                        row.insert(col, value);
-                    }
-                    Err(error) => fidelity
-                        .push(error.at(ValueSite::new(vertex, cst_byte_offset(cst, field_name)))),
+            let text = decode_tabular_field(&raw, cst.protocol.as_ref());
+            let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
+            match crate::json_pathway::coerce_exact_lexeme(
+                &Lexeme::new(&text, LexClass::String),
+                &spec,
+            ) {
+                Ok(value) => {
+                    row.insert(col, value);
                 }
+                Err(error) => fidelity
+                    .push(error.at(ValueSite::new(vertex, cst_byte_offset(cst, field_name)))),
             }
             let (Ok(row_u32), Ok(col_u32)) = (u32::try_from(row_idx), u32::try_from(col_idx))
             else {
@@ -5576,6 +5672,27 @@ pub fn extract_tabular_cst_with_protocol(
             );
         }
         rows.push(row);
+    }
+
+    // The CSV/TSV grammar's `text` token may be empty. At the end of a
+    // one-column document, tree-sitter resolves the resulting ambiguity by
+    // attaching all final line endings to the document instead of creating
+    // empty `row`/`field` nodes. Recover those physical rows from the exact
+    // recorded tail. They intentionally have no cell carrier: unchanged
+    // emission replays the tail, while an edit receives the ordinary
+    // unaddressed-structure refusal rather than rewriting a newline as data.
+    if headers.len() == 1 {
+        for _ in 0..trailing_empty_tabular_rows(cst, &doc_vertex, &row_vertices) {
+            let col = headers[0].clone();
+            let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
+            match crate::json_pathway::coerce_exact_lexeme(
+                &Lexeme::new("", LexClass::String),
+                &spec,
+            ) {
+                Ok(value) => rows.push(HashMap::from([(col, value)])),
+                Err(error) => fidelity.push(error.at(ValueSite::new(vertex, None))),
+            }
+        }
     }
 
     if !fidelity.is_empty() {
@@ -5595,6 +5712,38 @@ pub fn extract_tabular_cst_with_protocol(
     };
 
     Ok((instance, complement))
+}
+
+/// Count physical empty rows after the last row represented in a tabular CST.
+fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> usize {
+    let Some((document_start, _)) = cst_recorded_span(cst, document) else {
+        return 0;
+    };
+    let Some((_, last_end)) = rows.last().and_then(|row| cst_recorded_span(cst, row)) else {
+        return 0;
+    };
+    let source = cst_source_text(cst, document);
+    let Some(tail) = last_end
+        .checked_sub(document_start)
+        .and_then(|offset| source.as_bytes().get(offset..))
+    else {
+        return 0;
+    };
+    let mut endings = 0_usize;
+    let mut bytes = tail.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\n' => endings += 1,
+            b'\r' => {
+                endings += 1;
+                if bytes.peek() == Some(&b'\n') {
+                    bytes.next();
+                }
+            }
+            _ => return 0,
+        }
+    }
+    endings.saturating_sub(1)
 }
 
 fn tabular_source_vertex<'a>(
@@ -5671,7 +5820,12 @@ fn validate_tabular_structure(
     let headers = row_vertices.first().map_or_else(Vec::new, |header_row| {
         cst_children_by_edge_kind(&complement.cst_schema, header_row, "child_of")
             .iter()
-            .map(|field| decode_tabular_field(&literal_text_deep(&complement.cst_schema, field)))
+            .map(|field| {
+                decode_tabular_field(
+                    &literal_text_deep(&complement.cst_schema, field),
+                    complement.format.as_str(),
+                )
+            })
             .collect::<Vec<_>>()
     });
     for (row_index, ((_, current), (_, source))) in
@@ -5773,7 +5927,7 @@ pub fn inject_tabular_cst_with_protocol(
         // were silently dropped.
         let headers: Vec<String> = header_fields
             .iter()
-            .map(|f| decode_tabular_field(&literal_text_deep(&cst, f)))
+            .map(|f| decode_tabular_field(&literal_text_deep(&cst, f), format))
             .collect();
 
         // Rows were numbered in file order, so the rows in ascending id are
@@ -5793,36 +5947,26 @@ pub fn inject_tabular_cst_with_protocol(
                             .iter()
                             .map(|segment| cst_source_text(&cst, segment))
                             .collect();
-                        let original = decode_tabular_field(&original_raw);
-                        if original_raw != "_"
-                            && crate::json_pathway::coerce_exact_lexeme(
-                                &Lexeme::new(&original, LexClass::String),
-                                &spec,
-                            )
-                            .is_ok_and(|parsed| scalar_values_match(value, &parsed))
+                        let original = decode_tabular_field(&original_raw, format);
+                        if crate::json_pathway::coerce_exact_lexeme(
+                            &Lexeme::new(&original, LexClass::String),
+                            &spec,
+                        )
+                        .is_ok_and(|parsed| scalar_values_match(value, &parsed))
                         {
                             continue;
                         }
                         let site = ValueSite::new(vertex, None);
                         let text = tabular_cst_value_text(value, &spec, &site, format, delimiter)?;
-                        if headers.len() == 1 && text.is_empty() {
-                            return Err(EmitValueError::new(
-                                site,
-                                value.type_name(),
-                                format,
-                                EmitValueReason::NotRepresentable,
-                            )
-                            .into());
-                        }
                         set_value_run(&mut cst, segments, &text);
                     } else {
-                        let original: String = segments
-                            .iter()
-                            .map(|segment| cst_source_text(&cst, segment))
-                            .collect();
-                        if original != "_" {
-                            set_value_run(&mut cst, segments, "_");
-                        }
+                        return Err(EmitValueError::new(
+                            ValueSite::new(Name::from(col_name.as_str()), None),
+                            "absent",
+                            format,
+                            EmitValueReason::AbsentNotRepresentable,
+                        )
+                        .into());
                     }
                 }
             }
@@ -5854,7 +5998,10 @@ fn tabular_cell_spec(
 /// Decode the quoted-field alternative shared by the CSV and TSV grammars.
 /// The CST carrier keeps this raw token for replay; the instance receives its
 /// semantic text.
-fn decode_tabular_field(raw: &str) -> String {
+fn decode_tabular_field(raw: &str, format: &str) -> String {
+    if format != "csv" {
+        return raw.to_owned();
+    }
     raw.strip_prefix('"')
         .and_then(|inner| inner.strip_suffix('"'))
         .map_or_else(|| raw.to_owned(), |inner| inner.replace("\"\"", "\""))
@@ -5867,8 +6014,16 @@ fn tabular_cst_value_text(
     format: &str,
     delimiter: Option<u8>,
 ) -> Result<String, CstCodecError> {
+    let bigint_text = if let Value::BigInt(number) = value {
+        Some(cst_bigint_text(number, site, format, false)?)
+    } else {
+        None
+    };
     if !matches!(value, Value::Null)
-        && !crate::json_pathway::plain_text_value_roundtrips(value, spec)
+        && !bigint_text.as_ref().map_or_else(
+            || crate::json_pathway::plain_text_value_roundtrips(value, spec),
+            |text| crate::json_pathway::plain_text_reparses_as(value, text, spec),
+        )
     {
         return Err(EmitValueError::new(
             site.clone(),
@@ -5912,7 +6067,9 @@ fn tabular_cst_value_text(
             })?
         }
         Value::Decimal(value) => value.to_string(),
-        Value::BigInt(value) => value.to_string(),
+        Value::BigInt(_) => bigint_text.ok_or_else(|| {
+            cst_value_error(site, "bigint", format, EmitValueReason::NotRepresentable)
+        })?,
         Value::Temporal(value) => value.to_string(),
         Value::Null => {
             return Err(EmitValueError::new(
@@ -5937,7 +6094,10 @@ fn tabular_cst_value_text(
         || text.contains([',', '\t']),
         |delimiter| text.as_bytes().contains(&delimiter),
     );
-    if text == "_" || text.contains(['\r', '\n', '"']) || contains_delimiter {
+    if text.contains(['\r', '\n'])
+        || (delimiter == Some(b',') && text.contains('"'))
+        || contains_delimiter
+    {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -6005,6 +6165,116 @@ mod tests {
         ValueSite::new("leaf", Some(17))
     }
 
+    /// JSON may keep an enormous integer compact only when the declared
+    /// kind guarantees that an exponent-form numeral is read as that integer.
+    #[test]
+    fn json_bigint_exponent_forms_are_schema_directed() -> Result<(), Box<dyn std::error::Error>> {
+        let value = FieldPresence::Present(Value::BigInt(BigIntValue {
+            negative: false,
+            significand: "1".to_owned(),
+            zeros: panproto_inst::value::WideInt::from(
+                crate::json_pathway::DEFAULT_OUTPUT_BYTES + 1,
+            ),
+        }));
+        let site = test_site();
+
+        let bigint =
+            field_presence_to_json_text(&value, &ValueSpec::new(ScalarKind::BigInt), &site)?;
+        assert!(
+            bigint.starts_with("1e"),
+            "unexpected compact form: {bigint}"
+        );
+        assert!(
+            field_presence_to_json_text(&value, &ValueSpec::new(ScalarKind::Any), &site,).is_err()
+        );
+        Ok(())
+    }
+
+    /// The TOML CST route applies the same declared-kind boundary as the
+    /// canonical writer and refuses a token whose reparsed value would differ.
+    #[test]
+    fn toml_exact_number_tokens_are_schema_directed_and_reparsed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cst = Schema::default();
+        let leaf = Name::from("leaf");
+        let site = test_site();
+        let huge = FieldPresence::Present(Value::BigInt(BigIntValue {
+            negative: false,
+            significand: "1".to_owned(),
+            zeros: panproto_inst::value::WideInt::from(
+                crate::json_pathway::DEFAULT_OUTPUT_BYTES + 1,
+            ),
+        }));
+
+        let bigint = toml_presence_text(
+            &cst,
+            &leaf,
+            &huge,
+            &ValueSpec::new(ScalarKind::BigInt),
+            &site,
+        )?;
+        assert!(
+            bigint.starts_with("1e"),
+            "unexpected compact form: {bigint}"
+        );
+        assert!(
+            toml_presence_text(&cst, &leaf, &huge, &ValueSpec::new(ScalarKind::Any), &site,)
+                .is_err()
+        );
+
+        let decimal = panproto_inst::value::DecimalValue::parse("0.1")?;
+        assert!(
+            toml_presence_text(
+                &cst,
+                &leaf,
+                &FieldPresence::Present(Value::Decimal(decimal)),
+                &ValueSpec::new(ScalarKind::Any),
+                &site,
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    /// YAML has one spelling for each canonical signed NaN and refuses all
+    /// other payloads; pin both accepted spellings at the direct formatter.
+    #[test]
+    fn yaml_canonical_nan_spellings_retain_their_sign() -> Result<(), Box<dyn std::error::Error>> {
+        let any = ValueSpec::new(ScalarKind::Any);
+        let site = test_site();
+        assert_eq!(
+            field_presence_to_yaml_text(
+                &FieldPresence::Present(Value::Float(CANONICAL_NAN)),
+                &any,
+                &site,
+            )?,
+            ".nan"
+        );
+        assert_eq!(
+            field_presence_to_yaml_text(
+                &FieldPresence::Present(Value::Float(NEGATIVE_CANONICAL_NAN)),
+                &any,
+                &site,
+            )?,
+            "-.nan"
+        );
+
+        let bigint = FieldPresence::Present(Value::BigInt(BigIntValue {
+            negative: false,
+            significand: "9223372036854775808".to_owned(),
+            zeros: panproto_inst::value::WideInt::zero(),
+        }));
+        assert_eq!(
+            field_presence_to_yaml_text(&bigint, &any, &site)?,
+            "!!int 9223372036854775808"
+        );
+        assert_eq!(
+            field_presence_to_yaml_text(&bigint, &ValueSpec::new(ScalarKind::BigInt), &site,)?,
+            "9223372036854775808"
+        );
+        Ok(())
+    }
+
     fn nested_container_cst(kind: &str, levels: usize) -> Option<Schema> {
         let protocol = Protocol::default();
         let mut builder = SchemaBuilder::new(&protocol)
@@ -6020,6 +6290,33 @@ mod tests {
                 .ok()?;
         }
         builder.build().ok()
+    }
+
+    /// A physical empty record is present after either CR or CRLF line
+    /// endings; its count cannot depend on the platform's preferred newline.
+    #[test]
+    fn trailing_empty_tabular_rows_count_cr_line_endings() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for (source, end) in [("x\n\n", "3"), ("x\r\r", "3"), ("x\r\n\r\n", "5")] {
+            let protocol = Protocol::default();
+            let cst = SchemaBuilder::new(&protocol)
+                .vertex("document", "document", None)?
+                .constraint("document", "literal-value", source)
+                .constraint("document", "start-byte", "0")
+                .constraint("document", "end-byte", end)
+                .vertex("row", "record", None)?
+                .constraint("row", "literal-value", "x")
+                .constraint("row", "start-byte", "0")
+                .constraint("row", "end-byte", "1")
+                .build()?;
+            let row = Name::from("row");
+            assert_eq!(
+                trailing_empty_tabular_rows(&cst, "document", &[&row]),
+                1,
+                "source {source:?}"
+            );
+        }
+        Ok(())
     }
 
     fn json_string_token_cst(token: &str, start_byte: Option<&str>) -> Option<Schema> {
@@ -6576,7 +6873,6 @@ mod tests {
         );
 
         for (text, format, delimiter) in [
-            ("_", "csv", b','),
             ("left,right", "csv", b','),
             ("left\tright", "tsv", b'\t'),
             ("left\nright", "csv", b','),
@@ -6592,6 +6888,16 @@ mod tests {
                 EmitValueReason::NotRepresentable
             );
         }
+        assert_eq!(
+            emitted(tabular_cst_value_text(
+                &Value::Str("_".into()),
+                any,
+                &test_site(),
+                "csv",
+                Some(b','),
+            )),
+            "_"
+        );
 
         let raw_bytes = ValueSpec::new(ScalarKind::Bytes(BytesText::Raw));
         match tabular_cst_value_text(

@@ -29,14 +29,16 @@ pub struct TabularCodec {
 }
 
 impl TabularCodec {
-    /// Create a new tabular codec for TSV data (tab-delimited, `#` comments).
+    /// Create a new tabular codec for IANA TSV data.
+    ///
+    /// TSV has no comment syntax: a leading `#` is ordinary field data.
     #[must_use]
     pub fn tsv(protocol: impl Into<String>, table_vertex: impl Into<String>) -> Self {
         Self {
             protocol: protocol.into(),
             table_vertex: table_vertex.into(),
             delimiter: b'\t',
-            comment_prefix: Some(b'#'),
+            comment_prefix: None,
         }
     }
 
@@ -189,21 +191,31 @@ mod tests {
     }
 
     #[test]
-    fn canonical_tsv_refuses_lines_that_reparse_as_comments_or_blanks() {
+    fn canonical_tsv_preserves_hashes_and_one_column_empty_rows() {
         let codec = TabularCodec::tsv("cassandra", "rows");
+        for (column, value) in [("#header", "value"), ("value", "#data"), ("value", "")] {
+            let instance = one_cell(column, value);
+            let emitted = success(codec.emit_functor(&schema(), &instance), "TSV emit");
+            let reparsed = success(codec.parse_functor(&schema(), &emitted), "TSV reparse");
+            assert_eq!(
+                reparsed.rows("rows")[0].1.get(column),
+                Some(&Value::Str(value.into()))
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_tsv_refuses_lines_that_reparse_as_comments_or_blanks() {
+        let mut codec = TabularCodec::tsv("cassandra", "rows");
+        codec.comment_prefix = Some(b'#');
         assert!(matches!(
             codec.emit_functor(&schema(), &one_cell("#header", "value")),
-            Err(EmitInstanceError::Emit { message, .. })
-                if message.contains("classified")
+            Err(EmitInstanceError::Emit { message, .. }) if message.contains("comment")
         ));
-        for value in ["#comment", ""] {
-            assert!(matches!(
-                codec.emit_functor(&schema(), &one_cell("value", value)),
-                Err(EmitInstanceError::Value(error))
-                    if error.reason == EmitValueReason::NotRepresentable
-                        && error.site.vertex.as_ref() == "value"
-                        && error.value_type == "str"
-            ));
-        }
+        assert!(matches!(
+            codec.emit_functor(&schema(), &one_cell("value", "#comment")),
+            Err(EmitInstanceError::Value(error))
+                if error.reason == EmitValueReason::NotRepresentable
+        ));
     }
 }

@@ -12,10 +12,10 @@
 //! would collapse absence with null. TOML has no null literal, so an explicit
 //! null is a typed error while an absent child is omitted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
-use panproto_inst::value::{FieldPresence, Value};
+use panproto_inst::value::{CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Value};
 use panproto_inst::{ValueSite, WInstance};
 use panproto_schema::{Protocol, ScalarKind, Schema, ValueSpec};
 
@@ -36,6 +36,7 @@ pub fn emit_toml_bytes(
 ) -> Result<Vec<u8>, EmitInstanceError> {
     validate_canonical_tree_structure(schema, instance, protocol, "TOML")?;
     let protocol_definition = protocol_definition(protocol);
+    let mut raw = RawTomlTokens::new(instance);
     let toml_value = build_toml_node(
         schema,
         &protocol_definition,
@@ -43,6 +44,7 @@ pub fn emit_toml_bytes(
         instance.root,
         false,
         true,
+        &mut raw,
     )?
     .ok_or_else(|| {
         EmitValueError::new(
@@ -60,12 +62,118 @@ pub fn emit_toml_bytes(
         });
     };
 
-    toml::to_string(&toml::Value::Table(table))
-        .map(String::into_bytes)
-        .map_err(|e| EmitInstanceError::Emit {
+    let serialized =
+        toml::to_string(&toml::Value::Table(table)).map_err(|e| EmitInstanceError::Emit {
             protocol: protocol.to_owned(),
             message: e.to_string(),
-        })
+        })?;
+    raw.materialize(serialized, protocol)
+}
+
+struct RawTomlTokens {
+    reserved: HashSet<String>,
+    replacements: Vec<(String, String)>,
+    next: usize,
+}
+
+impl RawTomlTokens {
+    fn new(instance: &WInstance) -> Self {
+        let mut reserved = HashSet::new();
+        for node in instance.nodes.values() {
+            reserved.insert(node.anchor.to_string());
+            for (key, value) in &node.extra_fields {
+                reserved.insert(key.clone());
+                reserve_value_strings(value, &mut reserved);
+            }
+            if let Some(FieldPresence::Present(value)) = &node.value {
+                reserve_value_strings(value, &mut reserved);
+            }
+        }
+        for (_, _, edge) in &instance.arcs {
+            reserved.insert(edge.src.to_string());
+            reserved.insert(edge.tgt.to_string());
+            if let Some(name) = &edge.name {
+                reserved.insert(name.to_string());
+            }
+        }
+        Self {
+            reserved,
+            replacements: Vec::new(),
+            next: 0,
+        }
+    }
+
+    fn marker(&mut self, token: String) -> Result<toml::Value, EmitInstanceError> {
+        let marker = loop {
+            // The dot cannot occur in a hex, base64, or base64url byte
+            // encoding. Raw UTF-8 bytes are reserved below together with
+            // ordinary string carriers.
+            let candidate = format!("__panproto.exact_toml_scalar_{}__", self.next);
+            self.next = self
+                .next
+                .checked_add(1)
+                .ok_or_else(|| EmitInstanceError::Emit {
+                    protocol: "toml".to_owned(),
+                    message: "exhausted the TOML raw-token marker namespace".to_owned(),
+                })?;
+            if self.reserved.insert(candidate.clone()) {
+                break candidate;
+            }
+        };
+        self.replacements.push((marker.clone(), token));
+        Ok(toml::Value::String(marker))
+    }
+
+    fn materialize(
+        self,
+        mut serialized: String,
+        protocol: &str,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        for (marker, token) in self.replacements {
+            let quoted = format!("\"{marker}\"");
+            if serialized.match_indices(&quoted).count() != 1 {
+                return Err(EmitInstanceError::Emit {
+                    protocol: protocol.to_owned(),
+                    message: "an exact TOML scalar marker was not serialized injectively"
+                        .to_owned(),
+                });
+            }
+            serialized = serialized.replacen(&quoted, &token, 1);
+        }
+        Ok(serialized.into_bytes())
+    }
+}
+
+fn reserve_value_strings(value: &Value, reserved: &mut HashSet<String>) {
+    match value {
+        Value::Str(text) | Value::Token(text) => {
+            reserved.insert(text.clone());
+        }
+        Value::Bytes(bytes) => {
+            if let Ok(text) = std::str::from_utf8(bytes) {
+                reserved.insert(text.to_owned());
+            }
+        }
+        Value::Unknown(fields) => {
+            for (key, value) in fields {
+                reserved.insert(key.clone());
+                reserve_value_strings(value, reserved);
+            }
+        }
+        Value::List(items) => {
+            for value in items {
+                reserve_value_strings(value, reserved);
+            }
+        }
+        Value::Opaque { type_, fields } => {
+            reserved.insert(type_.clone());
+            for (key, value) in fields {
+                reserved.insert(key.clone());
+                reserve_value_strings(value, reserved);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn build_toml_node(
@@ -75,6 +183,7 @@ fn build_toml_node(
     node_id: u32,
     allow_absent: bool,
     schema_guided: bool,
+    raw: &mut RawTomlTokens,
 ) -> Result<Option<toml::Value>, EmitInstanceError> {
     let node = instance
         .node(node_id)
@@ -101,7 +210,7 @@ fn build_toml_node(
                 } else {
                     ValueSpec::new(ScalarKind::Any)
                 };
-                value_to_toml(value, &spec, &site).map(Some)
+                value_to_toml_with_raw(value, &spec, &site, raw).map(Some)
             }
             FieldPresence::Null => Err(EmitValueError::new(
                 site,
@@ -121,10 +230,27 @@ fn build_toml_node(
         };
     }
     if node.is_list() {
-        return build_toml_sequence(schema, protocol, instance, node_id, node, schema_guided)
-            .map(Some);
+        return build_toml_sequence(
+            schema,
+            protocol,
+            instance,
+            node_id,
+            node,
+            schema_guided,
+            raw,
+        )
+        .map(Some);
     }
-    build_toml_mapping(schema, protocol, instance, node_id, node, schema_guided).map(Some)
+    build_toml_mapping(
+        schema,
+        protocol,
+        instance,
+        node_id,
+        node,
+        schema_guided,
+        raw,
+    )
+    .map(Some)
 }
 
 fn validate_toml_node_invariants(
@@ -181,6 +307,7 @@ fn build_toml_sequence(
     node_id: u32,
     node: &panproto_inst::metadata::Node,
     schema_guided: bool,
+    raw: &mut RawTomlTokens,
 ) -> Result<toml::Value, EmitInstanceError> {
     let items_are_schema_guided = schema_guided
         && schema
@@ -196,6 +323,7 @@ fn build_toml_sequence(
             *child,
             false,
             items_are_schema_guided,
+            raw,
         )? {
             items.push(item);
         }
@@ -210,6 +338,7 @@ fn build_toml_mapping(
     node_id: u32,
     node: &panproto_inst::metadata::Node,
     schema_guided: bool,
+    raw: &mut RawTomlTokens,
 ) -> Result<toml::Value, EmitInstanceError> {
     let site = ValueSite::new(node.anchor.clone(), None);
 
@@ -227,6 +356,7 @@ fn build_toml_mapping(
             *child,
             true,
             child_is_schema_guided,
+            raw,
         )? {
             ensure_unique_toml_key(&fields, &key, protocol)?;
             fields.insert(key, value);
@@ -238,7 +368,7 @@ fn build_toml_mapping(
         ensure_unique_toml_key(&fields, key, protocol)?;
         fields.insert(
             key.clone(),
-            value_to_toml(value, &ValueSpec::new(ScalarKind::Any), &site)?,
+            value_to_toml_with_raw(value, &ValueSpec::new(ScalarKind::Any), &site, raw)?,
         );
     }
 
@@ -263,12 +393,27 @@ fn ensure_unique_toml_key(
     Ok(())
 }
 
+#[cfg(test)]
 fn value_to_toml(
     value: &Value,
     spec: &ValueSpec,
     site: &ValueSite,
 ) -> Result<toml::Value, EmitInstanceError> {
-    value_to_toml_at_depth(value, spec, site, 0)
+    let mut raw = RawTomlTokens {
+        reserved: HashSet::new(),
+        replacements: Vec::new(),
+        next: 0,
+    };
+    value_to_toml_at_depth(value, spec, site, 0, &mut raw)
+}
+
+fn value_to_toml_with_raw(
+    value: &Value,
+    spec: &ValueSpec,
+    site: &ValueSite,
+    raw: &mut RawTomlTokens,
+) -> Result<toml::Value, EmitInstanceError> {
+    value_to_toml_at_depth(value, spec, site, 0, raw)
 }
 
 fn value_to_toml_at_depth(
@@ -276,9 +421,10 @@ fn value_to_toml_at_depth(
     spec: &ValueSpec,
     site: &ValueSite,
     depth: usize,
+    raw: &mut RawTomlTokens,
 ) -> Result<toml::Value, EmitInstanceError> {
     validate_toml_value_representability(value, spec, site, depth)?;
-    encode_toml_value(value, spec, site, depth)
+    encode_toml_value(value, spec, site, depth, raw)
 }
 
 fn validate_toml_value_representability(
@@ -310,7 +456,8 @@ fn validate_toml_value_representability(
     // `toml::to_string` canonicalizes both NaN signs to `nan`. The CST
     // pathway can write `-nan` directly, but the canonical data-model writer
     // must refuse the bit it cannot retain.
-    if matches!(value, Value::Float(number) if number.to_bits() == (-f64::NAN).to_bits()) {
+    if matches!(value, Value::Float(number) if number.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits())
+    {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -319,7 +466,7 @@ fn validate_toml_value_representability(
         )
         .into());
     }
-    let scalar = !matches!(value, Value::Unknown(_) | Value::List(_));
+    let scalar = !matches!(value, Value::Unknown(_) | Value::List(_) | Value::BigInt(_));
     if scalar && !toml_scalar_roundtrips(value, spec) {
         return Err(EmitValueError::new(
             site.clone(),
@@ -337,6 +484,7 @@ fn encode_toml_value(
     spec: &ValueSpec,
     site: &ValueSite,
     depth: usize,
+    raw: &mut RawTomlTokens,
 ) -> Result<toml::Value, EmitInstanceError> {
     match value {
         Value::Str(text) | Value::Token(text) => Ok(toml::Value::String(text.clone())),
@@ -357,6 +505,28 @@ fn encode_toml_value(
                 )
                 .into()
             }),
+        Value::Decimal(number) => raw.marker(number.to_string()),
+        Value::BigInt(number) => {
+            let token = crate::json_pathway::bigint_lexeme(number, spec.kind == ScalarKind::BigInt)
+                .map_err(|limit| {
+                    EmitValueError::new(
+                        site.clone(),
+                        "bigint",
+                        "toml",
+                        EmitValueReason::LimitExceeded(limit),
+                    )
+                })?;
+            if !toml_number_reparses_as(value, &token, spec) {
+                return Err(EmitValueError::new(
+                    site.clone(),
+                    "bigint",
+                    "toml",
+                    EmitValueReason::NotRepresentable,
+                )
+                .into());
+            }
+            raw.marker(token)
+        }
         Value::Unknown(fields) if spec.kind == ScalarKind::Any => {
             let mut ordered: Vec<_> = fields.iter().collect();
             ordered.sort_by_key(|(key, _)| *key);
@@ -369,6 +539,7 @@ fn encode_toml_value(
                         &ValueSpec::new(ScalarKind::Any),
                         site,
                         depth + 1,
+                        raw,
                     )?,
                 );
             }
@@ -377,7 +548,13 @@ fn encode_toml_value(
         Value::List(items) if spec.kind == ScalarKind::Any => items
             .iter()
             .map(|value| {
-                value_to_toml_at_depth(value, &ValueSpec::new(ScalarKind::Any), site, depth + 1)
+                value_to_toml_at_depth(
+                    value,
+                    &ValueSpec::new(ScalarKind::Any),
+                    site,
+                    depth + 1,
+                    raw,
+                )
             })
             .collect::<Result<Vec<_>, _>>()
             .map(toml::Value::Array),
@@ -388,9 +565,7 @@ fn encode_toml_value(
             EmitValueReason::NullNotRepresentable,
         )
         .into()),
-        Value::Decimal(_)
-        | Value::BigInt(_)
-        | Value::CidLink(_)
+        Value::CidLink(_)
         | Value::Blob { .. }
         | Value::Opaque { .. }
         | Value::Unknown(_)
@@ -457,9 +632,18 @@ pub(crate) fn toml_scalar_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
         Value::Temporal(value) => {
             coerce(&Lexeme::new(&value.to_string(), LexClass::DateTime), spec)
         }
+        Value::Decimal(number) => {
+            return toml_number_reparses_as(value, &number.to_string(), spec);
+        }
+        Value::BigInt(number) => {
+            let Ok(text) =
+                crate::json_pathway::bigint_lexeme(number, spec.kind == ScalarKind::BigInt)
+            else {
+                return false;
+            };
+            return toml_number_reparses_as(value, &text, spec);
+        }
         Value::Null
-        | Value::Decimal(_)
-        | Value::BigInt(_)
         | Value::CidLink(_)
         | Value::Blob { .. }
         | Value::Opaque { .. }
@@ -473,11 +657,26 @@ pub(crate) fn toml_scalar_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
     })
 }
 
+/// Whether an already-rendered TOML number reads back as `value`.
+///
+/// This entry point lets bounded large-integer writers validate the one
+/// representation they have allocated instead of expanding it again.
+pub(crate) fn toml_number_reparses_as(value: &Value, text: &str, spec: &ValueSpec) -> bool {
+    crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(text, LexClass::Number), spec).is_ok_and(
+        |actual| match (value, actual) {
+            (Value::Float(expected), Value::Float(actual)) => {
+                expected.to_bits() == actual.to_bits()
+            }
+            (_, actual) => value == &actual,
+        },
+    )
+}
+
 /// The TOML spelling of a floating-point value when it preserves IEEE bits.
 pub(crate) fn toml_float_lexeme(value: f64) -> Option<String> {
-    if value.to_bits() == f64::NAN.to_bits() {
+    if value.to_bits() == CANONICAL_NAN.to_bits() {
         Some("nan".to_owned())
-    } else if value.to_bits() == (-f64::NAN).to_bits() {
+    } else if value.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits() {
         Some("-nan".to_owned())
     } else if value.is_nan() {
         None
@@ -486,11 +685,7 @@ pub(crate) fn toml_float_lexeme(value: f64) -> Option<String> {
     } else if value == f64::NEG_INFINITY {
         Some("-inf".to_owned())
     } else {
-        let mut text = value.to_string();
-        if !text.contains(['.', 'e', 'E']) {
-            text.push_str(".0");
-        }
-        Some(text)
+        crate::json_pathway::finite_float_lexeme(value, true)
     }
 }
 
@@ -580,6 +775,42 @@ mod tests {
         );
         let text = success(std::str::from_utf8(&emitted), "TOML UTF-8");
         assert!(!text.contains("value"));
+    }
+
+    #[test]
+    fn exact_scalar_markers_avoid_every_user_string_carrier() {
+        let marker = |index| format!("__panproto.exact_toml_scalar_{index}__");
+        let mut root = Node::new(0, marker(0));
+        root.value = Some(FieldPresence::Present(Value::Token(marker(12))));
+        root.extra_fields.insert(marker(1), Value::Str(marker(2)));
+        root.extra_fields.insert(
+            marker(3),
+            Value::Unknown(HashMap::from([(marker(4), Value::Str(marker(5)))])),
+        );
+        root.extra_fields
+            .insert(marker(6), Value::List(vec![Value::Str(marker(7))]));
+        root.extra_fields.insert(
+            marker(8),
+            Value::Opaque {
+                type_: marker(9),
+                fields: HashMap::from([(marker(10), Value::Str(marker(11)))]),
+            },
+        );
+        root.extra_fields
+            .insert("bytes".into(), Value::Bytes(marker(13).into_bytes()));
+        let instance = WInstance::new(
+            HashMap::from([(0, root)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+
+        let mut raw = RawTomlTokens::new(&instance);
+        assert_eq!(
+            success(raw.marker("1.25".into()), "allocate collision-free marker"),
+            toml::Value::String(marker(14))
+        );
     }
 
     #[test]
@@ -974,6 +1205,59 @@ mod tests {
             "declared token",
         );
         assert_eq!(emitted, toml::Value::String("closed".into()));
+    }
+
+    #[test]
+    fn toml_bigint_exponent_forms_are_schema_directed() {
+        let value = Value::BigInt(panproto_inst::value::BigIntValue {
+            negative: false,
+            significand: "1".to_owned(),
+            zeros: panproto_inst::value::WideInt::from(
+                crate::json_pathway::DEFAULT_OUTPUT_BYTES + 1,
+            ),
+        });
+        let bigint = ValueSpec::new(ScalarKind::BigInt);
+        let any = ValueSpec::new(ScalarKind::Any);
+        let site = ValueSite::new("bigint", None);
+
+        assert!(toml_scalar_roundtrips(&value, &bigint));
+        assert!(!toml_scalar_roundtrips(&value, &any));
+        assert!(value_to_toml(&value, &bigint, &site).is_ok());
+        assert!(value_to_toml(&value, &any, &site).is_err());
+    }
+
+    #[test]
+    fn toml_number_reparse_observes_value_and_float_bits() {
+        assert!(!toml_number_reparses_as(
+            &Value::Int(2),
+            "1",
+            &ValueSpec::new(ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            })
+        ));
+        assert!(toml_number_reparses_as(
+            &Value::Float(0.1),
+            "0.1",
+            &ValueSpec::new(ScalarKind::Float { bits: 64 })
+        ));
+    }
+
+    #[test]
+    fn nested_toml_lists_observe_the_depth_limit() {
+        let mut value = Value::Int(0);
+        for _ in 0..=crate::json_pathway::MAX_VALUE_EMIT_DEPTH {
+            value = Value::List(vec![value]);
+        }
+        let error = failure(
+            value_to_toml(
+                &value,
+                &ValueSpec::new(ScalarKind::Any),
+                &ValueSite::new("list", None),
+            ),
+            "nested TOML list unexpectedly exceeded its depth limit",
+        );
+        assert!(matches!(error, EmitInstanceError::Value(_)));
     }
 
     #[test]

@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use memchr::memchr_iter;
 
 use panproto_gat::Name;
-use panproto_inst::value::Value;
 use panproto_inst::value::coerce::{LexClass, Lexeme};
+use panproto_inst::value::{BigIntValue, Value};
 use panproto_inst::{FInstance, Row, RowId, ValueSite};
 use panproto_schema::{Protocol, ScalarKind, Schema, ValueSpec};
 
@@ -54,11 +54,29 @@ pub fn split_fields(line: &[u8], delimiter: u8) -> Vec<&[u8]> {
     fields
 }
 
+fn tabular_data_lines(input: &[u8], comment_prefix: Option<u8>) -> Vec<&[u8]> {
+    let mut saw_header = false;
+    split_lines(input)
+        .into_iter()
+        .filter(|line| {
+            if comment_prefix.is_some_and(|prefix| line.first() == Some(&prefix))
+                || (line.is_empty() && !saw_header)
+            {
+                return false;
+            }
+            saw_header = true;
+            true
+        })
+        .collect()
+}
+
 /// Parse tab-separated data into an `FInstance`.
 ///
 /// Assumes the first non-comment, non-blank line is a header row defining
-/// column names. Subsequent lines are data rows. Blank lines and lines
-/// starting with `comment_prefix` are skipped.
+/// column names. Subsequent lines are data rows. A blank line is one empty
+/// field when the header has one column; it is otherwise skipped. Lines
+/// starting with `comment_prefix` are skipped only when a caller explicitly
+/// enables that nonstandard convention.
 ///
 /// Each row becomes a row in the `table_vertex` table of the `FInstance`.
 ///
@@ -80,20 +98,7 @@ pub fn parse_tsv(
         });
     }
     let protocol_definition = crate::json_pathway::protocol_definition(protocol);
-    let lines = split_lines(input);
-    let mut data_lines: Vec<&[u8]> = Vec::new();
-
-    for line in &lines {
-        if line.is_empty() {
-            continue;
-        }
-        if let Some(prefix) = comment_prefix {
-            if line.first() == Some(&prefix) {
-                continue;
-            }
-        }
-        data_lines.push(line);
-    }
+    let data_lines = tabular_data_lines(input, comment_prefix);
 
     if data_lines.is_empty() {
         return Ok(FInstance::new());
@@ -126,6 +131,9 @@ pub fn parse_tsv(
     let mut rows: Vec<HashMap<String, Value>> = Vec::new();
     let mut fidelity = Vec::new();
     for (row_idx, line) in data_lines[1..].iter().enumerate() {
+        if line.is_empty() && headers.len() != 1 {
+            continue;
+        }
         let fields = split_fields(line, delimiter);
         if fields.len() != headers.len() {
             return Err(ParseInstanceError::Parse {
@@ -151,19 +159,16 @@ pub fn parse_tsv(
         for (field, col_name) in fields.iter().zip(&headers) {
             let col_name = col_name.clone();
             let text = parse_utf8_field(field, protocol)?;
-            if text != "_" {
-                let (vertex, spec) =
-                    cell_spec(schema, &protocol_definition, table_vertex, &col_name);
-                match crate::json_pathway::coerce_exact_lexeme(
-                    &Lexeme::new(&text, LexClass::String),
-                    &spec,
-                ) {
-                    Ok(value) => {
-                        row.insert(col_name, value);
-                    }
-                    Err(error) => {
-                        fidelity.push(error.at(ValueSite::new(vertex, byte_offset(input, field))));
-                    }
+            let (vertex, spec) = cell_spec(schema, &protocol_definition, table_vertex, &col_name);
+            match crate::json_pathway::coerce_exact_lexeme(
+                &Lexeme::new(&text, LexClass::String),
+                &spec,
+            ) {
+                Ok(value) => {
+                    row.insert(col_name, value);
+                }
+                Err(error) => {
+                    fidelity.push(error.at(ValueSite::new(vertex, byte_offset(input, field))));
                 }
             }
         }
@@ -517,7 +522,9 @@ fn canonical_tabular_columns(
         .iter()
         .flat_map(|(_, row)| row.keys().cloned())
         .collect();
-    if let Some(schema) = schema {
+    if columns.is_empty()
+        && let Some(schema) = schema
+    {
         columns.extend(
             schema
                 .outgoing_edges(table_vertex)
@@ -537,7 +544,7 @@ fn canonical_tabular_columns(
             || column.as_bytes().contains(&delimiter)
             || column.as_bytes().contains(&b'\r')
             || column.as_bytes().contains(&b'\n')
-            || column.as_bytes().contains(&b'"')
+            || (delimiter == b',' && column.as_bytes().contains(&b'"'))
         {
             return Err(EmitInstanceError::Emit {
                 protocol: protocol.to_owned(),
@@ -591,8 +598,20 @@ fn emit_tabular_row(
             output.push(context.delimiter);
         }
         let Some(value) = row.get(column) else {
-            output.push(b'_');
-            continue;
+            let (site_vertex, _) = context.schema.zip(context.protocol_definition).map_or_else(
+                || (Name::from(column.as_str()), None),
+                |(schema, protocol)| {
+                    let (vertex, spec) = cell_spec(schema, protocol, context.table_vertex, column);
+                    (vertex, Some(spec))
+                },
+            );
+            return Err(EmitValueError::new(
+                ValueSite::new(site_vertex, None),
+                "absent",
+                context.format,
+                EmitValueReason::AbsentNotRepresentable,
+            )
+            .into());
         };
         let (site_vertex, spec) = context.schema.zip(context.protocol_definition).map_or_else(
             || (Name::from(column.as_str()), None),
@@ -620,10 +639,9 @@ fn emit_tabular_row(
             spec.as_ref(),
         )?);
     }
-    if output.is_empty()
-        || context
-            .comment_prefix
-            .is_some_and(|prefix| output.first() == Some(&prefix))
+    if context
+        .comment_prefix
+        .is_some_and(|prefix| output.first() == Some(&prefix))
     {
         return Err(tabular_row_reclassification_error(
             context.schema,
@@ -1116,9 +1134,21 @@ fn tabular_value_bytes(
     spec: Option<&ValueSpec>,
 ) -> Result<Vec<u8>, EmitInstanceError> {
     let site = || ValueSite::new(site_vertex, None);
+    let bigint_bytes = if let Value::BigInt(number) = value {
+        Some(tabular_bigint_bytes(number, site_vertex, format)?)
+    } else {
+        None
+    };
     if let Some(spec) = spec
         && !matches!(value, Value::Null)
-        && !crate::json_pathway::plain_text_value_roundtrips(value, spec)
+        && !bigint_bytes.as_ref().map_or_else(
+            || crate::json_pathway::plain_text_value_roundtrips(value, spec),
+            |bytes| {
+                std::str::from_utf8(bytes).is_ok_and(|text| {
+                    crate::json_pathway::plain_text_reparses_as(value, text, spec)
+                })
+            },
+        )
     {
         return Err(EmitValueError::new(
             site(),
@@ -1166,7 +1196,9 @@ fn tabular_value_bytes(
                 })
         }
         Value::Decimal(number) => Ok(number.to_string().into_bytes()),
-        Value::BigInt(number) => Ok(number.to_string().into_bytes()),
+        Value::BigInt(_) => bigint_bytes.ok_or_else(|| {
+            EmitValueError::new(site(), "bigint", format, EmitValueReason::NotRepresentable).into()
+        }),
         Value::Temporal(value) => Ok(value.to_string().into_bytes()),
         Value::Null => Err(EmitValueError::new(
             site(),
@@ -1187,11 +1219,10 @@ fn tabular_value_bytes(
         )
         .into()),
     }?;
-    if bytes == b"_"
-        || bytes.contains(&delimiter)
+    if bytes.contains(&delimiter)
         || bytes.contains(&b'\n')
         || bytes.contains(&b'\r')
-        || bytes.contains(&b'"')
+        || (delimiter == b',' && bytes.contains(&b'"'))
     {
         return Err(EmitValueError::new(
             site(),
@@ -1202,6 +1233,24 @@ fn tabular_value_bytes(
         .into());
     }
     Ok(bytes)
+}
+
+fn tabular_bigint_bytes(
+    value: &BigIntValue,
+    site_vertex: &str,
+    format: &str,
+) -> Result<Vec<u8>, EmitInstanceError> {
+    crate::json_pathway::bigint_lexeme(value, false)
+        .map(String::into_bytes)
+        .map_err(|limit| {
+            EmitValueError::new(
+                ValueSite::new(site_vertex, None),
+                "bigint",
+                format,
+                EmitValueReason::LimitExceeded(limit),
+            )
+            .into()
+        })
 }
 
 fn contains_labeled_null(value: &Value) -> bool {
@@ -1261,6 +1310,14 @@ mod tests {
             .expect("column edge")
             .build()
             .expect("schema")
+    }
+
+    #[test]
+    fn explicit_comment_mode_keeps_only_noncomment_data_lines() {
+        assert_eq!(
+            tabular_data_lines(b"\nname\n# skipped\nkept\n", Some(b'#')),
+            vec![b"name".as_slice(), b"kept".as_slice()]
+        );
     }
 
     /// An instance without the table emits as one whose table has no rows.
@@ -1498,15 +1555,19 @@ mod tests {
     }
 
     #[test]
-    fn reserved_absence_and_row_delimiters_are_not_emitted_as_strings() {
+    fn row_delimiters_are_not_emitted_as_strings() {
         for value in [
-            Value::Str("_".into()),
             Value::Str("two\nrows".into()),
-            Value::Str("\"wrapped\"".into()),
+            Value::Str("two\tfields".into()),
         ] {
             let error = emit_tsv(&table_with(value), "tsv", "rows", b'\t')
                 .expect_err("ambiguous cell must be refused");
             assert!(matches!(error, EmitInstanceError::Value(_)));
+        }
+        for text in ["_", "\"wrapped\""] {
+            let emitted = emit_tsv(&table_with(Value::Str(text.into())), "tsv", "rows", b'\t')
+                .expect("underscore and quote are ordinary TSV text");
+            assert!(std::str::from_utf8(&emitted).is_ok_and(|output| output.contains(text)));
         }
     }
 

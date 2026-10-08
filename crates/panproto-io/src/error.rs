@@ -19,6 +19,55 @@ pub enum EmitValueReason {
     /// The format has no representation for an absent value at this site.
     #[error("the format cannot represent absence")]
     AbsentNotRepresentable,
+    /// Writing the value would exceed a configured resource allowance.
+    #[error("{0}")]
+    LimitExceeded(LimitExceeded),
+}
+
+/// A bounded output resource.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Resource {
+    /// Bytes emitted by one operation.
+    OutputBytes,
+}
+
+impl std::fmt::Display for Resource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutputBytes => f.write_str("output bytes"),
+        }
+    }
+}
+
+/// A bounded emit resource ran out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[error("{resource} limit exceeded: the configured bound is {limit}")]
+pub struct LimitExceeded {
+    /// Which allowance ran out.
+    pub resource: Resource,
+    /// The configured upper bound.
+    pub limit: u64,
+}
+
+#[cfg(test)]
+mod emit_value_error_tests {
+    use super::{LimitExceeded, Resource};
+
+    /// Resource names are part of the typed limit error's public diagnostic:
+    /// keep both the resource label and its placement in the complete error.
+    #[test]
+    fn output_byte_limit_has_a_stable_diagnostic() {
+        assert_eq!(Resource::OutputBytes.to_string(), "output bytes");
+        assert_eq!(
+            LimitExceeded {
+                resource: Resource::OutputBytes,
+                limit: 67_108_864,
+            }
+            .to_string(),
+            "output bytes limit exceeded: the configured bound is 67108864"
+        );
+    }
 }
 
 /// A value that cannot be emitted without losing its meaning.

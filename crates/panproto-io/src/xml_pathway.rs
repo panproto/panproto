@@ -6,6 +6,18 @@
 //!
 //! The parser maps XML elements to schema vertices and XML attributes/text
 //! content to node values. Element nesting follows schema edges.
+//!
+//! ## Prop1 waiver list
+//!
+//! - Emission refuses a text value with
+//!   [`LimitExceeded`](crate::error::EmitValueReason::LimitExceeded)
+//!   when writing it would exceed the default 64 MiB output-byte allowance.
+//!
+//! ## Departures from the format standard
+//!
+//! - A negative canonical NaN is written as `-NaN` so its sign survives an
+//!   exact round trip. This spelling is a deliberate departure from XSD 1.1
+//!   Part 2, Sections 3.3.4.1-3.3.4.2.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -1018,8 +1030,24 @@ fn xml_value_text(
     site: &ValueSite,
     attribute: bool,
 ) -> Result<String, EmitInstanceError> {
+    let bigint_text = if !attribute && let Value::BigInt(number) = value {
+        Some(
+            crate::json_pathway::bigint_lexeme(number, false).map_err(|limit| {
+                EmitValueError::new(
+                    site.clone(),
+                    "bigint",
+                    "xml",
+                    EmitValueReason::LimitExceeded(limit),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     let representable = if attribute {
         matches!(value, Value::Str(_))
+    } else if let Some(text) = &bigint_text {
+        spec.is_some_and(|spec| crate::json_pathway::plain_text_reparses_as(value, text, spec))
     } else {
         spec.is_some_and(|spec| crate::json_pathway::plain_text_value_roundtrips(value, spec))
     };
@@ -1046,31 +1074,16 @@ fn xml_value_text(
             })?
         }
         Value::Bool(value) => value.to_string(),
-        Value::Bytes(bytes) => {
-            let encoding = spec.and_then(|spec| match &spec.kind {
-                ScalarKind::Bytes(encoding) => Some(encoding),
-                _ => None,
-            });
-            let Some(encoding) = encoding else {
-                return Err(EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "xml",
-                    EmitValueReason::NotRepresentable,
-                )
-                .into());
-            };
-            encode_bytes(bytes, encoding).ok_or_else(|| {
-                EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "xml",
-                    EmitValueReason::NotRepresentable,
-                )
-            })?
-        }
+        Value::Bytes(bytes) => xml_bytes_text(bytes, spec, site)?,
         Value::Decimal(number) => number.to_string(),
-        Value::BigInt(number) => number.to_string(),
+        Value::BigInt(_) => bigint_text.ok_or_else(|| {
+            EmitValueError::new(
+                site.clone(),
+                "bigint",
+                "xml",
+                EmitValueReason::NotRepresentable,
+            )
+        })?,
         Value::Temporal(value) => value.to_string(),
         Value::Null if attribute => {
             return Err(EmitValueError::new(
@@ -1111,6 +1124,35 @@ fn xml_value_text(
         .into());
     }
     Ok(text)
+}
+
+fn xml_bytes_text(
+    bytes: &[u8],
+    spec: Option<&ValueSpec>,
+    site: &ValueSite,
+) -> Result<String, EmitInstanceError> {
+    let encoding = spec.and_then(|spec| match &spec.kind {
+        ScalarKind::Bytes(encoding) => Some(encoding),
+        _ => None,
+    });
+    let Some(encoding) = encoding else {
+        return Err(EmitValueError::new(
+            site.clone(),
+            "bytes",
+            "xml",
+            EmitValueReason::NotRepresentable,
+        )
+        .into());
+    };
+    encode_bytes(bytes, encoding).ok_or_else(|| {
+        EmitValueError::new(
+            site.clone(),
+            "bytes",
+            "xml",
+            EmitValueReason::NotRepresentable,
+        )
+        .into()
+    })
 }
 
 /// Find a child vertex reachable from `parent_vertex` via an edge matching `tag`.

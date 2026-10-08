@@ -7,17 +7,29 @@
 //! the schema vertex's declared [`ValueSpec`](panproto_schema::ValueSpec).
 //! No binary floating-point or bounded-integer carrier can therefore round
 //! or reject an exact numeral before the value layer sees it.
+//!
+//! ## Prop1 waiver list
+//!
+//! - Emission refuses a text value with
+//!   [`LimitExceeded`](crate::error::EmitValueReason::LimitExceeded)
+//!   when writing it would exceed the default 64 MiB output-byte allowance.
+//!   A declared `BigInt` is first written in an exact exponent form when that
+//!   form is within the allowance and reparses as the same integer.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::metadata::{Node, NodeShape};
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
-use panproto_inst::value::{FieldPresence, Value};
+use panproto_inst::value::{
+    BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
+};
 use panproto_inst::{ValueSite, WInstance, parse_json, to_json};
 use panproto_schema::{BytesText, Edge, Protocol, ScalarKind, Schema, ValueSpec};
 
-use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason, ParseInstanceError};
+use crate::error::{
+    EmitInstanceError, EmitValueError, EmitValueReason, LimitExceeded, ParseInstanceError, Resource,
+};
 
 /// Maximum nesting accepted by the recursive lossless JSON reader.
 ///
@@ -28,6 +40,36 @@ use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason, ParseInst
 /// emitter's tree-depth bound of the same size.
 const MAX_JSON_DEPTH: usize = 128;
 pub(crate) const MAX_VALUE_EMIT_DEPTH: usize = 128;
+pub(crate) const DEFAULT_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Write an exact integer without allocating beyond the default output bound.
+///
+/// A route may request the compact exponent form only when its parser reads
+/// that form under the declared `BigInt` kind as the same exact integer.
+pub(crate) fn bigint_lexeme(
+    value: &BigIntValue,
+    allow_exponent: bool,
+) -> Result<String, LimitExceeded> {
+    let sign = u64::from(value.negative);
+    let written_digits = value
+        .digit_count()
+        .to_i64()
+        .and_then(|count| u64::try_from(count).ok())
+        .and_then(|count| count.checked_add(sign));
+    if written_digits.is_some_and(|count| count <= DEFAULT_OUTPUT_BYTES) {
+        return Ok(value.to_string());
+    }
+    if allow_exponent {
+        let compact = value.exponent_form();
+        if u64::try_from(compact.len()).is_ok_and(|len| len <= DEFAULT_OUTPUT_BYTES) {
+            return Ok(compact);
+        }
+    }
+    Err(LimitExceeded {
+        resource: Resource::OutputBytes,
+        limit: DEFAULT_OUTPUT_BYTES,
+    })
+}
 
 /// Render a float for plain schema-guided text fields. These spellings are
 /// accepted by the shared coercion layer in XML and delimited text. NaN
@@ -35,10 +77,10 @@ pub(crate) const MAX_VALUE_EMIT_DEPTH: usize = 128;
 /// negative NaNs can be written without silently changing their IEEE value.
 pub(crate) fn plain_text_float_lexeme(value: f64) -> Option<String> {
     if value.is_finite() {
-        Some(value.to_string())
-    } else if value.to_bits() == f64::NAN.to_bits() {
+        finite_float_lexeme(value, true)
+    } else if value.to_bits() == CANONICAL_NAN.to_bits() {
         Some("NaN".to_owned())
-    } else if value.to_bits() == (-f64::NAN).to_bits() {
+    } else if value.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits() {
         Some("-NaN".to_owned())
     } else if value == f64::INFINITY {
         Some("Infinity".to_owned())
@@ -47,6 +89,22 @@ pub(crate) fn plain_text_float_lexeme(value: f64) -> Option<String> {
     } else {
         None
     }
+}
+
+/// The shared closest-shortest spelling of a finite binary64 value.
+///
+/// `force_float_syntax` appends `.0` to an integer-looking result, which
+/// keeps a binary float in the float lexical class on open routes.
+pub(crate) fn finite_float_lexeme(value: f64, force_float_syntax: bool) -> Option<String> {
+    let mut text = if value == 0.0 && value.is_sign_negative() {
+        "-0".to_owned()
+    } else {
+        DecimalValue::from_f64_shortest(value)?.to_string()
+    };
+    if force_float_syntax && !text.contains(['.', 'e', 'E']) {
+        text.push_str(".0");
+    }
+    Some(text)
 }
 
 /// Whether a scalar written into an untyped text field reparses exactly under
@@ -72,7 +130,12 @@ pub(crate) fn plain_text_value_roundtrips(value: &Value, spec: &ValueSpec) -> bo
             text
         }
         Value::Decimal(number) => number.to_string(),
-        Value::BigInt(number) => number.to_string(),
+        Value::BigInt(number) => {
+            let Ok(text) = bigint_lexeme(number, false) else {
+                return false;
+            };
+            text
+        }
         Value::Temporal(value) => value.to_string(),
         Value::Null
         | Value::CidLink(_)
@@ -82,7 +145,14 @@ pub(crate) fn plain_text_value_roundtrips(value: &Value, spec: &ValueSpec) -> bo
         | Value::List(_)
         | Value::LabeledNull(_) => return false,
     };
-    coerce_exact_lexeme(&Lexeme::new(&text, LexClass::String), spec).is_ok_and(|actual| {
+    plain_text_reparses_as(value, &text, spec)
+}
+
+/// Whether `text`, read as a plain string token under `spec`, preserves
+/// `value`. Callers that have already bounded and rendered a large scalar use
+/// this form to avoid allocating its representation a second time.
+pub(crate) fn plain_text_reparses_as(value: &Value, text: &str, spec: &ValueSpec) -> bool {
+    coerce_exact_lexeme(&Lexeme::new(text, LexClass::String), spec).is_ok_and(|actual| {
         match (value, actual) {
             (Value::Float(expected), Value::Float(actual)) => {
                 expected.to_bits() == actual.to_bits()
@@ -92,68 +162,16 @@ pub(crate) fn plain_text_value_roundtrips(value: &Value, spec: &ValueSpec) -> bo
     })
 }
 
-/// Apply shared coercion, keeping the two facts its decimal carrier drops.
+/// Apply the shared exact coercion semantics used by every text pathway.
 ///
-/// The shared decimal carrier has no negative zero and bounds its exponent,
-/// so this wrapper restores what a numeral denotes in both cases. First, the
-/// sign of a negative zero or of a negative textual NaN is kept when the
-/// result is a float. Second, a numeral whose significand digits are all
-/// zero denotes zero whatever its exponent, so an exponent outside the
-/// carrier's range is read as the same zero rather than refused as an
-/// overflow. Every other lexeme coerces exactly as the shared layer reads it.
+/// The shared layer preserves signed floating-point zero and accepts a zero
+/// numeral independently of the size of its exponent, so text codecs do not
+/// need a second, format-specific numeric interpretation here.
 pub(crate) fn coerce_exact_lexeme(
     lexeme: &Lexeme<'_>,
     spec: &ValueSpec,
 ) -> Result<Value, panproto_inst::ValueFidelityError> {
-    let zero = zero_numeral_sign(lexeme.text);
-    let value = match coerce(lexeme, spec) {
-        Err(error) if zero.is_some() && error.reason == panproto_inst::FidelityReason::Overflow => {
-            coerce(&Lexeme::new("0e0", lexeme.class.clone()), spec).map_err(|_| error)?
-        }
-        other => other?,
-    };
-    let negative = zero == Some(true) || is_negative_nan_text(lexeme.text);
-    Ok(match value {
-        Value::Float(number) if negative && number.is_nan() => Value::Float(-f64::NAN),
-        Value::Float(number) if zero == Some(true) && number == 0.0 => Value::Float(-0.0),
-        other => other,
-    })
-}
-
-/// Whether `text` spells a NaN with a leading minus sign.
-fn is_negative_nan_text(text: &str) -> bool {
-    text.strip_prefix('-')
-        .map(|text| text.strip_prefix('.').unwrap_or(text))
-        .is_some_and(|text| text.eq_ignore_ascii_case("nan"))
-}
-
-/// The sign of a decimal numeral whose significand digits are all zero:
-/// `Some(true)` for a leading minus, `Some(false)` otherwise, and `None` when
-/// `text` is not such a numeral. The grammar is an optional sign, digits with
-/// an optional fraction (at least one digit in all), and an optional exponent
-/// with at least one digit.
-fn zero_numeral_sign(text: &str) -> Option<bool> {
-    let (negative, unsigned) = match text.as_bytes().first() {
-        Some(b'-') => (true, &text[1..]),
-        Some(b'+') => (false, &text[1..]),
-        _ => (false, text),
-    };
-    let (significand, exponent) = unsigned
-        .split_once(['e', 'E'])
-        .map_or((unsigned, None), |(significand, exponent)| {
-            (significand, Some(exponent))
-        });
-    let (whole, fraction) = significand
-        .split_once('.')
-        .map_or((significand, ""), |(whole, fraction)| (whole, fraction));
-    let zero_digits = |digits: &str| digits.bytes().all(|byte| byte == b'0');
-    let significand_ok =
-        !(whole.is_empty() && fraction.is_empty()) && zero_digits(whole) && zero_digits(fraction);
-    let exponent_ok = exponent.is_none_or(|exponent| {
-        let digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
-        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-    });
-    (significand_ok && exponent_ok).then_some(negative)
+    coerce(lexeme, spec)
 }
 
 #[derive(Debug)]
@@ -1712,6 +1730,62 @@ fn write_json_value(
     write_json_value_at_depth(value, spec, site, output, 0)
 }
 
+fn write_json_bigint(
+    value: &BigIntValue,
+    spec: &ValueSpec,
+    site: &ValueSite,
+    output: &mut Vec<u8>,
+) -> Result<(), EmitInstanceError> {
+    let text = bigint_lexeme(value, spec.kind == ScalarKind::BigInt).map_err(|limit| {
+        EmitValueError::new(
+            site.clone(),
+            "bigint",
+            "json",
+            EmitValueReason::LimitExceeded(limit),
+        )
+    })?;
+    if coerce_exact_lexeme(&Lexeme::new(&text, LexClass::Number), spec)
+        .is_ok_and(|actual| matches!(actual, Value::BigInt(actual) if actual == *value))
+    {
+        output.extend_from_slice(text.as_bytes());
+        Ok(())
+    } else {
+        Err(EmitValueError::new(
+            site.clone(),
+            "bigint",
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+        .into())
+    }
+}
+
+fn write_json_bytes_scalar(
+    bytes: &[u8],
+    spec: &ValueSpec,
+    site: &ValueSite,
+    output: &mut Vec<u8>,
+) -> Result<(), EmitInstanceError> {
+    let ScalarKind::Bytes(encoding) = &spec.kind else {
+        return Err(EmitValueError::new(
+            site.clone(),
+            "bytes",
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+        .into());
+    };
+    let encoded = encode_bytes(bytes, encoding).ok_or_else(|| {
+        EmitValueError::new(
+            site.clone(),
+            "bytes",
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+    })?;
+    write_json_string(&encoded, output)
+}
+
 fn write_json_value_at_depth(
     value: &Value,
     spec: &ValueSpec,
@@ -1742,7 +1816,7 @@ fn write_json_value_at_depth(
         )
         .into());
     }
-    if !json_value_roundtrips_at_depth(value, spec, depth) {
+    if !matches!(value, Value::BigInt(_)) && !json_value_roundtrips_at_depth(value, spec, depth) {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -1761,26 +1835,7 @@ fn write_json_value_at_depth(
         Value::Token(value) => {
             write_json_string(value, output)?;
         }
-        Value::Bytes(bytes) => {
-            let ScalarKind::Bytes(encoding) = &spec.kind else {
-                return Err(EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "json",
-                    EmitValueReason::NotRepresentable,
-                )
-                .into());
-            };
-            let encoded = encode_bytes(bytes, encoding).ok_or_else(|| {
-                EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "json",
-                    EmitValueReason::NotRepresentable,
-                )
-            })?;
-            write_json_string(&encoded, output)?;
-        }
+        Value::Bytes(bytes) => write_json_bytes_scalar(bytes, spec, site, output)?,
         Value::CidLink(link) => {
             output.extend_from_slice(b"{\"$link\":");
             write_json_string(link, output)?;
@@ -1802,7 +1857,7 @@ fn write_json_value_at_depth(
         Value::Unknown(fields) => write_json_object(fields, None, site, output, depth + 1)?,
         Value::List(items) => write_json_list(items, site, output, depth + 1)?,
         Value::Decimal(value) => output.extend_from_slice(value.to_string().as_bytes()),
-        Value::BigInt(value) => output.extend_from_slice(value.to_string().as_bytes()),
+        Value::BigInt(value) => write_json_bigint(value, spec, site, output)?,
         Value::Temporal(temporal) => {
             write_json_string(&temporal.to_string(), output)?;
         }
@@ -1861,7 +1916,12 @@ fn json_value_roundtrips_at_depth(value: &Value, spec: &ValueSpec, depth: usize)
         }
         Value::Null => coerce(&Lexeme::new("null", LexClass::Null), spec),
         Value::Decimal(value) => coerce(&Lexeme::new(&value.to_string(), LexClass::Number), spec),
-        Value::BigInt(value) => coerce(&Lexeme::new(&value.to_string(), LexClass::Number), spec),
+        Value::BigInt(number) => {
+            let Ok(text) = bigint_lexeme(number, spec.kind == ScalarKind::BigInt) else {
+                return false;
+            };
+            return json_number_reparses_as(value, &text, spec);
+        }
         Value::Temporal(value) => coerce(&Lexeme::new(&value.to_string(), LexClass::String), spec),
         Value::Unknown(fields) if spec.kind == ScalarKind::Any => {
             return fields.values().all(|field| {
@@ -1889,6 +1949,15 @@ fn json_values_match(expected: &Value, actual: &Value) -> bool {
         (Value::Float(expected), Value::Float(actual)) => expected.to_bits() == actual.to_bits(),
         _ => expected == actual,
     }
+}
+
+/// Whether an already-rendered JSON number reads back as `value`.
+///
+/// Bounded large-integer writers use this entry point so they validate the
+/// single representation they have allocated instead of expanding it again.
+pub(crate) fn json_number_reparses_as(value: &Value, text: &str, spec: &ValueSpec) -> bool {
+    coerce_exact_lexeme(&Lexeme::new(text, LexClass::Number), spec)
+        .is_ok_and(|actual| json_values_match(value, &actual))
 }
 
 fn write_json_object(
@@ -1945,11 +2014,7 @@ fn write_json_string(value: &str, output: &mut Vec<u8>) -> Result<(), EmitInstan
 }
 
 fn json_float_text(value: f64) -> String {
-    let mut text = value.to_string();
-    if !text.contains(['.', 'e', 'E']) {
-        text.push_str(".0");
-    }
-    text
+    finite_float_lexeme(value, true).unwrap_or_else(|| value.to_string())
 }
 
 pub(crate) fn encode_bytes(bytes: &[u8], encoding: &BytesText) -> Option<String> {
@@ -2002,12 +2067,14 @@ fn encode_base64(bytes: &[u8], alphabet: &[u8; 64]) -> String {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use panproto_inst::value::DecimalValue;
     use panproto_schema::SchemaBuilder;
 
     #[test]
     fn plain_text_float_spellings_preserve_supported_nonfinite_values() {
-        assert_eq!(plain_text_float_lexeme(f64::NAN).as_deref(), Some("NaN"));
+        assert_eq!(
+            plain_text_float_lexeme(CANONICAL_NAN).as_deref(),
+            Some("NaN")
+        );
         assert_eq!(
             plain_text_float_lexeme(f64::INFINITY).as_deref(),
             Some("Infinity")
@@ -2016,8 +2083,11 @@ mod tests {
             plain_text_float_lexeme(f64::NEG_INFINITY).as_deref(),
             Some("-Infinity")
         );
-        assert_eq!(plain_text_float_lexeme(-f64::NAN).as_deref(), Some("-NaN"));
-        let payload_nan = f64::from_bits(f64::NAN.to_bits() + 1);
+        assert_eq!(
+            plain_text_float_lexeme(NEGATIVE_CANONICAL_NAN).as_deref(),
+            Some("-NaN")
+        );
+        let payload_nan = f64::from_bits(CANONICAL_NAN.to_bits() + 1);
         assert!(payload_nan.is_nan());
         assert_eq!(plain_text_float_lexeme(payload_nan), None);
     }
@@ -3192,5 +3262,156 @@ mod tests {
             emit_json_bytes(&schema, &direct, "test").expect("negative zero emits"),
             b"-0.0"
         );
+
+        for kind in [
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+            ScalarKind::BigInt,
+            ScalarKind::Float { bits: 32 },
+            ScalarKind::Float { bits: 64 },
+        ] {
+            let spec = ValueSpec::new(kind.clone());
+            let actual = coerce_exact_lexeme(&Lexeme::new("0e3000000000", LexClass::Number), &spec)
+                .unwrap_or_else(|error| panic!("extreme zero under {kind:?}: {error}"));
+            let expected = coerce(&Lexeme::new("0e0", LexClass::Number), &spec)
+                .unwrap_or_else(|error| panic!("ordinary zero under {kind:?}: {error}"));
+            let exact_carrier = match (&actual, &expected) {
+                (Value::Float(actual), Value::Float(expected)) => {
+                    actual.to_bits() == expected.to_bits()
+                }
+                _ => actual == expected,
+            };
+            assert!(
+                exact_carrier,
+                "extreme zero must equal ordinary zero under {kind:?}: {actual:?} vs {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bigint_is_written_within_the_output_allowance() {
+        let bigint = ValueSpec::new(ScalarKind::BigInt);
+        let Value::BigInt(twenty) = coerce_exact_lexeme(
+            &Lexeme::new("100000000000000000000", LexClass::Number),
+            &bigint,
+        )
+        .expect("10^20 is a BigInt") else {
+            panic!("10^20 must use the BigInt carrier");
+        };
+        assert_eq!(
+            bigint_lexeme(&twenty, false).expect("10^20 is within the allowance"),
+            "100000000000000000000"
+        );
+        let twenty = Value::BigInt(twenty);
+        let decimal = ValueSpec::new(ScalarKind::Decimal);
+        assert!(!json_number_reparses_as(
+            &twenty,
+            "100000000000000000000",
+            &decimal
+        ));
+        assert!(!json_value_roundtrips(&twenty, &decimal));
+
+        let Value::BigInt(huge) =
+            coerce_exact_lexeme(&Lexeme::new("1e100000000", LexClass::Number), &bigint)
+                .expect("the compact integer is exact")
+        else {
+            panic!("the compact integer must use the BigInt carrier");
+        };
+        assert_eq!(
+            bigint_lexeme(&huge, true).expect("the exact exponent form is bounded"),
+            "1e100000000"
+        );
+        assert_eq!(
+            bigint_lexeme(&huge, false),
+            Err(LimitExceeded {
+                resource: Resource::OutputBytes,
+                limit: DEFAULT_OUTPUT_BYTES,
+            })
+        );
+
+        let huge_value = Value::BigInt(huge.clone());
+        assert!(json_value_roundtrips(&huge_value, &bigint));
+        assert!(!json_value_roundtrips(
+            &huge_value,
+            &ValueSpec::new(ScalarKind::Any)
+        ));
+
+        let mut output = Vec::new();
+        write_json_value(
+            &Value::BigInt(huge),
+            &bigint,
+            &ValueSite::new("integer", None),
+            &mut output,
+        )
+        .expect("declared BigInt uses its exact exponent form");
+        assert_eq!(output, b"1e100000000");
+    }
+
+    #[test]
+    fn every_float_writer_uses_the_shared_printer() {
+        let tied = f64::from_bits(0x4310_0000_0000_0001);
+        for (value, expected) in [
+            (tied, "1125899906842624.2"),
+            (0.1, "0.1"),
+            (1e300, "1e300"),
+            (5e-324, "5e-324"),
+            (-0.0, "-0.0"),
+        ] {
+            assert_eq!(finite_float_lexeme(value, true).as_deref(), Some(expected));
+            assert_eq!(json_float_text(value), expected);
+            assert_eq!(
+                crate::toml_pathway::toml_float_lexeme(value).as_deref(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn a_negative_nan_lexeme_keeps_its_sign_on_every_route() {
+        for kind in [
+            ScalarKind::Float { bits: 32 },
+            ScalarKind::Float { bits: 64 },
+            ScalarKind::Any,
+        ] {
+            let spec = ValueSpec::new(kind);
+            for spelling in ["-nan", "-NaN", "-.nan"] {
+                let value = coerce_exact_lexeme(&Lexeme::new(spelling, LexClass::Number), &spec)
+                    .unwrap_or_else(|error| panic!("{spelling} must parse: {error}"));
+                assert!(
+                    matches!(value, Value::Float(value) if value.to_bits() == 0xfff8_0000_0000_0000),
+                    "{spelling} under {spec:?}: {value:?}"
+                );
+            }
+        }
+        assert_eq!(
+            plain_text_float_lexeme(NEGATIVE_CANONICAL_NAN).as_deref(),
+            Some("-NaN")
+        );
+        assert_eq!(
+            crate::toml_pathway::toml_float_lexeme(NEGATIVE_CANONICAL_NAN).as_deref(),
+            Some("-nan")
+        );
+    }
+
+    #[test]
+    fn a_decimal_zero_beyond_i32_keeps_its_scale_on_every_route() {
+        let decimal = ValueSpec::new(ScalarKind::Decimal);
+        for (text, expected_exponent, expected_negative) in [
+            ("0.0e-3000000000", "-3000000001", false),
+            ("0e3000000000", "3000000000", false),
+            ("-0e3000000000", "3000000000", false),
+        ] {
+            let value = coerce_exact_lexeme(&Lexeme::new(text, LexClass::Number), &decimal)
+                .unwrap_or_else(|error| panic!("{text} must keep its scale: {error}"));
+            assert!(
+                matches!(value, Value::Decimal(ref value)
+                    if value.digits == "0"
+                        && value.negative == expected_negative
+                        && value.exponent.to_string() == expected_exponent),
+                "{text}: {value:?}"
+            );
+        }
     }
 }
