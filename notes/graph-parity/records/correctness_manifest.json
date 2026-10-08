@@ -1,0 +1,4036 @@
+{
+  "schema_version": 2,
+  "pages": {
+    "values": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/values.rs",
+        "crates/panproto-reference/src/enumerate/values.rs"
+      ],
+      "laws": [
+        {
+          "id": "values.vf1-representation",
+          "anchor": "L-values-1",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF1"
+            }
+          ],
+          "references": [
+            "panproto_reference::value::representation"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.vf4-lexical-mapping",
+          "anchor": "L-values-2",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF4"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.vf6-exact-conversion",
+          "anchor": "L-values-3",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF6"
+            },
+            {
+              "section": "O11",
+              "clause": "E7"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce_value"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.coercion-lexical-fidelity",
+          "anchor": "L-values-4",
+          "contract": [
+            {
+              "section": "O9",
+              "clause": "(13) law (i)"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.coercion-idempotence",
+          "anchor": "L-values-5",
+          "contract": [
+            {
+              "section": "O9",
+              "clause": "(13) law (ii)"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce_value"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.coercion-fixed-points",
+          "anchor": "L-values-6",
+          "contract": [
+            {
+              "section": "O9",
+              "clause": "(13) law (iii)"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce",
+            "panproto_reference::coerce::coerce_value"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.computed-nan-canonicalization",
+          "anchor": "L-values-7",
+          "contract": [
+            {
+              "section": "O11",
+              "clause": "E4"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::computed_nan"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.binary32-nan-bits",
+          "anchor": "L-values-8",
+          "contract": [
+            {
+              "section": "O11",
+              "clause": "E6"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::narrow_bits",
+            "panproto_reference::float::widen_bits"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.closest-shortest-ties-even",
+          "anchor": "L-values-9",
+          "contract": [
+            {
+              "section": "O11",
+              "clause": "E12-E14"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::shortest"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-numeric-order",
+          "anchor": "L-values-10",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF1"
+            }
+          ],
+          "references": [
+            "panproto_reference::exact::DecimalValue::cmp_numeric"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-total-order",
+          "anchor": "L-values-11",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF1"
+            }
+          ],
+          "references": [
+            "panproto_reference::exact::Decimal::compare_total"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-chronological-order",
+          "anchor": "L-values-12",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF1 temporal order"
+            },
+            {
+              "section": "O12",
+              "clause": "D30(e)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::cmp_chronological"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.canonical-bytes-injective",
+          "anchor": "L-values-13",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF1 canonical bytes"
+            },
+            {
+              "section": "O11",
+              "clause": "E1-E3"
+            },
+            {
+              "section": "O12",
+              "clause": "D30(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(a)-(c)"
+            }
+          ],
+          "references": [
+            "panproto_reference::canonical::decode_value"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.expression-evaluation",
+          "anchor": "L-values-14",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "expression evaluator construction"
+            },
+            {
+              "section": "decision 29",
+              "clause": "pre-lane reach"
+            }
+          ],
+          "references": [
+            "panproto_reference::value::eval"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-parse-display",
+          "anchor": "L-values-15",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(c) parse/display accepted-lexeme round trip"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::parse_display"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-display-parse",
+          "anchor": "L-values-16",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(c) display/parse value round trip"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::display_parse"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-comparability-reversal",
+          "anchor": "L-values-17",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(e) law (1)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(a) extension of A2(e) law (1)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(b) extension of A2(e) law (1)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(c) extension of A2(e) law (1)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::cmp_chronological"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-comparability-total-preorder",
+          "anchor": "L-values-18",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(e) law (2)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(a) extension of A2(e) law (2)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(b) extension of A2(e) law (2)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(c) extension of A2(e) law (2)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::cmp_chronological"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-written-form-equality",
+          "anchor": "L-values-19",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(e) law (3)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(a) extension of A2(e) law (3)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(b) extension of A2(e) law (3)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(c) extension of A2(e) law (3)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::cmp_chronological"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-complete-conservativity",
+          "anchor": "L-values-20",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(e) law (4)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(a) extension of A2(e) law (4)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(b) extension of A2(e) law (4)"
+            },
+            {
+              "section": "O12",
+              "clause": "E40(c) extension of A2(e) law (4)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::cmp_chronological"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-new-form-byte-injectivity",
+          "anchor": "L-values-21",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(d)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::canonical_bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.tagged-discriminator-coercion",
+          "anchor": "L-values-22",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A4(b) law"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce_tagged"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.numeral-dialect-agreement",
+          "anchor": "L-values-23",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A5 law"
+            }
+          ],
+          "references": [
+            "panproto_reference::coerce::coerce_dialect"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.latin1-decode-encode",
+          "anchor": "L-values-24",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 Latin1 decode-encode law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::latin1_decode_encode"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.padded-accepted-text-encode-decode",
+          "anchor": "L-values-25",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 padded accepted-text encode-decode law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::padded_text_encode_decode"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.optional-byte-text-decode-encode",
+          "anchor": "L-values-26",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 optional-form decode/encode law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::optional"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.optional-byte-text-padding-equivalence",
+          "anchor": "L-values-27",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 optional-form padding-equivalence law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::optional"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.epoch-count-to-temporal-round-trip",
+          "anchor": "L-values-28",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A7 count-to-temporal-to-count law"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::from_epoch_count"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.temporal-to-epoch-count-round-trip",
+          "anchor": "L-values-29",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A7 temporal-to-count-to-temporal law"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::to_epoch_count"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.binary16-lexeme-fidelity",
+          "anchor": "L-values-30",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A8(a) law (i) at b = 16"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::binary16"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.nearest-reading-acceptance",
+          "anchor": "L-values-31",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A8(b) law (1)"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::nearest_reading"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.nearest-reading-complement-round-trip",
+          "anchor": "L-values-32",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A8(b) law (2)"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::nearest_reading"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.nearest-reading-canonical-round-trip",
+          "anchor": "L-values-33",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A8(b) law (3)"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::shortest"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.exact-reading-conservativity",
+          "anchor": "L-values-34",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A8(b) law (4)"
+            }
+          ],
+          "references": [
+            "panproto_reference::float::exact_reading"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-numeric-total-preorder",
+          "anchor": "L-values-35",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A9(b) law (1)"
+            }
+          ],
+          "references": [
+            "panproto_reference::exact::DecimalValue::cmp_numeric"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-special-placement",
+          "anchor": "L-values-36",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A9(b) law (2)"
+            }
+          ],
+          "references": [
+            "panproto_reference::exact::DecimalValue::cmp_numeric"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-compare-total-refinement",
+          "anchor": "L-values-37",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A9(b) law (3)"
+            }
+          ],
+          "references": [
+            "panproto_reference::exact::Decimal::compare_total"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.decimal-special-canonical-injectivity",
+          "anchor": "L-values-38",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A9(b) law (4)"
+            }
+          ],
+          "references": [
+            "panproto_reference::canonical::decimal_bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.yaml-unwritten-zulu-representation",
+          "anchor": "L-values-39",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "D30(e)"
+            }
+          ],
+          "references": [
+            "panproto_reference::temporal::unwritten_zulu"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.latin1-encode-decode",
+          "anchor": "L-values-41",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 Latin1 encode-decode law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::latin1_encode_decode"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "values.padded-byte-decode-encode",
+          "anchor": "L-values-42",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 padded byte decode-encode law"
+            }
+          ],
+          "references": [
+            "panproto_reference::bytes::padded_bytes_decode_encode"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "value-io": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/value_io.rs",
+        "crates/panproto-reference/src/enumerate/value_io.rs"
+      ],
+      "laws": [
+        {
+          "id": "value-io.rcm-prop1",
+          "anchor": "L-value-io-1",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "RCM Proposition 1 canonical/default routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::round_trip"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.vf7-emission",
+          "anchor": "L-value-io-2",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF7"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::emit"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.vf8-presentation-preservation",
+          "anchor": "L-value-io-3",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF8 canonical/default routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::preserve"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.vf9-reading",
+          "anchor": "L-value-io-4",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF9 canonical/default routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::parse"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.temporal-route-representability",
+          "anchor": "L-value-io-5",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A2(f)"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::temporal"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.byte-text-writer-agreement",
+          "anchor": "L-value-io-6",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A6 writer clause"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.special-decimal-writer-agreement",
+          "anchor": "L-value-io-7",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "A9(d)"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::decimal"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.raw-numeric-lexeme-preservation",
+          "anchor": "L-value-io-8",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C3 law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::raw_numeric"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.duplicate-member-refusal",
+          "anchor": "L-value-io-9",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C11 canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::duplicate_member"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.encoding-and-bom-preservation",
+          "anchor": "L-value-io-10",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C12 canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::encoding"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.toml-decimal-bigint-round-trip",
+          "anchor": "L-value-io-11",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C27 canonical law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::toml_scalar"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.xml-entity-bounded-expansion",
+          "anchor": "L-value-io-12",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C54 canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::xml_entity"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.xml-byte-round-trip",
+          "anchor": "L-value-io-13",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C55 canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::xml_encoding"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.tsv-comment-opt-in",
+          "anchor": "L-value-io-14",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90a law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::tsv_comment"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.tabular-missing-token",
+          "anchor": "L-value-io-15",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90b canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::tabular_missing"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.one-column-empty-row-round-trip",
+          "anchor": "L-value-io-16",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90c one-column canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::tabular_empty_row"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.tsv-quote-acceptance",
+          "anchor": "L-value-io-17",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90c quote canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::tsv_quote"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.xml-expanded-name-function",
+          "anchor": "L-value-io-18",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "G57 canonical/default law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::xml_expanded_name"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.blob-writer-agreement",
+          "anchor": "L-value-io-19",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "I88(c) generic blob-writer arm"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::blob_writer"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "value-io.rcm-prop1-cst",
+          "anchor": "L-value-io-20",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "RCM Proposition 1 CST routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::round_trip_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.vf8-presentation-preservation-cst",
+          "anchor": "L-value-io-21",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF8 CST routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::preserve_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.vf9-reading-cst",
+          "anchor": "L-value-io-22",
+          "contract": [
+            {
+              "section": "P.3",
+              "clause": "VF9 CST routes"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::parse_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.duplicate-member-refusal-cst",
+          "anchor": "L-value-io-23",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C11 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::duplicate_member_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.encoding-and-bom-preservation-cst",
+          "anchor": "L-value-io-24",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C12 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::value_io::encoding_bom_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.toml-decimal-bigint-round-trip-cst",
+          "anchor": "L-value-io-25",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C27 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::toml::decimal_bigint_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.xml-entity-bounded-expansion-cst",
+          "anchor": "L-value-io-26",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C54 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::xml::bounded_expansion_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.xml-byte-round-trip-cst",
+          "anchor": "L-value-io-27",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C55 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::xml::round_trip_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.tabular-missing-token-cst",
+          "anchor": "L-value-io-28",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90b CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::tabular::missing_token_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.one-column-empty-row-round-trip-cst",
+          "anchor": "L-value-io-29",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90c one-column CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::tabular::one_column_empty_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.tsv-quote-acceptance-cst",
+          "anchor": "L-value-io-30",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "C90c quote CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::tabular::tsv_quote_cst"
+          ],
+          "due_gate": "final"
+        },
+        {
+          "id": "value-io.xml-expanded-name-function-cst",
+          "anchor": "L-value-io-31",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "G57 CST law"
+            }
+          ],
+          "references": [
+            "panproto_reference::xml::expanded_name_cst"
+          ],
+          "due_gate": "final"
+        }
+      ],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.3",
+          "clause": "RCM Proposition 1 CST routes"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF8 CST routes"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF9 CST routes"
+        },
+        {
+          "section": "O12",
+          "clause": "C11 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C12 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C27 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C54 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C55 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C90b CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C90c one-column CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C90c quote CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "G57 CST law"
+        },
+        {
+          "section": "O12",
+          "clause": "C3 law"
+        }
+      ]
+    },
+    "theories": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/theories.rs",
+        "crates/panproto-reference/src/enumerate/theories.rs"
+      ],
+      "laws": [
+        {
+          "id": "theories.q1",
+          "anchor": "L-theories-1",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.1"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::typecheck_signature"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.q2",
+          "anchor": "L-theories-2",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.2"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::typecheck_signature"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.q3",
+          "anchor": "L-theories-3",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::compose"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.q4",
+          "anchor": "L-theories-4",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.4"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::compose"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.q5",
+          "anchor": "L-theories-5",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.5"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::compose"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.union-find-closure",
+          "anchor": "L-theories-6",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q union-find closure"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::quotient"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.morphism-checking",
+          "anchor": "L-theories-7",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q morphism checks"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::check_morphism"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "theories.recompose-replay",
+          "anchor": "L-theories-8",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q composition replay"
+            }
+          ],
+          "references": [
+            "panproto_reference::theory::recompose"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "keys-and-registration": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/keys_and_registration.rs",
+        "crates/panproto-reference/src/enumerate/keys_and_registration.rs"
+      ],
+      "laws": [
+        {
+          "id": "keys.key-declarations",
+          "anchor": "L-keys-and-registration-1",
+          "contract": [
+            {
+              "section": "P.4",
+              "clause": "key declarations"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::key_value"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.reference-declarations",
+          "anchor": "L-keys-and-registration-2",
+          "contract": [
+            {
+              "section": "P.4",
+              "clause": "reference declarations"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::buckets"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.canonical-schema-bytes-injective",
+          "anchor": "L-keys-and-registration-3",
+          "contract": [
+            {
+              "section": "P.4",
+              "clause": "schema canonical-byte injectivity"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14e(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(a)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(a)"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::canonical_bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.change-classification",
+          "anchor": "L-keys-and-registration-4",
+          "contract": [
+            {
+              "section": "P.4",
+              "clause": "key-change classification"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e) classification sentence"
+            },
+            {
+              "section": "O12",
+              "clause": "B14e(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::classify_change"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.q6",
+          "anchor": "L-keys-and-registration-5",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.6"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::register"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.q7",
+          "anchor": "L-keys-and-registration-6",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.7"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::register"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.q8",
+          "anchor": "L-keys-and-registration-7",
+          "contract": [
+            {
+              "section": "Q",
+              "clause": "Q.8"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::register"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.equality-kernel-equivalence",
+          "anchor": "L-keys-and-registration-8",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B10(d) law (1)"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::key_equivalence"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.representation-refinement",
+          "anchor": "L-keys-and-registration-9",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B10(d) law (2)"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::representation_refines"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.equality-declaration-byte-injectivity",
+          "anchor": "L-keys-and-registration-10",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B10(d) law (3)"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::canonical_bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.sort-key-total-preorder",
+          "anchor": "L-keys-and-registration-11",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14e(e) total-preorder law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::sort_order"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.sort-key-adjacent-descents",
+          "anchor": "L-keys-and-registration-12",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14e(e) adjacent-descent law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::key_order"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.target-set-declaration",
+          "anchor": "L-keys-and-registration-13",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B15(e) declaration law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::target_set"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.xml-noncdata-equivalence",
+          "anchor": "L-keys-and-registration-14",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "G56 law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::xml_noncdata"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.group-g-declaration-injectivity",
+          "anchor": "L-keys-and-registration-15",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "G56-G61 declaration-encoding law"
+            }
+          ],
+          "references": [
+            "panproto_reference::schema::canonical_bytes"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.index-and-null-match-declarations",
+          "anchor": "L-keys-and-registration-16",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "E33 and E42(c) declaration law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::index_and_null_match"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.lexical-space-declaration",
+          "anchor": "L-keys-and-registration-17",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "F45 declaration law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::lexical_space"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "keys.annotated-format-declaration",
+          "anchor": "L-keys-and-registration-18",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "H72 declaration law"
+            }
+          ],
+          "references": [
+            "panproto_reference::keys::annotated_format"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "representation": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/representation.rs",
+        "crates/panproto-reference/src/enumerate/representation.rs"
+      ],
+      "laws": [
+        {
+          "id": "representation.tree-to-graph-total",
+          "anchor": "L-representation-1",
+          "contract": [
+            {
+              "section": "decisions 3 and 12",
+              "clause": "representation contract"
+            }
+          ],
+          "references": [
+            "panproto_reference::encode::tree_to_graph"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.graph-to-tree-decision",
+          "anchor": "L-representation-2",
+          "contract": [
+            {
+              "section": "decisions 3 and 12",
+              "clause": "representation contract"
+            }
+          ],
+          "references": [
+            "panproto_reference::encode::graph_to_tree"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.reify-round-trip",
+          "anchor": "L-representation-3",
+          "contract": [
+            {
+              "section": "P.2",
+              "clause": "reify_fans image round trip"
+            }
+          ],
+          "references": [
+            "panproto_reference::encode::reify"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.canonical-serde",
+          "anchor": "L-representation-4",
+          "contract": [
+            {
+              "section": "P.2",
+              "clause": "canonical serde"
+            }
+          ],
+          "references": [
+            "panproto_reference::canonical::decode_graph",
+            "panproto_reference::canonical::decode_table",
+            "panproto_reference::canonical::decode_tree"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "representation.identity-envelope",
+          "anchor": "L-representation-5",
+          "contract": [
+            {
+              "section": "decision 9",
+              "clause": "identity envelope"
+            }
+          ],
+          "references": [
+            "panproto_reference::canonical::identity"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "kan-extensions": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/kan_extensions.rs",
+        "crates/panproto-reference/src/enumerate/kan_extensions.rs"
+      ],
+      "laws": [
+        {
+          "id": "kan.delta",
+          "anchor": "L-kan-extensions-1",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Delta construction"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::delta"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.sigma",
+          "anchor": "L-kan-extensions-2",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Sigma construction"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::sigma"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.pi",
+          "anchor": "L-kan-extensions-3",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Pi construction"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::pi"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.sigma-delta-adjunction",
+          "anchor": "L-kan-extensions-4",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Sigma left adjoint to Delta"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::sigma",
+            "panproto_reference::rel::delta",
+            "panproto_reference::rel::homs"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.delta-pi-adjunction",
+          "anchor": "L-kan-extensions-5",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Delta left adjoint to Pi"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::delta",
+            "panproto_reference::rel::pi",
+            "panproto_reference::rel::homs"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.sigma-delta-hom-bijection",
+          "anchor": "L-kan-extensions-6",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Sigma-Delta hom-set bijection"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::homs"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.delta-pi-hom-bijection",
+          "anchor": "L-kan-extensions-7",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "Delta-Pi hom-set bijection"
+            }
+          ],
+          "references": [
+            "panproto_reference::rel::homs"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.graph-conjugation-square",
+          "anchor": "L-kan-extensions-8",
+          "contract": [
+            {
+              "section": "O7",
+              "clause": "graph conjugation square"
+            }
+          ],
+          "references": [
+            "panproto_reference::migration::graph_square"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.table-conjugation-square",
+          "anchor": "L-kan-extensions-9",
+          "contract": [
+            {
+              "section": "O7",
+              "clause": "table conjugation square"
+            }
+          ],
+          "references": [
+            "panproto_reference::migration::table_square"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "kan.tree-conjugation-square",
+          "anchor": "L-kan-extensions-10",
+          "contract": [
+            {
+              "section": "O7",
+              "clause": "tree conjugation square"
+            }
+          ],
+          "references": [
+            "panproto_reference::migration::tree_square"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "restrict-and-contraction": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/restrict_and_contraction.rs",
+        "crates/panproto-reference/src/enumerate/restrict_and_contraction.rs"
+      ],
+      "laws": [
+        {
+          "id": "restrict.f-r",
+          "anchor": "L-restrict-and-contraction-1",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "F.R"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.c1",
+          "anchor": "L-restrict-and-contraction-2",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "C.1"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::contraction_plan"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.c2",
+          "anchor": "L-restrict-and-contraction-3",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "C.2"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::resolve_pair"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.c3",
+          "anchor": "L-restrict-and-contraction-4",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "C.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr6",
+          "anchor": "L-restrict-and-contraction-5",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR6"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr7",
+          "anchor": "L-restrict-and-contraction-6",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR7"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr8",
+          "anchor": "L-restrict-and-contraction-7",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR8"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr9",
+          "anchor": "L-restrict-and-contraction-8",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR9"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr10",
+          "anchor": "L-restrict-and-contraction-9",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR10"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr11",
+          "anchor": "L-restrict-and-contraction-10",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR11"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr12",
+          "anchor": "L-restrict-and-contraction-11",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR12"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.tr13",
+          "anchor": "L-restrict-and-contraction-12",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR13"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "restrict.reachability",
+          "anchor": "L-restrict-and-contraction-13",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "C.3 reachability"
+            },
+            {
+              "section": "O11",
+              "clause": "D13"
+            }
+          ],
+          "references": [
+            "panproto_reference::restrict::get"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "edits": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/edits.rs",
+        "crates/panproto-reference/src/enumerate/edits.rs"
+      ],
+      "laws": [
+        {
+          "id": "edits.e1",
+          "anchor": "L-edits-1",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "E.1"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::apply"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.e2",
+          "anchor": "L-edits-2",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "E.2"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::Delta::invert"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.e3",
+          "anchor": "L-edits-3",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "E.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::Delta::compose"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.e3a",
+          "anchor": "L-edits-4",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "E.3a"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::independence"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.t5",
+          "anchor": "L-edits-5",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "T.5"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::apply_table"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.tr14",
+          "anchor": "L-edits-6",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "TR14"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::apply_tree"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.replacement-semantics",
+          "anchor": "L-edits-7",
+          "contract": [
+            {
+              "section": "decision 9",
+              "clause": "whole decision"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::apply"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "edits.translation-square",
+          "anchor": "L-edits-8",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "edit translation"
+            }
+          ],
+          "references": [
+            "panproto_reference::edit::get_edit",
+            "panproto_reference::edit::put_edit"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "validation": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/validation.rs",
+        "crates/panproto-reference/src/enumerate/validation.rs"
+      ],
+      "laws": [
+        {
+          "id": "validation.v1",
+          "anchor": "L-validation-1",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.1"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(c),(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(b)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14e(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "F45"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v2",
+          "anchor": "L-validation-2",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.2"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(c),(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(b)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14e(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "F45"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v3",
+          "anchor": "L-validation-3",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.3"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(c),(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(b)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14e(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "F45"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v4",
+          "anchor": "L-validation-4",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.4"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v5",
+          "anchor": "L-validation-5",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.5"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v6",
+          "anchor": "L-validation-6",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.6"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v7",
+          "anchor": "L-validation-7",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.7"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v8",
+          "anchor": "L-validation-8",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.8"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v9",
+          "anchor": "L-validation-9",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.9"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v10",
+          "anchor": "L-validation-10",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.10"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.v11",
+          "anchor": "L-validation-11",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "V.11"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::validate"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.admission-policies",
+          "anchor": "L-validation-12",
+          "contract": [
+            {
+              "section": "V",
+              "clause": "validation admission policies"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::admits"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.key-equality-checks",
+          "anchor": "L-validation-13",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B10(c),(e)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::key_equality"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.variable-binding-checks",
+          "anchor": "L-validation-14",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B13(c)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::variable_binding"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.guard-target-set-sort-key-checks",
+          "anchor": "L-validation-15",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14c, B14e and B15"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::key_forms"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.index-null-match-checks",
+          "anchor": "L-validation-16",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "E33 and E42(c)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::index_and_null_match"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.lexical-space-advisory",
+          "anchor": "L-validation-17",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "F45 law"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::lexical_space"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.annotated-format-no-assertion-equivalence",
+          "anchor": "L-validation-18",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "H72(d) law (1)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::annotated_format_parse"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.annotated-format-advisory-exactness",
+          "anchor": "L-validation-19",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "H72(d) law (2)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::annotated_format_advisory"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "validation.format-assertion-acceptance",
+          "anchor": "L-validation-20",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "H72(d) law (3)"
+            }
+          ],
+          "references": [
+            "panproto_reference::validation::format_assertion_acceptance"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "segments": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/segments.rs",
+        "crates/panproto-reference/src/enumerate/segments.rs"
+      ],
+      "laws": [
+        {
+          "id": "segments.sg1",
+          "anchor": "L-segments-1",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.1"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::glue"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.sg2",
+          "anchor": "L-segments-2",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.2"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::segmented"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.sg3",
+          "anchor": "L-segments-3",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::partition"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.sg6",
+          "anchor": "L-segments-4",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.6"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::segmented"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.sg7-types",
+          "anchor": "L-segments-5",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.7 types"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::glue"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.sg9",
+          "anchor": "L-segments-6",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "SG.9"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::partition"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.s10",
+          "anchor": "L-segments-7",
+          "contract": [
+            {
+              "section": "S10",
+              "clause": "finite carrier"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::partition"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.s10a",
+          "anchor": "L-segments-8",
+          "contract": [
+            {
+              "section": "S10a",
+              "clause": "finite carrier"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::partition"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.execution-equivalence",
+          "anchor": "L-segments-9",
+          "contract": [
+            {
+              "section": "SG",
+              "clause": "segment execution equals whole-state execution"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::segmented"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "segments.id-floor",
+          "anchor": "L-segments-10",
+          "contract": [
+            {
+              "section": "decision 9",
+              "clause": "allocation floor"
+            }
+          ],
+          "references": [
+            "panproto_reference::segment::fresh"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "lenses": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/lenses.rs",
+        "crates/panproto-reference/src/enumerate/lenses.rs"
+      ],
+      "laws": [
+        {
+          "id": "lenses.l1",
+          "anchor": "L-lenses-1",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.1"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l2",
+          "anchor": "L-lenses-2",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.2"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l3",
+          "anchor": "L-lenses-3",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l4",
+          "anchor": "L-lenses-4",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.4"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l5",
+          "anchor": "L-lenses-5",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.5"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l6",
+          "anchor": "L-lenses-6",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.6"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l7",
+          "anchor": "L-lenses-7",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.7"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l8",
+          "anchor": "L-lenses-8",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.8"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l9",
+          "anchor": "L-lenses-9",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.9"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.l10",
+          "anchor": "L-lenses-10",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "L.10"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::get",
+            "panproto_reference::lens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.t3",
+          "anchor": "L-lenses-11",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "T.3"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::tree_get",
+            "panproto_reference::lens::tree_put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.t4",
+          "anchor": "L-lenses-12",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "T.4"
+            }
+          ],
+          "references": [
+            "panproto_reference::table::get",
+            "panproto_reference::table::TableLens::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.path-left-identity",
+          "anchor": "L-lenses-13",
+          "contract": [
+            {
+              "section": "O1",
+              "clause": "LensPath left identity"
+            }
+          ],
+          "references": [
+            "panproto_reference::path::get_path",
+            "panproto_reference::path::put_path"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.path-right-identity",
+          "anchor": "L-lenses-14",
+          "contract": [
+            {
+              "section": "O1",
+              "clause": "LensPath right identity"
+            }
+          ],
+          "references": [
+            "panproto_reference::path::get_path",
+            "panproto_reference::path::put_path"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.path-associativity",
+          "anchor": "L-lenses-15",
+          "contract": [
+            {
+              "section": "O1",
+              "clause": "LensPath associativity"
+            }
+          ],
+          "references": [
+            "panproto_reference::path::LensPath::then"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.fusion-soundness",
+          "anchor": "L-lenses-16",
+          "contract": [
+            {
+              "section": "O1",
+              "clause": "fusion soundness"
+            }
+          ],
+          "references": [
+            "panproto_reference::path::get_path",
+            "panproto_reference::path::put_path"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.fb-graph-square",
+          "anchor": "L-lenses-17",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "F.B graph commuting square"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::graph_square"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.fb-table-square",
+          "anchor": "L-lenses-18",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "F.B table commuting square"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::table_square"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.protolens-schema-transform",
+          "anchor": "L-lenses-19",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "protolens schema-transform construction"
+            },
+            {
+              "section": "decision 29",
+              "clause": "pre-lane reach"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::protolens_schema"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "lenses.protolens-instance-transform",
+          "anchor": "L-lenses-20",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "protolens instance-transform construction"
+            },
+            {
+              "section": "decision 29",
+              "clause": "pre-lane reach"
+            }
+          ],
+          "references": [
+            "panproto_reference::lens::protolens_instance"
+          ],
+          "due_gate": "phase3"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "dsl-semantics": {
+      "inventory_status": "pending",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/dsl_semantics.rs",
+        "crates/panproto-reference/src/enumerate/dsl_semantics.rs"
+      ],
+      "laws": [],
+      "contract_scope": [
+        {
+          "section": "O11",
+          "clause": "D20(a) first independent law/operation/domain/refusal inventory audit"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "vcs": {
+      "inventory_status": "pending",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/vcs.rs",
+        "crates/panproto-reference/src/enumerate/vcs.rs"
+      ],
+      "laws": [],
+      "contract_scope": [
+        {
+          "section": "O11",
+          "clause": "D20(b) first independent law/operation/domain/refusal inventory audit"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "migration-solver": {
+      "inventory_status": "pending",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/migration_solver.rs",
+        "crates/panproto-reference/src/enumerate/migration_solver.rs"
+      ],
+      "laws": [],
+      "contract_scope": [
+        {
+          "section": "O11",
+          "clause": "D20(c) first independent law/operation/domain/refusal inventory audit"
+        }
+      ],
+      "due_gate": "phase3"
+    },
+    "parsing": {
+      "inventory_status": "pending",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/parsing.rs",
+        "crates/panproto-reference/src/enumerate/parsing.rs"
+      ],
+      "laws": [],
+      "contract_scope": [
+        {
+          "section": "O11",
+          "clause": "D20(d) first independent law/operation/domain/refusal inventory audit"
+        }
+      ],
+      "due_gate": "final"
+    },
+    "resolution": {
+      "inventory_status": "complete",
+      "reference_files": [
+        "crates/panproto-reference/src/pages/resolution.rs",
+        "crates/panproto-reference/src/enumerate/resolution.rs"
+      ],
+      "laws": [
+        {
+          "id": "resolution.get-put",
+          "anchor": "L-resolution-1",
+          "contract": [
+            {
+              "section": "P.6",
+              "clause": "GetPut"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(d)(3)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "G58"
+            },
+            {
+              "section": "O12",
+              "clause": "G59"
+            },
+            {
+              "section": "O12",
+              "clause": "G60"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::get",
+            "panproto_reference::resolution::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.put-get",
+          "anchor": "L-resolution-2",
+          "contract": [
+            {
+              "section": "P.6",
+              "clause": "PutGet modulo SynthIndex"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(d)(3)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "G58"
+            },
+            {
+              "section": "O12",
+              "clause": "G59"
+            },
+            {
+              "section": "O12",
+              "clause": "G60"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::get",
+            "panproto_reference::resolution::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.totality",
+          "anchor": "L-resolution-3",
+          "contract": [
+            {
+              "section": "P.6",
+              "clause": "Totality"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(d)(3)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "G58"
+            },
+            {
+              "section": "O12",
+              "clause": "G59"
+            },
+            {
+              "section": "O12",
+              "clause": "G60"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.congruence",
+          "anchor": "L-resolution-4",
+          "contract": [
+            {
+              "section": "P.6",
+              "clause": "Congruence"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(d)(3)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "G58"
+            },
+            {
+              "section": "O12",
+              "clause": "G59"
+            },
+            {
+              "section": "O12",
+              "clause": "G60"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.gated-put-twice",
+          "anchor": "L-resolution-5",
+          "contract": [
+            {
+              "section": "P.6",
+              "clause": "gated PutTwice"
+            },
+            {
+              "section": "S8",
+              "clause": "/S8a"
+            },
+            {
+              "section": "O12",
+              "clause": "B10(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B13(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14a(d)(3)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14b(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14c(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B14d(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "B15(e)"
+            },
+            {
+              "section": "O12",
+              "clause": "B16(d)"
+            },
+            {
+              "section": "O12",
+              "clause": "E33"
+            },
+            {
+              "section": "O12",
+              "clause": "E42(c)"
+            },
+            {
+              "section": "O12",
+              "clause": "G58"
+            },
+            {
+              "section": "O12",
+              "clause": "G59"
+            },
+            {
+              "section": "O12",
+              "clause": "G60"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            },
+            {
+              "section": "O12",
+              "clause": "G56"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::put"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.uri-environment-locality",
+          "anchor": "L-resolution-6",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14a(d) law (1)"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::uri_environment"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.rfc3986-algorithm",
+          "anchor": "L-resolution-7",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14a(d) law (2)"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::rfc3986"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.referenced-text-identity",
+          "anchor": "L-resolution-8",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14b(d) text-identity law"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::text_identity"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.guarded-occurrence-partition",
+          "anchor": "L-resolution-9",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B14c(d) partition law"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::guarded_partition"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.standoff-form-injectivity",
+          "anchor": "L-resolution-10",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B16(d) injectivity law"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::standoff_form"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.standoff-put-left-inverse",
+          "anchor": "L-resolution-11",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B16(d) left-inverse law"
+            },
+            {
+              "section": "O12",
+              "clause": "G61"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::standoff_inverse"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.index-target-nonresolution",
+          "anchor": "L-resolution-12",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "E33 resolution law"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::index_target"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.inherited-base-locality",
+          "anchor": "L-resolution-13",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "G58 law"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::inherited_base"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.declared-key-equality",
+          "anchor": "L-resolution-14",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B10(e) exact resolution relation"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::declared_key_equality"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.nearest-preceding-binding",
+          "anchor": "L-resolution-15",
+          "contract": [
+            {
+              "section": "O12",
+              "clause": "B13(e) nearest-preceding binding semantics"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::nearest_preceding"
+          ],
+          "due_gate": "phase3"
+        },
+        {
+          "id": "resolution.preserving-registry-product",
+          "anchor": "L-resolution-16",
+          "contract": [
+            {
+              "section": "P.5",
+              "clause": "R8 preserving registry product"
+            }
+          ],
+          "references": [
+            "panproto_reference::resolution::preserving_registry"
+          ],
+          "due_gate": "final"
+        }
+      ],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.5",
+          "clause": "R8 preserving registry product"
+        }
+      ]
+    },
+    "edit-lenses": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.5",
+          "clause": "E.4-E.6 graph and table edit lenses"
+        },
+        {
+          "section": "P.5",
+          "clause": "TR12 tree twins"
+        },
+        {
+          "section": "V",
+          "clause": "V.7 admission integration"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/edit_lenses.rs",
+        "crates/panproto-reference/src/enumerate/edit_lenses.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3b"
+    },
+    "segment-execution": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "SG",
+          "clause": "SG.4-SG.5 classifier and preflight"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.7 execution and stores"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.9 budgets and reports"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.11 execution tests"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/segment_execution.rs",
+        "crates/panproto-reference/src/enumerate/segment_execution.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase4"
+    },
+    "formats/api": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F api rows"
+        },
+        {
+          "section": "O12",
+          "clause": "H68-H74 API amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/api.rs",
+        "crates/panproto-reference/src/enumerate/formats/api.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/config": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F config rows"
+        },
+        {
+          "section": "O12",
+          "clause": "D31 configuration amendment"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/config.rs",
+        "crates/panproto-reference/src/enumerate/formats/config.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/data-schema": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F data_schema rows"
+        },
+        {
+          "section": "O12",
+          "clause": "H71-H76 schema amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/data_schema.rs",
+        "crates/panproto-reference/src/enumerate/formats/data_schema.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/data-science": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F data_science rows"
+        },
+        {
+          "section": "O12",
+          "clause": "I81-I86 data-science amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/data_science.rs",
+        "crates/panproto-reference/src/enumerate/formats/data_science.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/database": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F database rows"
+        },
+        {
+          "section": "P.2",
+          "clause": "database-family semantics"
+        },
+        {
+          "section": "P.4",
+          "clause": "database keys and references"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/database.rs",
+        "crates/panproto-reference/src/enumerate/formats/database.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.5",
+          "clause": "R8 Redis preserving-entry sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF11 CST-route fixture sublaws"
+        }
+      ]
+    },
+    "formats/domain": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F domain rows"
+        },
+        {
+          "section": "O12",
+          "clause": "I87, I89 and I90 domain amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/domain.rs",
+        "crates/panproto-reference/src/enumerate/formats/domain.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.5",
+          "clause": "R8 EDI-X12 and Swift-MT preserving-entry sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF11 CST-route fixture sublaws"
+        }
+      ]
+    },
+    "formats/serialization": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F serialization rows"
+        },
+        {
+          "section": "P.5",
+          "clause": "R6"
+        },
+        {
+          "section": "O12",
+          "clause": "H77-H80 serialization amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/serialization.rs",
+        "crates/panproto-reference/src/enumerate/formats/serialization.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/web-document": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F web_document rows"
+        },
+        {
+          "section": "O12",
+          "clause": "I88(a), I88(b), and I88(c) route laws"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/web_document.rs",
+        "crates/panproto-reference/src/enumerate/formats/web_document.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/xml": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F annotation-xml rows"
+        },
+        {
+          "section": "O12",
+          "clause": "G53 and G56-G62 XML amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/xml.rs",
+        "crates/panproto-reference/src/enumerate/formats/xml.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/conllu": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F annotation-other rows"
+        },
+        {
+          "section": "O12",
+          "clause": "G63-G67 annotation amendments"
+        },
+        {
+          "section": "O12",
+          "clause": "Conllu proof obligations"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/conllu.rs",
+        "crates/panproto-reference/src/enumerate/formats/conllu.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/text": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F text-formats rows"
+        },
+        {
+          "section": "P.3",
+          "clause": "value-fidelity laws"
+        },
+        {
+          "section": "O12",
+          "clause": "D19-D30 text-format amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/text.rs",
+        "crates/panproto-reference/src/enumerate/formats/text.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.5",
+          "clause": "R5 preserving-route sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF8 CST sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF11 CST-route fixture sublaws"
+        }
+      ]
+    },
+    "formats/sql-ddl": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F sql-ddl rows"
+        },
+        {
+          "section": "O12",
+          "clause": "E32-E43 SQL DDL amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/sql_ddl.rs",
+        "crates/panproto-reference/src/enumerate/formats/sql_ddl.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3"
+    },
+    "formats/sql-data": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F sql-data rows"
+        },
+        {
+          "section": "O12",
+          "clause": "E32-E43 SQL data amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/sql_data.rs",
+        "crates/panproto-reference/src/enumerate/formats/sql_data.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.2",
+          "clause": "CST-route sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF11 CST-route fixture sublaws"
+        }
+      ]
+    },
+    "formats/code": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F code-parse-fix rows"
+        },
+        {
+          "section": "P.5",
+          "clause": "R11"
+        },
+        {
+          "section": "O12",
+          "clause": "I91 code-parser amendment"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/code.rs",
+        "crates/panproto-reference/src/enumerate/formats/code.rs"
+      ],
+      "laws": [],
+      "due_gate": "final"
+    },
+    "formats/rdf": {
+      "inventory_status": "pending",
+      "contract_scope": [
+        {
+          "section": "P.1",
+          "clause": "Appendix F formats-rdf rows N1-N5"
+        },
+        {
+          "section": "P.5",
+          "clause": "R9"
+        },
+        {
+          "section": "O12",
+          "clause": "F44-F52 RDF amendments"
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/formats/rdf.rs",
+        "crates/panproto-reference/src/enumerate/formats/rdf.rs"
+      ],
+      "laws": [],
+      "due_gate": "phase3",
+      "final_gate_scope": [
+        {
+          "section": "P.5",
+          "clause": "R9 Turtle and JSON-LD tree-route sublaws"
+        },
+        {
+          "section": "P.3",
+          "clause": "VF11 CST-route fixture sublaws"
+        }
+      ]
+    }
+  }
+}

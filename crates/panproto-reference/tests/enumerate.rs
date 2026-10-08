@@ -71,6 +71,16 @@ fn enumerate_schemas_and_migrations() {
         "closed formula 2^1 * 2^1 * 2^1 * (1 + 2)^1 * (1 + 2)^2 * (1 + 4)^1 * 2^1 * 2^1",
     );
     assert_eq!(2 * 2 * 2 * 3 * 9 * 5 * 2 * 2, all.len());
+    assert!(all.iter().all(|migration| {
+        migration
+            .vertex_remap
+            .iter()
+            .all(|(source, target)| source != target)
+            && migration
+                .edge_remap
+                .iter()
+                .all(|(source, target)| source != target)
+    }));
     let distinct: BTreeSet<String> = all.iter().map(|m| format!("{m:?}")).collect();
     assert_eq!(
         distinct.len(),
@@ -87,6 +97,17 @@ fn enumerate_schemas_and_migrations() {
     ] {
         assert!(all.iter().any(field));
     }
+    let vertex_only = en::migrations(&src, &tgt, en::MigrationScope::VERTICES);
+    assert!(vertex_only.iter().all(|migration| {
+        migration.surviving_edges.is_empty()
+            && migration.edge_remap.is_empty()
+            && migration.resolver.is_empty()
+            && migration.expansion_path.is_empty()
+            && migration.hyper_resolver.is_empty()
+            && migration.conditional.is_empty()
+            && migration.transformed.is_empty()
+    }));
+    assert!(vertex_only.len() < all.len());
     // Every migration is either refused by plan compilation with a typed
     // reason or compiles; the identity-like one of vertex a compiles.
     for mig in &all {
@@ -153,6 +174,11 @@ fn enumerate_graphs_and_check_their_bytes_are_injective() {
     );
     let mut seen = BTreeSet::new();
     for g in &gs {
+        assert!(
+            g.edges
+                .values()
+                .all(|edge| { g.nodes.contains_key(&edge.src) && g.nodes.contains_key(&edge.tgt) })
+        );
         let b = canonical::graph_bytes(g).unwrap();
         assert_eq!(canonical::decode_graph(&b).as_ref(), Some(g));
         assert!(seen.insert(b));
@@ -637,6 +663,17 @@ fn report_schema_migration_and_table_bounds() {
         en::tables_count(&["t"], &columns, 1, &[], 1),
         "separate brute-force product over row counts and assignments",
     );
+    let three_columns = BTreeMap::from([("a", vec![]), ("b", vec![]), ("c", vec![])]);
+    assert_eq!(
+        en::tables_count(
+            &["a", "b", "c"],
+            &three_columns,
+            1,
+            &[SEdge::new("a", "b", "r", None)],
+            1,
+        ),
+        4
+    );
 }
 
 fn report_graph_and_tree_bounds() {
@@ -658,6 +695,32 @@ fn report_graph_and_tree_bounds() {
         en::graphs_count(1, 0, 2, 1, 2, 2, 2),
         "closed product over labelled nodes and ordered edge slots",
     );
+    let one_label = [SEdge::new("a", "a", "e", None)];
+    let asymmetric_scope = en::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain],
+        labels: &one_label,
+        positions: &[None],
+        max_nodes: 2,
+        max_edges: 1,
+    };
+    let asymmetric = en::graphs(&asymmetric_scope);
+    assert_eq!(asymmetric.len(), 8);
+    assert_eq!(
+        asymmetric
+            .iter()
+            .map(|graph| format!("{graph:?}"))
+            .collect::<BTreeSet<_>>()
+            .len(),
+        asymmetric.len()
+    );
+    assert!(asymmetric.iter().all(|graph| {
+        graph
+            .edges
+            .values()
+            .all(|edge| graph.nodes.contains_key(&edge.src) && graph.nodes.contains_key(&edge.tgt))
+    }));
 
     let tree_scope = en::TreeScope {
         nodes: 2,
@@ -730,6 +793,13 @@ fn report_edit_and_numeric_bounds() {
         65_536,
         "closed formula 2^16",
     );
+    assert_eq!(
+        en::boundary_bits(Format::B16, Some(&[0, 1, 31, 32]), &[0, 1, 1023, 1024]),
+        vec![
+            0, 1, 1023, 1024, 1025, 2047, 31_744, 31_745, 32_767, 32_768, 32_769, 33_791, 33_792,
+            33_793, 34_815, 64_512, 64_513, 65_535,
+        ]
+    );
     let byte_strings = en::byte_strings(3).unwrap();
     report(
         "byte strings",
@@ -753,8 +823,70 @@ fn report_temporal_bounds() {
 
 #[test]
 fn bounded_enumerators_are_complete() {
+    assert_eq!(en::choose(2, 3), 0);
+    assert_eq!(en::choose(3, 3), 1);
+    assert_eq!(en::choose(4, 2), 6);
+    assert_eq!(en::schemas_count(2, 3, 2, 2), 333);
+    assert_eq!(
+        en::migrations_count(
+            &en::MigrationSizes {
+                src_vertices: 1,
+                tgt_vertices: 2,
+                src_edges: 1,
+                tgt_edges: 2,
+                src_hyper_labels: Vec::new(),
+                tgt_hyper_labels: Vec::new(),
+            },
+            en::MigrationScope::ALL,
+        ),
+        746_496
+    );
     report_schema_migration_and_table_bounds();
     report_graph_and_tree_bounds();
     report_edit_and_numeric_bounds();
     report_temporal_bounds();
+}
+
+#[test]
+fn manifest_page_enumerators_have_concrete_scopes() {
+    use panproto_reference::enumerate::{
+        edits, kan_extensions, keys_and_registration, lenses, representation, resolution,
+        restrict_and_contraction, segments, theories, validation, value_io, values,
+    };
+
+    assert!(!values::numerals().is_empty());
+    assert_eq!(values::binary16_patterns().len(), 65_536);
+    assert!(!values::temporal_lexemes().is_empty());
+    assert_eq!(values::byte_strings().unwrap().len(), 65_793);
+    assert_eq!(value_io::byte_strings().unwrap().len(), 65_793);
+    assert!(!value_io::numerals().is_empty());
+    assert_eq!(value_io::sequences(&[0u8, 1]).len(), 7);
+    assert!(!value_io::temporal_lexemes().is_empty());
+    assert!(!theories::schemas().is_empty());
+    assert_eq!(theories::sequences(&[0u8, 1]).len(), 7);
+    assert_eq!(theories::subsets(&[0u8, 1]).len(), 4);
+    assert!(!keys_and_registration::schemas().is_empty());
+    assert_eq!(keys_and_registration::subsets(&[0u8, 1]).len(), 4);
+    assert!(!representation::graphs().is_empty());
+    assert!(!representation::tables().is_empty());
+    assert!(!representation::trees().is_empty());
+    assert!(!kan_extensions::schemas().is_empty());
+    assert!(!kan_extensions::migrations().is_empty());
+    assert!(!kan_extensions::tables().is_empty());
+    assert!(!restrict_and_contraction::schemas().is_empty());
+    assert!(!restrict_and_contraction::migrations().is_empty());
+    assert!(!restrict_and_contraction::graphs().is_empty());
+    assert!(!edits::graphs().is_empty());
+    assert!(!edits::graph_deltas().is_empty());
+    assert!(!validation::schemas().is_empty());
+    assert!(!validation::graphs().is_empty());
+    assert_eq!(validation::sequences(&[0u8, 1]).len(), 15);
+    assert!(!segments::graphs().is_empty());
+    assert!(!lenses::schemas().is_empty());
+    assert!(!lenses::migrations().is_empty());
+    assert!(!lenses::graphs().is_empty());
+    assert!(!lenses::tables().is_empty());
+    assert!(!lenses::trees().is_empty());
+    assert_eq!(resolution::sequences(&[0u8, 1]).len(), 15);
+    assert!(!resolution::trees().is_empty());
 }

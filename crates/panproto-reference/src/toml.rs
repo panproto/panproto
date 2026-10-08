@@ -1,4 +1,3 @@
-//! Exact TOML scalar-route laws.
+//! Compatibility namespace for the page-owned reference implementation.
 
-/// Decimal and big-integer CST token fidelity.
-pub use crate::value_io::toml_scalar as decimal_bigint_cst;
+pub use crate::pages::value_io::toml::*;

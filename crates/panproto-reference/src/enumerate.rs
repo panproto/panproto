@@ -183,7 +183,8 @@ impl MigrationScope {
 
     /// Every field.
     pub const ALL: Self = Self {
-        flags: Self::EDGES | Self::RESOLVER | Self::HYPER | Self::CONDITIONAL | Self::TRANSFORMED,
+        // The five disjoint flags above occupy the low five bits.
+        flags: 31,
         max_expansion: Some(1),
     };
 
@@ -363,7 +364,7 @@ pub fn migrations(src: &Schema, tgt: &Schema, scope: MigrationScope) -> Vec<Migr
             ] {
                 if flag {
                     for (v, c) in sv.iter().zip(take(sv.len())) {
-                        if c == 1 {
+                        if c.checked_sub(1).is_some() {
                             set.insert(v.clone());
                         }
                     }
@@ -618,19 +619,64 @@ pub fn tables_count(
     relations: &[SEdge],
     max_rows: usize,
 ) -> u64 {
+    fn row_count_vectors(
+        remaining: usize,
+        bins: usize,
+        prefix: &mut Vec<usize>,
+        out: &mut Vec<Vec<usize>>,
+    ) {
+        if bins == 0 {
+            if remaining == 0 {
+                out.push(prefix.clone());
+            }
+            return;
+        }
+        for count in 0..=remaining {
+            prefix.push(count);
+            row_count_vectors(remaining - count, bins - 1, prefix, out);
+            prefix.pop();
+        }
+    }
+
+    const fn factorial(n: usize) -> u64 {
+        let mut result = 1u64;
+        let mut factor = 2usize;
+        while factor <= n {
+            result *= factor as u64;
+            factor += 1;
+        }
+        result
+    }
+
     let mut total = 0u64;
     for r in 0..=max_rows {
-        for tc in functions(r, tables.len()) {
-            let cells: u64 = tc
+        let mut row_counts = Vec::new();
+        row_count_vectors(r, tables.len(), &mut Vec::new(), &mut row_counts);
+        for counts in row_counts {
+            let cells: u64 = counts
                 .iter()
-                .map(|t| columns.get(tables[*t]).map_or(0, |c| c.len() as u64))
+                .zip(tables)
+                .map(|(count, table)| {
+                    (*count as u64) * columns.get(table).map_or(0, |c| c.len() as u64)
+                })
                 .sum();
-            let count = |t: &str| tc.iter().filter(|x| tables[**x] == t).count() as u64;
+            let count = |table: &str| {
+                tables
+                    .iter()
+                    .position(|candidate| *candidate == table)
+                    .map_or(0, |index| counts[index] as u64)
+            };
             let pairs: u64 = relations
                 .iter()
                 .map(|e| count(&e.src) * count(&e.tgt))
                 .sum();
-            total += values.pow(u32::try_from(cells).unwrap_or(0))
+            let assignments = factorial(r)
+                / counts
+                    .iter()
+                    .map(|count| factorial(*count))
+                    .product::<u64>();
+            total += assignments
+                * values.pow(u32::try_from(cells).unwrap_or(0))
                 * 2u64.pow(u32::try_from(pairs).unwrap_or(0));
         }
     }
@@ -840,7 +886,9 @@ pub fn boundary_bits(
         for e in &es {
             let e = *e;
             for f in &fr {
-                out.push((sign << (format.width() - 1)) | (e << p) | f);
+                // These masked fields are disjoint, so arithmetic assembly
+                // states the unique positional representation directly.
+                out.push((sign << (format.width() - 1)) + (e << p) + f);
             }
         }
     }
@@ -1144,8 +1192,13 @@ pub fn byte_strings_count(max_len: u8) -> Option<u64> {
 /// Enumerate every byte string of length at most `max_len`.
 #[must_use]
 pub fn byte_strings(max_len: u8) -> Option<ByteStrings> {
-    Some(ByteStrings {
-        next: 0,
-        end: byte_strings_count(max_len)?,
-    })
+    // Derive the generator's terminal ordinal directly from its blocks.
+    // `byte_strings_count` is a separate oracle and is not called here.
+    let mut block = 1u64;
+    let mut end = 1u64;
+    for _ in 0..max_len {
+        block = block.checked_mul(256)?;
+        end = end.checked_add(block)?;
+    }
+    Some(ByteStrings { next: 0, end })
 }

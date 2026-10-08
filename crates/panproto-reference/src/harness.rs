@@ -94,11 +94,21 @@ mod tests {
         );
         assert_eq!(r.as_ref().map_err(|d| d.input.clone()), Err("3".to_owned()));
         assert_eq!(
+            r.as_ref().err().map(ToString::to_string),
+            Some(
+                "disagreement at bound n < 5\n  input: 3\n  production: 6\n  reference: 7"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
             agree("n < 5", 0..5u32, |i| i * 2, |i| i + i, |a, b| a == b),
             Ok(5)
         );
         let ok: Result<u8, &str> = Ok(1);
+        let other: Result<u8, &str> = Ok(2);
         let err: Result<u8, &str> = Err("x");
+        assert!(outcome_eq(&ok, &ok, |a, b| a == b, |a, b| a == b));
+        assert!(!outcome_eq(&ok, &other, |a, b| a == b, |a, b| a == b));
         assert!(!outcome_eq(&ok, &err, |a, b| a == b, |a, b| a == b));
         assert!(outcome_eq(&err, &err, |a, b| a == b, |a, b| a == b));
     }
