@@ -2350,23 +2350,42 @@ mod tests {
     fn json_numerals_beyond_the_decimal_exponent_range_are_typed_refusals() {
         let schema = number_schema();
         // The stored exponent is the written exponent less the fractional
-        // digit count; every numeral whose stored exponent lies in `i32` is
-        // read exactly.
-        for (input, exponent) in [
+        // digit count. A decimal holds an exponent of any size, so every
+        // numeral is read exactly, at and beyond the bounds of `i32`; none is
+        // refused.
+        for (input, digits, exponent) in [
             (
                 br#"{"integer":1,"decimal":1e2147483647}"#.as_slice(),
-                i32::MAX,
+                "1",
+                "2147483647",
             ),
             (
                 br#"{"integer":1,"decimal":0.1e2147483648}"#.as_slice(),
-                i32::MAX,
+                "1",
+                "2147483647",
             ),
             (
                 br#"{"integer":1,"decimal":1e-2147483648}"#.as_slice(),
-                i32::MIN,
+                "1",
+                "-2147483648",
+            ),
+            (
+                br#"{"integer":1,"decimal":1e2147483648}"#.as_slice(),
+                "1",
+                "2147483648",
+            ),
+            (
+                br#"{"integer":1,"decimal":1e99999999999999999999999}"#.as_slice(),
+                "1",
+                "99999999999999999999999",
+            ),
+            (
+                br#"{"integer":1,"decimal":1.5e-2147483648}"#.as_slice(),
+                "15",
+                "-2147483649",
             ),
         ] {
-            let instance = parse_json_bytes(&schema, "root", input, "test").expect("in range");
+            let instance = parse_json_bytes(&schema, "root", input, "test").expect("read exactly");
             let decimal = instance
                 .nodes
                 .values()
@@ -2376,37 +2395,11 @@ mod tests {
                 matches!(
                     decimal,
                     Some(FieldPresence::Present(Value::Decimal(value)))
-                        if value.digits == "1" && !value.negative && value.exponent == exponent
+                        if value.digits == digits
+                            && !value.negative
+                            && value.exponent.to_string() == exponent
                 ),
                 "{decimal:?}"
-            );
-        }
-
-        for (input, lexeme) in [
-            (
-                br#"{"integer":1,"decimal":1e2147483648}"#.as_slice(),
-                "1e2147483648",
-            ),
-            (
-                br#"{"integer":1,"decimal":1e99999999999999999999999}"#.as_slice(),
-                "1e99999999999999999999999",
-            ),
-            (
-                br#"{"integer":1,"decimal":1.5e-2147483648}"#.as_slice(),
-                "1.5e-2147483648",
-            ),
-        ] {
-            let result = parse_json_bytes(&schema, "root", input, "test");
-            assert!(
-                matches!(
-                    &result,
-                    Err(ParseInstanceError::Fidelity(errors))
-                        if errors.len() == 1
-                            && errors[0].lexeme == lexeme
-                            && errors[0].reason == panproto_inst::FidelityReason::Overflow
-                            && errors[0].site.byte_offset == Some(23)
-                ),
-                "{result:?}"
             );
         }
     }

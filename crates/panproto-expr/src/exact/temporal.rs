@@ -2,6 +2,7 @@
 //! lexeme wrote.
 
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,16 +12,22 @@ use super::{ExactKind, ExactParseError, FidelityReason};
 ///
 /// The forms follow RFC 3339 and the date and time forms of SQL, TOML and
 /// XML Schema: `2026-09-28`, `12:34:56.789+05:30`,
-/// `2026-09-28T12:34:56.789+05:30` (a space may stand for the `T`).
+/// `2026-09-28T12:34:56.789+05:30` (a `t` or a space may stand for the
+/// `T`, and a `z` for the `Z`). A value keeps how it was written: the
+/// separator of a date-time ([`DateTimeSeparator`]), the case of a `Z`
+/// ([`ZuluCase`]), the zero-offset form ([`Offset`]) and every fractional
+/// digit, so `Display` writes back the lexeme it was read from.
 ///
 /// ```
-/// use panproto_expr::exact::{Offset, Temporal};
+/// use panproto_expr::exact::{DateTimeSeparator, Offset, Temporal};
 ///
 /// let t = Temporal::parse("2026-09-28T12:34:56.789+05:30")?;
-/// let Temporal::DateTime(date, time, offset) = &t else { unreachable!() };
-/// assert_eq!((date.year, time.nanos, time.frac_digits), (2026, 789_000_000, 3));
-/// assert_eq!(*offset, Offset::Fixed(330));
+/// let Temporal::DateTime(date, time, offset, separator) = &t else { unreachable!() };
+/// assert_eq!((date.year, time.fraction.as_str()), (2026, "789"));
+/// assert_eq!((*offset, *separator), (Offset::Fixed(330), DateTimeSeparator::Upper));
 /// assert_eq!(t.to_string(), "2026-09-28T12:34:56.789+05:30");
+/// let lower = Temporal::parse("2026-09-28t12:34:56z")?;
+/// assert_eq!(lower.to_string(), "2026-09-28t12:34:56z");
 /// # Ok::<(), panproto_expr::ExactParseError>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -30,8 +37,82 @@ pub enum Temporal {
     Date(CivilDate),
     /// A time of day with its offset.
     Time(CivilTime, Offset),
-    /// A date and a time of day with its offset.
-    DateTime(CivilDate, CivilTime, Offset),
+    /// A date and a time of day with its offset, and the separator written
+    /// between the date and the time.
+    DateTime(CivilDate, CivilTime, Offset, DateTimeSeparator),
+}
+
+/// The separator a date-time was written with between its date and its
+/// time: `T`, `t` (RFC 3339 Sec 5.6 allows either case) or a space (RFC
+/// 3339 Sec 5.6 NOTE, TOML 1.0 and SQL).
+///
+/// Serialized as `"upper"`, `"lower"` and `"space"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateTimeSeparator {
+    /// `T`.
+    Upper,
+    /// `t`.
+    Lower,
+    /// A space.
+    Space,
+}
+
+impl DateTimeSeparator {
+    /// The byte written: `T`, `t` or a space.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        match self {
+            Self::Upper => b'T',
+            Self::Lower => b't',
+            Self::Space => b' ',
+        }
+    }
+
+    /// The separator `byte` writes, if it writes one.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            b'T' => Some(Self::Upper),
+            b't' => Some(Self::Lower),
+            b' ' => Some(Self::Space),
+            _ => None,
+        }
+    }
+}
+
+/// The case a `Z` offset was written in: `Z` or `z` (RFC 3339 Sec 5.6
+/// allows either).
+///
+/// Serialized as `"upper"` and `"lower"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZuluCase {
+    /// `Z`.
+    Upper,
+    /// `z`.
+    Lower,
+}
+
+impl ZuluCase {
+    /// The byte written: `Z` or `z`.
+    #[must_use]
+    pub const fn byte(self) -> u8 {
+        match self {
+            Self::Upper => b'Z',
+            Self::Lower => b'z',
+        }
+    }
+
+    /// The case `byte` writes, if it is `Z` or `z`.
+    #[must_use]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            b'Z' => Some(Self::Upper),
+            b'z' => Some(Self::Lower),
+            _ => None,
+        }
+    }
 }
 
 /// A proleptic Gregorian calendar date.
@@ -47,7 +128,12 @@ pub struct CivilDate {
 }
 
 /// A time of day.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// The fraction of the second is kept as the digits the lexeme wrote, of
+/// any number, trailing zeros included: `12:00:00.1` and `12:00:00.10` are
+/// different values under `==`, and
+/// [`Temporal::cmp_chronological`] compares them as the same instant.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "TimeParts")]
 pub struct CivilTime {
     /// The hour, 0 to 23.
@@ -56,27 +142,121 @@ pub struct CivilTime {
     pub minute: u8,
     /// The second, 0 to 60 (60 is a leap second).
     pub second: u8,
-    /// The fraction of the second in nanoseconds.
-    pub nanos: u32,
-    /// The number of fractional digits the lexeme wrote, 0 to 9; `nanos`
-    /// is a multiple of `10^(9 - frac_digits)`.
-    pub frac_digits: u8,
+    /// The fractional-second digits as written; empty when the lexeme
+    /// wrote no fraction.
+    pub fraction: Fraction,
 }
 
-/// The UTC offset a lexeme wrote.
+/// The fractional-second digits of a time, as the lexeme wrote them.
+///
+/// Any number of ASCII digits, trailing zeros kept (so the written
+/// precision survives), and empty when the lexeme wrote no fraction. The
+/// digits `d1 d2 ... dn` denote the fraction `0.d1d2...dn` of a second.
+/// Serialized as the digit string.
+///
+/// ```
+/// use panproto_expr::exact::Fraction;
+///
+/// let f = Fraction::new("1230")?;
+/// assert_eq!(f.as_str(), "1230");
+/// assert!(Fraction::new("12a").is_err());
+/// # Ok::<(), panproto_expr::ExactParseError>(())
+/// ```
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct Fraction(Box<str>);
+
+impl Fraction {
+    /// The fraction written `digits`.
+    ///
+    /// # Errors
+    ///
+    /// [`FidelityReason::InvalidTemporal`] when `digits` holds a character
+    /// that is not an ASCII digit.
+    pub fn new(digits: &str) -> Result<Self, ExactParseError> {
+        if digits.bytes().all(|b| b.is_ascii_digit()) {
+            Ok(Self(digits.into()))
+        } else {
+            Err(invalid())
+        }
+    }
+
+    /// The digits as written.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether the lexeme wrote no fraction.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Compare two fractions as the numbers they denote: digit by digit,
+    /// the shorter padded with zeros, so `1` and `10` are equal.
+    #[must_use]
+    pub fn cmp_numeric(&self, other: &Self) -> Ordering {
+        let (a, b) = (self.0.as_bytes(), other.0.as_bytes());
+        (0..a.len().max(b.len()))
+            .map(|i| {
+                let digit = |s: &[u8]| s.get(i).copied().unwrap_or(b'0');
+                digit(a).cmp(&digit(b))
+            })
+            .find(|o| o.is_ne())
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+impl TryFrom<String> for Fraction {
+    type Error = ExactParseError;
+    fn try_from(digits: String) -> Result<Self, Self::Error> {
+        Self::new(&digits)
+    }
+}
+
+impl From<Fraction> for String {
+    fn from(fraction: Fraction) -> Self {
+        fraction.0.into()
+    }
+}
+
+/// The UTC offset a lexeme wrote, named by its written form.
+///
+/// The three zero offsets are three distinct values that denote one
+/// instant. RFC 9557 (Sharma and Bormann 2024, Sec 2.2, stated) updates RFC
+/// 3339 so that `Z` means what `-00:00` means: the time in UTC is known and
+/// the offset to local time is unknown; only `+00:00` says that UTC is the
+/// preferred reference. The variants are named after the forms rather than
+/// after a meaning because implementations disagree on what the forms
+/// mean: java.time reads all three as one UTC offset (Oracle, Java SE 25
+/// API, `java.time.OffsetDateTime`, stated), the Temporal proposal reads
+/// `-00:00` as `+00:00` (Ecma TC39, Temporal proposal specification, Sec
+/// 13.31, stated), and RFC 9557 reads `Z` as `-00:00`. Representation
+/// equality keeps the form; [`Temporal::cmp_chronological`] compares the
+/// instants, under which the three are `Equal`.
+///
+/// The case of a `Z` is kept too ([`ZuluCase`]), so `Z` and `z` are two
+/// values of one instant, as the zero offsets are.
+///
+/// Serialized as `"local"`, `{"zulu": "upper"}` or `{"zulu": "lower"}`,
+/// `{"fixed": minutes}` and `"neg_zero"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", try_from = "OffsetRepr")]
 pub enum Offset {
     /// No offset: a local (floating) time, as TOML local date-times and SQL
     /// `TIMESTAMP WITHOUT TIME ZONE` write.
     Local,
-    /// `Z`.
-    Utc,
-    /// A numeric offset in minutes east of UTC; `+00:00` is `Fixed(0)`.
+    /// The form `Z`, or `z`, in the case written. By RFC 9557 Sec 2.2 the
+    /// time in UTC is known and the offset to local time is unknown.
+    Zulu(ZuluCase),
+    /// A numeric offset in minutes east of UTC. `Fixed(0)` is the form
+    /// `+00:00`, which by RFC 9557 Sec 2.2 says that UTC is the preferred
+    /// reference point.
     Fixed(i16),
-    /// RFC 3339's `-00:00`: the time is in UTC and the local offset is
-    /// unknown.
-    Unknown,
+    /// The form `-00:00`. By RFC 9557 Sec 2.2, as by RFC 3339, the time in
+    /// UTC is known and the offset to local time is unknown.
+    NegZero,
 }
 
 #[derive(Deserialize)]
@@ -91,17 +271,16 @@ struct TimeParts {
     hour: u8,
     minute: u8,
     second: u8,
-    nanos: u32,
-    frac_digits: u8,
+    fraction: Fraction,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum OffsetRepr {
     Local,
-    Utc,
+    Zulu(ZuluCase),
     Fixed(i16),
-    Unknown,
+    NegZero,
 }
 
 impl TryFrom<DateParts> for CivilDate {
@@ -114,7 +293,7 @@ impl TryFrom<DateParts> for CivilDate {
 impl TryFrom<TimeParts> for CivilTime {
     type Error = ExactParseError;
     fn try_from(p: TimeParts) -> Result<Self, Self::Error> {
-        Self::new(p.hour, p.minute, p.second, p.nanos, p.frac_digits)
+        Self::new(p.hour, p.minute, p.second, p.fraction)
     }
 }
 
@@ -123,8 +302,8 @@ impl TryFrom<OffsetRepr> for Offset {
     fn try_from(r: OffsetRepr) -> Result<Self, Self::Error> {
         match r {
             OffsetRepr::Local => Ok(Self::Local),
-            OffsetRepr::Utc => Ok(Self::Utc),
-            OffsetRepr::Unknown => Ok(Self::Unknown),
+            OffsetRepr::Zulu(case) => Ok(Self::Zulu(case)),
+            OffsetRepr::NegZero => Ok(Self::NegZero),
             OffsetRepr::Fixed(m) => Self::fixed(m),
         }
     }
@@ -146,12 +325,6 @@ const fn days_in_month(year: i32, month: u8) -> u8 {
         2 => 28,
         _ => 0,
     }
-}
-
-/// `10^(9 - frac_digits)`, the nanosecond step a fraction of
-/// `frac_digits` digits moves in.
-fn nanos_step(frac_digits: u8) -> u32 {
-    10_u32.pow(u32::from(9 - frac_digits.min(9)))
 }
 
 impl CivilDate {
@@ -188,41 +361,31 @@ impl CivilDate {
 }
 
 impl CivilTime {
-    /// The time `hour:minute:second` plus `nanos`, written with
-    /// `frac_digits` fractional digits.
+    /// The time `hour:minute:second` and `fraction` of a second.
     ///
     /// # Errors
     ///
-    /// [`FidelityReason::InvalidTemporal`] when a field is out of range or
-    /// `nanos` has digits past `frac_digits`.
+    /// [`FidelityReason::InvalidTemporal`] when a field is out of range.
     pub fn new(
         hour: u8,
         minute: u8,
         second: u8,
-        nanos: u32,
-        frac_digits: u8,
+        fraction: Fraction,
     ) -> Result<Self, ExactParseError> {
-        if hour > 23
-            || minute > 59
-            || second > 60
-            || nanos >= 1_000_000_000
-            || frac_digits > 9
-            || nanos % nanos_step(frac_digits) != 0
-        {
+        if hour > 23 || minute > 59 || second > 60 {
             return Err(invalid());
         }
         Ok(Self {
             hour,
             minute,
             second,
-            nanos,
-            frac_digits,
+            fraction,
         })
     }
 
-    /// Seconds since midnight.
+    /// Whole seconds since midnight, the fraction left out.
     #[must_use]
-    pub fn seconds_of_day(self) -> i64 {
+    pub fn seconds_of_day(&self) -> i64 {
         i64::from(self.hour) * 3600 + i64::from(self.minute) * 60 + i64::from(self.second)
     }
 }
@@ -247,13 +410,13 @@ impl Offset {
         !matches!(self, Self::Local)
     }
 
-    /// Minutes east of UTC; zero for [`Offset::Utc`], [`Offset::Unknown`]
+    /// Minutes east of UTC; zero for [`Offset::Zulu`], [`Offset::NegZero`]
     /// and [`Offset::Local`].
     #[must_use]
     pub const fn minutes(self) -> i16 {
         match self {
             Self::Fixed(m) => m,
-            Self::Local | Self::Utc | Self::Unknown => 0,
+            Self::Local | Self::Zulu(_) | Self::NegZero => 0,
         }
     }
 }
@@ -282,6 +445,8 @@ fn narrow(v: u32) -> Result<u8, ExactParseError> {
 }
 
 /// Read `[sign]YYYY-MM-DD` (four or more year digits) at the start of `s`.
+/// A plus sign is read as no sign, and a minus sign before the year zero
+/// (`-0000`) as no sign (known losses, stated at [`Temporal::parse`]).
 fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
     let (negative, s) = match s.as_bytes().first() {
         Some(b'-') => (true, &s[1..]),
@@ -310,31 +475,17 @@ fn read_time(s: &str) -> Result<(CivilTime, &str), ExactParseError> {
     let (minute, s) = take_digits(s, 2)?;
     let s = take_byte(s, b':')?;
     let (second, s) = take_digits(s, 2)?;
-    let (nanos, frac_digits, s) = match s.strip_prefix('.') {
-        None => (0, 0, s),
+    let (fraction, s) = match s.strip_prefix('.') {
+        None => (Fraction::default(), s),
         Some(rest) => {
             let n = rest.bytes().take_while(u8::is_ascii_digit).count();
             if n == 0 {
                 return Err(invalid());
             }
-            if n > 9 {
-                return Err(ExactParseError::new(
-                    ExactKind::Temporal,
-                    FidelityReason::PrecisionExceeded { max: 9 },
-                ));
-            }
-            let (fraction, rest) = take_digits(rest, n)?;
-            let frac_digits = narrow(u32::try_from(n).map_err(|_| invalid())?)?;
-            (fraction * nanos_step(frac_digits), frac_digits, rest)
+            (Fraction::new(&rest[..n])?, &rest[n..])
         }
     };
-    let time = CivilTime::new(
-        narrow(hour)?,
-        narrow(minute)?,
-        narrow(second)?,
-        nanos,
-        frac_digits,
-    )?;
+    let time = CivilTime::new(narrow(hour)?, narrow(minute)?, narrow(second)?, fraction)?;
     Ok((time, s))
 }
 
@@ -342,8 +493,9 @@ fn read_time(s: &str) -> Result<(CivilTime, &str), ExactParseError> {
 fn read_offset(s: &str) -> Result<Offset, ExactParseError> {
     match s {
         "" => Ok(Offset::Local),
-        "Z" | "z" => Ok(Offset::Utc),
-        "-00:00" => Ok(Offset::Unknown),
+        "Z" => Ok(Offset::Zulu(ZuluCase::Upper)),
+        "z" => Ok(Offset::Zulu(ZuluCase::Lower)),
+        "-00:00" => Ok(Offset::NegZero),
         _ => {
             let (sign, rest) = match s.as_bytes().first() {
                 Some(b'+') => (1_i16, &s[1..]),
@@ -367,12 +519,18 @@ impl Temporal {
     /// lexeme: a date-time has a `T`, `t` or space after the date, a date
     /// has a `-` after its year, and anything else is read as a time.
     ///
+    /// The value records the separator and the case of a `Z` as written,
+    /// and `Display` writes them back. Known losses: a plus sign before the
+    /// year (`+2024-01-01`) is read as an unsigned year is, and a minus sign
+    /// before the year zero (`-0000-01-01`) as the year zero is, so neither
+    /// sign is written back (`0000-01-01`); the value does not record that
+    /// a sign was written.
+    ///
     /// # Errors
     ///
     /// [`FidelityReason::InvalidTemporal`] when the lexeme is not one of the
-    /// forms or a field is out of range, and
-    /// [`FidelityReason::PrecisionExceeded`] for more than nine fractional
-    /// digits.
+    /// forms or a field is out of range. A fraction of any number of digits
+    /// is read and kept as written.
     pub fn parse(text: &str) -> Result<Self, ExactParseError> {
         if text.contains(['T', 't', ' ']) {
             Self::parse_date_time(text)
@@ -413,12 +571,14 @@ impl Temporal {
     /// As [`parse`](Self::parse).
     pub fn parse_date_time(text: &str) -> Result<Self, ExactParseError> {
         let (date, rest) = read_date(text)?;
-        let rest = match rest.as_bytes().first() {
-            Some(b'T' | b't' | b' ') => &rest[1..],
-            _ => return Err(invalid()),
-        };
-        let (time, rest) = read_time(rest)?;
-        Ok(Self::DateTime(date, time, read_offset(rest)?))
+        let separator = rest
+            .as_bytes()
+            .first()
+            .copied()
+            .and_then(DateTimeSeparator::from_byte)
+            .ok_or_else(invalid)?;
+        let (time, rest) = read_time(&rest[1..])?;
+        Ok(Self::DateTime(date, time, read_offset(rest)?, separator))
     }
 
     /// The offset the value was written with; `None` for a date.
@@ -426,32 +586,49 @@ impl Temporal {
     pub const fn offset(&self) -> Option<Offset> {
         match self {
             Self::Date(_) => None,
-            Self::Time(_, offset) | Self::DateTime(_, _, offset) => Some(*offset),
+            Self::Time(_, offset) | Self::DateTime(_, _, offset, _) => Some(*offset),
         }
     }
 
     /// Compare two values in time, when both are of one form and either
     /// both are local or both are zoned; `None` otherwise.
     ///
-    /// Zoned values are compared on the UTC timeline (a `-00:00` time is a
-    /// UTC time); local values by their civil fields. A leap second sorts
-    /// after second 59 of its minute.
+    /// Zoned values are compared on the UTC timeline, so the three zero
+    /// offsets `Z`, `+00:00` and `-00:00` compare `Equal`; local values by
+    /// their civil fields. How a value was written (the case of `Z` or of
+    /// the separator) does not enter the comparison. Fractions of any length compare as decimal
+    /// fractions of a second (`.1` and `.10` are equal). A leap second
+    /// sorts after second 59 of its minute.
+    ///
+    /// Known departure from the order of instants, kept so that the order
+    /// of values whose fractions have at most nine digits is unchanged: a
+    /// value is placed by its whole seconds (second 60 counting as the
+    /// sixtieth second of its minute, so `23:59:60` is second 86400 of its
+    /// day) and then its fraction, so a leap second compares `Equal` to the
+    /// following minute's second 0 with an equal fraction
+    /// (`2024-01-01T23:59:60Z` and `2024-01-02T00:00:00Z`), and a leap
+    /// second with a fraction sorts after that second 0, though the leap
+    /// second precedes it.
     #[must_use]
     pub fn cmp_chronological(&self, other: &Self) -> Option<Ordering> {
-        let instant = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {
+        let seconds = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {
             let days = date.map_or(0, |d| d.days_since_epoch());
-            let seconds = days * 86_400 + time.seconds_of_day() - i64::from(offset.minutes()) * 60;
-            (seconds, time.nanos)
+            days * 86_400 + time.seconds_of_day() - i64::from(offset.minutes()) * 60
+        };
+        let instant = |date, ta: &CivilTime, oa, db, tb: &CivilTime, ob| {
+            seconds(date, ta, oa)
+                .cmp(&seconds(db, tb, ob))
+                .then_with(|| ta.fraction.cmp_numeric(&tb.fraction))
         };
         match (self, other) {
             (Self::Date(a), Self::Date(b)) => Some(a.days_since_epoch().cmp(&b.days_since_epoch())),
             (Self::Time(ta, oa), Self::Time(tb, ob)) if oa.is_zoned() == ob.is_zoned() => {
-                Some(instant(None, ta, *oa).cmp(&instant(None, tb, *ob)))
+                Some(instant(None, ta, *oa, None, tb, *ob))
             }
-            (Self::DateTime(da, ta, oa), Self::DateTime(db, tb, ob))
+            (Self::DateTime(da, ta, oa, _), Self::DateTime(db, tb, ob, _))
                 if oa.is_zoned() == ob.is_zoned() =>
             {
-                Some(instant(Some(da), ta, *oa).cmp(&instant(Some(db), tb, *ob)))
+                Some(instant(Some(da), ta, *oa, Some(db), tb, *ob))
             }
             _ => None,
         }
@@ -459,34 +636,37 @@ impl Temporal {
 
     /// The canonical payload bytes: a form byte (`0` date, `1` time, `2`
     /// date-time), then the date as a little-endian `i64` year and one byte
-    /// each for month and day, the time as one byte each for hour, minute
-    /// and second, a little-endian `u32` of nanoseconds and one byte of
-    /// fractional digits, and the offset as a byte (`0` local, `1` UTC, `2`
-    /// fixed, `3` unknown) followed, for a fixed offset, by its minutes as
-    /// a little-endian `i64`.
+    /// each for month and day, for a date-time the separator's ASCII byte
+    /// (`T`, `t` or a space), the time as one byte each for hour, minute
+    /// and second followed by the fraction's digit count as a little-endian
+    /// `u64` and its digits as ASCII bytes (a count of zero and no digits
+    /// when the lexeme wrote no fraction), and the offset as a byte (`0`
+    /// [`Offset::Local`], `1` [`Offset::Zulu`], `2` [`Offset::Fixed`], `3`
+    /// [`Offset::NegZero`]) followed, for `Zulu`, by the ASCII byte of the
+    /// letter written (`Z` or `z`) and, for a fixed offset, by its minutes
+    /// as a little-endian `i64`.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
         fn date(out: &mut Vec<u8>, d: CivilDate) {
             out.extend_from_slice(&i64::from(d.year).to_le_bytes());
             out.extend_from_slice(&[d.month, d.day]);
         }
-        fn time(out: &mut Vec<u8>, t: CivilTime) {
+        fn time(out: &mut Vec<u8>, t: &CivilTime) {
             out.extend_from_slice(&[t.hour, t.minute, t.second]);
-            out.extend_from_slice(&t.nanos.to_le_bytes());
-            out.push(t.frac_digits);
+            super::put_str(out, t.fraction.as_str());
         }
         fn offset(out: &mut Vec<u8>, o: Offset) {
             match o {
                 Offset::Local => out.push(0),
-                Offset::Utc => out.push(1),
+                Offset::Zulu(case) => out.extend_from_slice(&[1, case.byte()]),
                 Offset::Fixed(m) => {
                     out.push(2);
                     out.extend_from_slice(&i64::from(m).to_le_bytes());
                 }
-                Offset::Unknown => out.push(3),
+                Offset::NegZero => out.push(3),
             }
         }
-        let mut out = Vec::with_capacity(28);
+        let mut out = Vec::with_capacity(32);
         match self {
             Self::Date(d) => {
                 out.push(0);
@@ -494,13 +674,14 @@ impl Temporal {
             }
             Self::Time(t, o) => {
                 out.push(1);
-                time(&mut out, *t);
+                time(&mut out, t);
                 offset(&mut out, *o);
             }
-            Self::DateTime(d, t, o) => {
+            Self::DateTime(d, t, o, separator) => {
                 out.push(2);
                 date(&mut out, *d);
-                time(&mut out, *t);
+                out.push(separator.byte());
+                time(&mut out, t);
                 offset(&mut out, *o);
             }
         }
@@ -526,13 +707,8 @@ impl std::fmt::Display for CivilDate {
 impl std::fmt::Display for CivilTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:02}:{:02}:{:02}", self.hour, self.minute, self.second)?;
-        if self.frac_digits > 0 {
-            let fraction = self.nanos / nanos_step(self.frac_digits);
-            write!(
-                f,
-                ".{fraction:0width$}",
-                width = usize::from(self.frac_digits)
-            )?;
+        if !self.fraction.is_empty() {
+            write!(f, ".{}", self.fraction.as_str())?;
         }
         Ok(())
     }
@@ -542,8 +718,8 @@ impl std::fmt::Display for Offset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local => Ok(()),
-            Self::Utc => f.write_str("Z"),
-            Self::Unknown => f.write_str("-00:00"),
+            Self::Zulu(case) => f.write_char(char::from(case.byte())),
+            Self::NegZero => f.write_str("-00:00"),
             Self::Fixed(m) => {
                 let sign = if *m < 0 { '-' } else { '+' };
                 let m = m.unsigned_abs();
@@ -554,13 +730,15 @@ impl std::fmt::Display for Offset {
 }
 
 impl std::fmt::Display for Temporal {
-    /// The RFC 3339 form, which [`Temporal::parse`] reads back into the
-    /// same value.
+    /// The RFC 3339 form, with the separator and the case of `Z` as
+    /// written, which [`Temporal::parse`] reads back into the same value.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Date(d) => write!(f, "{d}"),
             Self::Time(t, o) => write!(f, "{t}{o}"),
-            Self::DateTime(d, t, o) => write!(f, "{d}T{t}{o}"),
+            Self::DateTime(d, t, o, separator) => {
+                write!(f, "{d}{}{t}{o}", char::from(separator.byte()))
+            }
         }
     }
 }
