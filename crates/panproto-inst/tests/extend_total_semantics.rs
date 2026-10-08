@@ -138,6 +138,11 @@ fn extends_agree_on_the_exact_domain() {
     assert_exact_agreement(10, 20);
 }
 
+#[test]
+fn table_extend_is_table_sigma_on_the_exact_domain() {
+    assert_exact_agreement(11, 29);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
@@ -347,7 +352,7 @@ fn partial_table_extension_reports_and_omits_an_unmapped_cell() {
 }
 
 #[test]
-fn an_extend_keeps_distinct_element_ids_under_a_vertex_merge() {
+fn an_extend_keeps_distinct_element_ids() {
     let source_edge = edge("a", "b", "r");
     let target_edge = edge("m", "m", "r");
     let source_schema = schema(&["a", "b"], std::slice::from_ref(&source_edge));
@@ -403,6 +408,97 @@ fn an_extend_keeps_distinct_element_ids_under_a_vertex_merge() {
     assert_eq!(tree_ids, [10, 20]);
     assert_eq!(graph_ids, [10, 20]);
     assert_eq!(table_out.row_ids(), vec![RowId(10), RowId(20)]);
+}
+
+#[test]
+fn an_extend_of_a_non_tree_input_takes_the_graph_path() {
+    let forward = edge("a", "b", "forward");
+    let back = edge("b", "a", "back");
+    let source_schema = schema(&["a", "b"], &[forward.clone(), back.clone()]);
+    let target_schema = source_schema.clone();
+    let migration = migration(
+        &[("a", "a"), ("b", "b")],
+        &[
+            (forward.clone(), forward.clone()),
+            (back.clone(), back.clone()),
+        ],
+    );
+    let protocol = protocol();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let source = GInstance::new()
+        .with_node(Node::new(3, "a"))
+        .with_node(Node::new(5, "b"))
+        .with_edge_id(EdgeId(7), 3, 5, forward)
+        .with_edge_id(EdgeId(9), 5, 3, back);
+
+    assert!(source.try_to_wtype(&source_schema).is_err());
+    let extended = graph_extend(
+        &source,
+        &source_schema,
+        &target_schema,
+        &migration,
+        protocols,
+    )
+    .unwrap();
+    assert!(GInstance::identical(&extended, &source));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn an_s3_8_extend_of_a_set_valued_source_has_no_realized_pair_collision(
+        drawn in proptest::collection::btree_set((0_u8..8, 0_u8..8), 0..32),
+    ) {
+        let source_edge = edge("a", "b", "r");
+        let target_edge = edge("A", "B", "R");
+        let source_schema = schema(&["a", "b"], std::slice::from_ref(&source_edge));
+        let target_schema = schema(&["A", "B"], std::slice::from_ref(&target_edge));
+        let migration = migration(
+            &[("a", "A"), ("b", "B")],
+            &[(source_edge.clone(), target_edge.clone())],
+        );
+        let protocol = protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let left: BTreeSet<RowId> = drawn
+            .iter()
+            .map(|&(src, _)| RowId(u32::from(src)))
+            .collect();
+        let right: BTreeSet<RowId> = drawn
+            .iter()
+            .map(|&(_, tgt)| RowId(256 + u32::from(tgt)))
+            .collect();
+        let pairs: Vec<(RowId, RowId)> = drawn
+            .iter()
+            .map(|&(src, tgt)| (RowId(u32::from(src)), RowId(256 + u32::from(tgt))))
+            .collect();
+        let source = FInstance::new()
+            .with_rows("a", left.iter().copied().map(|id| (id, HashMap::new())))
+            .and_then(|table| {
+                table.with_rows("b", right.iter().copied().map(|id| (id, HashMap::new())))
+            })
+            .and_then(|table| table.with_foreign_key(source_edge, pairs.clone()))
+            .unwrap();
+
+        let extended = functor_extend(
+            &source,
+            &source_schema,
+            &target_schema,
+            &migration,
+            protocols,
+        )
+        .unwrap();
+        prop_assert_eq!(extended.pairs(&target_edge).len(), drawn.len());
+        for pair in pairs {
+            prop_assert!(extended.contains_pair(&target_edge, pair.0, pair.1));
+        }
+    }
 }
 
 #[test]

@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_sigma_and_pi_lifts_match_tree_lifts_on_trees() {
+    fn graph_kan_lifts_match_tree_lifts_on_trees() {
         let protocol = table_protocol();
         let schema = table_schema(&[("t", &[])]);
         let compiled = CompiledMigration {

@@ -7,6 +7,225 @@
 
 use std::fmt;
 
+use panproto_inst::{EdgeId, RowId};
+use panproto_schema::Edge;
+
+/// Why graph complement state cannot be represented by a table complement.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum NotTableComplementReason {
+    /// The source schema has no relational classification under the boundary protocol.
+    #[error("source schema is not relational: {detail}")]
+    RelSchema {
+        /// The relational-classification failure.
+        detail: String,
+    },
+    /// A dropped table pair has no durable graph edge id.
+    #[error("source embedding has no dropped pair {edge:?} ({src:?}, {tgt:?})")]
+    MissingDroppedPair {
+        /// The relation edge.
+        edge: Box<Edge>,
+        /// Source row.
+        src: RowId,
+        /// Target row.
+        tgt: RowId,
+    },
+    /// A view pair with an original relation has no durable graph edge id.
+    #[error("view embedding has no original pair {edge:?} ({src:?}, {tgt:?})")]
+    MissingOriginalPair {
+        /// The view relation edge.
+        edge: Box<Edge>,
+        /// Source row.
+        src: RowId,
+        /// Target row.
+        tgt: RowId,
+    },
+    /// One graph edge would have to remember several source relation edges.
+    #[error("one graph edge cannot carry {count} original foreign keys")]
+    MultipleOriginalForeignKeys {
+        /// Number of source relation edges.
+        count: usize,
+    },
+    /// A row has no unique source table under the vertex map.
+    #[error("row {row:?} has no determined source table")]
+    UndeterminedSourceTable {
+        /// The row.
+        row: RowId,
+    },
+    /// A graph-only synthesized node is present.
+    #[error("synthesized node {node} has no table-complement coordinate")]
+    SynthesizedNode {
+        /// The synthesized node id.
+        node: u32,
+    },
+    /// A dropped node carries a value attribute.
+    #[error("dropped node {node} carries a value attribute")]
+    NodeValue {
+        /// The node id.
+        node: u32,
+    },
+    /// A dropped node carries discriminator metadata.
+    #[error("dropped node {node} carries discriminator metadata")]
+    NodeDiscriminator {
+        /// The node id.
+        node: u32,
+    },
+    /// A dropped node carries an edge-position attribute.
+    #[error("dropped node {node} carries a position attribute")]
+    NodePosition {
+        /// The node id.
+        node: u32,
+    },
+    /// A dropped node reifies a fan.
+    #[error("dropped node {node} reifies a fan")]
+    FanNode {
+        /// The fan node id.
+        node: u32,
+    },
+    /// A dropped node carries graph metadata.
+    #[error("dropped node {node} carries annotations")]
+    NodeAnnotations {
+        /// The node id.
+        node: u32,
+    },
+    /// A dropped node carries a nested value in a cell slot.
+    #[error("dropped node {node} carries nested cell `{column}`")]
+    NestedCell {
+        /// The node id.
+        node: u32,
+        /// The offending cell name.
+        column: String,
+    },
+    /// A dropped or original graph edge carries an edge position.
+    #[error("edge {edge} carries a position attribute")]
+    EdgePosition {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// A dropped or original graph edge reifies a fan leg.
+    #[error("edge {edge} reifies a fan leg")]
+    FanEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// An original graph edge is absent from the table embedding.
+    #[error("view embedding has no edge {edge}")]
+    MissingEmbeddedEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// A field snapshot names no view row.
+    #[error("view has no row {row:?}")]
+    MissingViewRow {
+        /// The row.
+        row: RowId,
+    },
+    /// A synthesized graph edge is absent from the table embedding.
+    #[error("view embedding has no synthesized edge {edge}")]
+    MissingSynthesizedEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// A synthesized edge key is not a contracted table pair.
+    #[error("synthesized edge {edge} is not a contracted table pair")]
+    InvalidSynthesizedEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+}
+
+/// Why graph complement state cannot be represented by a tree complement.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum NotTreeComplementReason {
+    /// The view embedding has no graph edge for a tree arc.
+    #[error("view embedding has no arc ({parent}, {child}) with an original edge")]
+    MissingEmbeddedArc {
+        /// Parent node.
+        parent: u32,
+        /// Child node.
+        child: u32,
+    },
+    /// Two graph edges would both be the parent arc of one tree node.
+    #[error("node {node} has graph edges {first} and {second} as parents")]
+    MultipleParents {
+        /// The child node.
+        node: u32,
+        /// First edge id.
+        first: EdgeId,
+        /// Second edge id.
+        second: EdgeId,
+    },
+    /// A fan id has no node record.
+    #[error("fan node {node} has no node record")]
+    MissingFanNode {
+        /// The fan node id.
+        node: u32,
+    },
+    /// A fan edge id has no edge record.
+    #[error("fan edge {edge} has no edge record")]
+    MissingFanEdge {
+        /// The fan edge id.
+        edge: EdgeId,
+    },
+    /// A fan has more than one parent edge.
+    #[error("fan node {node} has two parent edges")]
+    MultipleFanParents {
+        /// The fan node id.
+        node: u32,
+    },
+    /// A fan child edge has no label.
+    #[error("fan edge {edge} has no label")]
+    MissingFanLabel {
+        /// The fan edge id.
+        edge: EdgeId,
+    },
+    /// A fan repeats a child label.
+    #[error("fan node {node} repeats label `{label}`")]
+    DuplicateFanLabel {
+        /// The fan node id.
+        node: u32,
+        /// The repeated label.
+        label: String,
+    },
+    /// A fan has no parent target.
+    #[error("fan node {node} has no parent")]
+    MissingFanParent {
+        /// The fan node id.
+        node: u32,
+    },
+    /// A fan has no durable parent edge id.
+    #[error("fan node {node} has no parent edge")]
+    MissingFanParentEdge {
+        /// The fan node id.
+        node: u32,
+    },
+    /// A synthesized tree arc is absent from the graph view.
+    #[error("synthesized edge {edge} is absent from the view")]
+    MissingSynthesizedEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// A resolution key has no tree-complement coordinate.
+    #[error("synthesized edge {edge} carries a resolution key")]
+    ResolutionSynthesizedEdge {
+        /// The graph edge id.
+        edge: EdgeId,
+    },
+    /// A tree expansion key names no arc in the durable source embedding.
+    #[error("tree expansion key names absent source arc {edge}")]
+    MissingSourceArc {
+        /// The source arc id in the tree presentation.
+        edge: EdgeId,
+    },
+    /// A synthesized tree node has no entering arc in the view embedding.
+    #[error("synthesized tree node {node} has no entering arc")]
+    MissingSynthesizedNodeArc {
+        /// The synthesized node id.
+        node: u32,
+    },
+}
+
 /// Errors from lens construction, combinator compilation, or lens operations.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -114,20 +333,6 @@ pub enum LensError {
         found: usize,
     },
 
-    /// A graph complement carries state that no table complement can name.
-    #[error("graph complement is not table-shaped: {reason}")]
-    NotTableComplement {
-        /// The first unrepresentable field or element.
-        reason: String,
-    },
-
-    /// A graph complement carries state that no tree complement can name.
-    #[error("graph complement is not tree-shaped: {reason}")]
-    NotTreeComplement {
-        /// The first unrepresentable field or element.
-        reason: String,
-    },
-
     /// A caller that can store only one compiled lens received a path whose
     /// tree normal form has more than one group.
     #[error("lens path has {stages} normal-form groups; one is required")]
@@ -212,6 +417,20 @@ pub enum LensError {
         enricher: String,
         /// Human-readable failure.
         detail: String,
+    },
+
+    /// A graph complement carries state that no table complement can name.
+    #[error("graph complement is not table-shaped: {reason}")]
+    NotTableComplement {
+        /// The first unrepresentable field or element.
+        reason: NotTableComplementReason,
+    },
+
+    /// A graph complement carries state that no tree complement can name.
+    #[error("graph complement is not tree-shaped: {reason}")]
+    NotTreeComplement {
+        /// The first unrepresentable field or element.
+        reason: NotTreeComplementReason,
     },
 }
 
