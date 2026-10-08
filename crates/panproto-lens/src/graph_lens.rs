@@ -13,10 +13,10 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, FieldTransform, GEdge,
-    GInstance, GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdAllocator, IdRange,
-    InstError, PairResolution, PutDomainError, RestrictPlan, SynthKey, ViewRef,
-    canonical_label_shape, graph_restrict_with_plan,
+    BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver,
+    FieldTransform, GEdge, GInstance, GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
+    IdAllocator, IdRange, InstError, PairResolution, PutDomainError, RestrictPlan, SynthKey,
+    ViewRef, canonical_label_shape, graph_restrict_with_plan,
 };
 use panproto_schema::{Edge, Schema};
 
@@ -39,7 +39,40 @@ type KeyBuckets = BTreeMap<(Option<u32>, Vec<u8>), (Vec<panproto_inst::Value>, V
 /// Returns the plan compilation or graph restrict error.
 pub fn get(lens: &Lens, source: &GInstance) -> Result<(GInstance, GraphComplement), LensError> {
     let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
-    let (view, mut complement) = graph_restrict_with_plan(source, &plan)?;
+    get_with_plan(lens, source, &plan)
+}
+
+/// Forward graph-lens direction with explicit boundary protocols.
+///
+/// This additive companion to [`get`] installs the plan's cell layer, so a
+/// value written by a transform is checked against the declared target
+/// column kind. The protocol-free base API remains the structural graph
+/// path. Both paths stamp the same graph-lens identity.
+///
+/// # Errors
+///
+/// Returns the boundary-aware plan compilation or graph restrict error,
+/// including typed value-fidelity failures at target column vertices.
+pub fn get_with_protocols(
+    lens: &Lens,
+    source: &GInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(GInstance, GraphComplement), LensError> {
+    let plan = RestrictPlan::compile_with_protocols(
+        &lens.src_schema,
+        &lens.tgt_schema,
+        &lens.compiled,
+        protocols,
+    )?;
+    get_with_plan(lens, source, &plan)
+}
+
+fn get_with_plan(
+    lens: &Lens,
+    source: &GInstance,
+    plan: &RestrictPlan,
+) -> Result<(GInstance, GraphComplement), LensError> {
+    let (view, mut complement) = graph_restrict_with_plan(source, plan)?;
     complement.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
     Ok((view, complement))
 }
@@ -174,9 +207,27 @@ pub fn check_laws_exhaustive(
 /// Removing a surviving view node applies an SPO-style deletion in the
 /// unknown context carried by the complement. Once the incident hidden
 /// edges have been read, the reconstructed source is a DPO rule satisfying
-/// the dangling condition by construction (Harmer et al. 2020, Remark 2.2;
-/// Brown et al. 2022, Equations 3--4). Reading this cascade as a cartesian
-/// lift of the view deletion is a conjecture tested by the graph law corpus.
+/// the dangling condition by construction (`harmer2020reversibility`, Remark
+/// 2.2; `brown2022computational`, Equations 3--4).
+///
+/// On the Delta fragment -- subschema restriction and monic deletions, with
+/// no contraction, expansion, or survival predicate -- the cascade for a
+/// deletion-only view edit is the largest source subinstance whose
+/// restriction is the edited view. Indeed, put keeps every source node whose
+/// surviving image remains in the view, every dropped node, and exactly the
+/// source edges whose endpoints remain; any other source subinstance with
+/// that restriction can contain no deleted surviving node or incident edge,
+/// so it is contained in this result. The same argument proves the universal
+/// form: the union of all source subinstances whose restriction is contained
+/// in the edit still has restriction contained in it and equals the cascade.
+/// This proof was checked against the independent exhaustive oracle recorded
+/// for O9 (14) (e).
+///
+/// Its correspondence to the propagatable delete (cartesian lift) of
+/// `johnsonrosebrugh2007fibrations` is inferred. The mono-restricted lift is
+/// the cascade where the inclusion of path categories is full and faithful,
+/// following `weighill2014bifibrational`, Theorem 18 and Proposition 29.
+/// Outside the Delta fragment this cartesian reading remains a conjecture.
 ///
 /// # Errors
 ///
@@ -415,7 +466,11 @@ fn graph_transform_obstruction(transforms: &[FieldTransform]) -> Option<String> 
 ///
 /// Reports are sorted by variant and then by their graph element. A
 /// successful result guarantees that [`put`] has a determined source
-/// anchor and edge label for every restored object.
+/// anchor and edge label for every restored object. Decidable put domains
+/// follow the precedents of `kohu2018axiomatic`, Definition 3.2 and Theorems
+/// 2.2 and 3.3, and `trankatohu2020programmable`. Returning every violation
+/// in this stable order is panproto policy; XSLT (`w3c2017xslt30`, Section
+/// 2.14) and BIRDS instead report the first error only.
 ///
 /// # Errors
 ///
@@ -671,6 +726,11 @@ impl Lens {
 
     /// Compile this lens's contraction plan.
     ///
+    /// The path search is the vertex-elimination path lemma of
+    /// `rosetarjan1978algorithmic`, Lemma 1; condition C.3 excludes a direct
+    /// edge between the endpoints. Writable contractions are contrasted with
+    /// the read-only case by `hidaka2010bidirectionalizing`, Theorem 1.
+    ///
     /// # Errors
     ///
     /// The restrict-plan compilation error.
@@ -841,6 +901,8 @@ pub fn align(
 /// The path is derived from the source and is never complement residue.
 /// Bounded regions cost their region depth; an unbounded dropped SCC may
 /// require visiting the whole SCC, so the cost is not bounded by edit size.
+/// This writable witness is the contrast with the read-only bidirectional
+/// transformation of `hidaka2010bidirectionalizing`, Theorem 1.
 ///
 /// # Errors
 ///
