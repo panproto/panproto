@@ -467,6 +467,13 @@ pub fn functor_restrict_validated(
 /// nulls for target columns outside the image and solving the equations of a
 /// non-injective column map. Field transforms run before that extension.
 ///
+/// Refusing an element with no image follows the explicit validation pattern
+/// of CQL `Mapping.validate`; related boundary precedents include Avro's
+/// `avrospec`, Protocol Buffers' `protobufprotojson`, EMF `XMLResource`, and
+/// the DPO dangling condition. Deletion belongs to the partial form.
+/// Skolemization, labelled nulls, and preservation as unknown are alternative
+/// boundary policies; none makes refusal a law uniformly across every shape.
+///
 /// # Errors
 ///
 /// [`RestrictError::RelSchema`] when either schema has no relation-ified

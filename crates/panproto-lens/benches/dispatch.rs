@@ -1,9 +1,4 @@
-#![allow(
-    missing_docs,
-    clippy::cast_possible_truncation,
-    clippy::expect_used,
-    clippy::unwrap_used
-)]
+#![allow(missing_docs, clippy::expect_used)]
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -47,7 +42,8 @@ fn fixture(size: usize) -> (Lens, GInstance) {
         tgt_schema: schema,
     };
     let mut graph = GInstance::new();
-    for id in 0..size as u32 {
+    let size = u32::try_from(size).expect("benchmark size fits in u32");
+    for id in 0..size {
         graph = graph.with_node(Node::new(id, "node"));
         if id > 0 {
             graph = graph.with_edge_id(EdgeId(id - 1), id - 1, id, edge.clone());
@@ -82,7 +78,8 @@ fn table_fixture(size: usize) -> (Lens, GInstance, Protocol) {
         tgt_schema: schema,
     };
     let mut graph = GInstance::new();
-    for id in 0..size as u32 {
+    let size = u32::try_from(size).expect("benchmark size fits in u32");
+    for id in 0..size {
         graph = graph.with_node(Node::new(id, "row"));
     }
     (lens, graph, protocol)
@@ -91,7 +88,10 @@ fn table_fixture(size: usize) -> (Lens, GInstance, Protocol) {
 #[divan::bench(args = [1_000usize, 10_000usize])]
 fn graph_get(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph) = fixture(size);
-    bencher.bench(|| panproto_lens::graph_lens::get(black_box(&lens), black_box(&graph)).unwrap());
+    bencher.bench(|| {
+        panproto_lens::graph_lens::get(black_box(&lens), black_box(&graph))
+            .expect("benchmark graph get")
+    });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
@@ -99,36 +99,41 @@ fn tree_get_with_conversions(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph) = fixture(size);
     bencher.bench(|| {
         graph_get_via_tree(black_box(&lens), black_box(&graph))
-            .unwrap()
-            .unwrap()
+            .expect("benchmark tree bridge get")
+            .expect("benchmark source is tree-shaped")
     });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
 fn graph_put(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph) = fixture(size);
-    let (view, complement) = panproto_lens::graph_lens::get(&lens, &graph).unwrap();
+    let (view, complement) =
+        panproto_lens::graph_lens::get(&lens, &graph).expect("benchmark graph get");
     bencher.bench(|| {
         panproto_lens::graph_lens::put(black_box(&lens), black_box(&view), black_box(&complement))
-            .unwrap()
+            .expect("benchmark graph put")
     });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
 fn tree_put_with_conversions(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph) = fixture(size);
-    let (view, complement) = panproto_lens::graph_lens::get(&lens, &graph).unwrap();
+    let (view, complement) =
+        panproto_lens::graph_lens::get(&lens, &graph).expect("benchmark graph get");
     bencher.bench(|| {
         graph_put_via_tree(black_box(&lens), black_box(&view), black_box(&complement))
-            .unwrap()
-            .unwrap()
+            .expect("benchmark tree bridge put")
+            .expect("benchmark view is tree-shaped")
     });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
 fn table_graph_get(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph, _) = table_fixture(size);
-    bencher.bench(|| panproto_lens::graph_lens::get(black_box(&lens), black_box(&graph)).unwrap());
+    bencher.bench(|| {
+        panproto_lens::graph_lens::get(black_box(&lens), black_box(&graph))
+            .expect("benchmark graph get")
+    });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
@@ -140,18 +145,19 @@ fn table_get_with_conversions(bencher: Bencher<'_, '_>, size: usize) {
     };
     bencher.bench(|| {
         graph_get_via_table(black_box(&lens), black_box(&graph), protocols)
-            .unwrap()
-            .unwrap()
+            .expect("benchmark table bridge get")
+            .expect("benchmark source is table-shaped")
     });
 }
 
 #[divan::bench(args = [1_000usize, 10_000usize])]
 fn table_graph_put(bencher: Bencher<'_, '_>, size: usize) {
     let (lens, graph, _) = table_fixture(size);
-    let (view, complement) = panproto_lens::graph_lens::get(&lens, &graph).unwrap();
+    let (view, complement) =
+        panproto_lens::graph_lens::get(&lens, &graph).expect("benchmark graph get");
     bencher.bench(|| {
         panproto_lens::graph_lens::put(black_box(&lens), black_box(&view), black_box(&complement))
-            .unwrap()
+            .expect("benchmark graph put")
     });
 }
 
@@ -162,7 +168,8 @@ fn table_put_with_conversions(bencher: Bencher<'_, '_>, size: usize) {
         src: &protocol,
         tgt: &protocol,
     };
-    let (view, complement) = panproto_lens::graph_lens::get(&lens, &graph).unwrap();
+    let (view, complement) =
+        panproto_lens::graph_lens::get(&lens, &graph).expect("benchmark graph get");
     bencher.bench(|| {
         graph_put_via_table(
             black_box(&lens),
@@ -170,7 +177,7 @@ fn table_put_with_conversions(bencher: Bencher<'_, '_>, size: usize) {
             black_box(&complement),
             protocols,
         )
-        .unwrap()
-        .unwrap()
+        .expect("benchmark table bridge put")
+        .expect("benchmark view is table-shaped")
     });
 }

@@ -94,7 +94,7 @@ pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
-pub use error::{LawViolation, LensError};
+pub use error::{LawViolation, LensError, NotTableComplementReason, NotTreeComplementReason};
 pub use graph_lens::{
     AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
     SequentialGraphLens,
@@ -132,10 +132,8 @@ pub use table_protolens::AppliedTableProtolens;
 pub use table_shape::{TableContext, TableShape};
 pub use table_symmetric::TableSymmetricContext;
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use panproto_inst::{CompiledMigration, EdgeFate, PairResolution, RestrictPlan};
-use panproto_schema::{Cardinality, Edge, Schema};
+use panproto_inst::CompiledMigration;
+use panproto_schema::Schema;
 
 /// An asymmetric lens with complement tracking.
 ///
@@ -160,139 +158,6 @@ impl Lens {
     #[must_use]
     pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
         self.compiled.coercion_class()
-    }
-
-    /// Whether restricting a tree-shaped graph preserves its tree result.
-    ///
-    /// A dropped source edge between two surviving vertices is the sole
-    /// structural obstruction: the graph engine drops that edge alone,
-    /// while the tree engine must drop the child subtree. A plan that does
-    /// not compile is conservatively classified as shape-breaking.
-    #[must_use]
-    pub fn preserves_tree_shape(&self) -> bool {
-        RestrictPlan::compile(&self.src_schema, &self.tgt_schema, &self.compiled)
-            .is_ok_and(|plan| plan.preserves_tree_shape())
-    }
-
-    /// Whether this lens preserves the graph encoding of table instances.
-    ///
-    /// This protocol-free predicate applies every structural exclusion that
-    /// can be decided from the schemas and compiled migration. Entry points
-    /// that carry protocols must additionally compile a table plan before
-    /// dispatch, since table and column classification is protocol-defined.
-    #[must_use]
-    pub fn preserves_table_shape(&self) -> bool {
-        let Ok(plan) = RestrictPlan::compile(&self.src_schema, &self.tgt_schema, &self.compiled)
-        else {
-            return false;
-        };
-
-        if plan
-            .edge_image
-            .fates
-            .values()
-            .any(|fate| matches!(fate, EdgeFate::Expand { .. } | EdgeFate::Unresolved(_)))
-            || plan
-                .contraction
-                .pairs
-                .values()
-                .any(|pair| matches!(pair.resolution, PairResolution::Expand { .. }))
-            || !self.compiled.hyper_resolver.is_empty()
-        {
-            return false;
-        }
-
-        let mut edge_images = BTreeSet::new();
-        for image in self.compiled.edge_remap.values() {
-            if !edge_images.insert(image) {
-                return false;
-            }
-        }
-
-        // The restrict survival rule keeps an unmentioned source table whose
-        // name is also the image of another table; EntityFunctor deliberately
-        // does not. Such a lens cannot enter the table fast path.
-        let mut vertex_fibres: BTreeMap<panproto_gat::Name, Vec<panproto_gat::Name>> =
-            BTreeMap::new();
-        for source in self.src_schema.vertices.keys() {
-            let image = self.compiled.vertex_remap.get(source).unwrap_or(source);
-            if !self.compiled.surviving_verts.contains(image) {
-                continue;
-            }
-            vertex_fibres
-                .entry(image.clone())
-                .or_default()
-                .push(source.clone());
-        }
-        if vertex_fibres.iter().any(|(image, fibre)| {
-            fibre.len() > 1
-                && fibre.iter().any(|source| {
-                    source == image && !self.compiled.vertex_remap.contains_key(source)
-                })
-        }) {
-            return false;
-        }
-
-        // Likewise, a structurally inferred edge image is not an image in
-        // EntityFunctor. Protocol-aware dispatch will run its stronger plan
-        // check, but this catches the disagreement without classifications.
-        if plan.edge_image.fates.iter().any(|(source, fate)| {
-            matches!(fate, EdgeFate::Keep(_))
-                && !self.compiled.edge_remap.contains_key(source)
-                && !self.compiled.surviving_edges.contains(source)
-        }) {
-            return false;
-        }
-
-        self.is_discrete_opfibration(&plan, &vertex_fibres)
-    }
-
-    fn is_discrete_opfibration(
-        &self,
-        plan: &RestrictPlan,
-        fibres: &BTreeMap<panproto_gat::Name, Vec<panproto_gat::Name>>,
-    ) -> bool {
-        let mut guarded: BTreeSet<Edge> = self
-            .tgt_schema
-            .required
-            .values()
-            .flatten()
-            .cloned()
-            .collect();
-        guarded.extend(
-            self.tgt_schema
-                .declarations
-                .references
-                .values()
-                .filter(|reference| {
-                    reference.cardinality == Cardinality::One || !reference.nullable
-                })
-                .filter_map(|reference| reference.edge.clone()),
-        );
-
-        for (image, fibre) in fibres {
-            for target_edge in guarded.iter().filter(|edge| edge.src == *image) {
-                for source_vertex in fibre {
-                    let lifts = self
-                        .src_schema
-                        .outgoing
-                        .get(source_vertex)
-                        .into_iter()
-                        .flatten()
-                        .filter(|edge| {
-                            matches!(
-                                plan.edge_image.fates.get(*edge),
-                                Some(EdgeFate::Keep(image)) if image == target_edge
-                            )
-                        })
-                        .count();
-                    if lifts != 1 {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
     }
 
     /// Whether this lens is an **isomorphism**, so that its complement is

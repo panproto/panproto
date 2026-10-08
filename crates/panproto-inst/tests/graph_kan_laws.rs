@@ -8,9 +8,9 @@ use panproto_inst::{
     AdjunctionError, BoundaryProtocols, CellLayout, CompiledMigration, EdgeId, EdgeLayout,
     EncodingSide, FInstance, FInstanceHom, FieldPresence, GInstance, GraphKanError, GraphKanHom,
     GraphLayout, MigrationFunctor, Node, NodeShape, NotEncodableReason, RelSchema, RelSchemaError,
-    RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, g_counit, g_delta,
-    g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi, g_pi_along,
-    g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
+    RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, functor_extend,
+    g_counit, g_delta, g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi,
+    g_pi_along, g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
     g_pi_transpose_right, g_pi_unit, g_pi_with_provenance, g_sigma, g_sigma_along,
     g_sigma_along_with_provenance, g_sigma_restricted, g_sigma_restricted_with_provenance,
     g_sigma_with_provenance, g_transpose_left, g_transpose_right, g_unit, graph_extend,
@@ -1294,6 +1294,40 @@ fn graph_sigma_moves_list_elements_along_the_migrations_edge_map() {
             assert!(GInstance::identical(&sigma, &validated), "{case}");
         }
     }
+}
+
+/// P1-O706's exact agreement domain includes both spellings of a list
+/// element edge and, in particular, the element-vertex swap with no table
+/// rename. These six fixtures are injective, column-covered and
+/// transform-free; their two realized list edges also have distinct image
+/// pairs. The oracle is `g_sigma`, whose implementation reaches the
+/// presheaf Sigma through the relational encoding rather than the total
+/// graph-extension engine.
+#[test]
+fn graph_sigma_agrees_with_total_graph_extend_on_its_exact_domain() {
+    let fixtures = bijective_list_columns();
+    assert_eq!(fixtures.len(), 6, "finite P1-O706 fixture count");
+    for (case, fixture) in fixtures {
+        let sigma = list_sigma(&fixture);
+        let extend = graph_extend(
+            &fixture.graph,
+            &fixture.source,
+            &fixture.target,
+            &fixture.migration,
+            BoundaryProtocols {
+                src: &protocol(),
+                tgt: &protocol(),
+            },
+        )
+        .unwrap_or_else(|error| panic!("{case}: total graph extend refused: {error:?}"));
+        assert!(
+            GInstance::identical(&sigma, &extend),
+            "{case}: sigma {sigma:?}, extend {extend:?}"
+        );
+    }
+    println!(
+        "P1-O706 finite bound: 6 list cases = 2 edge spellings x 3 rename/image classes; all compared"
+    );
 }
 
 #[test]
@@ -5880,6 +5914,25 @@ mod presheaf {
         (pairs, identified)
     }
 
+    /// The unreflected relation elements of an instance, as a multiset of
+    /// endpoint pairs. Unlike [`separate`], equal endpoints retain their
+    /// multiplicity.
+    pub fn unseparated(instance: &Instance, target: &oracle::Side) -> Pairs {
+        let mut pairs = BTreeMap::new();
+        for relation in &target.relations {
+            let mut ends: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            for element in &instance.sets[&Object::Relation(relation.clone())] {
+                let key = (
+                    instance.act(&Arrow::Src(relation.clone()), *element),
+                    instance.act(&Arrow::Tgt(relation.clone()), *element),
+                );
+                *ends.entry(key).or_default() += 1;
+            }
+            pairs.insert(relation.clone(), ends);
+        }
+        pairs
+    }
+
     /// One term of the value side: a constant by its canonical bytes, or a
     /// labelled null.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -6302,4 +6355,209 @@ fn g_sigma_equals_the_separated_reflection_of_the_presheaf_sigma() {
     );
     assert!(total.separated > 0);
     assert!(total.refused > 0);
+}
+
+#[derive(Default)]
+struct ExtendReflectionCounts {
+    table_compared: usize,
+    table_refused: usize,
+    graph_compared: usize,
+    graph_refused: usize,
+    separated: usize,
+}
+
+fn extend_table_boundary_is_invalid(case: &KanCase, content: &oracle::Content) -> bool {
+    content.rows.values().any(|(table, cells)| {
+        let columns = case
+            .source
+            .tables
+            .iter()
+            .find(|(candidate, _)| *candidate == table.as_str())
+            .map_or(&[][..], |(_, columns)| columns.as_slice());
+        cells.iter().any(|(column, value)| {
+            let kind = columns
+                .iter()
+                .find_map(|(candidate, kind)| (*candidate == column).then_some(*kind));
+            !match kind {
+                Some("value") => true,
+                Some("int") => matches!(value, Value::Int(_)),
+                Some("str") => matches!(value, Value::Str(_)),
+                _ => false,
+            }
+        })
+    })
+}
+
+fn extend_target_has_realized_column_outside_image(
+    case: &KanCase,
+    rows: &BTreeMap<Name, Vec<usize>>,
+) -> bool {
+    case.target.tables.iter().any(|(target_table, columns)| {
+        rows.get::<str>(*target_table)
+            .is_some_and(|rows| !rows.is_empty())
+            && columns.iter().any(|(target_column, _)| {
+                !case.map.columns.iter().any(|((source_table, _), image)| {
+                    case.map.tables.get(source_table).is_some_and(|table| {
+                        table.as_str() == *target_table && image == target_column
+                    })
+                })
+            })
+    })
+}
+
+/// Check both total extension engines against the presheaf construction at
+/// one independently enumerated graph. The table engine is compared with
+/// `L_sep`; the graph engine is compared with the unreflected multiset of
+/// relation elements. An input containing an object outside the migration's
+/// kept source is independently classified as a totality refusal. A clash of
+/// two constants is independently classified as a table-Sigma refusal.
+fn extend_reflection_at(case: &KanCase, graph: &GInstance) -> ExtendReflectionCounts {
+    let (kept_side, target_side) = (case.kept.side(), case.target.side());
+    let kept = oracle::restrict(graph, &kept_side);
+    let outside_domain = !GInstance::identical(graph, &kept);
+    let source_instance = presheaf::of_graph(graph, &kept_side);
+    let reference_functor = presheaf::Functor { map: &case.map };
+    let kan = presheaf::left_kan(
+        &source_instance,
+        &reference_functor,
+        &kept_side,
+        &target_side,
+    );
+    let rows: BTreeMap<Name, Vec<usize>> = target_side
+        .tables
+        .keys()
+        .map(|table| {
+            let set = &kan.sets[&presheaf::Object::Table(table.clone())];
+            (table.clone(), set.iter().copied().collect())
+        })
+        .collect();
+    let (separated, identified) = presheaf::separate(&kan, &target_side);
+    let unseparated = presheaf::unseparated(&kan, &target_side);
+    let kept_content = oracle::Content::of_graph(&kept, &kept_side);
+    let source_content = oracle::Content::of_graph(graph, &case.source.side());
+    let clash = presheaf::values_clash(&kept_content, &case.map);
+    let invalid_table_boundary = extend_table_boundary_is_invalid(case, &source_content);
+    let missing_target_column = extend_target_has_realized_column_outside_image(case, &rows);
+    let source = case.source.schema();
+    let target = case.target.schema();
+    let migration = case.migration();
+    let boundary = protocol();
+    let protocols = BoundaryProtocols {
+        src: &boundary,
+        tgt: &boundary,
+    };
+    let source_rel = RelSchema::new(&source, &boundary).unwrap();
+    let (table, _) = encode_graph(graph, EncodingSide::Whole(&source_rel)).unwrap();
+    let mut counts = ExtendReflectionCounts {
+        separated: usize::from(identified > 0),
+        ..ExtendReflectionCounts::default()
+    };
+
+    match functor_extend(&table, &source, &target, &migration, protocols) {
+        Err(RestrictError::Validation { .. })
+            if invalid_table_boundary || missing_target_column =>
+        {
+            counts.table_refused += 1;
+        }
+        Err(RestrictError::UnmappedAnchor { .. } | RestrictError::UnmappedEdge { .. })
+            if !invalid_table_boundary && outside_domain =>
+        {
+            counts.table_refused += 1;
+        }
+        Err(RestrictError::SigmaConstantClash { .. })
+            if !invalid_table_boundary && !outside_domain && clash =>
+        {
+            counts.table_refused += 1;
+        }
+        Ok(output)
+            if !invalid_table_boundary && !missing_target_column && !outside_domain && !clash =>
+        {
+            let (output, _) = GInstance::from_finstance(&output).unwrap();
+            assert!(
+                rows_and_pairs_are_isomorphic(&rows, &separated, &output, &target_side),
+                "{}: functor_extend is not L_sep of the independent presheaf postcomposition",
+                case.name
+            );
+            counts.table_compared += 1;
+        }
+        other => panic!(
+            "{}: functor_extend on {graph:?}, invalid_table={invalid_table_boundary}, missing_target_column={missing_target_column}, outside={outside_domain}, clash={clash}: {other:?}",
+            case.name
+        ),
+    }
+
+    match graph_extend(graph, &source, &target, &migration, protocols) {
+        Err(RestrictError::UnmappedAnchor { .. } | RestrictError::UnmappedEdge { .. })
+            if outside_domain =>
+        {
+            counts.graph_refused += 1;
+        }
+        Ok(output) if !outside_domain => {
+            assert!(
+                rows_and_pairs_are_isomorphic(&rows, &unseparated, &output, &target_side),
+                "{}: graph_extend is not the unreflected independent presheaf postcomposition",
+                case.name
+            );
+            counts.graph_compared += 1;
+        }
+        other => panic!(
+            "{}: graph_extend on {graph:?}, outside={outside_domain}: {other:?}",
+            case.name
+        ),
+    }
+    counts
+}
+
+/// P2-O10F01's independent finite oracle. The source graphs are generated by
+/// [`oracle::every_graph`] and counted against its separate labelled closed
+/// form. Neither the reference presheaf postcomposition nor its separated
+/// reflection calls an extension engine.
+#[test]
+fn an_extend_equals_the_separated_reflection_of_the_presheaf_retyping() {
+    let cases = reflection_family();
+    let mut total = ExtendReflectionCounts::default();
+    let mut graph_count = 0;
+    for (case, max) in &cases {
+        let forms = leaf_forms(&case.cells);
+        let graphs = oracle::every_graph(&case.source, &|_, _| forms.clone(), *max);
+        let labelled =
+            oracle::labelled_count(&case.source, &|_: &str, _: &str| case.cells.len(), *max);
+        assert_eq!(graphs.len(), labelled, "{}", case.name);
+        for graph in &graphs {
+            let counts = extend_reflection_at(case, graph);
+            total.table_compared += counts.table_compared;
+            total.table_refused += counts.table_refused;
+            total.graph_compared += counts.graph_compared;
+            total.graph_refused += counts.graph_refused;
+            total.separated += counts.separated;
+        }
+        graph_count += graphs.len();
+        println!(
+            "{}: bound {max}, {} whole-source graphs (labelled {labelled})",
+            case.name,
+            graphs.len()
+        );
+    }
+    assert_eq!(
+        total.table_compared + total.table_refused,
+        graph_count,
+        "one table outcome per finite graph"
+    );
+    assert_eq!(
+        total.graph_compared + total.graph_refused,
+        graph_count,
+        "one graph outcome per finite graph"
+    );
+    assert!(total.separated > 0);
+    assert!(total.table_refused > 0);
+    assert!(total.graph_refused > 0);
+    println!(
+        "P2-O10F01 finite bound: {} migrations, {graph_count} graphs; table {}/{} compared/refused; graph {}/{} compared/refused; {} separated cases",
+        cases.len(),
+        total.table_compared,
+        total.table_refused,
+        total.graph_compared,
+        total.graph_refused,
+        total.separated
+    );
 }

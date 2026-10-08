@@ -3459,7 +3459,7 @@ pub(crate) fn total_extension_migration(
         .cloned()
         .collect();
     for edge in overlapping_images {
-        total.edge_remap.insert(edge.clone(), edge);
+        total.edge_remap.entry(edge.clone()).or_insert(edge);
     }
     total
 }
@@ -3481,6 +3481,13 @@ pub(crate) fn total_extension_migration(
 ///
 /// The input and output are validated against `src_schema` and `tgt_schema`
 /// under their respective protocols.
+///
+/// Refusing an element with no image follows the explicit validation pattern
+/// of CQL `Mapping.validate`; related boundary precedents include Avro's
+/// `avrospec`, Protocol Buffers' `protobufprotojson`, EMF `XMLResource`, and
+/// the DPO dangling condition. Deletion is available through the partial
+/// form. Skolemization, labelled nulls, and preservation as unknown are
+/// different policies; none makes refusal a law uniformly across shapes.
 ///
 /// # Errors
 ///
