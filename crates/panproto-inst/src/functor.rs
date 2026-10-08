@@ -29,7 +29,10 @@
 //! runs the other way, from a `T`-instance to an `S`-instance, and lives in
 //! [`crate::adjunction::f_delta`] with the rest of the adjunction.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_set};
+
+#[cfg(test)]
+use std::cell::Cell;
 
 use panproto_gat::Name;
 use panproto_schema::{CanonicalWriter, Edge};
@@ -64,6 +67,84 @@ struct ForeignKey {
     by_target: PairSet,
 }
 
+/// One range over an indexed end of a foreign key.
+///
+/// Keeping the concrete [`btree_set::Range`] here is deliberate: callers of
+/// `targets` and `sources` cannot silently replace an indexed range with a
+/// scan of the whole pair set. The test-only counters below measure the
+/// ranges opened and the pairs those ranges visit without using wall time.
+struct IndexedRows<'a> {
+    rows: btree_set::Range<'a, (RowId, RowId)>,
+}
+
+impl Iterator for IndexedRows<'_> {
+    type Item = RowId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows.next().map(|&(_, row)| {
+            #[cfg(test)]
+            note_indexed_pair_read();
+            row
+        })
+    }
+}
+
+impl DoubleEndedIterator for IndexedRows<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.rows.next_back().map(|&(_, row)| {
+            #[cfg(test)]
+            note_indexed_pair_read();
+            row
+        })
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct IndexReadCounts {
+    ranges: usize,
+    pairs: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    static INDEX_READ_COUNTS: Cell<IndexReadCounts> = const {
+        Cell::new(IndexReadCounts { ranges: 0, pairs: 0 })
+    };
+}
+
+#[cfg(test)]
+fn note_indexed_range_read() {
+    INDEX_READ_COUNTS.set(INDEX_READ_COUNTS.get().with_range());
+}
+
+#[cfg(test)]
+fn note_indexed_pair_read() {
+    INDEX_READ_COUNTS.set(INDEX_READ_COUNTS.get().with_pair());
+}
+
+#[cfg(test)]
+impl IndexReadCounts {
+    const fn with_range(self) -> Self {
+        Self {
+            ranges: self.ranges + 1,
+            ..self
+        }
+    }
+
+    const fn with_pair(self) -> Self {
+        Self {
+            pairs: self.pairs + 1,
+            ..self
+        }
+    }
+}
+
+#[cfg(test)]
+fn take_index_read_counts() -> IndexReadCounts {
+    INDEX_READ_COUNTS.replace(IndexReadCounts::default())
+}
+
 impl ForeignKey {
     /// Add a pair; returns whether it was absent.
     fn insert(&mut self, src: RowId, tgt: RowId) -> bool {
@@ -84,17 +165,23 @@ impl ForeignKey {
     }
 
     /// The targets of the pairs whose source is `src`, ascending.
-    fn targets(&self, src: RowId) -> impl DoubleEndedIterator<Item = RowId> + '_ {
-        self.pairs
-            .range((src, RowId(0))..=(src, RowId(u32::MAX)))
-            .map(|&(_, tgt)| tgt)
+    fn targets(&self, src: RowId) -> IndexedRows<'_> {
+        #[cfg(test)]
+        note_indexed_range_read();
+        IndexedRows {
+            rows: self.pairs.range((src, RowId(0))..=(src, RowId(u32::MAX))),
+        }
     }
 
     /// The sources of the pairs whose target is `tgt`, ascending.
-    fn sources(&self, tgt: RowId) -> impl DoubleEndedIterator<Item = RowId> + '_ {
-        self.by_target
-            .range((tgt, RowId(0))..=(tgt, RowId(u32::MAX)))
-            .map(|&(_, src)| src)
+    fn sources(&self, tgt: RowId) -> IndexedRows<'_> {
+        #[cfg(test)]
+        note_indexed_range_read();
+        IndexedRows {
+            rows: self
+                .by_target
+                .range((tgt, RowId(0))..=(tgt, RowId(u32::MAX))),
+        }
     }
 }
 
@@ -1025,6 +1112,7 @@ impl FInstance {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::table_edit::TableEdit;
 
     fn cell(column: &str, value: &str) -> Row {
         HashMap::from([(column.to_owned(), Value::Str(value.into()))])
@@ -1086,5 +1174,142 @@ mod tests {
         let negative = one_cell(Value::Float(-0.0));
         assert_ne!(positive.digest(), negative.digest());
         assert_ne!(positive, negative);
+    }
+
+    fn linked_rows(rows: u32, edge: &Edge) -> FInstance {
+        let mut instance = FInstance::new();
+        for id in 0..3 * rows {
+            let table = match id / rows {
+                0 => "user",
+                1 => "post",
+                _ => "tag",
+            };
+            instance.insert_row(table, RowId(id), Row::new()).unwrap();
+        }
+        instance
+            .insert_foreign_keys(
+                edge.clone(),
+                (0..rows).map(|id| (RowId(rows + id), RowId(id))).collect(),
+            )
+            .unwrap();
+        instance
+    }
+
+    fn assert_source_removals(rows: u32, edge: &Edge) {
+        let mut sources = linked_rows(rows, edge);
+        for id in rows..2 * rows {
+            let (table, row, pairs) = sources.remove_row(RowId(id)).unwrap();
+            assert_eq!(table, Name::from("post"));
+            assert!(row.is_empty());
+            assert_eq!(pairs, vec![(edge.clone(), RowId(id), RowId(id - rows))]);
+        }
+        assert_eq!(sources.pair_count(), 0);
+        assert_eq!(sources.row_count("post"), 0);
+        assert_eq!(
+            take_index_read_counts(),
+            IndexReadCounts {
+                ranges: usize::try_from(rows).unwrap(),
+                pairs: usize::try_from(rows).unwrap(),
+            }
+        );
+    }
+
+    fn assert_target_removals(rows: u32, edge: &Edge) {
+        let mut targets = linked_rows(rows, edge);
+        for id in 0..rows {
+            let (table, row, pairs) = targets.remove_row(RowId(id)).unwrap();
+            assert_eq!(table, Name::from("user"));
+            assert!(row.is_empty());
+            assert_eq!(pairs, vec![(edge.clone(), RowId(id + rows), RowId(id))]);
+        }
+        assert_eq!(targets.pair_count(), 0);
+        assert_eq!(targets.row_count("post"), usize::try_from(rows).unwrap());
+        assert_eq!(
+            take_index_read_counts(),
+            IndexReadCounts {
+                ranges: usize::try_from(rows).unwrap(),
+                pairs: usize::try_from(rows).unwrap(),
+            }
+        );
+    }
+
+    fn assert_unrelated_moves(rows: u32, edge: &Edge) {
+        let mut moved = linked_rows(rows, edge);
+        for id in 2 * rows..3 * rows {
+            assert_eq!(
+                moved.move_row(RowId(id), "label").unwrap(),
+                Name::from("tag")
+            );
+        }
+        assert_eq!(moved.row_count("tag"), 0);
+        assert_eq!(moved.row_count("label"), usize::try_from(rows).unwrap());
+        assert_eq!(moved.pair_count(), usize::try_from(rows).unwrap());
+        assert_eq!(take_index_read_counts(), IndexReadCounts::default());
+    }
+
+    fn assert_delete_edits(rows: u32, edge: &Edge) {
+        let mut edited = linked_rows(rows, edge);
+        for id in 0..rows {
+            TableEdit::DeleteRow {
+                table: Name::from("user"),
+                id: RowId(id),
+                row: Row::new(),
+                incident_fks: vec![(edge.clone(), RowId(id + rows), RowId(id))],
+            }
+            .apply(&mut edited)
+            .unwrap();
+        }
+        assert_eq!(edited.row_count("user"), 0);
+        assert_eq!(edited.pair_count(), 0);
+        let edit_reads = take_index_read_counts();
+        let rows = usize::try_from(rows).unwrap();
+        assert_eq!(edit_reads.pairs, 2 * rows);
+        assert_eq!(edit_reads.ranges, 3 * rows - 1);
+    }
+
+    fn assert_double_ended_ranges(rows: u32, edge: &Edge) {
+        let mut indexed = linked_rows(rows, edge);
+        indexed
+            .insert_foreign_key(edge.clone(), RowId(rows), RowId(1))
+            .unwrap();
+        indexed
+            .insert_foreign_key(edge.clone(), RowId(rows + 1), RowId(0))
+            .unwrap();
+        let mut target_rows = indexed.targets_of(edge, RowId(rows));
+        assert_eq!(target_rows.next(), Some(RowId(0)));
+        assert_eq!(target_rows.next_back(), Some(RowId(1)));
+        assert_eq!(target_rows.next(), None);
+        let mut source_rows = indexed.sources_of(edge, RowId(0));
+        assert_eq!(source_rows.next_back(), Some(RowId(rows + 1)));
+        assert_eq!(source_rows.next(), Some(RowId(rows)));
+        assert_eq!(source_rows.next_back(), None);
+        assert_eq!(
+            take_index_read_counts(),
+            IndexReadCounts {
+                ranges: 2,
+                pairs: 4,
+            }
+        );
+    }
+
+    /// Removing or moving rows reads indexed ranges and only the pairs at
+    /// those rows. The counts are structural, so this guards the complexity
+    /// contract without depending on machine load or elapsed time.
+    #[test]
+    fn row_operations_read_only_indexed_incident_pairs() {
+        const ROWS: u32 = 256;
+        let edge = Edge {
+            src: "post".into(),
+            tgt: "user".into(),
+            kind: "fk".into(),
+            name: None,
+        };
+
+        let _ = take_index_read_counts();
+        assert_source_removals(ROWS, &edge);
+        assert_target_removals(ROWS, &edge);
+        assert_unrelated_moves(ROWS, &edge);
+        assert_delete_edits(ROWS, &edge);
+        assert_double_ended_ranges(ROWS, &edge);
     }
 }
