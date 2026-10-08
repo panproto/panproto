@@ -312,11 +312,11 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use panproto_schema::{
-        Constraint, ConstraintSemantics, Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, Schema,
-        Vertex,
+        Constraint, ConstraintSemantics, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope,
+        Protocol, Schema, Vertex,
     };
 
-    use super::reads;
+    use super::{Between, is_local, reads};
     use crate::functor::FInstance;
     use crate::ginstance::{EdgeId, GEdge, GInstance};
     use crate::metadata::Node;
@@ -325,7 +325,7 @@ mod tests {
         ExternalCheckDecl, ExternalVerdicts, ValidationOptions, ValidationPlan,
     };
     use crate::validation::report::{
-        CheckInstance, CheckKey, CheckKind, Requirement, SchemaRef, Violation,
+        CheckClass, CheckInstance, CheckKey, CheckKind, Requirement, SchemaRef, Violation,
     };
     use crate::view_ref::{RowId, ViewRef};
     use crate::wtype::WInstance;
@@ -590,6 +590,11 @@ mod tests {
             subject: Some(ViewRef::Node(1)),
         };
         assert!(!plan.is_statically_incomplete(&instance.check));
+        let spec = plan
+            .checks()
+            .get(&instance.check)
+            .unwrap_or_else(|| panic!("the position key compiles its required-value check"));
+        assert!(!is_local(&plan, spec));
         assert_eq!(
             reads(&ctx, &instance),
             set(&[
@@ -600,6 +605,88 @@ mod tests {
             ])
         );
         Ok(())
+    }
+
+    #[test]
+    fn locality_classifier_distinguishes_neighborhood_checks() {
+        let plan = plan();
+        let local = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::GraphLocal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a graph-local check"));
+        let external = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::BoundedExternal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a bounded-external check"));
+        let global = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::MaintainedGlobal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a maintained-global check"));
+
+        assert!(is_local(&plan, local));
+        assert!(is_local(&plan, external));
+        assert!(!is_local(&plan, global));
+    }
+
+    #[test]
+    fn local_triggers_stay_candidate_scoped_and_untriggered_checks_do_not_rerun() {
+        let plan = plan();
+        let name = e("n", "s", "prop", "name");
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "n"))
+            .with_node(Node::new(1, "s"))
+            .with_edge(0, 1, name);
+        let external = ExternalVerdicts::default();
+        let before = super::Session::new(&plan, InstanceView::Graph(&graph), &external);
+        let after = super::Session::new(&plan, InstanceView::Graph(&graph), &external);
+        let touched = set(&[ViewRef::Node(0)]);
+        let candidates = BTreeSet::new();
+        let local_trigger = BTreeSet::from([CheckKind::NodeAnchor]);
+        let no_triggers = BTreeSet::new();
+        let formerly_skipped = BTreeSet::new();
+        let created = BTreeSet::new();
+
+        let between = |touched, triggered| Between {
+            plan: &plan,
+            before: &before,
+            after: &after,
+            shape: InstanceShapeKind::Graph,
+            touched,
+            candidates: &candidates,
+            triggered,
+            formerly_skipped: &formerly_skipped,
+            pre_external: &external,
+            post_external: &external,
+        };
+        let (considered, forced) =
+            between(touched.clone(), &local_trigger).considered(BTreeSet::new(), &created);
+        let expected: BTreeSet<CheckInstance> = plan
+            .checks()
+            .iter()
+            .filter(|(key, spec)| {
+                spec.applies_to(InstanceShapeKind::Graph)
+                    && spec.class != CheckClass::Static
+                    && super::schedule::is_whole_instance(key.kind)
+            })
+            .map(|(key, _)| CheckInstance {
+                check: key.clone(),
+                subject: None,
+            })
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(considered, expected);
+        assert!(forced.is_empty());
+
+        let (footprint, traces) = between(touched.clone(), &no_triggers).footprint();
+        assert!(footprint.rerun.is_empty());
+        assert!(footprint.created.is_empty());
+        assert!(footprint.retired.is_empty());
+        assert!(footprint.reads.is_empty());
+        assert_eq!(footprint.touched, touched);
+        assert!(traces.is_empty());
     }
 
     #[test]
