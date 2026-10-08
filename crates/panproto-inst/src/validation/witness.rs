@@ -1421,3 +1421,411 @@ fn cycle(ctx: &Context<'_>, labels: &BTreeSet<Edge>, scc: &[ViewRef], witness: &
         .collect();
     joined && component == scc
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_schema::{
+        Cardinality, Constraint, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope,
+        OnUnresolved, Protocol, RefSource, Reference, ResolveMode, Schema, Vertex,
+    };
+
+    use super::{
+        CheckRun, CheckStatus, Digest, EditWitness, ExternalVerdicts, IncompleteReason, RunVerdict,
+        ValidationPlan, ValidationState, ViewRef, WitnessOptions, run_verdict,
+    };
+    use crate::validation::{
+        CheckClass, CheckInstance, CheckKey, CheckKind, SchemaRef, ValidationBudget,
+        ValidationOptions, Violation,
+    };
+    use crate::{FieldPresence, GInstance, Node, Value};
+
+    fn empty_state(plan: &ValidationPlan) -> ValidationState {
+        ValidationState {
+            plan: *plan.digest(),
+            seq: 0,
+            status: CheckStatus::Incomplete,
+            open: BTreeMap::new(),
+            budget_cuts: BTreeMap::new(),
+            coverage: BTreeMap::new(),
+            external: ExternalVerdicts::default(),
+            key_indexes: BTreeMap::new(),
+            reference_indexes: BTreeMap::new(),
+        }
+    }
+
+    fn skipped_reason(
+        plan: &ValidationPlan,
+        state: &ValidationState,
+        check: CheckKey,
+    ) -> IncompleteReason {
+        match run_verdict(
+            plan,
+            state,
+            &CheckInstance {
+                check,
+                subject: Some(ViewRef::Node(0)),
+            },
+        ) {
+            RunVerdict::Skipped { reason } => reason,
+            RunVerdict::Evaluated { .. } => panic!("a statically incomplete check must be skipped"),
+        }
+    }
+
+    #[test]
+    fn static_skip_reason_belongs_to_the_scheduled_check() {
+        let required = Edge {
+            src: "a".into(),
+            tgt: "a".into(),
+            kind: "prop".into(),
+            name: Some("missing".into()),
+        };
+        let constraint = Constraint {
+            sort: "mystery".into(),
+            value: "1".into(),
+        };
+        let mut schema = Schema::default();
+        schema.vertices.insert(
+            "a".into(),
+            Vertex {
+                id: "a".into(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        schema.required.insert("a".into(), vec![required.clone()]);
+        schema
+            .constraints
+            .insert("a".into(), vec![constraint.clone()]);
+        let plan = ValidationPlan::compile(
+            &schema,
+            &Protocol {
+                obj_kinds: vec!["string".into()],
+                ..Protocol::default()
+            },
+            &ValidationOptions::default(),
+        );
+        let value_key = CheckKey::new(
+            CheckKind::ValueConstraint,
+            SchemaRef::Constraint {
+                vertex: "a".into(),
+                constraint,
+            },
+        );
+        let required_key = CheckKey::new(
+            CheckKind::RequiredEdge,
+            SchemaRef::Required {
+                vertex: "a".into(),
+                edge: required,
+            },
+        );
+        let expected = |key: &CheckKey| {
+            plan.static_findings()
+                .iter()
+                .find(|finding| &finding.check == key)
+                .unwrap_or_else(|| panic!("{key:?} has its own static finding"))
+                .reason
+                .clone()
+        };
+        let value_reason = expected(&value_key);
+        let required_reason = expected(&required_key);
+        assert_ne!(value_key.kind, required_key.kind);
+        assert_ne!(value_reason, required_reason);
+
+        let state = empty_state(&plan);
+        assert_eq!(
+            skipped_reason(&plan, &state, value_key),
+            value_reason,
+            "the value check cannot inherit the required-edge finding"
+        );
+        assert_eq!(
+            skipped_reason(&plan, &state, required_key),
+            required_reason,
+            "the required-edge check cannot inherit the value finding"
+        );
+
+        let ordinary = CheckInstance {
+            check: CheckKey::new(CheckKind::NodeAnchor, SchemaRef::Schema),
+            subject: Some(ViewRef::Node(0)),
+        };
+        assert!(matches!(
+            run_verdict(&plan, &state, &ordinary),
+            RunVerdict::Evaluated {
+                findings,
+                incomplete
+            } if findings.is_empty() && incomplete.is_empty()
+        ));
+    }
+
+    #[test]
+    fn diagnostic_class_must_match_the_compiled_check() {
+        let mut schema = Schema::default();
+        schema.vertices.insert(
+            "known".into(),
+            Vertex {
+                id: "known".into(),
+                kind: "object".into(),
+                nsid: None,
+            },
+        );
+        let plan = ValidationPlan::compile(
+            &schema,
+            &Protocol {
+                syntactic_shape: InstanceShapeKind::Graph,
+                semantic_shape: InstanceShapeKind::Graph,
+                ..Protocol::default()
+            },
+            &ValidationOptions::default(),
+        );
+        let graph = GInstance::new().with_node(Node::new(0, "ghost"));
+        let report = plan.validate_graph(
+            &graph,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.check.kind == CheckKind::NodeAnchor)
+            .unwrap_or_else(|| panic!("the unknown anchor has a node-anchor diagnostic"));
+        assert_eq!(diagnostic.class, CheckClass::GraphLocal);
+        assert!(diagnostic.verify(&plan, &graph));
+
+        let mut forged = diagnostic.clone();
+        forged.class = CheckClass::MaintainedGlobal;
+        assert!(!forged.verify(&plan, &graph));
+    }
+
+    #[test]
+    fn outside_scope_subject_must_have_the_key_vertex_anchor() {
+        let key_edge = Edge {
+            src: "entry".into(),
+            tgt: "key".into(),
+            kind: "prop".into(),
+            name: Some("key".into()),
+        };
+        let mut schema = Schema::default();
+        for (id, kind) in [("entry", "object"), ("key", "string"), ("other", "object")] {
+            schema.vertices.insert(
+                id.into(),
+                Vertex {
+                    id: id.into(),
+                    kind: kind.into(),
+                    nsid: None,
+                },
+            );
+        }
+        schema.edges.insert(key_edge.clone(), key_edge.kind.clone());
+        schema
+            .outgoing
+            .insert("entry".into(), vec![key_edge.clone()].into());
+        schema
+            .incoming
+            .insert("key".into(), vec![key_edge.clone()].into());
+        schema.between.insert(
+            ("entry".into(), "key".into()),
+            vec![key_edge.clone()].into(),
+        );
+        schema.declarations.insert_key(
+            "entry".into(),
+            Key {
+                id: "entry_key".into(),
+                parts: vec![KeyPart::Path(vec![key_edge.clone()])],
+                role: KeyRole::Unique,
+                scope: KeyScope::Within("map".into()),
+            },
+        );
+        let plan = ValidationPlan::compile(
+            &schema,
+            &Protocol {
+                syntactic_shape: InstanceShapeKind::Graph,
+                semantic_shape: InstanceShapeKind::Graph,
+                ..Protocol::default()
+            },
+            &ValidationOptions::default(),
+        );
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "entry"))
+            .with_node(
+                Node::new(1, "key").with_value(FieldPresence::Present(Value::Str("entry".into()))),
+            )
+            .with_node(Node::new(2, "other"))
+            .with_node(
+                Node::new(3, "key").with_value(FieldPresence::Present(Value::Str("other".into()))),
+            )
+            .with_edge(0, 1, key_edge.clone())
+            .with_edge(2, 3, key_edge);
+        let report = plan.validate_graph(
+            &graph,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.subject == Some(ViewRef::Node(0))
+                    && matches!(
+                        diagnostic.violation,
+                        super::Violation::OutsideKeyScope { .. }
+                    )
+            })
+            .unwrap_or_else(|| panic!("the out-of-scope keyed entry has an observation"));
+        assert!(diagnostic.verify(&plan, &graph));
+
+        let mut forged = diagnostic.clone();
+        forged.subject = Some(ViewRef::Node(2));
+        forged.elements = vec![ViewRef::Node(2)];
+        assert!(!forged.verify(&plan, &graph));
+    }
+
+    #[test]
+    fn ambiguous_reference_witness_must_name_the_compiled_reference() {
+        let id_edge = Edge {
+            src: "person".into(),
+            tgt: "person.id".into(),
+            kind: "prop".into(),
+            name: Some("id".into()),
+        };
+        let boss_edge = Edge {
+            src: "person".into(),
+            tgt: "person.boss".into(),
+            kind: "prop".into(),
+            name: Some("boss".into()),
+        };
+        let mut schema = Schema::default();
+        for (id, kind) in [
+            ("person", "object"),
+            ("person.id", "integer"),
+            ("person.boss", "integer"),
+        ] {
+            schema.vertices.insert(
+                id.into(),
+                Vertex {
+                    id: id.into(),
+                    kind: kind.into(),
+                    nsid: None,
+                },
+            );
+        }
+        for edge in [&id_edge, &boss_edge] {
+            schema.edges.insert(edge.clone(), edge.kind.clone());
+            schema
+                .outgoing
+                .entry(edge.src.clone())
+                .or_default()
+                .push(edge.clone());
+            schema
+                .incoming
+                .entry(edge.tgt.clone())
+                .or_default()
+                .push(edge.clone());
+            schema
+                .between
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .or_default()
+                .push(edge.clone());
+        }
+        schema.declarations.insert_key(
+            "person".into(),
+            Key {
+                id: "pk".into(),
+                parts: vec![KeyPart::Path(vec![id_edge.clone()])],
+                role: KeyRole::Identifier,
+                scope: KeyScope::Document,
+            },
+        );
+        schema.declarations.insert_reference(Reference {
+            id: "boss".into(),
+            holder: "person".into(),
+            source: RefSource::KeyValue {
+                parts: vec![vec![boss_edge.clone()]],
+            },
+            target_vertex: "person".into(),
+            target_key: Some("pk".into()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+        });
+        let plan = ValidationPlan::compile(
+            &schema,
+            &Protocol {
+                syntactic_shape: InstanceShapeKind::Graph,
+                semantic_shape: InstanceShapeKind::Graph,
+                ..Protocol::default()
+            },
+            &ValidationOptions::default(),
+        );
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "person"))
+            .with_node(
+                Node::new(1, "person.boss").with_value(FieldPresence::Present(Value::Int(10))),
+            )
+            .with_node(Node::new(2, "person"))
+            .with_node(Node::new(3, "person.id").with_value(FieldPresence::Present(Value::Int(10))))
+            .with_node(Node::new(4, "person"))
+            .with_node(Node::new(5, "person.id").with_value(FieldPresence::Present(Value::Int(10))))
+            .with_edge(0, 1, boss_edge)
+            .with_edge(2, 3, id_edge.clone())
+            .with_edge(4, 5, id_edge);
+        let report = plan.validate_graph(
+            &graph,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.subject == Some(ViewRef::Node(0))
+                    && matches!(diagnostic.violation, Violation::AmbiguousReference { .. })
+            })
+            .unwrap_or_else(|| panic!("the duplicated target key makes the reference ambiguous"));
+        assert!(diagnostic.verify(&plan, &graph));
+
+        let mut forged = diagnostic.clone();
+        let Violation::AmbiguousReference { reference, .. } = &mut forged.violation else {
+            unreachable!()
+        };
+        *reference = "other-reference".into();
+        assert!(!forged.verify(&plan, &graph));
+    }
+
+    fn witness_with_subject(subject: Option<ViewRef>) -> EditWitness {
+        EditWitness {
+            plan: Digest([0; 32]),
+            baseline_seq: 0,
+            baseline_status: CheckStatus::Passed,
+            delta: Digest([1; 32]),
+            result_status: CheckStatus::Passed,
+            runs: vec![CheckRun {
+                instance: CheckInstance {
+                    check: CheckKey::new(CheckKind::NodeAnchor, SchemaRef::Schema),
+                    subject,
+                },
+                reads: Vec::new(),
+                verdict: RunVerdict::Evaluated {
+                    findings: Vec::new(),
+                    incomplete: Vec::new(),
+                },
+            }],
+            not_triggered: BTreeSet::new(),
+            options: WitnessOptions::default(),
+            prior: None,
+            result: None,
+        }
+    }
+
+    #[test]
+    fn witness_bytes_distinguish_absent_and_distinct_subjects() {
+        let absent = witness_with_subject(None).canonical_bytes();
+        let node_zero = witness_with_subject(Some(ViewRef::Node(0))).canonical_bytes();
+        let node_one = witness_with_subject(Some(ViewRef::Node(1))).canonical_bytes();
+
+        assert_ne!(absent, node_zero, "the option tag is committed");
+        assert_ne!(node_zero, node_one, "the subject reference is committed");
+    }
+}

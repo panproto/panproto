@@ -12,7 +12,7 @@ use panproto_schema::{
 use super::checks::{reset_semantic_evaluations, semantic_evaluations};
 use super::{
     AdmissionPolicy, CheckKind, EditRejection, ExternalVerdicts, IncompleteReason, ReportScope,
-    ValidatedGraph, ValidationBudget, ValidationOptions, ValidationPlan,
+    ValidatedGraph, ValidatedShape, ValidationBudget, ValidationOptions, ValidationPlan,
 };
 use crate::ginstance::GInstance;
 use crate::graph_edit::{GraphDelta, GraphEdit};
@@ -420,4 +420,38 @@ fn an_inapplicable_delta_is_refused_by_the_delta_local_checkers() {
         matches!(result, Err(crate::edit_error::EditError::NodeNotFound(99))),
         "{result:?}"
     );
+}
+
+#[test]
+fn validation_state_canonical_bytes_distinguish_sequence_numbers() {
+    let plan = reference_plan();
+    let (validated, _) = ValidatedGraph::new(
+        plan,
+        reference_graph(1, 1),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    let initial = validated.state().canonical_bytes();
+    let mut successor = validated.state().clone();
+    successor.seq += 1;
+
+    assert!(initial.len() > 1);
+    assert_ne!(initial, successor.canonical_bytes());
+}
+
+#[test]
+fn shape_evaluation_returns_the_reads_of_the_compiled_check() {
+    let plan = reference_plan();
+    let graph = reference_graph(1, 1);
+    let external = ExternalVerdicts::default();
+    let instance = graph
+        .check_instances(&plan)
+        .into_iter()
+        .find(|instance| instance.check.kind == CheckKind::ReferenceResolves)
+        .unwrap_or_else(|| panic!("the reference plan compiles a reference instance"));
+    let separately_traced = graph.reads(&plan, &external, &instance);
+    let (_, evaluated_reads) = graph.evaluate(&plan, &external, &instance);
+
+    assert!(!separately_traced.is_empty());
+    assert_eq!(evaluated_reads, separately_traced);
 }
