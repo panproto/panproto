@@ -5,12 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_reference::lens::{GraphLens, PutDomainError, ViewRef};
 use panproto_reference::migration::Migration;
-use panproto_reference::model::{GEdge, Graph, Node, SEdge};
+use panproto_reference::model::{GEdge, Graph, Node, NodeShape, SEdge};
 use panproto_reference::restrict::{
     self, EdgeFate, EngineError, ErrorKey, NoValueLayer, PairResolution, Plan, PlanError,
     PlannedPair, RestrictError, SynthKey,
 };
-use panproto_reference::schema::Schema;
+use panproto_reference::schema::{HyperEdge, Schema};
 
 fn wrapper() -> (Schema, Schema, Migration, Graph) {
     let source = Schema::default()
@@ -346,6 +346,180 @@ fn a_mutated_overlong_pair_expansion_is_located_at_stage_two() {
                 src: "ta".to_owned(),
                 tgt: "tb".to_owned(),
                 hops: 65_537,
+            },
+        })
+    );
+}
+
+fn fan_fixture() -> (Schema, Schema, Migration, Graph) {
+    let mut source = Schema::default()
+        .vertex("p", "obj")
+        .vertex("a", "obj")
+        .vertex("b", "obj");
+    source.hyper_edges.insert(
+        "h".to_owned(),
+        HyperEdge {
+            kind: "source".to_owned(),
+            signature: [
+                ("x".to_owned(), "a".to_owned()),
+                ("y".to_owned(), "b".to_owned()),
+            ]
+            .into(),
+            parent_label: "source_parent".to_owned(),
+        },
+    );
+    let mut target = Schema::default().vertex("p", "obj").vertex("a", "obj");
+    target.hyper_edges.insert(
+        "target_h".to_owned(),
+        HyperEdge {
+            kind: "target".to_owned(),
+            signature: [("z".to_owned(), "a".to_owned())].into(),
+            parent_label: "target_parent".to_owned(),
+        },
+    );
+    let migration = Migration {
+        surviving_verts: ["p".to_owned(), "a".to_owned()].into(),
+        ..Migration::default()
+    };
+    let mut graph = Graph::default();
+    for (id, anchor) in [(0, "p"), (1, "a"), (2, "b"), (3, "h")] {
+        graph.nodes.insert(id, Node::new(id, anchor));
+    }
+    graph.nodes.get_mut(&3).unwrap().shape = NodeShape::HyperEdge;
+    for (id, tgt, kind, name) in [
+        (10, 0, restrict::HYPER_PARENT, "source_parent"),
+        (11, 1, restrict::HYPER_LABEL, "x"),
+        (12, 2, restrict::HYPER_LABEL, "y"),
+    ] {
+        graph.edges.insert(
+            id,
+            GEdge {
+                src: 3,
+                tgt,
+                label: SEdge::new("h", graph.nodes[&tgt].anchor.as_str(), kind, Some(name)),
+                position: None,
+            },
+        );
+    }
+    (source, target, migration, graph)
+}
+
+fn empty_plan() -> Plan {
+    Plan {
+        fates: BTreeMap::new(),
+        pairs: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn a_pruned_fan_uses_its_full_shape_and_the_target_parent_label() {
+    let (source, target, mut migration, graph) = fan_fixture();
+    migration.hyper_resolver.insert(
+        ("h".to_owned(), ["x".to_owned(), "y".to_owned()].into()),
+        (
+            "target_h".to_owned(),
+            [("x".to_owned(), "z".to_owned())].into(),
+        ),
+    );
+    let (view, complement) = restrict::get_with_plan(
+        &source,
+        &target,
+        &migration,
+        &empty_plan(),
+        &NoValueLayer,
+        &graph,
+    )
+    .unwrap();
+    assert_eq!(view.nodes[&3].anchor, "target_h");
+    assert_eq!(view.edges[&10].label.name.as_deref(), Some("target_parent"));
+    assert_eq!(view.edges[&11].label.name.as_deref(), Some("z"));
+    assert!(!view.edges.contains_key(&12));
+    assert!(complement.dropped_edges.contains_key(&12));
+}
+
+#[test]
+fn a_fan_uses_the_sole_unambiguous_resolver_entry() {
+    let (source, target, mut migration, graph) = fan_fixture();
+    migration.hyper_resolver.insert(
+        ("h".to_owned(), ["not-the-fan-shape".to_owned()].into()),
+        (
+            "target_h".to_owned(),
+            [("x".to_owned(), "z".to_owned())].into(),
+        ),
+    );
+    let (view, _) = restrict::get_with_plan(
+        &source,
+        &target,
+        &migration,
+        &empty_plan(),
+        &NoValueLayer,
+        &graph,
+    )
+    .unwrap();
+    assert_eq!(view.nodes[&3].anchor, "target_h");
+    assert_eq!(view.edges[&11].label.name.as_deref(), Some("z"));
+}
+
+#[test]
+fn an_ambiguous_nonmatching_fan_resolver_has_no_fallback() {
+    let (source, target, mut migration, graph) = fan_fixture();
+    for shape in ["first", "second"] {
+        migration.hyper_resolver.insert(
+            ("h".to_owned(), [shape.to_owned()].into()),
+            ("target_h".to_owned(), BTreeMap::new()),
+        );
+    }
+    let (view, complement) = restrict::get_with_plan(
+        &source,
+        &target,
+        &migration,
+        &empty_plan(),
+        &NoValueLayer,
+        &graph,
+    )
+    .unwrap();
+    assert!(!view.nodes.contains_key(&3));
+    assert_eq!(complement.dropped_nodes[&3], graph.nodes[&3]);
+    assert!(
+        [10, 11, 12]
+            .into_iter()
+            .all(|edge| complement.dropped_edges.contains_key(&edge))
+    );
+}
+
+#[test]
+fn colliding_fan_child_renames_are_refused_at_stage_three() {
+    let (source, target, mut migration, graph) = fan_fixture();
+    migration.surviving_verts.insert("b".to_owned());
+    migration.hyper_resolver.insert(
+        ("h".to_owned(), ["x".to_owned(), "y".to_owned()].into()),
+        (
+            "target_h".to_owned(),
+            [
+                ("x".to_owned(), "z".to_owned()),
+                ("y".to_owned(), "z".to_owned()),
+            ]
+            .into(),
+        ),
+    );
+    assert_eq!(
+        restrict::get_with_plan(
+            &source,
+            &target,
+            &migration,
+            &empty_plan(),
+            &NoValueLayer,
+            &graph,
+        ),
+        Err(RestrictError::At {
+            key: ErrorKey {
+                stage: 3,
+                id: 3,
+                id2: 0,
+            },
+            error: EngineError::FanReconstructionFailed {
+                hyper_edge: "target_h".to_owned(),
+                label: "z".to_owned(),
             },
         })
     );

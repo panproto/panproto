@@ -672,6 +672,13 @@ pub mod restrict {
             /// The number of edges in the expansion.
             hops: usize,
         },
+        /// Two surviving children of one fan acquire the same target label.
+        FanReconstructionFailed {
+            /// The resolved target hyper-edge.
+            hyper_edge: Name,
+            /// The colliding target child label.
+            label: Name,
+        },
     }
 
     /// A restrict refusal.
@@ -1072,11 +1079,18 @@ pub mod restrict {
     impl Run<'_> {
         /// Stage 3: fan survival, ascending fan node. A fan survives iff its
         /// parent and at least one child survive and its resolved hyper-edge is
-        /// a target hyper-edge; the resolver keyed by the hyper-edge and the
-        /// surviving child labels re-anchors it and maps its labels, else it
-        /// keeps its hyper-edge and labels. Edges to dropped children, and every
-        /// node and edge of a dropped fan, go to the complement.
-        fn fans(&mut self) {
+        /// a target hyper-edge. Resolver selection tries the surviving shape,
+        /// then the full pre-pruning shape, then the source hyper-edge's sole
+        /// unambiguous entry. A resolver re-anchors the fan and maps its child
+        /// labels; otherwise the fan keeps its hyper-edge and labels. Target
+        /// parent labels rename named parent edges. Edges to dropped children,
+        /// and every node and edge of a dropped fan, go to the complement.
+        ///
+        /// # Errors
+        ///
+        /// Stage 3 [`EngineError::FanReconstructionFailed`] when two surviving
+        /// children acquire the same target label.
+        fn fans(&mut self) -> Result<(), RestrictError> {
             let fan_ids: Vec<u32> = self
                 .g
                 .nodes
@@ -1103,14 +1117,34 @@ pub mod restrict {
                     .filter(|(_, e)| e.label.kind == HYPER_LABEL && alive(e.tgt))
                     .filter_map(|(_, e)| e.label.name.clone())
                     .collect();
-                let (hyper, label_map) = self
-                    .m
-                    .hyper_resolver
-                    .get(&(node.anchor.clone(), labels.clone()))
+                let full_labels: BTreeSet<Name> = out
+                    .iter()
+                    .filter(|(_, e)| e.label.kind == HYPER_LABEL)
+                    .filter_map(|(_, e)| e.label.name.clone())
+                    .collect();
+                let surviving_key = (node.anchor.clone(), labels.clone());
+                let full_key = (node.anchor.clone(), full_labels);
+                let exact = self.m.hyper_resolver.get(&surviving_key).or_else(|| {
+                    (full_key != surviving_key)
+                        .then(|| self.m.hyper_resolver.get(&full_key))
+                        .flatten()
+                });
+                let sole = || {
+                    let mut entries = self
+                        .m
+                        .hyper_resolver
+                        .iter()
+                        .filter(|((source, _), _)| source == &node.anchor)
+                        .map(|(_, entry)| entry);
+                    let only = entries.next()?;
+                    entries.next().is_none().then_some(only)
+                };
+                let (hyper, label_map) = exact
+                    .or_else(sole)
                     .cloned()
                     .unwrap_or_else(|| (node.anchor.clone(), BTreeMap::new()));
-                let survives =
-                    parent_ok && !labels.is_empty() && self.tgt.hyper_edges.contains_key(&hyper);
+                let target_hyper = self.tgt.hyper_edges.get(&hyper);
+                let survives = parent_ok && !labels.is_empty() && target_hyper.is_some();
                 if !survives {
                     self.c.dropped_nodes.insert(f, node.clone());
                     for (i, e) in out {
@@ -1118,6 +1152,9 @@ pub mod restrict {
                     }
                     continue;
                 }
+                let parent_label = &target_hyper
+                    .expect("survival checks the target hyper-edge")
+                    .parent_label;
                 self.view.nodes.insert(
                     f,
                     Node {
@@ -1125,18 +1162,34 @@ pub mod restrict {
                         ..node.clone()
                     },
                 );
+                let mut seen = BTreeSet::new();
                 for (i, e) in out {
-                    if !alive(e.tgt) {
+                    if !alive(e.tgt) || !is_fan_kind(&e.label.kind) {
                         self.c.dropped_edges.insert(i, e.clone());
                         continue;
                     }
                     let name = if e.label.kind == HYPER_LABEL {
-                        e.label
+                        let renamed = e
+                            .label
                             .name
                             .as_ref()
-                            .map(|l| label_map.get(l).cloned().unwrap_or_else(|| l.clone()))
+                            .map(|l| label_map.get(l).cloned().unwrap_or_else(|| l.clone()));
+                        if let Some(label) = &renamed
+                            && !seen.insert(label.clone())
+                        {
+                            return Err(at(
+                                3,
+                                f,
+                                0,
+                                EngineError::FanReconstructionFailed {
+                                    hyper_edge: hyper.clone(),
+                                    label: label.clone(),
+                                },
+                            ));
+                        }
+                        renamed
                     } else {
-                        e.label.name.clone()
+                        e.label.name.as_ref().map(|_| parent_label.clone())
                     };
                     let label = SEdge {
                         src: hyper.clone(),
@@ -1147,6 +1200,7 @@ pub mod restrict {
                     self.view.edges.insert(i, GEdge { label, ..e.clone() });
                 }
             }
+            Ok(())
         }
 
         /// Allocate synthesized ids in ascending key order from the floors,
@@ -1325,7 +1379,8 @@ pub mod restrict {
     ///
     /// [`RestrictError::Plan`] or the first [`RestrictError::At`], including
     /// an [`EngineError::ExpansionTooLong`] located at the source edge in stage
-    /// 1 or source-node pair in stage 2 when public plan fields were mutated.
+    /// 1 or source-node pair in stage 2 when public plan fields were mutated,
+    /// and [`EngineError::FanReconstructionFailed`] at the fan node in stage 3.
     ///
     /// Book anchors: `L-restrict-and-contraction-1`, `L-restrict-and-contraction-4`, `L-restrict-and-contraction-5`, `L-restrict-and-contraction-6`, `L-restrict-and-contraction-7`, `L-restrict-and-contraction-8`, `L-restrict-and-contraction-9`, `L-restrict-and-contraction-10`, `L-restrict-and-contraction-11`, `L-restrict-and-contraction-12`, `L-restrict-and-contraction-13`.
     pub fn get(
@@ -1369,7 +1424,7 @@ pub mod restrict {
         run.nodes(vl)?;
         run.edges()?;
         run.contract()?;
-        run.fans();
+        run.fans()?;
         run.allocate()?;
         run.record();
         Ok((run.view, run.c))
