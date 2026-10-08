@@ -528,6 +528,36 @@ fn same_complement(a: &ResolutionComplement, b: &ResolutionComplement) -> bool {
     a.is_some() && a == b
 }
 
+/// Record one generated candidate in its family's counted domain.
+///
+/// Negative families count every generated candidate as negative; only a
+/// nonempty vector consisting entirely of that family's intended refusals
+/// satisfies the negative oracle. Positive families count only admitted
+/// candidates, and `put_succeeds` is evaluated only for such a candidate.
+fn record_candidate(
+    family: &mut FamilyReport,
+    mutation: Mutation,
+    verdict: &Result<(), Vec<ResolveDomainError>>,
+    put_succeeds: impl FnOnce() -> bool,
+) {
+    if is_negative(mutation) {
+        family.negative += 1;
+        if let Err(errors) = verdict
+            && !errors.is_empty()
+            && errors
+                .iter()
+                .all(|error| intended_negative(error, mutation))
+        {
+            family.negative_ok += 1;
+        }
+    } else if verdict.is_ok() {
+        family.in_domain += 1;
+        if put_succeeds() {
+            family.in_domain_ok += 1;
+        }
+    }
+}
+
 fn report(
     resolution: &Resolution,
     view: &AnyInstance,
@@ -552,26 +582,10 @@ fn report(
             negative_ok: 0,
         };
         for candidate in candidates {
-            match resolution.check_put_domain(&candidate, complement, ctx) {
-                Ok(()) if !is_negative(mutation) => {
-                    family.in_domain += 1;
-                    if resolution.put(&candidate, complement, ctx).is_ok() {
-                        family.in_domain_ok += 1;
-                    }
-                }
-                Err(errors) if is_negative(mutation) => {
-                    family.negative += 1;
-                    if !errors.is_empty()
-                        && errors
-                            .iter()
-                            .all(|error| intended_negative(error, mutation))
-                    {
-                        family.negative_ok += 1;
-                    }
-                }
-                Ok(()) => family.negative += 1,
-                Err(_) => {}
-            }
+            let verdict = resolution.check_put_domain(&candidate, complement, ctx);
+            record_candidate(&mut family, mutation, &verdict, || {
+                resolution.put(&candidate, complement, ctx).is_ok()
+            });
         }
         ran.push(family);
     }
@@ -585,10 +599,10 @@ mod tests {
     use panproto_inst::resolution_complement::{
         RefOccurrence, ResolutionComplement, ResolutionSpan, ResolutionTextId, ResolutionValueSite,
     };
-    use panproto_inst::{EdgeId, GEdge, GInstance, Node, Value, ViewRef};
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node, SynthKey, Value, ViewRef};
     use panproto_schema::Edge;
 
-    use super::witnesses;
+    use super::*;
 
     /// Holder 1 with span node 5 under occurrence edge 7, and a second
     /// occurrence edge 8 into node 2.
@@ -663,5 +677,180 @@ mod tests {
             ]
         );
         Ok(())
+    }
+
+    #[test]
+    fn negative_families_and_their_intended_refusals_are_exact() {
+        let synthesized = ResolveDomainError::SynthesizedEdited {
+            carrier: ViewRef::Node(1),
+        };
+        let unplaced = ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(1),
+        };
+        let unrepresentable = ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Node(1),
+            reference: "r".into(),
+        };
+        for mutation in Mutation::ALL {
+            let negative = matches!(
+                mutation,
+                Mutation::RemoveSynthesized
+                    | Mutation::EditSynthesized
+                    | Mutation::AddContractedEdge
+                    | Mutation::ReservedIdReuse
+                    | Mutation::MalformedFan
+            );
+            assert_eq!(is_negative(mutation), negative, "{mutation:?}");
+            assert_eq!(
+                intended_negative(&synthesized, mutation),
+                matches!(
+                    mutation,
+                    Mutation::RemoveSynthesized | Mutation::EditSynthesized
+                ),
+                "synthesized: {mutation:?}"
+            );
+            assert_eq!(
+                intended_negative(&unplaced, mutation),
+                matches!(mutation, Mutation::ReservedIdReuse | Mutation::MalformedFan),
+                "placement: {mutation:?}"
+            );
+            assert!(
+                !intended_negative(&unrepresentable, mutation),
+                "another refusal is never intended: {mutation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_edited_graph_index_compacts_occurrences_but_keeps_span_keys()
+    -> Result<(), panproto_inst::InstError> {
+        let (mut view, complement) = state()?;
+        view.remove_edge(EdgeId(7))?;
+        let index = view_index(&AnyInstance::Graph(view), &complement);
+        assert_eq!(index.nodes, complement.synth_index().nodes);
+        assert_eq!(index.edges.len(), 1);
+        assert!(matches!(
+            index.edges.get(&EdgeId(8)),
+            Some(SynthKey::ResolutionReference { index: 0, .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn a_graph_producing_index_extends_the_edited_views_presentation()
+    -> Result<(), panproto_inst::InstError> {
+        let (again, recomplement) = state()?;
+        let renaming = Renaming {
+            nodes: std::iter::once((5, 20)).collect(),
+            ..Renaming::default()
+        };
+        let candidate = renaming.graph(&again)?;
+        let produced = producing_index(
+            &AnyInstance::Graph(candidate),
+            &SynthIndex::default(),
+            &AnyInstance::Graph(again),
+            &recomplement,
+        );
+        assert_eq!(
+            produced.nodes.get(&20),
+            recomplement.synth_index().nodes.get(&5)
+        );
+        assert!(!produced.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn one_synthesized_carrier_has_one_congruence_witness() -> Result<(), panproto_inst::InstError>
+    {
+        let (view, mut complement) = state()?;
+        complement.span_nodes.clear();
+        complement
+            .occurrences
+            .retain(|carrier, _| carrier == &ViewRef::Edge(EdgeId(7)));
+        let renamings = witnesses(&view, &complement);
+        assert_eq!(renamings.len(), 1);
+        assert_eq!(
+            renamings[0].edges,
+            std::iter::once((EdgeId(7), EdgeId(9))).collect()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn complement_equality_reads_every_nonidentity_field() {
+        let a = ResolutionComplement::default();
+        let mut b = a.clone();
+        assert!(same_complement(&a, &b));
+        b.order.insert(1, vec![ViewRef::Node(2)]);
+        assert!(!same_complement(&a, &b));
+        assert!(!same_complement(&b, &a));
+    }
+
+    fn empty_family(mutation: Mutation) -> FamilyReport {
+        FamilyReport {
+            mutation,
+            in_domain: 0,
+            in_domain_ok: 0,
+            negative: 0,
+            negative_ok: 0,
+        }
+    }
+
+    #[test]
+    fn candidate_accounting_distinguishes_both_domains_and_both_verdicts() {
+        let unplaced = ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(1),
+        };
+        let unrelated = ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Node(1),
+            reference: "r".into(),
+        };
+
+        let mut admitted = empty_family(Mutation::FieldEdit);
+        record_candidate(&mut admitted, Mutation::FieldEdit, &Ok(()), || true);
+        assert_eq!((admitted.in_domain, admitted.in_domain_ok), (1, 1));
+        assert_eq!((admitted.negative, admitted.negative_ok), (0, 0));
+
+        let mut put_failed = empty_family(Mutation::FieldEdit);
+        record_candidate(&mut put_failed, Mutation::FieldEdit, &Ok(()), || false);
+        assert_eq!((put_failed.in_domain, put_failed.in_domain_ok), (1, 0));
+
+        let mut refused = empty_family(Mutation::FieldEdit);
+        record_candidate(
+            &mut refused,
+            Mutation::FieldEdit,
+            &Err(vec![unrelated.clone()]),
+            || panic!("put is not evaluated for a refused positive candidate"),
+        );
+        assert_eq!(refused, empty_family(Mutation::FieldEdit));
+
+        let mut negative_admitted = empty_family(Mutation::ReservedIdReuse);
+        record_candidate(
+            &mut negative_admitted,
+            Mutation::ReservedIdReuse,
+            &Ok(()),
+            || panic!("put is not evaluated for a negative candidate"),
+        );
+        assert_eq!(
+            (negative_admitted.negative, negative_admitted.negative_ok),
+            (1, 0)
+        );
+
+        let mut intended = empty_family(Mutation::ReservedIdReuse);
+        record_candidate(
+            &mut intended,
+            Mutation::ReservedIdReuse,
+            &Err(vec![unplaced]),
+            || panic!("put is not evaluated for a negative candidate"),
+        );
+        assert_eq!((intended.negative, intended.negative_ok), (1, 1));
+
+        for errors in [Vec::new(), vec![unrelated]] {
+            let mut wrong = empty_family(Mutation::ReservedIdReuse);
+            record_candidate(&mut wrong, Mutation::ReservedIdReuse, &Err(errors), || {
+                panic!("put is not evaluated for a negative candidate")
+            });
+            assert_eq!((wrong.negative, wrong.negative_ok), (1, 0));
+        }
     }
 }

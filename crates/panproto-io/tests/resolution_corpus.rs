@@ -15,7 +15,7 @@ use panproto_io::resolution::{
     ResolutionValueSite, ResolveContext, ResolveDomainError, ResolveError, ResolveOptions,
     TokenBoundaryProvider, UnresolvedReason, check_resolution_laws,
 };
-use panproto_lens::Mutation;
+use panproto_lens::{Mutation, SkipReason};
 use panproto_schema::{
     Cardinality, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, OffsetUnit,
     OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource, Reference, ResolveMode, Schema,
@@ -535,6 +535,58 @@ fn posts_resolution(reference_override: impl FnOnce(&mut Reference)) -> (Resolut
 fn laws_hold(resolution: &Resolution, source: &AnyInstance, options: ResolveOptions) {
     check_resolution_laws(resolution, source, &options, &ResolveContext::empty())
         .expect("the five laws hold");
+}
+
+#[test]
+fn the_law_report_counts_each_family_by_its_contract_class() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let report = check_resolution_laws(
+        &resolution,
+        &AnyInstance::Tree(posts_tree()),
+        &ResolveOptions::default(),
+        &ResolveContext::empty(),
+    )
+    .expect("the five laws hold");
+    let counts: Vec<_> = report
+        .ran
+        .iter()
+        .map(|family| {
+            (
+                family.mutation,
+                family.in_domain,
+                family.in_domain_ok,
+                family.negative,
+                family.negative_ok,
+            )
+        })
+        .collect();
+    assert_eq!(
+        counts,
+        vec![
+            (Mutation::ValueEdit, 0, 0, 0, 0),
+            (Mutation::FieldEdit, 18, 18, 0, 0),
+            (Mutation::AddNode, 0, 0, 0, 0),
+            (Mutation::RemoveNode, 0, 0, 0, 0),
+            (Mutation::AddEdge, 0, 0, 0, 0),
+            (Mutation::RemoveEdge, 0, 0, 0, 0),
+            (Mutation::Reconnect, 0, 0, 0, 0),
+            (Mutation::Reorder, 9, 9, 0, 0),
+            (Mutation::AddParallelEdge, 0, 0, 0, 0),
+            (Mutation::RemoveSynthesized, 0, 0, 2, 2),
+            (Mutation::EditSynthesized, 0, 0, 2, 2),
+        ]
+    );
+    assert_eq!(
+        report.skipped,
+        vec![
+            (Mutation::RelabelNode, SkipReason::NoCandidate),
+            (Mutation::RelabelEdge, SkipReason::NoCandidate),
+            (Mutation::AddSelfLoop, SkipReason::NoCandidate),
+            (Mutation::AddContractedEdge, SkipReason::NoCandidate),
+            (Mutation::ReservedIdReuse, SkipReason::NoCandidate),
+            (Mutation::MalformedFan, SkipReason::NoCandidate),
+        ]
+    );
 }
 
 #[test]

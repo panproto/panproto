@@ -135,6 +135,36 @@ fn coherent_occurrence_edge(
         && expected_source == Some(edge.src)
 }
 
+/// Select the compiled writer declared for `label`, or classify the exact
+/// zero/one/many set of references that could write that label.
+fn select_writer<'a>(
+    carrier: EdgeId,
+    label: &Edge,
+    declared: Option<&panproto_gat::Name>,
+    compiled: &'a BTreeMap<panproto_gat::Name, CompiledRef>,
+) -> Result<&'a CompiledRef, ResolveDomainError> {
+    if let Some(writer) = declared.and_then(|name| compiled.get(name)) {
+        return Ok(writer);
+    }
+    let declarers: Vec<_> = compiled
+        .values()
+        .filter(|candidate| candidate.reference.edge.as_ref() == Some(label))
+        .map(|candidate| candidate.reference.id.clone())
+        .collect();
+    let carrier = ViewRef::Edge(carrier);
+    Err(match declarers.as_slice() {
+        [] => ResolveDomainError::NoPlacement { carrier },
+        [reference] => ResolveDomainError::UnrepresentableReference {
+            carrier,
+            reference: reference.clone(),
+        },
+        _ => ResolveDomainError::AmbiguousPlacement {
+            carrier,
+            references: declarers,
+        },
+    })
+}
+
 impl Resolution {
     /// The put domain of a resolving kind.
     pub(super) fn graph_domain(
@@ -322,32 +352,12 @@ impl Resolution {
         carrier: EdgeId,
         label: &Edge,
     ) -> Result<&CompiledRef, ResolveDomainError> {
-        if let Some(compiled) = self
-            .spec
-            .reference_writers
-            .get(label)
-            .and_then(|name| self.compiled.get(name))
-        {
-            return Ok(compiled);
-        }
-        let declarers: Vec<_> = self
-            .compiled
-            .values()
-            .filter(|compiled| compiled.reference.edge.as_ref() == Some(label))
-            .map(|compiled| compiled.reference.id.clone())
-            .collect();
-        let carrier = ViewRef::Edge(carrier);
-        Err(match declarers.as_slice() {
-            [] => ResolveDomainError::NoPlacement { carrier },
-            [reference] => ResolveDomainError::UnrepresentableReference {
-                carrier,
-                reference: reference.clone(),
-            },
-            _ => ResolveDomainError::AmbiguousPlacement {
-                carrier,
-                references: declarers,
-            },
-        })
+        select_writer(
+            carrier,
+            label,
+            self.spec.reference_writers.get(label),
+            &self.compiled,
+        )
     }
 }
 
@@ -359,7 +369,7 @@ fn without_carriers(graph: &GInstance, violations: &Violations) -> Option<GInsta
     let mut removed = false;
     for violation in std::iter::once(&violations.first).chain(&violations.rest) {
         match violation.carrier() {
-            Some(ViewRef::Node(node)) if reduced.node(*node).is_some() => {
+            Some(ViewRef::Node(node)) => {
                 let incident: BTreeSet<EdgeId> = reduced
                     .out_edges(*node)
                     .iter()
@@ -367,11 +377,13 @@ fn without_carriers(graph: &GInstance, violations: &Violations) -> Option<GInsta
                     .copied()
                     .collect();
                 for edge in incident {
-                    removed |= reduced.remove_edge(edge).is_ok();
+                    reduced
+                        .remove_edge(edge)
+                        .expect("an incident edge enumerated from the graph exists");
                 }
                 removed |= reduced.remove_node(*node).is_ok();
             }
-            Some(ViewRef::Edge(edge)) if reduced.edge(*edge).is_some() => {
+            Some(ViewRef::Edge(edge)) => {
                 removed |= reduced.remove_edge(*edge).is_ok();
             }
             _ => {}
@@ -394,7 +406,12 @@ pub fn not_tree_carrier(reason: &NotTreeReason, root: Option<u32>) -> Option<Vie
 
 #[cfg(test)]
 mod tests {
+    use panproto_schema::{
+        Cardinality, Key, KeyRole, KeyScope, OnUnresolved, PathSyntax, RefSource, Reference,
+    };
+
     use super::*;
+    use crate::resolution::compile::RefForm;
 
     fn label(name: &str) -> Edge {
         Edge {
@@ -424,5 +441,107 @@ mod tests {
         assert!(!coherent_occurrence_edge(Some(&expected), &found, Some(8)));
         assert!(!coherent_occurrence_edge(None, &found, Some(7)));
         assert!(!coherent_occurrence_edge(Some(&expected), &found, None));
+    }
+
+    fn compiled_reference(id: &str, edge: Edge) -> CompiledRef {
+        CompiledRef {
+            reference: Reference {
+                id: id.into(),
+                holder: edge.src.clone(),
+                source: RefSource::Path {
+                    field: Vec::new(),
+                    syntax: PathSyntax::JsonPointer,
+                },
+                target_vertex: edge.tgt.clone(),
+                target_key: None,
+                edge: Some(edge),
+                cardinality: Cardinality::One,
+                nullable: false,
+                on_unresolved: OnUnresolved::Error,
+                mode: ResolveMode::AddEdge,
+            },
+            form: RefForm::KeyValue {
+                key: Key {
+                    id: "key".into(),
+                    parts: Vec::new(),
+                    role: KeyRole::Unique,
+                    scope: KeyScope::Document,
+                },
+                parts: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn writer_selection_distinguishes_the_declared_zero_one_and_many_cases() {
+        let wanted = label("wanted");
+        let other = label("other");
+        let mut compiled = BTreeMap::from([
+            ("a".into(), compiled_reference("a", wanted.clone())),
+            ("z".into(), compiled_reference("z", other.clone())),
+        ]);
+        let carrier = EdgeId(7);
+
+        let declared = panproto_gat::Name::from("a");
+        let selected = select_writer(carrier, &other, Some(&declared), &compiled);
+        assert!(matches!(selected, Ok(writer) if writer.reference.id == "a"));
+
+        assert_eq!(
+            select_writer(carrier, &wanted, None, &compiled)
+                .expect_err("one undeclared writer is unrepresentable"),
+            ResolveDomainError::UnrepresentableReference {
+                carrier: ViewRef::Edge(carrier),
+                reference: "a".into(),
+            }
+        );
+        assert_eq!(
+            select_writer(carrier, &label("missing"), None, &compiled)
+                .expect_err("no writer has no placement"),
+            ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Edge(carrier),
+            }
+        );
+
+        compiled.insert("b".into(), compiled_reference("b", wanted.clone()));
+        assert_eq!(
+            select_writer(carrier, &wanted, None, &compiled)
+                .expect_err("two writers are ambiguous"),
+            ResolveDomainError::AmbiguousPlacement {
+                carrier: ViewRef::Edge(carrier),
+                references: vec!["a".into(), "b".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn removing_named_carriers_reports_progress_and_preserves_the_rest()
+    -> Result<(), panproto_inst::InstError> {
+        let mut graph = GInstance::new();
+        graph.insert_node(panproto_inst::Node::new(1, "holder"))?;
+        graph.insert_node(panproto_inst::Node::new(2, "target"))?;
+        graph.insert_edge(EdgeId(7), GEdge::new(1, 2, label("wanted")))?;
+
+        let node = Violations::one(ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(1),
+        });
+        let without_node = without_carriers(&graph, &node)
+            .expect("an existing named node and its incident edge are removed");
+        assert!(without_node.node(1).is_none());
+        assert!(without_node.node(2).is_some());
+        assert!(without_node.edge(EdgeId(7)).is_none());
+
+        let edge = Violations::one(ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Edge(EdgeId(7)),
+        });
+        let without_edge =
+            without_carriers(&graph, &edge).expect("an existing named edge is removed");
+        assert_eq!(without_edge.nodes().len(), 2);
+        assert!(without_edge.edge(EdgeId(7)).is_none());
+
+        let missing = Violations::one(ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Edge(EdgeId(99)),
+        });
+        assert!(without_carriers(&graph, &missing).is_none());
+        Ok(())
     }
 }
