@@ -1680,8 +1680,7 @@ mod tests {
         assert!(!forged.verify(&plan, &graph));
     }
 
-    #[test]
-    fn ambiguous_reference_witness_must_name_the_compiled_reference() {
+    fn ambiguous_reference_plan() -> (ValidationPlan, Edge, Edge) {
         let id_edge = Edge {
             src: "person".into(),
             tgt: "person.id".into(),
@@ -1750,16 +1749,23 @@ mod tests {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
         });
-        let plan = ValidationPlan::compile(
-            &schema,
-            &Protocol {
-                syntactic_shape: InstanceShapeKind::Graph,
-                semantic_shape: InstanceShapeKind::Graph,
-                ..Protocol::default()
-            },
-            &ValidationOptions::default(),
-        );
-        let graph = GInstance::new()
+        (
+            ValidationPlan::compile(
+                &schema,
+                &Protocol {
+                    syntactic_shape: InstanceShapeKind::Graph,
+                    semantic_shape: InstanceShapeKind::Graph,
+                    ..Protocol::default()
+                },
+                &ValidationOptions::default(),
+            ),
+            id_edge,
+            boss_edge,
+        )
+    }
+
+    fn ambiguous_reference_graph(id_edge: Edge, boss_edge: Edge) -> GInstance {
+        GInstance::new()
             .with_node(Node::new(0, "person"))
             .with_node(
                 Node::new(1, "person.boss").with_value(FieldPresence::Present(Value::Int(10))),
@@ -1770,7 +1776,13 @@ mod tests {
             .with_node(Node::new(5, "person.id").with_value(FieldPresence::Present(Value::Int(10))))
             .with_edge(0, 1, boss_edge)
             .with_edge(2, 3, id_edge.clone())
-            .with_edge(4, 5, id_edge);
+            .with_edge(4, 5, id_edge)
+    }
+
+    #[test]
+    fn ambiguous_reference_witness_must_name_the_compiled_reference() {
+        let (plan, id_edge, boss_edge) = ambiguous_reference_plan();
+        let graph = ambiguous_reference_graph(id_edge, boss_edge);
         let report = plan.validate_graph(
             &graph,
             &ValidationBudget::default(),

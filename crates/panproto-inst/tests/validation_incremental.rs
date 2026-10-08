@@ -1085,13 +1085,16 @@ fn assert_from_parts_rejects_open_budget_and_external() {
     );
     let (open_instance, mut open_state) = open_validated.into_parts();
     assert!(!open_state.open.is_empty());
+    let expected_instance = open_state
+        .open
+        .keys()
+        .next()
+        .cloned()
+        .expect("the invalid anchor has an open outcome");
     open_state.open.clear();
-    assert_eq!(
-        ValidatedGraph::from_parts(open_plan, open_instance, open_state)
-            .unwrap_err()
-            .field,
-        StateField::Open
-    );
+    let mismatch = ValidatedGraph::from_parts(open_plan, open_instance, open_state).unwrap_err();
+    assert_eq!(mismatch.field, StateField::Open);
+    assert_eq!(mismatch.instance.as_deref(), Some(&expected_instance));
 
     let cut_plan = two_anchor_plan();
     let (cut_validated, _) = ValidatedGraph::new(
@@ -1144,6 +1147,99 @@ fn assert_from_parts_rejects_open_budget_and_external() {
             .unwrap_err()
             .field,
         StateField::External
+    );
+}
+
+#[test]
+fn validation_state_bytes_observe_nested_keys_and_payloads() {
+    let plan = two_anchor_plan();
+    let (validated, _) = ValidatedGraph::new(
+        plan.clone(),
+        GInstance::new().with_node(Node::new(0, "item")),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    let state = validated.state().clone();
+    let key = plan
+        .checks()
+        .keys()
+        .next()
+        .cloned()
+        .expect("the structural plan has a compiled check");
+
+    let with_open_subject = |subject| {
+        let mut candidate = state.clone();
+        candidate.open = BTreeMap::from([(
+            CheckInstance {
+                check: key.clone(),
+                subject: Some(ViewRef::Node(subject)),
+            },
+            OpenVerdict::default(),
+        )]);
+        candidate
+    };
+    assert_ne!(
+        with_open_subject(0).canonical_bytes(),
+        with_open_subject(1).canonical_bytes(),
+        "an open outcome's instance and optional subject are encoded"
+    );
+    let mut open_payload_changed = with_open_subject(0);
+    open_payload_changed
+        .open
+        .values_mut()
+        .next()
+        .expect("the candidate has one open verdict")
+        .incomplete
+        .push(IncompleteCheck {
+            check: key.clone(),
+            class: CheckClass::GraphLocal,
+            requirement: Requirement::Required,
+            subject: Some(ViewRef::Node(0)),
+            reason: IncompleteReason::MissingExternalWitness {
+                name: "audit".into(),
+            },
+        });
+    assert_ne!(
+        with_open_subject(0).canonical_bytes(),
+        open_payload_changed.canonical_bytes(),
+        "an open verdict's nested payload is encoded"
+    );
+
+    let mut coverage_changed = state.clone();
+    coverage_changed
+        .coverage
+        .get_mut(&key)
+        .expect("the compiled check has coverage")
+        .instances += 1;
+    assert_ne!(state.canonical_bytes(), coverage_changed.canonical_bytes());
+
+    let mut external_changed = state.clone();
+    external_changed.external.insert(
+        "audit".into(),
+        ViewRef::Node(0),
+        ExternalVerdict {
+            passed: true,
+            witness: Digest([7; 32]),
+        },
+    );
+    assert_ne!(state.canonical_bytes(), external_changed.canonical_bytes());
+
+    let with_index_element = |element| {
+        let mut candidate = state.clone();
+        candidate.key_indexes = BTreeMap::from([(
+            key.clone(),
+            KeyIndexState {
+                buckets: BTreeMap::from([((None, vec![7]), vec![ViewRef::Node(element)])]),
+                by_value: BTreeMap::new(),
+                values: BTreeMap::new(),
+            },
+        )]);
+        candidate
+    };
+    assert_ne!(
+        with_index_element(0).canonical_bytes(),
+        with_index_element(1).canonical_bytes(),
+        "an index's complete nested view sequence is encoded"
     );
 }
 
@@ -1240,6 +1336,102 @@ fn sparse_budget_cuts_commit_exact_scheduled_and_skipped_instances() -> TestResu
             .field,
         StateField::BudgetCuts
     );
+    Ok(())
+}
+
+#[test]
+fn reattachment_rejects_each_budget_cut_order_and_cross_cut_mismatch() -> TestResult {
+    let plan = external_plan(Requirement::Required);
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "item"))
+        .with_node(Node::new(1, "item"));
+    let (validated, _) = ValidatedGraph::new(
+        plan.clone(),
+        graph,
+        &ValidationBudget { max_reads: Some(0) },
+        &ExternalVerdicts::default(),
+    );
+    let (instance, state) = validated.into_parts();
+    let cut_keys: Vec<_> = state.budget_cuts.keys().cloned().collect();
+    assert!(cut_keys.len() >= 2, "the plan has multiple budget-cut keys");
+    let first_key = &cut_keys[0];
+    let second_key = &cut_keys[1];
+    let first = &state.budget_cuts[first_key];
+    assert!(first.scheduled.len() >= 2);
+    assert!(first.skipped.len() >= 2);
+    let duplicate = first.skipped[0].clone();
+    let duplicate_at = first
+        .scheduled
+        .iter()
+        .position(|instance| instance == &duplicate)
+        .expect("the skipped suffix belongs to the schedule");
+    assert!(
+        duplicate_at >= 2,
+        "the schedule has two evaluated instances before its skipped suffix"
+    );
+    ValidatedGraph::from_parts(plan.clone(), instance.clone(), state.clone())?;
+
+    let rejects = |forged| {
+        assert_eq!(
+            ValidatedGraph::from_parts(plan.clone(), instance.clone(), forged)
+                .unwrap_err()
+                .field,
+            StateField::BudgetCuts
+        );
+    };
+
+    let mut forged = state.clone();
+    for cut in forged.budget_cuts.values_mut() {
+        cut.scheduled.insert(duplicate_at + 1, duplicate.clone());
+        cut.skipped.insert(1, duplicate.clone());
+    }
+    rejects(forged);
+
+    let mut forged = state.clone();
+    for cut in forged.budget_cuts.values_mut() {
+        cut.scheduled.swap(0, 1);
+    }
+    rejects(forged);
+
+    let mut forged = state.clone();
+    for cut in forged.budget_cuts.values_mut() {
+        cut.skipped.swap(0, 1);
+    }
+    rejects(forged);
+
+    let mut forged = state.clone();
+    forged
+        .budget_cuts
+        .get_mut(second_key)
+        .expect("second cut")
+        .limit += 1;
+    rejects(forged);
+
+    let mut forged = state.clone();
+    forged
+        .budget_cuts
+        .get_mut(second_key)
+        .expect("second cut")
+        .spent += 1;
+    rejects(forged);
+
+    let mut forged = state.clone();
+    forged
+        .budget_cuts
+        .get_mut(second_key)
+        .expect("second cut")
+        .scheduled
+        .pop();
+    rejects(forged);
+
+    let mut forged = state;
+    forged
+        .budget_cuts
+        .get_mut(second_key)
+        .expect("second cut")
+        .skipped
+        .pop();
+    rejects(forged);
     Ok(())
 }
 
@@ -5892,6 +6084,113 @@ fn a_tree_edit_on_an_arc_cycle_off_the_root_terminates() {
                 child: 1
             },
         ])
+    );
+}
+
+#[test]
+fn tree_shape_lowering_is_structurally_canonical() -> TestResult {
+    assert_eq!(
+        <WInstance as ValidatedShape>::shape(),
+        InstanceShapeKind::Tree
+    );
+
+    let empty = <WInstance as ValidatedShape>::lower(&TreeEdit::Sequence(Vec::new()))?;
+    assert!(matches!(empty, TreeEdit::Identity));
+
+    let singleton =
+        <WInstance as ValidatedShape>::lower(&TreeEdit::Sequence(vec![TreeEdit::DeleteNode {
+            id: 7,
+        }]))?;
+    assert!(matches!(singleton, TreeEdit::DeleteNode { id: 7 }));
+    Ok(())
+}
+
+#[test]
+fn tree_touched_support_distinguishes_incidence_and_root_changes() {
+    use validation_support::e_next;
+
+    let nodes = HashMap::from([
+        (0, Node::new(0, "doc")),
+        (1, Node::new(1, "item")),
+        (2, Node::new(2, "item")),
+    ]);
+    let before = WInstance::new(
+        nodes.clone(),
+        vec![(0, 1, e_next())],
+        Vec::new(),
+        0,
+        "doc".into(),
+    );
+    assert!(
+        WInstance::touched(&TreeEdit::Identity, &before, &before).is_empty(),
+        "identical incidence sequences have empty support"
+    );
+
+    let after = WInstance::new(
+        nodes.clone(),
+        vec![(0, 1, e_next()), (0, 2, e_next())],
+        Vec::new(),
+        0,
+        "doc".into(),
+    );
+    assert_eq!(
+        WInstance::touched(&TreeEdit::Identity, &before, &after),
+        BTreeSet::from([
+            ViewRef::Node(0),
+            ViewRef::Node(2),
+            ViewRef::Arc {
+                parent: 0,
+                child: 2,
+            },
+        ])
+    );
+
+    let root_zero = WInstance::new(nodes.clone(), Vec::new(), Vec::new(), 0, "doc".into());
+    let root_one = WInstance::new(nodes, Vec::new(), Vec::new(), 1, "doc".into());
+    assert_eq!(
+        WInstance::touched(&TreeEdit::Identity, &root_zero, &root_one),
+        BTreeSet::from([ViewRef::Node(0), ViewRef::Node(1)])
+    );
+}
+
+#[test]
+fn table_candidates_close_rows_and_pairs_bidirectionally() {
+    let table = every_bounded_table()
+        .into_iter()
+        .find(|table| !table.all_pairs().is_empty())
+        .expect("the bounded tables include a foreign-key pair");
+    let (edge, src, tgt) = table
+        .all_pairs()
+        .into_iter()
+        .next()
+        .expect("the selected table has a foreign-key pair");
+    let pair = ViewRef::Pair { edge, src, tgt };
+
+    let from_row = FInstance::candidate_subjects(
+        &TableDelta::identity(),
+        &table,
+        &table,
+        &BTreeSet::from([ViewRef::Row(src)]),
+    );
+    assert!(from_row.contains(&pair));
+
+    let from_target = FInstance::candidate_subjects(
+        &TableDelta::identity(),
+        &table,
+        &table,
+        &BTreeSet::from([ViewRef::Row(tgt)]),
+    );
+    assert!(from_target.contains(&pair));
+
+    let from_pair = FInstance::candidate_subjects(
+        &TableDelta::identity(),
+        &table,
+        &table,
+        &BTreeSet::from([pair.clone()]),
+    );
+    assert_eq!(
+        from_pair,
+        BTreeSet::from([pair, ViewRef::Row(src), ViewRef::Row(tgt)])
     );
 }
 

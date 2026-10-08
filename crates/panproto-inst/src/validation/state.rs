@@ -1267,14 +1267,6 @@ fn checked_budget_cuts(
     if !strictly_sorted(&first.scheduled) || !strictly_sorted(&first.skipped) {
         return Err(mismatch(StateField::BudgetCuts));
     }
-    if state.budget_cuts.values().any(|cut| {
-        cut.limit != first.limit
-            || cut.spent != first.spent
-            || cut.scheduled != first.scheduled
-            || cut.skipped != first.skipped
-    }) {
-        return Err(mismatch(StateField::BudgetCuts));
-    }
     if first.scheduled.iter().any(|check| !all.contains(check)) {
         return Err(mismatch(StateField::BudgetCuts));
     }
@@ -1288,9 +1280,6 @@ fn checked_budget_cuts(
         &budget,
         Walk::Replay,
     );
-    if replay.skipped != first.skipped || replay.spent != first.spent {
-        return Err(mismatch(StateField::BudgetCuts));
-    }
     let expected = cuts_for_schedule(
         plan,
         &first.scheduled,
