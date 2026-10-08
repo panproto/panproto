@@ -868,7 +868,9 @@ pub fn contraction_witnesses(
             SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
                 Some((*src, *tgt))
             }
-            SynthKey::Expand { .. } => None,
+            SynthKey::Expand { .. }
+            | SynthKey::ResolutionReference { .. }
+            | SynthKey::ResolutionSpan { .. } => None,
         };
         if let Some((src, tgt)) = endpoints
             && let Some(path) = bfs_contraction_path(source, &view, src, tgt)
@@ -1329,7 +1331,9 @@ fn synth_node_matches(
                 })
             })
         }
-        SynthKey::Contract { .. } => None,
+        SynthKey::Contract { .. }
+        | SynthKey::ResolutionReference { .. }
+        | SynthKey::ResolutionSpan { .. } => None,
     };
     expected.is_some_and(|anchor| {
         &node.anchor == anchor
@@ -1418,6 +1422,7 @@ fn expected_synth_edge(
                 *hop,
             )
         }
+        SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. } => None,
     }
 }
 
@@ -1444,6 +1449,7 @@ fn chain_endpoint_removed(view: &GInstance, complement: &GraphComplement, key: &
             .dropped_edges
             .get(source_edge)
             .is_some_and(|edge| view.node(edge.src).is_none() || view.node(edge.tgt).is_none()),
+        SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. } => false,
     }
 }
 

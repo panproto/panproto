@@ -178,6 +178,9 @@ fn every_frozen_complement_still_decodes_as_a_tree_complement() {
                     Ok(AnyComplement::Functor(_)) => {
                         panic!("{} decoded as a table complement", path.display())
                     }
+                    Ok(AnyComplement::Resolution(_)) => {
+                        panic!("{} decoded as a resolution complement", path.display())
+                    }
                     Err(e) => panic!("{}: {e}", path.display()),
                 }
             }

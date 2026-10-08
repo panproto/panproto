@@ -584,6 +584,12 @@ pub fn graph_complement_to_tree(
                 };
                 embedding.arcs.insert(edge.tgt, id);
             }
+            panproto_inst::SynthKey::ResolutionReference { .. }
+            | panproto_inst::SynthKey::ResolutionSpan { .. } => {
+                return Err(not_tree(format!(
+                    "synthesized edge {id} carries a resolution key, which no lens complement records"
+                )));
+            }
         }
     }
     Ok((tree, embedding))

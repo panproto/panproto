@@ -30,10 +30,12 @@
 
 use std::collections::BTreeMap;
 
+use panproto_gat::Name;
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use crate::ginstance::EdgeId;
+use crate::resolution_complement::ResolutionTextId;
 
 /// Identifier of a row in a table instance.
 ///
@@ -132,6 +134,25 @@ pub enum SynthKey {
         /// The position along the expansion path.
         hop: u16,
     },
+    /// An edge synthesized for one resolved reference occurrence.
+    ResolutionReference {
+        /// Source holder of the occurrence.
+        holder: ViewRef,
+        /// Reference declaration.
+        reference: Name,
+        /// Occurrence index at the holder.
+        index: u32,
+    },
+    /// A node synthesized for one standoff span: the field-qualified text
+    /// and the half-open byte interval it covers.
+    ResolutionSpan {
+        /// The text the span indexes.
+        text: ResolutionTextId,
+        /// First byte of the span.
+        start: u64,
+        /// One past the last byte of the span.
+        end: u64,
+    },
 }
 
 /// The allocation floor of a graph: the least node id and the least edge id
@@ -190,6 +211,7 @@ mod tests {
 
     use super::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
     use crate::ginstance::EdgeId;
+    use crate::resolution_complement::{ResolutionTextId, ResolutionValueSite};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -311,6 +333,19 @@ mod tests {
                 tgt: 0,
                 hop: 0,
             },
+            SynthKey::ResolutionReference {
+                holder: ViewRef::Node(3),
+                reference: "alias".into(),
+                index: 2,
+            },
+            SynthKey::ResolutionSpan {
+                text: ResolutionTextId::Local(ResolutionValueSite::Field {
+                    holder: ViewRef::Row(RowId(4)),
+                    field: "text".to_owned(),
+                }),
+                start: 5,
+                end: 8,
+            },
         ];
         assert!(keys.windows(2).all(|w| w[0] < w[1]), "{keys:?}");
         let json: Vec<String> = keys
@@ -326,6 +361,10 @@ mod tests {
                 ),
                 r#"{"expand":{"source_edge":0,"hop":0}}"#.to_owned(),
                 r#"{"contract_expand":{"src":0,"tgt":0,"hop":0}}"#.to_owned(),
+                r#"{"resolution_reference":{"holder":{"node":3},"reference":"alias","index":2}}"#
+                    .to_owned(),
+                r#"{"resolution_span":{"text":{"local":{"field":{"holder":{"row":4},"field":"text"}}},"start":5,"end":8}}"#
+                    .to_owned(),
             ]
         );
         for k in &keys {

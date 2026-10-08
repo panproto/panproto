@@ -294,7 +294,9 @@ impl Complement {
                         hop: next,
                     },
                 ),
-                SynthKey::Contract { .. } => (None, chain),
+                SynthKey::Contract { .. }
+                | SynthKey::ResolutionReference { .. }
+                | SynthKey::ResolutionSpan { .. } => (None, chain),
             };
             if let Some(edge) = endpoint.and_then(|child| embedding.arcs.get(&child)) {
                 edges.insert(*edge, key);
@@ -338,7 +340,9 @@ fn chain_of(key: &SynthKey) -> (SynthKey, u16) {
             },
             *hop,
         ),
-        SynthKey::Contract { .. } => (key.clone(), 0),
+        SynthKey::Contract { .. }
+        | SynthKey::ResolutionReference { .. }
+        | SynthKey::ResolutionSpan { .. } => (key.clone(), 0),
     }
 }
 

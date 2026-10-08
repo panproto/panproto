@@ -32,7 +32,10 @@ pub use builtin::apply_builtin;
 pub use env::Env;
 pub use error::ExprError;
 pub use eval::{BuiltinResolver, EvalConfig, eval, eval_with_resolver};
-pub use exact::{ExactKind, ExactParseError, FidelityReason};
+pub use exact::{
+    CANONICAL_NAN, ExactKind, ExactParseError, FidelityReason, NEGATIVE_CANONICAL_NAN,
+    binary32_bits,
+};
 pub use expr::{BuiltinOp, Expr, ExprType, Pattern};
 pub use limits::{Budget, LimitExceeded, Resource, ResourceLimits};
 pub use literal::Literal;

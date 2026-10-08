@@ -3,6 +3,17 @@
 //! The evaluator is pure, deterministic, and WASM-safe. It tracks a step
 //! counter (decremented on each reduction) and a depth counter (incremented
 //! on each recursive call) to bound computation.
+//!
+//! A NaN that evaluation computes is the canonical quiet NaN,
+//! [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN) (bits
+//! `0x7ff8000000000000`), whatever sign and payload the platform's
+//! arithmetic gave it: each builtin that computes a float returns it in
+//! place of any NaN result. A NaN that evaluation binds or passes along
+//! keeps its bits: one bound to a variable, written as a literal, or
+//! returned by `Head`, a field access or a branch is returned as it was
+//! given, so a cell's NaN that a transform passes through is written back
+//! unchanged. So two evaluations that compute NaNs return equal values, bit
+//! for bit, and a NaN that is passed through is the NaN of its source.
 
 use std::sync::Arc;
 
