@@ -279,10 +279,16 @@ impl LensPath {
         groups
     }
 
-    /// Deterministic table normal form under the supplied boundary protocols.
+    /// Deterministic table normal form for the leftmost-first fusion strategy.
     ///
     /// There must be one protocol for the source boundary, every shared
     /// boundary and the target boundary, in atomic-stage order.
+    /// Starting with those atomic stages, this repeatedly fuses the leftmost
+    /// adjacent pair admitted by table fusion at its three protocol
+    /// boundaries. The result is a function of the stages and protocols, not
+    /// a canonical form of table-lens behaviour, and it need not minimize the
+    /// number of groups. The partial-put and product-complement interpretation
+    /// is inferred from `xie2025effectful`, Sections 2.1 and 2.4.
     ///
     /// # Errors
     ///
