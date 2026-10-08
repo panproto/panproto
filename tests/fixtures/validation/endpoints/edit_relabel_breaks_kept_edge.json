@@ -480,5 +480,268 @@
         ]
       }
     }
-  ]
+  ],
+  "incremental": {
+    "edit": {
+      "RelabelEdge": {
+        "id": 0,
+        "old": {
+          "src": "a",
+          "tgt": "b",
+          "kind": "prop",
+          "name": "ab"
+        },
+        "new": {
+          "src": "b",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "ba"
+        }
+      }
+    },
+    "policy": "require_passed",
+    "budget": {
+      "max_reads": null
+    },
+    "external": [],
+    "options": {
+      "digests": true
+    },
+    "outcome": {
+      "not_admitted": {
+        "report": {
+          "shape": "graph",
+          "scope": {
+            "edit": {
+              "baseline_seq": 0,
+              "baseline_status": "passed"
+            }
+          },
+          "plan": "6e8562ce66fb8c6296c87632375cc05cc3f27daa279967c8e9cb45a706f2d5bb",
+          "status": "failed",
+          "diagnostics": [
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "class": "graph_local",
+              "requirement": "required",
+              "subject": {
+                "edge": 0
+              },
+              "elements": [
+                {
+                  "node": 0
+                },
+                {
+                  "edge": 0
+                }
+              ],
+              "violation": {
+                "incoherent_endpoint": {
+                  "side": "src",
+                  "expected": "b",
+                  "found": "a"
+                }
+              },
+              "source": null
+            },
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "class": "graph_local",
+              "requirement": "required",
+              "subject": {
+                "edge": 0
+              },
+              "elements": [
+                {
+                  "node": 1
+                },
+                {
+                  "edge": 0
+                }
+              ],
+              "violation": {
+                "incoherent_endpoint": {
+                  "side": "tgt",
+                  "expected": "a",
+                  "found": "b"
+                }
+              },
+              "source": null
+            }
+          ],
+          "incomplete": [],
+          "coverage": [
+            [
+              {
+                "kind": "schema_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "declaration_interpretable",
+                "decl": "schema"
+              },
+              {
+                "class": "static",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "node_anchor",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 2,
+                "passed": 2,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "edge_declared",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 0,
+                "failed": 1,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "fan_well_formed",
+                "decl": "schema"
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 0,
+                "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ]
+          ]
+        },
+        "footprint": {
+          "rerun": [
+            {
+              "check": {
+                "kind": "edge_declared",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 0
+              }
+            },
+            {
+              "check": {
+                "kind": "endpoint_coherence",
+                "decl": "schema"
+              },
+              "subject": {
+                "edge": 0
+              }
+            }
+          ],
+          "created": [],
+          "retired": [],
+          "reads": [
+            {
+              "node": 0
+            },
+            {
+              "node": 1
+            },
+            {
+              "edge": 0
+            }
+          ],
+          "touched": [
+            {
+              "edge": 0
+            }
+          ]
+        },
+        "affected": [
+          {
+            "edge": 0
+          }
+        ]
+      }
+    }
+  },
+  "expected_violations": {
+    "initial": [],
+    "after_edits": [
+      [
+        {
+          "check": "endpoint_coherence",
+          "subject": {
+            "edge": 0
+          },
+          "violation": {
+            "incoherent_endpoint": {
+              "side": "src",
+              "expected": "b",
+              "found": "a"
+            }
+          }
+        },
+        {
+          "check": "endpoint_coherence",
+          "subject": {
+            "edge": 0
+          },
+          "violation": {
+            "incoherent_endpoint": {
+              "side": "tgt",
+              "expected": "a",
+              "found": "b"
+            }
+          }
+        }
+      ]
+    ]
+  }
 }

@@ -14,143 +14,319 @@
 //! | `RequiredEdge(n)`, `OutDegree(n)`, `PositionDistinct(n)` | `{n}` and the out-edges of `n` |
 //! | `ValueConstraint(n)`, `RequiredValue(n)` | `{n}` and the out-edges of `n`, whose labels decide which fields of `n` are value sites |
 //! | `TreeParentMap(n)` | `{n}` and the arcs into `n` |
-//! | `TreeRoot` | the root, when it is a node |
-//! | `KeyUnique` | every element anchored at the keyed vertex |
-//! | `ReferenceResolves(h)` | `{h}` and the elements of the index buckets its key values name |
-//! | `Acyclic` | every edge with an acyclic label and its endpoints |
+//! | `TreeRoot` | the declared root reference, whether or not that node exists |
+//! | `KeyUnique` | every node inspected while selecting the keyed vertex, plus each selected key path |
+//! | `ReferenceResolves(h)` | `{h}`, its source paths, and every node/key path inspected to build the target lookup |
+//! | `Acyclic` | every edge inspected for its label, plus the endpoints of edges with an acyclic label |
 //! | `TreeReachable(n)` | `n`, its ancestors and the arcs between them |
 //! | `External(n)` | `{n}` and the edges incident to `n` |
 //!
 //! The static kinds read nothing: they were decided when the plan was
 //! compiled.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+
+use crate::edit_error::EditError;
 use crate::view_ref::ViewRef;
 
-use super::checks::{Context, InstanceView};
-use super::plan::Compiled;
+#[cfg(test)]
+use super::checks::Context;
+use panproto_gat::Name;
+
+use super::plan::{CheckSpec, Compiled};
+use super::report::CheckClass;
 use super::report::{CheckInstance, CheckKind};
+use super::schedule::{self, Session};
+use super::state::ValidatedShape;
+use super::{ExternalVerdicts, ValidationPlan};
+
+/// The checks and carrier elements affected by one normalized edit.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Footprint {
+    /// Persistent check instances scheduled again.
+    pub rerun: BTreeSet<CheckInstance>,
+    /// Check instances present only after the edit.
+    pub created: BTreeSet<CheckInstance>,
+    /// Check instances present only before the edit.
+    pub retired: BTreeSet<CheckInstance>,
+    /// Union of certified pre/post dependencies for scheduled instances.
+    pub reads: BTreeSet<ViewRef>,
+    /// Exact carrier support named by the normalized delta.
+    pub touched: BTreeSet<ViewRef>,
+}
+
+/// A transition computed over its pre- and post-state: the footprint, the
+/// post-state instance, and the post-state trace of every scheduled (rerun
+/// or created) check instance.
+pub struct Transition<I> {
+    /// The footprint.
+    pub footprint: Footprint,
+    /// The instance after the delta.
+    pub post: I,
+    /// The post-state trace of every instance of `rerun` and `created`.
+    pub traces: BTreeMap<CheckInstance, BTreeSet<ViewRef>>,
+}
+
+/// Whether instances of the check are decided from their subject's
+/// neighborhood (a local or external check, other than a primary-key
+/// requirement reached through key paths).
+fn is_local(plan: &ValidationPlan, spec: &CheckSpec) -> bool {
+    matches!(
+        spec.class,
+        CheckClass::GraphLocal | CheckClass::BoundedExternal
+    ) && !matches!(
+        plan.compiled.get(&spec.key),
+        Some(Compiled::RequiredValue { parts: Some(_), .. })
+    )
+}
+
+/// Apply `delta` to a clone of `pre` and compute the transition footprint.
+///
+/// `pre_external` is the projection the pre-state was validated under,
+/// `post_external` the target projection, and `formerly_skipped` the
+/// instances the pre-state's budget cuts skipped.
+///
+/// `created` and `retired` are the exact differences of the pre- and
+/// post-state check-instance sets. Whether an element is the subject of an
+/// instance of a check depends on the element and its incident elements
+/// only, and every element whose own data or incidence the delta changes is
+/// a candidate subject, so the two sets differ only at candidate subjects;
+/// they are compared there, and whole-instance checks exist on both sides.
+///
+/// A persistent check instance is rerun when it was formerly skipped, when
+/// it is an external check whose verdict or missingness changes between
+/// the projections, or when its kind is triggered by one of the delta's
+/// element kinds, its subject (for a local or external check) is a
+/// candidate subject, and its pre- or post-state trace reads an element the
+/// delta touches. The instances of a triggered maintained-global check are
+/// all considered, wherever their subject lies.
+///
+/// # Errors
+///
+/// Returns the delta's typed applicability error.
+pub fn transition<I: ValidatedShape>(
+    plan: &ValidationPlan,
+    pre_external: &ExternalVerdicts,
+    formerly_skipped: &BTreeSet<CheckInstance>,
+    pre: &I,
+    delta: &I::Delta,
+    post_external: &ExternalVerdicts,
+) -> Result<Transition<I>, EditError> {
+    let mut post = pre.clone();
+    I::apply_delta(delta, &mut post)?;
+    let touched = I::touched(delta, pre, &post);
+    let candidates = I::candidate_subjects(delta, pre, &post, &touched);
+    let triggered: BTreeSet<CheckKind> = I::change_kinds(delta)
+        .into_iter()
+        .flat_map(|change| plan.triggers().kinds(change).into_iter().flatten().copied())
+        .collect();
+    let (footprint, traces) = pre.with_view(|pre_view| {
+        post.with_view(|post_view| {
+            Between {
+                plan,
+                before: &Session::new(plan, pre_view, pre_external),
+                after: &Session::new(plan, post_view, post_external),
+                shape: I::shape(),
+                touched,
+                candidates: &candidates,
+                triggered: &triggered,
+                formerly_skipped,
+                pre_external,
+                post_external,
+            }
+            .footprint()
+        })
+    });
+    Ok(Transition {
+        footprint,
+        post,
+        traces,
+    })
+}
+
+/// The pre- and post-state of one transition, read through one session
+/// each, with what the delta touched and triggered.
+struct Between<'s, 'a> {
+    plan: &'s ValidationPlan,
+    before: &'s Session<'a>,
+    after: &'s Session<'a>,
+    shape: panproto_schema::InstanceShapeKind,
+    touched: BTreeSet<ViewRef>,
+    candidates: &'s BTreeSet<ViewRef>,
+    triggered: &'s BTreeSet<CheckKind>,
+    formerly_skipped: &'s BTreeSet<CheckInstance>,
+    pre_external: &'s ExternalVerdicts,
+    post_external: &'s ExternalVerdicts,
+}
+
+impl Between<'_, '_> {
+    /// The footprint and the post-state trace of every scheduled instance.
+    fn footprint(self) -> (Footprint, BTreeMap<CheckInstance, BTreeSet<ViewRef>>) {
+        let before_at = self.before.instances_at(self.candidates);
+        let after_at = self.after.instances_at(self.candidates);
+        let created: BTreeSet<CheckInstance> = after_at.difference(&before_at).cloned().collect();
+        let retired: BTreeSet<CheckInstance> = before_at.difference(&after_at).cloned().collect();
+        let persistent: BTreeSet<CheckInstance> =
+            before_at.intersection(&after_at).cloned().collect();
+        let (considered, forced) = self.considered(persistent, &created);
+        let mut pre_traces: BTreeMap<CheckInstance, BTreeSet<ViewRef>> = BTreeMap::new();
+        let mut post_traces: BTreeMap<CheckInstance, BTreeSet<ViewRef>> = BTreeMap::new();
+        let mut rerun = BTreeSet::new();
+        for instance in considered {
+            let Some(spec) = self.plan.checks().get(&instance.check) else {
+                continue;
+            };
+            let is_forced = forced.contains(&instance);
+            if !is_forced
+                && (!self.triggered.contains(&instance.check.kind)
+                    || (is_local(self.plan, spec)
+                        && instance
+                            .subject
+                            .as_ref()
+                            .is_some_and(|subject| !self.candidates.contains(subject))))
+            {
+                continue;
+            }
+            let before_reads = self.before.trace(&instance);
+            let after_reads = self.after.trace(&instance);
+            let hit = before_reads
+                .iter()
+                .chain(&after_reads)
+                .any(|read| self.touched.contains(read));
+            if is_forced || hit {
+                pre_traces.insert(instance.clone(), before_reads);
+                post_traces.insert(instance.clone(), after_reads);
+                rerun.insert(instance);
+            }
+        }
+        let mut reads = BTreeSet::new();
+        for instance in &rerun {
+            reads.extend(pre_traces.get(instance).into_iter().flatten().cloned());
+            reads.extend(post_traces.get(instance).into_iter().flatten().cloned());
+        }
+        for instance in &created {
+            let trace = self.after.trace(instance);
+            reads.extend(trace.iter().cloned());
+            post_traces.insert(instance.clone(), trace);
+        }
+        for instance in &retired {
+            reads.extend(self.before.trace(instance));
+        }
+        (
+            Footprint {
+                rerun,
+                created,
+                retired,
+                reads,
+                touched: self.touched,
+            },
+            post_traces,
+        )
+    }
+
+    /// Every persistent instance that may be rerun, and among them those a
+    /// former budget cut or a changed external verdict forces: the
+    /// persistent candidate instances, the whole-instance checks, every
+    /// instance of a triggered check that is not local, and the forced
+    /// instances.
+    fn considered(
+        &self,
+        persistent: BTreeSet<CheckInstance>,
+        created: &BTreeSet<CheckInstance>,
+    ) -> (BTreeSet<CheckInstance>, BTreeSet<CheckInstance>) {
+        let mut considered = persistent;
+        for (key, spec) in self.plan.checks() {
+            if !spec.applies_to(self.shape) || spec.class == CheckClass::Static {
+                continue;
+            }
+            if schedule::is_whole_instance(key.kind) {
+                considered.insert(CheckInstance {
+                    check: key.clone(),
+                    subject: None,
+                });
+            } else if self.triggered.contains(&key.kind) && !is_local(self.plan, spec) {
+                considered.extend(
+                    self.after
+                        .instances_of(key)
+                        .into_iter()
+                        .filter(|instance| !created.contains(instance)),
+                );
+            }
+        }
+        let persists =
+            |instance: &CheckInstance| self.before.holds(instance) && self.after.holds(instance);
+        let mut forced: BTreeSet<CheckInstance> = self
+            .formerly_skipped
+            .iter()
+            .filter(|instance| persists(instance))
+            .cloned()
+            .collect();
+        forced.extend(
+            external_changes(self.plan, self.pre_external, self.post_external)
+                .filter(|instance| persists(instance)),
+        );
+        considered.extend(forced.iter().cloned());
+        (considered, forced)
+    }
+}
+
+/// Every external check instance whose verdict or missingness differs
+/// between the two projections: for each `(name, element)` entry of either
+/// projection that the other does not hold with the same verdict, the
+/// instance of each compiled external check of that name at the element.
+fn external_changes<'a>(
+    plan: &'a ValidationPlan,
+    before: &'a ExternalVerdicts,
+    after: &'a ExternalVerdicts,
+) -> impl Iterator<Item = CheckInstance> + 'a {
+    let changed: BTreeSet<(&Name, &ViewRef)> = before
+        .0
+        .keys()
+        .chain(after.0.keys())
+        .filter(|(name, element)| before.get(name, element) != after.get(name, element))
+        .map(|(name, element)| (name, element))
+        .collect();
+    changed.into_iter().flat_map(move |(name, element)| {
+        plan.compiled
+            .iter()
+            .filter(move |(_, compiled)| {
+                matches!(compiled, Compiled::External { name: n } if n == name)
+            })
+            .map(move |(key, _)| CheckInstance {
+                check: key.clone(),
+                subject: Some(element.clone()),
+            })
+    })
+}
 
 /// The elements the check instance `instance` reads.
+#[cfg(test)]
 pub fn reads(ctx: &Context<'_>, instance: &CheckInstance) -> BTreeSet<ViewRef> {
-    let view = ctx.view;
-    let key = &instance.check;
-    let mut out = BTreeSet::new();
-    match (key.kind, instance.subject.as_ref()) {
-        (
-            CheckKind::NodeAnchor
-            | CheckKind::ReservedVocabulary
-            | CheckKind::EdgeDeclared
-            | CheckKind::Attribute,
-            Some(n),
-        ) => {
-            out.insert(n.clone());
-        }
-        (CheckKind::EndpointCoherence, Some(e)) => {
-            out.insert(e.clone());
-            for rec in super::checks::edges_at(view, e) {
-                out.insert(rec.src);
-                out.insert(rec.tgt);
-            }
-        }
-        (CheckKind::FanWellFormed, Some(f)) => fan_reads(view, f, &mut out),
-        (
-            CheckKind::RequiredEdge
-            | CheckKind::OutDegree
-            | CheckKind::PositionDistinct
-            | CheckKind::ValueConstraint
-            | CheckKind::RequiredValue,
-            Some(n),
-        ) => {
-            out.insert(n.clone());
-            out.extend(view.out_edges(n).into_iter().map(|e| e.at));
-        }
-        (CheckKind::TreeParentMap, Some(n)) => {
-            out.insert(n.clone());
-            out.extend(view.in_edges(n).into_iter().map(|e| e.at));
-        }
-        (CheckKind::TreeRoot, None) => {
-            if let Some(t) = view.tree()
-                && t.nodes.contains_key(&t.root)
-            {
-                out.insert(ViewRef::Node(t.root));
-            }
-        }
-        (CheckKind::KeyUnique, None) => {
-            if let Some(Compiled::KeyUnique { vertex, .. }) = ctx.plan.compiled.get(key) {
-                out.extend(view.anchored(vertex));
-            }
-        }
-        (CheckKind::ReferenceResolves, Some(h)) => {
-            out.insert(h.clone());
-            out.extend(super::checks::reference_reads(ctx, h, key));
-        }
-        (CheckKind::Acyclic, None) => {
-            if let Some(Compiled::Acyclic { labels }) = ctx.plan.compiled.get(key) {
-                for rec in view
-                    .edges()
-                    .into_iter()
-                    .filter(|rec| labels.contains(rec.label))
-                {
-                    out.insert(rec.at);
-                    out.insert(rec.src);
-                    out.insert(rec.tgt);
-                }
-            }
-        }
-        (CheckKind::TreeReachable, Some(n)) => ancestor_reads(view, n, &mut out),
-        (CheckKind::External, Some(n)) => {
-            out.insert(n.clone());
-            out.extend(view.out_edges(n).into_iter().map(|e| e.at));
-            out.extend(view.in_edges(n).into_iter().map(|e| e.at));
-        }
-        _ => {}
-    }
-    out
-}
-
-/// A graph fan node and its incident edges; a tree's fan parent and the
-/// children of its fans there.
-fn fan_reads(view: InstanceView<'_>, f: &ViewRef, out: &mut BTreeSet<ViewRef>) {
-    out.insert(f.clone());
-    if let InstanceView::Tree(t, _) = view {
-        for fan in t.fans.iter().filter(|fan| ViewRef::Node(fan.parent) == *f) {
-            out.extend(fan.children.values().map(|c| ViewRef::Node(*c)));
-        }
-    } else {
-        out.extend(view.out_edges(f).into_iter().map(|e| e.at));
-        out.extend(view.in_edges(f).into_iter().map(|e| e.at));
-    }
-}
-
-/// `n`, its ancestors and the arcs between them, up to the root or the
-/// first node met twice.
-fn ancestor_reads(view: InstanceView<'_>, n: &ViewRef, out: &mut BTreeSet<ViewRef>) {
-    let mut at = n.clone();
-    out.insert(at.clone());
-    while let Some(arc) = view.in_edges(&at).into_iter().next() {
-        out.insert(arc.at);
-        if !out.insert(arc.src.clone()) {
-            break;
-        }
-        at = arc.src;
-    }
+    super::checks::evaluate_traced(ctx, &instance.check, instance.subject.as_ref()).reads
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-    use panproto_schema::{Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, Schema, Vertex};
+    use panproto_schema::{
+        Constraint, ConstraintSemantics, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope,
+        Protocol, Schema, Vertex,
+    };
 
-    use super::reads;
+    use super::{Between, is_local, reads};
     use crate::functor::FInstance;
-    use crate::ginstance::{EdgeId, GInstance};
+    use crate::ginstance::{EdgeId, GEdge, GInstance};
     use crate::metadata::Node;
-    use crate::validation::checks::{Context, InstanceView, TreeArcs};
-    use crate::validation::plan::{ExternalVerdicts, ValidationOptions, ValidationPlan};
-    use crate::validation::report::{CheckInstance, CheckKey, CheckKind, SchemaRef};
+    use crate::validation::checks::{Context, InstanceView, TreeArcs, evaluate_traced};
+    use crate::validation::plan::{
+        ExternalCheckDecl, ExternalVerdicts, ValidationOptions, ValidationPlan,
+    };
+    use crate::validation::report::{
+        CheckClass, CheckInstance, CheckKey, CheckKind, Requirement, SchemaRef, Violation,
+    };
     use crate::view_ref::{RowId, ViewRef};
     use crate::wtype::WInstance;
     use crate::{Fan, InstError, reify_fans};
@@ -185,7 +361,28 @@ mod tests {
                 .or_default()
                 .push(edge.clone());
         }
+        s.orderings.insert(next, 0);
         s.required.insert("n".into(), vec![name.clone()]);
+        s.constraints.insert(
+            "n".into(),
+            vec![Constraint {
+                sort: "min_out".into(),
+                value: "0".into(),
+            }],
+        );
+        s.constraints.insert(
+            "s".into(),
+            vec![
+                Constraint {
+                    sort: "minimum".into(),
+                    value: "0".into(),
+                },
+                Constraint {
+                    sort: "required".into(),
+                    value: "true".into(),
+                },
+            ],
+        );
         s.declarations.insert_key(
             "n".into(),
             Key {
@@ -198,11 +395,14 @@ mod tests {
         s
     }
 
-    fn instance(kind: CheckKind, subject: Option<ViewRef>) -> CheckInstance {
-        CheckInstance {
-            check: CheckKey::new(kind, SchemaRef::Schema),
-            subject,
-        }
+    fn instance(plan: &ValidationPlan, kind: CheckKind, subject: Option<ViewRef>) -> CheckInstance {
+        let check = plan
+            .checks()
+            .keys()
+            .find(|key| key.kind == kind)
+            .unwrap_or_else(|| panic!("the footprint plan compiles {kind:?}"))
+            .clone();
+        CheckInstance { check, subject }
     }
 
     fn set(refs: &[ViewRef]) -> BTreeSet<ViewRef> {
@@ -210,11 +410,27 @@ mod tests {
     }
 
     fn plan() -> ValidationPlan {
-        ValidationPlan::compile(
-            &schema(),
-            &Protocol::default(),
-            &ValidationOptions::default(),
-        )
+        let protocol = Protocol {
+            constraint_sorts: vec!["min_out".into(), "minimum".into(), "required".into()],
+            constraint_semantics: BTreeMap::from([
+                ("min_out".into(), ConstraintSemantics::MinOutDegree),
+                ("minimum".into(), ConstraintSemantics::Minimum),
+                ("required".into(), ConstraintSemantics::RequiredValue),
+            ]),
+            ..Protocol::default()
+        };
+        let options = ValidationOptions {
+            external: BTreeMap::from([(
+                "audit".into(),
+                ExternalCheckDecl {
+                    name: "audit".into(),
+                    anchors: BTreeSet::from(["n".into()]),
+                    requirement: Requirement::Required,
+                },
+            )]),
+            ..ValidationOptions::default()
+        };
+        ValidationPlan::compile(&schema(), &protocol, &options)
     }
 
     #[test]
@@ -231,12 +447,7 @@ mod tests {
         let graph = reify_fans(&graph, &[Fan::new("rel", 0).with_child("arg", 1)], None)?;
         let external = ExternalVerdicts::default();
         let ctx = Context::new(&plan, InstanceView::Graph(&graph), &external);
-        let (n0, n1, n2, fan) = (
-            ViewRef::Node(0),
-            ViewRef::Node(1),
-            ViewRef::Node(2),
-            ViewRef::Node(3),
-        );
+        let (n0, n2, fan) = (ViewRef::Node(0), ViewRef::Node(2), ViewRef::Node(3));
         let (e0, e1, e2, e3, e4) = (
             ViewRef::Edge(EdgeId(0)),
             ViewRef::Edge(EdgeId(1)),
@@ -244,7 +455,7 @@ mod tests {
             ViewRef::Edge(EdgeId(3)),
             ViewRef::Edge(EdgeId(4)),
         );
-        let at = |kind, subject: Option<ViewRef>| reads(&ctx, &instance(kind, subject));
+        let at = |kind, subject: Option<ViewRef>| reads(&ctx, &instance(&plan, kind, subject));
         assert_eq!(at(CheckKind::SchemaWellFormed, None), set(&[]));
         assert_eq!(
             at(CheckKind::NodeAnchor, Some(n0.clone())),
@@ -294,7 +505,7 @@ mod tests {
         }
         assert_eq!(
             at(CheckKind::External, Some(n0.clone())),
-            set(&[n0.clone(), e0, e1, e2, e3])
+            set(&[n0, e0, e1, e2, e3])
         );
         let key_unique = CheckInstance {
             check: CheckKey::new(
@@ -306,7 +517,255 @@ mod tests {
             ),
             subject: None,
         };
-        assert_eq!(reads(&ctx, &key_unique), set(&[n0, n1]));
+        assert_eq!(
+            reads(&ctx, &key_unique),
+            set(&[
+                ViewRef::Node(0),
+                ViewRef::Node(1),
+                ViewRef::Node(2),
+                ViewRef::Node(3),
+                ViewRef::Edge(EdgeId(0)),
+                ViewRef::Edge(EdgeId(1)),
+                ViewRef::Edge(EdgeId(2)),
+            ])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn graph_position_key_reads_the_parent_and_every_ordered_sibling() -> Result<(), InstError> {
+        let within = e("group", "item", "ordered", "items");
+        let mut schema = Schema::default();
+        for vertex in ["group", "item"] {
+            schema.vertices.insert(
+                vertex.into(),
+                Vertex {
+                    id: vertex.into(),
+                    kind: "object".into(),
+                    nsid: None,
+                },
+            );
+        }
+        schema.edges.insert(within.clone(), within.kind.clone());
+        schema
+            .outgoing
+            .entry(within.src.clone())
+            .or_default()
+            .push(within.clone());
+        schema
+            .incoming
+            .entry(within.tgt.clone())
+            .or_default()
+            .push(within.clone());
+        schema.orderings.insert(within.clone(), 0);
+        schema.declarations.insert_key(
+            "item".into(),
+            Key {
+                id: "position".into(),
+                parts: vec![KeyPart::Position {
+                    within: within.clone(),
+                }],
+                role: KeyRole::Primary,
+                scope: KeyScope::Document,
+            },
+        );
+        let plan =
+            ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+        let mut graph = GInstance::new()
+            .with_node(Node::new(0, "group"))
+            .with_node(Node::new(1, "item"))
+            .with_node(Node::new(2, "item"));
+        graph.insert_edge(EdgeId(0), GEdge::new(0, 1, within.clone()))?;
+        graph.insert_edge(EdgeId(1), GEdge::new(0, 2, within))?;
+        let external = ExternalVerdicts::default();
+        let ctx = Context::new(&plan, InstanceView::Graph(&graph), &external);
+        let instance = CheckInstance {
+            check: CheckKey::new(
+                CheckKind::RequiredValue,
+                SchemaRef::Key {
+                    vertex: "item".into(),
+                    key: "position".into(),
+                },
+            ),
+            subject: Some(ViewRef::Node(1)),
+        };
+        assert!(!plan.is_statically_incomplete(&instance.check));
+        let spec = plan
+            .checks()
+            .get(&instance.check)
+            .unwrap_or_else(|| panic!("the position key compiles its required-value check"));
+        assert!(!is_local(&plan, spec));
+        assert_eq!(
+            reads(&ctx, &instance),
+            set(&[
+                ViewRef::Node(0),
+                ViewRef::Node(1),
+                ViewRef::Edge(EdgeId(0)),
+                ViewRef::Edge(EdgeId(1)),
+            ])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn locality_classifier_distinguishes_neighborhood_checks() {
+        let plan = plan();
+        let local = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::GraphLocal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a graph-local check"));
+        let external = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::BoundedExternal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a bounded-external check"));
+        let global = plan
+            .checks()
+            .values()
+            .find(|spec| spec.class == CheckClass::MaintainedGlobal)
+            .unwrap_or_else(|| panic!("the footprint plan compiles a maintained-global check"));
+
+        assert!(is_local(&plan, local));
+        assert!(is_local(&plan, external));
+        assert!(!is_local(&plan, global));
+    }
+
+    #[test]
+    fn local_triggers_stay_candidate_scoped_and_untriggered_checks_do_not_rerun() {
+        let plan = plan();
+        let name = e("n", "s", "prop", "name");
+        let graph = GInstance::new()
+            .with_node(Node::new(0, "n"))
+            .with_node(Node::new(1, "s"))
+            .with_edge(0, 1, name);
+        let external = ExternalVerdicts::default();
+        let before = super::Session::new(&plan, InstanceView::Graph(&graph), &external);
+        let after = super::Session::new(&plan, InstanceView::Graph(&graph), &external);
+        let touched = set(&[ViewRef::Node(0)]);
+        let candidates = BTreeSet::new();
+        let local_trigger = BTreeSet::from([CheckKind::NodeAnchor]);
+        let no_triggers = BTreeSet::new();
+        let formerly_skipped = BTreeSet::new();
+        let created = BTreeSet::new();
+
+        let between = |touched, triggered| Between {
+            plan: &plan,
+            before: &before,
+            after: &after,
+            shape: InstanceShapeKind::Graph,
+            touched,
+            candidates: &candidates,
+            triggered,
+            formerly_skipped: &formerly_skipped,
+            pre_external: &external,
+            post_external: &external,
+        };
+        let (considered, forced) =
+            between(touched.clone(), &local_trigger).considered(BTreeSet::new(), &created);
+        let expected: BTreeSet<CheckInstance> = plan
+            .checks()
+            .iter()
+            .filter(|(key, spec)| {
+                spec.applies_to(InstanceShapeKind::Graph)
+                    && spec.class != CheckClass::Static
+                    && super::schedule::is_whole_instance(key.kind)
+            })
+            .map(|(key, _)| CheckInstance {
+                check: key.clone(),
+                subject: None,
+            })
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(considered, expected);
+        assert!(forced.is_empty());
+
+        let (footprint, traces) = between(touched.clone(), &no_triggers).footprint();
+        assert!(footprint.rerun.is_empty());
+        assert!(footprint.created.is_empty());
+        assert!(footprint.retired.is_empty());
+        assert!(footprint.reads.is_empty());
+        assert_eq!(footprint.touched, touched);
+        assert!(traces.is_empty());
+    }
+
+    #[test]
+    fn missing_tree_root_trace_names_the_absent_root() {
+        let plan = plan();
+        let tree = WInstance::new(HashMap::new(), Vec::new(), Vec::new(), 42, "n".into());
+        let arcs = TreeArcs::new(&tree);
+        let external = ExternalVerdicts::default();
+        let ctx = Context::new(&plan, InstanceView::Tree(&tree, &arcs), &external);
+        let key = CheckKey::new(CheckKind::TreeRoot, SchemaRef::Schema);
+        let evaluation = evaluate_traced(&ctx, &key, None);
+        assert_eq!(evaluation.reads, set(&[ViewRef::Node(42)]));
+        assert!(
+            evaluation
+                .outcome
+                .findings
+                .iter()
+                .any(|finding| finding.violation == Violation::MissingRoot)
+        );
+    }
+
+    #[test]
+    fn own_value_constraint_does_not_read_unrelated_out_edges() -> Result<(), InstError> {
+        let link = e("item", "item", "link", "next");
+        let mut schema = Schema::default();
+        schema.vertices.insert(
+            "item".into(),
+            Vertex {
+                id: "item".into(),
+                kind: "object".into(),
+                nsid: None,
+            },
+        );
+        schema.edges.insert(link.clone(), link.kind.clone());
+        schema
+            .outgoing
+            .entry(link.src.clone())
+            .or_default()
+            .push(link.clone());
+        schema.constraints.insert(
+            "item".into(),
+            vec![Constraint {
+                sort: "minimum".into(),
+                value: "0".into(),
+            }],
+        );
+        let plan = ValidationPlan::compile(
+            &schema,
+            &Protocol {
+                constraint_sorts: vec!["minimum".into()],
+                constraint_semantics: BTreeMap::from([(
+                    "minimum".into(),
+                    ConstraintSemantics::Minimum,
+                )]),
+                ..Protocol::default()
+            },
+            &ValidationOptions::default(),
+        );
+        let mut graph = GInstance::new()
+            .with_node(
+                Node::new(0, "item").with_value(crate::value::FieldPresence::Present(
+                    crate::value::Value::Int(1),
+                )),
+            )
+            .with_node(Node::new(1, "item"))
+            .with_node(Node::new(2, "item"));
+        graph.insert_edge(EdgeId(0), GEdge::new(0, 1, link.clone()))?;
+        graph.insert_edge(EdgeId(1), GEdge::new(0, 2, link))?;
+        let external = ExternalVerdicts::default();
+        let ctx = Context::new(&plan, InstanceView::Graph(&graph), &external);
+        let key = plan
+            .checks()
+            .keys()
+            .find(|key| key.kind == CheckKind::ValueConstraint)
+            .unwrap_or_else(|| panic!("minimum compiles a value check"))
+            .clone();
+        let evaluation = evaluate_traced(&ctx, &key, Some(&ViewRef::Node(0)));
+        assert_eq!(evaluation.reads, set(&[ViewRef::Node(0)]));
+        assert!(evaluation.outcome.findings.is_empty());
         Ok(())
     }
 
@@ -332,7 +791,7 @@ mod tests {
         );
         let arcs = TreeArcs::new(&tree);
         let ctx = Context::new(&plan, InstanceView::Tree(&tree, &arcs), &external);
-        let at = |kind, subject: Option<ViewRef>| reads(&ctx, &instance(kind, subject));
+        let at = |kind, subject: Option<ViewRef>| reads(&ctx, &instance(&plan, kind, subject));
         let a01 = ViewRef::Arc {
             parent: 0,
             child: 1,
@@ -388,20 +847,20 @@ mod tests {
             CheckKind::RequiredValue,
         ] {
             assert_eq!(
-                reads(&ctx, &instance(kind, Some(ViewRef::Row(RowId(0))))),
+                reads(&ctx, &instance(&plan, kind, Some(ViewRef::Row(RowId(0)))),),
                 set(&[ViewRef::Row(RowId(0)), pair.clone()]),
                 "{kind:?}"
             );
             assert_eq!(
-                reads(&ctx, &instance(kind, Some(ViewRef::Row(RowId(1))))),
-                set(&[ViewRef::Row(RowId(1))]),
+                reads(&ctx, &instance(&plan, kind, Some(ViewRef::Row(RowId(1)))),),
+                set(&[ViewRef::Row(RowId(1)), pair.clone()]),
                 "{kind:?}"
             );
         }
         assert_eq!(
             reads(
                 &ctx,
-                &instance(CheckKind::EndpointCoherence, Some(pair.clone()))
+                &instance(&plan, CheckKind::EndpointCoherence, Some(pair.clone()),)
             ),
             set(&[pair, ViewRef::Row(RowId(0)), ViewRef::Row(RowId(1))])
         );

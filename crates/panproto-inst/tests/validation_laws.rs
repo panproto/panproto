@@ -297,6 +297,7 @@ fn mutated_violation(v: &Violation) -> Option<Violation> {
         }
         Violation::ParentMismatch { recorded, .. } => *recorded = Some(9999),
         Violation::ExternalRejected { witness } => witness.0[0] ^= 0xff,
+        Violation::OutsideKeyScope { scope, .. } => *scope = phantom(),
         Violation::ReservedVocabulary | Violation::MissingRoot | Violation::Unreachable => {
             return None;
         }
@@ -376,6 +377,7 @@ const fn variant(v: &Violation) -> &'static str {
         Violation::Unreachable => "unreachable",
         Violation::ParentMismatch { .. } => "parent_mismatch",
         Violation::ExternalRejected { .. } => "external_rejected",
+        Violation::OutsideKeyScope { .. } => "outside_key_scope",
     }
 }
 
@@ -424,6 +426,7 @@ fn the_generators_reach_every_violation() {
         "unreachable",
         "parent_mismatch",
         "external_rejected",
+        "outside_key_scope",
     ];
     let missing: Vec<&&str> = expected
         .iter()
@@ -1471,6 +1474,9 @@ struct OracleRef {
     target_key: Vec<Edge>,
     nullable: bool,
     requirement: Requirement,
+    /// Whether the target key is unique within the enclosing document, so
+    /// that a holder's targets are those in its own document.
+    within_doc: bool,
 }
 
 /// The keys and references a generated schema declares, as the oracle
@@ -1522,6 +1528,7 @@ fn oracle_declarations(case: &Case) -> (Vec<OracleKey>, Vec<OracleRef>) {
                 target_key: vec![e_name()],
                 nullable: *nullable,
                 requirement: requirement(policy),
+                within_doc: *scope != KeyScope::Global,
             });
         }
     }
@@ -1534,6 +1541,7 @@ fn oracle_declarations(case: &Case) -> (Vec<OracleKey>, Vec<OracleRef>) {
             target_key: vec![e_aname()],
             nullable: *nullable,
             requirement: requirement(policy),
+            within_doc: false,
         });
     }
     (keys, refs)
@@ -1558,6 +1566,30 @@ fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> BTre
                 continue;
             };
             let scope = key.within_doc.then(|| oracle.document(&element)).flatten();
+            if key.within_doc && scope.is_none() {
+                // Outside the key's domain: no bucket, one advisory
+                // observation naming the element.
+                let d = Diagnostic {
+                    check: CheckKey::new(
+                        CheckKind::KeyUnique,
+                        SchemaRef::Key {
+                            vertex: key.vertex.into(),
+                            key: key.id.into(),
+                        },
+                    ),
+                    class: CheckKind::KeyUnique.class(),
+                    requirement: Requirement::Advisory,
+                    subject: Some(element.clone()),
+                    elements: vec![element.clone()],
+                    violation: Violation::OutsideKeyScope {
+                        key: key.id.into(),
+                        scope: "doc".into(),
+                    },
+                    source: None,
+                };
+                out.insert(compared(&d, &id));
+                continue;
+            }
             buckets
                 .entry(format!("{scope:?} {values:?}"))
                 .or_insert_with(|| (values, Vec::new()))
@@ -1626,10 +1658,18 @@ fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> BTreeSet<String>
                 continue;
             };
             let key = vec![value];
+            // Under a key unique within the document, a holder's targets are
+            // those in its own document, and a holder in none has none.
+            let document = r.within_doc.then(|| oracle.document(&holder));
             let candidates: Vec<ViewRef> = oracle
                 .anchored(r.target)
                 .into_iter()
                 .filter(|t| key_value(oracle, t, &r.target_key).as_ref() == Some(&key))
+                .filter(|t| match &document {
+                    None => true,
+                    Some(None) => false,
+                    Some(Some(doc)) => oracle.document(t).as_ref() == Some(doc),
+                })
                 .collect();
             let d = match candidates.len() {
                 1 => continue,

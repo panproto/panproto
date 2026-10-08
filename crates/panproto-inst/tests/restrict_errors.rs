@@ -299,6 +299,28 @@ fn a_restrict_error_detail_carries_its_error_key() {
 }
 
 #[test]
+fn restrict_validation_errors_project_to_the_validation_detail() {
+    let schema = schema(&["item"], &[]);
+    let report = panproto_inst::validate_graph(
+        &GInstance::new().with_node(Node::new(0, "ghost")),
+        &schema,
+        &Protocol::default(),
+    );
+    for side in [BoundarySide::Input, BoundarySide::Output] {
+        let error = RestrictError::Validation {
+            side,
+            report: Box::new(report.clone()),
+        };
+        assert_eq!(
+            error.detail(),
+            ErrorDetail::Validation {
+                report: report.clone()
+            }
+        );
+    }
+}
+
+#[test]
 fn a_nonconforming_row_is_displayed_by_its_number_and_column_name() {
     let at_cell = RestrictError::NonConforming {
         row: panproto_inst::RowId(3),
