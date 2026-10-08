@@ -613,6 +613,20 @@ pub fn apply(d: &GraphDelta, g: &Graph) -> Result<Graph, ApplyError> {
     Ok(out)
 }
 
+/// Apply a graph delta to the graph representation of a tree and require
+/// the result to remain a tree.
+#[must_use]
+pub fn apply_tree(
+    delta: &GraphDelta,
+    tree: &crate::model::Tree,
+    schema: Option<&crate::schema::Schema>,
+) -> Option<crate::model::Tree> {
+    let (graph, _) = crate::encode::tree_to_graph(tree, schema).ok()?;
+    let edited = apply(delta, &graph).ok()?;
+    let parent_name = crate::encode::schema_parent_name(schema);
+    crate::encode::graph_to_tree(&edited, tree.root, &parent_name).ok()
+}
+
 /// The differ.
 ///
 /// Nodes and edges by id; an element only in `a` is deleted, only in `b` added; an edge whose

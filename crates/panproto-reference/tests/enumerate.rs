@@ -52,11 +52,15 @@ fn enumerate_schemas_and_migrations() {
     // one label.
     let src = Schema {
         hyper_edges: [hyper("h", &["x", "y"])].into(),
-        ..Schema::default().vertex("a", "k").edge("a", "a", "prop", Some("e"))
+        ..Schema::default()
+            .vertex("a", "k")
+            .edge("a", "a", "prop", Some("e"))
     };
     let tgt = Schema {
         hyper_edges: [hyper("g", &["z"])].into(),
-        ..Schema::default().vertex("a", "k").edge("a", "a", "prop", Some("f"))
+        ..Schema::default()
+            .vertex("a", "k")
+            .edge("a", "a", "prop", Some("f"))
     };
     let all = en::migrations(&src, &tgt, en::MigrationScope::ALL);
     report(
@@ -68,7 +72,11 @@ fn enumerate_schemas_and_migrations() {
     );
     assert_eq!(2 * 2 * 2 * 3 * 9 * 5 * 2 * 2, all.len());
     let distinct: BTreeSet<String> = all.iter().map(|m| format!("{m:?}")).collect();
-    assert_eq!(distinct.len(), all.len(), "labelled: no two migrations equal");
+    assert_eq!(
+        distinct.len(),
+        all.len(),
+        "labelled: no two migrations equal"
+    );
     for field in [
         |m: &Migration| !m.edge_remap.is_empty() || !m.surviving_edges.is_empty(),
         |m: &Migration| !m.resolver.is_empty(),
@@ -107,8 +115,16 @@ fn sizes(src: &Schema, tgt: &Schema) -> en::MigrationSizes {
         tgt_vertices: n(tgt.vertices.len()),
         src_edges: n(src.edges.len()),
         tgt_edges: n(tgt.edges.len()),
-        src_hyper_labels: src.hyper_edges.values().map(|h| n(h.signature.len())).collect(),
-        tgt_hyper_labels: tgt.hyper_edges.values().map(|h| n(h.signature.len())).collect(),
+        src_hyper_labels: src
+            .hyper_edges
+            .values()
+            .map(|h| n(h.signature.len()))
+            .collect(),
+        tgt_hyper_labels: tgt
+            .hyper_edges
+            .values()
+            .map(|h| n(h.signature.len()))
+            .collect(),
     }
 }
 
@@ -210,7 +226,15 @@ fn fan_free_form(g: &Graph) -> (Vec<(u32, Node)>, Vec<String>) {
     let mut edges: Vec<String> = g
         .edges
         .values()
-        .map(|e| format!("{} {} {:?} {:?}", name(e.src), name(e.tgt), e.label, e.position))
+        .map(|e| {
+            format!(
+                "{} {} {:?} {:?}",
+                name(e.src),
+                name(e.tgt),
+                e.label,
+                e.position
+            )
+        })
         .collect();
     edges.sort();
     let nodes = g
@@ -437,10 +461,19 @@ fn enumerate_binary32_boundary_patterns_and_check_widening_and_narrowing() {
             Some(Ok(Value::Float(wide))),
             "{b:#x}"
         );
-        match (float::decode(Format::B32, b), float::decode(Format::B64, wide)) {
+        match (
+            float::decode(Format::B32, b),
+            float::decode(Format::B64, wide),
+        ) {
             (
-                float::FloatValue::Finite { value: x, negative: s },
-                float::FloatValue::Finite { value: y, negative: t },
+                float::FloatValue::Finite {
+                    value: x,
+                    negative: s,
+                },
+                float::FloatValue::Finite {
+                    value: y,
+                    negative: t,
+                },
             ) => {
                 assert_eq!((x.clone(), s), (y, t), "{b:#x}");
                 if !x.is_zero() {
@@ -452,7 +485,10 @@ fn enumerate_binary32_boundary_patterns_and_check_widening_and_narrowing() {
                     }
                 }
             }
-            (float::FloatValue::Infinite { negative: s }, float::FloatValue::Infinite { negative: t }) => {
+            (
+                float::FloatValue::Infinite { negative: s },
+                float::FloatValue::Infinite { negative: t },
+            ) => {
                 assert_eq!(s, t);
             }
             (float::FloatValue::NaN { .. }, float::FloatValue::NaN { .. }) => {}
@@ -569,4 +605,156 @@ fn enumerate_admission_bundles_and_check_the_policies_coincide_on_a_passed_basel
             validation::admits(false, &empty, &empty, &bundles)
         );
     }
+}
+
+fn report_schema_migration_and_table_bounds() {
+    let schemas = en::schemas(2, &["k"], &["e"], 1);
+    report(
+        "schemas",
+        "objects=2, kinds=1, arrow-names=1, arrows<=1",
+        schemas.len(),
+        en::schemas_count(2, 1, 1, 1),
+        "closed formula k^n * sum C(n^2 l,j)",
+    );
+    let migrations = en::migrations(&schemas[0], &schemas[0], en::MigrationScope::VERTICES);
+    report(
+        "migrations",
+        "source-objects=2, target-objects=2, vertex-map only",
+        migrations.len(),
+        en::migrations_count(
+            &sizes(&schemas[0], &schemas[0]),
+            en::MigrationScope::VERTICES,
+        ),
+        "closed formula (|Vt|+1)^|Vs|",
+    );
+
+    let columns = BTreeMap::from([("t", vec!["c"])]);
+    let tables = en::tables(&["t"], &columns, &[Value::Int(0)], &[], 1);
+    report(
+        "finite attributed presheaves/tables",
+        "tables=1, columns=1, values={0}, rows<=1",
+        tables.len(),
+        en::tables_count(&["t"], &columns, 1, &[], 1),
+        "separate brute-force product over row counts and assignments",
+    );
+}
+
+fn report_graph_and_tree_bounds() {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    let graph_scope = en::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain, NodeShape::HyperEdge],
+        labels: &labels,
+        positions: &[None, Some(0)],
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let graphs = en::graphs(&graph_scope);
+    report(
+        "graphs with parallel edges and fan carriers",
+        "nodes<=2, edges<=2, anchors={a}, shapes={plain,fan}, positions={none,0}",
+        graphs.len(),
+        en::graphs_count(1, 0, 2, 1, 2, 2, 2),
+        "closed product over labelled nodes and ordered edge slots",
+    );
+
+    let tree_scope = en::TreeScope {
+        nodes: 2,
+        anchors: &["a"],
+        values: &[],
+        arc_names: &["e"],
+        hyper_edges: &[("h", &["x"])],
+        max_fans: 1,
+    };
+    let trees = en::trees(&tree_scope);
+    report(
+        "trees",
+        "nodes=2, anchors={a}, arc-names={none,e}, one 1-port fan",
+        trees.len(),
+        en::trees_count(2, 1, 0, 1, &[1], 1),
+        "Cayley labelled-tree formula times independent decorations",
+    );
+}
+
+fn report_edit_and_numeric_bounds() {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    let delta_scope = en::DeltaScope {
+        nodes: &[0],
+        anchors: &["a"],
+        values: &[Value::Int(0)],
+        fields: &["f"],
+        edges: &[0],
+        labels: &labels,
+        positions: &[None],
+    };
+    let edit_alphabet = en::graph_deltas(&delta_scope);
+    let edit_sequences = en::sequences(&edit_alphabet, 2);
+    report(
+        "edit sequences",
+        "alphabet=all deltas over one node/edge/field, length<=2",
+        edit_sequences.len(),
+        en::sequences_count(edit_alphabet.len() as u64, 2),
+        "closed geometric sum",
+    );
+
+    let numerals = en::numerals(2, -1, 1);
+    report(
+        "numerals",
+        "significant-digits<=2, exponent=-1..1",
+        numerals.len(),
+        en::numerals_count(2, -1, 1),
+        "closed decimal product",
+    );
+    let b64 = en::boundary_bits(Format::B64, Some(&[0, 1023, 2047]), &[0, 1]);
+    report(
+        "binary64 boundary patterns",
+        "signs=2, exponent-fields={0,1023,2047}, fractions={0,1}",
+        b64.len(),
+        12,
+        "separate Cartesian product",
+    );
+    let b32 = en::boundary_bits(Format::B32, Some(&[0, 127, 255]), &[0, 1]);
+    report(
+        "binary32 boundary patterns",
+        "signs=2, exponent-fields={0,127,255}, fractions={0,1}",
+        b32.len(),
+        12,
+        "separate Cartesian product",
+    );
+    let b16 = en::boundary_bits(Format::B16, None, &(0..1024).collect::<Vec<_>>());
+    report(
+        "binary16 patterns",
+        "all 16-bit patterns",
+        b16.len(),
+        65_536,
+        "closed formula 2^16",
+    );
+    let byte_strings = en::byte_strings(3).unwrap();
+    report(
+        "byte strings",
+        "length<=3 over all 256 bytes",
+        byte_strings.len(),
+        en::byte_strings_count(3).unwrap(),
+        "closed geometric sum 1+256+256^2+256^3",
+    );
+}
+
+fn report_temporal_bounds() {
+    let temporal = en::temporal_lexemes();
+    report(
+        "temporal lexemes",
+        "4 years, 3 months, 4 days, 2 hours, 2 minutes, 3 seconds, 3 fractions, 9 offsets",
+        temporal.len(),
+        en::temporal_lexemes_count(),
+        "separate product by date/time shape and offset",
+    );
+}
+
+#[test]
+fn bounded_enumerators_are_complete() {
+    report_schema_migration_and_table_bounds();
+    report_graph_and_tree_bounds();
+    report_edit_and_numeric_bounds();
+    report_temporal_bounds();
 }

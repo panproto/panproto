@@ -12,9 +12,250 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::exact::{Decimal, ExactInteger};
+use crate::float::{FloatValue, Format, decode};
 use crate::model::{Graph, NodeShape, SEdge};
+use crate::num::{Int, Rat};
 use crate::schema::{Key, KeyPart, KeyScope};
 use crate::value::{Presence, Value};
+
+/// Equality declared for one key part.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum KeyEquality {
+    /// Canonical representation equality.
+    Representation,
+    /// Exact mathematical equality across numeric variants.
+    NumericValue,
+    /// Exact numeric equality, but only within one declared primitive.
+    NumericValueWithinKind(NumericPrimitive),
+    /// SQL numeric and text equality.
+    Sql {
+        /// Text collation.
+        collation: SqlCollation,
+        /// Text padding rule.
+        pad: SqlPad,
+    },
+    /// XML non-CDATA whitespace normalization, then representation.
+    XmlNonCdata,
+}
+
+/// Primitive used by `NumericValueWithinKind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NumericPrimitive {
+    /// The integer/decimal primitive.
+    Decimal,
+    /// A binary-float primitive of this width.
+    Float(u8),
+    /// Select the primitive from the value variant.
+    Any,
+}
+
+/// SQL collation whose exact kernel the reference can compute.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SqlCollation {
+    /// Unicode scalar-value order.
+    Binary,
+    /// Fold ASCII A through Z only.
+    AsciiCaseInsensitive,
+    /// An implementation-defined collation; text comparison is undefined.
+    Named(String),
+}
+
+/// SQL treatment of trailing spaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SqlPad {
+    /// Keep trailing spaces.
+    NoPad,
+    /// Ignore trailing U+0020.
+    PadSpace,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum NumericKey {
+    NegativeInfinity,
+    Finite(Rat),
+    PositiveInfinity,
+    NaN,
+}
+
+fn numeric_key(value: &Value) -> Option<NumericKey> {
+    match value {
+        Value::Int(integer) => Some(NumericKey::Finite(Rat::from_int(Int::from_i64(*integer)))),
+        Value::BigInt(integer) => ExactInteger::Big(integer.clone())
+            .value()
+            .map(NumericKey::Finite),
+        Value::Float(bits) => Some(match decode(Format::B64, *bits) {
+            FloatValue::Finite { value, .. } => NumericKey::Finite(value),
+            FloatValue::Infinite { negative: true } => NumericKey::NegativeInfinity,
+            FloatValue::Infinite { negative: false } => NumericKey::PositiveInfinity,
+            FloatValue::NaN { .. } => NumericKey::NaN,
+        }),
+        Value::Decimal(Decimal::Finite(decimal)) => decimal.exponent.to_i64().map(|exponent| {
+            NumericKey::Finite(
+                Rat::from_int(Int::new(decimal.negative, decimal.digits.clone()))
+                    .mul(&Rat::pow10(exponent)),
+            )
+        }),
+        Value::Decimal(Decimal::Infinite { negative: true }) => Some(NumericKey::NegativeInfinity),
+        Value::Decimal(Decimal::Infinite { negative: false }) => Some(NumericKey::PositiveInfinity),
+        Value::Decimal(Decimal::NaN { .. }) => Some(NumericKey::NaN),
+        _ => None,
+    }
+}
+
+const fn primitive(value: &Value) -> Option<NumericPrimitive> {
+    match value {
+        Value::Int(_) | Value::BigInt(_) | Value::Decimal(_) => Some(NumericPrimitive::Decimal),
+        Value::Float(_) => Some(NumericPrimitive::Float(64)),
+        _ => None,
+    }
+}
+
+fn sql_text(text: &str, collation: &SqlCollation, pad: SqlPad) -> Option<String> {
+    if matches!(collation, SqlCollation::Named(_)) {
+        return None;
+    }
+    let text = if pad == SqlPad::PadSpace {
+        text.trim_end_matches(' ')
+    } else {
+        text
+    };
+    Some(match collation {
+        SqlCollation::Binary => text.to_owned(),
+        SqlCollation::AsciiCaseInsensitive => text.to_ascii_lowercase(),
+        SqlCollation::Named(_) => return None,
+    })
+}
+
+/// Normalize XML non-CDATA whitespace: replace XML whitespace by U+0020,
+/// collapse runs, and trim both ends.
+#[must_use]
+pub fn xml_noncdata(text: &str) -> String {
+    text.split([' ', '\t', '\r', '\n'])
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Equality of two part values under a declaration.
+///
+/// `None` is the required refusal for text under a named SQL collation.
+#[must_use]
+pub fn key_equivalence(equality: &KeyEquality, left: &Value, right: &Value) -> Option<bool> {
+    match equality {
+        KeyEquality::Representation => crate::value::representation(left, right),
+        KeyEquality::NumericValue => match (numeric_key(left), numeric_key(right)) {
+            (Some(a), Some(b)) => Some(a == b),
+            _ => crate::value::representation(left, right),
+        },
+        KeyEquality::NumericValueWithinKind(declared) => {
+            match (numeric_key(left), numeric_key(right)) {
+                (Some(a), Some(b)) => {
+                    let left_primitive = if *declared == NumericPrimitive::Any {
+                        primitive(left)
+                    } else {
+                        Some(*declared)
+                    };
+                    let right_primitive = if *declared == NumericPrimitive::Any {
+                        primitive(right)
+                    } else {
+                        Some(*declared)
+                    };
+                    Some(left_primitive == right_primitive && a == b)
+                }
+                _ => crate::value::representation(left, right),
+            }
+        }
+        KeyEquality::Sql { collation, pad } => match (numeric_key(left), numeric_key(right)) {
+            (Some(a), Some(b)) => Some(a == b),
+            (None, None) => match (left, right) {
+                (Value::Str(a), Value::Str(b)) => {
+                    Some(sql_text(a, collation, *pad)? == sql_text(b, collation, *pad)?)
+                }
+                _ => crate::value::representation(left, right),
+            },
+            _ => Some(false),
+        },
+        KeyEquality::XmlNonCdata => match (left, right) {
+            (Value::Str(a), Value::Str(b)) => Some(xml_noncdata(a) == xml_noncdata(b)),
+            _ => crate::value::representation(left, right),
+        },
+    }
+}
+
+/// Representation equality refines every computable declared equality.
+#[must_use]
+pub fn representation_refines(equality: &KeyEquality, left: &Value, right: &Value) -> Option<bool> {
+    let represented = crate::value::representation(left, right)?;
+    Some(!represented || key_equivalence(equality, left, right)?)
+}
+
+/// Compare values in the sort-key order.
+#[must_use]
+pub fn sort_order(left: &Value, right: &Value) -> Option<std::cmp::Ordering> {
+    match (numeric_key(left), numeric_key(right)) {
+        (Some(NumericKey::Finite(a)), Some(NumericKey::Finite(b))) => Some(a.cmp(&b)),
+        (None, None) => match (left, right) {
+            (Value::Str(a), Value::Str(b)) => Some(a.as_bytes().cmp(b.as_bytes())),
+            (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a sequence has no adjacent sort-key descent.
+#[must_use]
+pub fn key_order(values: &[Value]) -> Option<bool> {
+    values
+        .windows(2)
+        .map(|pair| sort_order(&pair[0], &pair[1]).map(|order| !order.is_gt()))
+        .try_fold(true, |all, ordered| ordered.map(|one| all && one))
+}
+
+/// Validate a target-set declaration expressed as `(vertex, key, arity,
+/// equality)` members.
+#[must_use]
+pub fn target_set(members: &[(String, String, usize, Vec<KeyEquality>)]) -> bool {
+    let distinct = members
+        .iter()
+        .map(|(vertex, key, _, _)| (vertex, key))
+        .collect::<BTreeSet<_>>()
+        .len()
+        == members.len();
+    let compatible = members.first().is_none_or(|(_, _, arity, equality)| {
+        members.iter().all(|(_, _, other_arity, other_equality)| {
+            arity == other_arity && equality == other_equality
+        })
+    });
+    distinct && compatible
+}
+
+/// Index matching with an explicit null-match switch.
+#[must_use]
+pub const fn index_and_null_match(
+    index: Option<u64>,
+    target: Option<u64>,
+    null_matches: bool,
+) -> bool {
+    match (index, target) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => null_matches,
+        _ => false,
+    }
+}
+
+/// Whether a lexeme belongs to a declared lexical space.
+#[must_use]
+pub fn lexical_space(text: &str, accepts: impl FnOnce(&str) -> bool) -> bool {
+    accepts(text)
+}
+
+/// A format annotation does not assert validity by itself.
+#[must_use]
+pub const fn annotated_format(annotation: Option<&str>) -> Option<&str> {
+    annotation
+}
 
 fn own(g: &Graph, n: u32) -> Option<Value> {
     match g.nodes.get(&n)?.value.as_ref()? {

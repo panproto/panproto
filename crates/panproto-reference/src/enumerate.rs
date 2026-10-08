@@ -5,13 +5,33 @@
 //! beside it a closed formula for its count, computed independently of the
 //! enumeration, so a test can check the enumeration's size against it.
 
+pub mod dsl_semantics;
+pub mod edit_lenses;
+pub mod edits;
+pub mod formats;
+pub mod kan_extensions;
+pub mod keys_and_registration;
+pub mod lenses;
+pub mod migration_solver;
+pub mod parsing;
+pub mod representation;
+pub mod resolution;
+pub mod restrict_and_contraction;
+pub mod segment_execution;
+pub mod segments;
+pub mod theories;
+pub mod validation;
+pub mod value_io;
+pub mod values;
+pub mod vcs;
+
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::migration::Migration;
 use crate::edit::{AttrKey, AttrVal, GElem, GPayload, GraphDelta, NodeMeta};
+use crate::migration::Migration;
 use crate::model::{GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
-use crate::value::Presence;
 use crate::schema::Schema;
+use crate::value::Presence;
 use crate::value::Value;
 
 /// `n` choose `k`.
@@ -147,45 +167,35 @@ fn mixed(radices: &[usize]) -> Vec<Vec<usize>> {
 /// map, which it always enumerates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MigrationScope {
-    /// The edge map: each source edge sent to a target edge or dropped.
-    pub edges: bool,
-    /// The contraction resolver: each ordered pair of target vertices
-    /// without an entry or with any target edge.
-    pub resolver: bool,
+    flags: u8,
     /// The expansion paths: each ordered pair of target vertices without a
     /// path or with a word over the target vertices of length at most this
     /// bound (`None`: no paths).
     pub max_expansion: Option<usize>,
-    /// The hyper-edge resolver: each source hyper-edge with each nonempty
-    /// set of its signature labels, without an entry or with a target
-    /// hyper-edge and a partial map of those labels to its labels.
-    pub hyper: bool,
-    /// The survival predicates: every set of source vertices.
-    pub conditional: bool,
-    /// The transforms: every set of source vertices.
-    pub transformed: bool,
 }
 
 impl MigrationScope {
+    const EDGES: u8 = 1;
+    const RESOLVER: u8 = 2;
+    const HYPER: u8 = 4;
+    const CONDITIONAL: u8 = 8;
+    const TRANSFORMED: u8 = 16;
+
     /// Every field.
     pub const ALL: Self = Self {
-        edges: true,
-        resolver: true,
+        flags: Self::EDGES | Self::RESOLVER | Self::HYPER | Self::CONDITIONAL | Self::TRANSFORMED,
         max_expansion: Some(1),
-        hyper: true,
-        conditional: true,
-        transformed: true,
     };
 
     /// The vertex map alone.
     pub const VERTICES: Self = Self {
-        edges: false,
-        resolver: false,
+        flags: 0,
         max_expansion: None,
-        hyper: false,
-        conditional: false,
-        transformed: false,
     };
+
+    const fn has(self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
 }
 
 /// One choice of a map from `keys` to `images` or nothing: index 0 leaves a
@@ -257,8 +267,8 @@ fn hyper_images(
 /// ordered pair of target vertices has no entry or any target edge; with
 /// `max_expansion`, each ordered pair of target vertices has no path or a
 /// word over the target vertices of length at most the bound; with `hyper`,
-/// each key of [`hyper_keys`] has no entry or an image of
-/// [`hyper_images`]; with `conditional` and `transformed`, every set of
+/// each key of `hyper_keys` has no entry or an image of
+/// `hyper_images`; with `conditional` and `transformed`, every set of
 /// source vertices. Coherent and incoherent migrations alike are listed,
 /// so that refusals are enumerated too.
 #[must_use]
@@ -275,21 +285,28 @@ pub fn migrations(src: &Schema, tgt: &Schema, scope: MigrationScope) -> Vec<Migr
         .max_expansion
         .map(|l| sequences(&tv, l))
         .unwrap_or_default();
-    let hkeys = if scope.hyper { hyper_keys(src) } else { Vec::new() };
+    let hkeys = if scope.has(MigrationScope::HYPER) {
+        hyper_keys(src)
+    } else {
+        Vec::new()
+    };
     let himages: Vec<Vec<(String, BTreeMap<String, String>)>> =
         hkeys.iter().map(|(_, ls)| hyper_images(tgt, ls)).collect();
     let mut radices: Vec<usize> = vec![tv.len() + 1; sv.len()];
-    if scope.edges {
+    if scope.has(MigrationScope::EDGES) {
         radices.extend(std::iter::repeat_n(te.len() + 1, se.len()));
     }
-    if scope.resolver {
+    if scope.has(MigrationScope::RESOLVER) {
         radices.extend(std::iter::repeat_n(te.len() + 1, pairs.len()));
     }
     if scope.max_expansion.is_some() {
         radices.extend(std::iter::repeat_n(paths.len() + 1, pairs.len()));
     }
     radices.extend(himages.iter().map(|i| i.len() + 1));
-    for flag in [scope.conditional, scope.transformed] {
+    for flag in [
+        scope.has(MigrationScope::CONDITIONAL),
+        scope.has(MigrationScope::TRANSFORMED),
+    ] {
         if flag {
             radices.extend(std::iter::repeat_n(2, sv.len()));
         }
@@ -304,11 +321,23 @@ pub fn migrations(src: &Schema, tgt: &Schema, scope: MigrationScope) -> Vec<Migr
                 at += n;
                 part
             };
-            remapped(&sv, &tv, &take(sv.len()), &mut m.surviving_verts, &mut m.vertex_remap);
-            if scope.edges {
-                remapped(&se, &te, &take(se.len()), &mut m.surviving_edges, &mut m.edge_remap);
+            remapped(
+                &sv,
+                &tv,
+                &take(sv.len()),
+                &mut m.surviving_verts,
+                &mut m.vertex_remap,
+            );
+            if scope.has(MigrationScope::EDGES) {
+                remapped(
+                    &se,
+                    &te,
+                    &take(se.len()),
+                    &mut m.surviving_edges,
+                    &mut m.edge_remap,
+                );
             }
-            if scope.resolver {
+            if scope.has(MigrationScope::RESOLVER) {
                 for ((a, b), c) in pairs.iter().zip(take(pairs.len())) {
                     if c > 0 {
                         m.resolver.insert((a.clone(), b.clone()), te[c - 1].clone());
@@ -318,7 +347,8 @@ pub fn migrations(src: &Schema, tgt: &Schema, scope: MigrationScope) -> Vec<Migr
             if scope.max_expansion.is_some() {
                 for ((a, b), c) in pairs.iter().zip(take(pairs.len())) {
                     if c > 0 {
-                        m.expansion_path.insert((a.clone(), b.clone()), paths[c - 1].clone());
+                        m.expansion_path
+                            .insert((a.clone(), b.clone()), paths[c - 1].clone());
                     }
                 }
             }
@@ -328,8 +358,8 @@ pub fn migrations(src: &Schema, tgt: &Schema, scope: MigrationScope) -> Vec<Migr
                 }
             }
             for (flag, set) in [
-                (scope.conditional, &mut m.conditional),
-                (scope.transformed, &mut m.transformed),
+                (scope.has(MigrationScope::CONDITIONAL), &mut m.conditional),
+                (scope.has(MigrationScope::TRANSFORMED), &mut m.transformed),
             ] {
                 if flag {
                     for (v, c) in sv.iter().zip(take(sv.len())) {
@@ -376,10 +406,10 @@ pub fn migrations_count(sizes: &MigrationSizes, scope: MigrationScope) -> u64 {
     let pow = |b: u64, e: u64| b.pow(u32::try_from(e).unwrap_or(u32::MAX));
     let pairs = sizes.tgt_vertices * sizes.tgt_vertices;
     let mut n = pow(sizes.tgt_vertices + 1, sizes.src_vertices);
-    if scope.edges {
+    if scope.has(MigrationScope::EDGES) {
         n *= pow(sizes.tgt_edges + 1, sizes.src_edges);
     }
-    if scope.resolver {
+    if scope.has(MigrationScope::RESOLVER) {
         n *= pow(sizes.tgt_edges + 1, pairs);
     }
     if let Some(l) = scope.max_expansion {
@@ -388,19 +418,18 @@ pub fn migrations_count(sizes: &MigrationSizes, scope: MigrationScope) -> u64 {
             .sum();
         n *= pow(1 + words, pairs);
     }
-    if scope.hyper {
+    if scope.has(MigrationScope::HYPER) {
         for labels in &sizes.src_hyper_labels {
             for k in 1..=*labels {
-                let images: u64 = sizes
-                    .tgt_hyper_labels
-                    .iter()
-                    .map(|m| pow(m + 1, k))
-                    .sum();
+                let images: u64 = sizes.tgt_hyper_labels.iter().map(|m| pow(m + 1, k)).sum();
                 n *= pow(1 + images, choose(*labels, k));
             }
         }
     }
-    for flag in [scope.conditional, scope.transformed] {
+    for flag in [
+        scope.has(MigrationScope::CONDITIONAL),
+        scope.has(MigrationScope::TRANSFORMED),
+    ] {
         if flag {
             n *= pow(2, sizes.src_vertices);
         }
@@ -438,22 +467,25 @@ pub struct GraphScope<'a> {
 /// the reserved kinds) included.
 #[must_use]
 pub fn graphs(scope: &GraphScope<'_>) -> Vec<Graph> {
-    let (a, v, s) = (
+    let (anchor_count, value_count, shape_count) = (
         scope.anchors.len(),
         scope.values.len() + 1,
         scope.shapes.len(),
     );
-    let (l, p) = (scope.labels.len(), scope.positions.len());
+    let (label_count, position_count) = (scope.labels.len(), scope.positions.len());
     let mut out = Vec::new();
     for nodes in 0..=scope.max_nodes {
-        for nc in mixed(&vec![a * v * s; nodes]) {
+        for nc in mixed(&vec![anchor_count * value_count * shape_count; nodes]) {
             for edges in 0..=scope.max_edges {
-                for ec in mixed(&vec![nodes * nodes * l * p; edges]) {
+                for ec in mixed(&vec![nodes * nodes * label_count * position_count; edges]) {
                     let mut graph = Graph::default();
                     for (index, choice) in nc.iter().enumerate() {
                         let id = u32::try_from(index).unwrap_or(u32::MAX);
-                        let (anchor, rest) = (choice / (v * s), choice % (v * s));
-                        let (value, shape) = (rest / s, rest % s);
+                        let (anchor, rest) = (
+                            choice / (value_count * shape_count),
+                            choice % (value_count * shape_count),
+                        );
+                        let (value, shape) = (rest / shape_count, rest % shape_count);
                         let mut node = Node::new(id, scope.anchors[anchor]);
                         if value > 0 {
                             node = node.with_value(scope.values[value - 1].clone());
@@ -462,9 +494,15 @@ pub fn graphs(scope: &GraphScope<'_>) -> Vec<Graph> {
                         graph.nodes.insert(id, node);
                     }
                     for (index, choice) in ec.iter().enumerate() {
-                        let (src, rest) = (choice / (nodes * l * p), choice % (nodes * l * p));
-                        let (tgt, rest) = (rest / (l * p), rest % (l * p));
-                        let (label, position) = (rest / p, rest % p);
+                        let (src, rest) = (
+                            choice / (nodes * label_count * position_count),
+                            choice % (nodes * label_count * position_count),
+                        );
+                        let (tgt, rest) = (
+                            rest / (label_count * position_count),
+                            rest % (label_count * position_count),
+                        );
+                        let (label, position) = (rest / position_count, rest % position_count);
                         let edge = GEdge {
                             src: u32::try_from(src).unwrap_or(u32::MAX),
                             tgt: u32::try_from(tgt).unwrap_or(u32::MAX),
@@ -745,11 +783,7 @@ pub fn trees_count(
     if n == 0 {
         return 0;
     }
-    let shapes = if n == 1 {
-        1
-    } else {
-        u64::from(n).pow(n - 2)
-    };
+    let shapes = if n == 1 { 1 } else { u64::from(n).pow(n - 2) };
     let orders: u64 = (1..u64::from(n)).product();
     let per_fan: u64 = u64::from(n)
         * hyper_label_counts
@@ -757,11 +791,7 @@ pub fn trees_count(
             .map(|l| (u64::from(n) + 1).pow(*l))
             .sum::<u64>();
     let fan_lists: u64 = (0..=max_fans).map(|j| per_fan.pow(j)).sum();
-    shapes
-        * orders
-        * (anchors * (values + 1)).pow(n)
-        * (arc_names + 1).pow(n - 1)
-        * fan_lists
+    shapes * orders * (anchors * (values + 1)).pow(n) * (arc_names + 1).pow(n - 1) * fan_lists
 }
 
 /// Every numeral `[-]<s>e<x>` with significand `0 <= s < 10^digits` and
@@ -846,16 +876,7 @@ pub fn binary64_fractions() -> Vec<u64> {
 #[must_use]
 pub fn binary32_fractions() -> Vec<u64> {
     let t = |k: u32| 1u64 << k;
-    vec![
-        0,
-        1,
-        2,
-        t(22) - 1,
-        t(22),
-        t(22) + 1,
-        t(23) - 2,
-        t(23) - 1,
-    ]
+    vec![0, 1, 2, t(22) - 1, t(22), t(22) + 1, t(23) - 2, t(23) - 1]
 }
 
 /// The alphabets of [`graph_deltas`].
@@ -890,7 +911,12 @@ pub struct DeltaScope<'a> {
 pub fn graph_deltas(scope: &DeltaScope<'_>) -> Vec<GraphDelta> {
     let mut out = vec![GraphDelta::identity()];
     let presences: Vec<Option<Presence>> = std::iter::once(None)
-        .chain(scope.values.iter().map(|v| Some(Presence::Present(v.clone()))))
+        .chain(
+            scope
+                .values
+                .iter()
+                .map(|v| Some(Presence::Present(v.clone()))),
+        )
         .collect();
     let mut nodes = Vec::new();
     for n in scope.nodes {
@@ -904,7 +930,8 @@ pub fn graph_deltas(scope: &DeltaScope<'_>) -> Vec<GraphDelta> {
     }
     for (n, node) in &nodes {
         let mut add = GraphDelta::identity();
-        add.add.insert(GElem::Node(*n), GPayload::Node(node.clone()));
+        add.add
+            .insert(GElem::Node(*n), GPayload::Node(node.clone()));
         out.push(add.invert());
         out.push(add);
     }
@@ -979,10 +1006,15 @@ pub fn graph_deltas(scope: &DeltaScope<'_>) -> Vec<GraphDelta> {
     out
 }
 
-/// The count of [`graph_deltas`], by a closed formula: with N nodes, A
-/// anchors, V values, F fields, E edge ids, L labels and P positions,
-/// `1 + 2 N A (V + 1) + 2 E N^2 L + N (A (A - 1) + (V + 1) V + F (V + 1) V
-/// + 2) + E (L (L - 1) + P (P - 1))`.
+/// The count of [`graph_deltas`], by a closed formula.
+///
+/// With N nodes, A anchors, V values, F fields, E edge ids, L labels and P
+/// positions, the formula is:
+///
+/// ```text
+/// 1 + 2 N A (V + 1) + 2 E N^2 L + N (A (A - 1) + (V + 1) V
+/// + F (V + 1) V + 2) + E (L (L - 1) + P (P - 1))
+/// ```
 #[must_use]
 pub const fn graph_deltas_count(
     nodes: u64,
@@ -996,11 +1028,7 @@ pub const fn graph_deltas_count(
     let pres = values + 1;
     1 + 2 * nodes * anchors * pres
         + 2 * edges * nodes * nodes * labels
-        + nodes
-            * (anchors * anchors.saturating_sub(1)
-                + pres * values
-                + fields * pres * values
-                + 2)
+        + nodes * (anchors * anchors.saturating_sub(1) + pres * values + fields * pres * values + 2)
         + edges * (labels * labels.saturating_sub(1) + positions * positions.saturating_sub(1))
 }
 
@@ -1063,4 +1091,61 @@ pub const fn temporal_lexemes_count() -> u64 {
     let dates = 4 * (1 + 3 * (1 + 4));
     let times = 2 * (1 + 2 * (1 + 3 * 3));
     9 * (dates + times + 4 * 3 * 4 * times)
+}
+
+/// Iterator over every byte string of length at most a bound, shortest
+/// first and lexicographically within a length.
+#[derive(Clone, Debug)]
+pub struct ByteStrings {
+    next: u64,
+    end: u64,
+}
+
+impl Iterator for ByteStrings {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next == self.end {
+            return None;
+        }
+        let mut ordinal = self.next;
+        self.next += 1;
+        let mut length = 0u32;
+        let mut block = 1u64;
+        while ordinal >= block {
+            ordinal -= block;
+            length += 1;
+            block = block.checked_mul(256)?;
+        }
+        let mut bytes = vec![0; usize::try_from(length).ok()?];
+        for byte in bytes.iter_mut().rev() {
+            *byte = u8::try_from(ordinal % 256).ok()?;
+            ordinal /= 256;
+        }
+        Some(bytes)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = usize::try_from(self.end - self.next).unwrap_or(usize::MAX);
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for ByteStrings {}
+
+/// Count every byte string of length at most `max_len`.
+#[must_use]
+pub fn byte_strings_count(max_len: u8) -> Option<u64> {
+    (0..=u32::from(max_len)).try_fold(0u64, |total, length| {
+        total.checked_add(256u64.checked_pow(length)?)
+    })
+}
+
+/// Enumerate every byte string of length at most `max_len`.
+#[must_use]
+pub fn byte_strings(max_len: u8) -> Option<ByteStrings> {
+    Some(ByteStrings {
+        next: 0,
+        end: byte_strings_count(max_len)?,
+    })
 }

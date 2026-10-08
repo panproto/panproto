@@ -21,6 +21,11 @@ use crate::restrict::is_fan_kind;
 use crate::schema::{Cardinality, KeyRole, KeyScope, OnUnresolved, RefSource, Schema};
 use crate::value::{Presence, Value};
 
+/// Index/null matching uses the same predicate as key semantics.
+pub use crate::keys::index_and_null_match;
+/// Lexical-space validation uses the declared lexical recognizer.
+pub use crate::keys::lexical_space;
+
 /// The semantics a protocol gives a constraint sort (the reference's
 /// domain).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -816,4 +821,69 @@ pub fn admits<K: Ord>(
     result
         .iter()
         .all(|(k, bytes)| baseline.get(k).or_else(|| baseline_cut.get(k)) == Some(bytes))
+}
+
+/// The validation-side declared key equality check.
+#[must_use]
+pub fn key_equality(equality: &keys::KeyEquality, left: &Value, right: &Value) -> Option<bool> {
+    keys::key_equivalence(equality, left, right)
+}
+
+/// Select a variable definition under first-defines or
+/// nearest-preceding binding.
+#[must_use]
+pub fn variable_binding(
+    definitions: &[(usize, String, u32)],
+    occurrence_position: usize,
+    name: &str,
+    nearest_preceding: bool,
+) -> Option<u32> {
+    let matching = definitions
+        .iter()
+        .filter(|(position, candidate, _)| *position < occurrence_position && candidate == name);
+    if nearest_preceding {
+        matching
+            .max_by_key(|(position, _, _)| *position)
+            .map(|x| x.2)
+    } else {
+        matching
+            .min_by_key(|(position, _, _)| *position)
+            .map(|x| x.2)
+    }
+}
+
+/// The declaration-side guard, target-set and sort-key forms are valid
+/// exactly when all independently stated predicates pass.
+#[must_use]
+pub fn key_forms(predicates: &[bool]) -> bool {
+    predicates.iter().all(|predicate| *predicate)
+}
+
+/// Parsing with an advisory format annotation has the same result as
+/// parsing without the annotation.
+#[must_use]
+pub fn annotated_format_parse<T: Eq>(without: &Option<T>, with: &Option<T>) -> bool {
+    without == with
+}
+
+/// Advisory format validation is exact: it reports precisely the
+/// complement of the declared recognizer.
+#[must_use]
+pub fn annotated_format_advisory(
+    text: &str,
+    accepts: impl FnOnce(&str) -> bool,
+    reports: bool,
+) -> bool {
+    reports != accepts(text)
+}
+
+/// An asserting format accepts exactly the values admitted by its
+/// recognizer.
+#[must_use]
+pub fn format_assertion_acceptance(
+    text: &str,
+    accepts: impl FnOnce(&str) -> bool,
+    accepted: bool,
+) -> bool {
+    accepted == accepts(text)
 }

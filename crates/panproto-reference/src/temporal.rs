@@ -557,6 +557,173 @@ pub fn parse_any(s: &str) -> Option<Temporal> {
     single(all)
 }
 
+/// The parse-then-display law for a kind-directed accepted lexeme.
+#[must_use]
+pub fn parse_display(kind: TemporalKind, text: &str) -> bool {
+    parse(kind, text).is_some_and(|value| value.to_string() == text)
+}
+
+/// The display-then-parse law for a value of `kind`.
+#[must_use]
+pub fn display_parse(kind: TemporalKind, value: &Temporal) -> bool {
+    parse(kind, &value.to_string()).as_ref() == Some(value)
+}
+
+/// Canonical bytes of a temporal value.
+#[must_use]
+pub fn canonical_bytes(value: &Temporal) -> Option<Vec<u8>> {
+    crate::canonical::value_bytes(&crate::value::Value::Temporal(value.clone()))
+}
+
+/// Whether a value records YAML's unwritten-UTC representation.
+#[must_use]
+pub const fn unwritten_zulu(value: &Temporal) -> bool {
+    matches!(value.offset, Offset::Zulu(ZuluCase::Unwritten))
+}
+
+/// Unit of an integral epoch count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TimeUnit {
+    /// Seconds.
+    Seconds,
+    /// Milliseconds.
+    Millis,
+    /// Microseconds.
+    Micros,
+    /// Nanoseconds.
+    Nanos,
+}
+
+impl TimeUnit {
+    const fn digits(self) -> u32 {
+        match self {
+            Self::Seconds => 0,
+            Self::Millis => 3,
+            Self::Micros => 6,
+            Self::Nanos => 9,
+        }
+    }
+
+    const fn ticks(self) -> i128 {
+        10i128.pow(self.digits())
+    }
+}
+
+fn days_before_year_wide(year: i128) -> i128 {
+    let leaps = |divisor: i128| (year + divisor - 1).div_euclid(divisor);
+    365 * year + leaps(4) - leaps(100) + leaps(400)
+}
+
+fn date_from_day(day: i128) -> Option<(i64, u8, u8)> {
+    let cycle = day.div_euclid(146_097);
+    let mut year = cycle.checked_mul(400)?;
+    while days_before_year_wide(year + 1) <= day {
+        year += 1;
+    }
+    while days_before_year_wide(year) > day {
+        year -= 1;
+    }
+    let year_i64 = i64::try_from(year).ok()?;
+    let mut within = day - days_before_year_wide(year);
+    let mut month = 1u8;
+    while month <= 12 {
+        let length = i128::from(month_length(year_i64, month));
+        if within < length {
+            return Some((year_i64, month, u8::try_from(within + 1).ok()?));
+        }
+        within -= length;
+        month += 1;
+    }
+    None
+}
+
+/// Convert an epoch count to the exact date-time in its unit.
+///
+/// The epoch is 1970-01-01T00:00:00. An instant column writes `Z`; a
+/// wall-clock column writes no offset.
+#[must_use]
+pub fn from_epoch_count(count: i128, unit: TimeUnit, instant: bool) -> Option<Temporal> {
+    let ticks = unit.ticks();
+    let seconds = count.div_euclid(ticks);
+    let fraction = count.rem_euclid(ticks);
+    let days = seconds.div_euclid(86_400);
+    let in_day = seconds.rem_euclid(86_400);
+    let epoch = i128::from(day_number(1970, 1, 1));
+    let (year, month, day) = date_from_day(epoch.checked_add(days)?)?;
+    let width = usize::try_from(unit.digits()).ok()?;
+    Some(Temporal {
+        date: Some(DateFields {
+            year: Some(Year {
+                value: year,
+                negative_zero: false,
+                width: 4,
+            }),
+            month: Some(month),
+            day: Some(day),
+        }),
+        time: Some(TimeFields {
+            hour: Some(u8::try_from(in_day / 3_600).ok()?),
+            minute: Some(u8::try_from(in_day % 3_600 / 60).ok()?),
+            second: Some(u8::try_from(in_day % 60).ok()?),
+            fraction: if width == 0 {
+                String::new()
+            } else {
+                format!("{fraction:0width$}")
+            },
+        }),
+        separator: Some(Separator::Upper),
+        offset: if instant {
+            Offset::Zulu(ZuluCase::Upper)
+        } else {
+            Offset::Local
+        },
+    })
+}
+
+/// Convert a date-time in the image of [`from_epoch_count`] back to its
+/// count.
+#[must_use]
+pub fn to_epoch_count(value: &Temporal, unit: TimeUnit, instant: bool) -> Option<i128> {
+    let date = value.date?;
+    let time = value.time.as_ref()?;
+    let year = date.year?;
+    if year.negative_zero
+        || value.separator != Some(Separator::Upper)
+        || value.offset
+            != if instant {
+                Offset::Zulu(ZuluCase::Upper)
+            } else {
+                Offset::Local
+            }
+    {
+        return None;
+    }
+    let (month, day, hour, minute, second) = (
+        date.month?,
+        date.day?,
+        time.hour?,
+        time.minute?,
+        time.second?,
+    );
+    let digits = usize::try_from(unit.digits()).ok()?;
+    if time.fraction.len() != digits || !time.fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let fraction = if digits == 0 {
+        0
+    } else {
+        time.fraction.parse::<i128>().ok()?
+    };
+    let epoch = i128::from(day_number(1970, 1, 1));
+    let days = i128::from(day_number(year.value, month, day)).checked_sub(epoch)?;
+    let seconds = days
+        .checked_mul(86_400)?
+        .checked_add(i128::from(hour) * 3_600)?
+        .checked_add(i128::from(minute) * 60)?
+        .checked_add(i128::from(second))?;
+    seconds.checked_mul(unit.ticks())?.checked_add(fraction)
+}
+
 impl fmt::Display for Offset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let numeric = |f: &mut fmt::Formatter<'_>, sign: char, m: i64, form: OffsetForm| {

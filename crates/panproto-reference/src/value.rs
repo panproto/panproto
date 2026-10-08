@@ -92,3 +92,53 @@ pub enum Presence {
     /// Absent.
     Absent,
 }
+
+/// Representation equality: equality of canonical bytes on the canonical
+/// encoder's domain.
+#[must_use]
+pub fn representation(left: &Value, right: &Value) -> Option<bool> {
+    Some(crate::canonical::value_bytes(left)? == crate::canonical::value_bytes(right)?)
+}
+
+/// The small, total expression language used by reference predicates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expr {
+    /// A literal.
+    Literal(Value),
+    /// A variable.
+    Variable(String),
+    /// A list whose items are evaluated left to right.
+    List(Vec<Self>),
+    /// Representation equality.
+    Equal(Box<Self>, Box<Self>),
+    /// A conditional; only a boolean condition is defined.
+    If(Box<Self>, Box<Self>, Box<Self>),
+}
+
+/// Evaluate an expression in a finite environment.
+///
+/// `None` is the deliberately explicit refusal for an unbound variable, a
+/// non-boolean condition, or a value outside canonical representation
+/// equality's domain.
+#[must_use]
+pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Option<Value> {
+    match expr {
+        Expr::Literal(value) => Some(value.clone()),
+        Expr::Variable(name) => environment.get(name).cloned(),
+        Expr::List(items) => items
+            .iter()
+            .map(|item| eval(item, environment))
+            .collect::<Option<Vec<_>>>()
+            .map(Value::List),
+        Expr::Equal(left, right) => {
+            let left = eval(left, environment)?;
+            let right = eval(right, environment)?;
+            representation(&left, &right).map(Value::Bool)
+        }
+        Expr::If(condition, then_expr, else_expr) => match eval(condition, environment)? {
+            Value::Bool(true) => eval(then_expr, environment),
+            Value::Bool(false) => eval(else_expr, environment),
+            _ => None,
+        },
+    }
+}

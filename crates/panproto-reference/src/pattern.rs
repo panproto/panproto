@@ -45,12 +45,19 @@ enum Node {
     Empty,
     Char(char),
     Any,
-    Class { items: Vec<ClassItem>, negated: bool },
+    Class {
+        items: Vec<ClassItem>,
+        negated: bool,
+    },
     Start,
     End,
     Concat(Vec<Self>),
     Alt(Vec<Self>),
-    Repeat { node: Box<Self>, min: u32, max: Option<u32> },
+    Repeat {
+        node: Box<Self>,
+        min: u32,
+        max: Option<u32>,
+    },
 }
 
 /// A compiled pattern.
@@ -330,7 +337,10 @@ impl Parser<'_> {
         } else {
             c
         };
-        if (lo == '&' && self.peek() == Some('&')) || (lo == '-' && self.peek() == Some('-')) || (lo == '~' && self.peek() == Some('~')) {
+        if (lo == '&' && self.peek() == Some('&'))
+            || (lo == '-' && self.peek() == Some('-'))
+            || (lo == '~' && self.peek() == Some('~'))
+        {
             return unsupported("a class set operation");
         }
         if self.peek() == Some('-') && self.chars.get(self.at + 1).is_some_and(|n| *n != ']') {
@@ -460,10 +470,8 @@ fn ends(node: &Node, text: &[char], at: usize) -> Vec<usize> {
         Node::Concat(items) => {
             let mut frontier = vec![at];
             for item in items {
-                let mut next: Vec<usize> = frontier
-                    .iter()
-                    .flat_map(|p| ends(item, text, *p))
-                    .collect();
+                let mut next: Vec<usize> =
+                    frontier.iter().flat_map(|p| ends(item, text, *p)).collect();
                 next.sort_unstable();
                 next.dedup();
                 frontier = next;

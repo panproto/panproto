@@ -479,6 +479,26 @@ pub fn narrow_bits(format: Format, bits: u64) -> Option<u64> {
     }
 }
 
+/// The canonical quiet NaN produced by arithmetic in `format`.
+#[must_use]
+pub const fn computed_nan(format: Format) -> u64 {
+    format.exponent_mask() << (format.precision() - 1) | 1u64 << (format.precision() - 2)
+}
+
+/// The binary16 lexical mapping `L_16`: exact round-to-nearest, ties to
+/// even, with the supplied sign retained for zero.
+#[must_use]
+pub fn binary16(value: &Rat, negative: bool) -> Rounded {
+    round_to(Format::B16, value, negative)
+}
+
+/// The exact-reading operation used by the default float route.
+pub use holds_exactly as exact_reading;
+
+/// The nearest-reading operation used by routes that retain their input
+/// lexeme in a complement.
+pub use round_to as nearest_reading;
+
 /// The canonical quiet NaN of binary64, bits `0x7ff8000000000000`.
 pub const CANONICAL_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
 

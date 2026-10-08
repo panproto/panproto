@@ -207,7 +207,7 @@ fn a_redirect_removes_the_holder_and_points_its_arc_at_the_target() {
         .unwrap();
     assert_eq!((edge.src, edge.tgt), (0, 2));
     assert_eq!(c.redirected[&1].parent, 0);
-    assert_eq!(resolution::put(&s, &view, &c), Ok(t.clone()));
+    assert_eq!(resolution::put(&s, &view, &c), Ok(t));
     // Reconnecting the edge rewrites the restored holder's key.
     let mut moved = view.clone();
     moved.edges.get_mut(&id).unwrap().tgt = 3;

@@ -179,7 +179,10 @@ fn a_transformed_cell_is_restored_through_the_value_layer() {
         .insert("a".into(), Value::Int(10));
     let back = lens.put(&edited, &c).unwrap();
     assert_eq!(back.rows[&0].1["a"], Value::Int(5));
-    assert_eq!(table::get(&s, &s, &m, &tp, &Doubling, &back).unwrap().0, edited);
+    assert_eq!(
+        table::get(&s, &s, &m, &tp, &Doubling, &back).unwrap().0,
+        edited
+    );
     // An odd edit has no preimage under the transform.
     let mut odd = view;
     odd.rows

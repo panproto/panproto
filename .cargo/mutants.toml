@@ -15,7 +15,6 @@ exclude_globs = [
     "crates/panproto-gat-macros/**",
     "crates/book-doctest-stub/**",
     "xtask/**",
-    "crates/panproto-reference/**",
     "crates/*/tests/**",
     "crates/*/benches/**",
     "tests/**",

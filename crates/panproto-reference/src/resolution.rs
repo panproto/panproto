@@ -34,6 +34,11 @@ use crate::schema::{
 };
 use crate::value::{Presence, Value};
 
+/// Resolution uses the target key's declared equality.
+pub use crate::keys::key_equivalence as declared_key_equality;
+/// Variable resolution uses the validation-independent binding predicate.
+pub use crate::validation::variable_binding as nearest_preceding;
+
 /// A recorded occurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Occurrence {
@@ -346,35 +351,54 @@ pub fn get(
     t: &Tree,
     lenient: bool,
 ) -> Result<(Graph, ResComplement), ResolveError> {
-    if let Some(r) = schema
-        .references
-        .values()
-        .find(|r| !matches!(r.source, RefSource::KeyValue { .. }))
-    {
-        return Err(ResolveError::UnsupportedSource {
-            reference: r.id.clone(),
-        });
-    }
+    validate_sources(schema)?;
     let (mut g, _) = tree_to_graph(t, Some(schema)).map_err(|_| ResolveError::NotATree)?;
     let base = g.clone();
     let mut c = ResComplement {
         root: t.root,
         ..ResComplement::default()
     };
-    let mut resolved: Vec<Resolved> = Vec::new();
+    let resolved = resolve_occurrences(schema, &base, lenient, &mut c)?;
+    let inside = redirect_fragments(&mut g, &base, &resolved, &mut c);
+    insert_resolution_edges(schema, &mut g, resolved, &inside, &mut c)?;
+    c.unresolved
+        .retain(|(o, _)| !inside.contains(&o.holder) || c.redirected.contains_key(&o.holder));
+    Ok((g, c))
+}
+
+fn validate_sources(schema: &Schema) -> Result<(), ResolveError> {
+    if let Some(reference) = schema
+        .references
+        .values()
+        .find(|reference| !matches!(reference.source, RefSource::KeyValue { .. }))
+    {
+        return Err(ResolveError::UnsupportedSource {
+            reference: reference.id.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn resolve_occurrences(
+    schema: &Schema,
+    base: &Graph,
+    lenient: bool,
+    complement: &mut ResComplement,
+) -> Result<Vec<Resolved>, ResolveError> {
+    let mut resolved = Vec::new();
     for (h, n) in &base.nodes {
         if n.shape == NodeShape::HyperEdge {
             continue;
         }
         for r in schema.references.values().filter(|r| r.holder == n.anchor) {
-            for (index, values) in tuples(&base, *h, r)?.into_iter().enumerate() {
+            for (index, values) in tuples(base, *h, r)?.into_iter().enumerate() {
                 let occ = Occurrence {
                     holder: *h,
                     reference: r.id.clone(),
                     index: u32::try_from(index).unwrap_or(u32::MAX),
                     literal: literal(&values),
                 };
-                match candidates(schema, &base, r, *h, &values).as_slice() {
+                match candidates(schema, base, r, *h, &values).as_slice() {
                     [target] => resolved.push(Resolved {
                         occurrence: occ,
                         target: *target,
@@ -401,14 +425,22 @@ pub fn get(
                                 },
                             });
                         }
-                        c.unresolved.push((occ, reason));
+                        complement.unresolved.push((occ, reason));
                     }
                 }
             }
         }
     }
-    // Redirect each maximal redirected holder (one no redirected ancestor
-    // holds).
+    Ok(resolved)
+}
+
+/// Redirect each maximal redirected holder (one no redirected ancestor holds).
+fn redirect_fragments(
+    graph: &mut Graph,
+    base: &Graph,
+    resolved: &[Resolved],
+    complement: &mut ResComplement,
+) -> BTreeSet<u32> {
     let redirected: BTreeSet<u32> = resolved
         .iter()
         .filter(|x| x.redirect)
@@ -416,27 +448,38 @@ pub fn get(
         .collect();
     let mut inside: BTreeSet<u32> = BTreeSet::new();
     for root in &redirected {
-        let mut ancestor = parent_of(&base, *root);
+        let mut ancestor = parent_of(base, *root);
         let mut maximal = true;
         while let Some(a) = ancestor {
             if redirected.contains(&a) {
                 maximal = false;
                 break;
             }
-            ancestor = parent_of(&base, a);
+            ancestor = parent_of(base, a);
         }
         if !maximal {
             continue;
         }
-        if let Some(fragment) = capture(&mut g, *root) {
+        if let Some(fragment) = capture(graph, *root) {
             inside.extend(fragment.nodes.keys().copied());
-            c.redirected.insert(*root, fragment);
+            complement.redirected.insert(*root, fragment);
         }
     }
-    let mut next = crate::restrict::floor_of(g.edges.keys().copied());
+    inside
+}
+
+fn insert_resolution_edges(
+    schema: &Schema,
+    graph: &mut Graph,
+    resolved: Vec<Resolved>,
+    inside: &BTreeSet<u32>,
+    complement: &mut ResComplement,
+) -> Result<(), ResolveError> {
+    let mut next = crate::restrict::floor_of(graph.edges.keys().copied());
     for x in resolved {
         let holder = x.occurrence.holder;
-        let visible = !inside.contains(&holder) || (x.redirect && c.redirected.contains_key(&holder));
+        let visible = !inside.contains(&holder)
+            || (x.redirect && complement.redirected.contains_key(&holder));
         if !visible {
             continue;
         }
@@ -446,7 +489,7 @@ pub fn get(
                 at: ViewRef::Node(holder),
             });
         }
-        let source = match (x.redirect, c.redirected.get(&holder)) {
+        let source = match (x.redirect, complement.redirected.get(&holder)) {
             (true, Some(fragment)) => fragment.parent,
             _ => holder,
         };
@@ -455,7 +498,7 @@ pub fn get(
             .get(&x.occurrence.reference)
             .and_then(|r| r.edge.clone())
             .unwrap_or_else(|| SEdge::new("", "", "", None));
-        g.edges.insert(
+        graph.edges.insert(
             next,
             GEdge {
                 src: source,
@@ -464,13 +507,11 @@ pub fn get(
                 position: None,
             },
         );
-        c.resolved.insert(next, x.occurrence);
-        c.targets.insert(next, x.target);
+        complement.resolved.insert(next, x.occurrence);
+        complement.targets.insert(next, x.target);
         next += 1;
     }
-    c.unresolved
-        .retain(|(o, _)| !inside.contains(&o.holder) || c.redirected.contains_key(&o.holder));
-    Ok((g, c))
+    Ok(())
 }
 
 /// Where a key path's value lives at a holder: a node's own value, or a
@@ -566,24 +607,14 @@ fn tuple_of(literal: &Value, parts: usize) -> Vec<Value> {
 pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, ResolveError> {
     let mut graph = view.clone();
     let declared: Vec<&Reference> = schema.references.values().collect();
-    // (holder, reference) to the occurrences by index, recorded first.
-    let mut sequences: BTreeMap<(u32, Name), BTreeMap<u32, Written>> = BTreeMap::new();
-    for (occ, _) in &comp.unresolved {
-        sequences
-            .entry((occ.holder, occ.reference.clone()))
-            .or_default()
-            .insert(
-                occ.index,
-                Written {
-                    tuple: tuple_of(&occ.literal, parts_len(schema, &occ.reference)),
-                    target: None,
-                },
-            );
-    }
+    let mut sequences = unresolved_sequences(schema, comp);
     let mut kept_fragments: BTreeSet<u32> = BTreeSet::new();
     let mut appended: Vec<(u32, Name, u32)> = Vec::new();
     for (id, edge) in &view.edges {
-        if !declared.iter().any(|r| r.edge.as_ref() == Some(&edge.label)) {
+        if !declared
+            .iter()
+            .any(|r| r.edge.as_ref() == Some(&edge.label))
+        {
             continue;
         }
         graph.edges.remove(id);
@@ -596,53 +627,18 @@ pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, 
             };
             r.edge.as_ref() == Some(&edge.label) && source == Some(edge.src)
         });
-        match recorded {
-            Some(occ) => {
-                if comp.redirected.contains_key(&occ.holder) {
-                    kept_fragments.insert(occ.holder);
-                }
-                let unchanged = view_target(comp, *id) == Some(edge.tgt);
-                let tuple = if unchanged {
-                    tuple_of(&occ.literal, parts_len(schema, &occ.reference))
-                } else {
-                    target_tuple(schema, view, &occ.reference, edge.tgt).ok_or_else(|| {
-                        ResolveError::UnrepresentableReference {
-                            carrier: ViewRef::Edge(*id),
-                            reference: Some(occ.reference.clone()),
-                        }
-                    })?
-                };
-                sequences
-                    .entry((occ.holder, occ.reference.clone()))
-                    .or_default()
-                    .insert(
-                        occ.index,
-                        Written {
-                            tuple,
-                            target: Some(edge.tgt),
-                        },
-                    );
-            }
-            None => {
-                let writers: Vec<&&Reference> = declared
-                    .iter()
-                    .filter(|r| {
-                        r.edge.as_ref() == Some(&edge.label)
-                            && r.mode == ResolveMode::AddEdge
-                            && view
-                                .nodes
-                                .get(&edge.src)
-                                .is_some_and(|n| n.anchor == r.holder)
-                    })
-                    .collect();
-                let [r] = writers.as_slice() else {
-                    return Err(ResolveError::UnrepresentableReference {
-                        carrier: ViewRef::Edge(*id),
-                        reference: None,
-                    });
-                };
-                appended.push((edge.src, r.id.clone(), edge.tgt));
-            }
+        if let Some(occurrence) = recorded {
+            record_existing_edge(
+                schema,
+                view,
+                comp,
+                (*id, edge),
+                occurrence,
+                &mut sequences,
+                &mut kept_fragments,
+            )?;
+        } else {
+            appended.push(new_occurrence(&declared, view, *id, edge)?);
         }
     }
     for (holder, reference, target) in appended {
@@ -662,31 +658,136 @@ pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, 
             },
         );
     }
-    for root in &kept_fragments {
-        let fragment = &comp.redirected[root];
-        graph
-            .nodes
-            .extend(fragment.nodes.iter().map(|(i, n)| (*i, n.clone())));
-        graph
-            .edges
-            .extend(fragment.edges.iter().map(|(i, e)| (*i, e.clone())));
-    }
+    restore_fragments(&mut graph, comp, &kept_fragments);
     write_sequences(schema, comp, &mut graph, &sequences)?;
     let names = schema_parent_name(Some(schema));
     let tree = crate::encode::graph_to_tree(&graph, comp.root, &names)
         .map_err(|_| ResolveError::NotATree)?;
     let (check, _) = tree_to_graph(&tree, Some(schema)).map_err(|_| ResolveError::NotATree)?;
-    for ((holder, reference), seq) in &sequences {
-        let r = &schema.references[reference];
-        let found = tuples(&check, *holder, r).map_err(|_| ResolveError::UnrepresentableReference {
-            carrier: ViewRef::Node(*holder),
-            reference: Some(reference.clone()),
+    verify_sequences(schema, &check, &sequences)?;
+    Ok(tree)
+}
+
+fn unresolved_sequences(
+    schema: &Schema,
+    complement: &ResComplement,
+) -> BTreeMap<(u32, Name), BTreeMap<u32, Written>> {
+    let mut sequences = BTreeMap::new();
+    for (occurrence, _) in &complement.unresolved {
+        sequences
+            .entry((occurrence.holder, occurrence.reference.clone()))
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                occurrence.index,
+                Written {
+                    tuple: tuple_of(
+                        &occurrence.literal,
+                        parts_len(schema, &occurrence.reference),
+                    ),
+                    target: None,
+                },
+            );
+    }
+    sequences
+}
+
+fn record_existing_edge(
+    schema: &Schema,
+    view: &Graph,
+    complement: &ResComplement,
+    edge_entry: (u32, &GEdge),
+    occurrence: &Occurrence,
+    sequences: &mut BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+    kept_fragments: &mut BTreeSet<u32>,
+) -> Result<(), ResolveError> {
+    let (id, edge) = edge_entry;
+    if complement.redirected.contains_key(&occurrence.holder) {
+        kept_fragments.insert(occurrence.holder);
+    }
+    let tuple = if view_target(complement, id) == Some(edge.tgt) {
+        tuple_of(
+            &occurrence.literal,
+            parts_len(schema, &occurrence.reference),
+        )
+    } else {
+        target_tuple(schema, view, &occurrence.reference, edge.tgt).ok_or_else(|| {
+            ResolveError::UnrepresentableReference {
+                carrier: ViewRef::Edge(id),
+                reference: Some(occurrence.reference.clone()),
+            }
+        })?
+    };
+    sequences
+        .entry((occurrence.holder, occurrence.reference.clone()))
+        .or_default()
+        .insert(
+            occurrence.index,
+            Written {
+                tuple,
+                target: Some(edge.tgt),
+            },
+        );
+    Ok(())
+}
+
+fn new_occurrence(
+    declared: &[&Reference],
+    view: &Graph,
+    id: u32,
+    edge: &GEdge,
+) -> Result<(u32, Name, u32), ResolveError> {
+    let writers: Vec<&&Reference> = declared
+        .iter()
+        .filter(|reference| {
+            reference.edge.as_ref() == Some(&edge.label)
+                && reference.mode == ResolveMode::AddEdge
+                && view
+                    .nodes
+                    .get(&edge.src)
+                    .is_some_and(|node| node.anchor == reference.holder)
+        })
+        .collect();
+    let [reference] = writers.as_slice() else {
+        return Err(ResolveError::UnrepresentableReference {
+            carrier: ViewRef::Edge(id),
+            reference: None,
+        });
+    };
+    Ok((edge.src, reference.id.clone(), edge.tgt))
+}
+
+fn restore_fragments(graph: &mut Graph, complement: &ResComplement, roots: &BTreeSet<u32>) {
+    for root in roots {
+        let fragment = &complement.redirected[root];
+        graph
+            .nodes
+            .extend(fragment.nodes.iter().map(|(id, node)| (*id, node.clone())));
+        graph
+            .edges
+            .extend(fragment.edges.iter().map(|(id, edge)| (*id, edge.clone())));
+    }
+}
+
+fn verify_sequences(
+    schema: &Schema,
+    graph: &Graph,
+    sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+) -> Result<(), ResolveError> {
+    for ((holder, reference), sequence) in sequences {
+        let declaration = &schema.references[reference];
+        let found = tuples(graph, *holder, declaration).map_err(|_| {
+            ResolveError::UnrepresentableReference {
+                carrier: ViewRef::Node(*holder),
+                reference: Some(reference.clone()),
+            }
         })?;
-        for (k, (_, w)) in seq.iter().enumerate() {
-            let Some(target) = w.target else { continue };
-            let ok = found
-                .get(k)
-                .is_some_and(|key| candidates(schema, &check, r, *holder, key) == vec![target]);
+        for (index, (_, written)) in sequence.iter().enumerate() {
+            let Some(target) = written.target else {
+                continue;
+            };
+            let ok = found.get(index).is_some_and(|key| {
+                candidates(schema, graph, declaration, *holder, key) == vec![target]
+            });
             if !ok {
                 return Err(ResolveError::UnrepresentableReference {
                     carrier: ViewRef::Node(*holder),
@@ -695,7 +796,7 @@ pub fn put(schema: &Schema, view: &Graph, comp: &ResComplement) -> Result<Tree, 
             }
         }
     }
-    Ok(tree)
+    Ok(())
 }
 
 /// The number of parts of a reference's key-value source.
@@ -704,6 +805,239 @@ fn parts_len(schema: &Schema, reference: &str) -> usize {
         Some(RefSource::KeyValue { parts }) => parts.len(),
         _ => 0,
     }
+}
+
+/// Partition a guard value by representation equality.
+#[must_use]
+pub fn guarded_partition<'a>(guards: &'a [(Name, Value)], value: &Value) -> Option<&'a str> {
+    guards
+        .iter()
+        .find(|(_, guard)| crate::value::representation(guard, value) == Some(true))
+        .map(|(name, _)| name.as_str())
+}
+
+/// A referenced text's identity is its terminal value site, not its text.
+#[must_use]
+pub fn text_identity(node: u32, field: &str) -> (u32, Name) {
+    (node, field.to_owned())
+}
+
+/// Decode one written standoff form to a half-open byte span.
+#[must_use]
+pub fn standoff_form(
+    written_start: u64,
+    written_end: u64,
+    origin: u64,
+    end_is_length: bool,
+) -> Option<(u64, u64)> {
+    let start = written_start.checked_sub(origin)?;
+    let end = if end_is_length {
+        start.checked_add(written_end)?
+    } else {
+        written_end.checked_sub(origin)?
+    };
+    (start <= end).then_some((start, end))
+}
+
+/// Encode a half-open byte span in one written standoff form.
+#[must_use]
+pub fn standoff_inverse(
+    start: u64,
+    end: u64,
+    origin: u64,
+    end_is_length: bool,
+) -> Option<(u64, u64)> {
+    if start > end {
+        return None;
+    }
+    let written_start = start.checked_add(origin)?;
+    let written_end = if end_is_length {
+        end - start
+    } else {
+        end.checked_add(origin)?
+    };
+    Some((written_start, written_end))
+}
+
+/// An index field selects a position and is not itself a resolvable
+/// target identity.
+#[must_use]
+pub const fn index_target(index: Option<u64>, target_index: Option<u64>) -> bool {
+    matches!((index, target_index), (Some(left), Some(right)) if left == right)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Uri<'a> {
+    scheme: Option<&'a str>,
+    authority: Option<&'a str>,
+    path: &'a str,
+    query: Option<&'a str>,
+    fragment: Option<&'a str>,
+}
+
+fn uri(text: &str) -> Uri<'_> {
+    let (without_fragment, fragment) = text
+        .split_once('#')
+        .map_or((text, None), |(head, tail)| (head, Some(tail)));
+    let (without_query, query) = without_fragment
+        .split_once('?')
+        .map_or((without_fragment, None), |(head, tail)| (head, Some(tail)));
+    let scheme_end = without_query.find(':').filter(|at| {
+        let candidate = &without_query[..*at];
+        !candidate.is_empty()
+            && candidate.bytes().enumerate().all(|(index, byte)| {
+                byte.is_ascii_alphabetic()
+                    || (index > 0 && (byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.')))
+            })
+    });
+    let (scheme, rest) = scheme_end.map_or((None, without_query), |at| {
+        (Some(&without_query[..at]), &without_query[at + 1..])
+    });
+    let (authority, path) = rest.strip_prefix("//").map_or((None, rest), |after| {
+        after.find('/').map_or((Some(after), ""), |slash| {
+            (Some(&after[..slash]), &after[slash..])
+        })
+    });
+    Uri {
+        scheme,
+        authority,
+        path,
+        query,
+        fragment,
+    }
+}
+
+fn remove_dot_segments(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let trailing = path.ends_with('/') || path.ends_with("/.") || path.ends_with("/..");
+    let mut output: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                output.pop();
+            }
+            _ => output.push(segment),
+        }
+    }
+    let mut result = if absolute {
+        "/".to_owned()
+    } else {
+        String::new()
+    };
+    result.push_str(&output.join("/"));
+    if trailing && !result.ends_with('/') {
+        result.push('/');
+    }
+    result
+}
+
+fn merge_paths(base: &Uri<'_>, reference: &str) -> String {
+    if base.authority.is_some() && base.path.is_empty() {
+        return format!("/{reference}");
+    }
+    base.path.rfind('/').map_or_else(
+        || reference.to_owned(),
+        |slash| format!("{}{reference}", &base.path[..=slash]),
+    )
+}
+
+/// RFC 3986 section 5.2 reference resolution, with dot-segment removal and
+/// no additional normalization.
+#[must_use]
+pub fn rfc3986(base: &str, reference: &str) -> Option<String> {
+    let base = uri(base);
+    let reference = uri(reference);
+    let base_scheme = base.scheme?;
+    let (scheme, authority, path, query) = reference.scheme.map_or_else(
+        || {
+            if reference.authority.is_some() {
+                (
+                    base_scheme,
+                    reference.authority,
+                    remove_dot_segments(reference.path),
+                    reference.query,
+                )
+            } else if reference.path.is_empty() {
+                (
+                    base_scheme,
+                    base.authority,
+                    base.path.to_owned(),
+                    reference.query.or(base.query),
+                )
+            } else {
+                let path = if reference.path.starts_with('/') {
+                    remove_dot_segments(reference.path)
+                } else {
+                    remove_dot_segments(&merge_paths(&base, reference.path))
+                };
+                (base_scheme, base.authority, path, reference.query)
+            }
+        },
+        |scheme| {
+            (
+                scheme,
+                reference.authority,
+                remove_dot_segments(reference.path),
+                reference.query,
+            )
+        },
+    );
+    let mut result = format!("{scheme}:");
+    if let Some(authority) = authority {
+        result.push_str("//");
+        result.push_str(authority);
+    }
+    result.push_str(&path);
+    if let Some(query) = query {
+        result.push('?');
+        result.push_str(query);
+    }
+    if let Some(fragment) = reference.fragment {
+        result.push('#');
+        result.push_str(fragment);
+    }
+    Some(result)
+}
+
+/// Fold positional base directives that precede an occurrence.
+#[must_use]
+pub fn uri_environment(directives: &[String]) -> Option<String> {
+    directives.iter().try_fold(None, |base, directive| {
+        if uri(directive).scheme.is_some() {
+            Some(Some(directive.clone()))
+        } else {
+            Some(Some(rfc3986(base.as_deref()?, directive)?))
+        }
+    })?
+}
+
+/// Resolve against the nearest inherited base, if there is one.
+#[must_use]
+pub fn inherited_base(ancestor_bases: &[Option<String>], reference: &str) -> Option<String> {
+    ancestor_bases
+        .iter()
+        .rev()
+        .flatten()
+        .next()
+        .and_then(|base| rfc3986(base, reference))
+}
+
+/// Cartesian product of preserving choices, in registry-key order.
+#[must_use]
+pub fn preserving_registry<T: Clone>(choices: &[Vec<T>]) -> Vec<Vec<T>> {
+    choices.iter().fold(vec![Vec::new()], |prefixes, options| {
+        prefixes
+            .into_iter()
+            .flat_map(|prefix| {
+                options.iter().cloned().map(move |option| {
+                    let mut next = prefix.clone();
+                    next.push(option);
+                    next
+                })
+            })
+            .collect()
+    })
 }
 
 /// The target a recorded resolution edge reached at get.

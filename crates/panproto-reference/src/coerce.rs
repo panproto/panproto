@@ -88,6 +88,27 @@ pub enum FloatReading {
     NearestKeepingLexeme,
 }
 
+/// The numeral grammar declared by the route that supplied a lexeme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NumeralDialect {
+    /// RFC 8259 JSON numbers.
+    Json,
+    /// TOML integers, floats and special floats.
+    Toml,
+    /// YAML 1.2 core-schema numerals.
+    Yaml12,
+    /// YAML 1.1 integer and float numerals, including sexagesimal integers.
+    Yaml11,
+    /// XML Schema decimal and double lexical forms.
+    Xsd,
+    /// Java decimal floats and its case-sensitive special values.
+    Java,
+    /// `ProtoJSON` numbers and quoted special floats.
+    ProtoJson,
+    /// PostgreSQL-style SQL numerals and special floats.
+    Sql,
+}
+
 /// A kind with its value parameters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ValueSpec {
@@ -105,6 +126,8 @@ pub struct ValueSpec {
     pub unsigned: bool,
     /// The float reading.
     pub float_reading: FloatReading,
+    /// The route's numeral grammar, or the legacy grammar when absent.
+    pub numeral: Option<NumeralDialect>,
 }
 
 impl ValueSpec {
@@ -119,6 +142,7 @@ impl ValueSpec {
             int_bits: None,
             unsigned: false,
             float_reading: FloatReading::Exact,
+            numeral: None,
         }
     }
 }
@@ -268,13 +292,24 @@ pub fn coerce_discriminated(
     table: &std::collections::BTreeMap<String, ScalarKind>,
     spec: &ValueSpec,
 ) -> Coerced {
-    match tag {
-        None => coerce(text, class, spec),
-        Some(t) => match table.get(t) {
-            Some(kind) => coerce(text, class, &ValueSpec { kind: *kind, ..*spec }),
-            None => Some(Ok(opaque_of(t, text))),
+    tag.map_or_else(
+        || coerce(text, class, spec),
+        |tag| {
+            table.get(tag).map_or_else(
+                || Some(Ok(opaque_of(tag, text))),
+                |kind| {
+                    coerce(
+                        text,
+                        class,
+                        &ValueSpec {
+                            kind: *kind,
+                            ..*spec
+                        },
+                    )
+                },
+            )
         },
-    }
+    )
 }
 
 /// Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
@@ -292,6 +327,30 @@ pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
     }
     if let LexClass::Tagged(tag) = class {
         return coerce_tagged_open(text, tag, spec);
+    }
+    let numeric_kind = matches!(
+        spec.kind,
+        ScalarKind::Int { .. }
+            | ScalarKind::BigInt
+            | ScalarKind::Float { .. }
+            | ScalarKind::Decimal
+    );
+    let dialect_applies =
+        *class == LexClass::Number || (*class == LexClass::String && numeric_kind);
+    if let Some(dialect) = spec.numeral
+        && dialect_applies
+    {
+        let Some(normalized) = normalize_numeral(text, class, spec.kind, dialect) else {
+            return Some(Err(FidelityReason::NotANumber));
+        };
+        return coerce(
+            &normalized,
+            class,
+            &ValueSpec {
+                numeral: None,
+                ..*spec
+            },
+        );
     }
     let numeric_class = || match class {
         LexClass::Bool | LexClass::Bytes | LexClass::DateTime => Err(FidelityReason::NotANumber),
@@ -332,6 +391,346 @@ pub fn coerce(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
             _ => coerce_temporal(text, spec),
         },
     })
+}
+
+/// Read a lexeme under the numeral dialect carried by `spec`.
+///
+/// This named entry point is used by the schema-v2 manifest; [`coerce`]
+/// itself performs the dispatch so adapters cannot accidentally bypass it.
+#[must_use]
+pub fn coerce_dialect(text: &str, class: &LexClass, spec: &ValueSpec) -> Coerced {
+    coerce(text, class, spec)
+}
+
+fn normalize_numeral(
+    text: &str,
+    class: &LexClass,
+    kind: ScalarKind,
+    dialect: NumeralDialect,
+) -> Option<String> {
+    let float_kind = matches!(kind, ScalarKind::Float { .. });
+    match dialect {
+        NumeralDialect::Json => json_number(text).then(|| text.to_owned()),
+        NumeralDialect::Toml => normalize_toml(text),
+        NumeralDialect::Yaml12 => normalize_yaml12(text),
+        NumeralDialect::Yaml11 => normalize_yaml11(text),
+        NumeralDialect::Xsd => normalize_xsd(text, float_kind),
+        NumeralDialect::Java => normalize_java(text, float_kind),
+        NumeralDialect::ProtoJson => {
+            if *class == LexClass::String && float_kind {
+                match text {
+                    "NaN" | "Infinity" | "-Infinity" => Some(text.to_owned()),
+                    _ => json_number(text).then(|| text.to_owned()),
+                }
+            } else {
+                json_number(text).then(|| text.to_owned())
+            }
+        }
+        NumeralDialect::Sql => normalize_sql(text, float_kind),
+    }
+}
+
+fn unsigned_decimal(text: &str, leading_zero: bool) -> bool {
+    !text.is_empty()
+        && text.bytes().all(|byte| byte.is_ascii_digit())
+        && (leading_zero || text.len() == 1 || !text.starts_with('0'))
+}
+
+#[derive(Clone, Copy)]
+struct DecimalGrammar(u8);
+
+impl DecimalGrammar {
+    const PLUS: u8 = 1;
+    const LEADING_ZERO: u8 = 2;
+    const DOT: u8 = 4;
+    const EXPONENT: u8 = 8;
+
+    const JSON: Self = Self(Self::DOT | Self::EXPONENT);
+    const TOML: Self = Self(Self::PLUS | Self::DOT | Self::EXPONENT);
+    const PERMISSIVE: Self = Self(Self::PLUS | Self::LEADING_ZERO | Self::DOT | Self::EXPONENT);
+    const XSD_DECIMAL: Self = Self(Self::PLUS | Self::LEADING_ZERO | Self::DOT);
+
+    const fn permits(self, feature: u8) -> bool {
+        self.0 & feature != 0
+    }
+}
+
+fn decimal_number(text: &str, grammar: DecimalGrammar) -> bool {
+    let bytes = text.as_bytes();
+    let mut at = if grammar.permits(DecimalGrammar::PLUS) && matches!(bytes.first(), Some(b'+')) {
+        1
+    } else {
+        usize::from(matches!(bytes.first(), Some(b'-')))
+    };
+    if at == bytes.len()
+        || (!grammar.permits(DecimalGrammar::PLUS) && matches!(bytes.first(), Some(b'+')))
+    {
+        return false;
+    }
+    let int_start = at;
+    while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+        at += 1;
+    }
+    let int = &text[int_start..at];
+    let fraction_len = if grammar.permits(DecimalGrammar::DOT) && bytes.get(at) == Some(&b'.') {
+        at += 1;
+        let start = at;
+        while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        at - start
+    } else {
+        0
+    };
+    if int.is_empty() && fraction_len == 0 {
+        return false;
+    }
+    if !int.is_empty() && !unsigned_decimal(int, grammar.permits(DecimalGrammar::LEADING_ZERO)) {
+        return false;
+    }
+    if grammar.permits(DecimalGrammar::EXPONENT) && matches!(bytes.get(at), Some(b'e' | b'E')) {
+        at += 1;
+        if matches!(bytes.get(at), Some(b'+' | b'-')) {
+            at += 1;
+        }
+        let start = at;
+        while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        if start == at {
+            return false;
+        }
+    }
+    at == bytes.len()
+}
+
+fn json_number(text: &str) -> bool {
+    let mantissa = text.split(['e', 'E']).next().unwrap_or(text);
+    decimal_number(text, DecimalGrammar::JSON)
+        && !mantissa.ends_with('.')
+        && !mantissa.starts_with('.')
+        && !mantissa.starts_with("-.")
+}
+
+fn strip_separators(text: &str, digit: impl Fn(u8) -> bool) -> Option<String> {
+    let bytes = text.as_bytes();
+    if bytes.first() == Some(&b'_') || bytes.last() == Some(&b'_') {
+        return None;
+    }
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'_'
+            && (!index
+                .checked_sub(1)
+                .and_then(|i| bytes.get(i))
+                .is_some_and(|b| digit(*b))
+                || !bytes.get(index + 1).is_some_and(|b| digit(*b)))
+        {
+            return None;
+        }
+    }
+    Some(text.replace('_', ""))
+}
+
+fn radix_decimal(digits: &str, radix: u8) -> Option<String> {
+    let mut decimal = vec![0u8];
+    for byte in digits.bytes() {
+        let value = match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => return None,
+        };
+        if value >= radix {
+            return None;
+        }
+        let mut carry = u16::from(value);
+        for digit in decimal.iter_mut().rev() {
+            let next = u16::from(*digit) * u16::from(radix) + carry;
+            *digit = u8::try_from(next % 10).ok()?;
+            carry = next / 10;
+        }
+        while carry != 0 {
+            decimal.insert(0, u8::try_from(carry % 10).ok()?);
+            carry /= 10;
+        }
+    }
+    if digits.is_empty() {
+        return None;
+    }
+    Some(decimal.into_iter().map(|d| char::from(b'0' + d)).collect())
+}
+
+fn prefixed_integer(text: &str, separators: bool) -> Option<String> {
+    let (prefix, radix) = if text.starts_with("0x") {
+        ("0x", 16)
+    } else if text.starts_with("0o") {
+        ("0o", 8)
+    } else if text.starts_with("0b") {
+        ("0b", 2)
+    } else {
+        return None;
+    };
+    let digits = &text[prefix.len()..];
+    let digits = if separators {
+        strip_separators(digits, |b| b.is_ascii_hexdigit())?
+    } else {
+        digits.to_owned()
+    };
+    radix_decimal(&digits, radix)
+}
+
+fn normalize_toml(text: &str) -> Option<String> {
+    if matches!(text, "inf" | "+inf" | "-inf" | "nan" | "+nan" | "-nan") {
+        return Some(
+            match text {
+                "inf" | "+inf" => "Infinity",
+                "-inf" => "-Infinity",
+                "nan" | "+nan" => "NaN",
+                "-nan" => "-NaN",
+                _ => unreachable!(),
+            }
+            .to_owned(),
+        );
+    }
+    if !text.starts_with(['+', '-'])
+        && let Some(value) = prefixed_integer(text, true)
+    {
+        return Some(value);
+    }
+    let clean = strip_separators(text, |byte| byte.is_ascii_digit())?;
+    let unsigned = clean.strip_prefix(['+', '-']).unwrap_or(&clean);
+    let mantissa = unsigned.split(['e', 'E']).next().unwrap_or(unsigned);
+    (decimal_number(&clean, DecimalGrammar::TOML)
+        && !mantissa.starts_with('.')
+        && !mantissa.ends_with('.'))
+    .then_some(clean)
+}
+
+fn normalize_yaml12(text: &str) -> Option<String> {
+    let (negative, body) = text.strip_prefix('-').map_or_else(
+        || (false, text.strip_prefix('+').unwrap_or(text)),
+        |body| (true, body),
+    );
+    let special = match body {
+        ".inf" | ".Inf" | ".INF" => Some(false),
+        ".nan" | ".NaN" | ".NAN" => Some(true),
+        _ => None,
+    };
+    if let Some(nan) = special {
+        return Some(
+            match (negative, nan) {
+                (true, false) => "-Infinity",
+                (false, false) => "Infinity",
+                (true, true) => "-NaN",
+                (false, true) => "NaN",
+            }
+            .to_owned(),
+        );
+    }
+    if !negative
+        && !text.starts_with('+')
+        && let Some(value) = prefixed_integer(text, false)
+    {
+        return Some(value);
+    }
+    decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
+}
+
+fn sexagesimal_decimal(text: &str) -> Option<String> {
+    let mut parts = text.split(':');
+    let first = parts.next()?;
+    if first.is_empty() || !first.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let mut value = first.trim_start_matches('0').to_owned();
+    if value.is_empty() {
+        value.push('0');
+    }
+    for part in parts {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let part_value: u8 = part.parse().ok()?;
+        if part_value >= 60 {
+            return None;
+        }
+        let mut decimal: Vec<u8> = value.bytes().map(|byte| byte - b'0').collect();
+        let mut carry = u16::from(part_value);
+        for digit in decimal.iter_mut().rev() {
+            let next = u16::from(*digit) * 60 + carry;
+            *digit = u8::try_from(next % 10).ok()?;
+            carry = next / 10;
+        }
+        while carry != 0 {
+            decimal.insert(0, u8::try_from(carry % 10).ok()?);
+            carry /= 10;
+        }
+        value = decimal
+            .into_iter()
+            .map(|digit| char::from(b'0' + digit))
+            .collect();
+    }
+    Some(value)
+}
+
+fn normalize_yaml11(text: &str) -> Option<String> {
+    if let Some(value) = normalize_yaml12(text).filter(|_| {
+        let body = text.strip_prefix(['+', '-']).unwrap_or(text);
+        matches!(body, ".inf" | ".Inf" | ".INF" | ".nan" | ".NaN" | ".NAN")
+    }) {
+        return Some(value);
+    }
+    if let Some(value) = prefixed_integer(text, true) {
+        return Some(value);
+    }
+    let clean = strip_separators(text, |byte| byte.is_ascii_digit())?;
+    if clean.contains(':') {
+        return sexagesimal_decimal(&clean);
+    }
+    if clean.len() > 1 && clean.starts_with('0') && clean.bytes().all(|b| b.is_ascii_digit()) {
+        return radix_decimal(&clean[1..], 8);
+    }
+    if clean.contains(['e', 'E']) && !clean.contains('.') {
+        return None;
+    }
+    decimal_number(&clean, DecimalGrammar::PERMISSIVE).then_some(clean)
+}
+
+fn normalize_xsd(text: &str, float_kind: bool) -> Option<String> {
+    if float_kind {
+        return match text {
+            "INF" | "+INF" => Some("Infinity".to_owned()),
+            "-INF" => Some("-Infinity".to_owned()),
+            "NaN" => Some("NaN".to_owned()),
+            "-NaN" => Some("-NaN".to_owned()),
+            _ => decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned()),
+        };
+    }
+    (decimal_number(text, DecimalGrammar::XSD_DECIMAL) && !text.contains(['e', 'E']))
+        .then(|| text.to_owned())
+}
+
+fn normalize_java(text: &str, float_kind: bool) -> Option<String> {
+    if float_kind {
+        match text {
+            "NaN" | "Infinity" | "-Infinity" => return Some(text.to_owned()),
+            _ => {}
+        }
+    }
+    decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
+}
+
+fn normalize_sql(text: &str, float_kind: bool) -> Option<String> {
+    if float_kind {
+        match text.to_ascii_lowercase().as_str() {
+            "nan" => return Some("NaN".to_owned()),
+            "-nan" => return Some("-NaN".to_owned()),
+            "infinity" | "+infinity" | "inf" | "+inf" => return Some("Infinity".to_owned()),
+            "-infinity" | "-inf" => return Some("-Infinity".to_owned()),
+            _ => {}
+        }
+    }
+    decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
 }
 
 fn coerce_bool(text: &str, class: &LexClass) -> Result<Value, FidelityReason> {
@@ -710,6 +1109,12 @@ pub fn coerce_value(v: &Value, spec: &ValueSpec) -> Coerced {
         None => Some(Ok(v.clone())),
     }
 }
+
+/// The discriminator-driven coercion operation.
+///
+/// This is the manifest name for [`coerce_discriminated`]. The latter is
+/// kept as the descriptive implementation name used by the unit tests.
+pub use coerce_discriminated as coerce_tagged;
 
 fn coerce_into_float(v: &Value, format: Format) -> Result<Value, FidelityReason> {
     let reject = |q: &Rat, negative: bool| match round_to(format, q, negative) {

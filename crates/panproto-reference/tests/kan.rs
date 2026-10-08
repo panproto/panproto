@@ -263,7 +263,10 @@ fn every_extension_along_the_identity_keeps_row_ids_exactly() {
     assert_eq!(p, i);
     assert_eq!(
         prov,
-        BTreeMap::from([(5, ("a".to_owned(), vec![5])), (7, ("b".to_owned(), vec![7]))])
+        BTreeMap::from([
+            (5, ("a".to_owned(), vec![5])),
+            (7, ("b".to_owned(), vec![7]))
+        ])
     );
 }
 
@@ -333,8 +336,7 @@ fn sigma_numbers_fresh_nulls_above_every_input_null() {
     let f = functor(&source, &target, &mig);
     let mut i = Table::default();
     i.rows.insert(0, row("r", &[("x", Value::Int(1))]));
-    i.rows
-        .insert(1, row("u", &[("w", Value::LabeledNull(7))]));
+    i.rows.insert(1, row("u", &[("w", Value::LabeledNull(7))]));
     let (out, prov) = rel::sigma(&f, &i).unwrap();
     assert_eq!(out.rows[&0].1["z"], Value::LabeledNull(8));
     assert_eq!(prov.fresh, BTreeMap::from([(8, (0, "z".to_owned()))]));
@@ -379,7 +381,10 @@ fn sigma_records_as_merged_only_the_nulls_another_value_represents() {
             &[("x", Value::LabeledNull(0)), ("y", Value::LabeledNull(1))],
         ),
     );
-    i.rows.insert(1, row("r", &[("x", Value::LabeledNull(2)), ("y", Value::Int(4))]));
+    i.rows.insert(
+        1,
+        row("r", &[("x", Value::LabeledNull(2)), ("y", Value::Int(4))]),
+    );
     let (out, prov) = rel::sigma(&f, &i).unwrap();
     assert_eq!(out.rows[&0].1["z"], Value::LabeledNull(0));
     assert_eq!(out.rows[&1].1["z"], Value::Int(4));

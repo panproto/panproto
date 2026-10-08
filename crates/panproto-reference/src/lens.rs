@@ -14,6 +14,34 @@ use crate::restrict::{
 use crate::schema::{KeyRole, Schema};
 use crate::value::{Presence, Value};
 
+/// The protolens schema transformation (compilation to a restrict plan).
+pub use crate::restrict::compile as protolens_schema;
+/// The graph-lens get operation.
+pub use crate::restrict::get;
+/// The protolens instance transformation.
+pub use crate::restrict::get as protolens_instance;
+
+/// The graph-lens put operation.
+///
+/// This free-function form is the stable semantic path used by the
+/// correctness manifest; it delegates to [`GraphLens::put`].
+///
+/// # Errors
+///
+/// The first put-domain violation in report order.
+pub fn put(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+) -> Result<Graph, PutDomainError> {
+    lens.put(view, complement)
+}
+
+/// Observable equality for the F.B graph square.
+pub use crate::migration::graph_square;
+/// Observable equality for the F.B table square.
+pub use crate::migration::table_square;
+
 /// An instance element: graph nodes and edges, table rows and pairs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ViewRef {

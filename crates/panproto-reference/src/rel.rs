@@ -761,7 +761,7 @@ fn max_null(t: &Table) -> Option<u64> {
 /// `(r, β)` is equated with `r`'s value at every kept column α of r's
 /// source table with `F(α) = β` (ascending), and a slot with no preimage
 /// column is a fresh labelled null ("fresh null ids start at max(nulls of
-/// the input) + 1 (0 when none), in ascending (RowId, target column)
+/// the input) + 1 (0 when none), in ascending (`RowId`, target column)
 /// order, checked": the input is the whole input, before its restriction
 /// to the kept part). The equations generate classes over slots, nulls and
 /// constants (constants by canonical bytes); processed in `(r, β, α)`
@@ -989,7 +989,7 @@ fn tuples(inst: &Table, fibre: &[Name]) -> Vec<Vec<u32>> {
 /// is none). Requires attribute surjectivity; the input is checked against
 /// the whole source schema and restricted to the kept part.
 ///
-/// Row ids ("Fresh RowIds come from `max(RowId in input) + 1` (0 for an
+/// Row ids ("Fresh `RowIds` come from `max(RowId in input) + 1` (0 for an
 /// empty input), checked, in a fixed order"): a row of a target table
 /// whose fibre is one table keeps the id of the row it projects to, so Pi
 /// along the identity returns its input exactly; every other row takes

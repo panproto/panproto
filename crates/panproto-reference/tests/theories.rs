@@ -129,8 +129,7 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
             .collect::<Vec<_>>(),
         vec!["l.X".to_owned(), "r.X".to_owned()]
     );
-    let merged = theory::compose(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R")
-    .unwrap();
+    let merged = theory::compose(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R").unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
 }
 
@@ -191,7 +190,7 @@ fn compose(
     nodes: &[(&str, Theory)],
     edges: &[(&str, &str, Morphism)],
     mode: Mode,
-) -> Result<theory::Composition, ComposeError> {
+) -> Result<theory::Composition, Box<ComposeError>> {
     let nodes: Vec<(String, Theory)> = nodes
         .iter()
         .map(|(l, t)| ((*l).to_owned(), t.clone()))
@@ -200,7 +199,7 @@ fn compose(
         .iter()
         .map(|(s, t, m)| ((*s).to_owned(), (*t).to_owned(), m.clone()))
         .collect();
-    theory::compose(&nodes, &edges, mode, ClashPolicy::Reject, "R")
+    theory::compose(&nodes, &edges, mode, ClashPolicy::Reject, "R").map_err(Box::new)
 }
 
 fn sym(node: &str, name: &str) -> theory::SymRef {
@@ -218,12 +217,17 @@ fn an_undeclared_sort_is_an_implicit_symbol_joined_by_name_or_left_free() {
     let b = th("B", &["Vertex"]);
     let r = compose(&[("a", a.clone()), ("b", b)], &[], Mode::ExplicitIdentity).unwrap();
     assert_eq!(
-        r.theory.sorts.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        r.theory
+            .sorts
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>(),
         vec!["Vertex".to_owned()]
     );
     assert_eq!(r.theory.ops.len(), 1);
     assert_eq!(
-        r.provenance.get(&(theory::SymKind::Sort, sym("a", "Vertex"))),
+        r.provenance
+            .get(&(theory::SymKind::Sort, sym("a", "Vertex"))),
         Some(&"Vertex".to_owned())
     );
     assert!(r.free_sorts.is_empty());
@@ -236,14 +240,18 @@ fn an_undeclared_sort_is_an_implicit_symbol_joined_by_name_or_left_free() {
     assert_eq!(free.theory.ops[0].output, SortExpr::Name("X".into()));
     // Two unidentified declarations of Vertex make the name ambiguous
     // under explicit identity, and are one sort under amalgamation.
-    let nodes = [("a", a), ("b", th("B", &["Vertex"])), ("d", th("D", &["Vertex"]))];
+    let nodes = [
+        ("a", a),
+        ("b", th("B", &["Vertex"])),
+        ("d", th("D", &["Vertex"])),
+    ];
     assert_eq!(
         compose(&nodes, &[], Mode::ExplicitIdentity).map(|_| ()),
-        Err(ComposeError::NameClash(
+        Err(Box::new(ComposeError::NameClash(
             theory::SymKind::Sort,
             "Vertex".into(),
-            vec![vec![sym("b", "Vertex")], vec![sym("d", "Vertex")]]
-        ))
+            Box::new(vec![vec![sym("b", "Vertex")], vec![sym("d", "Vertex")]])
+        )))
     );
     let merged = compose(&nodes, &[], Mode::Amalgamate).unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
@@ -291,17 +299,31 @@ fn directed_equations_and_policies_are_sets_by_content_and_conflict_by_name() {
     // Explicit identity: alpha-equivalent directed equations with equal
     // opaque parts are one; equal policies are one; each named by the least
     // member name on a tie.
-    let r = compose(&[("a", a.clone()), ("b", b.clone())], &legs, Mode::ExplicitIdentity).unwrap();
+    let r = compose(
+        &[("a", a.clone()), ("b", b.clone())],
+        &legs,
+        Mode::ExplicitIdentity,
+    )
+    .unwrap();
     assert_eq!(
-        r.theory.directed_eqs.iter().map(|d| d.name.clone()).collect::<Vec<_>>(),
+        r.theory
+            .directed_eqs
+            .iter()
+            .map(|d| d.name.clone())
+            .collect::<Vec<_>>(),
         vec!["da".to_owned()]
     );
     assert_eq!(
-        r.theory.policies.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        r.theory
+            .policies
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>(),
         vec!["pa".to_owned()]
     );
     assert_eq!(
-        r.provenance.get(&(theory::SymKind::DirectedEq, sym("b", "db"))),
+        r.provenance
+            .get(&(theory::SymKind::DirectedEq, sym("b", "db"))),
         Some(&"da".to_owned())
     );
     // Amalgamation: one name with two contents is a name conflict.
@@ -311,7 +333,8 @@ fn directed_equations_and_policies_are_sets_by_content_and_conflict_by_name() {
     b2.directed_eqs = vec![directed("d", "two")];
     assert!(matches!(
         compose(&[("a", a2), ("b", b2)], &legs, Mode::Amalgamate),
-        Err(ComposeError::NameConflict(theory::SymKind::DirectedEq, ..))
+        Err(error)
+            if matches!(*error, ComposeError::NameConflict(theory::SymKind::DirectedEq, ..))
     ));
     let mut a3 = a;
     a3.policies = vec![policy("p", "keep_left")];
@@ -319,7 +342,7 @@ fn directed_equations_and_policies_are_sets_by_content_and_conflict_by_name() {
     b3.policies = vec![policy("p", "keep_right")];
     assert!(matches!(
         compose(&[("a", a3), ("b", b3)], &legs, Mode::Amalgamate),
-        Err(ComposeError::NameConflict(theory::SymKind::Policy, ..))
+        Err(error) if matches!(*error, ComposeError::NameConflict(theory::SymKind::Policy, ..))
     ));
 }
 
@@ -341,21 +364,23 @@ fn case_terms_translate_their_constructors_and_compare_up_to_binder_names() {
         t.ops.push(op("not", &[("x", "B")], "B"));
         t
     };
-    let case = |binder: &str, t: &str, f: &str| Term::Case(
-        Box::new(Term::Var(binder.into())),
-        vec![
-            theory::CaseBranch {
-                constructor: t.into(),
-                binders: vec![],
-                body: Term::App(f.into(), vec![]),
-            },
-            theory::CaseBranch {
-                constructor: f.into(),
-                binders: vec![],
-                body: Term::App(t.into(), vec![]),
-            },
-        ],
-    );
+    let case = |binder: &str, t: &str, f: &str| {
+        Term::Case(
+            Box::new(Term::Var(binder.into())),
+            vec![
+                theory::CaseBranch {
+                    constructor: t.into(),
+                    binders: vec![],
+                    body: Term::App(f.into(), vec![]),
+                },
+                theory::CaseBranch {
+                    constructor: f.into(),
+                    binders: vec![],
+                    body: Term::App(t.into(), vec![]),
+                },
+            ],
+        )
+    };
     let mut a = closed("A", &["t", "f"]);
     a.eqs.push(theory::Equation {
         name: "neg".into(),
@@ -372,17 +397,30 @@ fn case_terms_translate_their_constructors_and_compare_up_to_binder_names() {
     for (x, y) in [("t", "yes"), ("f", "no"), ("not", "not")] {
         leg.ops.insert(x.into(), theory::OpImage::Op(y.into()));
     }
-    let r = compose(&[("a", a.clone()), ("b", b)], &[("a", "b", leg.clone())], Mode::ExplicitIdentity)
-        .unwrap();
+    let r = compose(
+        &[("a", a.clone()), ("b", b)],
+        &[("a", "b", leg.clone())],
+        Mode::ExplicitIdentity,
+    )
+    .unwrap();
     assert_eq!(r.theory.eqs.len(), 1, "{:?}", r.theory.eqs);
     // A leg that sends the constructors out of order is no morphism.
     let mut swapped = leg;
-    swapped.ops.insert("t".into(), theory::OpImage::Op("no".into()));
-    swapped.ops.insert("f".into(), theory::OpImage::Op("yes".into()));
+    swapped
+        .ops
+        .insert("t".into(), theory::OpImage::Op("no".into()));
+    swapped
+        .ops
+        .insert("f".into(), theory::OpImage::Op("yes".into()));
     let b2 = closed("B", &["yes", "no"]);
     assert_eq!(
-        compose(&[("a", a), ("b", b2)], &[("a", "b", swapped)], Mode::ExplicitIdentity).map(|_| ()),
-        Err(ComposeError::InvalidLeg(0))
+        compose(
+            &[("a", a), ("b", b2)],
+            &[("a", "b", swapped)],
+            Mode::ExplicitIdentity
+        )
+        .map(|_| ()),
+        Err(Box::new(ComposeError::InvalidLeg(0)))
     );
 }
 
@@ -401,14 +439,26 @@ fn a_term_image_of_the_wrong_sort_is_no_morphism() {
             vec![Term::App("g".into(), vec![Term::Var("x".into())])],
         )),
     );
-    assert!(compose(&[("s", s.clone()), ("t", t.clone())], &[("s", "t", good)], Mode::ExplicitIdentity).is_ok());
+    assert!(
+        compose(
+            &[("s", s.clone()), ("t", t.clone())],
+            &[("s", "t", good)],
+            Mode::ExplicitIdentity
+        )
+        .is_ok()
+    );
     let mut bad = id_on(&[("A", "A"), ("C", "C")]);
     bad.ops.insert(
         "k".into(),
         theory::OpImage::Term(Term::App("g".into(), vec![Term::Var("x".into())])),
     );
     assert_eq!(
-        compose(&[("s", s), ("t", t)], &[("s", "t", bad)], Mode::ExplicitIdentity).map(|_| ()),
-        Err(ComposeError::InvalidLeg(0))
+        compose(
+            &[("s", s), ("t", t)],
+            &[("s", "t", bad)],
+            Mode::ExplicitIdentity
+        )
+        .map(|_| ()),
+        Err(Box::new(ComposeError::InvalidLeg(0)))
     );
 }

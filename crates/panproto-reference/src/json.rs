@@ -14,6 +14,27 @@ pub enum Member {
     Text(String),
 }
 
+/// A JSON value.
+///
+/// Object members stay in source order and are not deduplicated. Consumers
+/// that assign semantics to member names can therefore reject duplicate
+/// names instead of silently choosing one occurrence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Value {
+    /// `null`.
+    Null,
+    /// A boolean.
+    Bool(bool),
+    /// A number, kept exactly as written.
+    Number(String),
+    /// A decoded string.
+    String(String),
+    /// An array.
+    Array(Vec<Self>),
+    /// An object in source order.
+    Object(Vec<(String, Self)>),
+}
+
 struct Reader<'a> {
     s: &'a [u8],
     at: usize,
@@ -58,7 +79,11 @@ impl Reader<'_> {
     fn number(&mut self) -> Option<()> {
         self.eat(b'-');
         if self.eat(b'0') {
-        } else if self.s.get(self.at).is_some_and(|b| (b'1'..=b'9').contains(b)) {
+        } else if self
+            .s
+            .get(self.at)
+            .is_some_and(|b| (b'1'..=b'9').contains(b))
+        {
             self.digits();
         } else {
             return None;
@@ -142,21 +167,22 @@ impl Reader<'_> {
         }
     }
 
-    fn value(&mut self) -> Option<()> {
+    fn value(&mut self) -> Option<Value> {
         self.ws();
         match self.s.get(self.at)? {
-            b'"' => self.string().map(|_| ()),
+            b'"' => self.string().map(Value::String),
             b'[' => {
                 self.at += 1;
                 self.ws();
                 if self.eat(b']') {
-                    return Some(());
+                    return Some(Value::Array(Vec::new()));
                 }
+                let mut values = Vec::new();
                 loop {
-                    self.value()?;
+                    values.push(self.value()?);
                     self.ws();
                     if self.eat(b']') {
-                        return Some(());
+                        return Some(Value::Array(values));
                     }
                     if !self.eat(b',') {
                         return None;
@@ -167,31 +193,53 @@ impl Reader<'_> {
                 self.at += 1;
                 self.ws();
                 if self.eat(b'}') {
-                    return Some(());
+                    return Some(Value::Object(Vec::new()));
                 }
+                let mut members = Vec::new();
                 loop {
                     self.ws();
-                    self.string()?;
+                    let key = self.string()?;
                     self.ws();
                     if !self.eat(b':') {
                         return None;
                     }
-                    self.value()?;
+                    let value = self.value()?;
+                    members.push((key, value));
                     self.ws();
                     if self.eat(b'}') {
-                        return Some(());
+                        return Some(Value::Object(members));
                     }
                     if !self.eat(b',') {
                         return None;
                     }
                 }
             }
-            b't' => self.literal(b"true"),
-            b'f' => self.literal(b"false"),
-            b'n' => self.literal(b"null"),
-            _ => self.number(),
+            b't' => self.literal(b"true").map(|()| Value::Bool(true)),
+            b'f' => self.literal(b"false").map(|()| Value::Bool(false)),
+            b'n' => self.literal(b"null").map(|()| Value::Null),
+            _ => {
+                let start = self.at;
+                self.number()?;
+                Some(Value::Number(
+                    std::str::from_utf8(&self.s[start..self.at])
+                        .ok()?
+                        .to_owned(),
+                ))
+            }
         }
     }
+}
+
+/// Read exactly one JSON value, allowing RFC 8259 whitespace around it.
+#[must_use]
+pub fn parse(text: &str) -> Option<Value> {
+    let mut reader = Reader {
+        s: text.as_bytes(),
+        at: 0,
+    };
+    let value = reader.value()?;
+    reader.ws();
+    (reader.at == reader.s.len()).then_some(value)
 }
 
 /// The members of `text` read as one JSON array, or `None` when `text` is
@@ -215,7 +263,7 @@ pub fn array_members(text: &str) -> Option<Vec<Member>> {
             let member = if r.s.get(r.at) == Some(&b'"') {
                 Member::Str(r.string()?)
             } else {
-                r.value()?;
+                let _ = r.value()?;
                 Member::Text(std::str::from_utf8(&r.s[start..r.at]).ok()?.to_owned())
             };
             out.push(member);

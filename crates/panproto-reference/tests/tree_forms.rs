@@ -13,7 +13,7 @@ use panproto_reference::rel;
 use panproto_reference::schema::{HyperEdge, Schema};
 use panproto_reference::value::Value;
 
-fn edge(src: u32, tgt: u32, label: SEdge) -> GEdge {
+const fn edge(src: u32, tgt: u32, label: SEdge) -> GEdge {
     GEdge {
         src,
         tgt,
@@ -31,7 +31,8 @@ fn fan_graph(extra: &[(u32, GEdge)]) -> Graph {
     let mut fan = Node::new(2, "h");
     fan.shape = NodeShape::HyperEdge;
     g.nodes.insert(2, fan);
-    g.edges.insert(0, edge(0, 1, SEdge::new("r", "a", "prop", None)));
+    g.edges
+        .insert(0, edge(0, 1, SEdge::new("r", "a", "prop", None)));
     g.edges
         .insert(1, edge(2, 0, SEdge::new("h", "r", "hyper_parent", None)));
     g.edges.insert(
@@ -44,7 +45,7 @@ fn fan_graph(extra: &[(u32, GEdge)]) -> Graph {
     g
 }
 
-fn none(_: &str) -> Option<String> {
+const fn none(_: &str) -> Option<String> {
     None
 }
 
@@ -149,7 +150,10 @@ fn every_other_malformed_graph_has_its_own_reason() {
         encode::graph_to_tree(&positioned, 0, &none),
         Err(NotATree::PositionedEdge { edge: 0 })
     );
-    let reserved = fan_graph(&[(3, edge(0, 1, SEdge::new("r", "a", "hyper_label", Some("y"))))]);
+    let reserved = fan_graph(&[(
+        3,
+        edge(0, 1, SEdge::new("r", "a", "hyper_label", Some("y"))),
+    )]);
     assert_eq!(
         encode::graph_to_tree(&reserved, 0, &none),
         Err(NotATree::ReservedArc { edge: 3 })

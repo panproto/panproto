@@ -375,7 +375,13 @@ impl TableLens<'_> {
         view: &BTreeMap<String, Value>,
     ) -> BTreeMap<String, Value> {
         let mut s0 = BTreeMap::new();
-        for col in self.rs.columns.get(table).into_iter().flat_map(|cs| cs.keys()) {
+        for col in self
+            .rs
+            .columns
+            .get(table)
+            .into_iter()
+            .flat_map(|cs| cs.keys())
+        {
             let key = (row, col.clone());
             if let Some(val) = comp
                 .dropped_cells

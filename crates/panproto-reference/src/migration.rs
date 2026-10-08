@@ -52,3 +52,21 @@ impl Migration {
         self.surviving_verts.contains(self.vertex_image(v))
     }
 }
+
+/// Observable equality for the graph conjugation square.
+#[must_use]
+pub fn graph_square(left: &crate::model::Graph, right: &crate::model::Graph) -> bool {
+    left == right
+}
+
+/// Observable equality for the table conjugation square.
+#[must_use]
+pub fn table_square(left: &crate::model::Table, right: &crate::model::Table) -> bool {
+    left == right
+}
+
+/// Observable equality for the tree conjugation square.
+#[must_use]
+pub fn tree_square(left: &crate::model::Tree, right: &crate::model::Tree) -> bool {
+    left == right
+}

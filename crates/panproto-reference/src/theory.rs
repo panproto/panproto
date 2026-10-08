@@ -272,7 +272,9 @@ fn subst_term(term: &Term, binders: &[(Name, SortExpr)], args: &[Term]) -> Term 
     let rename = |names: &[Name], body: &Term| -> (Vec<Name>, Term) {
         let (_, kept) = restrict(names);
         let mut captured = BTreeSet::new();
-        kept.iter().for_each(|a| free_vars(a, &mut captured));
+        for argument in &kept {
+            free_vars(argument, &mut captured);
+        }
         let mut avoid = captured.clone();
         free_vars(body, &mut avoid);
         avoid.extend(names.iter().cloned());
@@ -356,12 +358,15 @@ fn first_unbound(term: &Term, bound: &dyn Fn(&str) -> bool, free: &BTreeSet<Name
         Term::Var(x) => (free.contains(x) && !bound(x)).then(|| x.clone()),
         Term::App(_, xs) => xs.iter().find_map(|a| first_unbound(a, bound, free)),
         Term::Hole(_) => None,
-        Term::Let(x, b, body) => first_unbound(b, bound, free).or_else(|| {
-            first_unbound(body, &|y: &str| y == x || bound(y), free)
-        }),
+        Term::Let(x, b, body) => first_unbound(b, bound, free)
+            .or_else(|| first_unbound(body, &|y: &str| y == x || bound(y), free)),
         Term::Case(s, branches) => first_unbound(s, bound, free).or_else(|| {
             branches.iter().find_map(|br| {
-                first_unbound(&br.body, &|y: &str| br.binders.iter().any(|b| b == y) || bound(y), free)
+                first_unbound(
+                    &br.body,
+                    &|y: &str| br.binders.iter().any(|b| b == y) || bound(y),
+                    free,
+                )
             })
         }),
     }
@@ -551,7 +556,7 @@ pub enum ComposeError {
     /// A class formed by the name rule disagrees (amalgamation).
     NameConflict(SymKind, Name, SymRef, SymRef),
     /// Two classes of one kind get one name (rejecting policy).
-    NameClash(SymKind, Name, Vec<Vec<SymRef>>),
+    NameClash(SymKind, Name, Box<Vec<Vec<SymRef>>>),
     /// The result fails signature checking with defects other than the
     /// free names of implicit sorts.
     IllTypedResult(Vec<Defect>),
@@ -737,7 +742,8 @@ fn translate_sort(src: &Theory, m: &Morphism, s: &SortExpr) -> SortExpr {
 /// inputs, is the translated output. The image of a sort expression is its
 /// sort renamed with every argument term translated, derived-term images
 /// substituted into sort arguments.
-fn is_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
+#[must_use]
+pub fn check_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
     let id = |x: &str| x.to_owned();
     let name_free = |binders: &[Name], s: &SortExpr| name_free_sort(binders, s, &id, &id);
     let sorts_ok = src.sorts.iter().all(|s| {
@@ -751,14 +757,21 @@ fn is_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
         let names: Vec<Name> = s.params.iter().map(|(n, _)| n.clone()).collect();
         let tnames: Vec<Name> = ts.params.iter().map(|(n, _)| n.clone()).collect();
         let params_ok = ts.params.len() == s.params.len()
-            && s.params.iter().zip(&ts.params).enumerate().all(|(i, ((_, x), (_, y)))| {
-                name_free(&names[..i], &translate_sort(src, m, x)) == name_free(&tnames[..i], y)
-            });
+            && s.params
+                .iter()
+                .zip(&ts.params)
+                .enumerate()
+                .all(|(i, ((_, x), (_, y)))| {
+                    name_free(&names[..i], &translate_sort(src, m, x)) == name_free(&tnames[..i], y)
+                });
         let closure_ok = match (&s.constructors, &ts.constructors) {
             (None, None) => true,
             (Some(cs), Some(ds)) => {
                 cs.len() == ds.len()
-                    && cs.iter().zip(ds).all(|(c, d)| matches!(m.ops.get(c), Some(OpImage::Op(o)) if o == d))
+                    && cs
+                        .iter()
+                        .zip(ds)
+                        .all(|(c, d)| matches!(m.ops.get(c), Some(OpImage::Op(o)) if o == d))
             }
             _ => false,
         };
@@ -795,8 +808,9 @@ fn is_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
             }),
             Some(OpImage::Term(t)) => {
                 unbound(&o.inputs, t).is_none()
-                    && term_sort(tgt, &inputs, t)
-                        .is_some_and(|found| name_free(&names, &found) == name_free(&names, &output))
+                    && term_sort(tgt, &inputs, t).is_some_and(|found| {
+                        name_free(&names, &found) == name_free(&names, &output)
+                    })
             }
             None => false,
         }
@@ -869,7 +883,7 @@ fn name_classes(
                     return Err(ComposeError::NameClash(
                         kind,
                         c.clone(),
-                        sharing.iter().map(|j| classes[*j].clone()).collect(),
+                        Box::new(sharing.iter().map(|j| classes[*j].clone()).collect()),
                     ));
                 }
                 let label = classes[i]
@@ -905,6 +919,31 @@ fn undeclared_sorts(t: &Theory) -> BTreeSet<Name> {
         })
         .collect()
 }
+
+/// Naive quotient closure of `0..size` by finite identifications.
+///
+/// Each join relabels the entire current class. A member's final label is
+/// the least member of its equivalence class.
+#[must_use]
+pub fn quotient(size: usize, identifications: &[(usize, usize)]) -> Option<Vec<usize>> {
+    let mut labels: Vec<usize> = (0..size).collect();
+    for (left, right) in identifications {
+        if *left >= size || *right >= size {
+            return None;
+        }
+        let (left_label, right_label) = (labels[*left], labels[*right]);
+        let representative = left_label.min(right_label);
+        for label in &mut labels {
+            if *label == left_label || *label == right_label {
+                *label = representative;
+            }
+        }
+    }
+    Some(labels)
+}
+
+/// Replay a recorded composition from the same finite diagram.
+pub use compose as recompose;
 
 /// The colimit of a diagram of theories.
 ///
@@ -975,7 +1014,7 @@ pub fn compose(
         let (Some(source), Some(target)) = (theory(s), theory(t)) else {
             return Err(ComposeError::InvalidLeg(i));
         };
-        if !is_morphism(source, target, m) {
+        if !check_morphism(source, target, m) {
             return Err(ComposeError::InvalidLeg(i));
         }
     }
@@ -1058,7 +1097,10 @@ fn join_implicit(
             }
             continue;
         }
-        let classes: BTreeSet<usize> = decls.iter().filter_map(|d| cl.label.get(*d).copied()).collect();
+        let classes: BTreeSet<usize> = decls
+            .iter()
+            .filter_map(|d| cl.label.get(*d).copied())
+            .collect();
         if mode == Mode::ExplicitIdentity && classes.len() > 1 {
             let mut clashing: Vec<Vec<SymRef>> = classes
                 .iter()
@@ -1074,7 +1116,11 @@ fn join_implicit(
                 })
                 .collect();
             clashing.sort();
-            return Err(ComposeError::NameClash(SymKind::Sort, name.clone(), clashing));
+            return Err(ComposeError::NameClash(
+                SymKind::Sort,
+                name.clone(),
+                Box::new(clashing),
+            ));
         }
         for user in &users {
             for decl in &decls {
@@ -1342,8 +1388,8 @@ fn check_signatures(
             };
             let is_implicit = |m: &SymRef| implicit.contains(&(kind, m.clone()));
             let declared: Vec<&SymRef> = members.iter().filter(|m| !is_implicit(m)).collect();
-            let mismatch = match declared.first() {
-                Some(first) => declared
+            let mismatch = declared.first().and_then(|first| {
+                declared
                     .iter()
                     .find(|m| sig(m) != sig(first))
                     .map(|second| ((*first).clone(), (*second).clone()))
@@ -1352,9 +1398,8 @@ fn check_signatures(
                             .iter()
                             .find(|m| is_implicit(m) && arity(first) != 0)
                             .map(|m| ((*first).clone(), m.clone()))
-                    }),
-                None => None,
-            };
+                    })
+            });
             if let Some((first, second)) = mismatch {
                 let same_leg = legs.label.get(&(kind, first.clone()))
                     == legs.label.get(&(kind, second.clone()));
@@ -1488,7 +1533,14 @@ fn equations(
 ) -> Result<Vec<Equation>, ComposeError> {
     let items = eqs
         .iter()
-        .map(|(r, name, l, rr)| (r.clone(), name.clone(), alpha(l, rr), (l.clone(), rr.clone())))
+        .map(|(r, name, l, rr)| {
+            (
+                r.clone(),
+                name.clone(),
+                alpha(l, rr),
+                (l.clone(), rr.clone()),
+            )
+        })
         .collect();
     Ok(classify_items(SymKind::Eq, items, mode, clash, provenance)?
         .into_iter()
@@ -1531,10 +1583,12 @@ fn directed_equations(
             items.push((r, d.name.clone(), key, translated));
         }
     }
-    Ok(classify_items(SymKind::DirectedEq, items, mode, clash, provenance)?
-        .into_iter()
-        .map(|(name, d)| DirectedEquation { name, ..d })
-        .collect())
+    Ok(
+        classify_items(SymKind::DirectedEq, items, mode, clash, provenance)?
+            .into_iter()
+            .map(|(name, d)| DirectedEquation { name, ..d })
+            .collect(),
+    )
 }
 
 /// The result policies: transported unchanged (a policy mentions no sort
@@ -1557,8 +1611,10 @@ fn policies(
             items.push((r, p.name.clone(), key, p.clone()));
         }
     }
-    Ok(classify_items(SymKind::Policy, items, mode, clash, provenance)?
-        .into_iter()
-        .map(|(name, p)| Policy { name, ..p })
-        .collect())
+    Ok(
+        classify_items(SymKind::Policy, items, mode, clash, provenance)?
+            .into_iter()
+            .map(|(name, p)| Policy { name, ..p })
+            .collect(),
+    )
 }

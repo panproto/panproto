@@ -210,7 +210,6 @@ pub enum NotATree {
 /// The parent-edge names of a schema's hyper-edges, as [`tree_to_graph`]
 /// writes them: the hyper-edge's parent label when the schema declares the
 /// hyper-edge, else none.
-#[must_use]
 pub fn schema_parent_name(schema: Option<&Schema>) -> impl Fn(&str) -> Option<Name> + '_ {
     move |hyper: &str| {
         schema
@@ -311,7 +310,10 @@ pub fn graph_to_tree(
             return Err(NotATree::FanData { node: *f });
         }
         if let Some(violation) = crate::fan::violations_at(g, *f, None).into_iter().next() {
-            return Err(NotATree::Fan { node: *f, violation });
+            return Err(NotATree::Fan {
+                node: *f,
+                violation,
+            });
         }
         let out: Vec<&GEdge> = g.edges.values().filter(|e| e.src == *f).collect();
         let parent_of_fan = out
@@ -360,6 +362,17 @@ pub fn graph_to_tree(
         fans,
         root,
     })
+}
+
+/// Reify every fan in a tree through its graph representation.
+///
+/// The result is defined exactly when both representation directions are
+/// defined; this makes the image round trip directly executable.
+#[must_use]
+pub fn reify(tree: &Tree, schema: Option<&Schema>) -> Option<Tree> {
+    let (graph, _) = tree_to_graph(tree, schema).ok()?;
+    let parent_name = schema_parent_name(schema);
+    graph_to_tree(&graph, tree.root, &parent_name).ok()
 }
 
 /// The graph form of a table.
@@ -776,8 +789,10 @@ fn pass_values(g: &Graph, side: &GraphSide) -> Result<(), NotEncodable> {
 
 /// Encode a graph over a side: five checks (nodes, edges, parallel edges,
 /// cells, value nodes), then a row per table node with the folds of its
-/// cells, and a pair per relation edge. The edge check refuses first an
-/// edge whose source or target is not a node (`DanglingEdge`).
+/// cells, and a pair per relation edge.
+///
+/// The edge check refuses first an edge whose source or target is not a
+/// node (`DanglingEdge`).
 ///
 /// # Errors
 ///
@@ -975,7 +990,9 @@ fn roots_of(g: &Graph) -> Vec<u32> {
 /// [`TreeKanError::NotATree`] when it has no tree form from that root.
 fn read_tree(g: &Graph) -> Result<Tree, TreeKanError> {
     match roots_of(g).as_slice() {
-        [root] => graph_to_tree(g, *root, &schema_parent_name(None)).map_err(TreeKanError::NotATree),
+        [root] => {
+            graph_to_tree(g, *root, &schema_parent_name(None)).map_err(TreeKanError::NotATree)
+        }
         many => Err(TreeKanError::RootCount { count: many.len() }),
     }
 }

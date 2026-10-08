@@ -589,6 +589,63 @@ pub fn decode_value(bytes: &[u8]) -> Option<Value> {
     r.done().then_some(v)
 }
 
+/// Canonical bytes of an exact decimal, including all special values.
+#[must_use]
+pub fn decimal_bytes(value: &Decimal) -> Option<Vec<u8>> {
+    value_bytes(&Value::Decimal(value.clone()))
+}
+
+/// The instance shape whose complement an identity envelope accompanies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ComplementShape {
+    /// A tree/W-type complement.
+    WType,
+    /// A graph complement.
+    Graph,
+    /// A table/functor complement.
+    Functor,
+    /// A reference-resolution complement.
+    Resolution,
+}
+
+/// The inputs to the version-2 identity-envelope encoding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct IdentityEnvelope {
+    /// The source schema digest.
+    pub source_schema: [u8; 32],
+    /// The target schema digest.
+    pub target_schema: [u8; 32],
+    /// The compiled lens digest.
+    pub lens: [u8; 32],
+    /// The complement shape.
+    pub shape: ComplementShape,
+    /// The shape-specific complement-format version.
+    pub format_version: u16,
+}
+
+/// Encode a version-2 identity envelope exactly as the segmented canonical
+/// sink does.
+///
+/// The layout is little-endian version 2, three 32-byte digests, the shape
+/// tag (`WType = 0`, `Graph = 1`, `Functor = 2`, `Resolution = 3`), and the
+/// little-endian complement-format version.
+#[must_use]
+pub fn identity(envelope: &IdentityEnvelope) -> [u8; 101] {
+    let mut bytes = [0; 101];
+    bytes[..2].copy_from_slice(&2u16.to_le_bytes());
+    bytes[2..34].copy_from_slice(&envelope.source_schema);
+    bytes[34..66].copy_from_slice(&envelope.target_schema);
+    bytes[66..98].copy_from_slice(&envelope.lens);
+    bytes[98] = match envelope.shape {
+        ComplementShape::WType => 0,
+        ComplementShape::Graph => 1,
+        ComplementShape::Functor => 2,
+        ComplementShape::Resolution => 3,
+    };
+    bytes[99..].copy_from_slice(&envelope.format_version.to_le_bytes());
+    bytes
+}
+
 /// The canonical order of values: the byte order of their canonical bytes
 /// (a value outside the layout sorts before every value inside it).
 #[must_use]
