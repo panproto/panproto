@@ -2,6 +2,17 @@
 //!
 //! Used by NAF, FoLiA, TEI, TimeML, ELAN, ISO-Space, XSD instances,
 //! RSS/Atom, PAULA, LAF/GrAF, DOCX (inner XML), ODF (inner XML).
+//!
+//! ## Prop1 waiver list
+//!
+//! - A scalar whose written text would exceed the default 64 MiB output-byte
+//!   allowance is refused with a typed limit error.
+//!
+//! ## Departures from the format standard
+//!
+//! - The shared XML pathway writes a negative canonical NaN as `-NaN` to
+//!   retain its sign. This is a deliberate departure from XSD 1.1 Part 2,
+//!   Sections 3.3.4.1-3.3.4.2.
 
 use panproto_inst::{FInstance, WInstance};
 use panproto_schema::Schema;

@@ -22,6 +22,12 @@
 //! content lines (in order), each addressed positionally by `col_0`, `col_1`,
 //! ... This keeps the functor semantics the registry exposes while imposing no
 //! header/column-name assumption the formats do not have.
+//!
+//! ## Prop1 waiver list
+//!
+//! - A scalar whose written text would exceed the default 64 MiB output-byte
+//!   allowance is refused with a typed limit error. The byte-faithful route
+//!   otherwise writes only cell values already represented by source bytes.
 
 use std::collections::HashMap;
 
