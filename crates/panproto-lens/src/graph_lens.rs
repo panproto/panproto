@@ -183,10 +183,14 @@ pub fn check_locality(lens: &Lens, source: &GInstance) -> Result<(), crate::LawV
     crate::laws::check_locality_for_shape::<crate::GraphShape>(lens, source, &())
 }
 
-/// Check the gating laws on every graph in a finite canonical scope.
+/// Check the gating laws on every labelled graph in a finite canonical scope.
 ///
-/// A pass means "no counterexample found" in `scope`; it is not a
-/// proof outside that finite universe.
+/// No labelled isomorphs are pruned. Each value-bearing coordinate is checked
+/// against every other admitted member of the fixed six-value alphabet. A
+/// pass means "no counterexample found" in `scope`; it is not a proof outside
+/// that finite universe. At each graph the Single-Step Basis covers only its
+/// single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and E.6
+/// exercise multi-step behaviour separately.
 ///
 /// # Errors
 ///
@@ -198,7 +202,9 @@ pub fn check_laws_exhaustive(
 ) -> Result<Vec<crate::laws::LawReport>, crate::LawViolation> {
     <crate::GraphShape as crate::laws::LawShape>::enumerate_small(schema, scope, &())
         .iter()
-        .map(|source| crate::laws::check_laws_report::<crate::GraphShape>(lens, source, &()))
+        .map(|source| {
+            crate::laws::check_laws_report_exhaustive::<crate::GraphShape>(lens, source, &())
+        })
         .collect()
 }
 
@@ -284,7 +290,11 @@ pub fn put_without_complement(lens: &Lens, view: &GInstance) -> Result<GInstance
 
 /// Whether graph get leaves no source information in its complement.
 ///
-/// This is the graph counterpart of [`Lens::is_isomorphism`]. In addition
+/// This classifies bijective lenses whose complement is `Unit`, a class
+/// narrower than isomorphism in the category of lenses. A `false` result is
+/// an obstruction to complement-free put, not the absence of an inverse lens,
+/// and does not decide whether the lens is forgetful. This is the graph
+/// counterpart of [`Lens::is_isomorphism`]. In addition
 /// to the ordinary vertex, edge and value coordinates, it accounts for
 /// reified hyper-edges: a non-identity resolver changes a fan anchor or child
 /// label and graph get records that source coordinate in its complement.
@@ -295,9 +305,12 @@ pub fn is_isomorphism(lens: &Lens) -> bool {
 
 /// The first graph coordinate that prevents complement-free reconstruction.
 ///
-/// The result is deterministic. A pass means that no obstruction was found
-/// by the complete static graph classifier; it is not a claim about lenses
-/// outside the graph restrict domain.
+/// The result is deterministic and concerns the same narrower, bijective
+/// (complement `Unit`) class as [`is_isomorphism`]. It reports an obstruction
+/// to complement-free put, not proof that no inverse lens exists, and does not
+/// decide whether the lens is forgetful. A pass means that no obstruction was
+/// found by the complete static graph classifier; it is not a claim about
+/// lenses outside the graph restrict domain.
 #[must_use]
 pub fn obstruction_to_isomorphism(lens: &Lens) -> Option<String> {
     let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {

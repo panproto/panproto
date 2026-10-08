@@ -68,7 +68,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
-    use crate::symmetric::{TraceObservation, TraceSide, check_observational_trace};
+    use crate::symmetric::{TraceObservation, check_observational_equality};
     use crate::tests::{identity_lens, three_node_schema};
     use panproto_inst::{Node, Value};
 
@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_trace_observes_the_same_stable_keyed_mutation() {
+    fn graph_words_observe_the_same_stable_keyed_mutation() {
         let schema = three_node_schema();
         let first = from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
         let second = from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
@@ -102,7 +102,7 @@ mod tests {
             .extra_fields
             .insert("edited".into(), Value::Int(1));
 
-        check_observational_trace::<GraphShape>(
+        check_observational_equality::<GraphShape>(
             &TraceObservation {
                 lens: &first,
                 left_context: &(),
@@ -117,8 +117,6 @@ mod tests {
                 view: &second_state.0,
                 complement: &second_state.1,
             },
-            TraceSide::Left,
-            6,
         )
         .unwrap();
     }

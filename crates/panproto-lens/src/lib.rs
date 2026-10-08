@@ -184,6 +184,11 @@ impl Lens {
     ///    fibre over a view value is not a point and the source cannot be
     ///    recovered from it.
     ///
+    /// This classifies bijective lenses whose complement is `Unit`. That class
+    /// is narrower than isomorphism in the category of lenses: `false` names
+    /// an obstruction to complement-free put, not the absence of an inverse
+    /// lens, and does not decide whether the lens is forgetful.
+    ///
     /// This is a *static* property of the lens, so it holds for every
     /// source or for none. It is exactly the test
     /// [`put_without_complement`] makes before it reconstructs a source,
@@ -195,8 +200,13 @@ impl Lens {
         self.obstruction_to_isomorphism().is_none()
     }
 
-    /// The first reason this lens is not an isomorphism, or `None` when it
-    /// is one. See [`is_isomorphism`](Self::is_isomorphism).
+    /// The first obstruction to complement-free put, or `None` when the lens
+    /// is bijective with complement `Unit`.
+    ///
+    /// This is narrower than isomorphism in the category of lenses. A result
+    /// does not prove the absence of an inverse lens and does not decide
+    /// whether the lens is forgetful. See
+    /// [`is_isomorphism`](Self::is_isomorphism).
     #[must_use]
     pub fn obstruction_to_isomorphism(&self) -> Option<String> {
         asymmetric::obstruction_to_tree_isomorphism(self)

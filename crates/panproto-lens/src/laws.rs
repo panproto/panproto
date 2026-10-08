@@ -186,11 +186,13 @@ pub struct LawReport {
     pub classification: LensClassification,
 }
 
-/// The finite structural universe used by exhaustive checkers.
+/// The finite, labelled structural universe used by exhaustive checkers.
 ///
 /// Instances use canonical consecutive ids, the fixed compatible payload
 /// alphabet, and default metadata. The scope is therefore exhaustive only for
-/// this explicitly finite universe.
+/// this explicitly finite universe. No isomorphism classes are identified and
+/// no partial symmetry breaking is performed: independent counts for this
+/// enumerator must consequently be labelled counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmallScope {
     /// Maximum number of nodes or rows.
@@ -219,6 +221,25 @@ pub trait LawShape: LensShape {
         ctx: &Self::Context,
         mutation: Mutation,
     ) -> MutationCases<Self::Instance>;
+
+    /// Full one-coordinate value-edit basis used by exhaustive checkers.
+    ///
+    /// The ordinary single-step report keeps one deterministic alternate per
+    /// coordinate. This method instead returns every other value in the fixed
+    /// six-value alphabet that the coordinate's declared kind admits. Shapes
+    /// without a wider finite value basis may use the ordinary candidates.
+    fn exhaustive_value_cases(
+        lens: &Lens,
+        source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        match Self::mutation_cases(lens, source, view, complement, ctx, Mutation::ValueEdit) {
+            MutationCases::Cases(cases) => cases,
+            MutationCases::Skip(_) => Vec::new(),
+        }
+    }
 
     /// Exact equality of source presentations, with NaN-reflexive values.
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool;
@@ -267,6 +288,162 @@ pub trait LawShape: LensShape {
     ) -> Vec<Self::Instance>;
 }
 
+/// Law-shape adapter whose value-edit family is the complete finite alphabet.
+///
+/// Keeping this as a shape adapter makes every consumer of `mutation_cases`
+/// see the same exhaustive family: all five gates, report counts and the
+/// non-gating classifications cannot silently fall back to one alternate.
+struct ExhaustiveValueShape<S>(std::marker::PhantomData<S>);
+
+impl<S: LawShape> LensShape for ExhaustiveValueShape<S> {
+    type Instance = S::Instance;
+    type Complement = S::Complement;
+    type Context = S::Context;
+
+    fn get(
+        lens: &Lens,
+        source: &Self::Instance,
+        ctx: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), crate::LensError> {
+        S::get(lens, source, ctx)
+    }
+
+    fn put(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Result<Self::Instance, crate::LensError> {
+        S::put(lens, view, complement, ctx)
+    }
+
+    fn check_put_domain(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Result<(), Vec<PutDomainError>> {
+        S::check_put_domain(lens, view, complement, ctx)
+    }
+
+    fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
+        S::synth_index(instance, complement)
+    }
+
+    fn equivalent(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> bool {
+        S::equivalent(a, ia, b, ib)
+    }
+
+    fn divergence(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> Option<String> {
+        S::divergence(a, ia, b, ib)
+    }
+
+    fn divergence_modulo_derived(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+        derived: &crate::derived::DerivedMap,
+    ) -> Option<String> {
+        S::divergence_modulo_derived(a, ia, b, ib, derived)
+    }
+
+    fn complement_divergence(a: &Self::Complement, b: &Self::Complement) -> Option<String> {
+        S::complement_divergence(a, b)
+    }
+
+    fn congruence_witnesses(
+        instance: &Self::Instance,
+        index: &SynthIndex,
+    ) -> Vec<(Self::Instance, SynthIndex)> {
+        S::congruence_witnesses(instance, index)
+    }
+}
+
+impl<S: LawShape> LawShape for ExhaustiveValueShape<S> {
+    fn mutation_cases(
+        lens: &Lens,
+        source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+        mutation: Mutation,
+    ) -> MutationCases<Self::Instance> {
+        if mutation == Mutation::ValueEdit {
+            MutationCases::Cases(S::exhaustive_value_cases(
+                lens, source, view, complement, ctx,
+            ))
+        } else {
+            S::mutation_cases(lens, source, view, complement, ctx, mutation)
+        }
+    }
+
+    fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {
+        S::identical(a, b)
+    }
+
+    fn congruent_states(
+        view: &Self::Instance,
+        complement: &Self::Complement,
+    ) -> Vec<(Self::Instance, Self::Complement)> {
+        S::congruent_states(view, complement)
+    }
+
+    fn rekey_complement(
+        complement: &Self::Complement,
+        from: &SynthIndex,
+        to: &SynthIndex,
+    ) -> Self::Complement {
+        S::rekey_complement(complement, from, to)
+    }
+
+    fn locality_divergence(
+        lens: &Lens,
+        source: &Self::Instance,
+        original_view: &Self::Instance,
+        edited_view: &Self::Instance,
+        restored: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Option<String> {
+        S::locality_divergence(
+            lens,
+            source,
+            original_view,
+            edited_view,
+            restored,
+            complement,
+            ctx,
+        )
+    }
+
+    fn carrier_intersection(a: &Self::Instance, b: &Self::Instance) -> Self::Instance {
+        S::carrier_intersection(a, b)
+    }
+
+    fn undo_view(original: &Self::Instance, edited: &Self::Instance) -> Option<Self::Instance> {
+        S::undo_view(original, edited)
+    }
+
+    fn enumerate_small(
+        schema: &Schema,
+        scope: SmallScope,
+        ctx: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        S::enumerate_small(schema, scope, ctx)
+    }
+}
+
 /// `get` and `put` through one lens, with its envelope computed once for
 /// every call a checker makes.
 struct Bound<'a> {
@@ -304,6 +481,17 @@ impl<'a> Bound<'a> {
 ///
 /// Success means that there was no counterexample found in that finite basis; it
 /// is not a proof over arbitrary sources or views.
+///
+/// For an accepted view `v`, write `s' = put(v, c)` and
+/// `get(s') = (v', c')`. `GetPut` at `s'` and exact `PutGet` (`v' = v`) imply
+/// `put(v, c') = s'`, so raw `PutTwice` is a corollary in exact shapes. This
+/// covers [`TableShape`] and graph or tree views with no synthesized carrier.
+/// It does not follow from `WeakPutGet`. When a graph or tree view does contain
+/// a synthesized carrier, this gate uses `c'` rekeyed from `v'`'s index to
+/// `v`'s index. For the universal graph and tree laws, indexed `PutGet` and
+/// Congruence transport `GetPut` at `s'` across that rekeying. The finite checker
+/// nevertheless retains this gate because its `GetPut` pass covers the supplied
+/// source, not every once-put `s'`.
 ///
 /// # Errors
 ///
@@ -1434,7 +1622,22 @@ fn classify<S: LawShape>(
 /// Run all gating laws and return counts and non-gating classifications.
 ///
 /// A pass means that there was no counterexample found for this source in the
-/// finite single-step basis; it is not a proof over all instances.
+/// finite Single-Step Basis. The ordinary report uses one deterministic value
+/// alternate per coordinate; it is not t-way coverage for any t of two or
+/// more, and it is not a proof over all instances. The basis covers only the
+/// single-edit neighbourhood of the supplied source. Multi-step behaviour is
+/// exercised separately by `PutTwice`, the `PutPut` classifications and E.6.
+///
+/// Raw `PutTwice` follows from `GetPut` at the once-put source and exact `PutGet`:
+/// if `s' = put(v, c)` and `get(s') = (v, c')`, then `GetPut` at `s'` gives
+/// `put(v, c') = s'`. Thus `PutTwice` is a corollary for [`TableShape`] and for
+/// graph and tree views without synthesized carriers, where divergence is
+/// exact. `WeakPutGet` is insufficient. With synthesized carriers, the checker
+/// rekeys `c'` to the candidate's index. For the universal graph and tree laws,
+/// indexed `PutGet` makes `(v, rekey(c'))` congruent to `(v', c')`; Congruence
+/// transports their puts, and `GetPut` at `s'` identifies the latter with `s'`.
+/// The finite checker still retains the gate because its `GetPut` pass checks the
+/// supplied source, not every once-put `s'`.
 ///
 /// # Errors
 ///
@@ -1460,11 +1663,24 @@ pub fn check_laws_report<S: LawShape>(
     })
 }
 
-/// Check every canonical tree instance in a finite structural scope.
+pub(crate) fn check_laws_report_exhaustive<S: LawShape>(
+    lens: &Lens,
+    source: &S::Instance,
+    ctx: &S::Context,
+) -> Result<LawReport, LawViolation> {
+    check_laws_report::<ExhaustiveValueShape<S>>(lens, source, ctx)
+}
+
+/// Check every canonical labelled tree instance in a finite structural scope.
 ///
 /// Instances and reports are visited in the deterministic order produced by
-/// [`LawShape::enumerate_small`]. A successful run reports "no counterexample found"
-/// in this scope; it is not a proof over all tree instances or payloads.
+/// [`LawShape::enumerate_small`]. For each value-bearing coordinate, every
+/// other admitted member of the fixed six-value alphabet is checked. A
+/// successful run reports "no counterexample found" in this scope; it is not
+/// a proof over all tree instances or payloads. The enumeration does not prune
+/// labelled isomorphs. At each enumerated source the Single-Step Basis covers
+/// only its single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and
+/// E.6 exercise multi-step behaviour separately.
 ///
 /// # Errors
 ///
@@ -1476,7 +1692,7 @@ pub fn check_laws_exhaustive(
 ) -> Result<Vec<LawReport>, LawViolation> {
     TreeShape::enumerate_small(schema, scope, &())
         .iter()
-        .map(|source| check_laws_report::<TreeShape>(lens, source, &()))
+        .map(|source| check_laws_report_exhaustive::<TreeShape>(lens, source, &()))
         .collect()
 }
 
@@ -1509,6 +1725,17 @@ fn alternate_value(value: &FieldPresence, kind: &str) -> Option<FieldPresence> {
         FieldPresence::Null => null_alternate_for_kind(kind).map(FieldPresence::Present),
         _ => Some(FieldPresence::Null),
     }
+}
+
+fn exhaustive_presence_values(kind: &str, current: &FieldPresence) -> Vec<FieldPresence> {
+    finite_values_for_kind(kind)
+        .into_iter()
+        .map(|value| match value {
+            Value::Null => FieldPresence::Null,
+            value => FieldPresence::Present(value),
+        })
+        .filter(|candidate| candidate != current)
+        .collect()
 }
 
 fn null_alternate_for_kind(kind: &str) -> Option<Value> {
@@ -1673,6 +1900,36 @@ fn tree_value_cases(lens: &Lens, view: &WInstance, complement: &Complement) -> V
                 node.value = Some(replacement);
             }
             candidates.push(next);
+        }
+    }
+    candidates
+}
+
+fn tree_exhaustive_value_cases(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> Vec<WInstance> {
+    let mut candidates = Vec::new();
+    for id in sorted_tree_ids(view) {
+        if complement.synthesized_keys.contains_key(&id) {
+            continue;
+        }
+        let Some(node) = view.nodes.get(&id) else {
+            continue;
+        };
+        let Some(current) = node.value.as_ref() else {
+            continue;
+        };
+        let Some(kind) = lens.tgt_schema.vertices.get(&node.anchor) else {
+            continue;
+        };
+        for replacement in exhaustive_presence_values(kind.kind.as_ref(), current) {
+            let mut next = view.clone();
+            if let Some(node) = next.nodes.get_mut(&id) {
+                node.value = Some(replacement);
+                candidates.push(next);
+            }
         }
     }
     candidates
@@ -2083,6 +2340,36 @@ fn graph_value_cases(
                 node.value = Some(replacement);
             }
             candidates.push(next);
+        }
+    }
+    candidates
+}
+
+fn graph_exhaustive_value_cases(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+) -> Vec<GInstance> {
+    let mut candidates = Vec::new();
+    for id in sorted_graph_nodes(view) {
+        if complement.synthesized_nodes.contains_key(&id) {
+            continue;
+        }
+        let Some(node) = view.node(id) else {
+            continue;
+        };
+        let Some(current) = node.value.as_ref() else {
+            continue;
+        };
+        let Some(kind) = lens.tgt_schema.vertices.get(&node.anchor) else {
+            continue;
+        };
+        for replacement in exhaustive_presence_values(kind.kind.as_ref(), current) {
+            let mut next = view.clone();
+            if let Some(node) = next.node_mut(id) {
+                node.value = Some(replacement);
+                candidates.push(next);
+            }
         }
     }
     candidates
@@ -2700,6 +2987,38 @@ fn table_payload_cases(
             if let Some(row) = next.row_mut(id) {
                 row.insert(cell, replacement);
                 candidates.push(next);
+            }
+        }
+    }
+    candidates
+}
+
+fn table_exhaustive_value_cases(
+    lens: &Lens,
+    view: &FInstance,
+    ctx: &TableContext,
+) -> Vec<FInstance> {
+    let mut candidates = Vec::new();
+    for id in view.row_ids() {
+        let Some(table) = view.table_of(id) else {
+            continue;
+        };
+        for cell in table_cell_coordinates(lens, view, ctx, id) {
+            let Some(kind) = table_cell_scalar_kind(lens, ctx, table, &cell) else {
+                continue;
+            };
+            let Some(current) = view.row(id).and_then(|row| row.get(&cell)) else {
+                continue;
+            };
+            for replacement in finite_values_for_scalar(&kind)
+                .into_iter()
+                .filter(|candidate| candidate != current)
+            {
+                let mut next = view.clone();
+                if let Some(row) = next.row_mut(id) {
+                    row.insert(cell.clone(), replacement);
+                    candidates.push(next);
+                }
             }
         }
     }
@@ -4237,6 +4556,16 @@ impl LawShape for TreeShape {
         tree_cases(lens, view, complement, mutation)
     }
 
+    fn exhaustive_value_cases(
+        lens: &Lens,
+        _source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        tree_exhaustive_value_cases(lens, view, complement)
+    }
+
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {
         tree_identical(a, b)
     }
@@ -4304,6 +4633,16 @@ impl LawShape for GraphShape {
         graph_cases(lens, view, complement, mutation)
     }
 
+    fn exhaustive_value_cases(
+        lens: &Lens,
+        _source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        graph_exhaustive_value_cases(lens, view, complement)
+    }
+
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {
         GInstance::identical(a, b)
     }
@@ -4369,6 +4708,16 @@ impl LawShape for TableShape {
         mutation: Mutation,
     ) -> MutationCases<Self::Instance> {
         table_cases(lens, view, complement, ctx, mutation)
+    }
+
+    fn exhaustive_value_cases(
+        lens: &Lens,
+        _source: &Self::Instance,
+        view: &Self::Instance,
+        _complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        table_exhaustive_value_cases(lens, view, ctx)
     }
 
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {
@@ -5606,6 +5955,116 @@ mod tests {
     }
 
     #[test]
+    fn law_shape_default_exhaustive_values_reuses_the_value_edit_basis() {
+        let lens = identity_lens(&three_node_schema());
+        assert_eq!(
+            MockShape::exhaustive_value_cases(&lens, &7, &11, &0, &MockMode::Collapse,),
+            vec![12]
+        );
+    }
+
+    #[test]
+    fn exhaustive_value_adapter_preserves_the_underlying_shape_contract() {
+        type Adapter = ExhaustiveValueShape<MockShape>;
+
+        let lens = identity_lens(&three_node_schema());
+        assert!(matches!(
+            Adapter::get(&lens, &7, &MockMode::Collapse),
+            Ok((7, 0))
+        ));
+        assert!(matches!(
+            Adapter::put(&lens, &3, &0, &MockMode::CongruenceOnly),
+            Ok(3)
+        ));
+        let Err(domain_errors) = Adapter::check_put_domain(&lens, &1, &0, &MockMode::MixedNegative)
+        else {
+            panic!("the adapter must preserve the underlying domain refusal");
+        };
+        assert_eq!(domain_errors.len(), 2);
+
+        let index = SynthIndex::default();
+        assert!(Adapter::equivalent(&1, &index, &3, &index));
+        assert!(!Adapter::equivalent(&1, &index, &2, &index));
+        assert!(Adapter::divergence(&1, &index, &3, &index).is_none());
+        assert!(Adapter::divergence(&1, &index, &2, &index).is_some());
+        let derived = DerivedMap::new();
+        assert!(Adapter::divergence_modulo_derived(&1, &index, &3, &index, &derived).is_none());
+        assert!(Adapter::divergence_modulo_derived(&1, &index, &2, &index, &derived).is_some());
+        assert!(Adapter::complement_divergence(&4, &4).is_none());
+        assert!(Adapter::complement_divergence(&4, &5).is_some());
+        assert_eq!(
+            Adapter::congruence_witnesses(&5, &index),
+            vec![(7, index.clone())]
+        );
+
+        let MutationCases::Cases(value_cases) =
+            Adapter::mutation_cases(&lens, &7, &11, &0, &MockMode::Collapse, Mutation::ValueEdit)
+        else {
+            panic!("the exhaustive adapter must preserve value candidates");
+        };
+        assert_eq!(value_cases, vec![12]);
+        let MutationCases::Cases(field_cases) =
+            Adapter::mutation_cases(&lens, &7, &11, &0, &MockMode::Collapse, Mutation::FieldEdit)
+        else {
+            panic!("the exhaustive adapter must preserve non-value candidates");
+        };
+        assert_eq!(field_cases, vec![13]);
+        assert!(Adapter::identical(&6, &6));
+        assert!(!Adapter::identical(&6, &7));
+        assert_eq!(Adapter::congruent_states(&5, &9), vec![(7, 9)]);
+        assert_eq!(Adapter::rekey_complement(&9, &index, &index), 9);
+        assert!(
+            Adapter::locality_divergence(&lens, &0, &0, &3, &3, &0, &MockMode::Collapse,).is_none()
+        );
+        assert!(
+            Adapter::locality_divergence(&lens, &0, &0, &3, &4, &0, &MockMode::Collapse,).is_some()
+        );
+        assert_eq!(Adapter::carrier_intersection(&4, &7), 4);
+        assert_eq!(Adapter::undo_view(&2, &3), Some(2));
+        assert_eq!(Adapter::undo_view(&2, &2), None);
+
+        let schema = one_vertex_schema("boolean", false);
+        let scope = SmallScope {
+            max_nodes: 1,
+            max_edges: 0,
+        };
+        let instances = ExhaustiveValueShape::<TreeShape>::enumerate_small(&schema, scope, &());
+        assert_eq!(instances.len(), 3);
+        let value_lens = identity_lens(&schema);
+        let source = &instances[0];
+        let Ok((view, complement)) = TreeShape::get(&value_lens, source, &()) else {
+            panic!("the identity lens must get the finite value fixture");
+        };
+        let MutationCases::Cases(exhaustive_cases) =
+            ExhaustiveValueShape::<TreeShape>::mutation_cases(
+                &value_lens,
+                source,
+                &view,
+                &complement,
+                &(),
+                Mutation::ValueEdit,
+            )
+        else {
+            panic!("the finite value fixture must admit value edits");
+        };
+        assert_eq!(exhaustive_cases.len(), 2);
+
+        let mut tree_complement = Complement::default();
+        tree_complement.synthesized_nodes.insert(1);
+        tree_complement.synthesized_keys.insert(
+            1,
+            panproto_inst::SynthKey::Expand {
+                source_edge: EdgeId(0),
+                hop: 0,
+            },
+        );
+        let tree = three_node_instance();
+        let tree_index = ExhaustiveValueShape::<TreeShape>::synth_index(&tree, &tree_complement);
+        assert!(!tree_index.is_empty());
+        assert_eq!(tree_index, TreeShape::synth_index(&tree, &tree_complement));
+    }
+
+    #[test]
     fn mock_oracles_detect_each_distinct_failure_class() {
         let lens = identity_lens(&three_node_schema());
         assert!(matches!(
@@ -6674,6 +7133,23 @@ mod tests {
         assert!(
             result.is_ok(),
             "identity lens should satisfy all laws: {result:?}"
+        );
+    }
+
+    #[test]
+    fn tree_law_wrappers_preserve_an_operational_failure() {
+        let schema = three_node_schema();
+        let lens = identity_lens(&schema);
+        let mut instance = three_node_instance();
+        instance.root = u32::MAX;
+
+        assert!(
+            check_laws(&lens, &instance).is_err(),
+            "the public wrapper must not erase the shape checker's failure"
+        );
+        assert!(
+            check_put_twice(&lens, &instance).is_err(),
+            "the PutTwice wrapper must not erase the shape checker's failure"
         );
     }
 
