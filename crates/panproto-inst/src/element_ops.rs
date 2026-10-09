@@ -13,7 +13,7 @@
 //! 3. **Stalk projection**: observable data at an element, projected from
 //!    the fiber's dependent sum to a flat evaluation environment
 //!
-//! This trait follows the [`AcsetOps`](crate::AcsetOps) naming convention
+//! This trait follows the [`AcsetOps`] naming convention
 //! and is implemented for all three instance shapes.
 
 use std::collections::HashMap;

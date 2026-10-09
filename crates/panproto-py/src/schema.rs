@@ -482,6 +482,22 @@ impl PySchemaBuilder {
         Ok(())
     }
 
+    /// Set an already-declared vertex's identity mode.
+    ///
+    /// ``True`` declares nominal identity and ``False`` explicitly declares
+    /// structural identity. An explicit ``False`` is preserved in the built
+    /// schema rather than collapsed to an absent annotation.
+    ///
+    /// Raises
+    /// ------
+    /// `SchemaValidationError`
+    ///     If ``vertex_id`` has not already been declared.
+    fn nominal(&mut self, vertex_id: &str, nominal: bool) -> PyResult<()> {
+        let builder = self.take_builder()?;
+        self.builder = Some(builder.nominal(vertex_id, nominal).map_py_err()?);
+        Ok(())
+    }
+
     /// Add a directed edge between two vertices.
     ///
     /// Parameters

@@ -267,7 +267,7 @@ pub fn load(path: &Path, options: &LoadOptions<'_>) -> Result<LoadedInput> {
         miette::bail!(
             "path {} does not exist or is not a file/directory",
             path.display()
-        )
+        );
     }
 }
 
@@ -527,7 +527,7 @@ fn check_requested_protocol(manifest: &BundleManifest, requested: Option<&str>) 
          drop --protocol or fix the manifest",
         manifest.root.join("panproto.toml").display(),
         manifest.protocol
-    )
+    );
 }
 
 /// The documents `manifest` covers that also lie under `input`.

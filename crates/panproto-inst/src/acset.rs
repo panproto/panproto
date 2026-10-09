@@ -2,8 +2,7 @@
 //!
 //! [`AcsetOps`] provides a unified interface for restrict, extend, and
 //! introspection operations on the three instance shapes:
-//! [`WInstance`](crate::WInstance), [`FInstance`](crate::FInstance),
-//! and [`GInstance`](crate::GInstance).
+//! [`WInstance`], [`FInstance`], and [`GInstance`].
 
 use panproto_schema::Schema;
 

@@ -24,6 +24,19 @@ ignore = [
     # for imbl to make, not something a downstream consumer can force, so
     # this is ignored until imbl or nickel moves off it.
     "RUSTSEC-2026-0247",
+    # imbl-sized-chunks 0.1.3 can double-drop an element if that element's
+    # destructor panics while a chunk is being shortened (RUSTSEC-2026-0292).
+    # The fixed 0.2.0 release is semver-incompatible with the `0.1` constraint
+    # in nickel-lang-vector 0.2.0, which is still the vector release used by
+    # current nickel-lang 2.2.0, so there is no dependency-only upgrade path.
+    #
+    # Panproto reaches these vectors through Nickel's file table and label
+    # paths. Their elements contain owned strings, Rc/Arc pointers, and scalar
+    # path components; none supplies a panicking Drop implementation, and
+    # Nickel source cannot inject a Rust type or destructor. Thus the advisory's
+    # required precondition is absent here. Remove this exception when Nickel
+    # accepts imbl-sized-chunks 0.2 or replaces it.
+    "RUSTSEC-2026-0292",
 ]
 
 [licenses]
@@ -51,10 +64,6 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-
-[[bans.skip]]
-crate = "panproto-integration-tests"
-reason = "internal test crate, publish = false"
 
 [sources]
 unknown-registry = "deny"

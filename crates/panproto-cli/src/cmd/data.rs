@@ -186,7 +186,7 @@ pub fn cmd_data_status(data_dir: &Path, verbose: bool) -> Result<()> {
         .ok_or_else(|| miette::miette!("empty repository; no commits yet"))?;
     let head_obj = repo.store().get(&head_id).into_diagnostic()?;
     let vcs::Object::Commit(commit) = head_obj else {
-        miette::bail!("HEAD does not point to a commit")
+        miette::bail!("HEAD does not point to a commit");
     };
 
     let entries = read_json_dir(data_dir)?;

@@ -2,6 +2,16 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.75.0] - 2026-10-09
+
+### Features
+
+- **Schema builders can declare whether a vertex has nominal identity** (`panproto-schema`, `panproto-py`): `SchemaBuilder::nominal` and its Python counterpart attach an explicit nominal-identity annotation to a vertex. Both `true` and `false` are retained in the canonical schema, so an explicit structural declaration remains distinct from an omitted declaration in schema hashes and serialization. Unknown vertex IDs are rejected with the existing vertex-not-found error.
+
+### Bug Fixes
+
+- **Vertex blame follows identity through schema migrations** (`panproto-vcs`): `blame_vertex` now maps a vertex to its unique preimage at each first-parent migration before continuing into the parent commit. Renamed vertices therefore retain their history, vertices introduced by a migration stop at that commit, and repositories without migration metadata keep the previous same-ID behavior. Malformed mappings with multiple preimages now return a deterministic typed error instead of attributing history to an arbitrary vertex.
+
 ## [0.74.4] - 2026-09-15
 
 ### Bug Fixes

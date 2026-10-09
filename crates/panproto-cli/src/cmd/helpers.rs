@@ -236,11 +236,13 @@ pub fn load_commit_obj(store: &dyn vcs::Store, id: vcs::ObjectId) -> Result<vcs:
     let obj = store.get(&id).into_diagnostic()?;
     match obj {
         vcs::Object::Commit(c) => Ok(c),
-        other => miette::bail!(
-            "expected commit at {}, found {}",
-            id.short(),
-            other.type_name()
-        ),
+        other => {
+            miette::bail!(
+                "expected commit at {}, found {}",
+                id.short(),
+                other.type_name()
+            );
+        }
     }
 }
 

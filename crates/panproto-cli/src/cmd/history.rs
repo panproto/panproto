@@ -74,7 +74,9 @@ pub fn cmd_reset(
             "soft" => vcs::reset::ResetMode::Soft,
             "mixed" => vcs::reset::ResetMode::Mixed,
             "hard" => vcs::reset::ResetMode::Hard,
-            _ => miette::bail!("invalid reset mode: {m}. Use: soft, mixed, hard"),
+            _ => {
+                miette::bail!("invalid reset mode: {m}. Use: soft, mixed, hard");
+            }
         };
         (rm, m.to_owned())
     } else if soft {
@@ -272,7 +274,9 @@ pub fn cmd_blame(element_type: &str, element_id: &str, reverse: bool) -> Result<
             vcs::blame::blame_constraint(repo.store(), head_id, parts[0], parts[1])
                 .into_diagnostic()?
         }
-        _ => miette::bail!("unknown element type: {element_type}. Use: vertex, edge, constraint"),
+        _ => {
+            miette::bail!("unknown element type: {element_type}. Use: vertex, edge, constraint");
+        }
     };
 
     println!(
@@ -318,7 +322,7 @@ pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
     // For Phase 0, remotes are specified directly via panproto:// URLs.
     miette::bail!(
         "remote add/remove/list not yet implemented. Use panproto:// URLs directly with push/pull."
-    )
+    );
 }
 
 pub fn cmd_push(remote: Option<&str>, branch: Option<&str>) -> Result<()> {

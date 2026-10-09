@@ -10,7 +10,7 @@
 //! [`AttributeSchema::validate_finstance`] check an instance's attribute
 //! payload against the declaration, reporting undeclared keys and kind
 //! mismatches. The check is opt-in: it is not part of the structural
-//! [`validate_wtype`](crate::validate::validate_wtype) pass, since instances
+//! [`validate_wtype`] pass, since instances
 //! routinely carry round-trip fields that no schema edge declares.
 
 use std::collections::{HashMap, HashSet};
