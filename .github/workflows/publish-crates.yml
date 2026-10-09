@@ -60,13 +60,9 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
         run: |
           set -euo pipefail
-          # Not `--workspace`: it tries to package `publish = false`
-          # members too, and `tests/integration` declares a bare `path`
-          # dependency, so the run dies with "all dependencies must have
-          # a version requirement specified when packaging" before doing
-          # any work. Package exactly the set that publishes, derived
-          # from cargo's own metadata so it cannot drift from the list
-          # below.
+          # Not `--workspace`: it tries to package `publish = false` members
+          # too. Package exactly the set that publishes, derived from cargo's
+          # own metadata so it cannot drift from the list below.
           mapfile -t PUBLISHABLE < <(
             cargo metadata --no-deps --format-version 1 \
               | jq -r '.packages[] | select(.publish != []) | .name'

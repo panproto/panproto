@@ -2232,7 +2232,6 @@ dependencies = [
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
- "panproto-mig",
  "panproto-protocols",
  "panproto-schema",
  "proptest",
