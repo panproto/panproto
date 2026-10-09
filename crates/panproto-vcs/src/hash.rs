@@ -831,6 +831,19 @@ mod tests {
     }
 
     #[test]
+    fn nominal_annotation_contributes_to_schema_hash() -> Result<(), Box<dyn std::error::Error>> {
+        let absent = make_schema(&[("a", "object")], &[]);
+        let mut structural = absent.clone();
+        structural.nominal.insert(Name::from("a"), false);
+        let mut nominal = absent.clone();
+        nominal.nominal.insert(Name::from("a"), true);
+
+        assert_ne!(hash_schema(&absent)?, hash_schema(&structural)?);
+        assert_ne!(hash_schema(&structural)?, hash_schema(&nominal)?);
+        Ok(())
+    }
+
+    #[test]
     fn hash_ignores_precomputed_indices() -> Result<(), Box<dyn std::error::Error>> {
         let edge = Edge {
             src: "a".into(),

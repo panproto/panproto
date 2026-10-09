@@ -937,11 +937,23 @@ mod tests {
         use crate::object::CommitObject;
 
         let mut store = MemStore::new();
-        let schema = tiny_schema("round_trip");
+        let protocol = project_coproduct_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("nominal", "record", None)
+            .unwrap()
+            .vertex("structural", "record", None)
+            .unwrap()
+            .nominal("nominal", true)
+            .unwrap()
+            .nominal("structural", false)
+            .unwrap()
+            .build()
+            .unwrap();
         let root = store_schema_as_tree(&mut store, schema.clone()).unwrap();
         let commit = CommitObject::builder(root, "p", "a", "m").build();
         let resolved = resolve_commit_schema(&store, &commit).unwrap();
         assert_eq!(resolved.vertices.len(), schema.vertices.len());
+        assert_eq!(resolved.nominal, schema.nominal);
     }
 
     #[test]

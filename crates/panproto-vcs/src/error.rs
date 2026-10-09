@@ -102,6 +102,22 @@ pub enum VcsError {
         found: &'static str,
     },
 
+    /// A target vertex has more than one source preimage in a migration.
+    ///
+    /// Vertex blame follows a single historical identity backwards. A
+    /// contraction does not identify which source supplied that identity, so
+    /// blame refuses to select one arbitrarily. `preimages` is sorted to keep
+    /// diagnostics deterministic across hash-map iteration orders.
+    #[error("vertex '{vertex}' has ambiguous preimages in migration {migration_id}: {preimages:?}")]
+    AmbiguousVertexPreimage {
+        /// The target vertex being transported backwards.
+        vertex: String,
+        /// The migration whose vertex map is non-injective at `vertex`.
+        migration_id: crate::ObjectId,
+        /// The lexicographically sorted source vertices mapping to `vertex`.
+        preimages: Vec<String>,
+    },
+
     /// I/O error.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
