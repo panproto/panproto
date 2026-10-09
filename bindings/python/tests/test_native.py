@@ -138,6 +138,25 @@ class TestSchemaBuilder:
         assert len(constraints) == 1
         assert constraints[0].sort == "format"
 
+    def test_build_with_nominal_and_explicit_structural_identity(self) -> None:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("nominal", "object")
+        b.vertex("structural", "object")
+        b.nominal("nominal", True)
+        b.nominal("structural", False)
+        schema = b.build()
+        assert schema.to_dict()["nominal"] == {
+            "nominal": True,
+            "structural": False,
+        }
+
+    def test_nominal_rejects_missing_vertex(self) -> None:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        with pytest.raises(panproto.SchemaValidationError, match="not found"):
+            b.nominal("missing", True)
+
     def test_duplicate_vertex_raises(self) -> None:
         proto = panproto.get_builtin_protocol("atproto")
         b = proto.schema()

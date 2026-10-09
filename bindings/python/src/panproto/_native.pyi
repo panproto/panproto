@@ -80,6 +80,7 @@ class Complement:
 
 class SchemaBuilder:
     def vertex(self, id: str, kind: str, nsid: str | None = ..., /) -> None: ...
+    def nominal(self, vertex_id: str, nominal: bool, /) -> None: ...
     def edge(
         self,
         src: str,

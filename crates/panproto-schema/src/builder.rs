@@ -35,6 +35,7 @@ pub struct SchemaBuilder {
     constraints: HashMap<Name, Vec<Constraint>>,
     required: HashMap<Name, Vec<Edge>>,
     nsids: HashMap<Name, Name>,
+    nominal: HashMap<Name, bool>,
     edge_set: FxHashSet<(Name, Name, Name, Option<Name>)>,
     coercions: HashMap<(Name, Name), CoercionSpec>,
     mergers: HashMap<Name, Expr>,
@@ -56,6 +57,7 @@ impl SchemaBuilder {
             constraints: HashMap::new(),
             required: HashMap::new(),
             nsids: HashMap::new(),
+            nominal: HashMap::new(),
             edge_set: FxHashSet::default(),
             coercions: HashMap::new(),
             mergers: HashMap::new(),
@@ -125,6 +127,27 @@ impl SchemaBuilder {
         }
 
         self.vertices.insert(Name::from(id), vertex);
+        Ok(self)
+    }
+
+    /// Set whether an already-declared vertex uses nominal identity.
+    ///
+    /// Both an absent annotation and `false` mean structural identity when a
+    /// schema is interpreted. This builder preserves an explicit `false`,
+    /// however, so callers can distinguish an explicit structural declaration
+    /// from an omitted annotation in serialization and content identity.
+    /// Repeating this operation for the same vertex replaces its previous
+    /// annotation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError::VertexNotFound`] if `vertex` has not already
+    /// been added to this builder.
+    pub fn nominal(mut self, vertex: &str, nominal: bool) -> Result<Self, SchemaError> {
+        if !self.vertices.contains_key(vertex) {
+            return Err(SchemaError::VertexNotFound(vertex.to_owned()));
+        }
+        self.nominal.insert(Name::from(vertex), nominal);
         Ok(self)
     }
 
@@ -395,7 +418,7 @@ impl SchemaBuilder {
             recursion_points: HashMap::new(),
             spans: HashMap::new(),
             usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
+            nominal: self.nominal,
             coercions: self.coercions,
             mergers: self.mergers,
             defaults: self.defaults,
@@ -555,6 +578,63 @@ mod tests {
             matches!(result, Err(SchemaError::VertexNotFound(_))),
             "expected VertexNotFound"
         );
+    }
+
+    #[test]
+    fn nominal_annotations_are_checked_and_preserved() {
+        let proto = atproto_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("nominal", "object", None)
+            .expect("nominal vertex")
+            .vertex("structural", "object", None)
+            .expect("structural vertex")
+            .nominal("nominal", true)
+            .expect("nominal annotation")
+            .nominal("structural", false)
+            .expect("structural annotation")
+            .build()
+            .expect("build");
+
+        assert_eq!(schema.nominal.get("nominal"), Some(&true));
+        assert_eq!(schema.nominal.get("structural"), Some(&false));
+
+        let json = serde_json::to_string(&schema).expect("serialize schema");
+        let round_tripped: Schema = serde_json::from_str(&json).expect("deserialize schema");
+        assert_eq!(round_tripped.nominal, schema.nominal);
+    }
+
+    #[test]
+    fn explicit_structural_identity_is_distinct_from_absence() {
+        let proto = atproto_protocol();
+        let absent = SchemaBuilder::new(&proto)
+            .vertex("v", "object", None)
+            .expect("vertex")
+            .build()
+            .expect("build");
+        let explicit = SchemaBuilder::new(&proto)
+            .vertex("v", "object", None)
+            .expect("vertex")
+            .nominal("v", false)
+            .expect("structural annotation")
+            .build()
+            .expect("build");
+
+        assert!(!absent.nominal.contains_key("v"));
+        assert_eq!(explicit.nominal.get("v"), Some(&false));
+        assert_ne!(
+            crate::canonical_bytes(&absent),
+            crate::canonical_bytes(&explicit)
+        );
+    }
+
+    #[test]
+    fn nominal_annotation_rejects_an_unknown_vertex() {
+        let proto = atproto_protocol();
+        let result = SchemaBuilder::new(&proto).nominal("missing", true);
+        assert!(matches!(
+            result,
+            Err(SchemaError::VertexNotFound(id)) if id == "missing"
+        ));
     }
 
     #[test]
