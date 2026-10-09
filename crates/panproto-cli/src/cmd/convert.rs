@@ -69,7 +69,9 @@ pub fn cmd_convert(
     let (forward_schema, backward_schema) = match direction {
         "forward" => (&src_schema, &tgt_schema),
         "backward" => (&tgt_schema, &src_schema),
-        other => miette::bail!("unknown direction: {other:?}. Use: forward or backward"),
+        other => {
+            miette::bail!("unknown direction: {other:?}. Use: forward or backward");
+        }
     };
 
     // Helper closure to convert a single record.

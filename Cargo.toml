@@ -141,6 +141,8 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 expect_used = "warn"
+# Predicate-style emptiness assertions are deliberate throughout the test suite.
+assert_is_empty = "allow"
 
 # cargo-dist configuration
 [workspace.metadata.dist]

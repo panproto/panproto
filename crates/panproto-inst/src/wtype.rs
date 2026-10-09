@@ -1484,7 +1484,6 @@ fn connect_ancestor_to_child(
     match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor) {
         Ok(edge) => {
             new_arcs.push((anc_id, child_id, edge));
-            Ok(())
         }
         Err(restrict_err) => {
             let Some(intermediates) = migration
@@ -1516,9 +1515,9 @@ fn connect_ancestor_to_child(
             let final_edge =
                 resolve_edge(tgt_schema, &migration.resolver, &prev_anchor, &child_anchor)?;
             new_arcs.push((prev_id, child_id, final_edge));
-            Ok(())
         }
     }
+    Ok(())
 }
 
 /// Resolve the image of a direct source arc by complete edge identity.

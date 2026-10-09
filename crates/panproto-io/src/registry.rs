@@ -110,7 +110,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 ///
 /// Lossless, byte-preserving round-trips require the `tree-sitter`
 /// feature, which pulls in the CST-extraction pipeline and the
-/// [`UnifiedCodec`](crate::unified_codec::UnifiedCodec). Without that
+/// `UnifiedCodec`. Without that
 /// feature the registry falls back to the canonical text codecs, whose
 /// round-trips preserve structure but not formatting (whitespace,
 /// key order, comments). Callers that want preservation but must
@@ -120,8 +120,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 /// [`emit_wtype_preserving_or_canonical`](Self::emit_wtype_preserving_or_canonical),
 /// which are available in every build and announce the fallback on
 /// stderr when the feature is compiled out. The exact
-/// [`parse_wtype_preserving`](Self::parse_wtype_preserving) /
-/// [`emit_wtype_preserving`](Self::emit_wtype_preserving) pair exists
+/// `parse_wtype_preserving` / `emit_wtype_preserving` pair exists
 /// only under the feature.
 ///
 /// # Example
@@ -323,7 +322,7 @@ impl ProtocolRegistry {
     /// Parse with format preservation when this build supports it,
     /// falling back to a canonical parse otherwise.
     ///
-    /// Unlike [`parse_wtype_preserving`](Self::parse_wtype_preserving),
+    /// Unlike the feature-gated `parse_wtype_preserving`,
     /// which the `tree-sitter` feature gates out entirely, this method
     /// is available in every build. When the feature is compiled in it
     /// delegates to that method, capturing a
@@ -368,7 +367,7 @@ impl ProtocolRegistry {
     /// [`parse_wtype_preserving_or_canonical`](Self::parse_wtype_preserving_or_canonical):
     /// available in every build. With the `tree-sitter` feature
     /// compiled in it delegates to
-    /// [`emit_wtype_preserving`](Self::emit_wtype_preserving), using the
+    /// `emit_wtype_preserving`, using the
     /// complement to reconstruct the original formatting. Without the
     /// feature the `complement` cannot have come from a preserving
     /// parse; this method emits canonically and prints a one-line notice

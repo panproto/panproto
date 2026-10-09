@@ -2,8 +2,7 @@
 //!
 //! A [`GInstance`] is the most general instance form: a directed graph
 //! of nodes and edges with no distinguished root and cycles allowed.
-//! Both [`WInstance`](crate::WInstance) (trees) and
-//! [`FInstance`](crate::FInstance) (tables) are special cases.
+//! Both [`WInstance`] (trees) and [`FInstance`] (tables) are special cases.
 //!
 //! This is the natural instance theory for knowledge graphs (RDF,
 //! OWL, JSON-LD), property graphs (Neo4j), and dependency graphs.

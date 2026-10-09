@@ -1,7 +1,7 @@
 //! The complement: data discarded when projecting an instance forward.
 //!
 //! A [`Complement`] records everything a forward projection (a lens `get` or a
-//! `restrict_with_complement`) drops from a source [`WInstance`](crate::WInstance),
+//! `restrict_with_complement`) drops from a source [`WInstance`],
 //! so that the backward direction can reconstruct the original source from a
 //! (possibly modified) view. It is the shared complement type for both the
 //! asymmetric lens in `panproto-lens` and the polynomial-functor restrict

@@ -184,7 +184,9 @@ pub fn cmd_lift(
             return cmd_lift_functor(&compiled, &record_json, direction);
         }
         "wtype" => {}
-        other => miette::bail!("unknown instance type: {other:?}. Use: wtype or functor"),
+        other => {
+            miette::bail!("unknown instance type: {other:?}. Use: wtype or functor");
+        }
     }
 
     let root_vertex = {
@@ -226,7 +228,9 @@ pub fn cmd_lift(
         "pi" => mig::lift_wtype_pi(&compiled, &tgt_schema, &instance, 10_000)
             .into_diagnostic()
             .wrap_err("source-to-target W-type `pi` relabeling failed")?,
-        other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
+        other => {
+            miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi");
+        }
     };
 
     let output = inst::to_json(&tgt_schema, &lifted);
@@ -257,7 +261,9 @@ pub fn cmd_lift_functor(
         "pi" => mig::lift_functor_pi(compiled, &instance, 10_000)
             .into_diagnostic()
             .wrap_err("source-to-target functor `Pi_F` lift failed")?,
-        other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
+        other => {
+            miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi");
+        }
     };
 
     let output = serde_json::to_string_pretty(&lifted)
@@ -354,14 +360,16 @@ pub fn cmd_auto_migrate(
             .wrap_err("total morphism search failed")?;
         match recovered {
             Some(morphism) => Some(morphism),
-            None => miette::bail!(
-                "no total morphism exists: the optimal span covers {} of {} source vertices \
-                 ({:.1}%), and no total morphism was found either. Drop --total to accept the \
-                 partial answer",
-                found.apex.vertices.len(),
-                old_schema.vertex_count(),
-                found.apex_coverage * 100.0
-            ),
+            None => {
+                miette::bail!(
+                    "no total morphism exists: the optimal span covers {} of {} source vertices \
+                     ({:.1}%), and no total morphism was found either. Drop --total to accept the \
+                     partial answer",
+                    found.apex.vertices.len(),
+                    old_schema.vertex_count(),
+                    found.apex_coverage * 100.0
+                );
+            }
         }
     } else {
         None
@@ -1265,7 +1273,7 @@ fn cmd_diff_staged(opts: &DiffOptions) -> Result<()> {
         .ok_or_else(|| miette::miette!("no commits yet — use diff with file paths instead"))?;
     let head_obj = repo.store().get(&head_id).into_diagnostic()?;
     let vcs::Object::Commit(head_commit) = head_obj else {
-        miette::bail!("HEAD does not point to a commit")
+        miette::bail!("HEAD does not point to a commit");
     };
     let proto = vcs::tree::project_coproduct_protocol();
     let old_schema = vcs::tree::assemble_schema_dyn(repo.store(), &head_commit.schema_id, &proto)

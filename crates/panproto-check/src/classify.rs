@@ -973,8 +973,6 @@ fn is_constraint_tightened(sort: &str, old_val: &str, new_val: &str) -> bool {
             if let (Ok(o), Ok(n)) = (old_n, new_n) {
                 return n < o;
             }
-            // Non-numeric: any change is tightening.
-            true
         }
         "minLength" | "minimum" => {
             let old_n: Result<i64, _> = old_val.parse();
@@ -982,13 +980,11 @@ fn is_constraint_tightened(sort: &str, old_val: &str, new_val: &str) -> bool {
             if let (Ok(o), Ok(n)) = (old_n, new_n) {
                 return n > o;
             }
-            true
         }
-        _ => {
-            // For unknown constraint sorts, any change is tightening.
-            true
-        }
+        _ => {}
     }
+    // Non-numeric or unknown constraints are tightening when changed.
+    true
 }
 
 #[cfg(test)]

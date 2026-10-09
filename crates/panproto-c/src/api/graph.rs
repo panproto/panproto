@@ -134,7 +134,7 @@ pub fn pp_graph_fiber_decomposition(
 /// Construct the internal hom schema `[S, T]`.
 ///
 /// `source_schema` and `target_schema` are CBOR-encoded
-/// [`Schema`](panproto_core::schema::Schema) values. For each source
+/// [`Schema`] values. For each source
 /// vertex in `S`, the hom schema contains choice and backward vertices
 /// encoding all structure-preserving maps from `S` to `T`. On success,
 /// `out` receives the CBOR-encoded hom `Schema`. Calls `inst::hom_schema`.

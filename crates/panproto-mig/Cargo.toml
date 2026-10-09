@@ -41,7 +41,7 @@ panproto-protocols = { workspace = true }
 # an integration test links the library as an ordinary dependent and sees the
 # module only when the feature is set. A dev-dependency cycle is the one cycle
 # Cargo permits, and it leaves the normal build untouched.
-panproto-mig = { path = ".", features = ["oracle"] }
+panproto-mig = { workspace = true, features = ["oracle"] }
 
 [[bench]]
 name = "span_bench"

@@ -753,7 +753,9 @@ pub fn cmd_lens_apply(
                 .wrap_err("failed to serialize output")?;
             println!("{pretty}");
         }
-        other => miette::bail!("unknown direction: {other:?}. Use: forward or backward"),
+        other => {
+            miette::bail!("unknown direction: {other:?}. Use: forward or backward");
+        }
     }
 
     Ok(())
@@ -995,11 +997,15 @@ pub fn resolve_schemas_from_range(
 
     let old_schema_id = match &old_obj {
         vcs::Object::Commit(c) => c.schema_id,
-        _ => miette::bail!("'{old_ref}' does not resolve to a commit"),
+        _ => {
+            miette::bail!("'{old_ref}' does not resolve to a commit");
+        }
     };
     let new_schema_id = match &new_obj {
         vcs::Object::Commit(c) => c.schema_id,
-        _ => miette::bail!("'{new_ref}' does not resolve to a commit"),
+        _ => {
+            miette::bail!("'{new_ref}' does not resolve to a commit");
+        }
     };
 
     let proto = vcs::tree::project_coproduct_protocol();
