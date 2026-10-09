@@ -353,12 +353,13 @@ impl PyRepository {
 
     /// Stage a data file for the next commit.
     ///
-    /// Reads ``path``, parses each record against the staged or HEAD
-    /// schema, checks it against that schema, and records the lifted
-    /// instances in the index. The set is keyed by ``key``, or by
-    /// ``path`` when ``key`` is ``None``, so the committed data read
-    /// back with :meth:`data_at` can be mapped to its origin. Returns
-    /// the updated index.
+    /// Reads ``path``, parses each record against ``schema_id`` when one is
+    /// supplied, or against the staged or HEAD schema otherwise, checks it
+    /// against that schema, and records the lifted instances in the index.
+    /// Selecting a persisted schema does not stage it or move HEAD. The set
+    /// is keyed by ``key``, or by ``path`` when ``key`` is ``None``, so the
+    /// committed data read back with :meth:`data_at` can be mapped to its
+    /// origin. Returns the updated index.
     ///
     /// Raises ``VcsError`` if the file is not JSON, if a record cannot
     /// be read against the schema, or if a record does not validate
@@ -370,20 +371,25 @@ impl PyRepository {
     /// encoding depends on it, but leaves the check undone. The stage is
     /// then pending and :meth:`commit` refuses it without its own
     /// ``skip_verify``.
-    #[pyo3(signature = (path, key=None, *, skip_verify=false))]
+    #[pyo3(signature = (path, key=None, *, schema_id=None, skip_verify=false))]
     fn add_data(
         &mut self,
         py: Python<'_>,
         path: &str,
         key: Option<&str>,
+        schema_id: Option<&str>,
         skip_verify: bool,
     ) -> PyResult<Py<PyAny>> {
+        let schema_id = schema_id.map(parse_oid).transpose()?;
         let index = self
             .inner
             .add_data_with_options(
                 std::path::Path::new(path),
                 key,
-                &panproto_core::vcs::AddDataOptions { skip_verify },
+                &panproto_core::vcs::AddDataOptions {
+                    schema_id,
+                    skip_verify,
+                },
             )
             .map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))

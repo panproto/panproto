@@ -235,7 +235,10 @@ fn stage_data_files(
     skip_verify: bool,
     verbose: bool,
 ) -> Result<usize> {
-    let options = vcs::AddDataOptions { skip_verify };
+    let options = vcs::AddDataOptions {
+        skip_verify,
+        ..Default::default()
+    };
     let entries = read_json_dir(data_path)?;
     let restore_point = repo
         .read_index()

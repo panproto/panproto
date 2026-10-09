@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **Data staging can select an exact persisted schema** (`panproto-vcs`, `panproto-py`): `AddDataOptions::schema_id` and Python's `Repository.add_data(..., schema_id=...)` parse, lift, and validate one data set against the named schema without staging that schema or moving HEAD. Omitting the selector keeps the staged-schema-then-HEAD behavior. The committed data set records the selected schema ID, and missing or wrong-kind objects are rejected through the existing typed errors.
+
 ## [0.75.0] - 2026-10-09
 
 ### Features

@@ -2077,6 +2077,74 @@ class TestRepositoryDataAccess:
         # With no caller key, the source path is the key.
         assert repo.data_at("HEAD")[0]["key"] == str(data_file)
 
+    def test_add_data_can_select_an_exact_persisted_schema(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+
+        config_idx = repo.add(self._schema(("configuration", "string")))
+        config_schema_id = obj(config_idx["staged"])["schema_id"]
+        config1 = tmp_path / "p1-config.json"
+        config1.write_text('[{"configuration": "one"}]')
+        repo.add_data(str(config1), key="p1:configuration")
+
+        record_idx = repo.add(self._schema(("value", "integer")))
+        record_schema_id = obj(record_idx["staged"])["schema_id"]
+        record1 = tmp_path / "p1-record.json"
+        record1.write_text('[{"value": 1}]')
+        repo.add_data(str(record1), key="p1")
+        first = repo.commit("p1", "test")
+
+        head_before = repo.head()
+        config2 = tmp_path / "p2-config.json"
+        config2.write_text('[{"configuration": "two"}]')
+        idx = repo.add_data(
+            str(config2), key="p2:configuration", schema_id=str(config_schema_id)
+        )
+        assert repo.head() == head_before
+        assert idx["staged"] is None
+        staged_data = idx["staged_data"]
+        assert isinstance(staged_data, list)
+        assert obj(staged_data[0])["schema_id"] == config_schema_id
+
+        record2 = tmp_path / "p2-record.json"
+        record2.write_text('[{"value": 2}]')
+        repo.add_data(str(record2), key="p2")
+        second = repo.commit("p2", "test")
+        data = repo.data_at(second)
+        assert [(item["key"], item["schema_id"]) for item in data] == [
+            ("p2:configuration", config_schema_id),
+            ("p2", record_schema_id),
+        ]
+
+        config3 = tmp_path / "p3-config.json"
+        config3.write_text('[{"configuration": "three"}]')
+        repo.add_data(
+            str(config3), key="p3:configuration", schema_id=str(config_schema_id)
+        )
+        record3 = tmp_path / "p3-record.json"
+        record3.write_text('[{"value": 3}]')
+        repo.add_data(str(record3), key="p3")
+        third = repo.commit("p3", "test")
+
+        assert repo.blame_vertex(third, "value")["commit_id"] == first
+        repo.gc()
+        assert len(repo.decoded_data_at(third)) == 2
+
+    def test_add_data_schema_id_has_typed_boundary_errors(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("configuration", "string")))
+        head = repo.commit("schema", "test")
+        data = tmp_path / "config.json"
+        data.write_text('[{"configuration": "current"}]')
+
+        with pytest.raises(ValueError, match="invalid object id"):
+            repo.add_data(str(data), schema_id="not-an-object-id")
+        with pytest.raises(panproto.VcsError, match="object not found"):
+            repo.add_data(str(data), schema_id="0" * 64)
+        with pytest.raises(panproto.VcsError, match="expected file_schema or schema_tree"):
+            repo.add_data(str(data), schema_id=head)
+
+        assert repo.index()["staged_data"] == []
+
 
 # ---------------------------------------------------------------------------
 # emit_pretty: relocated (grafted) subtree separation
