@@ -133,7 +133,14 @@ fn skipping_the_check_still_requires_the_data_be_readable() {
     let (dir, mut repo) = repo_with_schema();
     let junk = write(&dir, "junk.json", b"NOT JSON AT ALL");
 
-    let result = repo.add_data_with_options(&junk, None, &AddDataOptions { skip_verify: true });
+    let result = repo.add_data_with_options(
+        &junk,
+        None,
+        &AddDataOptions {
+            skip_verify: true,
+            ..Default::default()
+        },
+    );
     assert!(
         matches!(result, Err(VcsError::DataParseFailed { .. })),
         "expected a parse failure even with the check skipped, got {result:?}",
@@ -150,8 +157,15 @@ fn skipping_the_check_still_requires_the_data_be_readable() {
 fn a_default_commit_refuses_pending_data() {
     let (dir, mut repo) = repo_with_schema();
     let data = write(&dir, "d.json", br"[{}]");
-    repo.add_data_with_options(&data, None, &AddDataOptions { skip_verify: true })
-        .unwrap();
+    repo.add_data_with_options(
+        &data,
+        None,
+        &AddDataOptions {
+            skip_verify: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let result = repo.commit("data", "alice");
     let Err(VcsError::ValidationPending { ref what, .. }) = result else {
@@ -185,8 +199,15 @@ fn a_default_commit_refuses_a_pending_schema() {
 fn an_explicit_bypass_records_what_it_bypassed() {
     let (dir, mut repo) = repo_with_schema();
     let data = write(&dir, "d.json", br"[{}]");
-    repo.add_data_with_options(&data, None, &AddDataOptions { skip_verify: true })
-        .unwrap();
+    repo.add_data_with_options(
+        &data,
+        None,
+        &AddDataOptions {
+            skip_verify: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     repo.commit_with_options("data", "alice", &CommitOptions { skip_verify: true })
         .unwrap();

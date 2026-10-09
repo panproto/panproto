@@ -142,6 +142,13 @@ The type stub at
 [`src/panproto/_native.pyi`](src/panproto/_native.pyi) gives the complete public
 signatures.
 
+`Repository.add_data(path, key=None, *, schema_id=None, skip_verify=False)`
+normally validates against the staged schema, or HEAD when no schema is
+staged. Pass the full object ID of a persisted schema to bind one data set to
+that exact schema without changing HEAD or the staged schema. The committed
+data set retains the selected ID, and malformed, missing, or non-schema object
+IDs are rejected.
+
 ## Development
 
 Build the extension and run the Python test suite from this directory:

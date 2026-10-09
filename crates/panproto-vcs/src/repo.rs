@@ -66,6 +66,12 @@ pub struct AddOptions {
 /// Options for staging a data file.
 #[derive(Clone, Debug, Default)]
 pub struct AddDataOptions {
+    /// Persisted schema to parse, lift, and validate this data against.
+    ///
+    /// When absent, staging uses the staged schema when one exists and
+    /// HEAD's schema otherwise. Selecting a schema here does not stage that
+    /// schema or move HEAD.
+    pub schema_id: Option<ObjectId>,
     /// Parse and lift the records as usual, since the stored encoding
     /// depends on doing so, but do not check the result against the
     /// schema.
@@ -931,9 +937,13 @@ impl Repository {
     ) -> Result<Index, VcsError> {
         let data_bytes = std::fs::read(path)?;
 
-        // Determine schema: use staged schema if present, otherwise HEAD.
+        // An explicit persisted schema takes precedence without changing
+        // either HEAD or the staged schema. Otherwise preserve the existing
+        // staged-schema-then-HEAD selection.
         let index = self.read_index()?;
-        let schema_id = if let Some(ref staged) = index.staged {
+        let schema_id = if let Some(schema_id) = options.schema_id {
+            schema_id
+        } else if let Some(ref staged) = index.staged {
             staged.schema_id
         } else {
             let head_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingStaged)?;
