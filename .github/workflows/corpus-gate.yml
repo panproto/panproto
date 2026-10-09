@@ -48,7 +48,7 @@ jobs:
       # the solver states several of its internal invariants that way.
       - name: Run the corpus oracle agreement sweep
         run: |
-          cargo nextest run -p panproto-mig \
+          cargo nextest run -p panproto-mig --features oracle \
             -E 'test(every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration)'
       # Sixteen child processes each rerun the whole corpus, so this needs the
       # unoptimised build the step above already warmed.

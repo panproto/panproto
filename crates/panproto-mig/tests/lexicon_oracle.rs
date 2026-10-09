@@ -38,6 +38,9 @@
 //! which is a case the span network never reaches and which exercises the
 //! solver's handling of an empty feasible set on real inputs.
 //!
+//! Run this feature-gated test with `cargo nextest run -p panproto-mig
+//! --features oracle -E 'test(lexicon_oracle)'`.
+//!
 //! Both networks have the same domains, since [`without_bottom`] forbids `⊥`
 //! with a `⊤`-valued cost rather than by removing the value, so one
 //! enumerability test decides both. That is asserted rather than assumed.

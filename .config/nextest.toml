@@ -22,7 +22,8 @@
 # Running these on every PR is wasteful: the code they exercise is stable, and
 # they still run
 #
-#   * by default for local runs (`cargo nextest run`), and
+#   * by default for local runs (`cargo nextest run`), except for the oracle
+#     agreement sweep, which requires `-p panproto-mig --features oracle`, and
 #   * on a schedule (and on demand) in the `corpus-gate` workflow,
 #
 # so both guarantees stay enforced without blocking PR CI.
