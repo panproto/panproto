@@ -906,6 +906,159 @@ fn table_apply_reports_exact_missing_stale_duplicate_dangling_and_type_errors() 
 }
 
 #[test]
+fn table_apply_validation_phases_have_fixed_error_precedence() {
+    let table = table();
+    let row = TPayload::Row("a".into(), BTreeMap::from([("x".into(), Value::Int(1))]));
+    let bad_attribute = (
+        TKey::Cell(0, "x".into()),
+        (TVal::Table("a".into()), TVal::Table("b".into())),
+    );
+
+    let mut deletion_before_addition = TableDelta::identity();
+    deletion_before_addition
+        .del
+        .insert(TElem::Row(9), row.clone());
+    deletion_before_addition
+        .add
+        .insert(TElem::Row(8), TPayload::Pair);
+    deletion_before_addition
+        .attrs
+        .insert(bad_attribute.0.clone(), bad_attribute.1.clone());
+    assert_eq!(
+        edit::apply_table(&deletion_before_addition, &table),
+        Err(TableApplyError::RowNotFound(9))
+    );
+
+    let mut addition_before_attribute_and_incidence = TableDelta::identity();
+    addition_before_attribute_and_incidence
+        .del
+        .insert(TElem::Row(0), row.clone());
+    addition_before_attribute_and_incidence
+        .add
+        .insert(TElem::Row(8), TPayload::Pair);
+    addition_before_attribute_and_incidence
+        .attrs
+        .insert(bad_attribute.0.clone(), bad_attribute.1.clone());
+    assert_eq!(
+        edit::apply_table(&addition_before_attribute_and_incidence, &table),
+        Err(TableApplyError::ElementTypeMismatch(TElem::Row(8)))
+    );
+
+    let mut attribute_before_incidence = TableDelta::identity();
+    attribute_before_incidence.del.insert(TElem::Row(0), row);
+    attribute_before_incidence
+        .attrs
+        .insert(bad_attribute.0.clone(), bad_attribute.1);
+    assert_eq!(
+        edit::apply_table(&attribute_before_incidence, &table),
+        Err(TableApplyError::AttributeTypeMismatch(bad_attribute.0))
+    );
+}
+
+#[test]
+fn table_apply_chooses_the_least_key_within_a_validation_phase() {
+    let table = table();
+    let missing_row = TPayload::Row("a".into(), BTreeMap::new());
+    let mut delta = TableDelta::identity();
+    delta.del.insert(TElem::Row(9), missing_row.clone());
+    delta.del.insert(TElem::Row(8), missing_row);
+
+    assert_eq!(
+        edit::apply_table(&delta, &table),
+        Err(TableApplyError::RowNotFound(8))
+    );
+}
+
+#[test]
+fn table_apply_deletes_before_adding_a_replacement_row() {
+    let mut before = Table::default();
+    before.rows.insert(
+        7,
+        (
+            "old".into(),
+            BTreeMap::from([("value".into(), Value::Int(1))]),
+        ),
+    );
+    let mut delta = TableDelta::identity();
+    delta.del.insert(
+        TElem::Row(7),
+        TPayload::Row(
+            "old".into(),
+            BTreeMap::from([("value".into(), Value::Int(1))]),
+        ),
+    );
+    delta.add.insert(
+        TElem::Row(7),
+        TPayload::Row(
+            "new".into(),
+            BTreeMap::from([("value".into(), Value::Int(2))]),
+        ),
+    );
+
+    let mut expected = Table::default();
+    expected.rows.insert(
+        7,
+        (
+            "new".into(),
+            BTreeMap::from([("value".into(), Value::Int(2))]),
+        ),
+    );
+    assert_eq!(edit::apply_table(&delta, &before), Ok(expected));
+}
+
+#[test]
+fn table_apply_late_errors_do_not_mutate_the_input() {
+    let table = table();
+    let saved = table.clone();
+    let saved_bytes = canonical::table_bytes(&saved).unwrap();
+    let pair = SEdge::new("a", "b", "fk", None);
+
+    let mut duplicate = TableDelta::identity();
+    duplicate.attrs.insert(
+        TKey::Cell(0, "x".into()),
+        (
+            TVal::Cell(Some(Value::Int(1))),
+            TVal::Cell(Some(Value::Int(2))),
+        ),
+    );
+    duplicate
+        .add
+        .insert(TElem::Pair(pair.clone(), 0, 1), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&duplicate, &table),
+        Err(TableApplyError::DuplicateForeignKey {
+            edge: pair,
+            src: 0,
+            tgt: 1,
+        })
+    );
+    assert_eq!(table, saved);
+    assert_eq!(canonical::table_bytes(&table), Some(saved_bytes.clone()));
+
+    let endpoint = SEdge::new("a", "b", "late", None);
+    let mut missing_endpoint = TableDelta::identity();
+    missing_endpoint.attrs.insert(
+        TKey::Cell(0, "x".into()),
+        (
+            TVal::Cell(Some(Value::Int(1))),
+            TVal::Cell(Some(Value::Int(2))),
+        ),
+    );
+    missing_endpoint
+        .add
+        .insert(TElem::Pair(endpoint.clone(), 0, 9), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&missing_endpoint, &table),
+        Err(TableApplyError::MissingRowEndpoint {
+            edge: endpoint,
+            row: 9,
+        })
+    );
+    assert_eq!(table, saved);
+    assert_eq!(canonical::table_bytes(&table), Some(saved_bytes));
+}
+
+#[test]
 fn graph_apply_reports_every_structural_refusal_variant_directly() {
     let graph = graph();
     let mut missing_node = GraphDelta::identity();

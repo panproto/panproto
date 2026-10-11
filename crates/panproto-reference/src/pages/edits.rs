@@ -2695,38 +2695,26 @@ pub mod edit {
         Ok(delta)
     }
 
-    /// Definition: Apply a table delta.
-    ///
-    /// Deleted rows and pairs exist with their payloads, attribute old values hold, a deleted row's
-    /// pairs are deleted, added ids are free, added pairs' rows exist. `Err` names the offending
-    /// element.
-    ///
-    /// # Errors
-    ///
-    /// The first offending element.
-    ///
-    /// Book anchors: `L-edits-5`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the exact ordered table-DPO refusal table is intentionally contiguous"
-    )]
-    pub fn apply_table(d: &TableDelta, t: &Table) -> Result<Table, TableApplyError> {
-        let cur = |x: &TElem| match x {
-            TElem::Row(r) => t
+    fn table_payload(table: &Table, element: &TElem) -> Option<TPayload> {
+        match element {
+            TElem::Row(r) => table
                 .rows
                 .get(r)
                 .cloned()
                 .map(|(table, cells)| TPayload::Row(table, cells)),
-            TElem::Pair(e, s, d) => t
+            TElem::Pair(e, s, d) => table
                 .pairs
                 .contains(&(e.clone(), *s, *d))
                 .then_some(TPayload::Pair),
-        };
-        for (x, p) in &d.del {
+        }
+    }
+
+    fn validate_table_deletions(delta: &TableDelta, table: &Table) -> Result<(), TableApplyError> {
+        for (x, p) in &delta.del {
             if !TableSpace::payload_matches(x, p) {
                 return Err(TableApplyError::ElementTypeMismatch(x.clone()));
             }
-            match (x, cur(x)) {
+            match (x, table_payload(table, x)) {
                 (TElem::Row(r), None) => return Err(TableApplyError::RowNotFound(*r)),
                 (TElem::Pair(e, s, t), None) => {
                     return Err(TableApplyError::ForeignKeyNotFound {
@@ -2757,17 +2745,25 @@ pub mod edit {
                 _ => {}
             }
         }
-        for (x, p) in &d.add {
+        Ok(())
+    }
+
+    fn validate_table_additions(delta: &TableDelta) -> Result<(), TableApplyError> {
+        for (x, p) in &delta.add {
             if !TableSpace::payload_matches(x, p) {
                 return Err(TableApplyError::ElementTypeMismatch(x.clone()));
             }
         }
-        for (k, (o, n)) in &d.attrs {
+        Ok(())
+    }
+
+    fn validate_table_attributes(delta: &TableDelta, table: &Table) -> Result<(), TableApplyError> {
+        for (k, (o, n)) in &delta.attrs {
             if !TableSpace::value_matches(k, o) || !TableSpace::value_matches(k, n) {
                 return Err(TableApplyError::AttributeTypeMismatch(k.clone()));
             }
             let x = TableSpace::owner(k);
-            let Some(payload) = cur(&x) else {
+            let Some(payload) = table_payload(table, &x) else {
                 let TElem::Row(row) = x else {
                     unreachable!("table attributes are owned only by rows");
                 };
@@ -2783,14 +2779,21 @@ pub mod edit {
                 });
             }
         }
-        for x in d.del.keys() {
+        Ok(())
+    }
+
+    fn validate_deleted_row_incidence(
+        delta: &TableDelta,
+        table: &Table,
+    ) -> Result<(), TableApplyError> {
+        for x in delta.del.keys() {
             if let TElem::Row(r) = x {
-                let pairs: Vec<_> = t
+                let pairs: Vec<_> = table
                     .pairs
                     .iter()
                     .filter(|(_, s, target)| s == r || target == r)
                     .filter(|(e, s, target)| {
-                        !d.del.contains_key(&TElem::Pair(e.clone(), *s, *target))
+                        !delta.del.contains_key(&TElem::Pair(e.clone(), *s, *target))
                     })
                     .cloned()
                     .collect();
@@ -2799,42 +2802,55 @@ pub mod edit {
                 }
             }
         }
-        let mut out = t.clone();
-        for x in d.del.keys() {
+        Ok(())
+    }
+
+    fn delete_table_elements(delta: &TableDelta, table: &mut Table) {
+        for x in delta.del.keys() {
             match x {
                 TElem::Row(r) => {
-                    out.rows.remove(r);
+                    table.rows.remove(r);
                 }
                 TElem::Pair(e, s, dd) => {
-                    out.pairs.remove(&(e.clone(), *s, *dd));
+                    table.pairs.remove(&(e.clone(), *s, *dd));
                 }
             }
         }
-        for (k, (_, n)) in &d.attrs {
+    }
+
+    fn apply_table_attributes(
+        delta: &TableDelta,
+        table: &mut Table,
+    ) -> Result<(), TableApplyError> {
+        for (k, (_, n)) in &delta.attrs {
             if let TElem::Row(r) = TableSpace::owner(k)
-                && let Some((table, cells)) = out.rows.get(&r).cloned()
+                && let Some((row_table, cells)) = table.rows.get(&r).cloned()
             {
-                let Some(TPayload::Row(table, cells)) =
-                    TableSpace::write(&TPayload::Row(table, cells), k, n)
+                let Some(TPayload::Row(row_table, cells)) =
+                    TableSpace::write(&TPayload::Row(row_table, cells), k, n)
                 else {
                     return Err(TableApplyError::AttributeTypeMismatch(k.clone()));
                 };
-                out.rows.insert(r, (table, cells));
+                table.rows.insert(r, (row_table, cells));
             }
         }
-        for (x, p) in &d.add {
+        Ok(())
+    }
+
+    fn add_table_elements(delta: &TableDelta, table: &mut Table) -> Result<(), TableApplyError> {
+        for (x, p) in &delta.add {
             match (x, p) {
-                (TElem::Row(r), TPayload::Row(table, cells)) => {
-                    if out
+                (TElem::Row(r), TPayload::Row(row_table, cells)) => {
+                    if table
                         .rows
-                        .insert(*r, (table.clone(), cells.clone()))
+                        .insert(*r, (row_table.clone(), cells.clone()))
                         .is_some()
                     {
                         return Err(TableApplyError::DuplicateRow(*r));
                     }
                 }
                 (TElem::Pair(e, s, dd), TPayload::Pair) => {
-                    if !out.pairs.insert((e.clone(), *s, *dd)) {
+                    if !table.pairs.insert((e.clone(), *s, *dd)) {
                         return Err(TableApplyError::DuplicateForeignKey {
                             edge: e.clone(),
                             src: *s,
@@ -2845,20 +2861,49 @@ pub mod edit {
                 _ => return Err(TableApplyError::ElementTypeMismatch(x.clone())),
             }
         }
-        for (edge, src, tgt) in &out.pairs {
-            if out.rows.get(src).map(|(table, _)| table) != Some(&edge.src) {
+        Ok(())
+    }
+
+    fn validate_table_pair_endpoints(table: &Table) -> Result<(), TableApplyError> {
+        for (edge, src, tgt) in &table.pairs {
+            if table.rows.get(src).map(|(row_table, _)| row_table) != Some(&edge.src) {
                 return Err(TableApplyError::MissingRowEndpoint {
                     edge: edge.clone(),
                     row: *src,
                 });
             }
-            if out.rows.get(tgt).map(|(table, _)| table) != Some(&edge.tgt) {
+            if table.rows.get(tgt).map(|(row_table, _)| row_table) != Some(&edge.tgt) {
                 return Err(TableApplyError::MissingRowEndpoint {
                     edge: edge.clone(),
                     row: *tgt,
                 });
             }
         }
+        Ok(())
+    }
+
+    /// Definition: Apply a table delta.
+    ///
+    /// Deleted rows and pairs exist with their payloads, attribute old values hold, a deleted row's
+    /// pairs are deleted, added ids are free, added pairs' rows exist. `Err` names the offending
+    /// element.
+    ///
+    /// # Errors
+    ///
+    /// The first offending element.
+    ///
+    /// Book anchors: `L-edits-5`.
+    pub fn apply_table(d: &TableDelta, t: &Table) -> Result<Table, TableApplyError> {
+        validate_table_deletions(d, t)?;
+        validate_table_additions(d)?;
+        validate_table_attributes(d, t)?;
+        validate_deleted_row_incidence(d, t)?;
+
+        let mut out = t.clone();
+        delete_table_elements(d, &mut out);
+        apply_table_attributes(d, &mut out)?;
+        add_table_elements(d, &mut out)?;
+        validate_table_pair_endpoints(&out)?;
         Ok(out)
     }
 

@@ -11,7 +11,7 @@ const CHUNK_LEN_U64: u64 = 1_024;
 const MAX_DEPTH: usize = 54;
 const MAX_CHUNKS: u64 = 1_u64 << MAX_DEPTH;
 
-const CHUNK_START: u32 = 1 << 0;
+const CHUNK_START: u32 = 1;
 const CHUNK_END: u32 = 1 << 1;
 const PARENT: u32 = 1 << 2;
 const ROOT: u32 = 1 << 3;
@@ -74,6 +74,10 @@ impl Hasher {
             input_len <= u64::MAX - current_len,
             "BLAKE3 input length must be less than 2^64 bytes"
         );
+        if input.is_empty() {
+            return self;
+        }
+
         while !input.is_empty() {
             if self.chunk_state.len() == CHUNK_LEN {
                 assert!(
@@ -87,6 +91,7 @@ impl Hasher {
             }
 
             let take = input.len().min(CHUNK_LEN - self.chunk_state.len());
+            assert_ne!(take, 0, "BLAKE3 chunk update must make progress");
             let (for_chunk, rest) = input.split_at(take);
             self.chunk_state.update(for_chunk);
             input = rest;
@@ -167,7 +172,7 @@ impl ChunkState {
                     block_words,
                     self.chunk_counter,
                     BLOCK_LEN_U32,
-                    self.flags | self.start_flag(),
+                    self.flags + self.start_flag(),
                 );
                 self.chaining_value.copy_from_slice(&words[..8]);
                 self.blocks_compressed += 1;
@@ -176,6 +181,7 @@ impl ChunkState {
             }
 
             let take = input.len().min(BLOCK_LEN - self.block_len);
+            assert_ne!(take, 0, "BLAKE3 block update must make progress");
             let (for_block, rest) = input.split_at(take);
             self.block[self.block_len..self.block_len + take].copy_from_slice(for_block);
             self.block_len += take;
@@ -189,7 +195,7 @@ impl ChunkState {
             block_words: bytes_to_words_16(&self.block),
             counter: self.chunk_counter,
             block_len: u32::try_from(self.block_len).unwrap_or_else(|_| unreachable!()),
-            flags: self.flags | self.start_flag() | CHUNK_END,
+            flags: self.flags + self.start_flag() + CHUNK_END,
         }
     }
 }
@@ -222,7 +228,7 @@ impl Output {
             self.block_words,
             0,
             self.block_len,
-            self.flags | ROOT,
+            self.flags + ROOT,
         );
         words_8_to_bytes(words[..8].try_into().unwrap_or_else(|_| unreachable!()))
     }
@@ -237,7 +243,7 @@ fn parent_output(left_cv: [u32; 8], right_cv: [u32; 8], key_words: [u32; 8], fla
         block_words,
         counter: 0,
         block_len: BLOCK_LEN_U32,
-        flags: flags | PARENT,
+        flags: flags + PARENT,
     }
 }
 
@@ -626,6 +632,23 @@ mod tests {
             expected,
             "finalize must not change state"
         );
+    }
+
+    #[test]
+    fn empty_update_is_the_streaming_identity() {
+        let prefix = official_input(1_023);
+        let suffix = official_input(66);
+        let mut material = prefix.clone();
+        material.extend_from_slice(&suffix);
+
+        let mut hasher = Hasher::new_derive_key(OFFICIAL_CONTEXT);
+        hasher.update(&prefix);
+        let prefix_digest = hasher.finalize();
+        hasher.update(&[]);
+        assert_eq!(hasher.finalize(), prefix_digest);
+        hasher.update(&suffix);
+
+        assert_eq!(hasher.finalize(), derive_key(OFFICIAL_CONTEXT, &material));
     }
 
     #[test]
