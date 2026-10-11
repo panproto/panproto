@@ -22,9 +22,9 @@ import PackageDescription
 // quote and writes it back verbatim, so the line break and its indentation
 // survive every republish.
 private let releaseXCFrameworkURL =
-    "https://github.com/panproto/panproto/releases/download/v0.76.0/panproto_c.xcframework.zip"
+    "https://github.com/panproto/panproto/releases/download/v0.76.1/panproto_c.xcframework.zip"
 private let releaseXCFrameworkChecksum =
-    "feb9eab486edbb03a2dc68523128d600a1bc25c1a08e536f02b080d762d02400"
+    "d7994afb04fd6ac4cfa10884f90257c5a87c53c5da13fef9d258b4aa3b13108c"
 
 // MARK: - Build configuration
 //
