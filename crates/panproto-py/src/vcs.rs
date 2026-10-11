@@ -442,7 +442,11 @@ impl PyRepository {
         Ok(head_state_to_string(&s))
     }
 
-    /// Resolve any ref expression (branch, tag, commit-id prefix) to a commit id.
+    /// Resolve any ref expression to a commit id.
+    ///
+    /// Full ids, ``HEAD``, branches, and tags retain their usual precedence.
+    /// An abbreviated id must contain at least four hexadecimal characters
+    /// and identify exactly one stored commit.
     fn resolve_ref(&self, target: &str) -> PyResult<String> {
         let id = refs::resolve_ref(self.inner.store(), target).map_err(vcs_err)?;
         Ok(id.to_string())
@@ -493,7 +497,8 @@ impl PyRepository {
     /// Decodes both current canonical `MessagePack` data sets and historical
     /// source-JSON data sets through the schema recorded by each set. Record
     /// counts and schema conformance are checked before any records are
-    /// returned.
+    /// returned. ``ref`` accepts the same forms as :meth:`resolve_ref`, and
+    /// the read never moves ``HEAD`` or writes an object.
     fn decoded_data_at(&self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
         let datasets = self.inner.decoded_data_at(r#ref).map_err(vcs_err)?;
         let list = PyList::empty(py);

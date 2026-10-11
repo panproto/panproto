@@ -1844,11 +1844,15 @@ mod tests {
         let s2 = make_schema(&[("a", "object"), ("b", "string"), ("c", "number")]);
         repo.add(&s2)?;
         let commit_id = repo.commit("add data", "alice")?;
+        let commit_hex = commit_id.to_string();
+        let commit_prefix = &commit_hex[..12];
 
         let head_before = store::resolve_head(repo.store())?;
+        let objects_before = repo.store().list_objects()?;
 
-        // The committed data is readable by branch name, "HEAD", and commit id.
-        for reference in ["main", "HEAD", &commit_id.to_string()] {
+        // The committed data is readable by branch name, HEAD, full ID, and
+        // unique ID prefix.
+        for reference in ["main", "HEAD", commit_hex.as_str(), commit_prefix] {
             let datasets = repo.data_at(reference)?;
             assert_eq!(datasets.len(), 1, "ref {reference}");
             assert_eq!(datasets[0].record_count, 3, "ref {reference}");
@@ -1869,6 +1873,7 @@ mod tests {
 
         // Reading never moved HEAD.
         assert_eq!(store::resolve_head(repo.store())?, head_before);
+        assert_eq!(repo.store().list_objects()?, objects_before);
 
         // An unresolvable ref is an error, not a panic or empty result.
         assert!(repo.data_at("no-such-ref").is_err());
@@ -1889,7 +1894,8 @@ mod tests {
         let commit_id = repo.commit("data", "alice")?;
         let objects_before = repo.store().list_objects()?;
 
-        let datasets = repo.decoded_data_at(&commit_id.to_string())?;
+        let commit_hex = commit_id.to_string();
+        let datasets = repo.decoded_data_at(&commit_hex[..12])?;
 
         assert_eq!(datasets.len(), 1);
         assert_eq!(datasets[0].key.as_deref(), Some("records-key"));

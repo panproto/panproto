@@ -138,6 +138,10 @@ function.
 | `AstParserRegistry`, `parse_source_file`, `ParseEmitLens` | Parse source files with the tree-sitter grammars present in the build or supplied by companion packages. |
 | `Expr`, `parse_expr`, `pretty_print_expr` | Parse, inspect, and evaluate the expression language through methods on `Expr`. |
 
+Repository reads accept full commit IDs, `HEAD`, branches, tags, and unique
+commit-ID prefixes of at least four hexadecimal characters. Prefix lookup is
+read-only and reports malformed, absent, ambiguous, and non-commit matches.
+
 The type stub at
 [`src/panproto/_native.pyi`](src/panproto/_native.pyi) gives the complete public
 signatures.

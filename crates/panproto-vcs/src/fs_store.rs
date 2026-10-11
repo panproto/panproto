@@ -254,6 +254,43 @@ impl Store for FsStore {
         Ok(ids)
     }
 
+    fn find_object_ids_by_prefix(&self, prefix: &str) -> Result<Vec<ObjectId>, VcsError> {
+        // Object IDs use a two-character fan-out. Prefixes accepted by the
+        // ref layer are longer than that, so only one directory needs to be
+        // read rather than the complete object namespace.
+        let Some(fan) = prefix.get(..2) else {
+            let mut matches: Vec<_> = self
+                .list_objects()?
+                .into_iter()
+                .filter(|id| id.to_string().starts_with(prefix))
+                .collect();
+            matches.sort_unstable();
+            return Ok(matches);
+        };
+        let objects_dir = self.root.join("objects");
+        let fan_dir = objects_dir.join(fan);
+        if !fan_dir.is_dir() {
+            return Ok(Vec::new());
+        }
+
+        let mut matches = Vec::new();
+        for entry in fs::read_dir(fan_dir)? {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            let rest = entry.file_name().to_string_lossy().to_string();
+            let hex = format!("{fan}{rest}");
+            if hex.starts_with(prefix) {
+                if let Ok(id) = hex.parse::<ObjectId>() {
+                    matches.push(id);
+                }
+            }
+        }
+        matches.sort_unstable();
+        Ok(matches)
+    }
+
     fn delete_object(&mut self, id: &ObjectId) -> Result<(), VcsError> {
         let path = self.object_path(id);
         if !path.exists() {
