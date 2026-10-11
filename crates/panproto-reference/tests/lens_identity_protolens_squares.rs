@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use panproto_reference::canonical::ComplementShape;
 use panproto_reference::lens::{
     GraphLens, GraphShape, GraphSquareObservation, IdentityError, LawGateStatus, LensError,
     Mutation, Protolens, ProtolensError, SchemaPrecondition, SquareError, SquareResult,
@@ -83,6 +84,85 @@ fn graph_put_checks_identity_but_the_domain_predicate_is_identity_free() {
         other.put(&view, &complement),
         Err(LensError::Identity(IdentityError::Mismatch { .. }))
     ));
+}
+
+#[test]
+fn graph_identity_matches_the_external_derive_key_golden() {
+    // Captured from blake3 1.8.7 before replacing that dependency. The lens
+    // material is the two 32-byte endpoint digests followed by 520 variable
+    // migration bytes, so this pins the three-update streaming boundary as
+    // well as both independently derived endpoint identities.
+    const SOURCE_DIGEST: [u8; 32] = [
+        0x10, 0x4a, 0x57, 0xbd, 0xd0, 0x75, 0x6c, 0xf0, 0x36, 0xc5, 0x42, 0x3d, 0xd2, 0xf6, 0x8b,
+        0x8d, 0x11, 0x97, 0xae, 0x8a, 0x25, 0xf4, 0x7d, 0x59, 0xa8, 0x60, 0xf7, 0x54, 0xf0, 0xe1,
+        0xbf, 0x65,
+    ];
+    const TARGET_DIGEST: [u8; 32] = [
+        0x58, 0x2a, 0x5e, 0xa9, 0xe4, 0xc0, 0x01, 0xfa, 0x54, 0xe8, 0xab, 0x62, 0x83, 0x0c, 0x4f,
+        0x3b, 0x7b, 0xeb, 0xfa, 0x7c, 0xb1, 0xce, 0x8a, 0x59, 0x60, 0x15, 0x8a, 0x6e, 0xd2, 0xb0,
+        0x01, 0x1a,
+    ];
+    const LENS_DIGEST: [u8; 32] = [
+        0x9c, 0x27, 0xd7, 0xf0, 0x55, 0x8b, 0xc6, 0xcf, 0x03, 0x73, 0x26, 0x3d, 0xb4, 0x66, 0x7f,
+        0xe4, 0xcc, 0x20, 0xd0, 0x03, 0x54, 0x91, 0x6c, 0x3b, 0xa7, 0xe0, 0x02, 0x0b, 0x4c, 0x36,
+        0x98, 0xb0,
+    ];
+
+    let source = Schema::default()
+        .vertex("source-record", "record")
+        .vertex("source-value", "int")
+        .edge(
+            "source-record",
+            "source-value",
+            "prop",
+            Some("source-field"),
+        );
+    let target = Schema::default()
+        .vertex("target-record", "record")
+        .vertex("target-value", "int")
+        .edge(
+            "target-record",
+            "target-value",
+            "prop",
+            Some("target-field"),
+        );
+    let source_edge = SEdge::new(
+        "source-record",
+        "source-value",
+        "prop",
+        Some("source-field"),
+    );
+    let target_edge = SEdge::new(
+        "target-record",
+        "target-value",
+        "prop",
+        Some("target-field"),
+    );
+    let migration = Migration {
+        surviving_verts: BTreeSet::from(["target-record".to_owned(), "target-value".to_owned()]),
+        surviving_edges: BTreeSet::from([source_edge.clone()]),
+        vertex_remap: BTreeMap::from([
+            ("source-record".to_owned(), "target-record".to_owned()),
+            ("source-value".to_owned(), "target-value".to_owned()),
+        ]),
+        edge_remap: BTreeMap::from([(source_edge, target_edge)]),
+        conditional: BTreeSet::from(["source-record".to_owned()]),
+        transformed: BTreeSet::from(["source-value".to_owned()]),
+        ..Migration::default()
+    };
+    assert_eq!(table::canonical_migration_bytes(&migration).len(), 520);
+
+    let identity = panproto_reference::lens::graph_lens_identity(
+        &source,
+        &target,
+        &migration,
+        ComplementShape::Graph,
+    );
+    assert_eq!(identity.source_schema, SOURCE_DIGEST);
+    assert_eq!(identity.target_schema, TARGET_DIGEST);
+    assert_eq!(identity.lens, LENS_DIGEST);
+    assert_eq!(identity.shape, ComplementShape::Graph);
+    assert_eq!(identity.format_version, 1);
 }
 
 #[test]

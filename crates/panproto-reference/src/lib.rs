@@ -91,6 +91,8 @@
 //! with no pruning of isomorphic copies, each with an independent count),
 //! and [`harness`] the differential harness.
 
+mod blake3_ref;
+
 pub mod bytes;
 pub mod canonical;
 pub mod coerce;

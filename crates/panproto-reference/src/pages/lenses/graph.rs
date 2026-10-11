@@ -35,16 +35,18 @@ pub fn graph_lens_identity(
     migration: &Migration,
     shape: ComplementShape,
 ) -> IdentityEnvelope {
-    let source_schema = blake3::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(source));
-    let target_schema = blake3::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(target));
-    let mut lens = blake3::Hasher::new_derive_key(LENS_CONTEXT);
+    let source_schema =
+        crate::blake3_ref::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(source));
+    let target_schema =
+        crate::blake3_ref::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(target));
+    let mut lens = crate::blake3_ref::Hasher::new_derive_key(LENS_CONTEXT);
     lens.update(&source_schema);
     lens.update(&target_schema);
     lens.update(&crate::restrict::canonical_migration_bytes(migration));
     IdentityEnvelope {
         source_schema,
         target_schema,
-        lens: *lens.finalize().as_bytes(),
+        lens: lens.finalize(),
         shape,
         format_version: GRAPH_COMPLEMENT_FORMAT_VERSION,
     }

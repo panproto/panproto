@@ -200,8 +200,10 @@ pub fn table_lens_identity(
     migration: &Migration,
     value_layer: &ValueLayerSemantics,
 ) -> IdentityEnvelope {
-    let source_schema = blake3::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(source));
-    let target_schema = blake3::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(target));
+    let source_schema =
+        crate::blake3_ref::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(source));
+    let target_schema =
+        crate::blake3_ref::derive_key(SCHEMA_CONTEXT, &crate::schema::canonical_bytes(target));
     let mut writer = Writer::default();
     writer.raw(b"panproto-reference/table-lens-identity/v2");
     writer.tag(0);
@@ -216,7 +218,7 @@ pub fn table_lens_identity(
     writer.raw(&canonical_migration_bytes(migration));
     writer.tag(5);
     writer.raw(&canonical_value_layer_bytes(value_layer));
-    let lens = blake3::derive_key(TABLE_LENS_CONTEXT, &writer.bytes);
+    let lens = crate::blake3_ref::derive_key(TABLE_LENS_CONTEXT, &writer.bytes);
     IdentityEnvelope {
         source_schema,
         target_schema,

@@ -436,47 +436,6 @@ fn oracle_value_layer_bytes(semantics: &ValueLayerSemantics) -> Vec<u8> {
     writer.bytes
 }
 
-fn oracle_table_identity(
-    source: &Schema,
-    target: &Schema,
-    source_boundary: &RelSchema,
-    target_boundary: &RelSchema,
-    migration: &Migration,
-    value_layer: &ValueLayerSemantics,
-) -> IdentityEnvelope {
-    let source_schema = blake3::derive_key(
-        "panproto 2026-09 schema identity v2",
-        &panproto_reference::schema::canonical_bytes(source),
-    );
-    let target_schema = blake3::derive_key(
-        "panproto 2026-09 schema identity v2",
-        &panproto_reference::schema::canonical_bytes(target),
-    );
-    let mut writer = OracleWriter::default();
-    writer.raw(b"panproto-reference/table-lens-identity/v2");
-    for (tag, component) in [
-        (0, source_schema.to_vec()),
-        (1, target_schema.to_vec()),
-        (2, oracle_rel_schema_bytes(source_boundary)),
-        (3, oracle_rel_schema_bytes(target_boundary)),
-        (4, oracle_migration_bytes(migration)),
-        (5, oracle_value_layer_bytes(value_layer)),
-    ] {
-        writer.tag(tag);
-        writer.raw(&component);
-    }
-    IdentityEnvelope {
-        source_schema,
-        target_schema,
-        lens: blake3::derive_key(
-            "panproto 2026-09 compiled table lens identity v2",
-            &writer.bytes,
-        ),
-        shape: ComplementShape::Functor,
-        format_version: 1,
-    }
-}
-
 struct DescribedIdentity {
     domain: &'static str,
     version: u16,
@@ -673,7 +632,7 @@ fn construct_identity(
     .identity()
 }
 
-fn construct_and_verify_oracle_identity(
+fn construct_coordinate_identity(
     source: &Schema,
     target: &Schema,
     source_boundary: &RelSchema,
@@ -681,24 +640,14 @@ fn construct_and_verify_oracle_identity(
     migration: &Migration,
     layer: &dyn ValueLayer,
 ) -> IdentityEnvelope {
-    let actual = construct_identity(
+    construct_identity(
         source,
         target,
         source_boundary,
         target_boundary,
         migration,
         layer,
-    );
-    let expected = oracle_table_identity(
-        source,
-        target,
-        source_boundary,
-        target_boundary,
-        migration,
-        &layer.canonical_semantics(),
-    );
-    assert_eq!(actual, expected);
-    actual
+    )
 }
 
 fn rel_schema_coordinate_mutations(base: &RelSchema) -> Vec<(&'static str, RelSchema)> {
@@ -822,15 +771,41 @@ fn table_identity_uses_the_exact_domain_separated_envelope_layout() {
     };
 
     let (source_boundary, target_boundary, plan) = table_plan(&source, &target, &migration);
-    let value_layer = NoValueLayer.canonical_semantics();
-    let expected = oracle_table_identity(
-        &source,
-        &target,
-        &source_boundary,
-        &target_boundary,
-        &migration,
-        &value_layer,
+    assert_eq!(
+        oracle_rel_schema_bytes(&source_boundary),
+        table::canonical_rel_schema_bytes(&source_boundary)
     );
+    assert_eq!(
+        oracle_rel_schema_bytes(&target_boundary),
+        table::canonical_rel_schema_bytes(&target_boundary)
+    );
+    assert_eq!(
+        oracle_migration_bytes(&migration),
+        table::canonical_migration_bytes(&migration)
+    );
+
+    // Captured from the external blake3 1.8.7 implementation before its
+    // removal. The literal envelope is independent of the encoding traversal
+    // checks above and pins each domain-separated 32-byte digest.
+    let expected = IdentityEnvelope {
+        source_schema: [
+            0x14, 0x8e, 0x79, 0xa3, 0xf2, 0xc0, 0x67, 0xd4, 0x9f, 0x39, 0x5e, 0x36, 0xe2, 0x01,
+            0xb9, 0x35, 0x46, 0x15, 0xf1, 0x6e, 0x4f, 0xfe, 0xbc, 0xd6, 0xd3, 0xd6, 0xef, 0x9d,
+            0xb0, 0xd2, 0xef, 0xf7,
+        ],
+        target_schema: [
+            0x4b, 0x04, 0xe5, 0x4b, 0x12, 0xb7, 0x5a, 0x98, 0x37, 0x59, 0xc7, 0xac, 0xda, 0x1c,
+            0xfa, 0x3f, 0x14, 0x8e, 0xbb, 0x78, 0x78, 0xff, 0xee, 0x12, 0xbd, 0xbd, 0x3b, 0x4d,
+            0xac, 0x82, 0xc3, 0x48,
+        ],
+        lens: [
+            0x97, 0x70, 0x43, 0xcc, 0xd3, 0x4e, 0xc1, 0x73, 0xc4, 0x0e, 0xbf, 0xf0, 0xd8, 0x24,
+            0x23, 0xd8, 0x9d, 0x1e, 0x83, 0xd9, 0x3a, 0xa7, 0xc6, 0xfa, 0x3f, 0x9b, 0xd1, 0x97,
+            0xf5, 0x35, 0x6b, 0x8f,
+        ],
+        shape: ComplementShape::Functor,
+        format_version: 1,
+    };
     let lens = must(TableLens::new(
         &source,
         &target,
@@ -939,15 +914,14 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
     let boundary = RelSchema::default();
     let migration = Migration::default();
     let layer = NoValueLayer;
-    let baseline = construct_and_verify_oracle_identity(
-        &source, &target, &boundary, &boundary, &migration, &layer,
-    );
+    let baseline =
+        construct_coordinate_identity(&source, &target, &boundary, &boundary, &migration, &layer);
     let mut lens_digests = BTreeSet::from([baseline.lens]);
 
     let source_mutations = rel_schema_coordinate_mutations(&boundary);
     assert_eq!(source_mutations.len(), 6);
     for (field, changed_source) in source_mutations {
-        let identity = construct_and_verify_oracle_identity(
+        let identity = construct_coordinate_identity(
             &source,
             &target,
             &changed_source,
@@ -965,7 +939,7 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
     let target_mutations = rel_schema_coordinate_mutations(&boundary);
     assert_eq!(target_mutations.len(), 6);
     for (field, changed_target) in target_mutations {
-        let identity = construct_and_verify_oracle_identity(
+        let identity = construct_coordinate_identity(
             &source,
             &target,
             &boundary,
@@ -983,7 +957,7 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
     let migration_mutations = migration_coordinate_mutations(&migration);
     assert_eq!(migration_mutations.len(), 8);
     for (field, changed_migration) in migration_mutations {
-        let identity = construct_and_verify_oracle_identity(
+        let identity = construct_coordinate_identity(
             &source,
             &target,
             &boundary,
@@ -1018,7 +992,7 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
         table::compile_for_tables(&source, &target, &boundary, &boundary, &hyper),
         Err(TablePlanError::NotTableRepresentable)
     );
-    let hyper_identity = oracle_table_identity(
+    let hyper_identity = table::table_lens_identity(
         &source,
         &target,
         &boundary,

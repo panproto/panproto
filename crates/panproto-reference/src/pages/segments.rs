@@ -65,7 +65,7 @@ pub mod segment {
         /// Derive a digest under an explicit BLAKE3 context string.
         #[must_use]
         pub fn derive(context: &'static str, bytes: &[u8]) -> Self {
-            Self(blake3::derive_key(context, bytes))
+            Self(crate::blake3_ref::derive_key(context, bytes))
         }
     }
 

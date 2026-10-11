@@ -3333,7 +3333,7 @@ pub mod edit {
     /// Digest canonical graph-delta bytes under the graph domain separator.
     #[must_use]
     pub fn graph_delta_digest(delta: &GraphDelta) -> Option<[u8; 32]> {
-        Some(blake3::derive_key(
+        Some(crate::blake3_ref::derive_key(
             GRAPH_DELTA_CONTEXT,
             &canonical_graph_delta_bytes(delta)?,
         ))
@@ -3342,7 +3342,7 @@ pub mod edit {
     /// Digest canonical table-delta bytes under the table domain separator.
     #[must_use]
     pub fn table_delta_digest(delta: &TableDelta) -> Option<[u8; 32]> {
-        Some(blake3::derive_key(
+        Some(crate::blake3_ref::derive_key(
             TABLE_DELTA_CONTEXT,
             &canonical_table_delta_bytes(delta)?,
         ))
@@ -3351,7 +3351,7 @@ pub mod edit {
     /// Digest canonical tree-edit bytes under the tree domain separator.
     #[must_use]
     pub fn tree_edit_digest(edit: &TreeEdit) -> Option<[u8; 32]> {
-        Some(blake3::derive_key(
+        Some(crate::blake3_ref::derive_key(
             TREE_EDIT_CONTEXT,
             &canonical_tree_edit_bytes(edit)?,
         ))
