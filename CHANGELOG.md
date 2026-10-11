@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **Repository reads resolve unique commit-ID prefixes** (`panproto-vcs`, `panproto-py`): `resolve_ref`, `data_at`, and `decoded_data_at` now accept a unique hexadecimal prefix of at least four characters, matching their documented ref-expression contract. Prefix lookup remains inside the content-addressed store, checks uniqueness across every object before requiring the match to be a commit, and does not move `HEAD` or write an object. Malformed, absent, ambiguous, and wrong-kind prefixes return distinct typed VCS errors, while full IDs, `HEAD`, branches, and tags retain their previous precedence.
+
 ## [0.76.0] - 2026-10-09
 
 ### Features

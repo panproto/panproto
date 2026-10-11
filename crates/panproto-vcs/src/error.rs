@@ -50,6 +50,31 @@ pub enum VcsError {
         name: String,
     },
 
+    /// An object-ID prefix is not a valid hexadecimal abbreviation.
+    #[error("malformed object-id prefix {prefix:?}: {reason}")]
+    MalformedObjectIdPrefix {
+        /// The rejected prefix.
+        prefix: String,
+        /// Why the prefix is malformed.
+        reason: String,
+    },
+
+    /// No stored object has the requested object-ID prefix.
+    #[error("object-id prefix not found: {prefix}")]
+    ObjectIdPrefixNotFound {
+        /// The absent prefix.
+        prefix: String,
+    },
+
+    /// More than one stored object has the requested object-ID prefix.
+    #[error("ambiguous object-id prefix {prefix}: matches {matches:?}")]
+    AmbiguousObjectIdPrefix {
+        /// The ambiguous prefix.
+        prefix: String,
+        /// The matching full IDs, sorted for deterministic diagnostics.
+        matches: Vec<crate::ObjectId>,
+    },
+
     /// HEAD is detached when a branch was expected.
     #[error("HEAD is detached")]
     DetachedHead,

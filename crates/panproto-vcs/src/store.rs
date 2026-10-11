@@ -122,6 +122,26 @@ pub trait Store {
     /// Returns an error on I/O failure.
     fn list_objects(&self) -> Result<Vec<ObjectId>, VcsError>;
 
+    /// Find stored object IDs whose hexadecimal forms start with `prefix`.
+    ///
+    /// Callers validate and normalize the prefix before crossing this store
+    /// boundary. The returned IDs must be sorted so ambiguity diagnostics do
+    /// not depend on backend iteration order. Backends may override the
+    /// default implementation to use their native object layout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object namespace cannot be enumerated.
+    fn find_object_ids_by_prefix(&self, prefix: &str) -> Result<Vec<ObjectId>, VcsError> {
+        let mut matches: Vec<_> = self
+            .list_objects()?
+            .into_iter()
+            .filter(|id| id.to_string().starts_with(prefix))
+            .collect();
+        matches.sort_unstable();
+        Ok(matches)
+    }
+
     /// Delete an object from the store.
     ///
     /// # Errors

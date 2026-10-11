@@ -98,6 +98,17 @@ impl Store for MemStore {
         Ok(self.objects.keys().copied().collect())
     }
 
+    fn find_object_ids_by_prefix(&self, prefix: &str) -> Result<Vec<ObjectId>, VcsError> {
+        let mut matches: Vec<_> = self
+            .objects
+            .keys()
+            .filter(|id| id.to_string().starts_with(prefix))
+            .copied()
+            .collect();
+        matches.sort_unstable();
+        Ok(matches)
+    }
+
     fn delete_object(&mut self, id: &ObjectId) -> Result<(), VcsError> {
         self.objects
             .remove(id)

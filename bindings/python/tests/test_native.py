@@ -1993,6 +1993,56 @@ class TestRepositoryDataAccess:
         # The ref resolves by branch name and full commit id, too.
         assert len(repo.data_at("main")) == 1
         assert len(repo.data_at(cid)) == 1
+        assert repo.resolve_ref(cid[:12]) == cid
+        assert len(repo.data_at(cid[:12])) == 1
+        assert len(repo.decoded_data_at(cid[:12])) == 1
+
+    def test_commit_prefix_errors_and_object_kind(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        commit_id = repo.commit("schema", "alice <a@example.com>")
+
+        with pytest.raises(panproto.VcsError, match="at least 4 hexadecimal"):
+            repo.resolve_ref(commit_id[:3])
+        with pytest.raises(panproto.VcsError, match="malformed object-id prefix"):
+            repo.resolve_ref("123z")
+        with pytest.raises(panproto.VcsError, match="object-id prefix not found"):
+            repo.resolve_ref("deadbeefdead")
+
+        schema_id = repo.log()[0]["schema_id"]
+        assert isinstance(schema_id, str)
+        with pytest.raises(panproto.VcsError, match="expected commit object"):
+            repo.resolve_ref(schema_id[:12])
+
+    def test_full_id_head_branch_and_tag_precedence(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        commit_id = repo.commit("schema", "alice <a@example.com>")
+        repo.create_branch("abc", commit_id)
+        repo.create_tag("nothex", commit_id)
+
+        assert repo.resolve_ref(commit_id) == commit_id
+        assert repo.resolve_ref("HEAD") == commit_id
+        assert repo.resolve_ref("abc") == commit_id
+        assert repo.resolve_ref("nothex") == commit_id
+
+    def test_ambiguous_commit_prefix_raises(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        first = repo.commit("schema", "alice <a@example.com>")
+        by_prefix = {first[:4]: first}
+        ambiguous = None
+        for nonce in range(10_000):
+            commit_id = repo.amend(f"schema {nonce}", "alice <a@example.com>")
+            prefix = commit_id[:4]
+            if prefix in by_prefix:
+                ambiguous = prefix
+                break
+            by_prefix[prefix] = commit_id
+
+        assert ambiguous is not None, "10,000 commits produced no four-character collision"
+        with pytest.raises(panproto.VcsError, match="ambiguous object-id prefix"):
+            repo.resolve_ref(ambiguous)
 
     def test_data_at_unknown_ref_raises(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))

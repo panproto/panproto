@@ -10,6 +10,12 @@ use crate::hash::ObjectId;
 use crate::object::{Object, TagObject};
 use crate::store::{HeadState, ReflogEntry, Store};
 
+/// Minimum number of hexadecimal characters accepted as an object-ID prefix.
+///
+/// Four characters matches Git's minimum abbreviation while still requiring
+/// uniqueness across every object in the content-addressed store.
+pub const MIN_OBJECT_ID_PREFIX_LENGTH: usize = 4;
+
 /// Create a new branch pointing at the given commit.
 ///
 /// # Errors
@@ -283,12 +289,20 @@ pub fn create_and_checkout_branch(
 ///
 /// Tries, in order:
 /// 1. Full hex `ObjectId` (64 chars)
-/// 2. Branch name (`refs/heads/<target>`)
-/// 3. Tag name (`refs/tags/<target>`)
+/// 2. `HEAD`
+/// 3. Branch name (`refs/heads/<target>`)
+/// 4. Tag name (`refs/tags/<target>`)
+/// 5. A unique hexadecimal object-ID prefix of at least
+///    [`MIN_OBJECT_ID_PREFIX_LENGTH`] characters
 ///
 /// # Errors
 ///
-/// Returns [`VcsError::RefNotFound`] if nothing matches.
+/// Returns [`VcsError::MalformedObjectIdPrefix`] for a prefix that is too
+/// short or is not hexadecimal, [`VcsError::ObjectIdPrefixNotFound`] if no
+/// object matches, [`VcsError::AmbiguousObjectIdPrefix`] if multiple objects
+/// match, and [`VcsError::WrongObjectType`] if the unique match is not a
+/// commit. A target that is not shaped like an object-ID expression remains
+/// a named ref and returns [`VcsError::RefNotFound`] when absent.
 pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError> {
     // Try as a full object ID.
     if target.len() == 64 {
@@ -316,9 +330,64 @@ pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError
         return Ok(peel_tag(store, id));
     }
 
+    // An unresolved alphanumeric target is an object-ID expression. Ref
+    // lookup comes first so existing hexadecimal branch and tag names retain
+    // their precedence over abbreviated IDs.
+    if target.chars().all(|c| c.is_ascii_alphanumeric()) && !target.is_empty() {
+        return resolve_object_id_prefix(store, target);
+    }
+
     Err(VcsError::RefNotFound {
         name: target.to_owned(),
     })
+}
+
+fn resolve_object_id_prefix(store: &dyn Store, prefix: &str) -> Result<ObjectId, VcsError> {
+    if prefix.len() < MIN_OBJECT_ID_PREFIX_LENGTH {
+        return Err(VcsError::MalformedObjectIdPrefix {
+            prefix: prefix.to_owned(),
+            reason: format!(
+                "expected at least {MIN_OBJECT_ID_PREFIX_LENGTH} hexadecimal characters"
+            ),
+        });
+    }
+    if prefix.len() >= 64 {
+        return Err(VcsError::MalformedObjectIdPrefix {
+            prefix: prefix.to_owned(),
+            reason: "expected fewer than 64 hexadecimal characters for an abbreviation".into(),
+        });
+    }
+    if !prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(VcsError::MalformedObjectIdPrefix {
+            prefix: prefix.to_owned(),
+            reason: "expected hexadecimal characters only".into(),
+        });
+    }
+
+    let normalized = prefix.to_ascii_lowercase();
+    let matches = store.find_object_ids_by_prefix(&normalized)?;
+    let id = match matches.as_slice() {
+        [] => {
+            return Err(VcsError::ObjectIdPrefixNotFound {
+                prefix: prefix.to_owned(),
+            });
+        }
+        [id] => *id,
+        _ => {
+            return Err(VcsError::AmbiguousObjectIdPrefix {
+                prefix: prefix.to_owned(),
+                matches,
+            });
+        }
+    };
+
+    match store.get(&id)? {
+        Object::Commit(_) => Ok(id),
+        other => Err(VcsError::WrongObjectType {
+            expected: "commit",
+            found: other.type_name(),
+        }),
+    }
 }
 
 /// Peel an object ID through annotated tag objects to find the
@@ -337,8 +406,17 @@ fn peel_tag(store: &dyn Store, mut id: ObjectId) -> ObjectId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MemStore;
+    use std::collections::BTreeMap;
+
     use crate::error::VcsError;
+    use crate::{CommitObject, DataSetObject, MemStore};
+
+    fn store_commit(store: &mut MemStore, nonce: u64) -> Result<ObjectId, VcsError> {
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "alice", nonce.to_string())
+            .timestamp(nonce)
+            .build();
+        store.put(&Object::Commit(commit))
+    }
 
     #[test]
     fn branch_create_list_delete() -> Result<(), VcsError> {
@@ -418,6 +496,116 @@ mod tests {
         let hex = id.to_string();
 
         assert_eq!(resolve_ref(&store, &hex)?, id);
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_ref_unique_prefix() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let id = store_commit(&mut store, 1)?;
+        let prefix = id.to_string()[..MIN_OBJECT_ID_PREFIX_LENGTH].to_ascii_uppercase();
+
+        assert_eq!(resolve_ref(&store, &prefix)?, id);
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_ref_rejects_too_short_prefix() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let id = store_commit(&mut store, 1)?;
+        let prefix = &id.to_string()[..MIN_OBJECT_ID_PREFIX_LENGTH - 1];
+
+        assert!(matches!(
+            resolve_ref(&store, prefix),
+            Err(VcsError::MalformedObjectIdPrefix { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_ref_rejects_malformed_prefix() {
+        let store = MemStore::new();
+        assert!(matches!(
+            resolve_ref(&store, "123z"),
+            Err(VcsError::MalformedObjectIdPrefix { .. })
+        ));
+    }
+
+    #[test]
+    fn resolve_ref_reports_absent_prefix() {
+        let store = MemStore::new();
+        assert!(matches!(
+            resolve_ref(&store, "deadbeef"),
+            Err(VcsError::ObjectIdPrefixNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn resolve_ref_reports_ambiguous_prefix() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let mut prefixes = BTreeMap::new();
+        let mut collision = None;
+        for nonce in 0..10_000 {
+            let id = store_commit(&mut store, nonce)?;
+            let prefix = id.to_string()[..MIN_OBJECT_ID_PREFIX_LENGTH].to_owned();
+            if prefixes.insert(prefix.clone(), id).is_some() {
+                collision = Some(prefix);
+                break;
+            }
+        }
+        let Some(prefix) = collision else {
+            panic!("10,000 content-addressed objects produced no four-character collision");
+        };
+
+        assert!(matches!(
+            resolve_ref(&store, &prefix),
+            Err(VcsError::AmbiguousObjectIdPrefix { matches, .. }) if matches.len() >= 2
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_ref_prefix_requires_a_commit() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let id = store.put(&Object::DataSet(DataSetObject {
+            schema_id: ObjectId::ZERO,
+            data: vec![1],
+            record_count: 0,
+            key: None,
+        }))?;
+        let prefix = &id.to_string()[..12];
+
+        assert!(matches!(
+            resolve_ref(&store, prefix),
+            Err(VcsError::WrongObjectType {
+                expected: "commit",
+                found: "dataset"
+            })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn named_refs_precede_prefix_validation() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let branch_id = ObjectId::from_bytes([7; 32]);
+        let tag_id = ObjectId::from_bytes([8; 32]);
+        store.set_ref("refs/heads/abc", branch_id)?;
+        store.set_ref("refs/tags/nothex", tag_id)?;
+
+        assert_eq!(resolve_ref(&store, "abc")?, branch_id);
+        assert_eq!(resolve_ref(&store, "nothex")?, tag_id);
+        Ok(())
+    }
+
+    #[test]
+    fn full_id_precedes_a_same_named_branch() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let id = ObjectId::from_bytes([9; 32]);
+        let branch_id = ObjectId::from_bytes([10; 32]);
+        store.set_ref(&format!("refs/heads/{id}"), branch_id)?;
+
+        assert_eq!(resolve_ref(&store, &id.to_string())?, id);
         Ok(())
     }
 
