@@ -1,4 +1,72 @@
 //! Complete reference operations assigned to `kan-extensions`.
+//!
+//! # Hom-profile certificate (O14)
+//!
+//! The bounded checker quotients labelled table instances only by the group
+//! `G = (product_t S_rows(t)) x S_nulls`: rows may be permuted independently
+//! inside each table and the finite labelled-null alphabet may be permuted.
+//! Table names, columns, relation labels, relation incidence, constants, and
+//! exact floating-point bits are rigid. The certificate has five parts.
+//!
+//! 1. `enumerate::kan_extensions::hom_profile` evaluates every element of
+//!    `G`, applies it structurally, and selects the least canonical table byte
+//!    string. A finite total order has one least element, so every labelled
+//!    object has exactly one profile. The separately implemented
+//!    orbit--stabilizer counter proves each class multiplicity as
+//!    `|G| / |Stab(object)|`; summing the certified class sizes recovers the
+//!    labelled object and ordered-pair totals.
+//! 2. Two members of a profile carry explicit inverse row and used-null
+//!    bijections. They preserve every cell and relation pair, hence are
+//!    inverse [`rel::Hom`]s. For isomorphisms `a: I -> I'` and `b: J -> J'`,
+//!    conjugation sends `h: I -> J` to `a^-1 ; h ; b`. Its inverse conjugates
+//!    by `a` and `b^-1`, establishing bijections on both hom-sets of both
+//!    adjunctions.
+//! 3. Sigma transports rows by `a`, merged null classes by their selected
+//!    representative, and fresh nulls by their recorded `(row,column)` slot.
+//!    Delta transports a copied row `(table,row)` to `(table,a(row))`. Pi
+//!    transports `(table,[r1,...,rn])` to
+//!    `(table,[a(r1),...,a(rn)])`. Substitution in the four transpose formulas
+//!    shows that these output isomorphisms commute with both forward and
+//!    inverse transposes. Fresh Sigma nulls use the derived output bijection,
+//!    not an arbitrary unused-null permutation. A Sigma constant clash is
+//!    profile-invariant exactly when its independently computed clash-component
+//!    set is nonempty. Its public row and constant-pair payload is the first
+//!    witness in numeric row order and is intentionally checked only on each
+//!    labelled object, because row relabelling need not preserve that staging
+//!    witness.
+//! 4. Conjugation preserves identities and composition. Writing `Phi` for the
+//!    Sigma--Delta transpose and `Psi` for Delta--Pi, the executable
+//!    certificate checks
+//!    `Phi(b;h;Sigma(a)) = a;Phi(h);Delta(b)` and
+//!    `Psi(b;h;Delta(a)) = a;Psi(h);Pi(b)`, together with both inverse
+//!    equations. Thus both identity composites and all naturality squares are
+//!    invariant under profile transport.
+//! 5. The bounded family has only leaf cells and no fan nodes. Its graph
+//!    records therefore have semantic node keys `Row(r)` and `Cell(r,c)`, and
+//!    edge keys `Attribute(r,c)` and `Relation(e,r,s)`. Row transport carries
+//!    these keys bijectively. Fresh allocation may give corresponding keys
+//!    different numeric ids after a retained-id collision, so the executable
+//!    certificate joins the two independently materialized final layouts by
+//!    key rather than assuming equal ids. That join is proved total and
+//!    bijective, transports exact graph contents (including labelled nulls),
+//!    and carries every node and edge contributor set through the input and
+//!    output id bijections. Thus encoding, collision resolution, provenance,
+//!    and decoding commute with each profile transport. The same id
+//!    bijection carries roots, nodes and arcs of every admitted fan-free tree;
+//!    root-count payloads are exact. For the only two non-tree families in
+//!    this bounded carrier, the certificate transports the complete sets of
+//!    nodes with a second parent and nodes unreached from the root, and checks
+//!    that each returned numeric first witness belongs to its side's set. A
+//!    row relabelling need not preserve which set member is first numerically.
+//!    Every other tree-form refusal is pinned at zero, while per-labelled
+//!    checks retain the exact public staging payload.
+//!    The bounded checker executes these comparisons for all 248,552 labelled
+//!    members: 516,960 table/graph routes (460,228 successes with provenance
+//!    and 56,732 normalized typed refusals) and all 3,412 admitted tree routes
+//!    (2,611 successes and 801 typed refusals). Sigma clash *membership* is
+//!    transported by its clash-component criterion from clause 3; its numeric
+//!    first-witness payload remains an object-level check. Representative-pair
+//!    execution then uses only these proved table and adapter isomorphisms.
 
 pub mod encode {
     //! Kan-extension-specific graph and tree encodings.
@@ -27,6 +95,54 @@ pub mod encode {
         pub value_vertices: BTreeSet<Name>,
         /// Inner value edges.
         pub inner_edges: BTreeSet<SEdge>,
+    }
+
+    /// The protocol information used by strict relational classification.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct KindPartition {
+        /// Kinds whose undeclared vertices begin the value closure.
+        pub value: BTreeSet<Name>,
+        /// Kinds whose vertices are tables.
+        pub non_value: BTreeSet<Name>,
+    }
+
+    /// Identity and position recorded for an encoded graph edge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub struct EdgeLayout {
+        /// Original edge id, retained on its first collision-free occurrence.
+        pub id: Option<u32>,
+        /// Original or selected position.
+        pub position: Option<u32>,
+        /// Whether this edge has an input contributor.
+        pub has_source: bool,
+    }
+
+    /// The graph-only shape and decorations of one encoded cell subtree.
+    #[derive(Clone, Debug, PartialEq, Eq, Default)]
+    pub struct CellLayout {
+        /// Root value-node id.
+        pub root: u32,
+        /// Attribute edge from the table row to the root.
+        pub attribute: EdgeLayout,
+        /// Every value node of the subtree, by original id.
+        pub nodes: BTreeMap<u32, Node>,
+        /// Every inner edge of the subtree, by original id.
+        pub edges: BTreeMap<u32, GEdge>,
+    }
+
+    /// The graph-only record paired with an encoded table.
+    #[derive(Clone, Debug, PartialEq, Eq, Default)]
+    pub struct GraphLayout {
+        /// Full table-node decorations, keyed by row id.
+        pub table_nodes: BTreeMap<u32, Node>,
+        /// Full value-subtree layouts, keyed by row and column.
+        pub cells: BTreeMap<(u32, String), CellLayout>,
+        /// Relation-edge identity and position, keyed by relation pair.
+        pub relations: BTreeMap<(SEdge, u32, u32), EdgeLayout>,
+        /// Every input/layout node id, which contributes to the fresh floor.
+        pub reserved_node_ids: BTreeSet<u32>,
+        /// Every input/layout edge id, which contributes to the fresh floor.
+        pub reserved_edge_ids: BTreeSet<u32>,
     }
 
     impl GraphSide {
@@ -405,33 +521,90 @@ pub mod encode {
     /// The first [`NotEncodable`] reason of the first failing check.
     ///
     /// Book anchors: `L-kan-extensions-8`.
-    pub fn encode_graph(g: &Graph, side: &GraphSide) -> Result<Table, NotEncodable> {
+    pub fn encode_graph(g: &Graph, side: &GraphSide) -> Result<(Table, GraphLayout), NotEncodable> {
         pass_nodes(g, side)?;
         pass_edges(g, side)?;
         pass_cells(g, side)?;
         pass_values(g, side)?;
         let mut t = Table::default();
+        let mut layout = GraphLayout {
+            reserved_node_ids: g.nodes.keys().copied().collect(),
+            reserved_edge_ids: g.edges.keys().copied().collect(),
+            ..GraphLayout::default()
+        };
         for (id, n) in g
             .nodes
             .iter()
             .filter(|(_, n)| side.tables.contains(&n.anchor))
         {
+            layout.table_nodes.insert(*id, n.clone());
             let mut cells = BTreeMap::new();
             for (column, arrow) in side.columns.get(&n.anchor).into_iter().flatten() {
-                if let Some(e) = g.edges.values().find(|e| e.src == *id && e.label == *arrow) {
+                if let Some((edge_id, e)) = g
+                    .edges
+                    .iter()
+                    .find(|(_, e)| e.src == *id && e.label == *arrow)
+                {
                     cells.insert(column.clone(), fold(g, e.tgt, 0));
+                    layout.cells.insert(
+                        (*id, column.clone()),
+                        collect_cell_layout(g, *edge_id, e.tgt, side),
+                    );
                 }
             }
             t.rows.insert(*id, (n.anchor.clone(), cells));
         }
-        for e in g
-            .edges
-            .values()
-            .filter(|e| side.relations.contains(&e.label))
-        {
+        for (edge_id, e) in &g.edges {
+            if !side.relations.contains(&e.label) {
+                continue;
+            }
             t.pairs.insert((e.label.clone(), e.src, e.tgt));
+            layout.relations.insert(
+                (e.label.clone(), e.src, e.tgt),
+                EdgeLayout {
+                    id: Some(*edge_id),
+                    position: e.position,
+                    has_source: true,
+                },
+            );
         }
-        Ok(t)
+        Ok((t, layout))
+    }
+
+    fn collect_cell_layout(
+        graph: &Graph,
+        attribute: u32,
+        root: u32,
+        side: &GraphSide,
+    ) -> CellLayout {
+        let mut layout = CellLayout {
+            root,
+            attribute: EdgeLayout {
+                id: Some(attribute),
+                position: graph.edges[&attribute].position,
+                has_source: true,
+            },
+            ..CellLayout::default()
+        };
+        let mut pending = vec![root];
+        while let Some(node) = pending.pop() {
+            if layout.nodes.contains_key(&node) {
+                continue;
+            }
+            layout.nodes.insert(node, graph.nodes[&node].clone());
+            let mut outgoing: Vec<(u32, &GEdge)> = graph
+                .edges
+                .iter()
+                .filter(|(_, edge)| edge.src == node && side.inner_edges.contains(&edge.label))
+                .map(|(id, edge)| (*id, edge))
+                .collect();
+            outgoing.sort_by_key(|(id, edge)| (edge.position, edge.label.column().to_owned(), *id));
+            for (id, edge) in outgoing.into_iter().rev() {
+                pending.push(edge.tgt);
+                layout.edges.insert(id, edge.clone());
+            }
+        }
+        layout
     }
 
     /// Why decoding a table into its graph carrier can refuse.
@@ -445,9 +618,15 @@ pub mod encode {
         NodeIdsExhausted,
         /// No non-reserved edge id remains for a cell or relation edge.
         EdgeIdsExhausted,
+        /// Created outgoing edges cannot be positioned after the carried ones.
+        EdgePositionsExhausted {
+            /// Least source node at which the position overflows.
+            node: u32,
+        },
     }
 
-    /// Definition: Decode a conforming, well-formed table over a side without a record.
+    /// Definition: Decode a conforming, well-formed table over a side through
+    /// its graph layout; a default record gives one leaf per cell.
     ///
     /// A table node per row (its id); per cell, in ascending (row, column), one leaf value node (a
     /// fresh id above every row id) holding the cell (a null presence for `Null`) and its attribute
@@ -462,60 +641,496 @@ pub mod encode {
     /// use the reserved id `u32::MAX`.
     ///
     /// Book anchors: `L-kan-extensions-8`.
-    pub fn decode_table(t: &Table, side: &GraphSide) -> Result<Graph, DecodeTableError> {
+    pub fn decode_table(
+        t: &Table,
+        side: &GraphSide,
+        layout: &GraphLayout,
+    ) -> Result<Graph, DecodeTableError> {
         if !t.well_formed() {
             return Err(DecodeTableError::MalformedTable);
         }
         rel::conform(t, &side.table_side()).map_err(DecodeTableError::NonConforming)?;
         let mut g = Graph::default();
+        let mut claimed_nodes: BTreeSet<u32> = t.rows.keys().copied().collect();
+        let mut claimed_edges = BTreeSet::new();
+        let mut created_edges = BTreeSet::new();
         let mut next_node = t
             .rows
             .keys()
+            .copied()
+            .chain(layout.reserved_node_ids.iter().copied())
+            .max()
+            .map_or(Some(0), |id| id.checked_add(1))
+            .filter(|id| *id != u32::MAX);
+        let mut next_edge = layout
+            .reserved_edge_ids
+            .iter()
             .next_back()
             .map_or(Some(0), |id| id.checked_add(1))
             .filter(|id| *id != u32::MAX);
-        let mut next_edge = Some(0u32);
-        for (id, (table, _)) in &t.rows {
-            g.nodes.insert(*id, Node::new(*id, table));
-        }
+        preflight_allocations(
+            t,
+            side,
+            layout,
+            &claimed_nodes,
+            &claimed_edges,
+            next_node,
+            next_edge,
+        )?;
+        decode_table_nodes(t, layout, &mut g);
         for (id, (table, cells)) in &t.rows {
             for (column, v) in cells {
                 let Some(arrow) = side.columns.get(table).and_then(|c| c.get(column)) else {
                     continue;
                 };
-                let node_id = take_id(&mut next_node).ok_or(DecodeTableError::NodeIdsExhausted)?;
-                let edge_id = take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
-                let mut leaf = Node::new(node_id, &arrow.tgt);
-                leaf.value = Some(if *v == Value::Null {
-                    Presence::Null
+                if let Some(candidate) = layout
+                    .cells
+                    .get(&(*id, column.clone()))
+                    .filter(|candidate| cell_fits(candidate, v, arrow, side))
+                {
+                    decode_cell_layout(
+                        candidate,
+                        *id,
+                        arrow,
+                        &mut DecodeState {
+                            graph: &mut g,
+                            claimed_nodes: &mut claimed_nodes,
+                            claimed_edges: &mut claimed_edges,
+                            next_node: &mut next_node,
+                            next_edge: &mut next_edge,
+                            created_edges: &mut created_edges,
+                        },
+                    )?;
                 } else {
-                    Presence::Present(v.clone())
-                });
-                g.nodes.insert(node_id, leaf);
-                g.edges.insert(
-                    edge_id,
-                    GEdge {
-                        src: *id,
-                        tgt: node_id,
-                        label: arrow.clone(),
-                        position: None,
-                    },
-                );
+                    let node_id =
+                        take_id(&mut next_node).ok_or(DecodeTableError::NodeIdsExhausted)?;
+                    claimed_nodes.insert(node_id);
+                    let edge_id =
+                        take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
+                    claimed_edges.insert(edge_id);
+                    created_edges.insert(edge_id);
+                    let mut leaf = Node::new(node_id, &arrow.tgt);
+                    leaf.value = Some(if *v == Value::Null {
+                        Presence::Null
+                    } else {
+                        Presence::Present(v.clone())
+                    });
+                    g.nodes.insert(node_id, leaf);
+                    g.edges.insert(
+                        edge_id,
+                        GEdge {
+                            src: *id,
+                            tgt: node_id,
+                            label: arrow.clone(),
+                            position: None,
+                        },
+                    );
+                }
             }
         }
-        for (e, s, d) in &t.pairs {
-            let edge_id = take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
-            g.edges.insert(
+        decode_relations(
+            t,
+            layout,
+            &mut g,
+            &mut claimed_edges,
+            &mut next_edge,
+            &mut created_edges,
+        )?;
+        assign_created_positions(&mut g, &created_edges)?;
+        Ok(g)
+    }
+
+    fn decode_table_nodes(table: &Table, layout: &GraphLayout, graph: &mut Graph) {
+        for (id, (owner, _)) in &table.rows {
+            let mut node = layout
+                .table_nodes
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| Node::new(*id, owner));
+            node.id = *id;
+            node.anchor.clone_from(owner);
+            graph.nodes.insert(*id, node);
+        }
+    }
+
+    fn decode_relations(
+        table: &Table,
+        layout: &GraphLayout,
+        graph: &mut Graph,
+        claimed_edges: &mut BTreeSet<u32>,
+        next_edge: &mut Option<u32>,
+        created_edges: &mut BTreeSet<u32>,
+    ) -> Result<(), DecodeTableError> {
+        for (edge, source, target) in &table.pairs {
+            let entry = layout
+                .relations
+                .get(&(edge.clone(), *source, *target))
+                .copied()
+                .unwrap_or_default();
+            let edge_id = choose_id(
+                entry.id,
+                claimed_edges,
+                next_edge,
+                DecodeTableError::EdgeIdsExhausted,
+            )?;
+            if !entry.has_source {
+                created_edges.insert(edge_id);
+            }
+            graph.edges.insert(
                 edge_id,
                 GEdge {
-                    src: *s,
-                    tgt: *d,
-                    label: e.clone(),
-                    position: None,
+                    src: *source,
+                    tgt: *target,
+                    label: edge.clone(),
+                    position: entry.position,
                 },
             );
         }
-        Ok(g)
+        Ok(())
+    }
+
+    fn preflight_allocations(
+        table: &Table,
+        side: &GraphSide,
+        layout: &GraphLayout,
+        initial_nodes: &BTreeSet<u32>,
+        initial_edges: &BTreeSet<u32>,
+        initial_next_node: Option<u32>,
+        initial_next_edge: Option<u32>,
+    ) -> Result<(), DecodeTableError> {
+        // S3(11) fixes the refusal order independently of the row/column walk:
+        // every node allocation is proved first, then every edge allocation;
+        // positions are checked only after materialization.
+        let mut claimed_nodes = initial_nodes.clone();
+        let mut next_node = initial_next_node;
+        for (row, (table_name, cells)) in &table.rows {
+            for (column, value) in cells {
+                let Some(arrow) = side
+                    .columns
+                    .get(table_name)
+                    .and_then(|columns| columns.get(column))
+                else {
+                    continue;
+                };
+                if let Some(candidate) = layout
+                    .cells
+                    .get(&(*row, column.clone()))
+                    .filter(|candidate| cell_fits(candidate, value, arrow, side))
+                {
+                    let (node_order, _) =
+                        cell_order(candidate).map_err(|()| DecodeTableError::MalformedTable)?;
+                    for source in node_order {
+                        choose_id(
+                            Some(source),
+                            &mut claimed_nodes,
+                            &mut next_node,
+                            DecodeTableError::NodeIdsExhausted,
+                        )?;
+                    }
+                } else {
+                    let id = take_id(&mut next_node).ok_or(DecodeTableError::NodeIdsExhausted)?;
+                    claimed_nodes.insert(id);
+                }
+            }
+        }
+
+        let mut claimed_edges = initial_edges.clone();
+        let mut next_edge = initial_next_edge;
+        for (row, (table_name, cells)) in &table.rows {
+            for (column, value) in cells {
+                let Some(arrow) = side
+                    .columns
+                    .get(table_name)
+                    .and_then(|columns| columns.get(column))
+                else {
+                    continue;
+                };
+                if let Some(candidate) = layout
+                    .cells
+                    .get(&(*row, column.clone()))
+                    .filter(|candidate| cell_fits(candidate, value, arrow, side))
+                {
+                    let (_, edge_order) =
+                        cell_order(candidate).map_err(|()| DecodeTableError::MalformedTable)?;
+                    choose_id(
+                        candidate.attribute.id,
+                        &mut claimed_edges,
+                        &mut next_edge,
+                        DecodeTableError::EdgeIdsExhausted,
+                    )?;
+                    for source in edge_order {
+                        choose_id(
+                            Some(source),
+                            &mut claimed_edges,
+                            &mut next_edge,
+                            DecodeTableError::EdgeIdsExhausted,
+                        )?;
+                    }
+                } else {
+                    let id = take_id(&mut next_edge).ok_or(DecodeTableError::EdgeIdsExhausted)?;
+                    claimed_edges.insert(id);
+                }
+            }
+        }
+        for (edge, source, target) in &table.pairs {
+            let entry = layout
+                .relations
+                .get(&(edge.clone(), *source, *target))
+                .copied()
+                .unwrap_or_default();
+            choose_id(
+                entry.id,
+                &mut claimed_edges,
+                &mut next_edge,
+                DecodeTableError::EdgeIdsExhausted,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn assign_created_positions(
+        graph: &mut Graph,
+        created: &BTreeSet<u32>,
+    ) -> Result<(), DecodeTableError> {
+        let mut by_source: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for (id, edge) in &graph.edges {
+            by_source.entry(edge.src).or_default().push(*id);
+        }
+        for (node, mut ids) in by_source {
+            let max_carried = ids
+                .iter()
+                .filter(|id| !created.contains(id))
+                .filter_map(|id| graph.edges[id].position)
+                .max();
+            let Some(mut position) = max_carried else {
+                for id in ids.iter().filter(|id| created.contains(id)) {
+                    if let Some(edge) = graph.edges.get_mut(id) {
+                        edge.position = None;
+                    }
+                }
+                continue;
+            };
+            ids.retain(|id| created.contains(id));
+            ids.sort_unstable();
+            for id in ids {
+                position = position
+                    .checked_add(1)
+                    .ok_or(DecodeTableError::EdgePositionsExhausted { node })?;
+                if let Some(edge) = graph.edges.get_mut(&id) {
+                    edge.position = Some(position);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn choose_id(
+        candidate: Option<u32>,
+        claimed: &mut BTreeSet<u32>,
+        next: &mut Option<u32>,
+        exhausted: DecodeTableError,
+    ) -> Result<u32, DecodeTableError> {
+        if let Some(id) = candidate.filter(|id| !claimed.contains(id)) {
+            claimed.insert(id);
+            return Ok(id);
+        }
+        let id = take_id(next).ok_or(exhausted)?;
+        claimed.insert(id);
+        Ok(id)
+    }
+
+    fn cell_fits(cell: &CellLayout, value: &Value, arrow: &SEdge, side: &GraphSide) -> bool {
+        let Some(root) = cell.nodes.get(&cell.root) else {
+            return false;
+        };
+        if root.anchor != arrow.tgt {
+            return false;
+        }
+        let anchored = |node: u32, anchor: &str| {
+            cell.nodes
+                .get(&node)
+                .is_some_and(|candidate| candidate.anchor == anchor)
+        };
+        if cell.edges.values().any(|edge| {
+            !side.inner_edges.contains(&edge.label)
+                || !anchored(edge.src, &edge.label.src)
+                || !anchored(edge.tgt, &edge.label.tgt)
+        }) {
+            return false;
+        }
+        let Ok((nodes, edges)) = cell_order(cell) else {
+            return false;
+        };
+        nodes.len() == cell.nodes.len()
+            && edges.len() == cell.edges.len()
+            && fold_layout(cell).is_some_and(|folded| {
+                crate::canonical::value_bytes(&folded) == crate::canonical::value_bytes(value)
+            })
+    }
+
+    fn cell_order(cell: &CellLayout) -> Result<(Vec<u32>, Vec<u32>), ()> {
+        fn visit(
+            cell: &CellLayout,
+            node: u32,
+            active: &mut BTreeSet<u32>,
+            seen: &mut BTreeSet<u32>,
+            nodes: &mut Vec<u32>,
+            edges: &mut Vec<u32>,
+        ) -> Result<(), ()> {
+            if active.contains(&node) || seen.contains(&node) || !cell.nodes.contains_key(&node) {
+                return Err(());
+            }
+            active.insert(node);
+            seen.insert(node);
+            nodes.push(node);
+            let mut outgoing: Vec<(u32, &GEdge)> = cell
+                .edges
+                .iter()
+                .filter(|(_, edge)| edge.src == node)
+                .map(|(id, edge)| (*id, edge))
+                .collect();
+            outgoing.sort_by_key(|(id, edge)| (edge.position, edge.label.column().to_owned(), *id));
+            for (id, edge) in outgoing {
+                edges.push(id);
+                visit(cell, edge.tgt, active, seen, nodes, edges)?;
+            }
+            active.remove(&node);
+            Ok(())
+        }
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        visit(
+            cell,
+            cell.root,
+            &mut BTreeSet::new(),
+            &mut BTreeSet::new(),
+            &mut nodes,
+            &mut edges,
+        )?;
+        Ok((nodes, edges))
+    }
+
+    fn fold_layout(cell: &CellLayout) -> Option<Value> {
+        fn go(cell: &CellLayout, node: u32, active: &mut BTreeSet<u32>) -> Option<Value> {
+            if !active.insert(node) {
+                return None;
+            }
+            let value_node = cell.nodes.get(&node)?;
+            let mut outgoing: Vec<(u32, &GEdge)> = cell
+                .edges
+                .iter()
+                .filter(|(_, edge)| edge.src == node)
+                .map(|(id, edge)| (*id, edge))
+                .collect();
+            let folded = if outgoing.is_empty() {
+                match &value_node.value {
+                    Some(Presence::Present(value)) => Some(value.clone()),
+                    Some(Presence::Null) => Some(Value::Null),
+                    None | Some(Presence::Absent) => None,
+                }
+            } else if outgoing.iter().all(|(_, edge)| edge.position.is_some()) {
+                outgoing.sort_by_key(|(id, edge)| (edge.position, *id));
+                let unique: BTreeSet<Option<u32>> =
+                    outgoing.iter().map(|(_, edge)| edge.position).collect();
+                if unique.len() != outgoing.len() || value_node.value.is_some() {
+                    None
+                } else {
+                    outgoing
+                        .into_iter()
+                        .map(|(_, edge)| go(cell, edge.tgt, active))
+                        .collect::<Option<Vec<_>>>()
+                        .map(Value::List)
+                }
+            } else if outgoing.iter().all(|(_, edge)| edge.position.is_none()) {
+                outgoing.sort_by_key(|(id, edge)| (edge.label.column().to_owned(), *id));
+                let unique: BTreeSet<String> = outgoing
+                    .iter()
+                    .map(|(_, edge)| edge.label.column().to_owned())
+                    .collect();
+                if unique.len() != outgoing.len() || value_node.value.is_some() {
+                    None
+                } else {
+                    outgoing
+                        .into_iter()
+                        .map(|(_, edge)| {
+                            go(cell, edge.tgt, active)
+                                .map(|value| (edge.label.column().to_owned(), value))
+                        })
+                        .collect::<Option<BTreeMap<_, _>>>()
+                        .map(Value::Unknown)
+                }
+            } else {
+                None
+            };
+            active.remove(&node);
+            folded
+        }
+        go(cell, cell.root, &mut BTreeSet::new())
+    }
+
+    struct DecodeState<'a> {
+        graph: &'a mut Graph,
+        claimed_nodes: &'a mut BTreeSet<u32>,
+        claimed_edges: &'a mut BTreeSet<u32>,
+        next_node: &'a mut Option<u32>,
+        next_edge: &'a mut Option<u32>,
+        created_edges: &'a mut BTreeSet<u32>,
+    }
+
+    fn decode_cell_layout(
+        cell: &CellLayout,
+        row: u32,
+        arrow: &SEdge,
+        state: &mut DecodeState<'_>,
+    ) -> Result<(), DecodeTableError> {
+        let (node_order, edge_order) =
+            cell_order(cell).map_err(|()| DecodeTableError::MalformedTable)?;
+        let mut node_map = BTreeMap::new();
+        for source in node_order {
+            let target = choose_id(
+                Some(source),
+                state.claimed_nodes,
+                state.next_node,
+                DecodeTableError::NodeIdsExhausted,
+            )?;
+            let mut node = cell.nodes[&source].clone();
+            node.id = target;
+            state.graph.nodes.insert(target, node);
+            node_map.insert(source, target);
+        }
+        let attribute_id = choose_id(
+            cell.attribute.id,
+            state.claimed_edges,
+            state.next_edge,
+            DecodeTableError::EdgeIdsExhausted,
+        )?;
+        if !cell.attribute.has_source {
+            state.created_edges.insert(attribute_id);
+        }
+        state.graph.edges.insert(
+            attribute_id,
+            GEdge {
+                src: row,
+                tgt: node_map[&cell.root],
+                label: arrow.clone(),
+                position: cell.attribute.position,
+            },
+        );
+        for source_id in edge_order {
+            let edge = &cell.edges[&source_id];
+            let target_id = choose_id(
+                Some(source_id),
+                state.claimed_edges,
+                state.next_edge,
+                DecodeTableError::EdgeIdsExhausted,
+            )?;
+            let mut moved = edge.clone();
+            moved.src = node_map[&edge.src];
+            moved.tgt = node_map[&edge.tgt];
+            state.graph.edges.insert(target_id, moved);
+        }
+        Ok(())
     }
 
     fn take_id(next: &mut Option<u32>) -> Option<u32> {
@@ -529,11 +1144,988 @@ pub mod encode {
     pub enum GraphKanError {
         /// The input is not encodable.
         NotEncodable(Box<NotEncodable>),
-        /// The table functor refused.
-        Kan(Box<KanError>),
-        /// Decoding the result refused a malformed or nonconforming table, or
-        /// exhausted a reserved graph id.
-        Decode(DecodeTableError),
+        /// A table Kan extension or conformance check refused.
+        Adjunction(Box<rel::AdjunctionError>),
+        /// A schema has no relational classification.
+        RelSchema(Box<rel::RelSchemaError>),
+        /// The migration has no relational functor.
+        Functor(Box<rel::FunctorError>),
+        /// A graph Kan homomorphism refused.
+        Hom(Box<rel::HomError>),
+        /// No non-reserved node id remains for a decoded value node.
+        NodeIdsExhausted,
+        /// No non-reserved edge id remains for a decoded cell or relation edge.
+        EdgeIdsExhausted,
+        /// Created outgoing edges cannot be positioned after carried edges.
+        EdgePositionsExhausted {
+            /// Least source node at which positioning overflows.
+            node: u32,
+        },
+    }
+
+    fn graph_decode_error(error: DecodeTableError) -> GraphKanError {
+        match error {
+            DecodeTableError::NodeIdsExhausted => GraphKanError::NodeIdsExhausted,
+            DecodeTableError::EdgeIdsExhausted => GraphKanError::EdgeIdsExhausted,
+            DecodeTableError::EdgePositionsExhausted { node } => {
+                GraphKanError::EdgePositionsExhausted { node }
+            }
+            DecodeTableError::NonConforming(reason) => {
+                GraphKanError::Adjunction(Box::new(rel::AdjunctionError::NonConforming(reason)))
+            }
+            DecodeTableError::MalformedTable => {
+                GraphKanError::Adjunction(Box::new(rel::AdjunctionError::MalformedTable))
+            }
+        }
+    }
+
+    fn graph_adjunction_error(error: KanError) -> GraphKanError {
+        GraphKanError::Adjunction(Box::new(error.into()))
+    }
+
+    /// A homomorphism between encodable graphs over one relational side.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct GraphKanHom {
+        /// Map on table nodes; value-subtree and relation-edge images are induced.
+        pub node_map: BTreeMap<u32, u32>,
+        /// Image of each labelled null of the domain.
+        pub null_map: BTreeMap<u64, Value>,
+    }
+
+    impl GraphKanHom {
+        /// Identity on an encodable graph.
+        ///
+        /// # Errors
+        ///
+        /// The graph's first [`NotEncodable`] reason.
+        pub fn identity(graph: &Graph, side: &GraphSide) -> Result<Self, GraphKanError> {
+            let (table, _) = encode_graph(graph, side)
+                .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+            Ok(Self {
+                node_map: table.rows.keys().map(|row| (*row, *row)).collect(),
+                null_map: BTreeMap::new(),
+            })
+        }
+
+        /// Check this homomorphism in graph-encoding then table-hom order.
+        ///
+        /// # Errors
+        ///
+        /// The domain's first encoding error, the codomain's, then the first
+        /// [`rel::HomError`].
+        pub fn check(
+            &self,
+            domain: &Graph,
+            codomain: &Graph,
+            side: &GraphSide,
+        ) -> Result<(), GraphKanError> {
+            let (domain, _) = encode_graph(domain, side)
+                .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+            let (codomain, _) = encode_graph(codomain, side)
+                .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+            self.as_table()
+                .check(&domain, &codomain)
+                .map_err(|error| GraphKanError::Hom(Box::new(error)))
+        }
+
+        /// Compose `self: A -> B` with `after: B -> C`.
+        ///
+        /// # Errors
+        ///
+        /// The least missing intermediate row.
+        pub fn compose(&self, after: &Self) -> Result<Self, GraphKanError> {
+            self.as_table()
+                .compose(&after.as_table())
+                .map(Self::from_table)
+                .map_err(|error| GraphKanError::Hom(Box::new(error)))
+        }
+
+        /// Equality after normalising explicit identity null images.
+        #[must_use]
+        pub fn same_as(&self, other: &Self) -> bool {
+            self.as_table().normalized_same_as(&other.as_table())
+        }
+
+        fn as_table(&self) -> rel::Hom {
+            rel::Hom {
+                rows: self.node_map.clone(),
+                nulls: self.null_map.clone(),
+            }
+        }
+
+        fn from_table(hom: rel::Hom) -> Self {
+            Self {
+                node_map: hom.rows,
+                null_map: hom.nulls,
+            }
+        }
+    }
+
+    fn move_cell(
+        cell: &CellLayout,
+        root: &str,
+        mut image: impl FnMut(&SEdge, &str) -> Option<SEdge>,
+    ) -> Option<CellLayout> {
+        let (_, edge_order) = cell_order(cell).ok()?;
+        let mut anchors = BTreeMap::from([(cell.root, root.to_owned())]);
+        let mut moved = cell.clone();
+        for edge_id in edge_order {
+            let edge = cell.edges.get(&edge_id)?;
+            let mapped = image(&edge.label, anchors.get(&edge.src)?)?;
+            match anchors.entry(edge.tgt) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(mapped.tgt.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(entry)
+                    if entry.get() != &mapped.tgt =>
+                {
+                    return None;
+                }
+                std::collections::btree_map::Entry::Occupied(_) => {}
+            }
+            moved.edges.get_mut(&edge_id)?.label = mapped;
+        }
+        for (id, node) in &mut moved.nodes {
+            node.anchor.clone_from(anchors.get(id)?);
+        }
+        Some(moved)
+    }
+
+    fn forward_inner(f: &RelFunctor, edge: &SEdge, source_image: &str) -> Option<SEdge> {
+        if let Some(image) = f.inner_edges.get(edge) {
+            return (image.src == source_image).then(|| image.clone());
+        }
+        let target = f
+            .value_vertices
+            .get(&edge.tgt)
+            .cloned()
+            .unwrap_or_else(|| edge.tgt.clone());
+        let image = SEdge {
+            src: source_image.to_owned(),
+            tgt: target,
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        };
+        f.tgt.inner_edges.contains(&image).then_some(image)
+    }
+
+    fn move_forward(cell: &CellLayout, arrow: &SEdge, f: &RelFunctor) -> Option<CellLayout> {
+        move_cell(cell, &arrow.tgt, |edge, source| {
+            forward_inner(f, edge, source)
+        })
+    }
+
+    fn move_back(cell: &CellLayout, arrow: &SEdge, f: &RelFunctor) -> Option<CellLayout> {
+        move_cell(cell, &arrow.tgt, |target, source| {
+            let mut preimages = f
+                .src
+                .inner_edges
+                .iter()
+                .filter(|candidate| candidate.src == source)
+                .filter(|candidate| {
+                    let source_image = f
+                        .value_vertices
+                        .get(&candidate.src)
+                        .map_or(candidate.src.as_str(), String::as_str);
+                    forward_inner(f, candidate, source_image).as_ref() == Some(target)
+                });
+            let first = preimages.next()?.clone();
+            preimages.next().is_none().then_some(first)
+        })
+    }
+
+    fn relation_is_injective_at(f: &RelFunctor, source: &SEdge) -> bool {
+        let Some(image) = f.relations.get(source) else {
+            return false;
+        };
+        f.relations
+            .values()
+            .filter(|candidate| *candidate == image)
+            .count()
+            == 1
+            && f.fibre(&image.src).len() == 1
+            && f.fibre(&image.tgt).len() == 1
+    }
+
+    fn selected_relation_layout(
+        input: &GraphLayout,
+        contributors: &[(SEdge, u32, u32)],
+        retain_id: bool,
+    ) -> EdgeLayout {
+        let entries: Vec<EdgeLayout> = contributors
+            .iter()
+            .filter_map(|key| input.relations.get(key).copied())
+            .collect();
+        EdgeLayout {
+            id: retain_id
+                .then(|| entries.first().and_then(|entry| entry.id))
+                .flatten(),
+            position: entries.iter().filter_map(|entry| entry.position).min(),
+            has_source: !entries.is_empty(),
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum SigmaLayoutTerm {
+        Slot(u32, String),
+        Null(u64),
+        Constant(Vec<u8>),
+    }
+
+    fn sigma_layout_term(value: &Value) -> SigmaLayoutTerm {
+        match value {
+            Value::LabeledNull(id) => SigmaLayoutTerm::Null(*id),
+            other => {
+                SigmaLayoutTerm::Constant(crate::canonical::value_bytes(other).unwrap_or_default())
+            }
+        }
+    }
+
+    fn sigma_layout_classes(
+        input: &Table,
+        output: &Table,
+        f: &RelFunctor,
+    ) -> BTreeMap<SigmaLayoutTerm, usize> {
+        fn ensure(
+            labels: &mut BTreeMap<SigmaLayoutTerm, usize>,
+            next: &mut usize,
+            term: SigmaLayoutTerm,
+        ) {
+            if let std::collections::btree_map::Entry::Vacant(entry) = labels.entry(term) {
+                entry.insert(*next);
+                *next += 1;
+            }
+        }
+        fn join(
+            labels: &mut BTreeMap<SigmaLayoutTerm, usize>,
+            next: &mut usize,
+            left: &SigmaLayoutTerm,
+            right: &SigmaLayoutTerm,
+        ) {
+            ensure(labels, next, left.clone());
+            ensure(labels, next, right.clone());
+            let (a, b) = (labels[left], labels[right]);
+            if a != b {
+                for label in labels.values_mut() {
+                    if *label == b {
+                        *label = a;
+                    }
+                }
+            }
+        }
+
+        let mut labels = BTreeMap::new();
+        let mut next = 0;
+        for (row, (target_table, target_cells)) in &output.rows {
+            let Some((source_table, source_cells)) = input.rows.get(row) else {
+                continue;
+            };
+            if f.tables.get(source_table) != Some(target_table) {
+                continue;
+            }
+            for target_column in target_cells.keys() {
+                let slot = SigmaLayoutTerm::Slot(*row, target_column.clone());
+                ensure(&mut labels, &mut next, slot.clone());
+                for ((table, source_column), image) in &f.columns {
+                    if table == source_table
+                        && image == target_column
+                        && let Some(value) = source_cells.get(source_column)
+                    {
+                        join(&mut labels, &mut next, &slot, &sigma_layout_term(value));
+                    }
+                }
+            }
+        }
+        labels
+    }
+
+    fn sigma_layout(
+        input: &Table,
+        input_layout: &GraphLayout,
+        output: &Table,
+        f: &RelFunctor,
+    ) -> GraphLayout {
+        let target = GraphSide::whole(&f.tgt);
+        let mut layout = GraphLayout {
+            reserved_node_ids: input_layout.reserved_node_ids.clone(),
+            reserved_edge_ids: input_layout.reserved_edge_ids.clone(),
+            ..GraphLayout::default()
+        };
+        let classes = sigma_layout_classes(input, output, f);
+        for (row, (_source_table, _)) in &input.rows {
+            if output.rows.contains_key(row)
+                && let Some(node) = input_layout.table_nodes.get(row)
+            {
+                layout.table_nodes.insert(*row, node.clone());
+            }
+            let Some((target_table, target_cells)) = output.rows.get(row) else {
+                continue;
+            };
+            for (target_column, value) in target_cells {
+                let Some(arrow) = target
+                    .columns
+                    .get(target_table)
+                    .and_then(|columns| columns.get(target_column))
+                else {
+                    continue;
+                };
+                let slot = SigmaLayoutTerm::Slot(*row, target_column.clone());
+                let Some(slot_class) = classes.get(&slot) else {
+                    continue;
+                };
+                let mut origins = Vec::new();
+                for (source_row, (origin_table, origin_cells)) in &input.rows {
+                    for ((table, source_column), image_column) in &f.columns {
+                        if table == origin_table
+                            && let Some(origin_value) = origin_cells.get(source_column)
+                            && classes.get(&sigma_layout_term(origin_value)) == Some(slot_class)
+                            && let Some(image_table) = f.tables.get(origin_table)
+                            && let Some(image_arrow) = target
+                                .columns
+                                .get(image_table)
+                                .and_then(|columns| columns.get(image_column))
+                        {
+                            origins.push((
+                                origin_table.clone(),
+                                *source_row,
+                                source_column.clone(),
+                                image_arrow.clone(),
+                            ));
+                        }
+                    }
+                }
+                origins.sort();
+                let candidate =
+                    origins
+                        .into_iter()
+                        .find_map(|(_, source_row, source_column, image_arrow)| {
+                            input_layout
+                                .cells
+                                .get(&(source_row, source_column))
+                                .and_then(|cell| move_forward(cell, &image_arrow, f))
+                                .filter(|cell| cell_fits(cell, value, arrow, &target))
+                        });
+                if let Some(cell) = candidate {
+                    layout.cells.insert((*row, target_column.clone()), cell);
+                }
+            }
+        }
+        for (target_edge, source, target_row) in &output.pairs {
+            let contributors: Vec<(SEdge, u32, u32)> = f
+                .relations
+                .iter()
+                .filter(|(_, image)| *image == target_edge)
+                .filter(|(edge, _)| {
+                    input
+                        .pairs
+                        .contains(&((*edge).clone(), *source, *target_row))
+                })
+                .map(|(edge, _)| (edge.clone(), *source, *target_row))
+                .collect();
+            let retain = contributors.len() == 1 && relation_is_injective_at(f, &contributors[0].0);
+            layout.relations.insert(
+                (target_edge.clone(), *source, *target_row),
+                selected_relation_layout(input_layout, &contributors, retain),
+            );
+        }
+        layout
+    }
+
+    fn delta_layout(
+        input: &Table,
+        input_layout: &GraphLayout,
+        output: &Table,
+        provenance: &rel::DeltaProvenance,
+        f: &RelFunctor,
+    ) -> GraphLayout {
+        let source = GraphSide::kept(f);
+        let mut layout = GraphLayout {
+            reserved_node_ids: input_layout.reserved_node_ids.clone(),
+            reserved_edge_ids: input_layout.reserved_edge_ids.clone(),
+            ..GraphLayout::default()
+        };
+        for (row, (source_table, original)) in provenance {
+            if let Some(node) = input_layout.table_nodes.get(original) {
+                layout.table_nodes.insert(*row, node.clone());
+            }
+            let Some((_, cells)) = output.rows.get(row) else {
+                continue;
+            };
+            for (column, value) in cells {
+                let Some(source_arrow) = source
+                    .columns
+                    .get(source_table)
+                    .and_then(|columns| columns.get(column))
+                else {
+                    continue;
+                };
+                let Some(target_column) = f.columns.get(&(source_table.clone(), column.clone()))
+                else {
+                    continue;
+                };
+                let Some((target_table, _)) = input.rows.get(original) else {
+                    continue;
+                };
+                let Some(target_arrow) = f
+                    .tgt
+                    .columns
+                    .get(target_table)
+                    .and_then(|columns| columns.get(target_column))
+                else {
+                    continue;
+                };
+                let candidate = input_layout
+                    .cells
+                    .get(&(*original, target_column.clone()))
+                    .and_then(|cell| move_back(cell, source_arrow, f))
+                    .filter(|cell| cell_fits(cell, value, source_arrow, &source));
+                if let Some(cell) = candidate {
+                    let _ = target_arrow;
+                    layout.cells.insert((*row, column.clone()), cell);
+                }
+            }
+        }
+        for (source_edge, from, to) in &output.pairs {
+            let contributors = provenance
+                .get(from)
+                .zip(provenance.get(to))
+                .and_then(|((_, original_from), (_, original_to))| {
+                    f.relations.get(source_edge).map(|target_edge| {
+                        vec![(target_edge.clone(), *original_from, *original_to)]
+                    })
+                })
+                .unwrap_or_default();
+            layout.relations.insert(
+                (source_edge.clone(), *from, *to),
+                selected_relation_layout(
+                    input_layout,
+                    &contributors,
+                    relation_is_injective_at(f, source_edge),
+                ),
+            );
+        }
+        layout
+    }
+
+    fn pi_layout(
+        input: &Table,
+        input_layout: &GraphLayout,
+        output: &Table,
+        provenance: &rel::PiProvenance,
+        f: &RelFunctor,
+    ) -> GraphLayout {
+        let target = GraphSide::whole(&f.tgt);
+        let mut layout = GraphLayout {
+            reserved_node_ids: input_layout.reserved_node_ids.clone(),
+            reserved_edge_ids: input_layout.reserved_edge_ids.clone(),
+            ..GraphLayout::default()
+        };
+        for (row, (target_table, tuple)) in provenance {
+            let fibre = f.fibre(target_table);
+            if let [only] = tuple.as_slice()
+                && let Some(node) = input_layout.table_nodes.get(only)
+            {
+                layout.table_nodes.insert(*row, node.clone());
+            }
+            let Some((_, cells)) = output.rows.get(row) else {
+                continue;
+            };
+            for (target_column, value) in cells {
+                let Some(arrow) = target
+                    .columns
+                    .get(target_table)
+                    .and_then(|columns| columns.get(target_column))
+                else {
+                    continue;
+                };
+                let mut contributors = Vec::new();
+                for (source_table, source_row) in fibre.iter().zip(tuple) {
+                    for ((table, source_column), image) in &f.columns {
+                        if table == source_table && image == target_column {
+                            contributors.push((
+                                source_table.clone(),
+                                *source_row,
+                                source_column.clone(),
+                            ));
+                        }
+                    }
+                }
+                contributors.sort();
+                let candidate = contributors
+                    .into_iter()
+                    .find_map(|(_, source_row, column)| {
+                        input_layout
+                            .cells
+                            .get(&(source_row, column))
+                            .and_then(|cell| move_forward(cell, arrow, f))
+                            .filter(|cell| cell_fits(cell, value, arrow, &target))
+                    });
+                if let Some(cell) = candidate {
+                    layout.cells.insert((*row, target_column.clone()), cell);
+                }
+            }
+        }
+        for (target_edge, from, to) in &output.pairs {
+            let contributors: Vec<(SEdge, u32, u32)> = f
+                .relations
+                .iter()
+                .filter(|(_, image)| *image == target_edge)
+                .filter_map(|(source_edge, _)| {
+                    let (_, from_tuple) = provenance.get(from)?;
+                    let (_, to_tuple) = provenance.get(to)?;
+                    let from_fibre = f.fibre(&target_edge.src);
+                    let to_fibre = f.fibre(&target_edge.tgt);
+                    let source_row = from_fibre
+                        .iter()
+                        .position(|table| table == &source_edge.src)
+                        .and_then(|index| from_tuple.get(index))?;
+                    let target_row = to_fibre
+                        .iter()
+                        .position(|table| table == &source_edge.tgt)
+                        .and_then(|index| to_tuple.get(index))?;
+                    input
+                        .pairs
+                        .contains(&(source_edge.clone(), *source_row, *target_row))
+                        .then(|| (source_edge.clone(), *source_row, *target_row))
+                })
+                .collect();
+            let retain = contributors.len() == 1 && relation_is_injective_at(f, &contributors[0].0);
+            layout.relations.insert(
+                (target_edge.clone(), *from, *to),
+                selected_relation_layout(input_layout, &contributors, retain),
+            );
+        }
+        layout
+    }
+
+    type CellKey = (u32, String);
+    type RelationKey = (SEdge, u32, u32);
+
+    #[derive(Default)]
+    struct GraphOrigins {
+        rows: BTreeMap<u32, BTreeSet<u32>>,
+        cells: BTreeMap<CellKey, BTreeSet<CellKey>>,
+        relations: BTreeMap<RelationKey, BTreeSet<RelationKey>>,
+    }
+
+    fn sigma_origins(input: &Table, output: &Table, f: &RelFunctor) -> GraphOrigins {
+        let classes = sigma_layout_classes(input, output, f);
+        let mut origins = GraphOrigins::default();
+        for (row, (_, cells)) in &output.rows {
+            if input.rows.contains_key(row) {
+                origins.rows.insert(*row, BTreeSet::from([*row]));
+            }
+            for target_column in cells.keys() {
+                let Some(class) = classes.get(&SigmaLayoutTerm::Slot(*row, target_column.clone()))
+                else {
+                    continue;
+                };
+                let mut contributors = BTreeSet::new();
+                for (source_row, (source_table, source_cells)) in &input.rows {
+                    for (table, column) in f.columns.keys() {
+                        if table == source_table
+                            && let Some(value) = source_cells.get(column)
+                            && classes.get(&sigma_layout_term(value)) == Some(class)
+                        {
+                            contributors.insert((*source_row, column.clone()));
+                        }
+                    }
+                }
+                origins
+                    .cells
+                    .insert((*row, target_column.clone()), contributors);
+            }
+        }
+        for (edge, source, target) in &output.pairs {
+            let contributors = f
+                .relations
+                .iter()
+                .filter(|(_, image)| *image == edge)
+                .filter(|(source_edge, _)| {
+                    input
+                        .pairs
+                        .contains(&((*source_edge).clone(), *source, *target))
+                })
+                .map(|(source_edge, _)| (source_edge.clone(), *source, *target))
+                .collect();
+            origins
+                .relations
+                .insert((edge.clone(), *source, *target), contributors);
+        }
+        origins
+    }
+
+    fn delta_origins(
+        input: &Table,
+        output: &Table,
+        provenance: &rel::DeltaProvenance,
+        f: &RelFunctor,
+    ) -> GraphOrigins {
+        let mut origins = GraphOrigins::default();
+        for (row, (source_table, original)) in provenance {
+            origins.rows.insert(*row, BTreeSet::from([*original]));
+            if let Some((_, cells)) = output.rows.get(row) {
+                for column in cells.keys() {
+                    let contributors = f
+                        .columns
+                        .get(&(source_table.clone(), column.clone()))
+                        .map(|target_column| BTreeSet::from([(*original, target_column.clone())]))
+                        .unwrap_or_default();
+                    origins.cells.insert((*row, column.clone()), contributors);
+                }
+            }
+        }
+        for (edge, source, target) in &output.pairs {
+            let contributors = provenance
+                .get(source)
+                .zip(provenance.get(target))
+                .and_then(|((_, original_source), (_, original_target))| {
+                    f.relations.get(edge).map(|target_edge| {
+                        BTreeSet::from([(target_edge.clone(), *original_source, *original_target)])
+                    })
+                })
+                .unwrap_or_default();
+            origins
+                .relations
+                .insert((edge.clone(), *source, *target), contributors);
+        }
+        let _ = input;
+        origins
+    }
+
+    fn pi_origins(
+        input: &Table,
+        output: &Table,
+        provenance: &rel::PiProvenance,
+        f: &RelFunctor,
+    ) -> GraphOrigins {
+        let mut origins = GraphOrigins::default();
+        for (row, (target_table, tuple)) in provenance {
+            origins.rows.insert(*row, tuple.iter().copied().collect());
+            let fibre = f.fibre(target_table);
+            if let Some((_, cells)) = output.rows.get(row) {
+                for target_column in cells.keys() {
+                    let contributors = fibre
+                        .iter()
+                        .zip(tuple)
+                        .flat_map(|(source_table, source_row)| {
+                            f.columns
+                                .iter()
+                                .filter(move |((table, _), image)| {
+                                    table == source_table && *image == target_column
+                                })
+                                .map(move |((_, column), _)| (*source_row, column.clone()))
+                        })
+                        .collect();
+                    origins
+                        .cells
+                        .insert((*row, target_column.clone()), contributors);
+                }
+            }
+        }
+        for (edge, source, target) in &output.pairs {
+            let contributors = f
+                .relations
+                .iter()
+                .filter(|(_, image)| *image == edge)
+                .filter_map(|(source_edge, _)| {
+                    let (_, source_tuple) = provenance.get(source)?;
+                    let (_, target_tuple) = provenance.get(target)?;
+                    let source_fibre = f.fibre(&edge.src);
+                    let target_fibre = f.fibre(&edge.tgt);
+                    let source_row = source_fibre
+                        .iter()
+                        .position(|table| table == &source_edge.src)
+                        .and_then(|index| source_tuple.get(index))?;
+                    let target_row = target_fibre
+                        .iter()
+                        .position(|table| table == &source_edge.tgt)
+                        .and_then(|index| target_tuple.get(index))?;
+                    input
+                        .pairs
+                        .contains(&(source_edge.clone(), *source_row, *target_row))
+                        .then(|| (source_edge.clone(), *source_row, *target_row))
+                })
+                .collect();
+            origins
+                .relations
+                .insert((edge.clone(), *source, *target), contributors);
+        }
+        origins
+    }
+
+    fn contributor_maps(
+        graph: &Graph,
+        output_layout: &GraphLayout,
+        input_layout: &GraphLayout,
+        origins: &GraphOrigins,
+    ) -> (BTreeMap<u32, BTreeSet<u32>>, BTreeMap<u32, BTreeSet<u32>>) {
+        let mut nodes: BTreeMap<u32, BTreeSet<u32>> = graph
+            .nodes
+            .keys()
+            .map(|node| (*node, BTreeSet::new()))
+            .collect();
+        let mut edges: BTreeMap<u32, BTreeSet<u32>> = graph
+            .edges
+            .keys()
+            .map(|edge| (*edge, BTreeSet::new()))
+            .collect();
+        for (row, contributors) in &origins.rows {
+            nodes.entry(*row).or_default().extend(contributors);
+        }
+        for (key, output_cell) in &output_layout.cells {
+            let source_cells: Vec<&CellLayout> = origins
+                .cells
+                .get(key)
+                .into_iter()
+                .flatten()
+                .filter_map(|source| input_layout.cells.get(source))
+                .collect();
+            let source_nodes: BTreeSet<u32> = source_cells
+                .iter()
+                .flat_map(|cell| cell.nodes.keys().copied())
+                .collect();
+            let source_edges: BTreeSet<u32> = source_cells
+                .iter()
+                .flat_map(|cell| {
+                    cell.attribute
+                        .id
+                        .into_iter()
+                        .chain(cell.edges.keys().copied())
+                })
+                .collect();
+            for node in output_cell.nodes.keys() {
+                nodes.entry(*node).or_default().extend(&source_nodes);
+            }
+            if let Some(attribute) = output_cell.attribute.id {
+                edges.entry(attribute).or_default().extend(&source_edges);
+            }
+            for edge in output_cell.edges.keys() {
+                edges.entry(*edge).or_default().extend(&source_edges);
+            }
+        }
+        for (key, output_edge) in &output_layout.relations {
+            let source_edges = origins
+                .relations
+                .get(key)
+                .into_iter()
+                .flatten()
+                .filter_map(|source| input_layout.relations.get(source)?.id);
+            if let Some(output) = output_edge.id {
+                edges.entry(output).or_default().extend(source_edges);
+            }
+        }
+        (nodes, edges)
+    }
+
+    /// Graph provenance for Sigma.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct GraphSigmaProvenance {
+        /// Table Sigma provenance.
+        pub table: rel::SigmaProvenance,
+        /// Every output node with every contributing input node.
+        pub nodes: BTreeMap<u32, BTreeSet<u32>>,
+        /// Every output edge with every contributing input edge.
+        pub edges: BTreeMap<u32, BTreeSet<u32>>,
+    }
+
+    /// Graph provenance for Delta.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct GraphDeltaProvenance {
+        /// Table Delta provenance.
+        pub table: rel::DeltaProvenance,
+        /// Every output node with every contributing input node.
+        pub nodes: BTreeMap<u32, BTreeSet<u32>>,
+        /// Every output edge with every contributing input edge.
+        pub edges: BTreeMap<u32, BTreeSet<u32>>,
+    }
+
+    /// Graph provenance for Pi.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct GraphPiProvenance {
+        /// Table Pi provenance.
+        pub table: rel::PiProvenance,
+        /// Every output node with every contributing input node.
+        pub nodes: BTreeMap<u32, BTreeSet<u32>>,
+        /// Every output edge with every contributing input edge.
+        pub edges: BTreeMap<u32, BTreeSet<u32>>,
+    }
+
+    fn checked_functor(
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+    ) -> Result<RelFunctor, GraphKanError> {
+        let source = rel::classify(
+            source_schema,
+            &source_protocol.value,
+            &source_protocol.non_value,
+        )
+        .map_err(|error| GraphKanError::RelSchema(Box::new(error)))?;
+        let target = rel::classify(
+            target_schema,
+            &target_protocol.value,
+            &target_protocol.non_value,
+        )
+        .map_err(|error| GraphKanError::RelSchema(Box::new(error)))?;
+        rel::entity_functor(&source, &target, migration)
+            .and_then(rel::EntityFunctor::into_kan)
+            .map_err(|error| GraphKanError::Functor(Box::new(error)))
+    }
+
+    /// Graph Sigma for a migration between strictly classified schemas.
+    ///
+    /// # Errors
+    ///
+    /// Source classification, target classification, functor construction,
+    /// encoding, table Sigma, then decoding, preserving the first reason.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_sigma(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+    ) -> Result<Graph, GraphKanError> {
+        g_sigma_with_provenance(
+            graph,
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+        )
+        .map(|(result, _)| result)
+    }
+
+    /// Schema-taking graph Sigma with graph and table provenance.
+    ///
+    /// # Errors
+    ///
+    /// As [`g_sigma`].
+    pub fn g_sigma_with_provenance(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+    ) -> Result<(Graph, GraphSigmaProvenance), GraphKanError> {
+        let functor = checked_functor(
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+        )?;
+        g_sigma_along_with_provenance(&functor, graph)
+    }
+
+    /// Graph Delta for a migration between strictly classified schemas.
+    ///
+    /// # Errors
+    ///
+    /// Source classification, target classification, functor construction,
+    /// encoding, table Delta, then decoding, preserving the first reason.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_delta(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+    ) -> Result<Graph, GraphKanError> {
+        g_delta_with_provenance(
+            graph,
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+        )
+        .map(|(result, _)| result)
+    }
+
+    /// Schema-taking graph Delta with graph and table provenance.
+    ///
+    /// # Errors
+    ///
+    /// As [`g_delta`].
+    pub fn g_delta_with_provenance(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+    ) -> Result<(Graph, GraphDeltaProvenance), GraphKanError> {
+        let functor = checked_functor(
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+        )?;
+        g_delta_along_with_provenance(&functor, graph)
+    }
+
+    /// Graph Pi for a migration between strictly classified schemas.
+    ///
+    /// # Errors
+    ///
+    /// Source classification, target classification, functor construction,
+    /// encoding, table Pi, then decoding, preserving the first reason.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_pi(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+        max_product_size: usize,
+    ) -> Result<Graph, GraphKanError> {
+        g_pi_with_provenance(
+            graph,
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+            max_product_size,
+        )
+        .map(|(result, _)| result)
+    }
+
+    /// Schema-taking graph Pi with graph and table provenance.
+    ///
+    /// # Errors
+    ///
+    /// As [`g_pi`].
+    pub fn g_pi_with_provenance(
+        graph: &Graph,
+        source_schema: &crate::schema::Schema,
+        source_protocol: &KindPartition,
+        target_schema: &crate::schema::Schema,
+        target_protocol: &KindPartition,
+        migration: &crate::migration::Migration,
+        max_product_size: usize,
+    ) -> Result<(Graph, GraphPiProvenance), GraphKanError> {
+        let functor = checked_functor(
+            source_schema,
+            source_protocol,
+            target_schema,
+            target_protocol,
+            migration,
+        )?;
+        g_pi_along_with_provenance(&functor, graph, max_product_size)
     }
 
     /// Definition: Graph Delta is decode over the kept part of Delta of the encoding over
@@ -544,11 +2136,39 @@ pub mod encode {
     /// [`GraphKanError`].
     ///
     /// Book anchors: `L-kan-extensions-8`.
-    pub fn g_delta(f: &RelFunctor, h: &Graph) -> Result<Graph, GraphKanError> {
-        let t = encode_graph(h, &GraphSide::whole(&f.tgt))
+    pub fn g_delta_along(f: &RelFunctor, h: &Graph) -> Result<Graph, GraphKanError> {
+        g_delta_along_with_provenance(f, h).map(|(graph, _)| graph)
+    }
+
+    /// Graph Delta along a checked functor, with every graph contributor.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_delta_along_with_provenance(
+        f: &RelFunctor,
+        h: &Graph,
+    ) -> Result<(Graph, GraphDeltaProvenance), GraphKanError> {
+        let (t, input_layout) = encode_graph(h, &GraphSide::whole(&f.tgt))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
-        let (d, _) = rel::delta(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        decode_table(&d, &GraphSide::kept(f)).map_err(GraphKanError::Decode)
+        let (d, table) = rel::delta(f, &t).map_err(graph_adjunction_error)?;
+        let origins = delta_origins(&t, &d, &table, f);
+        let layout = delta_layout(&t, &input_layout, &d, &table, f);
+        let side = GraphSide::kept(f);
+        let graph = decode_table(&d, &side, &layout).map_err(graph_decode_error)?;
+        let (_, output_layout) = encode_graph(&graph, &side)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+        let (nodes, edges) = contributor_maps(&graph, &output_layout, &input_layout, &origins);
+        Ok((
+            graph,
+            GraphDeltaProvenance {
+                table,
+                nodes,
+                edges,
+            },
+        ))
     }
 
     /// Definition: Graph Sigma is decode over the target of Sigma of the encoding over the
@@ -559,11 +2179,77 @@ pub mod encode {
     /// [`GraphKanError`].
     ///
     /// Book anchors: `L-kan-extensions-8`.
-    pub fn g_sigma(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
-        let t = encode_graph(g, &GraphSide::whole(&f.src))
+    pub fn g_sigma_along(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
+        g_sigma_along_with_provenance(f, g).map(|(graph, _)| graph)
+    }
+
+    /// Graph Sigma along a checked functor, with every graph contributor.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_sigma_along_with_provenance(
+        f: &RelFunctor,
+        g: &Graph,
+    ) -> Result<(Graph, GraphSigmaProvenance), GraphKanError> {
+        let (t, input_layout) = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
-        let (s, _) = rel::sigma(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        decode_table(&s, &GraphSide::whole(&f.tgt)).map_err(GraphKanError::Decode)
+        let (s, table) = rel::sigma(f, &t).map_err(graph_adjunction_error)?;
+        let origins = sigma_origins(&t, &s, f);
+        let layout = sigma_layout(&t, &input_layout, &s, f);
+        let side = GraphSide::whole(&f.tgt);
+        let graph = decode_table(&s, &side, &layout).map_err(graph_decode_error)?;
+        let (_, output_layout) = encode_graph(&graph, &side)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+        let (nodes, edges) = contributor_maps(&graph, &output_layout, &input_layout, &origins);
+        Ok((
+            graph,
+            GraphSigmaProvenance {
+                table,
+                nodes,
+                edges,
+            },
+        ))
+    }
+
+    /// Graph Sigma of an instance already over the kept source side.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    pub fn g_sigma_restricted(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
+        g_sigma_restricted_with_provenance(f, g).map(|(graph, _)| graph)
+    }
+
+    /// Restricted graph Sigma with every graph contributor.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    pub fn g_sigma_restricted_with_provenance(
+        f: &RelFunctor,
+        g: &Graph,
+    ) -> Result<(Graph, GraphSigmaProvenance), GraphKanError> {
+        let (t, input_layout) = encode_graph(g, &GraphSide::kept(f))
+            .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
+        let (s, table) = super::rel::sigma_restricted(f, &t).map_err(graph_adjunction_error)?;
+        let origins = sigma_origins(&t, &s, f);
+        let layout = sigma_layout(&t, &input_layout, &s, f);
+        let side = GraphSide::whole(&f.tgt);
+        let graph = decode_table(&s, &side, &layout).map_err(graph_decode_error)?;
+        let (_, output_layout) = encode_graph(&graph, &side)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+        let (nodes, edges) = contributor_maps(&graph, &output_layout, &input_layout, &origins);
+        Ok((
+            graph,
+            GraphSigmaProvenance {
+                table,
+                nodes,
+                edges,
+            },
+        ))
     }
 
     /// Definition: Graph Pi is decode over the target of Pi of the encoding over the source.
@@ -573,11 +2259,418 @@ pub mod encode {
     /// [`GraphKanError`].
     ///
     /// Book anchors: `L-kan-extensions-8`.
-    pub fn g_pi(f: &RelFunctor, g: &Graph) -> Result<Graph, GraphKanError> {
-        let t = encode_graph(g, &GraphSide::whole(&f.src))
+    pub fn g_pi_along(
+        f: &RelFunctor,
+        g: &Graph,
+        max_product_size: usize,
+    ) -> Result<Graph, GraphKanError> {
+        g_pi_along_with_provenance(f, g, max_product_size).map(|(graph, _)| graph)
+    }
+
+    /// Graph Pi along a checked functor, with every graph contributor.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    pub fn g_pi_along_with_provenance(
+        f: &RelFunctor,
+        g: &Graph,
+        max_product_size: usize,
+    ) -> Result<(Graph, GraphPiProvenance), GraphKanError> {
+        let (t, input_layout) = encode_graph(g, &GraphSide::whole(&f.src))
             .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
-        let (p, _) = rel::pi(f, &t).map_err(|e| GraphKanError::Kan(Box::new(e)))?;
-        decode_table(&p, &GraphSide::whole(&f.tgt)).map_err(GraphKanError::Decode)
+        let (p, table) = rel::pi(f, &t, max_product_size).map_err(graph_adjunction_error)?;
+        let origins = pi_origins(&t, &p, &table, f);
+        let layout = pi_layout(&t, &input_layout, &p, &table, f);
+        let side = GraphSide::whole(&f.tgt);
+        let graph = decode_table(&p, &side, &layout).map_err(graph_decode_error)?;
+        let (_, output_layout) = encode_graph(&graph, &side)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+        let (nodes, edges) = contributor_maps(&graph, &output_layout, &input_layout, &origins);
+        Ok((
+            graph,
+            GraphPiProvenance {
+                table,
+                nodes,
+                edges,
+            },
+        ))
+    }
+
+    /// Graph Pi of an instance already over the kept source side.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    pub fn g_pi_restricted(
+        f: &RelFunctor,
+        g: &Graph,
+        max_product_size: usize,
+    ) -> Result<Graph, GraphKanError> {
+        g_pi_restricted_with_provenance(f, g, max_product_size).map(|(graph, _)| graph)
+    }
+
+    /// Restricted graph Pi with every graph contributor.
+    ///
+    /// # Errors
+    ///
+    /// [`GraphKanError`] in encoding, table-extension, then decoding order.
+    pub fn g_pi_restricted_with_provenance(
+        f: &RelFunctor,
+        g: &Graph,
+        max_product_size: usize,
+    ) -> Result<(Graph, GraphPiProvenance), GraphKanError> {
+        let (t, input_layout) = encode_graph(g, &GraphSide::kept(f))
+            .map_err(|e| GraphKanError::NotEncodable(Box::new(e)))?;
+        let (p, table) =
+            super::rel::pi_restricted(f, &t, max_product_size).map_err(graph_adjunction_error)?;
+        let origins = pi_origins(&t, &p, &table, f);
+        let layout = pi_layout(&t, &input_layout, &p, &table, f);
+        let side = GraphSide::whole(&f.tgt);
+        let graph = decode_table(&p, &side, &layout).map_err(graph_decode_error)?;
+        let (_, output_layout) = encode_graph(&graph, &side)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))?;
+        let (nodes, edges) = contributor_maps(&graph, &output_layout, &input_layout, &origins);
+        Ok((
+            graph,
+            GraphPiProvenance {
+                table,
+                nodes,
+                edges,
+            },
+        ))
+    }
+
+    fn inferred_hom(
+        domain: &Table,
+        codomain: &Table,
+        rows: BTreeMap<u32, u32>,
+    ) -> Result<rel::Hom, GraphKanError> {
+        let mut nulls: BTreeMap<u64, Value> = BTreeMap::new();
+        for (source, (_, cells)) in &domain.rows {
+            let target = rows.get(source).copied().ok_or_else(|| {
+                GraphKanError::Hom(Box::new(rel::HomError::NodeNotMapped(*source)))
+            })?;
+            let Some((_, target_cells)) = codomain.rows.get(&target) else {
+                return Err(GraphKanError::Hom(Box::new(
+                    rel::HomError::ImageNodeMissing {
+                        src: *source,
+                        tgt: target,
+                    },
+                )));
+            };
+            for (column, value) in cells {
+                let Some(image) = target_cells.get(column) else {
+                    return Err(GraphKanError::Hom(Box::new(
+                        rel::HomError::AttributeMismatch {
+                            src: *source,
+                            tgt: target,
+                        },
+                    )));
+                };
+                if let Value::LabeledNull(null) = value {
+                    if nulls.get(null).is_some_and(|prior| {
+                        crate::canonical::value_bytes(prior) != crate::canonical::value_bytes(image)
+                    }) {
+                        return Err(GraphKanError::Hom(Box::new(
+                            rel::HomError::AttributeMismatch {
+                                src: *source,
+                                tgt: target,
+                            },
+                        )));
+                    }
+                    nulls.insert(*null, image.clone());
+                }
+            }
+        }
+        let hom = rel::Hom { rows, nulls };
+        hom.check(domain, codomain)
+            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
+        Ok(hom)
+    }
+
+    fn encode_for_hom(graph: &Graph, side: &GraphSide) -> Result<Table, GraphKanError> {
+        encode_graph(graph, side)
+            .map(|(table, _)| table)
+            .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))
+    }
+
+    /// Unit of graph Sigma left adjoint to graph Delta on the kept source side.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn g_unit(graph: &Graph, f: &RelFunctor) -> Result<GraphKanHom, GraphKanError> {
+        let input = encode_for_hom(graph, &GraphSide::kept(f))?;
+        let (sigma, _) = super::rel::sigma_restricted(f, &input).map_err(graph_adjunction_error)?;
+        let (delta, copies) = rel::delta(f, &sigma).map_err(graph_adjunction_error)?;
+        let rows = input
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                copies
+                    .iter()
+                    .find(|(_, (source_table, original))| source_table == table && original == row)
+                    .map(|(copy, _)| (*row, *copy))
+            })
+            .collect();
+        inferred_hom(&input, &delta, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Counit of graph Sigma left adjoint to graph Delta on the target side.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn g_counit(graph: &Graph, f: &RelFunctor) -> Result<GraphKanHom, GraphKanError> {
+        let target = encode_for_hom(graph, &GraphSide::whole(&f.tgt))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        let (sigma, _) = super::rel::sigma_restricted(f, &delta).map_err(graph_adjunction_error)?;
+        let rows = sigma
+            .rows
+            .keys()
+            .filter_map(|row| copies.get(row).map(|(_, original)| (*row, *original)))
+            .collect();
+        inferred_hom(&sigma, &target, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Transpose `Hom(g_Sigma I, J)` to `Hom(I, g_Delta J)`.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-4`.
+    pub fn g_transpose_left(
+        hom: &GraphKanHom,
+        source: &Graph,
+        target: &Graph,
+        f: &RelFunctor,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let source = encode_for_hom(source, &GraphSide::kept(f))?;
+        let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
+        let (sigma, _) =
+            super::rel::sigma_restricted(f, &source).map_err(graph_adjunction_error)?;
+        hom.as_table()
+            .check(&sigma, &target)
+            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        let rows = source
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                let target_row = hom.node_map.get(row)?;
+                copies
+                    .iter()
+                    .find(|(_, (source_table, original))| {
+                        source_table == table && original == target_row
+                    })
+                    .map(|(copy, _)| (*row, *copy))
+            })
+            .collect();
+        inferred_hom(&source, &delta, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Inverse transpose `Hom(I, g_Delta J)` to `Hom(g_Sigma I, J)`.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-4`.
+    pub fn g_transpose_right(
+        hom: &GraphKanHom,
+        source: &Graph,
+        target: &Graph,
+        f: &RelFunctor,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let source = encode_for_hom(source, &GraphSide::kept(f))?;
+        let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        hom.as_table()
+            .check(&source, &delta)
+            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
+        let (sigma, _) =
+            super::rel::sigma_restricted(f, &source).map_err(graph_adjunction_error)?;
+        let rows = sigma
+            .rows
+            .keys()
+            .filter_map(|row| {
+                hom.node_map
+                    .get(row)
+                    .and_then(|copy| copies.get(copy))
+                    .map(|(_, original)| (*row, *original))
+            })
+            .collect();
+        inferred_hom(&sigma, &target, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Unit of graph Delta left adjoint to graph Pi on the target side.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn g_pi_unit(
+        graph: &Graph,
+        f: &RelFunctor,
+        max_product_size: usize,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let target = encode_for_hom(graph, &GraphSide::whole(&f.tgt))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        let (pi, tuples) = super::rel::pi_restricted(f, &delta, max_product_size)
+            .map_err(graph_adjunction_error)?;
+        let rows = target
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                let fibre = f.fibre(table);
+                let tuple = fibre
+                    .iter()
+                    .map(|source_table| {
+                        copies
+                            .iter()
+                            .find(|(_, (candidate, original))| {
+                                candidate == source_table && original == row
+                            })
+                            .map(|(copy, _)| *copy)
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                tuples
+                    .iter()
+                    .find(|(_, (candidate, components))| candidate == table && components == &tuple)
+                    .map(|(product, _)| (*row, *product))
+            })
+            .collect();
+        inferred_hom(&target, &pi, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Counit of graph Delta left adjoint to graph Pi on the kept source side.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn g_pi_counit(
+        graph: &Graph,
+        f: &RelFunctor,
+        max_product_size: usize,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let source = encode_for_hom(graph, &GraphSide::kept(f))?;
+        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
+            .map_err(graph_adjunction_error)?;
+        let (delta, copies) = rel::delta(f, &pi).map_err(graph_adjunction_error)?;
+        let rows = delta
+            .rows
+            .iter()
+            .filter_map(|(copy, (source_table, _))| {
+                let (_, product) = copies.get(copy)?;
+                let (target_table, tuple) = tuples.get(product)?;
+                let index = f
+                    .fibre(target_table)
+                    .iter()
+                    .position(|table| table == source_table)?;
+                tuple.get(index).map(|source_row| (*copy, *source_row))
+            })
+            .collect();
+        inferred_hom(&delta, &source, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Transpose `Hom(g_Delta J, I)` to `Hom(J, g_Pi I)`.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-5`.
+    pub fn g_pi_transpose_left(
+        hom: &GraphKanHom,
+        target: &Graph,
+        source: &Graph,
+        f: &RelFunctor,
+        max_product_size: usize,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
+        let source = encode_for_hom(source, &GraphSide::kept(f))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        hom.as_table()
+            .check(&delta, &source)
+            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
+        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
+            .map_err(graph_adjunction_error)?;
+        let rows = target
+            .rows
+            .iter()
+            .filter_map(|(row, (target_table, _))| {
+                let tuple = f
+                    .fibre(target_table)
+                    .iter()
+                    .map(|source_table| {
+                        copies
+                            .iter()
+                            .find(|(_, (candidate, original))| {
+                                candidate == source_table && original == row
+                            })
+                            .and_then(|(copy, _)| hom.node_map.get(copy))
+                            .copied()
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                tuples
+                    .iter()
+                    .find(|(_, (candidate, components))| {
+                        candidate == target_table && components == &tuple
+                    })
+                    .map(|(product, _)| (*row, *product))
+            })
+            .collect();
+        inferred_hom(&target, &pi, rows).map(GraphKanHom::from_table)
+    }
+
+    /// Inverse transpose `Hom(J, g_Pi I)` to `Hom(g_Delta J, I)`.
+    ///
+    /// # Errors
+    ///
+    /// The first encoding, table-extension or homomorphism error.
+    ///
+    /// Book anchors: `L-kan-extensions-5`.
+    pub fn g_pi_transpose_right(
+        hom: &GraphKanHom,
+        target: &Graph,
+        source: &Graph,
+        f: &RelFunctor,
+        max_product_size: usize,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
+        let source = encode_for_hom(source, &GraphSide::kept(f))?;
+        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
+            .map_err(graph_adjunction_error)?;
+        hom.as_table()
+            .check(&target, &pi)
+            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
+        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
+        let rows = delta
+            .rows
+            .iter()
+            .filter_map(|(copy, (source_table, _))| {
+                let (_, target_row) = copies.get(copy)?;
+                let product = hom.node_map.get(target_row)?;
+                let (target_table, tuple) = tuples.get(product)?;
+                let index = f
+                    .fibre(target_table)
+                    .iter()
+                    .position(|table| table == source_table)?;
+                tuple.get(index).map(|source_row| (*copy, *source_row))
+            })
+            .collect();
+        inferred_hom(&delta, &source, rows).map(GraphKanHom::from_table)
     }
 
     /// Why a tree Kan extension refuses.
@@ -679,7 +2772,7 @@ pub mod encode {
     /// Book anchors: `L-kan-extensions-10`.
     pub fn t_sigma(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
         let g = tree_graph(t)?;
-        let r = g_sigma(f, &g).map_err(TreeKanError::Graph)?;
+        let r = g_sigma_restricted(f, &g).map_err(TreeKanError::Graph)?;
         read_tree(&r)
     }
 
@@ -696,9 +2789,16 @@ pub mod encode {
     /// As [`t_sigma`], with graph Pi in place of graph Sigma.
     ///
     /// Book anchors: `L-kan-extensions-10`.
-    pub fn t_pi(f: &RelFunctor, t: &Tree) -> Result<Tree, TreeKanError> {
+    pub fn t_pi(f: &RelFunctor, t: &Tree, max_product_size: usize) -> Result<Tree, TreeKanError> {
+        if let Some((first, second, target)) = tree_pi_vertex_collision(f) {
+            return Err(TreeKanError::NonInjectiveVertexMap {
+                first,
+                second,
+                target,
+            });
+        }
         let g = tree_graph(t)?;
-        let r = g_pi(f, &g).map_err(TreeKanError::Graph)?;
+        let r = g_pi_restricted(f, &g, max_product_size).map_err(TreeKanError::Graph)?;
         read_tree(&r)
     }
 
@@ -719,6 +2819,60 @@ pub mod encode {
             }
         }
         None
+    }
+
+    fn tree_vertex_collision(f: &RelFunctor) -> Option<(Name, Name, Name)> {
+        let arrow = |schema: &RelSchema, table: &str, column: &str| {
+            schema
+                .columns
+                .get(table)
+                .and_then(|columns| columns.get(column))
+                .cloned()
+        };
+        let mut vertices: Vec<(Name, Name)> = f
+            .tables
+            .iter()
+            .map(|(source, target)| (source.clone(), target.clone()))
+            .collect();
+        for ((source_table, source_column), target_column) in &f.columns {
+            let Some(target_table) = f.tables.get(source_table) else {
+                continue;
+            };
+            let (Some(source_arrow), Some(target_arrow)) = (
+                arrow(&f.src, source_table, source_column),
+                arrow(&f.tgt, target_table, target_column),
+            ) else {
+                continue;
+            };
+            vertices.push((source_arrow.tgt.clone(), target_arrow.tgt.clone()));
+        }
+        vertices.sort();
+        vertices.dedup();
+        first_collision(vertices)
+    }
+
+    /// The Pi-specific injectivity check ranges over every vertex in the
+    /// restricted source closure.  In particular, it includes value vertices
+    /// below a column root; checking only the table and column-root maps would
+    /// miss a collision deeper in a structured value.
+    fn tree_pi_vertex_collision(f: &RelFunctor) -> Option<(Name, Name, Name)> {
+        let kept = GraphSide::kept(f);
+        let mut vertices: Vec<(Name, Name)> = f
+            .tables
+            .iter()
+            .map(|(source, target)| (source.clone(), target.clone()))
+            .collect();
+        vertices.extend(kept.value_vertices.into_iter().map(|source| {
+            let target = f
+                .value_vertices
+                .get(&source)
+                .cloned()
+                .unwrap_or_else(|| source.clone());
+            (source, target)
+        }));
+        vertices.sort();
+        vertices.dedup();
+        first_collision(vertices)
     }
 
     /// Tree Delta through the graph form, on injective maps only.
@@ -750,11 +2904,6 @@ pub mod encode {
                 .and_then(|cs| cs.get(column))
                 .cloned()
         };
-        let mut vertices: Vec<(Name, Name)> = f
-            .tables
-            .iter()
-            .map(|(s, d)| (s.clone(), d.clone()))
-            .collect();
         let mut edges: Vec<(SEdge, SEdge)> = f
             .relations
             .iter()
@@ -767,14 +2916,11 @@ pub mod encode {
             let Some(tgt) = arrow(&f.tgt, src, tc) else {
                 continue;
             };
-            vertices.push((image.tgt.clone(), tgt.tgt.clone()));
             edges.push((image, tgt));
         }
-        vertices.sort();
-        vertices.dedup();
         edges.sort();
         edges.dedup();
-        if let Some((first, second, target)) = first_collision(vertices) {
+        if let Some((first, second, target)) = tree_vertex_collision(f) {
             return Err(TreeKanError::NonInjectiveVertexMap {
                 first,
                 second,
@@ -787,7 +2933,7 @@ pub mod encode {
             });
         }
         let g = tree_graph(t)?;
-        let r = g_delta(f, &g).map_err(TreeKanError::Graph)?;
+        let r = g_delta_along(f, &g).map_err(TreeKanError::Graph)?;
         read_tree(&r)
     }
 }
@@ -979,7 +3125,64 @@ pub mod rel {
         })
     }
 
-    /// A functor between relation-ified schemas, restricted to its kept part.
+    /// The entity part of a migration, after steps 1--4a and before the
+    /// value-structure check required by the Kan extensions.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct EntityFunctor {
+        maps: RelFunctor,
+        /// Every remap whose source is an inner value edge.
+        pub inner_edges: BTreeMap<SEdge, SEdge>,
+        /// Every remap whose source is a value vertex.
+        pub value_vertices: BTreeMap<Name, Name>,
+    }
+
+    impl EntityFunctor {
+        /// The table/entity maps, which do not inspect value structure.
+        #[must_use]
+        pub const fn table_part(&self) -> &RelFunctor {
+            &self.maps
+        }
+
+        /// Run step 4b and produce the functor accepted by the Kan extensions.
+        ///
+        /// An inner edge keeps value structure precisely when its image is an
+        /// inner target edge with the same kind and written name, and the kinds
+        /// of its endpoints agree after applying the recorded vertex remap.
+        ///
+        /// # Errors
+        ///
+        /// [`FunctorError::ValueStructureRemap`] for the least bad inner edge.
+        pub fn into_kan(mut self) -> Result<RelFunctor, FunctorError> {
+            for (edge, image) in &self.inner_edges {
+                let source_image = self
+                    .value_vertices
+                    .get(&edge.src)
+                    .map_or(edge.src.as_str(), String::as_str);
+                let target_image = self
+                    .value_vertices
+                    .get(&edge.tgt)
+                    .map_or(edge.tgt.as_str(), String::as_str);
+                let keeps_structure = self.maps.tgt.inner_edges.contains(image)
+                    && image.name == edge.name
+                    && image.kind == edge.kind
+                    && image.src == source_image
+                    && image.tgt == target_image
+                    && self.maps.src.kinds.get(&edge.src) == self.maps.tgt.kinds.get(source_image)
+                    && self.maps.src.kinds.get(&edge.tgt) == self.maps.tgt.kinds.get(target_image);
+                if !keeps_structure {
+                    return Err(FunctorError::ValueStructureRemap {
+                        edge: Box::new(edge.clone()),
+                    });
+                }
+            }
+            self.maps.inner_edges = self.inner_edges;
+            self.maps.value_vertices = self.value_vertices;
+            Ok(self.maps)
+        }
+    }
+
+    /// A functor between relation-ified schemas, restricted to its kept part
+    /// and accepted by the step-4b value-structure check.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct RelFunctor {
         /// The source schema.
@@ -994,6 +3197,8 @@ pub mod rel {
         pub columns: BTreeMap<(Name, String), String>,
         /// Remap entries on inner value edges.
         pub inner_edges: BTreeMap<SEdge, SEdge>,
+        /// Remap entries on value vertices.
+        pub value_vertices: BTreeMap<Name, Name>,
     }
 
     /// Why a migration has no entity functor.
@@ -1047,10 +3252,10 @@ pub mod rel {
     /// arrow from the image table (ending at the value vertex's remap when it
     /// has one); one listed in `surviving_edges` and no image must have a
     /// target arrow from the image table with its kind and name, ending at its
-    /// value vertex's image; an unmentioned column is dropped; (4) remaps of
-    /// inner value edges are recorded, and one whose image is no target inner
-    /// edge, or changes the name, the kind, or an endpoint's kind, is
-    /// `ValueStructureRemap`.
+    /// value vertex's image; an unmentioned column is dropped; (4a) every edge
+    /// remap is checked not to cross the relation/attribute divide, and remaps
+    /// of inner value edges and value vertices are recorded. Step 4b is
+    /// [`EntityFunctor::into_kan`], not part of this function.
     ///
     /// # Errors
     ///
@@ -1062,7 +3267,7 @@ pub mod rel {
         src: &RelSchema,
         tgt: &RelSchema,
         m: &Migration,
-    ) -> Result<RelFunctor, FunctorError> {
+    ) -> Result<EntityFunctor, FunctorError> {
         let mut tables = BTreeMap::new();
         for s in &src.tables {
             let kept = m.vertex_remap.contains_key(s)
@@ -1092,7 +3297,12 @@ pub mod rel {
             if !kept_edge(e) {
                 continue;
             }
-            let image = m.edge_remap.get(e).cloned().unwrap_or_else(|| e.clone());
+            let image = m.edge_remap.get(e).cloned().unwrap_or_else(|| SEdge {
+                src: tables[&e.src].clone(),
+                tgt: tables[&e.tgt].clone(),
+                kind: e.kind.clone(),
+                name: e.name.clone(),
+            });
             let coherent = tgt.relations.contains(&image)
                 && image.src == tables[&e.src]
                 && image.tgt == tables[&e.tgt];
@@ -1106,29 +3316,41 @@ pub mod rel {
         }
         let columns = functor_columns(src, tgt, m, &tables)?;
         let mut inner_edges = BTreeMap::new();
-        for e in &src.inner_edges {
-            if let Some(image) = m.edge_remap.get(e) {
-                let kind_of = |schema: &RelSchema, v: &str| schema.kinds.get(v).cloned();
-                let ok = tgt.inner_edges.contains(image)
-                    && image.name == e.name
-                    && image.kind == e.kind
-                    && kind_of(tgt, &image.src) == kind_of(src, &e.src)
-                    && kind_of(tgt, &image.tgt) == kind_of(src, &e.tgt);
-                if !ok {
-                    return Err(FunctorError::ValueStructureRemap {
-                        edge: Box::new(e.clone()),
-                    });
-                }
-                inner_edges.insert(e.clone(), image.clone());
+        for (edge, image) in &m.edge_remap {
+            if src.relations.contains(edge) && tgt.is_column(image) {
+                return Err(FunctorError::IncoherentEdgeImage {
+                    edge: Box::new(edge.clone()),
+                    image: Box::new(image.clone()),
+                });
+            }
+            if src.is_column(edge) && tgt.relations.contains(image) {
+                return Err(FunctorError::IncoherentAttributeImage {
+                    edge: Box::new(edge.clone()),
+                    image: Some(Box::new(image.clone())),
+                });
+            }
+            if src.inner_edges.contains(edge) {
+                inner_edges.insert(edge.clone(), image.clone());
             }
         }
-        Ok(RelFunctor {
-            src: src.clone(),
-            tgt: tgt.clone(),
-            tables,
-            relations,
-            columns,
+        let value_vertices = m
+            .vertex_remap
+            .iter()
+            .filter(|(vertex, _)| src.value_vertices.contains(*vertex))
+            .map(|(vertex, image)| (vertex.clone(), image.clone()))
+            .collect();
+        Ok(EntityFunctor {
+            maps: RelFunctor {
+                src: src.clone(),
+                tgt: tgt.clone(),
+                tables,
+                relations,
+                columns,
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            },
             inner_edges,
+            value_vertices,
         })
     }
 
@@ -1202,6 +3424,12 @@ pub mod rel {
     }
 
     impl RelSchema {
+        fn is_column(&self, edge: &SEdge) -> bool {
+            self.columns
+                .values()
+                .any(|columns| columns.values().any(|candidate| candidate == edge))
+        }
+
         /// The whole schema as a side.
         #[must_use]
         pub fn side(&self) -> Side {
@@ -1251,6 +3479,62 @@ pub mod rel {
                 .filter(|(_, t)| *t == d)
                 .map(|(s, _)| s.clone())
                 .collect()
+        }
+
+        fn restricted_source(&self) -> RelSchema {
+            let tables: BTreeSet<Name> = self.tables.keys().cloned().collect();
+            let columns: BTreeMap<Name, BTreeMap<String, SEdge>> = tables
+                .iter()
+                .map(|table| {
+                    let kept = self
+                        .src
+                        .columns
+                        .get(table)
+                        .into_iter()
+                        .flatten()
+                        .filter(|(column, _)| {
+                            self.columns
+                                .contains_key(&(table.clone(), (*column).clone()))
+                        })
+                        .map(|(column, edge)| (column.clone(), edge.clone()))
+                        .collect();
+                    (table.clone(), kept)
+                })
+                .collect();
+            let mut value_vertices: BTreeSet<Name> = columns
+                .values()
+                .flat_map(|items| items.values().map(|edge| edge.tgt.clone()))
+                .collect();
+            loop {
+                let found: Vec<Name> = self
+                    .src
+                    .inner_edges
+                    .iter()
+                    .filter(|edge| {
+                        value_vertices.contains(&edge.src) && !value_vertices.contains(&edge.tgt)
+                    })
+                    .map(|edge| edge.tgt.clone())
+                    .collect();
+                if found.is_empty() {
+                    break;
+                }
+                value_vertices.extend(found);
+            }
+            let inner_edges = self
+                .src
+                .inner_edges
+                .iter()
+                .filter(|edge| value_vertices.contains(&edge.src))
+                .cloned()
+                .collect();
+            RelSchema {
+                tables,
+                relations: self.relations.keys().cloned().collect(),
+                columns,
+                value_vertices,
+                inner_edges,
+                kinds: self.src.kinds.clone(),
+            }
         }
     }
 
@@ -1421,6 +3705,90 @@ pub mod rel {
         RowIdsExhausted,
         /// A fresh labelled null would pass `u64::MAX`.
         NullIdsExhausted,
+        /// A Pi table-fibre product or an uncarried target relation product
+        /// exceeds the configured bound.
+        ProductSizeExceeded {
+            /// The target table, or the source table of the target relation.
+            vertex: Name,
+            /// The exact product, saturated only when machine `usize` cannot
+            /// represent it.
+            actual: usize,
+            /// The configured bound.
+            limit: usize,
+        },
+    }
+
+    /// The public table-adjunction refusal carried by graph Kan operations.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum AdjunctionError {
+        /// The input is outside the required relational instance category.
+        NonConforming(Box<NonConforming>),
+        /// Sigma equated two distinct constants.
+        SigmaConstantClash {
+            /// Output row.
+            row: u32,
+            /// Target column.
+            column: String,
+            /// First constant.
+            left: Box<Value>,
+            /// Second constant.
+            right: Box<Value>,
+        },
+        /// A fresh row id is unavailable.
+        RowIdsExhausted,
+        /// A fresh labelled-null id is unavailable.
+        NullIdsExhausted,
+        /// Pi has a target column outside the attribute image.
+        AttributeOutsideImage {
+            /// Target table.
+            table: Name,
+            /// Target column.
+            column: String,
+        },
+        /// A bounded Pi product is too large.
+        ProductSizeExceeded {
+            /// Target table or relation-source table.
+            vertex: Name,
+            /// Exact saturated cardinality.
+            actual: usize,
+            /// Bound.
+            limit: usize,
+        },
+        /// An internal table result was malformed before graph decoding.
+        MalformedTable,
+    }
+
+    impl From<KanError> for AdjunctionError {
+        fn from(error: KanError) -> Self {
+            match error {
+                KanError::NonConforming(reason) => Self::NonConforming(reason),
+                KanError::SigmaConstantClash {
+                    row,
+                    column,
+                    left,
+                    right,
+                } => Self::SigmaConstantClash {
+                    row,
+                    column,
+                    left,
+                    right,
+                },
+                KanError::RowIdsExhausted => Self::RowIdsExhausted,
+                KanError::NullIdsExhausted => Self::NullIdsExhausted,
+                KanError::AttributeOutsideImage { table, column } => {
+                    Self::AttributeOutsideImage { table, column }
+                }
+                KanError::ProductSizeExceeded {
+                    vertex,
+                    actual,
+                    limit,
+                } => Self::ProductSizeExceeded {
+                    vertex,
+                    actual,
+                    limit,
+                },
+            }
+        }
     }
 
     /// Fresh ids above a set of used ids.
@@ -1687,6 +4055,15 @@ pub mod rel {
         Ok((out, prov))
     }
 
+    pub(super) fn sigma_restricted(
+        f: &RelFunctor,
+        i: &Table,
+    ) -> Result<(Table, SigmaProvenance), KanError> {
+        let mut restricted = f.clone();
+        restricted.src = f.restricted_source();
+        sigma(&restricted, i)
+    }
+
     fn clash(row: u32, column: &str, left: &[u8], right: &[u8]) -> KanError {
         let dec = |b: &[u8]| crate::canonical::decode_value(b).unwrap_or(Value::Null);
         KanError::SigmaConstantClash {
@@ -1816,10 +4193,16 @@ pub mod rel {
     /// # Errors
     ///
     /// [`KanError::AttributeOutsideImage`] or [`KanError::NonConforming`];
+    /// [`KanError::ProductSizeExceeded`] before enumerating a product of two
+    /// or more table fibres or the pair product of an uncarried relation; or
     /// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
     ///
     /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
-    pub fn pi(f: &RelFunctor, i: &Table) -> Result<(Table, PiProvenance), KanError> {
+    pub fn pi(
+        f: &RelFunctor,
+        i: &Table,
+        max_product_size: usize,
+    ) -> Result<(Table, PiProvenance), KanError> {
         attribute_surjective(f)?;
         conform(i, &f.src.side()).map_err(KanError::NonConforming)?;
         let mut fresh = Fresh::above(i.rows.keys().copied());
@@ -1841,6 +4224,26 @@ pub mod rel {
         });
         for (_, d) in order {
             let fibre = f.fibre(&d);
+            if fibre.len() > 1 {
+                let actual = fibre
+                    .iter()
+                    .try_fold(1usize, |product, table| {
+                        product.checked_mul(
+                            i.rows
+                                .values()
+                                .filter(|(candidate, _)| candidate == table)
+                                .count(),
+                        )
+                    })
+                    .unwrap_or(usize::MAX);
+                if actual > max_product_size {
+                    return Err(KanError::ProductSizeExceeded {
+                        vertex: d,
+                        actual,
+                        limit: max_product_size,
+                    });
+                }
+            }
             for tuple in tuples(&i, &fibre) {
                 let Some(cells) = joined_cells(f, &i, &d, &fibre, &tuple) else {
                     continue;
@@ -1868,20 +4271,42 @@ pub mod rel {
                     .map(|((_, tu), id)| (tu.clone(), *id))
                     .collect::<Vec<_>>()
             };
-            for (u, uid) in rows_at(&rho.src) {
-                for (v, vid) in rows_at(&rho.tgt) {
+            let source_rows = rows_at(&rho.src);
+            let target_rows = rows_at(&rho.tgt);
+            if carried.is_empty() {
+                let actual = source_rows.len().saturating_mul(target_rows.len());
+                if actual > max_product_size {
+                    return Err(KanError::ProductSizeExceeded {
+                        vertex: rho.src.clone(),
+                        actual,
+                        limit: max_product_size,
+                    });
+                }
+            }
+            for (u, uid) in source_rows {
+                for (v, vid) in &target_rows {
                     let ok = carried.iter().all(|x| {
                         let a = fs.iter().position(|s| *s == x.src).map(|k| u[k]);
                         let b = ft.iter().position(|s| *s == x.tgt).map(|k| v[k]);
                         matches!((a, b), (Some(a), Some(b)) if i.pairs.contains(&((*x).clone(), a, b)))
                     });
                     if ok {
-                        out.pairs.insert((rho.clone(), uid, vid));
+                        out.pairs.insert((rho.clone(), uid, *vid));
                     }
                 }
             }
         }
         Ok((out, prov))
+    }
+
+    pub(super) fn pi_restricted(
+        f: &RelFunctor,
+        i: &Table,
+        max_product_size: usize,
+    ) -> Result<(Table, PiProvenance), KanError> {
+        let mut restricted = f.clone();
+        restricted.src = f.restricted_source();
+        pi(&restricted, i, max_product_size)
     }
 
     fn joined_cells(
@@ -1920,6 +4345,600 @@ pub mod rel {
         Some(cells)
     }
 
+    /// Why an attributed-instance homomorphism refuses.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum HomError {
+        /// A domain row has no image.
+        NodeNotMapped(u32),
+        /// A claimed image row is absent.
+        ImageNodeMissing {
+            /// Domain row.
+            src: u32,
+            /// Missing image.
+            tgt: u32,
+        },
+        /// A row is sent to a different table.
+        AnchorMismatch {
+            /// Domain row.
+            src: u32,
+            /// Image row.
+            tgt: u32,
+            /// Domain table.
+            src_anchor: Name,
+            /// Image table.
+            tgt_anchor: Name,
+        },
+        /// A row and its image disagree on a cell after the null map.
+        AttributeMismatch {
+            /// Domain row.
+            src: u32,
+            /// Image row.
+            tgt: u32,
+        },
+        /// A relation pair is not preserved.
+        ForeignKeyNotPreserved {
+            /// Relation.
+            edge: SEdge,
+            /// Mapped source row.
+            mapped_src: u32,
+            /// Mapped target row.
+            mapped_tgt: u32,
+        },
+        /// Composition reaches a row outside the second map's domain.
+        ComposeNodeMismatch(u32),
+    }
+
+    /// A homomorphism of attributed instances: a row map and the image of each
+    /// labelled null that occurs in the domain.
+    #[derive(Clone, Debug, PartialEq, Eq, Default)]
+    pub struct Hom {
+        /// Domain row to codomain row.
+        pub rows: BTreeMap<u32, u32>,
+        /// Domain labelled null to its codomain value.
+        pub nulls: BTreeMap<u64, Value>,
+    }
+
+    impl Hom {
+        /// Check the map in row-totality, image, table, cell and relation order.
+        ///
+        /// # Errors
+        ///
+        /// The first [`HomError`] in that order.
+        pub fn check(&self, domain: &Table, codomain: &Table) -> Result<(), HomError> {
+            for (source, (source_table, source_cells)) in &domain.rows {
+                let target = self
+                    .rows
+                    .get(source)
+                    .copied()
+                    .ok_or(HomError::NodeNotMapped(*source))?;
+                let Some((target_table, target_cells)) = codomain.rows.get(&target) else {
+                    return Err(HomError::ImageNodeMissing {
+                        src: *source,
+                        tgt: target,
+                    });
+                };
+                if source_table != target_table {
+                    return Err(HomError::AnchorMismatch {
+                        src: *source,
+                        tgt: target,
+                        src_anchor: source_table.clone(),
+                        tgt_anchor: target_table.clone(),
+                    });
+                }
+                let cells_match = source_cells.iter().all(|(column, value)| {
+                    let Some(image) = target_cells.get(column) else {
+                        return false;
+                    };
+                    let mapped = match value {
+                        Value::LabeledNull(null) => self
+                            .nulls
+                            .get(null)
+                            .cloned()
+                            .unwrap_or_else(|| value.clone()),
+                        _ => value.clone(),
+                    };
+                    crate::canonical::value_bytes(&mapped) == crate::canonical::value_bytes(image)
+                });
+                if !cells_match || source_cells.len() != target_cells.len() {
+                    return Err(HomError::AttributeMismatch {
+                        src: *source,
+                        tgt: target,
+                    });
+                }
+            }
+            for (edge, source, target) in &domain.pairs {
+                let mapped_source = self.rows[source];
+                let mapped_target = self.rows[target];
+                if !codomain
+                    .pairs
+                    .contains(&(edge.clone(), mapped_source, mapped_target))
+                {
+                    return Err(HomError::ForeignKeyNotPreserved {
+                        edge: edge.clone(),
+                        mapped_src: mapped_source,
+                        mapped_tgt: mapped_target,
+                    });
+                }
+            }
+            Ok(())
+        }
+
+        /// Compose `self: A -> B` with `after: B -> C`, refusing a partial
+        /// intermediate row map.
+        ///
+        /// # Errors
+        ///
+        /// [`HomError::ComposeNodeMismatch`] at the least missing intermediate row.
+        pub fn compose(&self, after: &Self) -> Result<Self, HomError> {
+            let rows = self
+                .rows
+                .iter()
+                .map(|(source, middle)| {
+                    after
+                        .rows
+                        .get(middle)
+                        .copied()
+                        .map(|target| (*source, target))
+                        .ok_or(HomError::ComposeNodeMismatch(*middle))
+                })
+                .collect::<Result<_, _>>()?;
+            // An omitted null entry denotes the identity. Thus every entry
+            // of `after` is already the image of the corresponding implicit
+            // identity entry of `self`; explicit entries of `self` then
+            // override those keys after substitution through `after`.
+            let mut nulls = after.nulls.clone();
+            for (null, value) in &self.nulls {
+                let image = match value {
+                    Value::LabeledNull(middle) => after
+                        .nulls
+                        .get(middle)
+                        .cloned()
+                        .unwrap_or_else(|| value.clone()),
+                    _ => value.clone(),
+                };
+                nulls.insert(*null, image);
+            }
+            Ok(Self { rows, nulls })
+        }
+
+        /// Compose `self: A -> B` with `after: B -> C`.
+        #[must_use]
+        pub fn then(&self, after: &Self) -> Self {
+            self.compose(after).unwrap_or_default()
+        }
+
+        /// Extensional equality after dropping explicit identity null images.
+        #[must_use]
+        pub fn normalized_same_as(&self, other: &Self) -> bool {
+            let normalize = |map: &BTreeMap<u64, Value>| {
+                map.iter()
+                    .filter(|(null, value)| value != &&Value::LabeledNull(**null))
+                    .map(|(null, value)| (*null, crate::canonical::value_bytes(value)))
+                    .collect::<BTreeMap<_, _>>()
+            };
+            self.rows == other.rows && normalize(&self.nulls) == normalize(&other.nulls)
+        }
+
+        /// Extensional equality after dropping null-map entries unused by the
+        /// domain. Values are compared by canonical bytes.
+        #[must_use]
+        pub fn same_as(&self, other: &Self, domain: &Table) -> bool {
+            if self.rows != other.rows {
+                return false;
+            }
+            let used: BTreeSet<u64> = domain
+                .rows
+                .values()
+                .flat_map(|(_, cells)| cells.values())
+                .filter_map(|value| match value {
+                    Value::LabeledNull(id) => Some(*id),
+                    _ => None,
+                })
+                .collect();
+            used.into_iter().all(|id| {
+                let left = self
+                    .nulls
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(Value::LabeledNull(id));
+                let right = other
+                    .nulls
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(Value::LabeledNull(id));
+                crate::canonical::value_bytes(&left) == crate::canonical::value_bytes(&right)
+            })
+        }
+    }
+
+    /// Why an adjunction unit, counit or transpose refuses.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum TransposeError {
+        /// The required Sigma, Delta or Pi object is outside the operation's
+        /// domain.
+        Adjunction(Box<AdjunctionError>),
+        /// The supplied or induced arrow is not a homomorphism.
+        Hom(Box<HomError>),
+    }
+
+    fn transpose_adjunction(error: KanError) -> TransposeError {
+        TransposeError::Adjunction(Box::new(error.into()))
+    }
+
+    fn infer_hom(
+        domain: &Table,
+        codomain: &Table,
+        rows: BTreeMap<u32, u32>,
+    ) -> Result<Hom, TransposeError> {
+        let mut nulls = BTreeMap::new();
+        for (source, (_, cells)) in &domain.rows {
+            let target = rows
+                .get(source)
+                .copied()
+                .ok_or_else(|| TransposeError::Hom(Box::new(HomError::NodeNotMapped(*source))))?;
+            let Some((_, target_cells)) = codomain.rows.get(&target) else {
+                return Err(TransposeError::Hom(Box::new(HomError::ImageNodeMissing {
+                    src: *source,
+                    tgt: target,
+                })));
+            };
+            for (column, value) in cells {
+                let Some(image) = target_cells.get(column) else {
+                    return Err(TransposeError::Hom(Box::new(HomError::AttributeMismatch {
+                        src: *source,
+                        tgt: target,
+                    })));
+                };
+                if let Value::LabeledNull(id) = value {
+                    if nulls.get(id).is_some_and(|prior: &Value| {
+                        crate::canonical::value_bytes(prior) != crate::canonical::value_bytes(image)
+                    }) {
+                        return Err(TransposeError::Hom(Box::new(HomError::AttributeMismatch {
+                            src: *source,
+                            tgt: target,
+                        })));
+                    }
+                    nulls.insert(*id, image.clone());
+                }
+            }
+        }
+        let hom = Hom { rows, nulls };
+        hom.check(domain, codomain)
+            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        Ok(hom)
+    }
+
+    /// Unit `I -> Delta(Sigma(I))` of the Sigma–Delta adjunction.
+    ///
+    /// `I` is an instance over the functor's restricted source. The operation
+    /// forms restricted Sigma, then Delta, then the induced homomorphism.
+    /// This is the forward Sigma transpose of the identity on `Sigma(I)`:
+    /// row `r` is sent to the Delta copy `(table(r), r)`. `infer_hom`
+    /// supplies the uniquely forced labelled-null image and verifies every
+    /// cell and relation.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first restricted-Sigma domain reason, then the
+    /// first Delta reason, then the first induced row-totality, image, table,
+    /// cell, or relation-preservation reason.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn sigma_unit(f: &RelFunctor, input: &Table) -> Result<Hom, TransposeError> {
+        let (sigma, _) = sigma_restricted(f, input).map_err(transpose_adjunction)?;
+        let (delta, copies) = delta(f, &sigma).map_err(transpose_adjunction)?;
+        let rows = input
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                copies
+                    .iter()
+                    .find(|(_, (source_table, original))| source_table == table && original == row)
+                    .map(|(copy, _)| (*row, *copy))
+            })
+            .collect();
+        infer_hom(input, &delta, rows)
+    }
+
+    /// Counit `Sigma(Delta(J)) -> J` of the Sigma–Delta adjunction.
+    ///
+    /// `J` is an instance over the target. The operation forms Delta over the
+    /// restricted source, then restricted Sigma, then the induced homomorphism.
+    /// This is the inverse Sigma transpose of the identity on `Delta(J)`:
+    /// each Sigma row is projected through Delta copy provenance to its
+    /// original target row. `infer_hom` supplies the forced null image and
+    /// checks the result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first Delta reason, then the first restricted-
+    /// Sigma reason, then the first induced row-totality, image, table, cell,
+    /// or relation-preservation reason.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn sigma_counit(f: &RelFunctor, target: &Table) -> Result<Hom, TransposeError> {
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        let (sigma_table, _) = sigma_restricted(f, &delta_table).map_err(transpose_adjunction)?;
+        let rows = sigma_table
+            .rows
+            .keys()
+            .filter_map(|row| copies.get(row).map(|(_, original)| (*row, *original)))
+            .collect();
+        infer_hom(&sigma_table, target, rows)
+    }
+
+    /// Forward transpose `Hom(Sigma(I), J) -> Hom(I, Delta(J))`.
+    ///
+    /// `I` is over the restricted source and `J` over the target. The
+    /// operation forms restricted Sigma, checks the supplied homomorphism,
+    /// forms Delta, then infers the result.
+    /// For `h: Sigma(I) -> J`, row `r` is sent to the Delta copy
+    /// `(table(r), h(r))`. `infer_hom` supplies the uniquely forced
+    /// labelled-null image and checks the result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first restricted-Sigma reason, the exact
+    /// supplied-homomorphism reason, the first Delta reason, or the first
+    /// induced-homomorphism reason.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn sigma_transpose_forward(
+        f: &RelFunctor,
+        input: &Table,
+        target: &Table,
+        hom: &Hom,
+    ) -> Result<Hom, TransposeError> {
+        let (sigma_table, _) = sigma_restricted(f, input).map_err(transpose_adjunction)?;
+        hom.check(&sigma_table, target)
+            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        let rows = input
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                let target_row = hom.rows.get(row)?;
+                copies
+                    .iter()
+                    .find(|(_, (source_table, original))| {
+                        source_table == table && original == target_row
+                    })
+                    .map(|(copy, _)| (*row, *copy))
+            })
+            .collect();
+        infer_hom(input, &delta_table, rows)
+    }
+
+    /// Inverse transpose `Hom(I, Delta(J)) -> Hom(Sigma(I), J)`.
+    ///
+    /// `I` is over the restricted source and `J` over the target. The
+    /// operation forms Delta, checks the supplied homomorphism, forms
+    /// restricted Sigma, then infers the result.
+    /// For `h: I -> Delta(J)`, the image copy `h(r)` is projected through
+    /// Delta provenance to the original target row. `infer_hom` supplies
+    /// the uniquely forced null image and checks the result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first Delta reason, the exact supplied-
+    /// homomorphism reason, the first restricted-Sigma reason, or the first
+    /// induced-homomorphism reason.
+    ///
+    /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
+    pub fn sigma_transpose_inverse(
+        f: &RelFunctor,
+        input: &Table,
+        target: &Table,
+        hom: &Hom,
+    ) -> Result<Hom, TransposeError> {
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        hom.check(input, &delta_table)
+            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        let (sigma_table, _) = sigma_restricted(f, input).map_err(transpose_adjunction)?;
+        let rows = sigma_table
+            .rows
+            .keys()
+            .filter_map(|row| {
+                hom.rows
+                    .get(row)
+                    .and_then(|copy| copies.get(copy))
+                    .map(|(_, original)| (*row, *original))
+            })
+            .collect();
+        infer_hom(&sigma_table, target, rows)
+    }
+
+    /// Unit `J -> Pi(Delta(J))` of the Delta–Pi adjunction.
+    ///
+    /// `J` is over the target. The operation forms Delta over the restricted
+    /// source, forms bounded restricted Pi, then infers the result.
+    /// This is the forward Pi transpose of the identity on `Delta(J)`: row
+    /// `r` is sent to the Pi row whose ordered fibre tuple contains every
+    /// Delta copy `(s,r)`. `infer_hom` supplies the forced null image and
+    /// checks the result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first Delta reason, then the first bounded-
+    /// restricted-Pi reason, then the first induced row-totality, image,
+    /// table, cell, or relation reason.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn pi_unit(
+        f: &RelFunctor,
+        target: &Table,
+        max_product_size: usize,
+    ) -> Result<Hom, TransposeError> {
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        let (pi_table, tuples) =
+            pi_restricted(f, &delta_table, max_product_size).map_err(transpose_adjunction)?;
+        let rows = target
+            .rows
+            .iter()
+            .filter_map(|(row, (table, _))| {
+                let tuple = f
+                    .fibre(table)
+                    .iter()
+                    .map(|source_table| {
+                        copies
+                            .iter()
+                            .find(|(_, (candidate, original))| {
+                                candidate == source_table && original == row
+                            })
+                            .map(|(copy, _)| *copy)
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                tuples
+                    .iter()
+                    .find(|(_, (candidate, components))| candidate == table && components == &tuple)
+                    .map(|(product, _)| (*row, *product))
+            })
+            .collect();
+        infer_hom(target, &pi_table, rows)
+    }
+
+    /// Counit `Delta(Pi(I)) -> I` of the Delta–Pi adjunction.
+    ///
+    /// `I` is over the restricted source. The operation forms bounded
+    /// restricted Pi, forms Delta, then infers the result.
+    /// This is the inverse Pi transpose of the identity on `Pi(I)`: a Delta
+    /// copy at source table `s` is projected to the `s` component of its Pi
+    /// tuple. `infer_hom` supplies the forced null image and checks the
+    /// result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first bounded-restricted-Pi reason, then the
+    /// first Delta reason, then the first induced row-totality, image, table,
+    /// cell, or relation reason.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn pi_counit(
+        f: &RelFunctor,
+        input: &Table,
+        max_product_size: usize,
+    ) -> Result<Hom, TransposeError> {
+        let (pi_table, tuples) =
+            pi_restricted(f, input, max_product_size).map_err(transpose_adjunction)?;
+        let (delta_table, copies) = delta(f, &pi_table).map_err(transpose_adjunction)?;
+        let rows = delta_table
+            .rows
+            .iter()
+            .filter_map(|(copy, (source_table, _))| {
+                let (_, product) = copies.get(copy)?;
+                let (target_table, tuple) = tuples.get(product)?;
+                let index = f
+                    .fibre(target_table)
+                    .iter()
+                    .position(|table| table == source_table)?;
+                tuple.get(index).map(|source_row| (*copy, *source_row))
+            })
+            .collect();
+        infer_hom(&delta_table, input, rows)
+    }
+
+    /// Forward transpose `Hom(Delta(J), I) -> Hom(J, Pi(I))`.
+    ///
+    /// `J` is over the target and `I` over the restricted source. The
+    /// operation forms Delta, checks the supplied homomorphism, forms bounded
+    /// restricted Pi, then infers the result.
+    /// For `h: Delta(J) -> I`, row `r` is sent to the Pi row whose ordered
+    /// fibre tuple is `[h(copy(s,r)) | s in fibre(table(r))]`.
+    /// `infer_hom` supplies the uniquely forced null image and checks the
+    /// result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first Delta reason, the exact supplied-
+    /// homomorphism reason, the first bounded-restricted-Pi reason, or the
+    /// first induced-homomorphism reason.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn pi_transpose_forward(
+        f: &RelFunctor,
+        target: &Table,
+        input: &Table,
+        hom: &Hom,
+        max_product_size: usize,
+    ) -> Result<Hom, TransposeError> {
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        hom.check(&delta_table, input)
+            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        let (pi_table, tuples) =
+            pi_restricted(f, input, max_product_size).map_err(transpose_adjunction)?;
+        let rows = target
+            .rows
+            .iter()
+            .filter_map(|(row, (target_table, _))| {
+                let tuple = f
+                    .fibre(target_table)
+                    .iter()
+                    .map(|source_table| {
+                        copies
+                            .iter()
+                            .find(|(_, (candidate, original))| {
+                                candidate == source_table && original == row
+                            })
+                            .and_then(|(copy, _)| hom.rows.get(copy))
+                            .copied()
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                tuples
+                    .iter()
+                    .find(|(_, (candidate, components))| {
+                        candidate == target_table && components == &tuple
+                    })
+                    .map(|(product, _)| (*row, *product))
+            })
+            .collect();
+        infer_hom(target, &pi_table, rows)
+    }
+
+    /// Inverse transpose `Hom(J, Pi(I)) -> Hom(Delta(J), I)`.
+    ///
+    /// `J` is over the target and `I` over the restricted source. The
+    /// operation forms bounded restricted Pi, checks the supplied
+    /// homomorphism, forms Delta, then infers the result.
+    /// For `h: J -> Pi(I)`, a Delta copy at source table `s` is sent to the
+    /// `s` component of the tuple recorded for `h(r)`. `infer_hom` supplies
+    /// the uniquely forced null image and checks the result.
+    ///
+    /// # Errors
+    ///
+    /// In operation order: the first bounded-restricted-Pi reason, the exact
+    /// supplied-homomorphism reason, the first Delta reason, or the first
+    /// induced-homomorphism reason.
+    ///
+    /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
+    pub fn pi_transpose_inverse(
+        f: &RelFunctor,
+        target: &Table,
+        input: &Table,
+        hom: &Hom,
+        max_product_size: usize,
+    ) -> Result<Hom, TransposeError> {
+        let (pi_table, tuples) =
+            pi_restricted(f, input, max_product_size).map_err(transpose_adjunction)?;
+        hom.check(target, &pi_table)
+            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        let rows = delta_table
+            .rows
+            .iter()
+            .filter_map(|(copy, (source_table, _))| {
+                let (_, target_row) = copies.get(copy)?;
+                let product = hom.rows.get(target_row)?;
+                let (target_table, tuple) = tuples.get(product)?;
+                let index = f
+                    .fibre(target_table)
+                    .iter()
+                    .position(|table| table == source_table)?;
+                tuple.get(index).map(|source_row| (*copy, *source_row))
+            })
+            .collect();
+        infer_hom(&delta_table, input, rows)
+    }
+
     /// Definition: A structure-preserving bijection between two attributed instances.
     ///
     /// A bijection of rows preserving tables, pairs and cells, with a bijection of labelled nulls under
@@ -1931,7 +4950,7 @@ pub mod rel {
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-5`,
     /// `L-kan-extensions-6`, `L-kan-extensions-7`.
     #[must_use]
-    pub fn row_bijection(a: &Table, b: &Table) -> Option<BTreeMap<u32, u32>> {
+    pub fn row_bijection(a: &Table, b: &Table) -> Option<Hom> {
         if !a.well_formed()
             || !b.well_formed()
             || a.rows.len() != b.rows.len()
@@ -1942,7 +4961,13 @@ pub mod rel {
         let order: Vec<u32> = a.rows.keys().copied().collect();
         let mut map = BTreeMap::new();
         let mut nulls = BTreeMap::new();
-        search_bijection(a, b, &order, 0, &mut map, &mut nulls).then_some(map)
+        search_bijection(a, b, &order, 0, &mut map, &mut nulls).then(|| Hom {
+            rows: map,
+            nulls: nulls
+                .into_iter()
+                .map(|(source, target)| (source, Value::LabeledNull(target)))
+                .collect(),
+        })
     }
 
     fn search_bijection(
@@ -2001,11 +5026,15 @@ pub mod rel {
     ///
     /// A map of rows preserving tables and pairs, under which each cell of the domain equals the image
     /// row's cell, a labelled null of the domain being sent to the value it first meets (consistently),
-    /// every other value compared by canonical bytes. Enumerated naively over all row maps.
+    /// every other value compared by canonical bytes. Enumerated naively over all row maps. Both
+    /// tables must be well formed; a dangling pair in either table is refused by the empty result.
     ///
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-5`, `L-kan-extensions-6`, `L-kan-extensions-7`.
     #[must_use]
-    pub fn homs(a: &Table, b: &Table) -> Vec<BTreeMap<u32, u32>> {
+    pub fn homs(a: &Table, b: &Table) -> Vec<Hom> {
+        if !a.well_formed() || !b.well_formed() {
+            return Vec::new();
+        }
         let order: Vec<u32> = a.rows.keys().copied().collect();
         let mut out = Vec::new();
         hom_search(
@@ -2027,7 +5056,7 @@ pub mod rel {
         pos: usize,
         map: &mut BTreeMap<u32, u32>,
         nulls: &BTreeMap<u64, Vec<u8>>,
-        out: &mut Vec<BTreeMap<u32, u32>>,
+        out: &mut Vec<Hom>,
     ) {
         let Some(&row) = order.get(pos) else {
             if dom
@@ -2035,7 +5064,15 @@ pub mod rel {
                 .iter()
                 .all(|(edge, from, to)| cod.pairs.contains(&(edge.clone(), map[from], map[to])))
             {
-                out.push(map.clone());
+                out.push(Hom {
+                    rows: map.clone(),
+                    nulls: nulls
+                        .iter()
+                        .filter_map(|(id, bytes)| {
+                            crate::canonical::decode_value(bytes).map(|value| (*id, value))
+                        })
+                        .collect(),
+                });
             }
             return;
         };
@@ -2149,6 +5186,13 @@ pub mod migration {
     }
 }
 
-pub use self::encode::{g_delta, g_pi, g_sigma, t_delta, t_pi, t_sigma};
+pub use self::encode::{
+    g_counit, g_delta, g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi,
+    g_pi_along, g_pi_along_with_provenance, g_pi_counit, g_pi_restricted,
+    g_pi_restricted_with_provenance, g_pi_transpose_left, g_pi_transpose_right, g_pi_unit,
+    g_pi_with_provenance, g_sigma, g_sigma_along, g_sigma_along_with_provenance,
+    g_sigma_restricted, g_sigma_restricted_with_provenance, g_sigma_with_provenance,
+    g_transpose_left, g_transpose_right, g_unit, t_delta, t_pi, t_sigma,
+};
 pub use self::migration::{graph_square, table_square, tree_square};
 pub use self::rel::{delta, homs, pi, sigma};

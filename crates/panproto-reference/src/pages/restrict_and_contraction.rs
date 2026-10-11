@@ -14,9 +14,10 @@ pub mod restrict {
 
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+    use crate::canonical::Writer;
     use crate::migration::Migration;
     use crate::model::{GEdge, Graph, Name, Node, NodeShape, SEdge};
-    use crate::schema::Schema;
+    use crate::schema::{DeclarationError, Schema, canonical_bytes, validate_declarations};
     use crate::value::{Presence, Value};
 
     /// The reserved edge kind of a fan's parent edge.
@@ -92,14 +93,45 @@ pub mod restrict {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Plan {
         /// The fate of every source schema edge.
-        pub fates: BTreeMap<SEdge, EdgeFate>,
+        pub(crate) fates: BTreeMap<SEdge, EdgeFate>,
         /// Planned contraction pairs by source vertex pair.
-        pub pairs: BTreeMap<(Name, Name), PlannedPair>,
+        pub(crate) pairs: BTreeMap<(Name, Name), PlannedPair>,
+        /// Canonical identity of the validated source schema.
+        source_schema: Vec<u8>,
+        /// Canonical identity of the validated target schema.
+        target_schema: Vec<u8>,
+        /// Canonical identity of the migration this plan compiled.
+        migration: Vec<u8>,
     }
 
     /// A plan compilation refusal.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum PlanError {
+        /// Source schema declarations are invalid, in declaration order.
+        SourceDeclarations(Vec<DeclarationError>),
+        /// Target schema declarations are invalid, in declaration order.
+        TargetDeclarations(Vec<DeclarationError>),
+        /// A plan was reused with a source schema other than the one it validated.
+        SourceSchemaMismatch {
+            /// Canonical bytes of the compiled source endpoint.
+            expected: Vec<u8>,
+            /// Canonical bytes of the supplied source endpoint.
+            found: Vec<u8>,
+        },
+        /// A plan was reused with a target schema other than the one it validated.
+        TargetSchemaMismatch {
+            /// Canonical bytes of the compiled target endpoint.
+            expected: Vec<u8>,
+            /// Canonical bytes of the supplied target endpoint.
+            found: Vec<u8>,
+        },
+        /// A plan was reused with a migration other than the one it compiled.
+        MigrationMismatch {
+            /// Canonical bytes of the compiled migration.
+            expected: Vec<u8>,
+            /// Canonical bytes of the supplied migration.
+            found: Vec<u8>,
+        },
         /// A kept or expanded image is not coherent.
         IncoherentEdgeImage {
             /// The source edge.
@@ -134,6 +166,92 @@ pub mod restrict {
             tgt: tgt.to_owned(),
             hops: labels.len(),
         })
+    }
+
+    /// Canonical identity of every field of a compiled migration.
+    ///
+    /// Field tags fix the struct layout, collection lengths make every run
+    /// self-delimiting, maps and sets are already in key order, and vectors
+    /// retain their semantic order. This is private plan-binding material,
+    /// not a portable interchange format.
+    pub(crate) fn canonical_migration_bytes(migration: &Migration) -> Vec<u8> {
+        let mut writer = Writer::default();
+        writer.raw(b"panproto-reference/restrict-plan-migration/v1");
+
+        writer.tag(0);
+        writer.len(migration.surviving_verts.len());
+        for vertex in &migration.surviving_verts {
+            writer.str(vertex);
+        }
+
+        writer.tag(1);
+        writer.len(migration.surviving_edges.len());
+        for edge in &migration.surviving_edges {
+            writer.edge(edge);
+        }
+
+        writer.tag(2);
+        writer.len(migration.vertex_remap.len());
+        for (source, target) in &migration.vertex_remap {
+            writer.str(source);
+            writer.str(target);
+        }
+
+        writer.tag(3);
+        writer.len(migration.edge_remap.len());
+        for (source, target) in &migration.edge_remap {
+            writer.edge(source);
+            writer.edge(target);
+        }
+
+        writer.tag(4);
+        writer.len(migration.resolver.len());
+        for ((source, target), edge) in &migration.resolver {
+            writer.str(source);
+            writer.str(target);
+            writer.edge(edge);
+        }
+
+        writer.tag(5);
+        writer.len(migration.expansion_path.len());
+        for ((source, target), intermediates) in &migration.expansion_path {
+            writer.str(source);
+            writer.str(target);
+            writer.len(intermediates.len());
+            for intermediate in intermediates {
+                writer.str(intermediate);
+            }
+        }
+
+        writer.tag(6);
+        writer.len(migration.hyper_resolver.len());
+        for ((source, labels), (target, label_remap)) in &migration.hyper_resolver {
+            writer.str(source);
+            writer.len(labels.len());
+            for label in labels {
+                writer.str(label);
+            }
+            writer.str(target);
+            writer.len(label_remap.len());
+            for (source_label, target_label) in label_remap {
+                writer.str(source_label);
+                writer.str(target_label);
+            }
+        }
+
+        writer.tag(7);
+        writer.len(migration.conditional.len());
+        for vertex in &migration.conditional {
+            writer.str(vertex);
+        }
+
+        writer.tag(8);
+        writer.len(migration.transformed.len());
+        for vertex in &migration.transformed {
+            writer.str(vertex);
+        }
+
+        writer.bytes
     }
 
     /// The direct image of a source edge between surviving endpoints.
@@ -454,15 +572,21 @@ pub mod restrict {
         Ok(out)
     }
 
-    /// Compile the plan: the edge image, then the contraction plan.
+    /// Compile the plan: source declarations, target declarations, the edge
+    /// image, then the contraction plan.
     ///
     /// # Errors
     ///
     /// The first [`PlanError`].
     pub fn compile(src: &Schema, tgt: &Schema, m: &Migration) -> Result<Plan, PlanError> {
+        validate_declarations(src).map_err(PlanError::SourceDeclarations)?;
+        validate_declarations(tgt).map_err(PlanError::TargetDeclarations)?;
         Ok(Plan {
             fates: edge_image(tgt, src, m)?,
             pairs: contraction_plan(src, tgt, m)?,
+            source_schema: canonical_bytes(src),
+            target_schema: canonical_bytes(tgt),
+            migration: canonical_migration_bytes(m),
         })
     }
 
@@ -478,6 +602,50 @@ pub mod restrict {
     }
 
     impl Plan {
+        /// The fate of every source schema edge.
+        #[must_use]
+        pub const fn fates(&self) -> &BTreeMap<SEdge, EdgeFate> {
+            &self.fates
+        }
+
+        /// Planned contraction pairs by source vertex pair.
+        #[must_use]
+        pub const fn pairs(&self) -> &BTreeMap<(Name, Name), PlannedPair> {
+            &self.pairs
+        }
+
+        /// Refuse reuse under schemas or a migration other than the exact
+        /// inputs this plan compiled.
+        pub(crate) fn validate_for(
+            &self,
+            src: &Schema,
+            tgt: &Schema,
+            migration: &Migration,
+        ) -> Result<(), PlanError> {
+            let source = canonical_bytes(src);
+            if self.source_schema != source {
+                return Err(PlanError::SourceSchemaMismatch {
+                    expected: self.source_schema.clone(),
+                    found: source,
+                });
+            }
+            let target = canonical_bytes(tgt);
+            if self.target_schema != target {
+                return Err(PlanError::TargetSchemaMismatch {
+                    expected: self.target_schema.clone(),
+                    found: target,
+                });
+            }
+            let migration = canonical_migration_bytes(migration);
+            if self.migration != migration {
+                return Err(PlanError::MigrationMismatch {
+                    expected: self.migration.clone(),
+                    found: migration,
+                });
+            }
+            Ok(())
+        }
+
         /// `None` iff no pair, `Declared` iff every pair is bounded, else
         /// `Closure`.
         #[must_use]
@@ -532,6 +700,58 @@ pub mod restrict {
         pub detail: String,
     }
 
+    /// A typed refusal of a survival predicate.
+    ///
+    /// Survival predicates are part of the put domain, so their finite
+    /// refusal vocabulary must not be hidden behind the open, stringly
+    /// [`LayerRefusal`] used by transforms.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PredicateRefusal {
+        /// A child field has several candidate values.
+        AmbiguousChildField {
+            /// The ambiguous field.
+            field: String,
+        },
+        /// A structural child field cannot be read as a tree.
+        StructuralChildNotATree {
+            /// The structural field.
+            field: String,
+        },
+        /// A value cannot be represented by the predicate language.
+        ValueNotExpressible {
+            /// The field containing the value.
+            field: String,
+            /// The value's canonical type name.
+            value_type: String,
+        },
+        /// Predicate evaluation failed.
+        EvaluationFailed {
+            /// The evaluator's diagnostic.
+            message: String,
+        },
+        /// Predicate evaluation produced a non-Boolean result.
+        NotBoolean {
+            /// The canonical description of the result.
+            got: String,
+        },
+    }
+
+    /// Canonical semantics of a value layer.
+    ///
+    /// The descriptor covers every behavior and parameter of
+    /// [`ValueLayer::survives`], [`ValueLayer::transform`], and
+    /// [`ValueLayer::restore`]. Consumers encode all three fields with
+    /// explicit lengths when binding durable identities.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ValueLayerSemantics {
+        /// Stable namespace of the value-layer implementation.
+        pub domain: &'static str,
+        /// Version of the namespaced semantic payload.
+        pub version: u16,
+        /// Canonical, self-delimiting implementation parameters.
+        pub canonical_payload: Vec<u8>,
+    }
+
     /// A refusal of the value layer at put: an edited coordinate that has no
     /// inverse.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,14 +770,17 @@ pub mod restrict {
 
     /// The value layer of a migration, evaluated by the expression language.
     pub trait ValueLayer {
+        /// Complete canonical descriptor of this value layer's semantics.
+        fn canonical_semantics(&self) -> ValueLayerSemantics;
+
         /// The survival predicate of a node whose source vertex carries one,
         /// on the source graph.
         ///
         /// # Errors
         ///
         /// A refusal (no Boolean, an evaluation error, a repeated or
-        /// structural child, an unexpressible value).
-        fn survives(&self, source: &Graph, node: &Node) -> Result<bool, LayerRefusal>;
+        /// structural child, or an unexpressible value).
+        fn survives(&self, source: &Graph, node: &Node) -> Result<bool, PredicateRefusal>;
 
         /// The transformed fields and value of a surviving node whose source
         /// vertex carries transforms.
@@ -591,7 +814,15 @@ pub mod restrict {
     pub struct NoValueLayer;
 
     impl ValueLayer for NoValueLayer {
-        fn survives(&self, _: &Graph, _: &Node) -> Result<bool, LayerRefusal> {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            ValueLayerSemantics {
+                domain: "panproto-reference/no-value-layer",
+                version: 1,
+                canonical_payload: Vec::new(),
+            }
+        }
+
+        fn survives(&self, _: &Graph, _: &Node) -> Result<bool, PredicateRefusal> {
             Ok(true)
         }
 
@@ -660,6 +891,8 @@ pub mod restrict {
         },
         /// The value layer refused.
         Layer(LayerRefusal),
+        /// A survival predicate refused with a typed domain error.
+        Predicate(PredicateRefusal),
         /// No synthesized id below `u32::MAX` is free (`true` for nodes).
         IdsExhausted {
             /// Whether node ids ran out.
@@ -695,6 +928,12 @@ pub mod restrict {
             /// What.
             error: EngineError,
         },
+        /// Tree execution pruned the distinguished root. Graph restriction
+        /// has no root and therefore never produces this variant.
+        RootPruned {
+            /// Distinguished tree root removed from the view.
+            root: u32,
+        },
     }
 
     /// The complement of a graph get.
@@ -720,6 +959,13 @@ pub mod restrict {
         pub synthesized_edges: BTreeMap<u32, SynthKey>,
         /// The id floors `(node, edge)`.
         pub floor: (u32, u32),
+        /// Exact source, target, compiled-lens, shape, and format identity.
+        ///
+        /// The restrict engine deliberately leaves this unstamped. A lens
+        /// entry point stamps it after running the engine, because only the
+        /// lens knows which representation-specific complement contract it
+        /// is producing.
+        pub identity: Option<crate::pages::representation::canonical::IdentityEnvelope>,
     }
 
     /// Whether a node is a fan node: shape hyper-edge, or the source of an
@@ -751,22 +997,38 @@ pub mod restrict {
         ids.max().map_or(0, |m| m.saturating_add(1))
     }
 
-    /// The source vertices (and hyper-edges) whose image is `anchor`; when no
-    /// remap names `anchor`, the anchor itself.
+    /// The surviving source vertices, then hyper-edges, whose image can be
+    /// `anchor`.
+    ///
+    /// Vertex preimages use [`Migration::survives`] and
+    /// [`Migration::vertex_image`]. A hyper-edge's possible images are the
+    /// target hyper-edges named by its resolver entries. With no entry its
+    /// image is the identity; with two or more entries, identity is also
+    /// possible when neither concrete fan shape selects an entry and the
+    /// sole-entry fallback is ambiguous. Each source anchor occurs at most
+    /// once. A target-only or absent anchor has no source preimage.
     #[must_use]
     pub fn reverse_anchor(src: &Schema, m: &Migration, anchor: &str) -> Vec<Name> {
-        let pre: Vec<Name> = src
+        let mut preimages: Vec<Name> = src
             .vertices
             .keys()
-            .chain(src.hyper_edges.keys())
-            .filter(|v| m.vertex_image(v) == anchor)
+            .filter(|v| m.survives(v) && m.vertex_image(v) == anchor)
             .cloned()
             .collect();
-        if pre.is_empty() {
-            vec![anchor.to_owned()]
-        } else {
-            pre
+        for hyper_edge in src.hyper_edges.keys() {
+            let images: Vec<&Name> = m
+                .hyper_resolver
+                .iter()
+                .filter(|((source, _), _)| source == hyper_edge)
+                .map(|(_, (target, _))| target)
+                .collect();
+            let is_preimage = images.iter().any(|target| target.as_str() == anchor)
+                || (images.len() != 1 && hyper_edge == anchor);
+            if is_preimage && !preimages.contains(hyper_edge) {
+                preimages.push(hyper_edge.clone());
+            }
         }
+        preimages
     }
 
     /// One synthesized object waiting for its id.
@@ -922,7 +1184,7 @@ pub mod restrict {
                 if alive && self.m.conditional.contains(&n.anchor) {
                     alive = vl
                         .survives(self.g, n)
-                        .map_err(|r| at(0, *id, 0, EngineError::Layer(r)))?;
+                        .map_err(|r| at(0, *id, 0, EngineError::Predicate(r)))?;
                 }
                 if !alive {
                     self.c.dropped_nodes.insert(*id, n.clone());
@@ -1307,16 +1569,16 @@ pub mod restrict {
         }
     }
 
-    /// Map a non-synthesized view edge back to a source label, by the put rule
-    /// without recorded originals. `source_anchor` gives the source anchor of a
-    /// view node.
+    /// Internal put helper: map a non-synthesized view edge back to a source
+    /// label without recorded originals. `source_anchor` gives the source
+    /// anchor of a view node.
     ///
     /// # Errors
     ///
     /// The number of candidates when there is not exactly one (0 or more than
     /// 1), for a non-fan edge; 0 for a fan edge whose label is not one of its
     /// hyper-edge's.
-    pub fn map_back(
+    pub(crate) fn map_back(
         src: &Schema,
         m: &Migration,
         plan: &Plan,
@@ -1388,9 +1650,9 @@ pub mod restrict {
     /// # Errors
     ///
     /// [`RestrictError::Plan`] or the first [`RestrictError::At`], including
-    /// an [`EngineError::ExpansionTooLong`] located at the source edge in stage
-    /// 1 or source-node pair in stage 2 when public plan fields were mutated,
-    /// and [`EngineError::FanReconstructionFailed`] at the fan node in stage 3.
+    /// the defensive [`EngineError::ExpansionTooLong`] guard at a source edge
+    /// in stage 1 or source-node pair in stage 2, and
+    /// [`EngineError::FanReconstructionFailed`] at the fan node in stage 3.
     ///
     /// Book anchors: `L-restrict-and-contraction-1`, `L-restrict-and-contraction-4`, `L-restrict-and-contraction-5`, `L-restrict-and-contraction-6`, `L-restrict-and-contraction-7`, `L-restrict-and-contraction-8`, `L-restrict-and-contraction-9`, `L-restrict-and-contraction-10`, `L-restrict-and-contraction-11`, `L-restrict-and-contraction-12`, `L-restrict-and-contraction-13`.
     pub fn get(
@@ -1408,7 +1670,8 @@ pub mod restrict {
     ///
     /// # Errors
     ///
-    /// As [`get`], without the plan errors.
+    /// As [`get`], including a stamp refusal when `plan` was compiled for
+    /// different source or target schemas or a different migration.
     pub fn get_with_plan(
         src: &Schema,
         tgt: &Schema,
@@ -1417,6 +1680,8 @@ pub mod restrict {
         vl: &dyn ValueLayer,
         g: &Graph,
     ) -> Result<(Graph, Complement), RestrictError> {
+        plan.validate_for(src, tgt, m)
+            .map_err(RestrictError::Plan)?;
         let mut run = Run {
             src,
             tgt,

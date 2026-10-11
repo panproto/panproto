@@ -113,6 +113,23 @@ pub mod canonical {
             self.at = end;
             Some(s)
         }
+        /// Current byte offset from the start of the input.
+        #[must_use]
+        pub const fn position(&self) -> usize {
+            self.at
+        }
+        /// Bytes not yet consumed by this reader.
+        #[must_use]
+        pub const fn remaining(&self) -> &'a [u8] {
+            self.bytes.split_at(self.at).1
+        }
+        /// Consume exactly `n` bytes.
+        ///
+        /// Returns `None` without advancing past the input when fewer than
+        /// `n` bytes remain or the offset computation overflows.
+        pub fn bytes(&mut self, n: usize) -> Option<&'a [u8]> {
+            self.take(n)
+        }
         /// One byte.
         pub fn tag(&mut self) -> Option<u8> {
             self.take(1).map(|b| b[0])
@@ -309,6 +326,9 @@ pub mod canonical {
     /// spelling, second offsets, unwritten offsets and temporal infinities.
     #[must_use]
     pub fn write_temporal(w: &mut Writer, t: &Temporal) -> Option<()> {
+        if !t.well_formed() {
+            return None;
+        }
         if complete_layout(t) {
             let form = match (&t.date, &t.time) {
                 (Some(_), None) => 0,
@@ -348,9 +368,6 @@ pub mod canonical {
             return Some(());
         }
 
-        if !t.well_formed() {
-            return None;
-        }
         if let Some((infinity, form)) = t.infinity {
             w.tag(match form {
                 TemporalForm::Date => 6,
@@ -595,22 +612,26 @@ pub mod canonical {
     /// The inverse of [`write_temporal`].
     pub fn read_temporal(r: &mut Reader<'_>) -> Option<Temporal> {
         match r.tag()? {
-            0 => Some(Temporal {
-                date: Some(read_date(r)?),
-                time: None,
-                separator: None,
-                offset: Offset::Local,
-                infinity: None,
-            }),
+            0 => {
+                let value = Temporal {
+                    date: Some(read_date(r)?),
+                    time: None,
+                    separator: None,
+                    offset: Offset::Local,
+                    infinity: None,
+                };
+                value.well_formed().then_some(value)
+            }
             1 => {
                 let time = read_time(r)?;
-                Some(Temporal {
+                let value = Temporal {
                     date: None,
                     time: Some(time),
                     separator: None,
                     offset: read_offset(r)?,
                     infinity: None,
-                })
+                };
+                value.well_formed().then_some(value)
             }
             2 => {
                 let date = read_date(r)?;
@@ -621,13 +642,14 @@ pub mod canonical {
                     _ => return None,
                 };
                 let time = read_time(r)?;
-                Some(Temporal {
+                let value = Temporal {
                     date: Some(date),
                     time: Some(time),
                     separator: Some(separator),
                     offset: read_offset(r)?,
                     infinity: None,
-                })
+                };
+                value.well_formed().then_some(value)
             }
             tag @ (3..=5) => {
                 let form = match tag {

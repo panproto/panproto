@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "pages": {
     "values": {
       "inventory_status": "complete",
@@ -1811,7 +1811,11 @@
             "panproto_reference::rel::sigma",
             "panproto_reference::rel::delta",
             "panproto_reference::rel::homs",
-            "panproto_reference::rel::row_bijection"
+            "panproto_reference::rel::row_bijection",
+            "panproto_reference::rel::sigma_unit",
+            "panproto_reference::rel::sigma_counit",
+            "panproto_reference::rel::sigma_transpose_forward",
+            "panproto_reference::rel::sigma_transpose_inverse"
           ],
           "due_gate": "phase3"
         },
@@ -1828,7 +1832,11 @@
             "panproto_reference::rel::delta",
             "panproto_reference::rel::pi",
             "panproto_reference::rel::homs",
-            "panproto_reference::rel::row_bijection"
+            "panproto_reference::rel::row_bijection",
+            "panproto_reference::rel::pi_unit",
+            "panproto_reference::rel::pi_counit",
+            "panproto_reference::rel::pi_transpose_forward",
+            "panproto_reference::rel::pi_transpose_inverse"
           ],
           "due_gate": "phase3"
         },
@@ -1843,7 +1851,11 @@
           ],
           "references": [
             "panproto_reference::rel::homs",
-            "panproto_reference::rel::row_bijection"
+            "panproto_reference::rel::row_bijection",
+            "panproto_reference::rel::sigma_unit",
+            "panproto_reference::rel::sigma_counit",
+            "panproto_reference::rel::sigma_transpose_forward",
+            "panproto_reference::rel::sigma_transpose_inverse"
           ],
           "due_gate": "phase3"
         },
@@ -1858,7 +1870,11 @@
           ],
           "references": [
             "panproto_reference::rel::homs",
-            "panproto_reference::rel::row_bijection"
+            "panproto_reference::rel::row_bijection",
+            "panproto_reference::rel::pi_unit",
+            "panproto_reference::rel::pi_counit",
+            "panproto_reference::rel::pi_transpose_forward",
+            "panproto_reference::rel::pi_transpose_inverse"
           ],
           "due_gate": "phase3"
         },
@@ -2142,7 +2158,41 @@
       "due_gate": "phase3"
     },
     "edits": {
-      "inventory_status": "complete",
+      "inventory_status": "partial",
+      "contract_scope": [
+        {
+          "section": "P.5",
+          "clause": "E.1"
+        },
+        {
+          "section": "P.5",
+          "clause": "E.2"
+        },
+        {
+          "section": "P.5",
+          "clause": "E.3"
+        },
+        {
+          "section": "P.5",
+          "clause": "E.3a"
+        },
+        {
+          "section": "P.5",
+          "clause": "T.5"
+        },
+        {
+          "section": "P.5",
+          "clause": "TR14"
+        },
+        {
+          "section": "decision 9",
+          "clause": "whole decision"
+        },
+        {
+          "section": "P.5",
+          "clause": "edit translation"
+        }
+      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/edits.rs",
         "crates/panproto-reference/src/enumerate/edits.rs"
@@ -2200,9 +2250,9 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::independence",
-            "panproto_reference::edit::is_benign",
-            "panproto_reference::edit::merge"
+            "panproto_reference::edit::canonical_graph_delta_bytes",
+            "panproto_reference::edit::canonical_table_delta_bytes",
+            "panproto_reference::edit::canonical_tree_edit_bytes"
           ],
           "due_gate": "phase3"
         },
@@ -2268,7 +2318,113 @@
       "due_gate": "phase3"
     },
     "validation": {
-      "inventory_status": "complete",
+      "inventory_status": "partial",
+      "contract_scope": [
+        {
+          "section": "V",
+          "clause": "V.1"
+        },
+        {
+          "section": "O12",
+          "clause": "B10(c),(e)"
+        },
+        {
+          "section": "O12",
+          "clause": "B13(c)"
+        },
+        {
+          "section": "O12",
+          "clause": "B14c(b)"
+        },
+        {
+          "section": "O12",
+          "clause": "B14e(c)"
+        },
+        {
+          "section": "O12",
+          "clause": "B15(c)"
+        },
+        {
+          "section": "O12",
+          "clause": "E33"
+        },
+        {
+          "section": "O12",
+          "clause": "E42(c)"
+        },
+        {
+          "section": "O12",
+          "clause": "F45"
+        },
+        {
+          "section": "V",
+          "clause": "V.2"
+        },
+        {
+          "section": "V",
+          "clause": "V.3"
+        },
+        {
+          "section": "V",
+          "clause": "V.4"
+        },
+        {
+          "section": "V",
+          "clause": "V.5"
+        },
+        {
+          "section": "V",
+          "clause": "V.6"
+        },
+        {
+          "section": "V",
+          "clause": "V.7"
+        },
+        {
+          "section": "V",
+          "clause": "V.8"
+        },
+        {
+          "section": "V",
+          "clause": "V.9"
+        },
+        {
+          "section": "V",
+          "clause": "V.10"
+        },
+        {
+          "section": "V",
+          "clause": "V.11"
+        },
+        {
+          "section": "V",
+          "clause": "validation admission policies"
+        },
+        {
+          "section": "O12",
+          "clause": "B14c, B14e and B15"
+        },
+        {
+          "section": "O12",
+          "clause": "E33 and E42(c)"
+        },
+        {
+          "section": "O12",
+          "clause": "F45 law"
+        },
+        {
+          "section": "O12",
+          "clause": "H72(d) law (1)"
+        },
+        {
+          "section": "O12",
+          "clause": "H72(d) law (2)"
+        },
+        {
+          "section": "O12",
+          "clause": "H72(d) law (3)"
+        }
+      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/validation.rs",
         "crates/panproto-reference/src/enumerate/validation.rs"
@@ -2676,7 +2832,49 @@
       "due_gate": "phase3"
     },
     "segments": {
-      "inventory_status": "complete",
+      "inventory_status": "partial",
+      "contract_scope": [
+        {
+          "section": "SG",
+          "clause": "SG.1"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.2"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.3"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.6"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.7 types"
+        },
+        {
+          "section": "SG",
+          "clause": "SG.9"
+        },
+        {
+          "section": "S10",
+          "clause": "finite carrier"
+        },
+        {
+          "section": "S10a",
+          "clause": "finite carrier"
+        },
+        {
+          "section": "SG",
+          "clause": "segment execution equals whole-state execution"
+        },
+        {
+          "section": "decision 9",
+          "clause": "allocation floor"
+        }
+      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/segments.rs",
         "crates/panproto-reference/src/enumerate/segments.rs"
@@ -2720,7 +2918,8 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::partition"
+            "panproto_reference::segment::partition",
+            "panproto_reference::segment::glue"
           ],
           "due_gate": "phase3"
         },
@@ -2826,9 +3025,104 @@
       "due_gate": "phase3"
     },
     "lenses": {
-      "inventory_status": "complete",
+      "inventory_status": "partial",
+      "contract_scope": [
+        {
+          "section": "P.5",
+          "clause": "L.1"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.2"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.3"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.4"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.5"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.6"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.7"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.8"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.9"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.10"
+        },
+        {
+          "section": "P.5",
+          "clause": "T.3"
+        },
+        {
+          "section": "P.5",
+          "clause": "T.4"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath left identity"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath right identity"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath associativity"
+        },
+        {
+          "section": "O1",
+          "clause": "fusion soundness"
+        },
+        {
+          "section": "P.5",
+          "clause": "F.B graph commuting square"
+        },
+        {
+          "section": "P.5",
+          "clause": "F.B table commuting square"
+        },
+        {
+          "section": "P.5",
+          "clause": "protolens schema-transform construction"
+        },
+        {
+          "section": "decision 29",
+          "clause": "pre-lane reach"
+        },
+        {
+          "section": "P.5",
+          "clause": "protolens instance-transform construction"
+        }
+      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
+        "crates/panproto-reference/src/pages/lenses/domain.rs",
+        "crates/panproto-reference/src/pages/lenses/graph.rs",
+        "crates/panproto-reference/src/pages/lenses/laws.rs",
+        "crates/panproto-reference/src/pages/lenses/lens.rs",
+        "crates/panproto-reference/src/pages/lenses/path.rs",
+        "crates/panproto-reference/src/pages/lenses/protolens.rs",
+        "crates/panproto-reference/src/pages/lenses/squares.rs",
+        "crates/panproto-reference/src/pages/lenses/table.rs",
+        "crates/panproto-reference/src/pages/lenses/tree.rs",
         "crates/panproto-reference/src/enumerate/lenses.rs"
       ],
       "laws": [

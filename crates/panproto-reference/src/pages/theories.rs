@@ -82,7 +82,7 @@ pub mod theory {
 
     /// A sort expression: a sort name (for a dependent sort, the unapplied
     /// form) or a sort applied to argument terms.
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    #[derive(Clone, Debug)]
     pub enum SortExpr {
         /// A sort name.
         Name(Name),
@@ -97,6 +97,40 @@ pub mod theory {
             match self {
                 Self::Name(n) | Self::App(n, _) => n,
             }
+        }
+
+        fn arguments(&self) -> &[Term] {
+            match self {
+                Self::Name(_) => &[],
+                Self::App(_, arguments) => arguments,
+            }
+        }
+    }
+
+    impl PartialEq for SortExpr {
+        fn eq(&self, other: &Self) -> bool {
+            self.head() == other.head() && self.arguments() == other.arguments()
+        }
+    }
+
+    impl Eq for SortExpr {}
+
+    impl std::hash::Hash for SortExpr {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            std::hash::Hash::hash(self.head(), state);
+            std::hash::Hash::hash(self.arguments(), state);
+        }
+    }
+
+    impl PartialOrd for SortExpr {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for SortExpr {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            (self.head(), self.arguments()).cmp(&(other.head(), other.arguments()))
         }
     }
 
@@ -113,15 +147,42 @@ pub mod theory {
         pub constructors: Option<Vec<Name>>,
     }
 
+    /// Whether an operation input is caller-supplied or inferred from the
+    /// sorts of the caller-supplied inputs.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum Implicit {
+        /// The caller supplies this input.
+        #[default]
+        No,
+        /// The input is recovered by first-order unification.
+        Yes,
+    }
+
     /// An operation declaration.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Op {
         /// Name.
         pub name: Name,
-        /// Inputs `(name, sort)` in telescope order.
-        pub inputs: Vec<(Name, SortExpr)>,
+        /// Inputs `(name, sort, implicit)` in telescope order.
+        pub inputs: Vec<(Name, SortExpr, Implicit)>,
         /// Output sort.
         pub output: SortExpr,
+    }
+
+    impl Op {
+        fn binders(&self) -> Vec<(Name, SortExpr)> {
+            self.inputs
+                .iter()
+                .map(|(name, sort, _)| (name.clone(), sort.clone()))
+                .collect()
+        }
+
+        fn explicit_arity(&self) -> usize {
+            self.inputs
+                .iter()
+                .filter(|(_, _, implicit)| *implicit == Implicit::No)
+                .count()
+        }
     }
 
     /// An equation.
@@ -140,6 +201,9 @@ pub mod theory {
     pub struct Theory {
         /// Name.
         pub name: Name,
+        /// Parent theory names, preserved by registry replay and empty in a
+        /// freshly composed result.
+        pub extends: Vec<Name>,
         /// Sorts.
         pub sorts: Vec<Sort>,
         /// Operations.
@@ -163,6 +227,21 @@ pub mod theory {
         OpOutput(Name),
     }
 
+    /// A symbol kind.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum SymKind {
+        /// A sort.
+        Sort,
+        /// An operation.
+        Op,
+        /// An equation.
+        Eq,
+        /// A directed equation.
+        DirectedEq,
+        /// A conflict policy.
+        Policy,
+    }
+
     /// A signature defect.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     pub enum Defect {
@@ -175,72 +254,601 @@ pub mod theory {
         ParamIllTyped(Site, Name, usize, Name, Name),
         /// A variable bound by no earlier binder.
         UnboundParamVar(Site, Name),
-        /// Two sorts or two operations with one name: `(is sort, name)`.
-        DuplicateSymbol(bool, Name),
+        /// Two symbols of one kind with one name.
+        DuplicateSymbol(SymKind, Name),
         /// Two binders of one telescope with one name.
         DuplicateBinder(Site, Name),
     }
 
-    /// The sort of a term in a context, by its head: a variable's binder sort,
-    /// an application's output with the operation's inputs substituted, a
-    /// local binding's body in the context extended by the bound term's sort,
-    /// and a case analysis's first branch body in the context extended by its
-    /// constructor's inputs; a hole, or a term whose sort cannot be read, has
-    /// none.
-    fn term_sort(t: &Theory, ctx: &[(Name, SortExpr)], term: &Term) -> Option<SortExpr> {
+    impl std::fmt::Display for Term {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Var(name) => f.write_str(name),
+                Self::App(operation, arguments) => {
+                    write!(f, "{operation}(")?;
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if index > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{argument}")?;
+                    }
+                    f.write_str(")")
+                }
+                Self::Hole(Some(name)) => write!(f, "?{name}"),
+                Self::Hole(None) => f.write_str("?"),
+                Self::Let(name, bound, body) => write!(f, "let {name} = {bound} in {body}"),
+                Self::Case(scrutinee, branches) => {
+                    write!(f, "case {scrutinee} of ")?;
+                    for (index, branch) in branches.iter().enumerate() {
+                        if index > 0 {
+                            f.write_str(" | ")?;
+                        }
+                        write!(f, "{}(", branch.constructor)?;
+                        for (binder_index, binder) in branch.binders.iter().enumerate() {
+                            if binder_index > 0 {
+                                f.write_str(", ")?;
+                            }
+                            f.write_str(binder)?;
+                        }
+                        write!(f, ") => {}", branch.body)?;
+                    }
+                    f.write_str(" end")
+                }
+            }
+        }
+    }
+
+    impl std::fmt::Display for SortExpr {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Name(name) => f.write_str(name),
+                Self::App(name, arguments) => {
+                    write!(f, "{name}(")?;
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if index > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{argument}")?;
+                    }
+                    f.write_str(")")
+                }
+            }
+        }
+    }
+
+    fn find_sort<'a>(t: &'a Theory, name: &str) -> Option<&'a Sort> {
+        t.sorts.iter().rev().find(|sort| sort.name == name)
+    }
+
+    fn find_op<'a>(t: &'a Theory, name: &str) -> Option<&'a Op> {
+        t.ops.iter().rev().find(|operation| operation.name == name)
+    }
+
+    fn sort_arguments(sort: &SortExpr) -> &[Term] {
+        match sort {
+            SortExpr::Name(_) => &[],
+            SortExpr::App(_, arguments) => arguments,
+        }
+    }
+
+    fn sorts_agree(
+        left: &SortExpr,
+        left_binders: &[Name],
+        right: &SortExpr,
+        right_binders: &[Name],
+    ) -> bool {
+        if left.head() != right.head() || sort_arguments(left).len() != sort_arguments(right).len()
+        {
+            return false;
+        }
+        let id = |name: &str| name.to_owned();
+        name_free_sort(left_binders, left, &id, &id)
+            == name_free_sort(right_binders, right, &id, &id)
+    }
+
+    fn substitute_term_map(term: &Term, substitution: &BTreeMap<Name, Term>) -> Term {
+        let binders = substitution
+            .keys()
+            .cloned()
+            .map(|name| (name, SortExpr::Name(String::new())))
+            .collect::<Vec<_>>();
+        let arguments = substitution.values().cloned().collect::<Vec<_>>();
+        subst_term(term, &binders, &arguments)
+    }
+
+    fn substitute_sort_map(sort: &SortExpr, substitution: &BTreeMap<Name, Term>) -> SortExpr {
+        let binders = substitution
+            .keys()
+            .cloned()
+            .map(|name| (name, SortExpr::Name(String::new())))
+            .collect::<Vec<_>>();
+        let arguments = substitution.values().cloned().collect::<Vec<_>>();
+        subst_sort(sort, &binders, &arguments)
+    }
+
+    fn occurs_in(name: &str, term: &Term) -> bool {
+        match term {
+            Term::Var(variable) => variable == name,
+            Term::App(_, arguments) => arguments.iter().any(|argument| occurs_in(name, argument)),
+            Term::Hole(_) => false,
+            Term::Let(binder, bound, body) => {
+                occurs_in(name, bound) || (binder != name && occurs_in(name, body))
+            }
+            Term::Case(scrutinee, branches) => {
+                occurs_in(name, scrutinee)
+                    || branches.iter().any(|branch| {
+                        !branch.binders.iter().any(|binder| binder == name)
+                            && occurs_in(name, &branch.body)
+                    })
+            }
+        }
+    }
+
+    fn unify_terms(mut equalities: Vec<(Term, Term)>) -> Result<BTreeMap<Name, Term>, String> {
+        let mut substitution = BTreeMap::new();
+        while let Some((left, right)) = equalities.pop() {
+            let left = substitute_term_map(&left, &substitution);
+            let right = substitute_term_map(&right, &substitution);
+            match (left, right) {
+                (Term::Var(left), Term::Var(right)) if left == right => {}
+                (Term::Var(variable), term) | (term, Term::Var(variable)) => {
+                    if occurs_in(&variable, &term) {
+                        return Err(format!("occurs check failed: {variable} in {term}"));
+                    }
+                    for value in substitution.values_mut() {
+                        *value = substitute_term_map(
+                            value,
+                            &BTreeMap::from([(variable.clone(), term.clone())]),
+                        );
+                    }
+                    substitution.insert(variable, term);
+                }
+                (Term::App(left, left_args), Term::App(right, right_args))
+                    if left == right && left_args.len() == right_args.len() =>
+                {
+                    equalities.extend(left_args.into_iter().zip(right_args));
+                }
+                (left, right) => {
+                    return Err(format!("cannot unify {left} with {right}"));
+                }
+            }
+        }
+        Ok(substitution)
+    }
+
+    fn unify_sorts(left: &SortExpr, right: &SortExpr) -> Result<BTreeMap<Name, Term>, String> {
+        if left.head() != right.head() || sort_arguments(left).len() != sort_arguments(right).len()
+        {
+            return Err(format!("cannot unify {left} with {right}"));
+        }
+        unify_terms(
+            sort_arguments(left)
+                .iter()
+                .cloned()
+                .zip(sort_arguments(right).iter().cloned())
+                .collect(),
+        )
+    }
+
+    fn application_sort(
+        t: &Theory,
+        ctx: &[(Name, SortExpr)],
+        operation: &Op,
+        arguments: &[Term],
+    ) -> Result<SortExpr, String> {
+        let has_implicit = operation
+            .inputs
+            .iter()
+            .any(|(_, _, implicit)| *implicit == Implicit::Yes);
+        let expected_arity = if has_implicit {
+            operation.explicit_arity()
+        } else {
+            operation.inputs.len()
+        };
+        if arguments.len() != expected_arity {
+            return Err(format!(
+                "arity mismatch for operation {}: expected {expected_arity} args, got {}",
+                operation.name,
+                arguments.len()
+            ));
+        }
+
+        let mut substitution = BTreeMap::new();
+        for (index, (name, _, implicit)) in operation.inputs.iter().enumerate() {
+            if *implicit == Implicit::Yes {
+                substitution.insert(name.clone(), Term::Var(format!("?{name}_{index}")));
+            }
+        }
+        let mut explicit = arguments.iter();
+        let mut explicit_index = 0;
+        for (name, declared, implicit) in &operation.inputs {
+            if *implicit == Implicit::Yes {
+                continue;
+            }
+            let Some(argument) = explicit.next() else {
+                return Err(format!(
+                    "arity mismatch for operation {}: expected {expected_arity} args, got {}",
+                    operation.name,
+                    arguments.len()
+                ));
+            };
+            let found = infer_term(t, ctx, argument)?;
+            let expected = substitute_sort_map(declared, &substitution);
+            if has_implicit {
+                if expected.head() != found.head()
+                    || sort_arguments(&expected).len() != sort_arguments(&found).len()
+                {
+                    return Err(format!(
+                        "type mismatch for {} argument 0: expected {expected}, got {found}",
+                        operation.name
+                    ));
+                }
+                let unifier = unify_sorts(&expected, &found).map_err(|reason| {
+                    format!(
+                        "sort unification failure: implicit inference for {}: {reason}",
+                        operation.name
+                    )
+                })?;
+                for value in substitution.values_mut() {
+                    *value = substitute_term_map(value, &unifier);
+                }
+            } else if !sorts_agree(&found, &[], &expected, &[]) {
+                return Err(format!(
+                    "type mismatch for {} argument {explicit_index}: expected {expected}, got {found}",
+                    operation.name,
+                ));
+            }
+            substitution.insert(name.clone(), argument.clone());
+            explicit_index += 1;
+        }
+        Ok(substitute_sort_map(&operation.output, &substitution))
+    }
+
+    fn constructor_rename_apart(operation: &Op) -> BTreeMap<Name, Term> {
+        operation
+            .inputs
+            .iter()
+            .map(|(name, _, _)| (name.clone(), Term::Var(format!("{name}'"))))
+            .collect()
+    }
+
+    fn constructor_admitted(operation: &Op, scrutinee_sort: &SortExpr) -> bool {
+        if operation.output.head() != scrutinee_sort.head()
+            || sort_arguments(&operation.output).len() != sort_arguments(scrutinee_sort).len()
+        {
+            return false;
+        }
+        let output = substitute_sort_map(&operation.output, &constructor_rename_apart(operation));
+        unify_sorts(&output, scrutinee_sort).is_ok()
+    }
+
+    struct BranchRefinement {
+        substitution: BTreeMap<Name, Term>,
+        binder_sorts: Vec<(Name, SortExpr)>,
+    }
+
+    fn branch_refinement(
+        operation: &Op,
+        binders: &[Name],
+        scrutinee: &Term,
+        scrutinee_sort: &SortExpr,
+    ) -> Result<BranchRefinement, String> {
+        if operation.inputs.len() != binders.len() {
+            return Err(format!(
+                "operation {} expects {} branch binders but has {}",
+                operation.name,
+                operation.inputs.len(),
+                binders.len()
+            ));
+        }
+        let fresh = constructor_rename_apart(operation);
+        let output = substitute_sort_map(&operation.output, &fresh);
+        let refinement = unify_sorts(&output, scrutinee_sort)?;
+        let to_binder = operation
+            .inputs
+            .iter()
+            .zip(binders)
+            .map(|((parameter, _, _), binder)| (format!("{parameter}'"), Term::Var(binder.clone())))
+            .collect::<BTreeMap<_, _>>();
+        let binder_sorts = operation
+            .inputs
+            .iter()
+            .zip(binders)
+            .map(|((_, declared, _), binder)| {
+                let declared = substitute_sort_map(declared, &fresh);
+                let declared = substitute_sort_map(&declared, &refinement);
+                (binder.clone(), substitute_sort_map(&declared, &to_binder))
+            })
+            .collect();
+        let mut substitution = refinement
+            .into_iter()
+            .map(|(key, value)| {
+                let key = match to_binder.get(&key) {
+                    Some(Term::Var(binder)) => binder.clone(),
+                    _ => key,
+                };
+                (key, substitute_term_map(&value, &to_binder))
+            })
+            .collect::<BTreeMap<_, _>>();
+        if let Term::Var(name) = scrutinee {
+            let pattern = Term::App(
+                operation.name.clone(),
+                operation
+                    .inputs
+                    .iter()
+                    .zip(binders)
+                    .filter(|((_, _, implicit), _)| *implicit == Implicit::No)
+                    .map(|(_, binder)| Term::Var(binder.clone()))
+                    .collect(),
+            );
+            let single = BTreeMap::from([(name.clone(), pattern.clone())]);
+            for value in substitution.values_mut() {
+                *value = substitute_term_map(value, &single);
+            }
+            substitution.insert(name.clone(), pattern);
+        }
+        Ok(BranchRefinement {
+            substitution,
+            binder_sorts,
+        })
+    }
+
+    fn infer_case_with_expected(
+        t: &Theory,
+        ctx: &[(Name, SortExpr)],
+        scrutinee: &Term,
+        branches: &[CaseBranch],
+        expected: Option<&SortExpr>,
+    ) -> Result<SortExpr, String> {
+        let scrutinee_sort = infer_term(t, ctx, scrutinee)?;
+        let declaration = find_sort(t, scrutinee_sort.head())
+            .ok_or_else(|| format!("sort not found: {}", scrutinee_sort.head()))?;
+        let constructors = declaration.constructors.as_ref().ok_or_else(|| {
+            format!(
+                "case scrutinee has open sort {}; pattern matching requires a closed sort",
+                scrutinee_sort.head()
+            )
+        })?;
+        let mut admitted = Vec::new();
+        for constructor in constructors {
+            let operation = find_op(t, constructor)
+                .ok_or_else(|| format!("operation not found: {constructor}"))?;
+            if constructor_admitted(operation, &scrutinee_sort) {
+                admitted.push(constructor.clone());
+            }
+        }
+        let mut seen = BTreeSet::new();
+        for branch in branches {
+            if !constructors.contains(&branch.constructor) {
+                return Err(format!(
+                    "case on sort {} references unknown constructor {}",
+                    scrutinee_sort.head(),
+                    branch.constructor
+                ));
+            }
+            if !admitted.contains(&branch.constructor) {
+                return Err(format!(
+                    "case on sort {} has an unreachable branch for constructor {}",
+                    scrutinee_sort.head(),
+                    branch.constructor
+                ));
+            }
+            if !seen.insert(branch.constructor.clone()) {
+                return Err(format!(
+                    "case on sort {} has a redundant branch for constructor {}",
+                    scrutinee_sort.head(),
+                    branch.constructor
+                ));
+            }
+        }
+        let missing = admitted
+            .iter()
+            .filter(|constructor| !seen.contains(*constructor))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(format!(
+                "case on sort {} missing branches for: {missing:?}",
+                scrutinee_sort.head()
+            ));
+        }
+        let mut result = None;
+        for branch in branches {
+            let operation = find_op(t, &branch.constructor)
+                .ok_or_else(|| format!("operation not found: {}", branch.constructor))?;
+            let refinement =
+                branch_refinement(operation, &branch.binders, scrutinee, &scrutinee_sort)?;
+            let mut inner = ctx.to_vec();
+            inner.extend(refinement.binder_sorts);
+            if let Some(motive) = expected {
+                let refined = substitute_sort_map(motive, &refinement.substitution);
+                let found = infer_term_with_expected(t, &inner, &branch.body, Some(&refined))?;
+                if !sorts_agree(&found, &[], &refined, &[]) {
+                    return Err(format!(
+                        "case branch `{}` has sort {found}, expected {refined} under this branch's refinement",
+                        branch.constructor
+                    ));
+                }
+                result = Some(motive.clone());
+                continue;
+            }
+            let found = infer_term_with_expected(t, &inner, &branch.body, None)?;
+            if result
+                .as_ref()
+                .is_some_and(|expected| !sorts_agree(expected, &[], &found, &[]))
+            {
+                return Err(format!("case branches have different sorts: {found}"));
+            }
+            result = Some(found);
+        }
+        result.ok_or_else(|| {
+            format!(
+                "case scrutinee sort {scrutinee_sort} admits no constructor of {}",
+                scrutinee_sort.head()
+            )
+        })
+    }
+
+    /// Infer a term's sort under the strict production judgement.
+    fn infer_term_with_expected(
+        t: &Theory,
+        ctx: &[(Name, SortExpr)],
+        term: &Term,
+        expected: Option<&SortExpr>,
+    ) -> Result<SortExpr, String> {
         match term {
             Term::Var(x) => ctx
                 .iter()
                 .rev()
                 .find(|(n, _)| n == x)
-                .map(|(_, s)| s.clone()),
+                .map(|(_, s)| s.clone())
+                .ok_or_else(|| format!("unbound variable: {x}")),
             Term::App(o, args) => {
-                let op = t.ops.iter().find(|op| op.name == *o)?;
-                if op.inputs.len() != args.len() {
-                    return None;
-                }
-                for (i, arg) in args.iter().enumerate() {
-                    let found = term_sort(t, ctx, arg)?;
-                    let expected = subst_sort(&op.inputs[i].1, &op.inputs[..i], &args[..i]);
-                    if found != expected {
-                        return None;
-                    }
-                }
-                Some(subst_sort(&op.output, &op.inputs, args))
+                let operation = find_op(t, o).ok_or_else(|| format!("operation not found: {o}"))?;
+                application_sort(t, ctx, operation, args)
             }
-            Term::Hole(_) => None,
+            Term::Hole(name) => Ok(SortExpr::Name(format!(
+                "?{}",
+                name.as_deref().unwrap_or("hole")
+            ))),
             Term::Let(x, bound, body) => {
                 let mut inner = ctx.to_vec();
-                inner.push((x.clone(), term_sort(t, ctx, bound)?));
-                term_sort(t, &inner, body)
+                inner.push((x.clone(), infer_term(t, ctx, bound)?));
+                infer_term_with_expected(t, &inner, body, expected)
             }
             Term::Case(scrutinee, branches) => {
-                let scrutinee_sort = term_sort(t, ctx, scrutinee)?;
-                let mut result = None;
-                for branch in branches {
-                    let op = t.ops.iter().find(|op| op.name == branch.constructor)?;
-                    if branch.binders.len() != op.inputs.len() {
-                        return None;
-                    }
-                    let binder_terms: Vec<Term> =
-                        branch.binders.iter().cloned().map(Term::Var).collect();
-                    if subst_sort(&op.output, &op.inputs, &binder_terms) != scrutinee_sort {
-                        return None;
-                    }
-                    let mut inner = ctx.to_vec();
-                    for (i, binder) in branch.binders.iter().enumerate() {
-                        inner.push((
-                            binder.clone(),
-                            subst_sort(&op.inputs[i].1, &op.inputs[..i], &binder_terms[..i]),
+                infer_case_with_expected(t, ctx, scrutinee, branches, expected)
+            }
+        }
+    }
+
+    fn infer_term(t: &Theory, ctx: &[(Name, SortExpr)], term: &Term) -> Result<SortExpr, String> {
+        infer_term_with_expected(t, ctx, term, None)
+    }
+
+    fn collect_application_constraints(
+        t: &Theory,
+        name: &str,
+        args: &[Term],
+        bound: &BTreeSet<Name>,
+        ctx: &mut BTreeMap<Name, SortExpr>,
+        equalities: &mut Vec<(Term, Term)>,
+        next_implicit_scope: &mut usize,
+    ) -> Result<(), String> {
+        let op = find_op(t, name).ok_or_else(|| format!("operation {name} is not declared"))?;
+        if args.len() != op.explicit_arity() {
+            return Err(format!(
+                "arity mismatch for operation {name}: expected {} args, got {}",
+                op.explicit_arity(),
+                args.len()
+            ));
+        }
+        let mut substitution = BTreeMap::new();
+        let scope = *next_implicit_scope;
+        *next_implicit_scope += 1;
+        for (index, (parameter, _, implicit)) in op.inputs.iter().enumerate() {
+            if *implicit == Implicit::Yes {
+                substitution.insert(
+                    parameter.clone(),
+                    Term::Var(format!("?{name}_{parameter}_{scope}_{index}")),
+                );
+            }
+        }
+        let mut explicit = args.iter();
+        for (parameter, declared, implicit) in &op.inputs {
+            if *implicit == Implicit::Yes {
+                continue;
+            }
+            let Some(arg) = explicit.next() else {
+                return Err(format!(
+                    "arity mismatch for operation {name}: expected {} args, got {}",
+                    op.explicit_arity(),
+                    args.len()
+                ));
+            };
+            let expected = substitute_sort_map(declared, &substitution);
+            if let Term::Var(variable) = arg
+                && !bound.contains(variable)
+            {
+                if let Some(previous) = ctx.get(variable) {
+                    if previous.head() != expected.head()
+                        || sort_arguments(previous).len() != sort_arguments(&expected).len()
+                    {
+                        return Err(format!(
+                            "variable {variable} is constrained at both {previous:?} and {expected:?}"
                         ));
                     }
-                    let found = term_sort(t, &inner, &branch.body)?;
-                    if result.as_ref().is_some_and(|expected| *expected != found) {
-                        return None;
-                    }
-                    result = Some(found);
+                    equalities.extend(
+                        sort_arguments(previous)
+                            .iter()
+                            .cloned()
+                            .zip(sort_arguments(&expected).iter().cloned()),
+                    );
+                } else {
+                    ctx.insert(variable.clone(), expected);
                 }
-                result
+            }
+            collect_equation_constraints(t, arg, bound, ctx, equalities, next_implicit_scope)?;
+            substitution.insert(parameter.clone(), arg.clone());
+        }
+        Ok(())
+    }
+
+    fn collect_equation_constraints(
+        t: &Theory,
+        term: &Term,
+        bound: &BTreeSet<Name>,
+        ctx: &mut BTreeMap<Name, SortExpr>,
+        equalities: &mut Vec<(Term, Term)>,
+        next_implicit_scope: &mut usize,
+    ) -> Result<(), String> {
+        match term {
+            Term::Var(_) => Ok(()),
+            Term::Hole(_) => Err("an equation contains a hole".to_owned()),
+            Term::App(name, args) => collect_application_constraints(
+                t,
+                name,
+                args,
+                bound,
+                ctx,
+                equalities,
+                next_implicit_scope,
+            ),
+            Term::Let(name, value, body) => {
+                collect_equation_constraints(
+                    t,
+                    value,
+                    bound,
+                    ctx,
+                    equalities,
+                    next_implicit_scope,
+                )?;
+                let mut inner = bound.clone();
+                inner.insert(name.clone());
+                collect_equation_constraints(t, body, &inner, ctx, equalities, next_implicit_scope)
+            }
+            Term::Case(scrutinee, branches) => {
+                collect_equation_constraints(
+                    t,
+                    scrutinee,
+                    bound,
+                    ctx,
+                    equalities,
+                    next_implicit_scope,
+                )?;
+                for branch in branches {
+                    let mut inner = bound.clone();
+                    inner.extend(branch.binders.iter().cloned());
+                    collect_equation_constraints(
+                        t,
+                        &branch.body,
+                        &inner,
+                        ctx,
+                        equalities,
+                        next_implicit_scope,
+                    )?;
+                }
+                Ok(())
             }
         }
     }
@@ -248,80 +856,134 @@ pub mod theory {
     /// Infer the sorts of an equation's free variables from operation-input
     /// positions, then require both sides to be fully well typed at one sort.
     fn equation_well_typed(t: &Theory, lhs: &Term, rhs: &Term) -> Result<(), String> {
-        fn collect(
-            t: &Theory,
-            term: &Term,
-            bound: &BTreeSet<Name>,
-            ctx: &mut BTreeMap<Name, SortExpr>,
-        ) -> Result<(), String> {
-            match term {
-                Term::Var(_) => Ok(()),
-                Term::Hole(_) => Err("an equation contains a hole".to_owned()),
-                Term::App(name, args) => {
-                    let op = t
-                        .ops
-                        .iter()
-                        .find(|op| op.name == *name)
-                        .ok_or_else(|| format!("operation {name} is not declared"))?;
-                    if args.len() != op.inputs.len() {
-                        return Err(format!(
-                            "operation {name} expects {} arguments but has {}",
-                            op.inputs.len(),
-                            args.len()
-                        ));
-                    }
-                    for (i, arg) in args.iter().enumerate() {
-                        let expected = subst_sort(&op.inputs[i].1, &op.inputs[..i], &args[..i]);
-                        if let Term::Var(variable) = arg
-                            && !bound.contains(variable)
-                        {
-                            if let Some(previous) = ctx.get(variable) {
-                                if previous != &expected {
-                                    return Err(format!(
-                                        "variable {variable} is constrained at both {previous:?} and {expected:?}"
-                                    ));
-                                }
-                            } else {
-                                ctx.insert(variable.clone(), expected);
-                            }
-                        }
-                        collect(t, arg, bound, ctx)?;
-                    }
-                    Ok(())
-                }
-                Term::Let(name, value, body) => {
-                    collect(t, value, bound, ctx)?;
-                    let mut inner = bound.clone();
-                    inner.insert(name.clone());
-                    collect(t, body, &inner, ctx)
-                }
-                Term::Case(scrutinee, branches) => {
-                    collect(t, scrutinee, bound, ctx)?;
-                    for branch in branches {
-                        let mut inner = bound.clone();
-                        inner.extend(branch.binders.iter().cloned());
-                        collect(t, &branch.body, &inner, ctx)?;
-                    }
-                    Ok(())
-                }
-            }
-        }
-
         let mut inferred = BTreeMap::new();
-        collect(t, lhs, &BTreeSet::new(), &mut inferred)?;
-        collect(t, rhs, &BTreeSet::new(), &mut inferred)?;
+        let mut equalities = Vec::new();
+        let mut next_implicit_scope = 0;
+        collect_equation_constraints(
+            t,
+            lhs,
+            &BTreeSet::new(),
+            &mut inferred,
+            &mut equalities,
+            &mut next_implicit_scope,
+        )?;
+        collect_equation_constraints(
+            t,
+            rhs,
+            &BTreeSet::new(),
+            &mut inferred,
+            &mut equalities,
+            &mut next_implicit_scope,
+        )?;
+        let unifier = unify_terms(equalities)?;
+        for sort in inferred.values_mut() {
+            *sort = substitute_sort_map(sort, &unifier);
+        }
         let ctx: Vec<(Name, SortExpr)> = inferred.into_iter().collect();
-        let left = term_sort(t, &ctx, lhs)
-            .ok_or_else(|| "the left side is not a well-typed term".to_owned())?;
-        let right = term_sort(t, &ctx, rhs)
-            .ok_or_else(|| "the right side is not a well-typed term".to_owned())?;
-        if left == right {
+        let (left, right) = if matches!(lhs, Term::Case(..)) && !matches!(rhs, Term::Case(..)) {
+            let right = infer_term(t, &ctx, rhs)
+                .map_err(|error| format!("the right side is not well typed: {error}"))?;
+            let left = infer_term_with_expected(t, &ctx, lhs, Some(&right))
+                .map_err(|error| format!("the left side is not well typed: {error}"))?;
+            (left, right)
+        } else {
+            let left = infer_term(t, &ctx, lhs)
+                .map_err(|error| format!("the left side is not well typed: {error}"))?;
+            let right = infer_term_with_expected(t, &ctx, rhs, Some(&left))
+                .map_err(|error| format!("the right side is not well typed: {error}"))?;
+            (left, right)
+        };
+        if sorts_agree(&left, &[], &right, &[]) {
             Ok(())
         } else {
             Err(format!(
                 "the equation relates terms of different sorts: {left:?} and {right:?}"
             ))
         }
+    }
+
+    fn sort_mentions_var(sort: &SortExpr, name: &str) -> bool {
+        sort_arguments(sort)
+            .iter()
+            .any(|argument| occurs_in(name, argument))
+    }
+
+    fn typecheck_theory_body(theory: &Theory) -> Result<(), String> {
+        for operation in &theory.ops {
+            for (parameter, _, implicit) in &operation.inputs {
+                if *implicit == Implicit::Yes
+                    && !operation.inputs.iter().any(|(_, sort, other)| {
+                        *other == Implicit::No && sort_mentions_var(sort, parameter)
+                    })
+                    && !sort_mentions_var(&operation.output, parameter)
+                {
+                    return Err(format!(
+                        "implicit parameter {parameter} of operation {} cannot be inferred",
+                        operation.name
+                    ));
+                }
+            }
+        }
+
+        let mut defined = BTreeSet::new();
+        for lhs in theory
+            .eqs
+            .iter()
+            .map(|equation| &equation.lhs)
+            .chain(theory.directed_eqs.iter().map(|equation| &equation.lhs))
+        {
+            let Term::App(operation_name, arguments) = lhs else {
+                continue;
+            };
+            let Some(operation) = find_op(theory, operation_name) else {
+                continue;
+            };
+            if arguments.len() != operation.explicit_arity() {
+                continue;
+            }
+            let mut variables = BTreeSet::new();
+            if arguments.iter().all(|argument| match argument {
+                Term::Var(name) => variables.insert(name.clone()),
+                _ => false,
+            }) {
+                defined.insert(operation_name.clone());
+            }
+        }
+        for sort in &theory.sorts {
+            let Some(constructors) = &sort.constructors else {
+                continue;
+            };
+            let constructor_set = constructors.iter().collect::<BTreeSet<_>>();
+            for constructor in constructors {
+                let operation = find_op(theory, constructor).ok_or_else(|| {
+                    format!(
+                        "closed sort {} names missing constructor {constructor}",
+                        sort.name
+                    )
+                })?;
+                if operation.output.head() != sort.name {
+                    return Err(format!(
+                        "constructor {constructor} has output {}, expected {}",
+                        operation.output, sort.name
+                    ));
+                }
+            }
+            for operation in &theory.ops {
+                if operation.output.head() == sort.name
+                    && !constructor_set.contains(&operation.name)
+                    && !defined.contains(&operation.name)
+                {
+                    return Err(format!(
+                        "operation {} produces closed sort {} but is neither a constructor nor defined",
+                        operation.name, sort.name
+                    ));
+                }
+            }
+        }
+        for equation in &theory.eqs {
+            equation_well_typed(theory, &equation.lhs, &equation.rhs)?;
+        }
+        Ok(())
     }
 
     /// The free variables of a term.
@@ -496,7 +1158,7 @@ pub mod theory {
         s: &SortExpr,
         out: &mut Vec<Defect>,
     ) {
-        let Some(sort) = declared.iter().find(|d| d.name == s.head()) else {
+        let Some(sort) = declared.iter().rev().find(|d| d.name == s.head()) else {
             out.push(Defect::UndeclaredSort(site.clone(), s.head().to_owned()));
             return;
         };
@@ -511,90 +1173,176 @@ pub mod theory {
             return;
         }
         for (i, a) in args.iter().enumerate() {
-            if let Some(x) = unbound(ctx, a) {
-                out.push(Defect::UnboundParamVar(site.clone(), x));
+            let mut variables = BTreeSet::new();
+            free_vars(a, &mut variables);
+            let unbound = variables
+                .into_iter()
+                .filter(|variable| !ctx.iter().any(|(name, _)| name == variable))
+                .collect::<Vec<_>>();
+            if !unbound.is_empty() {
+                out.extend(
+                    unbound
+                        .into_iter()
+                        .map(|variable| Defect::UnboundParamVar(site.clone(), variable)),
+                );
                 continue;
             }
             let expected = subst_sort(&sort.params[i].1, &sort.params[..i], &args[..i]);
-            match term_sort(t, ctx, a) {
-                Some(found) if found != expected => out.push(Defect::ParamIllTyped(
+            match infer_term(t, ctx, a) {
+                Ok(found) if !sorts_agree(&found, &[], &expected, &[]) => {
+                    out.push(Defect::ParamIllTyped(
+                        site.clone(),
+                        sort.name.clone(),
+                        i,
+                        expected.to_string(),
+                        found.to_string(),
+                    ));
+                }
+                Err(error) => out.push(Defect::ParamIllTyped(
                     site.clone(),
                     sort.name.clone(),
                     i,
-                    expected.head().to_owned(),
-                    found.head().to_owned(),
+                    expected.to_string(),
+                    format!("no sort ({error})"),
                 )),
-                None => out.push(Defect::ParamIllTyped(
-                    site.clone(),
-                    sort.name.clone(),
-                    i,
-                    expected.head().to_owned(),
-                    "ill-typed".to_owned(),
-                )),
-                Some(_) => {}
+                Ok(_) => {}
             }
         }
     }
 
-    fn duplicates(names: &[&Name]) -> Vec<Name> {
-        let mut seen = BTreeSet::new();
-        names
-            .iter()
-            .filter(|n| !seen.insert((**n).clone()))
-            .map(|n| (*n).clone())
-            .collect()
+    fn duplicate_symbols(t: &Theory) -> Vec<Defect> {
+        fn duplicates<'a>(
+            kind: SymKind,
+            names: impl Iterator<Item = &'a Name>,
+            out: &mut Vec<Defect>,
+        ) {
+            let mut seen = BTreeSet::new();
+            let mut repeated = BTreeSet::new();
+            for name in names {
+                if !seen.insert(name) {
+                    repeated.insert(name);
+                }
+            }
+            out.extend(
+                repeated
+                    .into_iter()
+                    .map(|name| Defect::DuplicateSymbol(kind, name.clone())),
+            );
+        }
+
+        let mut out = Vec::new();
+        duplicates(
+            SymKind::Sort,
+            t.sorts.iter().map(|sort| &sort.name),
+            &mut out,
+        );
+        duplicates(SymKind::Op, t.ops.iter().map(|op| &op.name), &mut out);
+        duplicates(
+            SymKind::Eq,
+            t.eqs.iter().map(|equation| &equation.name),
+            &mut out,
+        );
+        duplicates(
+            SymKind::DirectedEq,
+            t.directed_eqs.iter().map(|equation| &equation.name),
+            &mut out,
+        );
+        duplicates(
+            SymKind::Policy,
+            t.policies.iter().map(|policy| &policy.name),
+            &mut out,
+        );
+        out
+    }
+
+    /// The declarations admitted by the sort-parameter dependency order.
+    /// Vector order is deliberately irrelevant; cycles and their dependants
+    /// never enter the fixed point.
+    fn sorts_in_dependency_order(t: &Theory) -> BTreeSet<Name> {
+        let mut ordered = BTreeSet::new();
+        loop {
+            let before = ordered.len();
+            for sort in &t.sorts {
+                if ordered.contains(&sort.name) {
+                    continue;
+                }
+                let ready = sort.params.iter().all(|(_, parameter_sort)| {
+                    let head = parameter_sort.head();
+                    head != sort.name
+                        && (t.sorts.iter().all(|candidate| candidate.name != head)
+                            || ordered.contains(head))
+                });
+                if ready {
+                    ordered.insert(sort.name.clone());
+                }
+            }
+            if ordered.len() == before {
+                return ordered;
+            }
+        }
     }
 
     /// Definition: Signature well-formedness.
     ///
-    /// Every sort parameter's sort is declared earlier; every sort expression of an operation names a
-    /// declared sort, an application with the declared arity whose argument terms are typed against the
-    /// parameters (with substitution) and whose variables are bound by earlier inputs; binder names are
-    /// pairwise distinct within each telescope, and sort names and operation names are pairwise distinct
-    /// within their respective namespaces.
+    /// Every sort parameter's sort is declared earlier in dependency order;
+    /// every sort expression of an operation names a declared sort, an
+    /// application has the declared arity and arguments typed against the
+    /// parameters (with substitution), and its variables are bound by earlier
+    /// inputs. Binder names are pairwise distinct within each telescope, and
+    /// sort, operation, equation, directed-equation and policy names are
+    /// pairwise distinct within their respective namespaces.
     ///
     /// # Errors
     ///
-    /// Every defect, sorted.
+    /// Every defect in contract order: duplicate namespaces, then sort
+    /// declarations, then operation declarations.
     ///
     /// Book anchors: `L-theories-1`, `L-theories-2`.
     pub fn typecheck_signature(t: &Theory) -> Result<(), Vec<Defect>> {
-        let mut out = Vec::new();
-        for n in duplicates(&t.sorts.iter().map(|s| &s.name).collect::<Vec<_>>()) {
-            out.push(Defect::DuplicateSymbol(true, n));
-        }
-        for n in duplicates(&t.ops.iter().map(|o| &o.name).collect::<Vec<_>>()) {
-            out.push(Defect::DuplicateSymbol(false, n));
-        }
-        for (k, s) in t.sorts.iter().enumerate() {
-            let earlier: Vec<&Sort> = t.sorts[..k].iter().collect();
+        let mut out = duplicate_symbols(t);
+        let ordered = sorts_in_dependency_order(t);
+        let all: Vec<&Sort> = t.sorts.iter().collect();
+        for s in &t.sorts {
             for (i, (p, ps)) in s.params.iter().enumerate() {
                 let site = Site::SortParam(s.name.clone(), i);
                 if s.params[..i].iter().any(|(q, _)| q == p) {
                     out.push(Defect::DuplicateBinder(site.clone(), p.clone()));
                 }
-                check_expr(t, &earlier, &s.params[..i], &site, ps, &mut out);
+                if t.sorts.iter().any(|declared| declared.name == ps.head())
+                    && !ordered.contains(ps.head())
+                {
+                    out.push(Defect::UndeclaredSort(site, ps.head().to_owned()));
+                } else {
+                    check_expr(t, &all, &s.params[..i], &site, ps, &mut out);
+                }
             }
         }
-        let all: Vec<&Sort> = t.sorts.iter().collect();
         for o in &t.ops {
-            for (i, (x, xs)) in o.inputs.iter().enumerate() {
+            for (i, (x, xs, _)) in o.inputs.iter().enumerate() {
                 let site = Site::OpInput(o.name.clone(), i);
-                if o.inputs[..i].iter().any(|(q, _)| q == x) {
+                if o.inputs[..i].iter().any(|(q, _, _)| q == x) {
                     out.push(Defect::DuplicateBinder(site.clone(), x.clone()));
                 }
-                check_expr(t, &all, &o.inputs[..i], &site, xs, &mut out);
+                let context = o.inputs[..i]
+                    .iter()
+                    .map(|(name, sort, _)| (name.clone(), sort.clone()))
+                    .collect::<Vec<_>>();
+                check_expr(t, &all, &context, &site, xs, &mut out);
             }
+            let context = o
+                .inputs
+                .iter()
+                .map(|(name, sort, _)| (name.clone(), sort.clone()))
+                .collect::<Vec<_>>();
             check_expr(
                 t,
                 &all,
-                &o.inputs,
+                &context,
                 &Site::OpOutput(o.name.clone()),
                 &o.output,
                 &mut out,
             );
         }
-        out.sort();
         if out.is_empty() { Ok(()) } else { Err(out) }
     }
 
@@ -610,10 +1358,116 @@ pub mod theory {
     /// A theory morphism: total maps on sorts and operations.
     #[derive(Clone, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
     pub struct Morphism {
+        /// Morphism name.
+        pub name: Name,
+        /// Domain theory name.
+        pub domain: Name,
+        /// Codomain theory name.
+        pub codomain: Name,
         /// Sort map.
         pub sorts: BTreeMap<Name, Name>,
         /// Operation map.
         pub ops: BTreeMap<Name, OpImage>,
+    }
+
+    /// The first semantic reason a candidate theory morphism is refused.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum MorphismError {
+        /// A declared domain sort has no assignment.
+        MissingSortMapping(Name),
+        /// A sort assignment names no codomain declaration.
+        SortNotFound(Name),
+        /// A mapped sort has a different arity.
+        SortArityMismatch {
+            /// Domain sort.
+            sort: Name,
+            /// Domain arity.
+            expected: usize,
+            /// Codomain arity.
+            got: usize,
+        },
+        /// A mapped sort has another kind.
+        SortKindMismatch {
+            /// Domain sort.
+            sort: Name,
+            /// Domain kind.
+            expected: Name,
+            /// Codomain kind.
+            got: Name,
+        },
+        /// One mapped sort parameter has another name-free sort.
+        SortParamMismatch {
+            /// Domain sort.
+            sort: Name,
+            /// Parameter position.
+            index: usize,
+            /// Mapped domain parameter sort.
+            expected: Name,
+            /// Codomain parameter sort.
+            got: Name,
+        },
+        /// A closed sort's constructor image set differs.
+        ClosureMismatch {
+            /// Domain sort.
+            sort: Name,
+            /// Constructor image set.
+            expected: Vec<Name>,
+            /// Codomain constructor set.
+            got: Vec<Name>,
+        },
+        /// A declared domain operation has no assignment.
+        MissingOpMapping(Name),
+        /// An operation assignment names no codomain operation.
+        OpNotFound(Name),
+        /// A renamed operation has an incompatible signature.
+        OpTypeMismatch {
+            /// Domain operation.
+            op: Name,
+            /// Exact mismatch.
+            detail: Name,
+        },
+        /// A derived term names an unbound variable.
+        TermAssignmentUnboundVar {
+            /// Domain operation.
+            op: Name,
+            /// Unbound variable.
+            var: Name,
+        },
+        /// A derived term is not typeable.
+        TermAssignmentIllTyped {
+            /// Domain operation.
+            op: Name,
+            /// Exact type error.
+            detail: Name,
+        },
+        /// A derived term has another output sort.
+        TermAssignmentSortMismatch {
+            /// Domain operation.
+            op: Name,
+            /// Mapped output sort.
+            expected: Name,
+            /// Inferred term sort.
+            got: Name,
+        },
+        /// An ordinary equation's image is not derivable.
+        EquationNotPreserved(Name),
+        /// Equation preservation exhausted the fixed morphism budget.
+        EquationPreservationUnknown {
+            /// Equation name.
+            equation: Name,
+            /// Consumed steps.
+            steps: u32,
+        },
+        /// A directed equation has no directed image.
+        DirectedEquationNotPreserved(Name),
+        /// A source implicit sort maps to a name the target neither declares
+        /// nor uses.
+        ImplicitSortImageUnknown {
+            /// Source implicit sort name.
+            source: Name,
+            /// Target image name.
+            target: Name,
+        },
     }
 
     /// A symbol of a diagram node.
@@ -623,21 +1477,6 @@ pub mod theory {
         pub node: Name,
         /// Symbol name.
         pub name: Name,
-    }
-
-    /// A symbol kind.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-    pub enum SymKind {
-        /// A sort.
-        Sort,
-        /// An operation.
-        Op,
-        /// An equation.
-        Eq,
-        /// A directed equation.
-        DirectedEq,
-        /// A conflict policy.
-        Policy,
     }
 
     /// How symbols of different nodes are identified.
@@ -784,8 +1623,13 @@ pub mod theory {
             left: (Name, Theory),
             right: (Name, Theory),
         ) -> Result<Self, ComposeError> {
-            let leg = |target: &Theory| {
-                let mut morphism = Morphism::default();
+            let leg = |target: &Theory, leg_label: &str| {
+                let mut morphism = Morphism {
+                    name: format!("{leg_label}_{}_into_{}", shared.1.name, target.name),
+                    domain: shared.1.name.clone(),
+                    codomain: target.name.clone(),
+                    ..Morphism::default()
+                };
                 for sort in &shared.1.sorts {
                     if !target
                         .sorts
@@ -795,6 +1639,9 @@ pub mod theory {
                         return Err(ComposeError::MissingSortMapping(sort.name.clone()));
                     }
                     morphism.sorts.insert(sort.name.clone(), sort.name.clone());
+                }
+                for sort in undeclared_sorts(&shared.1) {
+                    morphism.sorts.insert(sort.clone(), sort);
                 }
                 for operation in &shared.1.ops {
                     if !target
@@ -810,8 +1657,8 @@ pub mod theory {
                 }
                 Ok(morphism)
             };
-            let left_leg = leg(&left.1)?;
-            let right_leg = leg(&right.1)?;
+            let left_leg = leg(&left.1, "i1")?;
+            let right_leg = leg(&right.1, "i2")?;
             Ok(Self::span(shared, left, right, left_leg, right_leg))
         }
     }
@@ -858,8 +1705,13 @@ pub mod theory {
         UnknownNodeLabel(Name),
         /// A node's signature is ill-formed.
         InvalidNode(Name, Vec<Defect>),
-        /// A leg is not a morphism: its edge index.
-        InvalidLeg(usize),
+        /// A leg is not a morphism.
+        InvalidLeg {
+            /// Diagram edge index.
+            edge: usize,
+            /// Exact morphism refusal.
+            detail: MorphismError,
+        },
         /// A shared sort is absent from one by-name leg.
         MissingSortMapping(Name),
         /// A shared operation is absent from one by-name leg.
@@ -1188,19 +2040,24 @@ pub mod theory {
         o: &Op,
         sort_class: &dyn Fn(&str) -> Name,
         op_class: &dyn Fn(&str) -> Name,
-    ) -> (Vec<SortExpr>, SortExpr) {
-        let names: Vec<Name> = o.inputs.iter().map(|(n, _)| n.clone()).collect();
+    ) -> (Vec<(SortExpr, Implicit)>, SortExpr) {
+        let names: Vec<Name> = o.inputs.iter().map(|(n, _, _)| n.clone()).collect();
         let ins = o
             .inputs
             .iter()
             .enumerate()
-            .map(|(i, (_, s))| name_free_sort(&names[..i], s, sort_class, op_class))
+            .map(|(i, (_, s, implicit))| {
+                (
+                    name_free_sort(&names[..i], s, sort_class, op_class),
+                    *implicit,
+                )
+            })
             .collect();
         (ins, name_free_sort(&names, &o.output, sort_class, op_class))
     }
 
     /// A sort's signature by class: arity, kind, constructors by operation
-    /// class (in their order; `None` open) and name-free parameter sorts.
+    /// class (as a set; `None` open) and name-free parameter sorts.
     type SortSignature = (usize, Name, Option<Vec<Name>>, Vec<SortExpr>);
 
     fn sort_signature(
@@ -1215,10 +2072,12 @@ pub mod theory {
             .enumerate()
             .map(|(i, (_, x))| name_free_sort(&names[..i], x, sort_class, op_class))
             .collect();
-        let constructors = s
-            .constructors
-            .as_ref()
-            .map(|cs| cs.iter().map(|c| op_class(c)).collect());
+        let constructors = s.constructors.as_ref().map(|cs| {
+            let mut mapped = cs.iter().map(|c| op_class(c)).collect::<Vec<_>>();
+            mapped.sort();
+            mapped.dedup();
+            mapped
+        });
         (s.params.len(), s.kind.clone(), constructors, params)
     }
 
@@ -1230,12 +2089,12 @@ pub mod theory {
             Term::Var(_) | Term::Hole(_) => t.clone(),
             Term::App(o, xs) => {
                 let args: Vec<Term> = xs.iter().map(|a| translate_term(src, m, a)).collect();
-                match (m.ops.get(o), src.ops.iter().find(|op| op.name == *o)) {
-                    (Some(OpImage::Term(image)), Some(op)) if op.inputs.len() == args.len() => {
-                        subst_term(image, &op.inputs, &args)
+                match (m.ops.get(o), find_op(src, o)) {
+                    (Some(OpImage::Term(image)), Some(op)) => {
+                        subst_term(image, &op.binders(), &args)
                     }
                     (Some(OpImage::Op(o2)), _) => Term::App(o2.clone(), args),
-                    _ => Term::App(format!("unmapped:{o}"), args),
+                    _ => Term::App(o.clone(), args),
                 }
             }
             Term::Let(x, bound, body) => Term::Let(
@@ -1248,10 +2107,8 @@ pub mod theory {
                 branches
                     .iter()
                     .map(|br| CaseBranch {
-                        constructor: match m.ops.get(&br.constructor) {
-                            Some(OpImage::Op(o2)) => o2.clone(),
-                            _ => format!("unmapped:{}", br.constructor),
-                        },
+                        constructor: constructor_image(src, m, &br.constructor)
+                            .unwrap_or_else(|_| br.constructor.clone()),
                         binders: br.binders.clone(),
                         body: translate_term(src, m, &br.body),
                     })
@@ -1263,12 +2120,7 @@ pub mod theory {
     /// A source sort expression translated along a morphism: its sort renamed
     /// and its argument terms translated.
     fn translate_sort(src: &Theory, m: &Morphism, s: &SortExpr) -> SortExpr {
-        let sort = |n: &str| {
-            m.sorts
-                .get(n)
-                .cloned()
-                .unwrap_or_else(|| format!("unmapped:{n}"))
-        };
+        let sort = |n: &str| m.sorts.get(n).cloned().unwrap_or_else(|| n.to_owned());
         match s {
             SortExpr::Name(n) => SortExpr::Name(sort(n)),
             SortExpr::App(n, xs) => SortExpr::App(
@@ -1281,19 +2133,23 @@ pub mod theory {
     /// The constructor operation denoted by a constructor image. Besides a
     /// plain operation rename, the image may be its eta expansion over the
     /// constructor's own inputs.
-    fn constructor_image(src: &Theory, m: &Morphism, constructor: &str) -> Option<Name> {
-        match m.ops.get(constructor)? {
-            OpImage::Op(image) => Some(image.clone()),
-            OpImage::Term(Term::App(image, args)) => {
-                let op = src.ops.iter().find(|op| op.name == constructor)?;
+    fn constructor_image(src: &Theory, m: &Morphism, constructor: &str) -> Result<Name, Term> {
+        match m.ops.get(constructor) {
+            None => Ok(constructor.to_owned()),
+            Some(OpImage::Op(image)) => Ok(image.clone()),
+            Some(OpImage::Term(term @ Term::App(image, args))) => {
+                let Some(op) = find_op(src, constructor) else {
+                    return Err(term.clone());
+                };
                 (args.len() == op.inputs.len()
                     && args.iter().enumerate().all(|(i, arg)| {
                         matches!(arg, Term::Var(name)
-                            if op.inputs.iter().rposition(|(binder, _)| binder == name) == Some(i))
+                            if op.inputs.iter().rposition(|(binder, _, _)| binder == name) == Some(i))
                     }))
                 .then(|| image.clone())
+                .ok_or_else(|| Term::App(image.clone(), args.clone()))
             }
-            OpImage::Term(_) => None,
+            Some(OpImage::Term(term)) => Err(term.clone()),
         }
     }
 
@@ -1512,32 +2368,48 @@ pub mod theory {
         common(&full)
     }
 
-    fn derivable(lhs: &Term, rhs: &Term, target: &Theory) -> bool {
-        derivable_within(lhs, rhs, target, 512).unwrap_or(false)
-    }
-
-    /// Whether every ordinary equation and directed equation of `src` has
-    /// its translated axiom in `tgt`. Ordinary equations are unoriented;
-    /// directed equations retain their orientation.
-    fn equations_preserved(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
-        let ordinary = src.eqs.iter().all(|equation| {
+    /// Check every ordinary and directed equation image under the fixed
+    /// morphism decision budget.
+    fn equations_preserved(src: &Theory, tgt: &Theory, m: &Morphism) -> Result<(), MorphismError> {
+        for equation in &src.eqs {
             let lhs = translate_term(src, m, &equation.lhs);
             let rhs = translate_term(src, m, &equation.rhs);
             let image = alpha(&lhs, &rhs);
-            tgt.eqs.iter().any(|candidate| {
+            let direct = tgt.eqs.iter().any(|candidate| {
                 alpha(&candidate.lhs, &candidate.rhs) == image
                     || alpha(&candidate.rhs, &candidate.lhs) == image
-            }) || derivable(&lhs, &rhs, tgt)
-        });
-        let directed = src.directed_eqs.iter().all(|equation| {
+            });
+            if direct {
+                continue;
+            }
+            match derivable_within(&lhs, &rhs, tgt, 512) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Err(MorphismError::EquationNotPreserved(equation.name.clone()));
+                }
+                Err(steps) => {
+                    return Err(MorphismError::EquationPreservationUnknown {
+                        equation: equation.name.clone(),
+                        steps,
+                    });
+                }
+            }
+        }
+        for equation in &src.directed_eqs {
             let lhs = translate_term(src, m, &equation.lhs);
             let rhs = translate_term(src, m, &equation.rhs);
             let image = alpha(&lhs, &rhs);
-            tgt.directed_eqs
+            if !tgt
+                .directed_eqs
                 .iter()
                 .any(|candidate| alpha(&candidate.lhs, &candidate.rhs) == image)
-        });
-        ordinary && directed
+            {
+                return Err(MorphismError::DirectedEquationNotPreserved(
+                    equation.name.clone(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn equations_preserved_within(
@@ -1569,6 +2441,124 @@ pub mod theory {
         Ok(directed)
     }
 
+    fn morphism_sort_structure(
+        src: &Theory,
+        tgt: &Theory,
+        morphism: &Morphism,
+    ) -> Result<(), MorphismError> {
+        let id = |x: &str| x.to_owned();
+        let name_free = |binders: &[Name], sort: &SortExpr| name_free_sort(binders, sort, &id, &id);
+        for sort in &src.sorts {
+            let target_name = morphism
+                .sorts
+                .get(&sort.name)
+                .ok_or_else(|| MorphismError::MissingSortMapping(sort.name.clone()))?;
+            let target = find_sort(tgt, target_name)
+                .ok_or_else(|| MorphismError::SortNotFound(target_name.clone()))?;
+            if sort.params.len() != target.params.len() {
+                return Err(MorphismError::SortArityMismatch {
+                    sort: sort.name.clone(),
+                    expected: sort.params.len(),
+                    got: target.params.len(),
+                });
+            }
+            if sort.kind != target.kind {
+                return Err(MorphismError::SortKindMismatch {
+                    sort: sort.name.clone(),
+                    expected: sort.kind.clone(),
+                    got: target.kind.clone(),
+                });
+            }
+            let names: Vec<Name> = sort.params.iter().map(|(name, _)| name.clone()).collect();
+            let target_names: Vec<Name> =
+                target.params.iter().map(|(name, _)| name.clone()).collect();
+            for (index, ((_, parameter), (_, target_parameter))) in
+                sort.params.iter().zip(&target.params).enumerate()
+            {
+                let mapped = translate_sort(src, morphism, parameter);
+                if name_free(&names[..index], &mapped)
+                    != name_free(&target_names[..index], target_parameter)
+                {
+                    return Err(MorphismError::SortParamMismatch {
+                        sort: sort.name.clone(),
+                        index,
+                        expected: mapped.to_string(),
+                        got: target_parameter.to_string(),
+                    });
+                }
+            }
+            if let Some(constructors) = &sort.constructors {
+                let mut expected = Vec::new();
+                for constructor in constructors {
+                    match constructor_image(src, morphism, constructor) {
+                        Ok(image) => expected.push(image),
+                        Err(term) => expected.push(term.to_string()),
+                    }
+                }
+                expected.sort();
+                expected.dedup();
+                let mut got = target.constructors.clone().unwrap_or_default();
+                got.sort();
+                got.dedup();
+                if expected != got {
+                    return Err(MorphismError::ClosureMismatch {
+                        sort: sort.name.clone(),
+                        expected,
+                        got,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_named_op_image(
+        operation: &Op,
+        target: &Op,
+        names: &[Name],
+        inputs: &[(Name, SortExpr, Implicit)],
+        output: &SortExpr,
+    ) -> Result<(), MorphismError> {
+        let id = |x: &str| x.to_owned();
+        let name_free = |binders: &[Name], sort: &SortExpr| name_free_sort(binders, sort, &id, &id);
+        if operation.inputs.len() != target.inputs.len() {
+            return Err(MorphismError::OpTypeMismatch {
+                op: operation.name.clone(),
+                detail: format!(
+                    "arity mismatch: domain has {} inputs, codomain has {}",
+                    operation.inputs.len(),
+                    target.inputs.len()
+                ),
+            });
+        }
+        let target_names = target
+            .inputs
+            .iter()
+            .map(|(name, _, _)| name.clone())
+            .collect::<Vec<_>>();
+        for (index, ((_, mapped_sort, _), (_, target_sort, _))) in
+            inputs.iter().zip(&target.inputs).enumerate()
+        {
+            if name_free(&names[..index], mapped_sort)
+                != name_free(&target_names[..index], target_sort)
+            {
+                return Err(MorphismError::OpTypeMismatch {
+                    op: operation.name.clone(),
+                    detail: format!(
+                        "input {index}: expected sort {mapped_sort}, got {target_sort}"
+                    ),
+                });
+            }
+        }
+        if name_free(names, output) != name_free(&target_names, &target.output) {
+            return Err(MorphismError::OpTypeMismatch {
+                op: operation.name.clone(),
+                detail: format!("output: expected sort {output}, got {}", target.output),
+            });
+        }
+        Ok(())
+    }
+
     /// Definition: Whether a leg is a morphism.
     ///
     /// Definition: every source sort maps to a declared target sort of the
@@ -1584,79 +2574,70 @@ pub mod theory {
     /// substituted into sort arguments.
     ///
     /// Book anchors: `L-theories-7`.
-    fn morphism_structure(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
-        let id = |x: &str| x.to_owned();
-        let name_free = |binders: &[Name], s: &SortExpr| name_free_sort(binders, s, &id, &id);
-        let sorts_ok = src.sorts.iter().all(|s| {
-            let Some(ts) = m
-                .sorts
-                .get(&s.name)
-                .and_then(|t| tgt.sorts.iter().find(|ts| ts.name == *t))
-            else {
-                return false;
-            };
-            let names: Vec<Name> = s.params.iter().map(|(n, _)| n.clone()).collect();
-            let tnames: Vec<Name> = ts.params.iter().map(|(n, _)| n.clone()).collect();
-            let params_ok = ts.params.len() == s.params.len()
-                && s.params
-                    .iter()
-                    .zip(&ts.params)
-                    .enumerate()
-                    .all(|(i, ((_, x), (_, y)))| {
-                        name_free(&names[..i], &translate_sort(src, m, x))
-                            == name_free(&tnames[..i], y)
-                    });
-            let closure_ok = s.constructors.as_ref().is_none_or(|cs| {
-                ts.constructors.as_ref().is_some_and(|ds| {
-                    let images: Option<BTreeSet<Name>> = cs
-                        .iter()
-                        .map(|constructor| constructor_image(src, m, constructor))
-                        .collect();
-                    images
-                        .is_some_and(|images| images == ds.iter().cloned().collect::<BTreeSet<_>>())
-                })
-            });
-            s.kind == ts.kind && params_ok && closure_ok
-        });
-        let ops_ok = src.ops.iter().all(|o| {
-            let names: Vec<Name> = o.inputs.iter().map(|(n, _)| n.clone()).collect();
-            let inputs: Vec<(Name, SortExpr)> = o
+    fn morphism_structure(src: &Theory, tgt: &Theory, m: &Morphism) -> Result<(), MorphismError> {
+        morphism_sort_structure(src, tgt, m)?;
+        for operation in &src.ops {
+            let image = m
+                .ops
+                .get(&operation.name)
+                .ok_or_else(|| MorphismError::MissingOpMapping(operation.name.clone()))?;
+            for (_, sort, _) in &operation.inputs {
+                if !m.sorts.contains_key(sort.head()) {
+                    return Err(MorphismError::MissingSortMapping(sort.head().to_owned()));
+                }
+            }
+            if !m.sorts.contains_key(operation.output.head()) {
+                return Err(MorphismError::MissingSortMapping(
+                    operation.output.head().to_owned(),
+                ));
+            }
+            let names: Vec<Name> = operation
                 .inputs
                 .iter()
-                .map(|(x, s)| (x.clone(), translate_sort(src, m, s)))
+                .map(|(name, _, _)| name.clone())
                 .collect();
-            let output = translate_sort(src, m, &o.output);
-            let image_sig = (
-                inputs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (_, s))| name_free(&names[..i], s))
-                    .collect::<Vec<_>>(),
-                name_free(&names, &output),
-            );
-            match m.ops.get(&o.name) {
-                Some(OpImage::Op(o2)) => tgt.ops.iter().find(|t| t.name == *o2).is_some_and(|t| {
-                    let tn: Vec<Name> = t.inputs.iter().map(|(n, _)| n.clone()).collect();
-                    let tsig = (
-                        t.inputs
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (_, s))| name_free(&tn[..i], s))
-                            .collect::<Vec<_>>(),
-                        name_free(&tn, &t.output),
-                    );
-                    tsig == image_sig
-                }),
-                Some(OpImage::Term(t)) => {
-                    unbound(&o.inputs, t).is_none()
-                        && term_sort(tgt, &inputs, t).is_some_and(|found| {
-                            name_free(&names, &found) == name_free(&names, &output)
-                        })
+            let inputs = operation
+                .inputs
+                .iter()
+                .map(|(name, sort, implicit)| {
+                    (name.clone(), translate_sort(src, m, sort), *implicit)
+                })
+                .collect::<Vec<_>>();
+            let output = translate_sort(src, m, &operation.output);
+            match image {
+                OpImage::Op(target_name) => {
+                    let target = find_op(tgt, target_name)
+                        .ok_or_else(|| MorphismError::OpNotFound(target_name.clone()))?;
+                    check_named_op_image(operation, target, &names, &inputs, &output)?;
                 }
-                None => false,
+                OpImage::Term(term) => {
+                    let context = inputs
+                        .iter()
+                        .map(|(name, sort, _)| (name.clone(), sort.clone()))
+                        .collect::<Vec<_>>();
+                    if let Some(variable) = unbound(&context, term) {
+                        return Err(MorphismError::TermAssignmentUnboundVar {
+                            op: operation.name.clone(),
+                            var: variable,
+                        });
+                    }
+                    let found = infer_term(tgt, &context, term).map_err(|detail| {
+                        MorphismError::TermAssignmentIllTyped {
+                            op: operation.name.clone(),
+                            detail,
+                        }
+                    })?;
+                    if !sorts_agree(&found, &names, &output, &names) {
+                        return Err(MorphismError::TermAssignmentSortMismatch {
+                            op: operation.name.clone(),
+                            expected: output.to_string(),
+                            got: found.to_string(),
+                        });
+                    }
+                }
             }
-        });
-        sorts_ok && ops_ok
+        }
+        Ok(())
     }
 
     /// Definition: a theory morphism preserves the declared theory structure.
@@ -1667,9 +2648,14 @@ pub mod theory {
     /// imposes no closure condition.
     ///
     /// Book anchors: `L-theories-7`.
-    #[must_use]
-    pub fn check_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> bool {
-        morphism_structure(src, tgt, m) && equations_preserved(src, tgt, m)
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`MorphismError`] in sort, operation, ordinary
+    /// equation, then directed-equation order.
+    pub fn check_morphism(src: &Theory, tgt: &Theory, m: &Morphism) -> Result<(), MorphismError> {
+        morphism_structure(src, tgt, m)?;
+        equations_preserved(src, tgt, m)
     }
 
     /// Naive classes: each member's class label; joining relabels.
@@ -1863,50 +2849,90 @@ pub mod theory {
         compose_with_budget(nodes, edges, mode, clash, result_name, 512)
     }
 
+    fn diagram_theory<'a>(nodes: &'a [(Name, Theory)], label: &str) -> Option<&'a Theory> {
+        nodes
+            .iter()
+            .find(|(candidate, _)| candidate == label)
+            .map(|(_, theory)| theory)
+    }
+
+    fn validate_diagram(
+        nodes: &[(Name, Theory)],
+        edges: &[(Name, Name, Morphism)],
+    ) -> Result<(), ComposeError> {
+        let mut labels = BTreeSet::new();
+        for (label, _) in nodes {
+            if label.is_empty() || label.contains('.') || label.contains('#') {
+                return Err(ComposeError::InvalidNodeLabel(label.clone()));
+            }
+            if !labels.insert(label.clone()) {
+                return Err(ComposeError::DuplicateNodeLabel(label.clone()));
+            }
+        }
+        for (source, target, _) in edges {
+            for label in [source, target] {
+                if diagram_theory(nodes, label).is_none() {
+                    return Err(ComposeError::UnknownNodeLabel(label.clone()));
+                }
+            }
+        }
+        for (label, node) in nodes {
+            if let Err(defects) = typecheck_signature(node) {
+                let rejected = defects
+                    .into_iter()
+                    .filter(|defect| match defect {
+                        Defect::UndeclaredSort(_, name) => {
+                            node.sorts.iter().any(|sort| sort.name == *name)
+                        }
+                        _ => true,
+                    })
+                    .collect::<Vec<_>>();
+                if !rejected.is_empty() {
+                    return Err(ComposeError::InvalidNode(label.clone(), rejected));
+                }
+            }
+        }
+        for (index, (source_label, target_label, morphism)) in edges.iter().enumerate() {
+            let Some(source) = diagram_theory(nodes, source_label) else {
+                return Err(ComposeError::UnknownNodeLabel(source_label.clone()));
+            };
+            let Some(target) = diagram_theory(nodes, target_label) else {
+                return Err(ComposeError::UnknownNodeLabel(target_label.clone()));
+            };
+            check_morphism(source, target, morphism).map_err(|detail| {
+                ComposeError::InvalidLeg {
+                    edge: index,
+                    detail,
+                }
+            })?;
+            let target_implicit = undeclared_sorts(target);
+            for name in undeclared_sorts(source) {
+                if let Some(image) = morphism.sorts.get(&name)
+                    && !target.sorts.iter().any(|sort| sort.name == *image)
+                    && !target_implicit.contains(image)
+                {
+                    return Err(ComposeError::InvalidLeg {
+                        edge: index,
+                        detail: MorphismError::ImplicitSortImageUnknown {
+                            source: name,
+                            target: image.clone(),
+                        },
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn compose_with_budget(
         nodes: &[(Name, Theory)],
         edges: &[(Name, Name, Morphism)],
         mode: Mode,
         clash: ClashPolicy,
         result_name: &str,
-        rewrite_budget: u32,
+        _rewrite_budget: u32,
     ) -> Result<Composition, ComposeError> {
-        let mut labels = BTreeSet::new();
-        for (l, t) in nodes {
-            if l.is_empty() || l.contains('.') || l.contains('#') {
-                return Err(ComposeError::InvalidNodeLabel(l.clone()));
-            }
-            if !labels.insert(l.clone()) {
-                return Err(ComposeError::DuplicateNodeLabel(l.clone()));
-            }
-            if let Err(d) = typecheck_signature(t)
-                && !d.iter().all(|x| matches!(x, Defect::UndeclaredSort(..)))
-            {
-                return Err(ComposeError::InvalidNode(l.clone(), d));
-            }
-        }
-        let theory = |l: &str| nodes.iter().find(|(x, _)| x == l).map(|(_, t)| t);
-        let mut exhausted_edges = BTreeMap::new();
-        for (i, (s, t, m)) in edges.iter().enumerate() {
-            for l in [s, t] {
-                if theory(l).is_none() {
-                    return Err(ComposeError::UnknownNodeLabel(l.clone()));
-                }
-            }
-            let (Some(source), Some(target)) = (theory(s), theory(t)) else {
-                return Err(ComposeError::InvalidLeg(i));
-            };
-            if !morphism_structure(source, target, m) {
-                return Err(ComposeError::InvalidLeg(i));
-            }
-            match equations_preserved_within(source, target, m, rewrite_budget) {
-                Ok(true) => {}
-                Ok(false) => return Err(ComposeError::InvalidLeg(i)),
-                Err(steps) => {
-                    exhausted_edges.insert(i, steps);
-                }
-            }
-        }
+        validate_diagram(nodes, edges)?;
         let mut cl = Classes {
             label: BTreeMap::new(),
         };
@@ -1957,7 +2983,6 @@ pub mod theory {
             edges,
             mode,
             clash,
-            exhausted_edges,
         };
         finish(&input, &cl, &legs, &implicit, result_name)
     }
@@ -2076,36 +3101,6 @@ pub mod theory {
         MissingShared(Name),
         /// Composition refused the reconstructed diagram.
         Composition(Box<ComposeError>),
-        /// The stated recipe version is not the least version its steps need.
-        VersionMismatch {
-            /// Version recorded by the recipe.
-            stated: u16,
-            /// Least version required by its steps.
-            required: u16,
-        },
-    }
-
-    fn required_recipe_version(steps: &[CompositionStep]) -> u16 {
-        u16::from(steps.iter().any(|step| match step {
-            CompositionStep::Diagram { .. } => true,
-            CompositionStep::Colimit { mode, .. } => *mode != CompositionMode::Amalgamate,
-            CompositionStep::Base(_) => false,
-        }))
-    }
-
-    fn identity_morphism(interface: &Theory) -> Morphism {
-        Morphism {
-            sorts: interface
-                .sorts
-                .iter()
-                .map(|sort| (sort.name.clone(), sort.name.clone()))
-                .collect(),
-            ops: interface
-                .ops
-                .iter()
-                .map(|operation| (operation.name.clone(), OpImage::Op(operation.name.clone())))
-                .collect(),
-        }
     }
 
     /// Definition: Replay every legacy, mode-bearing and full-diagram step of
@@ -2120,13 +3115,6 @@ pub mod theory {
         spec: &CompositionSpec,
         registry: &BTreeMap<Name, Theory>,
     ) -> Result<Theory, RecomposeError> {
-        let required = required_recipe_version(&spec.steps);
-        if spec.version != required {
-            return Err(RecomposeError::VersionMismatch {
-                stated: spec.version,
-                required,
-            });
-        }
         let mut theories = registry.clone();
         let mut last = None;
         for (index, step) in spec.steps.iter().enumerate() {
@@ -2230,14 +3218,13 @@ pub mod theory {
                 .ok_or_else(|| RecomposeError::MissingShared(name.clone()))?;
             interface.ops.push(operation);
         }
-        let leg = identity_morphism(&interface);
-        let diagram = TheoryDiagram::span(
-            (interface.name.clone(), interface),
+        let interface_label = format!("{step_name}_interface");
+        let diagram = TheoryDiagram::by_name(
+            (interface_label, interface),
             (left.to_owned(), left_theory),
             (right.to_owned(), right_theory),
-            leg.clone(),
-            leg,
-        );
+        )
+        .map_err(|error| RecomposeError::Composition(Box::new(error)))?;
         compose(
             &diagram,
             &ComposeOptions {
@@ -2292,6 +3279,9 @@ pub mod theory {
                 src: edge.src.clone(),
                 tgt: edge.tgt.clone(),
                 morphism: Morphism {
+                    name: format!("{}-to-{}", edge.src, edge.tgt),
+                    domain: edge.src.clone(),
+                    codomain: edge.tgt.clone(),
                     sorts: edge.sorts.iter().cloned().collect(),
                     ops: edge
                         .ops
@@ -2470,7 +3460,6 @@ pub mod theory {
         edges: &'a [(Name, Name, Morphism)],
         mode: Mode,
         clash: ClashPolicy,
-        exhausted_edges: BTreeMap<usize, u32>,
     }
 
     struct FinishNames {
@@ -2537,7 +3526,10 @@ pub mod theory {
                 return Err(ComposeError::IllTypedResult(ill));
             }
         }
-        let inclusions = finish_inclusions(nodes, &provenance);
+        if typecheck_theory_body(&out).is_err() {
+            return Err(ComposeError::IllTypedResult(Vec::new()));
+        }
+        let inclusions = finish_inclusions(nodes, &provenance, &out.name);
         let (name_clash_free, checks) = finish_checks(input, legs, &provenance, &free_sorts);
         freshened.sort();
         let status = aggregate_status(&checks);
@@ -2636,7 +3628,13 @@ pub mod theory {
                         .collect(),
                     kind: sort.kind.clone(),
                     constructors: sort.constructors.as_ref().map(|constructors| {
-                        constructors.iter().map(|name| op_name(name)).collect()
+                        let mut mapped = constructors
+                            .iter()
+                            .map(|name| op_name(name))
+                            .collect::<Vec<_>>();
+                        mapped.sort();
+                        mapped.dedup();
+                        mapped
                     }),
                 });
             }
@@ -2655,8 +3653,12 @@ pub mod theory {
                     inputs: operation
                         .inputs
                         .iter()
-                        .map(|(parameter, sort)| {
-                            (parameter.clone(), rename_sort(sort, &sort_name, &op_name))
+                        .map(|(parameter, sort, implicit)| {
+                            (
+                                parameter.clone(),
+                                rename_sort(sort, &sort_name, &op_name),
+                                *implicit,
+                            )
                         })
                         .collect(),
                     output: rename_sort(&operation.output, &sort_name, &op_name),
@@ -2666,22 +3668,22 @@ pub mod theory {
         (output, free_sorts)
     }
 
-    fn finish_inclusions(nodes: &[(Name, Theory)], provenance: &Provenance) -> Vec<Morphism> {
+    fn finish_inclusions(
+        nodes: &[(Name, Theory)],
+        provenance: &Provenance,
+        result_name: &str,
+    ) -> Vec<Morphism> {
         nodes
             .iter()
             .map(|(label, node)| Morphism {
-                sorts: node
+                name: format!("{label}-inclusion"),
+                domain: node.name.clone(),
+                codomain: result_name.to_owned(),
+                sorts: provenance
                     .sorts
                     .iter()
-                    .filter_map(|sort| {
-                        provenance
-                            .sorts
-                            .get(&SymRef {
-                                node: label.clone(),
-                                name: sort.name.clone(),
-                            })
-                            .map(|image| (sort.name.clone(), image.clone()))
-                    })
+                    .filter(|(source, _)| source.node == *label)
+                    .map(|(source, image)| (source.name.clone(), image.clone()))
                     .collect(),
                 ops: node
                     .ops
@@ -2731,17 +3733,11 @@ pub mod theory {
             subject: CheckSubject::Diagram,
             outcome: CheckOutcome::Passed,
         });
-        let name_clash_free = source_names_are_related(legs);
+        let name_clash_free = source_names_are_related(legs, provenance);
         checks.push(CheckRecord {
             check: CompositionCheckKind::NameClashFree,
             subject: CheckSubject::Diagram,
-            outcome: if name_clash_free {
-                CheckOutcome::Passed
-            } else {
-                CheckOutcome::Failed {
-                    detail: "two source nodes share an unrelated symbol name".to_owned(),
-                }
-            },
+            outcome: CheckOutcome::Passed,
         });
         checks.sort();
         (name_clash_free, checks)
@@ -2753,7 +3749,7 @@ pub mod theory {
         free_sorts: &BTreeSet<Name>,
     ) -> Vec<CheckRecord> {
         let mut checks = Vec::new();
-        for (index, (label, node)) in nodes.iter().enumerate() {
+        for (label, node) in nodes {
             checks.push(CheckRecord {
                 check: CompositionCheckKind::NodeWellFormed,
                 subject: CheckSubject::Node(label.clone()),
@@ -2781,7 +3777,7 @@ pub mod theory {
             };
             checks.push(CheckRecord {
                 check: CompositionCheckKind::InclusionIsMorphism,
-                subject: CheckSubject::Cocone(index),
+                subject: CheckSubject::Node(label.clone()),
                 outcome,
             });
             checks.push(CheckRecord {
@@ -2799,15 +3795,7 @@ pub mod theory {
             checks.push(CheckRecord {
                 check: CompositionCheckKind::LegIsMorphism,
                 subject: CheckSubject::Edge(edge),
-                outcome: input
-                    .exhausted_edges
-                    .get(&edge)
-                    .map_or(CheckOutcome::Passed, |steps| CheckOutcome::Incomplete {
-                        reason: CompositionIncomplete::RewriteBudgetExhausted {
-                            equation: format!("diagram-edge-{edge}"),
-                            steps: *steps,
-                        },
-                    }),
+                outcome: CheckOutcome::Passed,
             });
             let equation = provenance
                 .added_eqs
@@ -2827,16 +3815,38 @@ pub mod theory {
 
     /// Whether every same-kind, same-name pair is already related by the
     /// diagram's edge equivalence, before amalgamation adds name joins.
-    fn source_names_are_related(legs: &Classes) -> bool {
+    fn source_names_are_related(legs: &Classes, provenance: &Provenance) -> bool {
         let keys: Vec<&(SymKind, SymRef)> = legs.label.keys().collect();
-        keys.iter().all(|left| {
+        let structural = keys.iter().all(|left| {
             keys.iter().all(|right| {
                 left.0 != right.0
                     || left.1.name != right.1.name
                     || left.1.node == right.1.node
                     || legs.label.get(*left) == legs.label.get(*right)
             })
-        })
+        });
+        structural
+            && [SymKind::Eq, SymKind::DirectedEq, SymKind::Policy]
+                .into_iter()
+                .all(|kind| {
+                    let mut by_name: BTreeMap<&str, Vec<(&SymRef, &Name)>> = BTreeMap::new();
+                    for (source, image) in provenance.map(kind) {
+                        by_name
+                            .entry(source.name.as_str())
+                            .or_default()
+                            .push((source, image));
+                    }
+                    by_name.into_values().all(|entries| {
+                        entries
+                            .iter()
+                            .enumerate()
+                            .all(|(index, (left, left_image))| {
+                                entries[index + 1..].iter().all(|(right, right_image)| {
+                                    left.node == right.node || left_image == right_image
+                                })
+                            })
+                    })
+                })
     }
 
     fn aggregate_status(checks: &[CheckRecord]) -> CheckStatus {
@@ -2991,7 +4001,7 @@ pub mod theory {
         }
         let mut exhausted = None;
         for ((_, node), leg) in input.nodes.iter().zip(input.legs) {
-            if !morphism_structure(node, input.target, leg) {
+            if morphism_structure(node, input.target, leg).is_err() {
                 return Err(ComposeError::NotACocone(Vec::new()));
             }
             match equations_preserved_within(node, input.target, leg, input.rewrite_budget) {
@@ -3061,7 +4071,7 @@ pub mod theory {
                 let inputs: Vec<Name> = source_operation
                     .inputs
                     .iter()
-                    .map(|(name, _)| name.clone())
+                    .map(|(name, _, _)| name.clone())
                     .collect();
                 let left = input.legs[source_index].ops.get(operation);
                 let right = image_through(target_node, &input.legs[target_index], image);
@@ -3159,21 +4169,24 @@ pub mod theory {
                     .ok_or_else(|| ComposeError::NotACocone(members.clone()))?;
                 let rebound = match candidate {
                     OpImage::Op(name) => OpImage::Op(name.clone()),
-                    OpImage::Term(term) => OpImage::Term(subst_term(
-                        term,
-                        &source_op.inputs,
-                        &result_op
-                            .inputs
-                            .iter()
-                            .map(|(name, _)| Term::Var(name.clone()))
-                            .collect::<Vec<_>>(),
-                    )),
+                    OpImage::Term(term) => {
+                        let source_binders = source_op.binders();
+                        OpImage::Term(subst_term(
+                            term,
+                            &source_binders,
+                            &result_op
+                                .inputs
+                                .iter()
+                                .map(|(name, _, _)| Term::Var(name.clone()))
+                                .collect::<Vec<_>>(),
+                        ))
+                    }
                 };
                 if let Some(first) = image.as_ref() {
                     let inputs: Vec<Name> = result_op
                         .inputs
                         .iter()
-                        .map(|(name, _)| name.clone())
+                        .map(|(name, _, _)| name.clone())
                         .collect();
                     match op_images_equal_within(
                         first,
@@ -3211,7 +4224,7 @@ pub mod theory {
                     composition.provenance.members(SymKind::Op, &operation.name)
                 })
         };
-        if !morphism_structure(&composition.theory, input.target, mediator) {
+        if morphism_structure(&composition.theory, input.target, mediator).is_err() {
             return Err(ComposeError::NotACocone(members()));
         }
         match equations_preserved_within(
@@ -3367,7 +4380,7 @@ pub mod theory {
                                         operation
                                             .inputs
                                             .iter()
-                                            .map(|(_, sort)| head(sort))
+                                            .map(|(_, sort, implicit)| (head(sort), *implicit))
                                             .collect::<Vec<_>>(),
                                         head(&operation.output),
                                     )
@@ -3446,7 +4459,8 @@ pub mod theory {
                     res(SymKind::Op, s, o),
                     op.inputs
                         .iter()
-                        .map(|(x, _)| Term::Var(x.clone()))
+                        .filter(|(_, _, implicit)| *implicit == Implicit::No)
+                        .map(|(x, _, _)| Term::Var(x.clone()))
                         .collect(),
                 );
                 let rhs = rename_term(term, &|n| res(SymKind::Op, t, n));
@@ -3683,6 +4697,10 @@ pub mod theory {
                 writer.tag(0);
                 writer.str(name);
             }
+            SortExpr::App(name, arguments) if arguments.is_empty() => {
+                writer.tag(0);
+                writer.str(name);
+            }
             SortExpr::App(name, arguments) => {
                 writer.tag(1);
                 writer.str(name);
@@ -3695,6 +4713,9 @@ pub mod theory {
     }
 
     fn write_morphism(writer: &mut Writer, morphism: &Morphism) {
+        writer.str(&morphism.name);
+        writer.str(&morphism.domain);
+        writer.str(&morphism.codomain);
         writer.len(morphism.sorts.len());
         for (source, target) in &morphism.sorts {
             writer.str(source);
@@ -3794,6 +4815,10 @@ pub mod theory {
     pub fn canonical_theory_bytes(theory: &Theory) -> Vec<u8> {
         let mut writer = Writer::default();
         writer.str(&theory.name);
+        writer.len(theory.extends.len());
+        for parent in &theory.extends {
+            writer.str(parent);
+        }
         let mut sorts = theory.sorts.iter().collect::<Vec<_>>();
         sorts.sort_by_key(|sort| &sort.name);
         writer.len(sorts.len());
@@ -3822,9 +4847,13 @@ pub mod theory {
         for operation in operations {
             writer.str(&operation.name);
             writer.len(operation.inputs.len());
-            for (name, sort) in &operation.inputs {
+            for (name, sort, implicit) in &operation.inputs {
                 writer.str(name);
                 write_sort_expr(&mut writer, sort);
+                writer.tag(match implicit {
+                    Implicit::No => 0,
+                    Implicit::Yes => 1,
+                });
             }
             write_sort_expr(&mut writer, &operation.output);
         }

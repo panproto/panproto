@@ -1,0 +1,255 @@
+//! Shared graph/table lens domain types and key-domain helpers.
+
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::fan::FanViolation;
+use crate::model::{Graph, Name, SEdge};
+use crate::restrict::{PredicateRefusal, is_fan_kind};
+use crate::schema::Schema;
+use crate::value::Value;
+
+/// The column name used to report a missing key part.
+pub(super) fn part_column(part: &crate::schema::KeyPart) -> String {
+    match part {
+        crate::schema::KeyPart::Path(path) => path
+            .last()
+            .map(|edge| edge.column().to_owned())
+            .unwrap_or_default(),
+        crate::schema::KeyPart::Position { within } => within.column().to_owned(),
+    }
+}
+
+/// Whether a key role imposes uniqueness in the put domain.
+pub(super) const fn uniqueness_role(role: crate::schema::KeyRole) -> bool {
+    matches!(
+        role,
+        crate::schema::KeyRole::Primary
+            | crate::schema::KeyRole::Unique
+            | crate::schema::KeyRole::Identifier
+    )
+}
+
+/// Whether one required key part has a value at `node`.
+pub(super) fn key_part_present(
+    graph: &crate::model::Graph,
+    node: u32,
+    part: &crate::schema::KeyPart,
+) -> bool {
+    match part {
+        crate::schema::KeyPart::Path(path) => crate::keys::path_value(graph, node, path).is_some(),
+        crate::schema::KeyPart::Position { .. } => {
+            let singleton = crate::schema::Key {
+                id: String::new(),
+                parts: vec![part.clone()],
+                role: crate::schema::KeyRole::Index,
+                scope: crate::schema::KeyScope::Global,
+                equality: Vec::new(),
+            };
+            crate::keys::key_value(graph, node, &singleton).is_some()
+        }
+    }
+}
+
+/// Compare named key values by column name and canonical value bytes.
+fn key_values_cmp(
+    left: &[(String, crate::value::Value)],
+    right: &[(String, crate::value::Value)],
+) -> Ordering {
+    for ((left_name, left_value), (right_name, right_value)) in left.iter().zip(right) {
+        let ordering = left_name
+            .cmp(right_name)
+            .then_with(|| crate::canonical::canonical_cmp(left_value, right_value));
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+/// An instance element: graph nodes and edges, table rows and pairs.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ViewRef {
+    /// A node.
+    Node(u32),
+    /// An edge.
+    Edge(u32),
+    /// A row.
+    Row(u32),
+    /// A foreign-key pair.
+    Pair(Box<SEdge>, u32, u32),
+}
+
+/// A violation of the put domain, in report order (variant, then element).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PutDomainError {
+    /// A view id names a complement-dropped element.
+    IdCollision {
+        /// The element.
+        elem: ViewRef,
+    },
+    /// A synthesized object is missing or changed, unexplained.
+    SynthesizedEdited {
+        /// The element.
+        elem: ViewRef,
+    },
+    /// A view edge would be a new contracted pair.
+    ContractedEdgeInserted {
+        /// The edge.
+        elem: ViewRef,
+    },
+    /// A view edge with no unique source label.
+    UnrepresentableViewEdge {
+        /// The edge.
+        elem: ViewRef,
+    },
+    /// A view node's anchor has several preimages.
+    AmbiguousReverseAnchor {
+        /// The node.
+        elem: ViewRef,
+        /// The preimages.
+        candidates: Vec<Name>,
+    },
+    /// A restored node's survival predicate is false.
+    SurvivalPredicateFails {
+        /// The node.
+        elem: ViewRef,
+    },
+    /// An edited field the migration adds.
+    DerivedCellEdited {
+        /// The node.
+        elem: ViewRef,
+        /// The field.
+        field: String,
+    },
+    /// An edited field written by a transform without an inverse.
+    TransformNotInvertible {
+        /// The node.
+        elem: ViewRef,
+        /// The field.
+        field: String,
+    },
+    /// A restored element duplicates a declared key.
+    DuplicateKey {
+        /// The keyed vertex.
+        table: Name,
+        /// The key's columns and values.
+        key: Vec<(String, Value)>,
+        /// The elements, ascending.
+        elems: Vec<ViewRef>,
+    },
+    /// A required cell is absent.
+    MissingRequiredCell {
+        /// The node.
+        elem: ViewRef,
+        /// The field.
+        field: String,
+    },
+    /// The restored source leaves the fan domain.
+    MalformedFan {
+        /// The fan node.
+        node: u32,
+        /// The first violation.
+        reason: FanViolation,
+    },
+    /// A restored node's survival predicate is refused.
+    SurvivalPredicateRefused {
+        /// The node.
+        elem: ViewRef,
+        /// The refusal.
+        refusal: PredicateRefusal,
+    },
+}
+
+impl PutDomainError {
+    /// The report order key: the variant index, then the element (the fan
+    /// node for `MalformedFan`, the least element for `DuplicateKey`).
+    #[must_use]
+    pub fn order_key(&self) -> (u8, Option<ViewRef>) {
+        match self {
+            Self::IdCollision { elem } => (0, Some(elem.clone())),
+            Self::SynthesizedEdited { elem } => (1, Some(elem.clone())),
+            Self::ContractedEdgeInserted { elem } => (2, Some(elem.clone())),
+            Self::UnrepresentableViewEdge { elem } => (3, Some(elem.clone())),
+            Self::AmbiguousReverseAnchor { elem, .. } => (4, Some(elem.clone())),
+            Self::SurvivalPredicateFails { elem } => (5, Some(elem.clone())),
+            Self::DerivedCellEdited { elem, .. } => (6, Some(elem.clone())),
+            Self::TransformNotInvertible { elem, .. } => (7, Some(elem.clone())),
+            Self::DuplicateKey { elems, .. } => (8, elems.first().cloned()),
+            Self::MissingRequiredCell { elem, .. } => (9, Some(elem.clone())),
+            Self::MalformedFan { node, .. } => (10, Some(ViewRef::Node(*node))),
+            Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
+        }
+    }
+
+    /// Compare two violations in complete deterministic report order.
+    pub(super) fn report_cmp(&self, other: &Self) -> Ordering {
+        self.order_key()
+            .cmp(&other.order_key())
+            .then_with(|| match (self, other) {
+                (
+                    Self::DuplicateKey {
+                        table: left_table,
+                        key: left_key,
+                        ..
+                    },
+                    Self::DuplicateKey {
+                        table: right_table,
+                        key: right_key,
+                        ..
+                    },
+                ) => left_table
+                    .cmp(right_table)
+                    .then_with(|| key_values_cmp(left_key, right_key)),
+                (
+                    Self::MissingRequiredCell {
+                        field: left_field, ..
+                    },
+                    Self::MissingRequiredCell {
+                        field: right_field, ..
+                    },
+                ) => left_field.cmp(right_field),
+                _ => Ordering::Equal,
+            })
+    }
+}
+
+/// Missing source value sites required by declared constraint semantics.
+pub(super) fn required_value_violations(
+    schema: &Schema,
+    semantics: &BTreeMap<Name, crate::validation::Semantics>,
+    graph: &Graph,
+    elem: impl Fn(u32) -> ViewRef,
+) -> Vec<PutDomainError> {
+    let required: BTreeSet<&Name> = schema
+        .constraints
+        .iter()
+        .filter(|(_, constraints)| {
+            constraints.iter().any(|(sort, _)| {
+                semantics.get(sort) == Some(&crate::validation::Semantics::RequiredValue)
+            })
+        })
+        .map(|(vertex, _)| vertex)
+        .collect();
+    let mut missing = BTreeSet::new();
+    for (id, _) in graph.nodes.iter().filter(|(id, node)| {
+        node.shape != crate::model::NodeShape::HyperEdge
+            && schema.vertices.contains_key(&node.anchor)
+            && !graph
+                .edges
+                .values()
+                .any(|edge| edge.src == **id && is_fan_kind(&edge.label.kind))
+    }) {
+        for vertex in &required {
+            for (field, value) in crate::validation::value_sites(schema, graph, vertex, *id) {
+                if value.as_ref().is_none_or(|value| *value == Value::Null) {
+                    missing.insert((elem(*id), field.unwrap_or_default()));
+                }
+            }
+        }
+    }
+    missing
+        .into_iter()
+        .map(|(elem, field)| PutDomainError::MissingRequiredCell { elem, field })
+        .collect()
+}

@@ -210,7 +210,10 @@ fn one_table() -> (rel::RelFunctor, Schema) {
         surviving_verts: ["r".to_owned()].into(),
         ..Migration::default()
     };
-    (rel::entity_functor(&r, &r, &m).unwrap(), s)
+    (
+        rel::entity_functor(&r, &r, &m).unwrap().into_kan().unwrap(),
+        s,
+    )
 }
 
 #[test]
@@ -224,7 +227,7 @@ fn the_tree_kan_extensions_name_why_a_tree_is_refused() {
     };
     let refused = Err(TreeKanError::Encode(TreeEncodeError::ReservedVocabulary));
     assert_eq!(encode::t_sigma(&f, &reserved), refused);
-    assert_eq!(encode::t_pi(&f, &reserved), refused);
+    assert_eq!(encode::t_pi(&f, &reserved, usize::MAX), refused);
     assert_eq!(encode::t_delta(&f, &reserved), refused);
     // Two rows with no relation between them: graph Sigma keeps both, so
     // the result has two roots.
@@ -245,6 +248,6 @@ fn the_tree_kan_extensions_name_why_a_tree_is_refused() {
         root: 4,
     };
     assert_eq!(encode::t_sigma(&f, &one), Ok(one.clone()));
-    assert_eq!(encode::t_pi(&f, &one), Ok(one.clone()));
+    assert_eq!(encode::t_pi(&f, &one, usize::MAX), Ok(one.clone()));
     assert_eq!(encode::t_delta(&f, &one), Ok(one));
 }

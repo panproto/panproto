@@ -1,4 +1,4 @@
-//! Loader for the schema-v2 correctness inventory.
+//! Loader for the schema-v3 correctness inventory.
 //!
 //! The inventory is deliberately loaded without Serde so the test-only
 //! reference crate retains its zero normal-dependency boundary. The loader
@@ -46,12 +46,14 @@ pub struct Law {
     pub due_gate: Gate,
 }
 
-/// Whether a page's law inventory is complete.
+/// Completion state of a page's law inventory and verification scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InventoryStatus {
-    /// Every law is listed.
+    /// Every law is listed and the page's verification is complete.
     Complete,
-    /// A later independent audit must enumerate the laws.
+    /// Every law is listed, but the page retains unresolved contract scope.
+    Partial,
+    /// A later independent audit must enumerate the laws and verify the scope.
     Pending,
 }
 
@@ -64,7 +66,7 @@ pub struct Page {
     pub reference_files: Vec<String>,
     /// Laws, empty exactly when the inventory is pending.
     pub laws: Vec<Law>,
-    /// Scope that a pending inventory must audit.
+    /// Scope that a partial or pending inventory must still verify.
     pub contract_scope: Vec<Locator>,
     /// First gate at which the page inventory is required.
     pub due_gate: Gate,
@@ -72,7 +74,7 @@ pub struct Page {
     pub final_gate_scope: Vec<Locator>,
 }
 
-/// The complete schema-v2 inventory.
+/// The complete schema-v3 inventory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     /// Pages keyed by their path below `correctness/`, without `.md`.
@@ -211,12 +213,41 @@ fn laws(value: &Value, where_: &str) -> Result<Vec<Law>, ManifestError> {
         .collect()
 }
 
-/// Load and validate a schema-v2 inventory.
+fn validate_inventory_status(
+    place: &str,
+    status: InventoryStatus,
+    laws: &[Law],
+    contract_scope_present: bool,
+    contract_scope: &[Locator],
+) -> Result<(), ManifestError> {
+    let message = match status {
+        InventoryStatus::Complete if laws.is_empty() || contract_scope_present => {
+            Some("complete inventory must have laws and no contract_scope")
+        }
+        InventoryStatus::Partial
+            if laws.is_empty() || !contract_scope_present || contract_scope.is_empty() =>
+        {
+            Some("partial inventory must have laws and a contract_scope")
+        }
+        InventoryStatus::Pending
+            if !laws.is_empty() || !contract_scope_present || contract_scope.is_empty() =>
+        {
+            Some("pending inventory must have no laws and a contract_scope")
+        }
+        _ => None,
+    };
+    message.map_or(Ok(()), |message| {
+        Err(ManifestError::Shape(format!("{place} {message}")))
+    })
+}
+
+/// Load and validate a schema-v3 inventory.
 ///
 /// Besides JSON shape, this checks the invariants that make the inventory a
 /// partition: semantic ids, anchors and reference files are globally unique;
-/// complete pages have laws and no pending scope; pending pages have no laws
-/// and a nonempty scope.
+/// complete pages have laws and no unresolved scope; partial pages have laws
+/// and a nonempty unresolved scope; pending pages have no laws and a nonempty
+/// scope.
 ///
 /// # Errors
 ///
@@ -226,10 +257,10 @@ pub fn load(text: &str) -> Result<Manifest, ManifestError> {
     let root_value = crate::json::parse(text).ok_or(ManifestError::Json)?;
     let root = object(&root_value, "manifest")?;
     match member(&root, "schema_version", "manifest")? {
-        Value::Number(version) if version == "2" => {}
+        Value::Number(version) if version == "3" => {}
         _ => {
             return Err(ManifestError::Shape(
-                "manifest.schema_version is not 2".to_owned(),
+                "manifest.schema_version is not 3".to_owned(),
             ));
         }
     }
@@ -253,6 +284,7 @@ pub fn load(text: &str) -> Result<Manifest, ManifestError> {
         .as_str()
         {
             "complete" => InventoryStatus::Complete,
+            "partial" => InventoryStatus::Partial,
             "pending" => InventoryStatus::Pending,
             other => {
                 return Err(ManifestError::Shape(format!(
@@ -265,20 +297,15 @@ pub fn load(text: &str) -> Result<Manifest, ManifestError> {
             &format!("{place}.reference_files"),
         )?;
         let page_laws = laws(member(&item, "laws", &place)?, &format!("{place}.laws"))?;
+        let contract_scope_present = item.contains_key("contract_scope");
         let contract_scope = optional_locators(&item, "contract_scope", &place)?;
-        match inventory_status {
-            InventoryStatus::Complete if page_laws.is_empty() || !contract_scope.is_empty() => {
-                return Err(ManifestError::Shape(format!(
-                    "{place} complete inventory must have laws and no contract_scope"
-                )));
-            }
-            InventoryStatus::Pending if !page_laws.is_empty() || contract_scope.is_empty() => {
-                return Err(ManifestError::Shape(format!(
-                    "{place} pending inventory must have no laws and a contract_scope"
-                )));
-            }
-            _ => {}
-        }
+        validate_inventory_status(
+            &place,
+            inventory_status,
+            &page_laws,
+            contract_scope_present,
+            &contract_scope,
+        )?;
         for file in &reference_files {
             if !files.insert(file.clone()) {
                 return Err(ManifestError::DuplicateValue(format!(

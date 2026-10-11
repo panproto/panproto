@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! Worked examples for shared parsers and the schema-v2 manifest loader.
+//! Worked examples for shared parsers and the schema-v3 manifest loader.
 
 use panproto_reference::{json, manifest, model, pattern};
 
@@ -114,10 +114,9 @@ fn the_pattern_reference_searches_by_exhaustive_backtracking() {
     );
 }
 
-#[test]
-fn schema_v2_manifest_loading_checks_partition_invariants() {
-    let text = r#"{
-      "schema_version": 2,
+const fn schema_v3_fixture() -> &'static str {
+    r#"{
+      "schema_version": 3,
       "pages": {
         "values": {
           "inventory_status": "complete",
@@ -131,6 +130,13 @@ fn schema_v2_manifest_loading_checks_partition_invariants() {
           }],
           "due_gate": "phase3"
         },
+        "edits": {
+          "inventory_status": "partial",
+          "reference_files": ["crates/panproto-reference/src/pages/edits.rs"],
+          "laws": [{"id":"edits.example","anchor":"L-edits-1","contract":[{"section":"P.5","clause":"E.1"}],"references":["panproto_reference::edit::apply"],"due_gate":"phase3"}],
+          "contract_scope": [{"section": "P.5", "clause": "E.1"}],
+          "due_gate": "phase3"
+        },
         "parsing": {
           "inventory_status": "pending",
           "reference_files": ["crates/panproto-reference/src/pages/parsing.rs"],
@@ -139,21 +145,39 @@ fn schema_v2_manifest_loading_checks_partition_invariants() {
           "due_gate": "final"
         }
       }
-    }"#;
+    }"#
+}
+
+fn assert_manifest_shape(text: &str, message: &str) {
+    assert_eq!(
+        manifest::load(text),
+        Err(manifest::ManifestError::Shape(message.to_owned()))
+    );
+}
+
+#[test]
+fn schema_v3_manifest_loading_retains_all_inventory_statuses() {
+    let text = schema_v3_fixture();
     let loaded = manifest::load(text).unwrap();
-    assert_eq!(loaded.pages.len(), 2);
+    assert_eq!(loaded.pages.len(), 3);
     assert_eq!(
         loaded.pages["values"].laws[0].due_gate,
         manifest::Gate::Phase3
     );
+    assert_eq!(
+        loaded.pages["edits"].inventory_status,
+        manifest::InventoryStatus::Partial
+    );
+    assert_eq!(loaded.pages["edits"].laws.len(), 1);
+    assert_eq!(loaded.pages["edits"].contract_scope.len(), 1);
     assert_eq!(
         loaded.pages["parsing"].inventory_status,
         manifest::InventoryStatus::Pending
     );
 
     let duplicate = text.replacen(
-        "\"schema_version\": 2",
-        "\"schema_version\": 2, \"schema_version\": 2",
+        "\"schema_version\": 3",
+        "\"schema_version\": 3, \"schema_version\": 3",
         1,
     );
     assert_eq!(
@@ -165,12 +189,146 @@ fn schema_v2_manifest_loading_checks_partition_invariants() {
 }
 
 #[test]
-fn actual_schema_v2_manifest_loads_and_every_owned_file_exists() {
+fn schema_v3_manifest_rejects_duplicate_semantic_law_ids() {
+    let duplicate =
+        schema_v3_fixture().replacen(r#""id":"edits.example""#, r#""id":"values.example""#, 1);
+    assert_eq!(
+        manifest::load(&duplicate),
+        Err(manifest::ManifestError::DuplicateValue(
+            "law id values.example".to_owned()
+        ))
+    );
+}
+
+#[test]
+fn schema_v3_partial_inventory_requires_laws_and_scope() {
+    let text = schema_v3_fixture();
+    let partial_without_laws = text.replacen(
+        r#""laws": [{"id":"edits.example","anchor":"L-edits-1","contract":[{"section":"P.5","clause":"E.1"}],"references":["panproto_reference::edit::apply"],"due_gate":"phase3"}]"#,
+        r#""laws": []"#,
+        1,
+    );
+    assert_manifest_shape(
+        &partial_without_laws,
+        "manifest.pages.edits partial inventory must have laws and a contract_scope",
+    );
+
+    let partial_without_scope = text.replacen(
+        "          \"contract_scope\": [{\"section\": \"P.5\", \"clause\": \"E.1\"}],\n",
+        "",
+        1,
+    );
+    assert_manifest_shape(
+        &partial_without_scope,
+        "manifest.pages.edits partial inventory must have laws and a contract_scope",
+    );
+}
+
+#[test]
+fn schema_v3_complete_inventory_requires_laws_and_absent_scope_key() {
+    let text = schema_v3_fixture();
+    let complete_with_scope = text.replacen(
+        "          \"inventory_status\": \"complete\",\n",
+        "          \"inventory_status\": \"complete\",\n          \"contract_scope\": [{\"section\": \"P.3\", \"clause\": \"VF1\"}],\n",
+        1,
+    );
+    assert_manifest_shape(
+        &complete_with_scope,
+        "manifest.pages.values complete inventory must have laws and no contract_scope",
+    );
+
+    let complete_with_empty_scope = text.replacen(
+        "          \"inventory_status\": \"complete\",\n",
+        "          \"inventory_status\": \"complete\",\n          \"contract_scope\": [],\n",
+        1,
+    );
+    assert_manifest_shape(
+        &complete_with_empty_scope,
+        "manifest.pages.values complete inventory must have laws and no contract_scope",
+    );
+
+    let complete_without_laws = text.replacen(
+        r#"          "laws": [{
+            "id": "values.example",
+            "anchor": "L-values-1",
+            "contract": [{"section": "P.3", "clause": "VF1"}],
+            "references": ["panproto_reference::value::representation"],
+            "due_gate": "phase3"
+          }],"#,
+        r#"          "laws": [],"#,
+        1,
+    );
+    assert_manifest_shape(
+        &complete_without_laws,
+        "manifest.pages.values complete inventory must have laws and no contract_scope",
+    );
+}
+
+#[test]
+fn schema_v3_pending_inventory_requires_no_laws_and_nonempty_scope() {
+    let text = schema_v3_fixture();
+    let pending_with_laws = text.replacen(
+        "          \"laws\": [],\n",
+        "          \"laws\": [{\"id\":\"parsing.example\",\"anchor\":\"L-parsing-1\",\"contract\":[{\"section\":\"O11\",\"clause\":\"D20(d)\"}],\"references\":[\"panproto_reference::value::representation\"],\"due_gate\":\"final\"}],\n",
+        1,
+    );
+    assert_manifest_shape(
+        &pending_with_laws,
+        "manifest.pages.parsing pending inventory must have no laws and a contract_scope",
+    );
+
+    let pending_without_scope = text.replacen(
+        "          \"contract_scope\": [{\"section\": \"O11\", \"clause\": \"D20(d)\"}],\n",
+        "",
+        1,
+    );
+    assert_manifest_shape(
+        &pending_without_scope,
+        "manifest.pages.parsing pending inventory must have no laws and a contract_scope",
+    );
+
+    let pending_with_empty_scope = text.replacen(
+        "          \"contract_scope\": [{\"section\": \"O11\", \"clause\": \"D20(d)\"}],\n",
+        "          \"contract_scope\": [],\n",
+        1,
+    );
+    assert_manifest_shape(
+        &pending_with_empty_scope,
+        "manifest.pages.parsing pending inventory must have no laws and a contract_scope",
+    );
+}
+
+#[test]
+fn actual_schema_v3_manifest_loads_and_every_owned_file_exists() {
     let root = repository_root();
     let path = root.join("notes/graph-parity/records/correctness_manifest.json");
     let text = std::fs::read_to_string(path).unwrap();
     let loaded = manifest::load(&text).unwrap();
     assert_eq!(loaded.pages.len(), 33);
+    assert_eq!(
+        loaded
+            .pages
+            .values()
+            .filter(|page| page.inventory_status == manifest::InventoryStatus::Complete)
+            .count(),
+        8
+    );
+    assert_eq!(
+        loaded
+            .pages
+            .values()
+            .filter(|page| page.inventory_status == manifest::InventoryStatus::Partial)
+            .count(),
+        4
+    );
+    assert_eq!(
+        loaded
+            .pages
+            .values()
+            .filter(|page| page.inventory_status == manifest::InventoryStatus::Pending)
+            .count(),
+        21
+    );
     assert_eq!(
         loaded
             .pages

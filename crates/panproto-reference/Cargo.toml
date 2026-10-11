@@ -10,5 +10,8 @@ description = "Executable reference semantics of panproto: deliberately naive de
 [lints]
 workspace = true
 
+[dependencies]
+blake3.workspace = true
+
 [dev-dependencies]
 proptest = { workspace = true }

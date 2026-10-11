@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use panproto_reference::theory::{
-    self, ClashPolicy, ComposeError, Defect, Mode, Morphism, Op, Site, Sort, SortExpr, Term, Theory,
+    self, ClashPolicy, ComposeError, Defect, Implicit, Mode, Morphism, Op, Site, Sort, SortExpr,
+    Term, Theory,
 };
 
 fn sort(n: &str) -> Sort {
@@ -26,6 +27,9 @@ fn th(name: &str, sorts: &[&str]) -> Theory {
 
 fn id_on(names: &[(&str, &str)]) -> Morphism {
     Morphism {
+        name: "identity".into(),
+        domain: String::new(),
+        codomain: String::new(),
         sorts: names
             .iter()
             .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
@@ -48,7 +52,7 @@ fn a_dependent_sort_application_is_typed_against_its_parameters() {
     });
     t.ops.push(Op {
         name: "id".into(),
-        inputs: vec![("x".into(), SortExpr::Name("Ob".into()))],
+        inputs: vec![("x".into(), SortExpr::Name("Ob".into()), Implicit::No)],
         output: SortExpr::App(
             "Hom".into(),
             vec![Term::Var("x".into()), Term::Var("x".into())],
@@ -57,7 +61,7 @@ fn a_dependent_sort_application_is_typed_against_its_parameters() {
     assert_eq!(theory::typecheck_signature(&t), Ok(()));
     t.ops.push(Op {
         name: "bad".into(),
-        inputs: vec![("x".into(), SortExpr::Name("Ob".into()))],
+        inputs: vec![("x".into(), SortExpr::Name("Ob".into()), Implicit::No)],
         output: SortExpr::App("Hom".into(), vec![Term::Var("x".into())]),
     });
     assert_eq!(
@@ -85,7 +89,7 @@ fn nested_sort_arguments_are_recursively_typechecked() {
         op("g", &[("x", "C")], "D"),
         Op {
             name: "bad".into(),
-            inputs: vec![("x".into(), SortExpr::Name("A".into()))],
+            inputs: vec![("x".into(), SortExpr::Name("A".into()), Implicit::No)],
             output: SortExpr::App(
                 "Indexed".into(),
                 vec![Term::App(
@@ -96,6 +100,596 @@ fn nested_sort_arguments_are_recursively_typechecked() {
         },
     ]);
     assert!(theory::typecheck_signature(&t).is_err());
+}
+
+#[test]
+fn signature_sort_dependencies_ignore_declaration_vector_order_but_reject_cycles() {
+    let dependent = Sort {
+        name: "Y".into(),
+        params: vec![("x".into(), SortExpr::Name("X".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    };
+    let base = sort("X");
+    let reordered = Theory {
+        name: "Reordered".into(),
+        sorts: vec![dependent, base],
+        ..Theory::default()
+    };
+    assert_eq!(theory::typecheck_signature(&reordered), Ok(()));
+
+    let cycle = Theory {
+        name: "Cycle".into(),
+        sorts: vec![
+            Sort {
+                name: "X".into(),
+                params: vec![("y".into(), SortExpr::Name("Y".into()))],
+                kind: "structural".into(),
+                constructors: None,
+            },
+            Sort {
+                name: "Y".into(),
+                params: vec![("x".into(), SortExpr::Name("X".into()))],
+                kind: "structural".into(),
+                constructors: None,
+            },
+        ],
+        ..Theory::default()
+    };
+    assert_eq!(
+        theory::typecheck_signature(&cycle),
+        Err(vec![
+            Defect::UndeclaredSort(Site::SortParam("X".into(), 0), "Y".into()),
+            Defect::UndeclaredSort(Site::SortParam("Y".into(), 0), "X".into()),
+        ])
+    );
+}
+
+#[test]
+fn signature_duplicate_symbols_cover_all_five_namespaces_once_in_contract_order() {
+    let mut duplicate = Theory {
+        name: "DuplicateEveryNamespace".into(),
+        sorts: vec![sort("X"), sort("X"), sort("X")],
+        ops: vec![op("f", &[], "X"), op("f", &[], "X")],
+        ..Theory::default()
+    };
+    let equation = theory::Equation {
+        name: "e".into(),
+        lhs: Term::App("f".into(), vec![]),
+        rhs: Term::App("f".into(), vec![]),
+    };
+    duplicate.eqs.extend([equation.clone(), equation]);
+    let directed = directed("d", "identity");
+    duplicate.directed_eqs.extend([directed.clone(), directed]);
+    let policy = policy("p", "keep_left");
+    duplicate.policies.extend([policy.clone(), policy]);
+    assert_eq!(
+        theory::typecheck_signature(&duplicate),
+        Err(vec![
+            Defect::DuplicateSymbol(theory::SymKind::Sort, "X".into()),
+            Defect::DuplicateSymbol(theory::SymKind::Op, "f".into()),
+            Defect::DuplicateSymbol(theory::SymKind::Eq, "e".into()),
+            Defect::DuplicateSymbol(theory::SymKind::DirectedEq, "d".into()),
+            Defect::DuplicateSymbol(theory::SymKind::Policy, "p".into()),
+        ])
+    );
+}
+
+#[test]
+fn signature_defects_preserve_declaration_order_and_full_payloads() {
+    let declaration_order = Theory {
+        name: "DeclarationOrder".into(),
+        ops: vec![op("z", &[], "Missing"), op("a", &[], "Missing")],
+        ..Theory::default()
+    };
+    assert_eq!(
+        theory::typecheck_signature(&declaration_order),
+        Err(vec![
+            Defect::UndeclaredSort(Site::OpOutput("z".into()), "Missing".into()),
+            Defect::UndeclaredSort(Site::OpOutput("a".into()), "Missing".into()),
+        ])
+    );
+
+    let mut payloads = th("Payloads", &["X"]);
+    payloads.sorts.push(Sort {
+        name: "D".into(),
+        params: vec![("p".into(), SortExpr::Name("X".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    payloads
+        .ops
+        .push(op("pair", &[("a", "X"), ("b", "X")], "X"));
+    payloads.ops.push(Op {
+        name: "unbound".into(),
+        inputs: vec![],
+        output: SortExpr::App(
+            "D".into(),
+            vec![Term::App(
+                "pair".into(),
+                vec![Term::Var("u".into()), Term::Var("v".into())],
+            )],
+        ),
+    });
+    payloads.ops.push(Op {
+        name: "ill_typed".into(),
+        inputs: vec![("x".into(), SortExpr::Name("X".into()), Implicit::No)],
+        output: SortExpr::App(
+            "D".into(),
+            vec![Term::App("nope".into(), vec![Term::Var("x".into())])],
+        ),
+    });
+    assert_eq!(
+        theory::typecheck_signature(&payloads),
+        Err(vec![
+            Defect::UnboundParamVar(Site::OpOutput("unbound".into()), "u".into()),
+            Defect::UnboundParamVar(Site::OpOutput("unbound".into()), "v".into()),
+            Defect::ParamIllTyped(
+                Site::OpOutput("ill_typed".into()),
+                "D".into(),
+                0,
+                "X".into(),
+                "no sort (operation not found: nope)".into(),
+            ),
+        ])
+    );
+
+    let mut exact_arity = th("ExactArity", &["A", "D"]);
+    exact_arity.sorts.push(Sort {
+        name: "Indexed".into(),
+        params: vec![("d".into(), SortExpr::Name("D".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    exact_arity.ops.push(op("f", &[("x", "A")], "D"));
+    exact_arity.ops.push(Op {
+        name: "bad".into(),
+        inputs: vec![("x".into(), SortExpr::Name("A".into()), Implicit::No)],
+        output: SortExpr::App("Indexed".into(), vec![Term::App("f".into(), vec![])]),
+    });
+    assert_eq!(
+        theory::typecheck_signature(&exact_arity),
+        Err(vec![Defect::ParamIllTyped(
+            Site::OpOutput("bad".into()),
+            "Indexed".into(),
+            0,
+            "D".into(),
+            "no sort (arity mismatch for operation f: expected 1 args, got 0)".into(),
+        )])
+    );
+}
+
+#[test]
+fn signature_uses_implicit_inference_alpha_equivalence_case_rules_and_holes() {
+    implicit_arguments_are_inferred_from_explicit_arguments();
+    dependent_sort_arguments_compare_up_to_alpha_equivalence();
+    holes_are_typed_but_open_case_results_are_rejected();
+}
+
+fn implicit_arguments_are_inferred_from_explicit_arguments() {
+    let mut implicit = th("Implicit", &["Ty"]);
+    implicit.sorts.push(Sort {
+        name: "Tm".into(),
+        params: vec![("a".into(), SortExpr::Name("Ty".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    implicit.ops.push(Op {
+        name: "pick".into(),
+        inputs: vec![
+            ("a".into(), SortExpr::Name("Ty".into()), Implicit::Yes),
+            (
+                "x".into(),
+                SortExpr::App("Tm".into(), vec![Term::Var("a".into())]),
+                Implicit::No,
+            ),
+        ],
+        output: SortExpr::Name("Ty".into()),
+    });
+    implicit.ops.push(Op {
+        name: "bad".into(),
+        inputs: vec![
+            ("c".into(), SortExpr::Name("Ty".into()), Implicit::No),
+            (
+                "x".into(),
+                SortExpr::App("Tm".into(), vec![Term::Var("c".into())]),
+                Implicit::No,
+            ),
+        ],
+        output: SortExpr::App(
+            "Tm".into(),
+            vec![Term::App("pick".into(), vec![Term::Var("x".into())])],
+        ),
+    });
+    assert_eq!(theory::typecheck_signature(&implicit), Ok(()));
+}
+
+fn dependent_sort_arguments_compare_up_to_alpha_equivalence() {
+    let mut alpha = th("Alpha", &["X"]);
+    alpha.sorts.extend([
+        Sort {
+            name: "Y".into(),
+            params: vec![("p".into(), SortExpr::Name("X".into()))],
+            kind: "structural".into(),
+            constructors: None,
+        },
+        Sort {
+            name: "Z".into(),
+            params: vec![
+                ("x".into(), SortExpr::Name("X".into())),
+                (
+                    "q".into(),
+                    SortExpr::App(
+                        "Y".into(),
+                        vec![Term::Let(
+                            "b".into(),
+                            Box::new(Term::Var("x".into())),
+                            Box::new(Term::Var("b".into())),
+                        )],
+                    ),
+                ),
+            ],
+            kind: "structural".into(),
+            constructors: None,
+        },
+    ]);
+    alpha.ops.push(Op {
+        name: "f".into(),
+        inputs: vec![("x".into(), SortExpr::Name("X".into()), Implicit::No)],
+        output: SortExpr::App(
+            "Y".into(),
+            vec![Term::Let(
+                "a".into(),
+                Box::new(Term::Var("x".into())),
+                Box::new(Term::Var("a".into())),
+            )],
+        ),
+    });
+    alpha.ops.push(Op {
+        name: "good".into(),
+        inputs: vec![("x".into(), SortExpr::Name("X".into()), Implicit::No)],
+        output: SortExpr::App(
+            "Z".into(),
+            vec![
+                Term::Var("x".into()),
+                Term::App("f".into(), vec![Term::Var("x".into())]),
+            ],
+        ),
+    });
+    assert_eq!(theory::typecheck_signature(&alpha), Ok(()));
+}
+
+fn holes_are_typed_but_open_case_results_are_rejected() {
+    let mut term_forms = th("TermForms", &["X", "?hole"]);
+    term_forms.sorts.push(Sort {
+        name: "D".into(),
+        params: vec![("p".into(), SortExpr::Name("?hole".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    term_forms.ops.push(op("c", &[], "X"));
+    term_forms.ops.push(Op {
+        name: "hole".into(),
+        inputs: vec![],
+        output: SortExpr::App("D".into(), vec![Term::Hole(None)]),
+    });
+    assert_eq!(theory::typecheck_signature(&term_forms), Ok(()));
+    term_forms.sorts.push(Sort {
+        name: "DX".into(),
+        params: vec![("p".into(), SortExpr::Name("X".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    term_forms.ops.push(Op {
+        name: "open_case".into(),
+        inputs: vec![],
+        output: SortExpr::App(
+            "DX".into(),
+            vec![Term::Case(
+                Box::new(Term::App("c".into(), vec![])),
+                vec![theory::CaseBranch {
+                    constructor: "c".into(),
+                    binders: vec![],
+                    body: Term::App("c".into(), vec![]),
+                }],
+            )],
+        ),
+    });
+    assert!(matches!(
+        theory::typecheck_signature(&term_forms),
+        Err(defects) if matches!(
+            defects.as_slice(),
+            [Defect::ParamIllTyped(Site::OpOutput(name), sort, 0, _, found)]
+                if name == "open_case" && sort == "DX" && found.contains("open sort X")
+        )
+    ));
+}
+
+#[test]
+fn duplicate_lookup_uses_the_last_declaration() {
+    let theory = Theory {
+        name: "LastWins".into(),
+        sorts: vec![
+            sort("X"),
+            Sort {
+                name: "X".into(),
+                params: vec![("p".into(), SortExpr::Name("X".into()))],
+                kind: "structural".into(),
+                constructors: None,
+            },
+        ],
+        ops: vec![Op {
+            name: "f".into(),
+            inputs: vec![("x".into(), SortExpr::Name("X".into()), Implicit::No)],
+            output: SortExpr::App("X".into(), vec![Term::Var("x".into())]),
+        }],
+        ..Theory::default()
+    };
+    assert_eq!(
+        theory::typecheck_signature(&theory),
+        Err(vec![Defect::DuplicateSymbol(
+            theory::SymKind::Sort,
+            "X".into(),
+        )])
+    );
+}
+
+#[test]
+fn indexed_cases_rename_constructor_parameters_and_refine_binder_sorts() {
+    let mut theory = indexed_case_theory();
+    add_indexed_case_observers(&mut theory);
+    assert_eq!(theory::typecheck_signature(&theory), Ok(()));
+}
+
+fn indexed_case_theory() -> Theory {
+    let mut theory = th("IndexedCase", &["Nat"]);
+    theory.sorts.extend([
+        Sort {
+            name: "Vec".into(),
+            params: vec![("n".into(), SortExpr::Name("Nat".into()))],
+            kind: "structural".into(),
+            constructors: Some(vec!["nil".into(), "cons".into()]),
+        },
+        Sort {
+            name: "D".into(),
+            params: vec![
+                ("n".into(), SortExpr::Name("Nat".into())),
+                (
+                    "v".into(),
+                    SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
+                ),
+            ],
+            kind: "structural".into(),
+            constructors: None,
+        },
+        Sort {
+            name: "Box".into(),
+            params: vec![("n".into(), SortExpr::Name("Nat".into()))],
+            kind: "structural".into(),
+            constructors: None,
+        },
+    ]);
+    theory.ops.extend([
+        op("zero", &[], "Nat"),
+        op("succ", &[("n", "Nat")], "Nat"),
+        Op {
+            name: "nil".into(),
+            inputs: vec![],
+            output: SortExpr::App("Vec".into(), vec![Term::App("zero".into(), vec![])]),
+        },
+        Op {
+            name: "cons".into(),
+            inputs: vec![
+                ("n".into(), SortExpr::Name("Nat".into()), Implicit::No),
+                (
+                    "rest".into(),
+                    SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
+                    Implicit::No,
+                ),
+            ],
+            output: SortExpr::App(
+                "Vec".into(),
+                vec![Term::App("succ".into(), vec![Term::Var("n".into())])],
+            ),
+        },
+    ]);
+    theory
+}
+
+fn add_indexed_case_observers(theory: &mut Theory) {
+    theory.ops.push(Op {
+        name: "tail".into(),
+        inputs: vec![
+            ("k".into(), SortExpr::Name("Nat".into()), Implicit::No),
+            (
+                "v".into(),
+                SortExpr::App(
+                    "Vec".into(),
+                    vec![Term::App("succ".into(), vec![Term::Var("k".into())])],
+                ),
+                Implicit::No,
+            ),
+        ],
+        output: SortExpr::App(
+            "D".into(),
+            vec![
+                Term::Var("k".into()),
+                Term::Case(
+                    Box::new(Term::Var("v".into())),
+                    vec![theory::CaseBranch {
+                        constructor: "cons".into(),
+                        binders: vec!["m".into(), "rest".into()],
+                        body: Term::Var("rest".into()),
+                    }],
+                ),
+            ],
+        ),
+    });
+    theory.ops.push(Op {
+        name: "observe".into(),
+        inputs: vec![
+            ("n".into(), SortExpr::Name("Nat".into()), Implicit::No),
+            (
+                "v".into(),
+                SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
+                Implicit::No,
+            ),
+        ],
+        output: SortExpr::App(
+            "Box".into(),
+            vec![Term::Case(
+                Box::new(Term::Var("v".into())),
+                vec![
+                    theory::CaseBranch {
+                        constructor: "nil".into(),
+                        binders: vec![],
+                        body: Term::App("zero".into(), vec![]),
+                    },
+                    theory::CaseBranch {
+                        constructor: "cons".into(),
+                        binders: vec!["m".into(), "rest".into()],
+                        body: Term::Var("m".into()),
+                    },
+                ],
+            )],
+        ),
+    });
+}
+
+#[test]
+fn equation_implicit_metavariables_are_scoped_per_application() {
+    let mut node = th("ImplicitEquation", &["Ty"]);
+    node.sorts.push(Sort {
+        name: "Tm".into(),
+        params: vec![("a".into(), SortExpr::Name("Ty".into()))],
+        kind: "structural".into(),
+        constructors: None,
+    });
+    node.ops.push(Op {
+        name: "id".into(),
+        inputs: vec![
+            ("a".into(), SortExpr::Name("Ty".into()), Implicit::Yes),
+            (
+                "x".into(),
+                SortExpr::App("Tm".into(), vec![Term::Var("a".into())]),
+                Implicit::No,
+            ),
+        ],
+        output: SortExpr::App("Tm".into(), vec![Term::Var("a".into())]),
+    });
+    node.eqs.push(theory::Equation {
+        name: "not_polymorphic".into(),
+        lhs: Term::App("id".into(), vec![Term::Var("x".into())]),
+        rhs: Term::App("id".into(), vec![Term::Var("y".into())]),
+    });
+    assert!(matches!(
+        compose(&[("node", node)], &[], Mode::ExplicitIdentity),
+        Err(error) if matches!(*error, ComposeError::IllTypedTransport { .. })
+    ));
+}
+
+#[test]
+fn equation_cases_are_checked_against_the_refined_result_motive() {
+    let mut node = th("Replicate", &["Nat", "A"]);
+    node.sorts[0].constructors = Some(vec!["zero".into(), "succ".into()]);
+    node.sorts.push(Sort {
+        name: "Vec".into(),
+        params: vec![("n".into(), SortExpr::Name("Nat".into()))],
+        kind: "structural".into(),
+        constructors: Some(vec!["nil".into(), "cons".into()]),
+    });
+    node.ops.extend([
+        op("zero", &[], "Nat"),
+        op("succ", &[("n", "Nat")], "Nat"),
+        Op {
+            name: "nil".into(),
+            inputs: vec![],
+            output: SortExpr::App("Vec".into(), vec![Term::App("zero".into(), vec![])]),
+        },
+        Op {
+            name: "cons".into(),
+            inputs: vec![
+                ("n".into(), SortExpr::Name("Nat".into()), Implicit::No),
+                ("x".into(), SortExpr::Name("A".into()), Implicit::No),
+                (
+                    "rest".into(),
+                    SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
+                    Implicit::No,
+                ),
+            ],
+            output: SortExpr::App(
+                "Vec".into(),
+                vec![Term::App("succ".into(), vec![Term::Var("n".into())])],
+            ),
+        },
+        Op {
+            name: "replicate".into(),
+            inputs: vec![
+                ("n".into(), SortExpr::Name("Nat".into()), Implicit::No),
+                ("x".into(), SortExpr::Name("A".into()), Implicit::No),
+            ],
+            output: SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
+        },
+    ]);
+    node.eqs.push(theory::Equation {
+        name: "replicate_by_nat".into(),
+        lhs: Term::App(
+            "replicate".into(),
+            vec![Term::Var("n".into()), Term::Var("x".into())],
+        ),
+        rhs: Term::Case(
+            Box::new(Term::Var("n".into())),
+            vec![
+                theory::CaseBranch {
+                    constructor: "zero".into(),
+                    binders: vec![],
+                    body: Term::App("nil".into(), vec![]),
+                },
+                theory::CaseBranch {
+                    constructor: "succ".into(),
+                    binders: vec!["m".into()],
+                    body: Term::App(
+                        "cons".into(),
+                        vec![
+                            Term::Var("m".into()),
+                            Term::Var("x".into()),
+                            Term::App(
+                                "replicate".into(),
+                                vec![Term::Var("m".into()), Term::Var("x".into())],
+                            ),
+                        ],
+                    ),
+                },
+            ],
+        ),
+    });
+    assert!(compose(&[("node", node)], &[], Mode::ExplicitIdentity).is_ok());
+}
+
+#[test]
+fn composition_result_runs_the_full_theory_body_gate() {
+    let mut noninferrable = th("Noninferrable", &["Ty"]);
+    noninferrable.ops.push(Op {
+        name: "bad".into(),
+        inputs: vec![("a".into(), SortExpr::Name("Ty".into()), Implicit::Yes)],
+        output: SortExpr::Name("Ty".into()),
+    });
+    assert_eq!(theory::typecheck_signature(&noninferrable), Ok(()));
+    assert_eq!(
+        compose(&[("node", noninferrable)], &[], Mode::ExplicitIdentity,).map(|_| ()),
+        Err(Box::new(ComposeError::IllTypedResult(Vec::new())))
+    );
+
+    let mut incomplete_closure = th("IncompleteClosure", &["Nat"]);
+    incomplete_closure.sorts[0].constructors = Some(vec!["zero".into()]);
+    incomplete_closure
+        .ops
+        .extend([op("zero", &[], "Nat"), op("sneaky", &[], "Nat")]);
+    assert_eq!(theory::typecheck_signature(&incomplete_closure), Ok(()));
+    assert_eq!(
+        compose(&[("node", incomplete_closure)], &[], Mode::ExplicitIdentity,).map(|_| ()),
+        Err(Box::new(ComposeError::IllTypedResult(Vec::new())))
+    );
 }
 
 #[test]
@@ -160,10 +754,123 @@ fn majority_naming_is_order_free_and_explicit_identity_freshens_clashes() {
     );
     assert_eq!(fresh.report.freshened.len(), 2);
     assert!(!fresh.report.name_clash_free);
-    assert_eq!(fresh.report.status, theory::CheckStatus::Failed);
+    assert_eq!(fresh.report.status, theory::CheckStatus::Passed);
+    assert!(fresh.report.checks.iter().any(|record| {
+        record.check == theory::CompositionCheckKind::NameClashFree
+            && record.outcome == theory::CheckOutcome::Passed
+    }));
     let merged =
         theory::compose_legacy(&apart, &[], Mode::Amalgamate, ClashPolicy::Reject, "R").unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
+}
+
+#[test]
+fn name_clash_property_includes_equations_directed_equations_and_policies() {
+    let mut left = th("Left", &["A"]);
+    left.ops.push(op("f", &[("x", "A")], "A"));
+    left.eqs = vec![theory::Equation {
+        name: "e".into(),
+        lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+        rhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+    }];
+    left.directed_eqs = vec![directed("d", "same")];
+    left.policies = vec![policy("p", "same")];
+    let right = Theory {
+        name: "Right".into(),
+        ..left.clone()
+    };
+    let mut identity = id_on(&[("A", "A")]);
+    identity
+        .ops
+        .insert("f".into(), theory::OpImage::Op("f".into()));
+    let equal = compose(
+        &[("left", left.clone()), ("right", right)],
+        &[("left", "right", identity)],
+        Mode::ExplicitIdentity,
+    )
+    .unwrap();
+    assert!(equal.report.name_clash_free);
+
+    left = Theory {
+        name: "Left".into(),
+        eqs: vec![theory::Equation {
+            name: "e".into(),
+            lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+            rhs: Term::App("f".into(), vec![Term::Var("x".into())]),
+        }],
+        directed_eqs: vec![directed("d", "same")],
+        policies: vec![policy("p", "same")],
+        sorts: vec![sort("A")],
+        ops: vec![op("f", &[("x", "A")], "A")],
+        ..Theory::default()
+    };
+    let mut right = th("Right", &["B"]);
+    right.ops.push(op("g", &[("x", "B")], "B"));
+    right.eqs.push(theory::Equation {
+        name: "e".into(),
+        lhs: Term::App("g".into(), vec![Term::Var("x".into())]),
+        rhs: Term::App("g".into(), vec![Term::Var("x".into())]),
+    });
+    let mut different_directed = directed("d", "different");
+    different_directed.lhs = Term::App("g".into(), vec![Term::Var("x".into())]);
+    different_directed.rhs = Term::Var("x".into());
+    right.directed_eqs.push(different_directed);
+    right.policies.push(policy("p", "different"));
+    let nodes = vec![("left".into(), left), ("right".into(), right)];
+    let freshened = theory::compose_legacy(
+        &nodes,
+        &[],
+        Mode::ExplicitIdentity,
+        ClashPolicy::Freshen,
+        "R",
+    )
+    .unwrap();
+    assert!(!freshened.report.name_clash_free);
+    assert_eq!(freshened.report.status, theory::CheckStatus::Passed);
+    assert!(freshened.report.checks.iter().any(|record| {
+        record.check == theory::CompositionCheckKind::NameClashFree
+            && record.outcome == theory::CheckOutcome::Passed
+    }));
+}
+
+#[test]
+fn endpoint_validation_precedes_node_typing_and_filters_only_truly_open_sorts() {
+    let invalid = Theory {
+        name: "Invalid".into(),
+        sorts: vec![Sort {
+            name: "X".into(),
+            params: vec![("x".into(), SortExpr::Name("X".into()))],
+            kind: "structural".into(),
+            constructors: None,
+        }],
+        ..Theory::default()
+    };
+    let unknown_edge = vec![("invalid".into(), "missing".into(), Morphism::default())];
+    assert_eq!(
+        theory::compose_legacy(
+            &[("invalid".into(), invalid.clone())],
+            &unknown_edge,
+            Mode::ExplicitIdentity,
+            ClashPolicy::Reject,
+            "R",
+        ),
+        Err(ComposeError::UnknownNodeLabel("missing".into()))
+    );
+    assert!(matches!(
+        theory::compose_legacy(
+            &[("invalid".into(), invalid)],
+            &[],
+            Mode::ExplicitIdentity,
+            ClashPolicy::Reject,
+            "R",
+        ),
+        Err(ComposeError::InvalidNode(label, defects))
+            if label == "invalid"
+                && defects == vec![Defect::UndeclaredSort(
+                    Site::SortParam("X".into(), 0),
+                    "X".into(),
+                )]
+    ));
 }
 
 #[test]
@@ -247,7 +954,7 @@ fn a_leg_sending_a_sort_to_one_of_another_arity_is_refused() {
             ClashPolicy::Reject,
             "R"
         ),
-        Err(ComposeError::InvalidLeg(0))
+        Err(ComposeError::InvalidLeg { edge: 0, .. })
     ));
 }
 
@@ -256,7 +963,13 @@ fn op(name: &str, inputs: &[(&str, &str)], output: &str) -> Op {
         name: name.into(),
         inputs: inputs
             .iter()
-            .map(|(x, s)| ((*x).to_owned(), SortExpr::Name((*s).to_owned())))
+            .map(|(x, s)| {
+                (
+                    (*x).to_owned(),
+                    SortExpr::Name((*s).to_owned()),
+                    Implicit::No,
+                )
+            })
             .collect(),
         output: SortExpr::Name(output.into()),
     }
@@ -339,6 +1052,200 @@ fn an_undeclared_sort_is_an_implicit_symbol_joined_by_name_or_left_free() {
     );
     let merged = compose(&nodes, &[], Mode::Amalgamate).unwrap();
     assert_eq!(merged.theory.sorts.len(), 1);
+}
+
+#[test]
+fn an_open_theory_leg_cannot_map_a_used_sort_to_an_unused_target_name() {
+    let mut source = th("Source", &[]);
+    source.ops.push(op("identity", &[("x", "X")], "X"));
+    let target = th("Target", &[]);
+    let morphism = Morphism {
+        name: "open-leg".into(),
+        domain: "Source".into(),
+        codomain: "Target".into(),
+        sorts: BTreeMap::from([("X".into(), "Y".into())]),
+        ops: BTreeMap::from([(
+            "identity".into(),
+            theory::OpImage::Term(Term::Var("x".into())),
+        )]),
+    };
+
+    assert!(matches!(
+        compose(
+            &[("source", source), ("target", target)],
+            &[("source", "target", morphism)],
+            Mode::ExplicitIdentity,
+        )
+        .map(|_| ()),
+        Err(error) if matches!(*error, ComposeError::InvalidLeg { edge: 0, .. })
+    ));
+}
+
+#[test]
+fn morphism_requires_maps_for_operation_sort_heads_even_when_undeclared() {
+    let mut source = th("Source", &[]);
+    source.ops.push(op("id", &[("x", "X")], "X"));
+    let mut target = th("Target", &[]);
+    target.ops.push(op("id", &[("x", "X")], "X"));
+    for image in [
+        theory::OpImage::Op("id".into()),
+        theory::OpImage::Term(Term::Var("x".into())),
+    ] {
+        let morphism = Morphism {
+            name: "missing-X".into(),
+            domain: "Source".into(),
+            codomain: "Target".into(),
+            sorts: BTreeMap::new(),
+            ops: BTreeMap::from([("id".into(), image)]),
+        };
+        assert_eq!(
+            theory::check_morphism(&source, &target, &morphism),
+            Err(theory::MorphismError::MissingSortMapping("X".into()))
+        );
+    }
+}
+
+#[test]
+fn open_sort_identity_adapters_and_inclusions_are_total() {
+    let open = |name: &str| {
+        let mut theory = th(name, &[]);
+        theory.ops.push(op("f", &[("x", "X")], "X"));
+        theory
+    };
+    let diagram = theory::TheoryDiagram::by_name(
+        ("shared".into(), open("Shared")),
+        ("left".into(), open("Left")),
+        ("right".into(), open("Right")),
+    )
+    .unwrap();
+    assert_eq!(diagram.edges[0].morphism.name, "i1_Shared_into_Left");
+    assert_eq!(diagram.edges[0].morphism.domain, "Shared");
+    assert_eq!(diagram.edges[0].morphism.codomain, "Left");
+    assert_eq!(
+        diagram.edges[0].morphism.sorts,
+        BTreeMap::from([("X".into(), "X".into())])
+    );
+    assert_eq!(diagram.edges[1].morphism.name, "i2_Shared_into_Right");
+
+    let single = compose(&[("open", open("Open"))], &[], Mode::ExplicitIdentity).unwrap();
+    assert_eq!(
+        single.inclusions[0].sorts,
+        BTreeMap::from([("X".into(), "X".into())])
+    );
+    assert_eq!(single.report.status, theory::CheckStatus::Incomplete);
+}
+
+#[test]
+fn closure_check_precedes_missing_operation_map_exactly_as_production() {
+    let mut closed = th("Closed", &["Nat"]);
+    closed.sorts[0].constructors = Some(vec!["zero".into()]);
+    closed.ops.push(op("zero", &[], "Nat"));
+    let morphism = id_on(&[("Nat", "Nat")]);
+    assert_eq!(
+        theory::check_morphism(&closed, &closed, &morphism),
+        Err(theory::MorphismError::MissingOpMapping("zero".into()))
+    );
+}
+
+#[test]
+fn morphism_translation_uses_the_last_duplicate_operation_declaration() {
+    let mut source = th("Source", &["A"]);
+    source.ops.extend([
+        op("f", &[("x", "A"), ("y", "A")], "A"),
+        op("f", &[("y", "A"), ("x", "A")], "A"),
+        op("pair", &[("x", "A"), ("y", "A")], "A"),
+    ]);
+    source.eqs.push(theory::Equation {
+        name: "projection".into(),
+        lhs: Term::App(
+            "pair".into(),
+            vec![
+                Term::App(
+                    "f".into(),
+                    vec![Term::Var("a".into()), Term::Var("b".into())],
+                ),
+                Term::App(
+                    "f".into(),
+                    vec![Term::Var("a".into()), Term::Var("a".into())],
+                ),
+            ],
+        ),
+        rhs: Term::App(
+            "pair".into(),
+            vec![Term::Var("a".into()), Term::Var("a".into())],
+        ),
+    });
+    let mut target = th("Target", &["A"]);
+    target.ops.push(op("pair", &[("x", "A"), ("y", "A")], "A"));
+    let morphism = Morphism {
+        name: "last-f".into(),
+        domain: "Source".into(),
+        codomain: "Target".into(),
+        sorts: BTreeMap::from([("A".into(), "A".into())]),
+        ops: BTreeMap::from([
+            ("f".into(), theory::OpImage::Term(Term::Var("x".into()))),
+            ("pair".into(), theory::OpImage::Op("pair".into())),
+        ]),
+    };
+    assert_eq!(
+        theory::check_morphism(&source, &target, &morphism),
+        Err(theory::MorphismError::EquationNotPreserved(
+            "projection".into(),
+        ))
+    );
+}
+
+#[test]
+fn implicit_flags_are_ignored_by_legs_but_compared_by_operation_classes() {
+    let mut explicit = th("Explicit", &["A"]);
+    explicit.ops.push(op("g", &[("x", "A")], "A"));
+    let mut implicit = th("Implicit", &["A"]);
+    implicit.ops.push(Op {
+        name: "g".into(),
+        inputs: vec![("x".into(), SortExpr::Name("A".into()), Implicit::Yes)],
+        output: SortExpr::Name("A".into()),
+    });
+    let mut leg = id_on(&[("A", "A")]);
+    leg.ops.insert("g".into(), theory::OpImage::Op("g".into()));
+    assert_eq!(theory::check_morphism(&explicit, &implicit, &leg), Ok(()));
+
+    let diagram = theory::TheoryDiagram::by_name(
+        ("shared".into(), explicit.clone()),
+        ("explicit".into(), explicit),
+        ("implicit".into(), implicit),
+    )
+    .unwrap();
+    let options = theory::ComposeOptions {
+        mode: Mode::ExplicitIdentity,
+        result_name: "R".into(),
+        clash: ClashPolicy::Reject,
+        rewrite_budget: 512,
+    };
+    assert_eq!(
+        theory::compose(&diagram, &options).map(|_| ()),
+        Err(ComposeError::OpSignatureMismatch(
+            sym("explicit", "g"),
+            sym("implicit", "g"),
+        ))
+    );
+}
+
+#[test]
+fn inclusion_checks_are_subjected_by_node_label() {
+    let composition = compose(
+        &[("source", th("Source", &["S"]))],
+        &[],
+        Mode::ExplicitIdentity,
+    )
+    .unwrap();
+    let subjects = composition
+        .report
+        .checks
+        .iter()
+        .filter(|record| record.check == theory::CompositionCheckKind::InclusionIsMorphism)
+        .map(|record| record.subject.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, [theory::CheckSubject::Node("source".into())]);
 }
 
 fn directed(name: &str, implementation: &str) -> theory::DirectedEquation {
@@ -497,15 +1404,15 @@ fn case_terms_translate_their_constructors_and_compare_up_to_binder_names() {
         .ops
         .insert("f".into(), theory::OpImage::Op("yes".into()));
     let b2 = closed("B", &["yes", "no"]);
-    assert_eq!(
+    assert!(matches!(
         compose(
             &[("a", a), ("b", b2)],
             &[("a", "b", swapped)],
             Mode::ExplicitIdentity
         )
         .map(|_| ()),
-        Err(Box::new(ComposeError::InvalidLeg(0)))
-    );
+        Err(error) if matches!(*error, ComposeError::InvalidLeg { edge: 0, .. })
+    ));
 }
 
 #[test]
@@ -536,15 +1443,15 @@ fn a_term_image_of_the_wrong_sort_is_no_morphism() {
         "k".into(),
         theory::OpImage::Term(Term::App("g".into(), vec![Term::Var("x".into())])),
     );
-    assert_eq!(
+    assert!(matches!(
         compose(
             &[("s", s), ("t", t)],
             &[("s", "t", bad)],
             Mode::ExplicitIdentity
         )
         .map(|_| ()),
-        Err(Box::new(ComposeError::InvalidLeg(0)))
-    );
+        Err(error) if matches!(*error, ComposeError::InvalidLeg { edge: 0, .. })
+    ));
 }
 
 #[test]
@@ -560,22 +1467,16 @@ fn morphism_kinds_and_closure() {
     open.sorts[0].kind = "source-kind".into();
     let mut other_kind = th("Other", &["T"]);
     other_kind.sorts[0].kind = "target-kind".into();
-    assert!(!theory::check_morphism(
-        &open,
-        &other_kind,
-        &id_on(&[("S", "T")])
-    ));
+    assert!(theory::check_morphism(&open, &other_kind, &id_on(&[("S", "T")])).is_err());
 
     // A16 constrains only a closed domain sort. An open source sort therefore
     // imposes no closure condition on its image.
     let mut closed_target = th("ClosedTarget", &["T"]);
     closed_target.sorts[0].constructors = Some(vec!["k".into()]);
     closed_target.ops.push(op("k", &[], "T"));
-    assert!(theory::check_morphism(
-        &th("Open", &["S"]),
-        &closed_target,
-        &id_on(&[("S", "T")])
-    ));
+    assert!(
+        theory::check_morphism(&th("Open", &["S"]), &closed_target, &id_on(&[("S", "T")])).is_ok()
+    );
 
     // Closed constructor images are a set, and an eta-expanded derived term
     // is a constructor image.
@@ -593,7 +1494,7 @@ fn morphism_kinds_and_closure() {
     constructors
         .ops
         .insert("c2".into(), theory::OpImage::Op("k2".into()));
-    assert!(theory::check_morphism(&source, &target, &constructors));
+    assert!(theory::check_morphism(&source, &target, &constructors).is_ok());
 }
 
 fn morphism_axiom_preservation() {
@@ -611,25 +1512,13 @@ fn morphism_axiom_preservation() {
     identity
         .ops
         .insert("f".into(), theory::OpImage::Op("f".into()));
-    assert!(!theory::check_morphism(
-        &axiom_source,
-        &axiom_target,
-        &identity
-    ));
+    assert!(theory::check_morphism(&axiom_source, &axiom_target, &identity).is_err());
     axiom_target.eqs.clone_from(&axiom_source.eqs);
-    assert!(!theory::check_morphism(
-        &axiom_source,
-        &axiom_target,
-        &identity
-    ));
+    assert!(theory::check_morphism(&axiom_source, &axiom_target, &identity).is_err());
     axiom_target
         .directed_eqs
         .clone_from(&axiom_source.directed_eqs);
-    assert!(theory::check_morphism(
-        &axiom_source,
-        &axiom_target,
-        &identity
-    ));
+    assert!(theory::check_morphism(&axiom_source, &axiom_target, &identity).is_ok());
 }
 
 fn morphism_full_term_typing() {
@@ -647,11 +1536,7 @@ fn morphism_full_term_typing() {
             vec![Term::App("f".into(), vec![Term::Var("x".into())])],
         )),
     );
-    assert!(!theory::check_morphism(
-        &nested_source,
-        &nested_target,
-        &nested
-    ));
+    assert!(theory::check_morphism(&nested_source, &nested_target, &nested).is_err());
 }
 
 fn morphism_equation_rewriting() {
@@ -685,11 +1570,9 @@ fn morphism_equation_rewriting() {
     rewrite_morphism
         .ops
         .insert("f".into(), theory::OpImage::Op("f".into()));
-    assert!(theory::check_morphism(
-        &equational_source,
-        &equational_target,
-        &rewrite_morphism
-    ));
+    assert!(
+        theory::check_morphism(&equational_source, &equational_target, &rewrite_morphism).is_ok()
+    );
 }
 
 #[test]
@@ -727,11 +1610,7 @@ fn bidirectional_equation_search_rejects_budget_exhaustion() {
             .ops
             .insert(operation.into(), theory::OpImage::Op(operation.into()));
     }
-    assert!(!theory::check_morphism(
-        &cycling_source,
-        &cycling_target,
-        &cycling
-    ));
+    assert!(theory::check_morphism(&cycling_source, &cycling_target, &cycling).is_err());
 }
 
 #[test]
@@ -822,6 +1701,74 @@ fn explicit_diagrams_replay_and_budget_exhaustion_is_incomplete() {
             }
         )
     }));
+}
+
+#[test]
+fn replay_preserves_base_parents_ignores_version_and_clones_dependent_interfaces() {
+    let base = Theory {
+        name: "Base".into(),
+        extends: vec!["Parent".into()],
+        sorts: vec![sort("X")],
+        ..Theory::default()
+    };
+    let registry = BTreeMap::from([("Base".into(), base.clone())]);
+    let recipe = |version| theory::CompositionSpec {
+        result_name: "Final".into(),
+        steps: vec![theory::CompositionStep::Base("Base".into())],
+        version,
+    };
+    let zero = theory::recompose(&recipe(0), &registry).unwrap();
+    let future = theory::recompose(&recipe(u16::MAX), &registry).unwrap();
+    assert_eq!(zero, future);
+    assert_eq!(zero.extends, vec!["Parent".to_owned()]);
+    let mut without_parent = base.clone();
+    without_parent.extends.clear();
+    assert_ne!(
+        theory::canonical_theory_bytes(&base),
+        theory::canonical_theory_bytes(&without_parent),
+    );
+
+    let dependent = |name: &str| Theory {
+        name: name.into(),
+        sorts: vec![
+            sort("X"),
+            Sort {
+                name: "D".into(),
+                params: vec![("p".into(), SortExpr::Name("X".into()))],
+                kind: "structural".into(),
+                constructors: None,
+            },
+        ],
+        ..Theory::default()
+    };
+    let registry = BTreeMap::from([
+        ("Left".into(), dependent("Left")),
+        ("Right".into(), dependent("Right")),
+    ]);
+    let result = theory::recompose(
+        &theory::CompositionSpec {
+            result_name: "DependentPushout".into(),
+            steps: vec![theory::CompositionStep::Colimit {
+                left: "Left".into(),
+                right: "Right".into(),
+                shared_sorts: vec!["D".into()],
+                shared_ops: vec![],
+                mode: Mode::Amalgamate,
+            }],
+            version: 0,
+        },
+        &registry,
+    )
+    .unwrap();
+    assert_eq!(
+        result
+            .sorts
+            .iter()
+            .find(|sort| sort.name == "D")
+            .map(|sort| sort.params.len()),
+        Some(1),
+    );
+    assert!(result.extends.is_empty());
 }
 
 #[test]

@@ -498,22 +498,23 @@ pub mod keys {
             .try_fold(true, |all, ordered| ordered.map(|one| all && one))
     }
 
-    /// Definition: Validate a target-set declaration expressed as `(vertex, key, arity,
+    /// Definition: Validate a nonempty target-set declaration expressed as `(vertex, key, arity,
     /// equality)` members.
     ///
     /// Book anchors: `L-keys-and-registration-13`.
     #[must_use]
     pub fn target_set(members: &[(String, String, usize, Vec<KeyEquality>)]) -> bool {
+        let Some((_, _, arity, equality)) = members.first() else {
+            return false;
+        };
         let distinct = members
             .iter()
             .map(|(vertex, key, _, _)| (vertex, key))
             .collect::<BTreeSet<_>>()
             .len()
             == members.len();
-        let compatible = members.first().is_none_or(|(_, _, arity, equality)| {
-            members.iter().all(|(_, _, other_arity, other_equality)| {
-                arity == other_arity && equality == other_equality
-            })
+        let compatible = members.iter().all(|(_, _, other_arity, other_equality)| {
+            arity == other_arity && equality == other_equality
         });
         distinct && compatible
     }
@@ -560,6 +561,9 @@ pub mod keys {
     /// The value of a key path at node `n`, or `None` (NULL).
     #[must_use]
     pub fn path_value(g: &Graph, n: u32, path: &[SEdge]) -> Option<Value> {
+        if path.is_empty() {
+            return own(g, n);
+        }
         let (last, hops) = path.split_last()?;
         let mut frontier = vec![n];
         for hop in hops {

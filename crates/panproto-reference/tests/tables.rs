@@ -8,7 +8,7 @@ use panproto_reference::model::{SEdge, Table};
 use panproto_reference::rel;
 use panproto_reference::restrict::NoValueLayer;
 use panproto_reference::schema::Schema;
-use panproto_reference::table::{self, TableLens};
+use panproto_reference::table::{self, TableBoundaries, TableLens, TablePutError};
 use panproto_reference::value::Value;
 
 #[test]
@@ -49,14 +49,16 @@ fn an_edit_to_a_renamed_column_is_written_to_its_source_column() {
         c.dropped_cells.get(&(0, "a".to_owned())),
         Some(&Value::Int(1))
     );
-    let lens = TableLens {
-        src: &s,
-        tgt: &tg,
-        rs: &rs,
-        m: &m,
-        tp: &tp,
-        vl: &NoValueLayer,
-    };
+    let lens = TableLens::new(
+        &s,
+        &tg,
+        TableBoundaries::new(&rs, &rt),
+        &m,
+        &tp,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
     assert_eq!(lens.put(&view, &c).unwrap(), src);
     let mut edited = view;
     edited
@@ -83,11 +85,19 @@ fn an_edit_to_a_renamed_column_is_written_to_its_source_column() {
 struct Doubling;
 
 impl panproto_reference::restrict::ValueLayer for Doubling {
+    fn canonical_semantics(&self) -> panproto_reference::restrict::ValueLayerSemantics {
+        panproto_reference::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/test/integer-scale",
+            version: 1,
+            canonical_payload: b"field=a\0factor=2".to_vec(),
+        }
+    }
+
     fn survives(
         &self,
         _: &panproto_reference::model::Graph,
         _: &panproto_reference::model::Node,
-    ) -> Result<bool, panproto_reference::restrict::LayerRefusal> {
+    ) -> Result<bool, panproto_reference::restrict::PredicateRefusal> {
         Ok(true)
     }
 
@@ -159,14 +169,16 @@ fn a_transformed_cell_is_restored_through_the_value_layer() {
         .insert(0, ("t".into(), [("a".to_owned(), Value::Int(3))].into()));
     let (view, c) = table::get(&s, &s, &m, &tp, &Doubling, &src).unwrap();
     assert_eq!(view.rows[&0].1["a"], Value::Int(6));
-    let lens = TableLens {
-        src: &s,
-        tgt: &s,
-        rs: &rs,
-        m: &m,
-        tp: &tp,
-        vl: &Doubling,
-    };
+    let lens = TableLens::new(
+        &s,
+        &s,
+        TableBoundaries::new(&rs, &rs),
+        &m,
+        &tp,
+        &BTreeMap::new(),
+        &Doubling,
+    )
+    .unwrap();
     // GetPut: the unedited view gives the source back.
     assert_eq!(lens.put(&view, &c).unwrap(), src);
     // PutGet: an even edit is halved into the source and read back.
@@ -192,11 +204,11 @@ fn a_transformed_cell_is_restored_through_the_value_layer() {
         .insert("a".into(), Value::Int(7));
     assert_eq!(
         lens.put(&odd, &c),
-        Err(vec![
+        Err(TablePutError::Domain(
             panproto_reference::lens::PutDomainError::TransformNotInvertible {
                 elem: panproto_reference::lens::ViewRef::Row(0),
                 field: "a".into(),
-            }
-        ])
+            },
+        ))
     );
 }

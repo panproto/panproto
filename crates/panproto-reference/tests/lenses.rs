@@ -1,17 +1,180 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Worked examples of graph restrict and of the graph lens.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use panproto_reference::fan::FanViolation;
-use panproto_reference::lens::{GraphLens, PutDomainError, ViewRef};
+use panproto_reference::lens::{GraphLens, LensError, PutDomainError, ViewRef};
 use panproto_reference::migration::Migration;
 use panproto_reference::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Tree};
 use panproto_reference::restrict::{
-    self, Complement, EdgeFate, EngineError, ErrorKey, NoValueLayer, PairResolution, Plan,
-    PlanError, PlannedPair, RestrictError, SynthKey,
+    self, Complement, EdgeFate, EngineError, ErrorKey, LayerRefusal, NoValueLayer, Plan, PlanError,
+    PredicateRefusal, PutFieldRefusal, RestrictError, SynthKey, ValueLayer, ValueLayerSemantics,
 };
 use panproto_reference::schema::{HyperEdge, Schema};
+use panproto_reference::value::{Presence, Value};
+
+struct RefusingPredicate;
+
+impl ValueLayer for RefusingPredicate {
+    fn canonical_semantics(&self) -> ValueLayerSemantics {
+        ValueLayerSemantics {
+            domain: "panproto-reference/test-refusing-predicate",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, PredicateRefusal> {
+        Err(PredicateRefusal::AmbiguousChildField {
+            field: "child".into(),
+        })
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
+        Ok((node.fields.clone(), node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<Presence>>,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), PutFieldRefusal> {
+        Ok((
+            original_fields
+                .cloned()
+                .unwrap_or_else(|| view.fields.clone()),
+            original_value
+                .cloned()
+                .unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+#[test]
+fn put_domain_error_census_is_exactly_twelve_variants_in_structural_order() {
+    let node = ViewRef::Node(7);
+    let errors = vec![
+        PutDomainError::IdCollision { elem: node.clone() },
+        PutDomainError::SynthesizedEdited { elem: node.clone() },
+        PutDomainError::ContractedEdgeInserted {
+            elem: ViewRef::Edge(8),
+        },
+        PutDomainError::UnrepresentableViewEdge {
+            elem: ViewRef::Edge(9),
+        },
+        PutDomainError::AmbiguousReverseAnchor {
+            elem: node.clone(),
+            candidates: vec!["a".into(), "b".into()],
+        },
+        PutDomainError::SurvivalPredicateFails { elem: node.clone() },
+        PutDomainError::DerivedCellEdited {
+            elem: node.clone(),
+            field: "d".into(),
+        },
+        PutDomainError::TransformNotInvertible {
+            elem: node.clone(),
+            field: "t".into(),
+        },
+        PutDomainError::DuplicateKey {
+            table: "T".into(),
+            key: vec![("k".into(), Value::Str("v".into()))],
+            elems: vec![node.clone()],
+        },
+        PutDomainError::MissingRequiredCell {
+            elem: node.clone(),
+            field: "r".into(),
+        },
+        PutDomainError::MalformedFan {
+            node: 7,
+            reason: FanViolation::MissingParent,
+        },
+        PutDomainError::SurvivalPredicateRefused {
+            elem: node,
+            refusal: PredicateRefusal::NotBoolean { got: "null".into() },
+        },
+    ];
+
+    assert_eq!(errors.len(), 12);
+    assert_eq!(
+        errors
+            .iter()
+            .map(|error| error.order_key().0)
+            .collect::<Vec<_>>(),
+        (0..12).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn predicate_refusal_census_is_exactly_five_typed_variants() {
+    let refusals = [
+        PredicateRefusal::AmbiguousChildField { field: "a".into() },
+        PredicateRefusal::StructuralChildNotATree { field: "s".into() },
+        PredicateRefusal::ValueNotExpressible {
+            field: "v".into(),
+            value_type: "opaque".into(),
+        },
+        PredicateRefusal::EvaluationFailed {
+            message: "failed".into(),
+        },
+        PredicateRefusal::NotBoolean { got: "null".into() },
+    ];
+    assert_eq!(refusals.len(), 5);
+}
+
+#[test]
+fn graph_get_and_put_preserve_the_exact_typed_predicate_refusal() {
+    let schema = Schema::default().vertex("v", "obj");
+    let migration = Migration {
+        surviving_verts: ["v".to_owned()].into(),
+        conditional: ["v".to_owned()].into(),
+        ..Migration::default()
+    };
+    let plan = restrict::compile(&schema, &schema, &migration).unwrap();
+    let layer = RefusingPredicate;
+    let lens = GraphLens::new(
+        &schema,
+        &schema,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &layer,
+    )
+    .unwrap();
+    let graph = Graph {
+        nodes: [(1, Node::new(1, "v"))].into(),
+        edges: BTreeMap::new(),
+    };
+    let refusal = PredicateRefusal::AmbiguousChildField {
+        field: "child".into(),
+    };
+
+    assert_eq!(
+        lens.get(&graph),
+        Err(RestrictError::At {
+            key: ErrorKey {
+                stage: 0,
+                id: 1,
+                id2: 0,
+            },
+            error: EngineError::Predicate(refusal.clone()),
+        })
+    );
+    assert_eq!(
+        lens.put(&graph, &Complement::default()),
+        Err(LensError::PutDomain(
+            PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(1),
+                refusal,
+            }
+        ))
+    );
+}
 
 fn wrapper() -> (Schema, Schema, Migration, Graph) {
     let source = Schema::default()
@@ -64,7 +227,7 @@ fn a_recursive_dropped_wrapper_contracts_to_one_edge_and_put_restores_it() {
     let (source, target, mig, graph) = wrapper();
     let plan = restrict::compile(&source, &target, &mig).unwrap();
     assert_eq!(plan.mode(), restrict::ContractionMode::Closure);
-    let (view, c) =
+    let (view, mut c) =
         restrict::get_with_plan(&source, &target, &mig, &plan, &NoValueLayer, &graph).unwrap();
     assert_eq!(view.nodes.keys().copied().collect::<Vec<_>>(), vec![0, 4]);
     assert_eq!(view.edges.len(), 1);
@@ -74,13 +237,16 @@ fn a_recursive_dropped_wrapper_contracts_to_one_edge_and_put_restores_it() {
         c.synthesized_edges[&4],
         SynthKey::Contract { src: 0, tgt: 4, .. }
     ));
-    let lens = GraphLens {
-        src: &source,
-        tgt: &target,
-        m: &mig,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(
+        &source,
+        &target,
+        &mig,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
+    c.identity = Some(*lens.identity());
     let back = lens.put(&view, &c).unwrap();
     assert_eq!(back, graph);
     // Removing the synthesized edge alone is an edit of a synthesized object.
@@ -88,9 +254,9 @@ fn a_recursive_dropped_wrapper_contracts_to_one_edge_and_put_restores_it() {
     edited.edges.clear();
     assert_eq!(
         lens.put(&edited, &c),
-        Err(PutDomainError::SynthesizedEdited {
+        Err(LensError::PutDomain(PutDomainError::SynthesizedEdited {
             elem: ViewRef::Edge(4)
-        })
+        }))
     );
     // Removing the leaf explains the missing edge; put cascades nothing
     // that the view did not remove.
@@ -132,13 +298,7 @@ fn the_identity_lens_records_nothing_and_put_get_holds_on_edits() {
     assert!(
         c.dropped_nodes.is_empty() && c.original_edges.is_empty() && c.original_anchors.is_empty()
     );
-    let lens = GraphLens {
-        src: &s,
-        tgt: &s,
-        m: &id,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(&s, &s, &id, &plan, &BTreeMap::new(), &NoValueLayer).unwrap();
     let mut v2 = view;
     v2.nodes
         .get_mut(&4)
@@ -156,21 +316,24 @@ fn the_identity_lens_records_nothing_and_put_get_holds_on_edits() {
 fn a_view_node_reusing_a_dropped_id_collides() {
     let (source, target, mig, graph) = wrapper();
     let plan = restrict::compile(&source, &target, &mig).unwrap();
-    let (mut view, c) =
+    let (mut view, mut c) =
         restrict::get_with_plan(&source, &target, &mig, &plan, &NoValueLayer, &graph).unwrap();
     view.nodes.insert(2, Node::new(2, "leaf"));
-    let lens = GraphLens {
-        src: &source,
-        tgt: &target,
-        m: &mig,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(
+        &source,
+        &target,
+        &mig,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
+    c.identity = Some(*lens.identity());
     assert_eq!(
         lens.put(&view, &c),
-        Err(PutDomainError::IdCollision {
+        Err(LensError::PutDomain(PutDomainError::IdCollision {
             elem: ViewRef::Node(2)
-        })
+        }))
     );
 }
 
@@ -204,7 +367,7 @@ fn plan_compilation_accepts_65536_hops_and_refuses_65537() {
         let (source, target, migration) = expansion_compilation_fixture(65_535);
         let plan = restrict::compile(&source, &target, &migration).unwrap();
         assert!(matches!(
-            plan.fates.values().next(),
+            plan.fates().values().next(),
             Some(EdgeFate::Expand { labels, .. }) if labels.len() == 65_536
         ));
     }
@@ -220,71 +383,33 @@ fn plan_compilation_accepts_65536_hops_and_refuses_65537() {
 }
 
 #[test]
-fn a_mutated_overlong_edge_expansion_is_located_at_stage_one() {
-    let source = Schema::default()
-        .vertex("a", "obj")
-        .vertex("b", "obj")
-        .edge("a", "b", "source", Some("ab"));
-    let label = source.edges.iter().next().unwrap().clone();
-    let migration = Migration {
-        surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
-        ..Migration::default()
-    };
-    let plan = Plan {
-        fates: [(
-            label.clone(),
-            EdgeFate::Expand {
-                intermediates: vec!["x".to_owned(); 65_536],
-                labels: vec![SEdge::new("x", "x", "hop", None); 65_537],
-            },
-        )]
-        .into(),
-        pairs: BTreeMap::default(),
-    };
-    let mut graph = Graph::default();
-    graph.nodes.insert(3, Node::new(3, "a"));
-    graph.nodes.insert(4, Node::new(4, "b"));
-    graph.edges.insert(
-        9,
-        GEdge {
-            src: 3,
-            tgt: 4,
-            label,
-            position: None,
-        },
-    );
+fn an_overlong_edge_expansion_is_refused_before_execution() {
+    let (source, target, migration) = expansion_compilation_fixture(65_536);
     assert_eq!(
-        restrict::get_with_plan(
-            &source,
-            &Schema::default(),
-            &migration,
-            &plan,
-            &NoValueLayer,
-            &graph,
-        ),
-        Err(RestrictError::At {
-            key: ErrorKey {
-                stage: 1,
-                id: 9,
-                id2: 0,
-            },
-            error: EngineError::ExpansionTooLong {
-                src: "a".to_owned(),
-                tgt: "b".to_owned(),
-                hops: 65_537,
-            },
+        restrict::compile(&source, &target, &migration),
+        Err(PlanError::ExpansionTooLong {
+            src: "a".to_owned(),
+            tgt: "b".to_owned(),
+            hops: 65_537,
         })
     );
 }
 
 #[test]
-fn a_mutated_overlong_pair_expansion_is_located_at_stage_two() {
+fn an_overlong_pair_expansion_is_refused_before_execution() {
     let source = Schema::default()
         .vertex("a", "obj")
         .vertex("m", "obj")
         .vertex("b", "obj")
         .edge("a", "m", "source", Some("am"))
         .edge("m", "b", "source", Some("mb"));
+    let target = Schema::default()
+        .vertex("ta", "obj")
+        .vertex("x", "obj")
+        .vertex("tb", "obj")
+        .edge("ta", "x", "hop", None)
+        .edge("x", "x", "hop", None)
+        .edge("x", "tb", "hop", None);
     let migration = Migration {
         surviving_verts: ["ta".to_owned(), "tb".to_owned()].into(),
         vertex_remap: [
@@ -292,62 +417,19 @@ fn a_mutated_overlong_pair_expansion_is_located_at_stage_two() {
             ("b".to_owned(), "tb".to_owned()),
         ]
         .into(),
-        ..Migration::default()
-    };
-    let plan = Plan {
-        fates: BTreeMap::default(),
-        pairs: [(
-            ("a".to_owned(), "b".to_owned()),
-            PlannedPair {
-                target: ("ta".to_owned(), "tb".to_owned()),
-                region: BTreeSet::default(),
-                bounded: true,
-                resolution: PairResolution::Expand {
-                    intermediates: vec!["x".to_owned(); 65_536],
-                    labels: vec![SEdge::new("x", "x", "hop", None); 65_537],
-                },
-            },
+        expansion_path: [(
+            ("ta".to_owned(), "tb".to_owned()),
+            vec!["x".to_owned(); 65_536],
         )]
         .into(),
+        ..Migration::default()
     };
-    let mut graph = Graph::default();
-    for (id, anchor) in [(3, "a"), (4, "m"), (5, "b")] {
-        graph.nodes.insert(id, Node::new(id, anchor));
-    }
-    for (id, src, tgt, label) in [
-        (10, 3, 4, SEdge::new("a", "m", "source", Some("am"))),
-        (11, 4, 5, SEdge::new("m", "b", "source", Some("mb"))),
-    ] {
-        graph.edges.insert(
-            id,
-            GEdge {
-                src,
-                tgt,
-                label,
-                position: None,
-            },
-        );
-    }
     assert_eq!(
-        restrict::get_with_plan(
-            &source,
-            &Schema::default(),
-            &migration,
-            &plan,
-            &NoValueLayer,
-            &graph,
-        ),
-        Err(RestrictError::At {
-            key: ErrorKey {
-                stage: 2,
-                id: 3,
-                id2: 5,
-            },
-            error: EngineError::ExpansionTooLong {
-                src: "ta".to_owned(),
-                tgt: "tb".to_owned(),
-                hops: 65_537,
-            },
+        restrict::compile(&source, &target, &migration),
+        Err(PlanError::ExpansionTooLong {
+            src: "ta".to_owned(),
+            tgt: "tb".to_owned(),
+            hops: 65_537,
         })
     );
 }
@@ -405,11 +487,8 @@ fn fan_fixture() -> (Schema, Schema, Migration, Graph) {
     (source, target, migration, graph)
 }
 
-const fn empty_plan() -> Plan {
-    Plan {
-        fates: BTreeMap::new(),
-        pairs: BTreeMap::new(),
-    }
+fn empty_plan(src: &Schema, tgt: &Schema, migration: &Migration) -> Plan {
+    restrict::compile(src, tgt, migration).unwrap()
 }
 
 #[test]
@@ -422,15 +501,10 @@ fn a_pruned_fan_uses_its_full_shape_and_the_target_parent_label() {
             [("x".to_owned(), "z".to_owned())].into(),
         ),
     );
-    let (view, complement) = restrict::get_with_plan(
-        &source,
-        &target,
-        &migration,
-        &empty_plan(),
-        &NoValueLayer,
-        &graph,
-    )
-    .unwrap();
+    let plan = empty_plan(&source, &target, &migration);
+    let (view, complement) =
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
+            .unwrap();
     assert_eq!(view.nodes[&3].anchor, "target_h");
     assert_eq!(view.edges[&10].label.name.as_deref(), Some("target_parent"));
     assert_eq!(view.edges[&11].label.name.as_deref(), Some("z"));
@@ -448,15 +522,10 @@ fn a_fan_uses_the_sole_unambiguous_resolver_entry() {
             [("x".to_owned(), "z".to_owned())].into(),
         ),
     );
-    let (view, _) = restrict::get_with_plan(
-        &source,
-        &target,
-        &migration,
-        &empty_plan(),
-        &NoValueLayer,
-        &graph,
-    )
-    .unwrap();
+    let plan = empty_plan(&source, &target, &migration);
+    let (view, _) =
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
+            .unwrap();
     assert_eq!(view.nodes[&3].anchor, "target_h");
     assert_eq!(view.edges[&11].label.name.as_deref(), Some("z"));
 }
@@ -470,15 +539,10 @@ fn an_ambiguous_nonmatching_fan_resolver_has_no_fallback() {
             ("target_h".to_owned(), BTreeMap::new()),
         );
     }
-    let (view, complement) = restrict::get_with_plan(
-        &source,
-        &target,
-        &migration,
-        &empty_plan(),
-        &NoValueLayer,
-        &graph,
-    )
-    .unwrap();
+    let plan = empty_plan(&source, &target, &migration);
+    let (view, complement) =
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
+            .unwrap();
     assert!(!view.nodes.contains_key(&3));
     assert_eq!(complement.dropped_nodes[&3], graph.nodes[&3]);
     assert!(
@@ -503,15 +567,9 @@ fn colliding_fan_child_renames_are_refused_at_stage_three() {
             .into(),
         ),
     );
+    let plan = empty_plan(&source, &target, &migration);
     assert_eq!(
-        restrict::get_with_plan(
-            &source,
-            &target,
-            &migration,
-            &empty_plan(),
-            &NoValueLayer,
-            &graph,
-        ),
+        restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph,),
         Err(RestrictError::At {
             key: ErrorKey {
                 stage: 3,
@@ -540,23 +598,11 @@ fn synthesized_nodes_refuse_every_noncanonical_coordinate() {
         .edge("x", "b", "hop", Some("xb"));
     let migration = Migration {
         surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+        expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["x".to_owned()])].into(),
         ..Migration::default()
     };
     let source_edge = source.edges.iter().next().unwrap().clone();
-    let plan = Plan {
-        fates: [(
-            source_edge.clone(),
-            EdgeFate::Expand {
-                intermediates: vec!["x".to_owned()],
-                labels: vec![
-                    SEdge::new("a", "x", "hop", Some("ax")),
-                    SEdge::new("x", "b", "hop", Some("xb")),
-                ],
-            },
-        )]
-        .into(),
-        pairs: BTreeMap::new(),
-    };
+    let plan = restrict::compile(&source, &target, &migration).unwrap();
     let graph = Graph {
         nodes: [(0, Node::new(0, "a")), (1, Node::new(1, "b"))].into(),
         edges: [(
@@ -570,17 +616,20 @@ fn synthesized_nodes_refuse_every_noncanonical_coordinate() {
         )]
         .into(),
     };
-    let (view, complement) =
+    let (view, mut complement) =
         restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
             .unwrap();
     let synthesized = *complement.synthesized_nodes.keys().next().unwrap();
-    let lens = GraphLens {
-        src: &source,
-        tgt: &target,
-        m: &migration,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(
+        &source,
+        &target,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
+    complement.identity = Some(*lens.identity());
 
     for coordinate in 0..5 {
         let mut edited = view.clone();
@@ -624,14 +673,16 @@ fn every_fan_domain_violation_is_reported_in_node_and_reason_order() {
         },
     );
     let migration = Migration::default();
-    let plan = empty_plan();
-    let lens = GraphLens {
-        src: &schema,
-        tgt: &schema,
-        m: &migration,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let plan = empty_plan(&schema, &schema, &migration);
+    let lens = GraphLens::new(
+        &schema,
+        &schema,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
     let mut view = Graph::default();
     for (id, anchor) in [(4, "declared"), (9, "unknown")] {
         let mut node = Node::new(id, anchor);
@@ -641,6 +692,10 @@ fn every_fan_domain_violation_is_reported_in_node_and_reason_order() {
     assert_eq!(
         lens.check_put_domain(&view, &Complement::default()),
         Err(vec![
+            PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(9),
+                candidates: Vec::new(),
+            },
             PutDomainError::MalformedFan {
                 node: 4,
                 reason: FanViolation::MissingParent,
@@ -678,20 +733,23 @@ fn a_recorded_fan_edge_uses_only_its_governing_resolver_entry() {
             [("x".to_owned(), "z".to_owned())].into(),
         ),
     );
-    let plan = empty_plan();
-    let (mut view, complement) =
+    let plan = empty_plan(&source, &target, &migration);
+    let (mut view, mut complement) =
         restrict::get_with_plan(&source, &target, &migration, &plan, &NoValueLayer, &graph)
             .unwrap();
     assert!(complement.original_edges.contains_key(&11));
     assert_eq!(view.edges[&11].label.name.as_deref(), Some("q"));
     view.edges.get_mut(&11).unwrap().label.name = Some("z".to_owned());
-    let lens = GraphLens {
-        src: &source,
-        tgt: &target,
-        m: &migration,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(
+        &source,
+        &target,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
+    complement.identity = Some(*lens.identity());
     assert!(
         lens.check_put_domain(&view, &complement)
             .unwrap_err()
@@ -722,13 +780,15 @@ fn tree_put_relocates_a_fan_hidden_under_a_new_tree_node_id() {
         ..Migration::default()
     };
     let plan = restrict::compile(&schema, &schema, &migration).unwrap();
-    let lens = GraphLens {
-        src: &schema,
-        tgt: &schema,
-        m: &migration,
-        plan: &plan,
-        vl: &NoValueLayer,
-    };
+    let lens = GraphLens::new(
+        &schema,
+        &schema,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
     let source = Tree {
         nodes: [(0, Node::new(0, "r")), (1, Node::new(1, "a"))].into(),
         arcs: vec![(0, 1, edge.clone())],

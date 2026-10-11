@@ -22,7 +22,10 @@ fn rel_of(s: &Schema) -> rel::RelSchema {
 }
 
 fn functor(src: &Schema, tgt: &Schema, m: &Migration) -> RelFunctor {
-    rel::entity_functor(&rel_of(src), &rel_of(tgt), m).unwrap()
+    rel::entity_functor(&rel_of(src), &rel_of(tgt), m)
+        .unwrap()
+        .into_kan()
+        .unwrap()
 }
 
 /// a(x), b(y) and an FK a -f-> b.
@@ -108,7 +111,7 @@ fn tree_extensions_along_the_identity_return_the_input() {
     for out in [
         encode::t_delta(&f, &t),
         encode::t_sigma(&f, &t),
-        encode::t_pi(&f, &t),
+        encode::t_pi(&f, &t, usize::MAX),
     ] {
         let out = out.expect("a tree");
         assert_eq!(out.root, 0);
@@ -274,9 +277,150 @@ fn tree_pi_along_the_identity_keeps_the_table_node_ids() {
         fans: Vec::new(),
         root: 9,
     };
-    let pi = encode::t_pi(&f, &t).expect("a tree");
+    let pi = encode::t_pi(&f, &t, usize::MAX).expect("a tree");
     assert_eq!(pi.root, 9);
     assert_eq!(shape(&pi), shape(&t));
+}
+
+#[test]
+fn tree_pi_refuses_a_noninjective_vertex_map_before_forming_products() {
+    let source = Schema::default()
+        .vertex("a", "record")
+        .vertex("b", "record");
+    let target = Schema::default().vertex("p", "record");
+    let migration = Migration {
+        vertex_remap: BTreeMap::from([
+            ("a".to_owned(), "p".to_owned()),
+            ("b".to_owned(), "p".to_owned()),
+        ]),
+        ..Migration::default()
+    };
+    let functor = functor(&source, &target, &migration);
+    let tree = Tree {
+        nodes: BTreeMap::from([(0, Node::new(0, "a"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    assert_eq!(
+        encode::t_pi(&functor, &tree, 4),
+        Err(TreeKanError::NonInjectiveVertexMap {
+            first: "a".to_owned(),
+            second: "b".to_owned(),
+            target: "p".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn tree_pi_checks_vertices_below_the_column_root_for_injectivity() {
+    // The table and the immediate column root map injectively.  The two value
+    // vertices below that root do not: x,y -> z.  Tree Pi's domain is the
+    // whole restricted value closure, so this collision is refused before a
+    // graph product is formed.
+    let source_root = SEdge::new("a", "r", "prop", Some("root"));
+    let source_x = SEdge::new("r", "x", "inner", Some("left"));
+    let source_y = SEdge::new("r", "y", "inner", Some("right"));
+    let target_root = SEdge::new("a", "s", "prop", Some("root"));
+    let target_x = SEdge::new("s", "z", "inner", Some("left"));
+    let target_y = SEdge::new("s", "z", "inner", Some("right"));
+    let source = Schema::default()
+        .vertex("a", "record")
+        .vertex("r", "int")
+        .vertex("x", "int")
+        .vertex("y", "int")
+        .edge("a", "r", "prop", Some("root"))
+        .edge("r", "x", "inner", Some("left"))
+        .edge("r", "y", "inner", Some("right"));
+    let target = Schema::default()
+        .vertex("a", "record")
+        .vertex("s", "int")
+        .vertex("z", "int")
+        .edge("a", "s", "prop", Some("root"))
+        .edge("s", "z", "inner", Some("left"))
+        .edge("s", "z", "inner", Some("right"));
+    let migration = Migration {
+        surviving_verts: BTreeSet::from(["a".to_owned()]),
+        vertex_remap: BTreeMap::from([
+            ("r".to_owned(), "s".to_owned()),
+            ("x".to_owned(), "z".to_owned()),
+            ("y".to_owned(), "z".to_owned()),
+        ]),
+        edge_remap: BTreeMap::from([
+            (source_root, target_root),
+            (source_x, target_x),
+            (source_y, target_y),
+        ]),
+        ..Migration::default()
+    };
+    let functor = functor(&source, &target, &migration);
+    let tree = Tree {
+        nodes: BTreeMap::from([(0, Node::new(0, "a"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    assert_eq!(
+        encode::t_pi(&functor, &tree, 4),
+        Err(TreeKanError::NonInjectiveVertexMap {
+            first: "x".to_owned(),
+            second: "y".to_owned(),
+            target: "z".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn tree_pi_forwards_the_product_bound_before_tree_readback() {
+    let carried = SEdge::new("a", "a", "fk", Some("r"));
+    let uncarried = SEdge::new("a", "a", "fk", Some("k"));
+    let source = Schema::default().vertex("a", "record").edge(
+        &carried.src,
+        &carried.tgt,
+        &carried.kind,
+        carried.name.as_deref(),
+    );
+    let target = Schema::default()
+        .vertex("a", "record")
+        .edge(
+            &carried.src,
+            &carried.tgt,
+            &carried.kind,
+            carried.name.as_deref(),
+        )
+        .edge(
+            &uncarried.src,
+            &uncarried.tgt,
+            &uncarried.kind,
+            uncarried.name.as_deref(),
+        );
+    let migration = Migration {
+        surviving_verts: BTreeSet::from(["a".to_owned()]),
+        surviving_edges: BTreeSet::from([carried.clone()]),
+        ..Migration::default()
+    };
+    let functor = functor(&source, &target, &migration);
+    let tree = Tree {
+        nodes: [
+            (0, Node::new(0, "a")),
+            (1, Node::new(1, "a")),
+            (2, Node::new(2, "a")),
+        ]
+        .into(),
+        arcs: vec![(0, 1, carried.clone()), (1, 2, carried)],
+        fans: Vec::new(),
+        root: 0,
+    };
+    assert_eq!(
+        encode::t_pi(&functor, &tree, 4),
+        Err(TreeKanError::Graph(encode::GraphKanError::Adjunction(
+            Box::new(rel::AdjunctionError::ProductSizeExceeded {
+                vertex: "a".to_owned(),
+                actual: 9,
+                limit: 4,
+            }),
+        )))
+    );
 }
 
 #[test]

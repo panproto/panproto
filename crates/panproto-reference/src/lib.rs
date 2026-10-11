@@ -9,12 +9,13 @@
 //! runs [`harness::agree`] over an exhaustive scope from [`enumerate`].
 //! The crate is test-only and never published.
 //!
-//! Each definition lives on a page of the book's correctness part
-//! (`book/src/correctness/`); the page named beside each operation below
-//! states it as a law block with its exact domain, and each function's
-//! documentation quotes the definition it implements. Where a function
-//! covers only part of an operation's domain, its documentation states the
-//! part, and every input outside it gives `None` rather than an answer.
+//! The inventory assigns each definition to a page of the book's correctness
+//! part (`book/src/correctness/`). Table membership records that assignment;
+//! it does not by itself claim that the page's proof and verification scope
+//! are complete. Each function's documentation states the definition and
+//! exact domain it implements. Where a function covers only part of an
+//! operation's domain, its documentation states the part, and every input
+//! outside it gives `None` rather than an answer.
 //!
 //! | Operation | Function | Page |
 //! |---|---|---|
@@ -24,6 +25,8 @@
 //! | The migration's entity functor | [`rel::entity_functor`] | `kan-extensions.md` |
 //! | Relation-ified schemas (classification) | [`rel::classify`] | `kan-extensions.md` |
 //! | Homomorphisms and structure-preserving bijections of instances | [`rel::homs`], [`rel::row_bijection`] | `kan-extensions.md` |
+//! | Sigma--Delta unit, counit and hom-set transposes | [`rel::sigma_unit`], [`rel::sigma_counit`], [`rel::sigma_transpose_forward`], [`rel::sigma_transpose_inverse`] | `kan-extensions.md` |
+//! | Delta--Pi unit, counit and hom-set transposes | [`rel::pi_unit`], [`rel::pi_counit`], [`rel::pi_transpose_forward`], [`rel::pi_transpose_inverse`] | `kan-extensions.md` |
 //! | Graph Delta, Sigma and Pi (encode, presheaf operation, decode) | [`encode::g_delta`], [`encode::g_sigma`], [`encode::g_pi`] | `kan-extensions.md` |
 //! | Tree Delta, Sigma and Pi through the graph form | [`encode::t_delta`], [`encode::t_sigma`], [`encode::t_pi`] | `kan-extensions.md` |
 //! | Graph encoding and record-free decoding | [`encode::encode_graph`], [`encode::decode_table`] | `kan-extensions.md` |
@@ -42,7 +45,7 @@
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |
 //! | The edit algebra: invert, compose | [`edit::Delta::invert`], [`edit::Delta::compose`] | `edits.md` |
 //! | Edit application and the differ | [`edit::apply`], [`edit::diff`], [`edit::apply_table`] | `edits.md` |
-//! | Independence and merge | [`edit::independence`], [`edit::is_benign`], [`edit::merge`] | `edits.md` |
+//! | Canonical graph, table and tree edit bytes | [`edit::canonical_graph_delta_bytes`], [`edit::canonical_table_delta_bytes`], [`edit::canonical_tree_edit_bytes`] | `edits.md` |
 //! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`] | `edits.md` |
 //! | Validation as predicates over instances | [`validation::validate`] | `validation.md` |
 //! | Status aggregation | [`validation::status`], [`validation::CheckStatus::all`] | `validation.md` |

@@ -104,6 +104,29 @@ pub mod canonical {
         write_map(w, &n.annotations)
     }
 
+    /// Write one canonical graph edge record `(id, src, tgt, label, position)`.
+    pub fn write_graph_edge(w: &mut Writer, id: u32, edge: &GEdge) {
+        w.u32(id);
+        w.u32(edge.src);
+        w.u32(edge.tgt);
+        w.edge(&edge.label);
+        w.opt_u32(edge.position);
+    }
+
+    /// Read one canonical graph edge record.
+    pub fn read_graph_edge(r: &mut Reader<'_>) -> Option<(u32, GEdge)> {
+        let id = r.u32()?;
+        Some((
+            id,
+            GEdge {
+                src: r.u32()?,
+                tgt: r.u32()?,
+                label: r.edge()?,
+                position: r.opt_u32()?,
+            },
+        ))
+    }
+
     /// The inverse of [`write_node`].
     pub fn read_node(r: &mut Reader<'_>) -> Option<Node> {
         let id = r.u32()?;
@@ -151,11 +174,7 @@ pub mod canonical {
             write_node(&mut w, n)?;
         }
         for (id, e) in &g.edges {
-            w.u32(*id);
-            w.u32(e.src);
-            w.u32(e.tgt);
-            w.edge(&e.label);
-            w.opt_u32(e.position);
+            write_graph_edge(&mut w, *id, e);
         }
         Some(w.bytes)
     }
@@ -177,16 +196,10 @@ pub mod canonical {
             g.nodes.insert(n.id, n);
         }
         for _ in 0..ne {
-            let id = r.u32()?;
+            let (id, e) = read_graph_edge(&mut r)?;
             if g.edges.keys().next_back().is_some_and(|last| *last >= id) {
                 return None;
             }
-            let e = GEdge {
-                src: r.u32()?,
-                tgt: r.u32()?,
-                label: r.edge()?,
-                position: r.opt_u32()?,
-            };
             g.edges.insert(id, e);
         }
         (r.done() && g.well_formed()).then_some(g)

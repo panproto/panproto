@@ -1,8 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Algebraic identities of the edit algebra on tiny deltas.
 
-use panproto_reference::edit::{self, AttrKey, AttrVal, GElem, GPayload, GraphDelta, Mismatch};
-use panproto_reference::model::{GEdge, Graph, Node, SEdge};
+use std::collections::{BTreeMap, BTreeSet};
+
+use panproto_reference::canonical::{self, Writer};
+use panproto_reference::edit::{
+    self, AttrKey, AttrVal, EditConflict, GElem, GPayload, GraphDelta, Mismatch, NodeMeta, TElem,
+    TKey, TPayload, TVal, TableApplyError, TableDelta, TreeEdit,
+};
+use panproto_reference::enumerate::edits as carrier;
+use panproto_reference::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
+use panproto_reference::temporal::{Offset, Temporal};
+use panproto_reference::value::{Presence, Value};
 
 fn node(id: u32, a: &str) -> GPayload {
     GPayload::Node(Node::new(id, a))
@@ -22,6 +31,599 @@ fn graph() -> Graph {
         },
     );
     g
+}
+
+fn write_shape(writer: &mut Writer, shape: &NodeShape) {
+    match shape {
+        NodeShape::Plain => writer.tag(0),
+        NodeShape::List => writer.tag(1),
+        NodeShape::XmlElement(tag) => {
+            writer.tag(2);
+            writer.str(tag);
+        }
+        NodeShape::XmlTextSegment => writer.tag(3),
+        NodeShape::HyperEdge => writer.tag(4),
+    }
+}
+
+fn write_value_map(writer: &mut Writer, values: &BTreeMap<String, Value>) -> Option<()> {
+    writer.len(values.len());
+    for (name, value) in values {
+        writer.str(name);
+        canonical::write_value(writer, value)?;
+    }
+    Some(())
+}
+
+fn write_presence(writer: &mut Writer, presence: Option<&Presence>) -> Option<()> {
+    match presence {
+        None => writer.tag(0),
+        Some(Presence::Present(value)) => {
+            writer.tag(1);
+            canonical::write_value(writer, value)?;
+        }
+        Some(Presence::Null) => writer.tag(2),
+        Some(Presence::Absent) => writer.tag(3),
+    }
+    Some(())
+}
+
+fn write_meta(writer: &mut Writer, meta: &NodeMeta) -> Option<()> {
+    writer.opt_name(meta.discriminator.as_deref());
+    writer.opt_u32(meta.position);
+    write_shape(writer, &meta.shape);
+    write_value_map(writer, &meta.annotations)
+}
+
+fn write_element(writer: &mut Writer, element: &GElem) {
+    match element {
+        GElem::Node(id) => {
+            writer.tag(0);
+            writer.u32(*id);
+        }
+        GElem::Edge(id) => {
+            writer.tag(1);
+            writer.u32(*id);
+        }
+    }
+}
+
+fn write_payload(writer: &mut Writer, payload: &GPayload) -> Option<()> {
+    match payload {
+        GPayload::Node(node) => {
+            writer.tag(0);
+            canonical::write_node(writer, node)
+        }
+        GPayload::Edge(edge) => {
+            writer.tag(1);
+            writer.u32(edge.src);
+            writer.u32(edge.tgt);
+            writer.edge(&edge.label);
+            writer.opt_u32(edge.position);
+            Some(())
+        }
+    }
+}
+
+fn write_attr_key(writer: &mut Writer, key: &AttrKey) {
+    match key {
+        AttrKey::Value(node) => {
+            writer.tag(0);
+            writer.u32(*node);
+        }
+        AttrKey::Field(node, field) => {
+            writer.tag(1);
+            writer.u32(*node);
+            writer.str(field);
+        }
+        AttrKey::Meta(node) => {
+            writer.tag(2);
+            writer.u32(*node);
+        }
+        AttrKey::Anchor(node) => {
+            writer.tag(3);
+            writer.u32(*node);
+        }
+        AttrKey::EdgeLabel(edge) => {
+            writer.tag(4);
+            writer.u32(*edge);
+        }
+        AttrKey::EdgePosition(edge) => {
+            writer.tag(5);
+            writer.u32(*edge);
+        }
+    }
+}
+
+fn write_optional_value(writer: &mut Writer, value: Option<&Value>) -> Option<()> {
+    match value {
+        None => writer.tag(0),
+        Some(value) => {
+            writer.tag(1);
+            canonical::write_value(writer, value)?;
+        }
+    }
+    Some(())
+}
+
+fn write_attr_value(writer: &mut Writer, value: &AttrVal) -> Option<()> {
+    match value {
+        AttrVal::Presence(presence) => {
+            writer.tag(0);
+            write_presence(writer, presence.as_ref())
+        }
+        AttrVal::Field(value) => {
+            writer.tag(1);
+            write_optional_value(writer, value.as_ref())
+        }
+        AttrVal::Meta(meta) => {
+            writer.tag(2);
+            write_meta(writer, meta)
+        }
+        AttrVal::Anchor(anchor) => {
+            writer.tag(3);
+            writer.str(anchor);
+            Some(())
+        }
+        AttrVal::Label(label) => {
+            writer.tag(4);
+            writer.edge(label);
+            Some(())
+        }
+        AttrVal::Position(position) => {
+            writer.tag(5);
+            writer.opt_u32(*position);
+            Some(())
+        }
+    }
+}
+
+fn write_graph_edge_record(writer: &mut Writer, id: u32, edge: &GEdge) {
+    writer.u32(id);
+    writer.u32(edge.src);
+    writer.u32(edge.tgt);
+    writer.edge(&edge.label);
+    writer.opt_u32(edge.position);
+}
+
+fn write_table_pair_record(writer: &mut Writer, edge: &SEdge, src: u32, tgt: u32) {
+    writer.edge(edge);
+    writer.u32(src);
+    writer.u32(tgt);
+}
+
+fn write_tree_fan_record(writer: &mut Writer, fan: &Fan) {
+    writer.str(&fan.hyper_edge);
+    writer.u32(fan.parent);
+    writer.len(fan.children.len());
+    for (label, child) in &fan.children {
+        writer.str(label);
+        writer.u32(*child);
+    }
+}
+
+/// Injective bytes for distinguishing the bounded test cases.
+///
+/// This deliberately writes one combined `del`/`add`/`attrs` record. It is not
+/// E.3a's separated canonical delta layout and is never used as its oracle.
+fn delta_witness_bytes(delta: &GraphDelta) -> Option<Vec<u8>> {
+    let mut writer = Writer::default();
+    writer.len(delta.del.len());
+    for (element, payload) in &delta.del {
+        write_element(&mut writer, element);
+        write_payload(&mut writer, payload)?;
+    }
+    writer.len(delta.add.len());
+    for (element, payload) in &delta.add {
+        write_element(&mut writer, element);
+        write_payload(&mut writer, payload)?;
+    }
+    writer.len(delta.attrs.len());
+    for (key, (before, after)) in &delta.attrs {
+        write_attr_key(&mut writer, key);
+        write_attr_value(&mut writer, before)?;
+        write_attr_value(&mut writer, after)?;
+    }
+    Some(writer.bytes)
+}
+
+/// Injective length-delimited words of [`delta_witness_bytes`].
+fn sequence_witness_bytes(sequence: &[carrier::GraphDeltaCase]) -> Option<Vec<u8>> {
+    let mut writer = Writer::default();
+    writer.len(sequence.len());
+    for case in sequence {
+        writer.raw(&delta_witness_bytes(&case.delta)?);
+    }
+    Some(writer.bytes)
+}
+
+fn attribute_delta(key: AttrKey, before: AttrVal, after: AttrVal) -> GraphDelta {
+    let mut delta = GraphDelta::identity();
+    delta.attrs.insert(key, (before, after));
+    delta
+}
+
+fn expected_element_deltas() -> Vec<GraphDelta> {
+    let mut deltas = vec![GraphDelta::identity()];
+    for anchor in ["a", "b"] {
+        for presence in [None, Some(Presence::Present(Value::Int(0)))] {
+            let mut payload = Node::new(0, anchor);
+            payload.value = presence;
+            let payload = GPayload::Node(payload);
+            let mut delete = GraphDelta::identity();
+            delete.del.insert(GElem::Node(0), payload.clone());
+            deltas.push(delete);
+            let mut add = GraphDelta::identity();
+            add.add.insert(GElem::Node(0), payload);
+            deltas.push(add);
+        }
+    }
+    let edge_labels = [
+        SEdge::new("a", "a", "e", None),
+        SEdge::new("a", "a", "e", Some("x")),
+    ];
+    for label in &edge_labels {
+        let payload = GPayload::Edge(GEdge {
+            src: 0,
+            tgt: 0,
+            label: label.clone(),
+            position: None,
+        });
+        let mut edge_delete = GraphDelta::identity();
+        edge_delete.del.insert(GElem::Edge(0), payload.clone());
+        deltas.push(edge_delete);
+        let mut edge_add = GraphDelta::identity();
+        edge_add.add.insert(GElem::Edge(0), payload);
+        deltas.push(edge_add);
+    }
+    deltas
+}
+
+fn expected_attribute_deltas() -> Vec<GraphDelta> {
+    let mut deltas = Vec::new();
+    let edge_labels = [
+        SEdge::new("a", "a", "e", None),
+        SEdge::new("a", "a", "e", Some("x")),
+    ];
+    deltas.push(attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".to_owned()),
+        AttrVal::Anchor("b".to_owned()),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("b".to_owned()),
+        AttrVal::Anchor("a".to_owned()),
+    ));
+    let absent_presence = AttrVal::Presence(None);
+    let zero_presence = AttrVal::Presence(Some(Presence::Present(Value::Int(0))));
+    deltas.push(attribute_delta(
+        AttrKey::Value(0),
+        absent_presence.clone(),
+        zero_presence.clone(),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::Value(0),
+        zero_presence,
+        absent_presence,
+    ));
+    let absent_field = AttrVal::Field(None);
+    let zero_field = AttrVal::Field(Some(Value::Int(0)));
+    deltas.push(attribute_delta(
+        AttrKey::Field(0, "f".to_owned()),
+        absent_field.clone(),
+        zero_field.clone(),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::Field(0, "f".to_owned()),
+        zero_field,
+        absent_field,
+    ));
+    let meta = |shape| {
+        AttrVal::Meta(NodeMeta {
+            discriminator: None,
+            position: None,
+            shape,
+            annotations: BTreeMap::new(),
+        })
+    };
+    deltas.push(attribute_delta(
+        AttrKey::Meta(0),
+        meta(NodeShape::Plain),
+        meta(NodeShape::HyperEdge),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::Meta(0),
+        meta(NodeShape::HyperEdge),
+        meta(NodeShape::Plain),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::EdgeLabel(0),
+        AttrVal::Label(edge_labels[0].clone()),
+        AttrVal::Label(edge_labels[1].clone()),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::EdgeLabel(0),
+        AttrVal::Label(edge_labels[1].clone()),
+        AttrVal::Label(edge_labels[0].clone()),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::EdgePosition(0),
+        AttrVal::Position(None),
+        AttrVal::Position(Some(0)),
+    ));
+    deltas.push(attribute_delta(
+        AttrKey::EdgePosition(0),
+        AttrVal::Position(Some(0)),
+        AttrVal::Position(None),
+    ));
+    deltas
+}
+
+fn expected_atomic_deltas() -> Vec<GraphDelta> {
+    let mut deltas = expected_element_deltas();
+    deltas.extend(expected_attribute_deltas());
+    deltas
+}
+
+#[test]
+fn finite_edit_carrier_has_independent_counts_canonical_graphs_and_injective_delta_witnesses() {
+    use carrier::GraphDeltaFamily as Family;
+
+    let graphs = carrier::graphs();
+    assert_eq!(
+        u64::try_from(graphs.len()).unwrap(),
+        carrier::graphs_count_certificate()
+    );
+    let graph_bytes: BTreeSet<Vec<u8>> = graphs
+        .iter()
+        .map(|graph| {
+            assert!(graph.nodes.len() <= 3);
+            assert!(graph.edges.len() <= 1);
+            assert_eq!(
+                graph.nodes.keys().copied().collect::<Vec<_>>(),
+                (0..u32::try_from(graph.nodes.len()).unwrap()).collect::<Vec<_>>()
+            );
+            assert!(graph.nodes.iter().all(|(id, node)| {
+                let mut expected = Node::new(*id, "a");
+                expected.value.clone_from(&node.value);
+                *node == expected
+                    && matches!(
+                        node.value.as_ref(),
+                        None | Some(Presence::Present(Value::Int(0)))
+                    )
+            }));
+            assert!(graph.edges.iter().all(|(id, edge)| {
+                *id == 0
+                    && graph.nodes.contains_key(&edge.src)
+                    && graph.nodes.contains_key(&edge.tgt)
+                    && edge.label == SEdge::new("a", "a", "e", None)
+                    && edge.position.is_none()
+            }));
+            let bytes = canonical::graph_bytes(graph).unwrap();
+            assert_eq!(canonical::decode_graph(&bytes).as_ref(), Some(graph));
+            bytes
+        })
+        .collect();
+    assert_eq!(graph_bytes.len(), graphs.len());
+
+    let cases = carrier::graph_delta_cases();
+    let certificate = carrier::graph_delta_count_certificate();
+    assert_eq!(u64::try_from(cases.len()).unwrap(), certificate.total());
+    assert_eq!(
+        cases
+            .iter()
+            .map(|case| case.delta.clone())
+            .collect::<Vec<_>>(),
+        carrier::graph_deltas()
+    );
+    let actual_delta_witnesses: BTreeSet<Vec<u8>> = cases
+        .iter()
+        .map(|case| delta_witness_bytes(&case.delta).unwrap())
+        .collect();
+    assert_eq!(actual_delta_witnesses.len(), cases.len());
+    assert_eq!(
+        actual_delta_witnesses,
+        expected_atomic_deltas()
+            .iter()
+            .map(|delta| delta_witness_bytes(delta).unwrap())
+            .collect()
+    );
+
+    let mut counts = BTreeMap::new();
+    for case in &cases {
+        *counts.entry(case.family).or_insert(0u64) += 1;
+    }
+    assert_eq!(
+        counts,
+        BTreeMap::from([
+            (Family::Identity, certificate.identity),
+            (Family::NodeAdd, certificate.node_add),
+            (Family::NodeDelete, certificate.node_delete),
+            (Family::EdgeAdd, certificate.edge_add),
+            (Family::EdgeDelete, certificate.edge_delete),
+            (Family::AnchorSet, certificate.anchor_set),
+            (Family::ValueSet, certificate.value_set),
+            (Family::FieldSet, certificate.field_set),
+            (Family::ShapeSet, certificate.shape_set),
+            (Family::EdgeLabelSet, certificate.edge_label_set),
+            (Family::EdgePositionSet, certificate.edge_position_set),
+        ])
+    );
+}
+
+#[test]
+fn graph_delta_words_have_exact_length_major_lexicographic_membership_and_order() {
+    let cases = carrier::graph_delta_cases();
+    let sequences = carrier::graph_delta_sequences();
+    assert_eq!(
+        u64::try_from(sequences.len()).unwrap(),
+        carrier::graph_delta_sequences_count_certificate()
+    );
+    let sequence_witnesses: BTreeSet<Vec<u8>> = sequences
+        .iter()
+        .map(|sequence| sequence_witness_bytes(sequence).unwrap())
+        .collect();
+    assert_eq!(sequence_witnesses.len(), sequences.len());
+    assert!(sequences[0].is_empty());
+    assert_eq!(
+        sequences[1..=25],
+        cases
+            .iter()
+            .cloned()
+            .map(|case| vec![case])
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(sequences[26], vec![cases[0].clone(), cases[0].clone()]);
+    assert_eq!(sequences[27], vec![cases[0].clone(), cases[1].clone()]);
+    assert_eq!(sequences[50], vec![cases[0].clone(), cases[24].clone()]);
+    assert_eq!(sequences[51], vec![cases[1].clone(), cases[0].clone()]);
+    assert_eq!(sequences[650], vec![cases[24].clone(), cases[24].clone()]);
+    assert_eq!(
+        sequences[651],
+        vec![cases[0].clone(), cases[0].clone(), cases[0].clone()]
+    );
+    assert_eq!(
+        sequences.last(),
+        Some(&vec![
+            cases[24].clone(),
+            cases[24].clone(),
+            cases[24].clone()
+        ])
+    );
+}
+
+#[test]
+fn independent_expected_deletions_are_complete_manual_del_maps() {
+    let actual: Vec<_> = expected_element_deltas()
+        .into_iter()
+        .filter(|delta| !delta.del.is_empty())
+        .map(|delta| {
+            assert!(delta.add.is_empty());
+            assert!(delta.attrs.is_empty());
+            let mut entries = delta.del.into_iter();
+            let entry = entries.next().expect("a deletion witness has one entry");
+            assert_eq!(entries.next(), None);
+            entry
+        })
+        .collect();
+
+    let mut expected = Vec::new();
+    for anchor in ["a", "b"] {
+        for presence in [None, Some(Presence::Present(Value::Int(0)))] {
+            let mut node = Node::new(0, anchor);
+            node.value = presence;
+            expected.push((GElem::Node(0), GPayload::Node(node)));
+        }
+    }
+    for label in [
+        SEdge::new("a", "a", "e", None),
+        SEdge::new("a", "a", "e", Some("x")),
+    ] {
+        expected.push((
+            GElem::Edge(0),
+            GPayload::Edge(GEdge {
+                src: 0,
+                tgt: 0,
+                label,
+                position: None,
+            }),
+        ));
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn finite_edit_carrier_retains_both_shape_directions() {
+    let shapes: Vec<_> = carrier::graph_delta_cases()
+        .into_iter()
+        .filter(|case| case.family == carrier::GraphDeltaFamily::ShapeSet)
+        .map(|case| {
+            let (_, (AttrVal::Meta(before), AttrVal::Meta(after))) =
+                case.delta.attrs.into_iter().next().unwrap()
+            else {
+                panic!("shape-tagged case was not a metadata edit");
+            };
+            (before.shape, after.shape)
+        })
+        .collect();
+    assert_eq!(shapes.len(), 2);
+    assert!(shapes.contains(&(NodeShape::Plain, NodeShape::HyperEdge)));
+    assert!(shapes.contains(&(NodeShape::HyperEdge, NodeShape::Plain)));
+}
+
+#[test]
+fn every_delta_family_tag_names_its_constructor() {
+    use carrier::GraphDeltaFamily as Family;
+
+    for case in carrier::graph_delta_cases() {
+        let delta = &case.delta;
+        let is_identity = delta.del.is_empty() && delta.add.is_empty() && delta.attrs.is_empty();
+        let one_add = delta.add.len() == 1 && delta.del.is_empty() && delta.attrs.is_empty();
+        let one_delete = delta.del.len() == 1 && delta.add.is_empty() && delta.attrs.is_empty();
+        let one_attribute = delta.attrs.len() == 1 && delta.add.is_empty() && delta.del.is_empty();
+        let matches_constructor = match case.family {
+            Family::Identity => is_identity,
+            Family::NodeAdd => one_add && matches!(delta.add.keys().next(), Some(GElem::Node(_))),
+            Family::NodeDelete => {
+                one_delete && matches!(delta.del.keys().next(), Some(GElem::Node(_)))
+            }
+            Family::EdgeAdd => one_add && matches!(delta.add.keys().next(), Some(GElem::Edge(_))),
+            Family::EdgeDelete => {
+                one_delete && matches!(delta.del.keys().next(), Some(GElem::Edge(_)))
+            }
+            Family::AnchorSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::Anchor(_)))
+            }
+            Family::ValueSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::Value(_)))
+            }
+            Family::FieldSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::Field(..)))
+            }
+            Family::ShapeSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::Meta(_)))
+            }
+            Family::EdgeLabelSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::EdgeLabel(_)))
+            }
+            Family::EdgePositionSet => {
+                one_attribute && matches!(delta.attrs.keys().next(), Some(AttrKey::EdgePosition(_)))
+            }
+        };
+        assert!(matches_constructor, "wrong constructor tag: {case:?}");
+    }
+}
+
+#[test]
+fn c8_scope_is_structurally_incomplete_until_its_alphabets_are_fixed() {
+    use carrier::C8MissingParameter as Missing;
+
+    let carrier::C8ScopeStatus::Incomplete { settled, missing } = carrier::c8_scope_status();
+    assert_eq!(settled.schema_vertices, 2);
+    assert_eq!(settled.schema_edges, 2);
+    assert_eq!(settled.graph_nodes, 3);
+    assert_eq!(settled.table_rows, 3);
+    assert_eq!(settled.tree_nodes, 3);
+    assert_eq!(settled.sequence_len, 3);
+    assert_eq!(
+        missing,
+        [
+            Missing::SchemaAlphabet,
+            Missing::ValueAlphabet,
+            Missing::InitialStatePayloadAlphabetAndBounds,
+            Missing::GraphEdgeBound,
+            Missing::StateIdCarrier,
+            Missing::AdditionPayloadAlphabet,
+            Missing::TableStructureAndEditAlphabet,
+            Missing::SchemaDeclarationsAndHyperEdgeSignatures,
+            Missing::NodeShapeAlphabet,
+            Missing::TreeEditAlphabet,
+            Missing::InitialTreeStateAndFanAlphabet,
+            Missing::SequenceApplicabilityAndRegenerationPolicy,
+            Missing::CanonicalDeltaEncoding,
+        ]
+    );
 }
 
 #[test]
@@ -100,8 +702,2361 @@ fn independent_deltas_commute_and_merge() {
         (AttrVal::Anchor("a".into()), AttrVal::Anchor("q".into())),
     );
     assert!(!edit::independence(&del, &anchor).is_empty());
-    assert!(matches!(
+    assert_eq!(
         edit::apply(&del, &g),
-        Err(edit::ApplyError::DanglingEdges { node: 0, .. })
+        Err(edit::ApplyError::DanglingEdges {
+            node: 0,
+            edges: vec![0],
+        })
+    );
+}
+
+#[test]
+fn replacement_deletion_conflicts_with_every_use_of_the_replaced_node() {
+    let mut replacement = GraphDelta::identity();
+    replacement.del.insert(GElem::Node(0), node(0, "a"));
+    replacement.add.insert(GElem::Node(0), node(0, "replaced"));
+
+    let mut field_use = GraphDelta::identity();
+    field_use.attrs.insert(
+        AttrKey::Field(0, "x".into()),
+        (AttrVal::Field(None), AttrVal::Field(Some(Value::Int(1)))),
+    );
+    assert_eq!(
+        edit::independence(&replacement, &field_use),
+        vec![EditConflict::DeleteUse {
+            deleted: GElem::Node(0),
+            user: edit::ElemRef::Attr(AttrKey::Field(0, "x".into())),
+        }]
+    );
+    assert_eq!(
+        edit::merge(&replacement, &field_use),
+        Err(EditConflict::DeleteUse {
+            deleted: GElem::Node(0),
+            user: edit::ElemRef::Attr(AttrKey::Field(0, "x".into())),
+        })
+    );
+
+    let mut edge_use = GraphDelta::identity();
+    edge_use.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(GEdge {
+            src: 0,
+            tgt: 1,
+            label: SEdge::new("a", "b", "use", None),
+            position: None,
+        }),
+    );
+    assert!(
+        edit::independence(&replacement, &edge_use).contains(&EditConflict::DeleteUse {
+            deleted: GElem::Node(0),
+            user: edit::ElemRef::Elem(GElem::Edge(7)),
+        })
+    );
+}
+
+#[test]
+fn typed_delta_carriers_refuse_every_cross_sort_payload_and_attribute() {
+    let g = graph();
+    let edge = g.edges[&0].clone();
+    let mut wrong_payload = GraphDelta::identity();
+    wrong_payload
+        .del
+        .insert(GElem::Node(0), GPayload::Edge(edge));
+    assert_eq!(
+        edit::apply(&wrong_payload, &g),
+        Err(edit::ApplyError::ElementTypeMismatch(GElem::Node(0)))
+    );
+
+    let mut wrong_attribute = GraphDelta::identity();
+    wrong_attribute.attrs.insert(
+        AttrKey::Anchor(0),
+        (AttrVal::Field(None), AttrVal::Field(Some(Value::Int(3)))),
+    );
+    assert_eq!(
+        edit::apply(&wrong_attribute, &g),
+        Err(edit::ApplyError::AttributeTypeMismatch(AttrKey::Anchor(0)))
+    );
+    assert!(!wrong_payload.is_normal());
+    assert!(!wrong_attribute.is_normal());
+    assert!(edit::canonical_graph_delta_bytes(&wrong_payload).is_none());
+    assert_eq!(
+        wrong_payload.compose(&GraphDelta::identity()),
+        Err(Mismatch::Elem(GElem::Node(0)))
+    );
+    assert_eq!(
+        GraphDelta::identity().compose(&wrong_attribute),
+        Err(Mismatch::Attr(AttrKey::Anchor(0)))
+    );
+
+    let mut misfiled = GraphDelta::identity();
+    misfiled
+        .add
+        .insert(GElem::Node(7), GPayload::Node(Node::new(8, "a")));
+    assert_eq!(
+        edit::apply(&misfiled, &g),
+        Err(edit::ApplyError::ElementTypeMismatch(GElem::Node(7)))
+    );
+}
+
+fn table() -> Table {
+    let mut table = Table::default();
+    table.rows.insert(
+        0,
+        ("a".into(), BTreeMap::from([("x".into(), Value::Int(1))])),
+    );
+    table.rows.insert(1, ("b".into(), BTreeMap::new()));
+    table.pairs.insert((SEdge::new("a", "b", "fk", None), 0, 1));
+    table
+}
+
+#[test]
+fn table_apply_reports_exact_missing_stale_duplicate_dangling_and_type_errors() {
+    let table = table();
+    let row = TPayload::Row("a".into(), BTreeMap::from([("x".into(), Value::Int(1))]));
+    let pair = SEdge::new("a", "b", "fk", None);
+
+    let mut missing = TableDelta::identity();
+    missing.del.insert(TElem::Row(9), row.clone());
+    assert_eq!(
+        edit::apply_table(&missing, &table),
+        Err(TableApplyError::RowNotFound(9))
+    );
+
+    let mut stale = TableDelta::identity();
+    stale
+        .del
+        .insert(TElem::Row(0), TPayload::Row("a".into(), BTreeMap::new()));
+    assert_eq!(
+        edit::apply_table(&stale, &table),
+        Err(TableApplyError::StaleCell {
+            row: 0,
+            column: "x".into(),
+        })
+    );
+
+    let mut dangling = TableDelta::identity();
+    dangling.del.insert(TElem::Row(0), row);
+    assert!(matches!(
+        edit::apply_table(&dangling, &table),
+        Err(TableApplyError::DanglingForeignKeys { row: 0, pairs }) if pairs == vec![(pair.clone(), 0, 1)]
     ));
+
+    let mut duplicate = TableDelta::identity();
+    duplicate
+        .add
+        .insert(TElem::Row(0), TPayload::Row("a".into(), BTreeMap::new()));
+    assert_eq!(
+        edit::apply_table(&duplicate, &table),
+        Err(TableApplyError::DuplicateRow(0))
+    );
+
+    let mut endpoint = TableDelta::identity();
+    endpoint
+        .add
+        .insert(TElem::Pair(pair.clone(), 0, 9), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&endpoint, &table),
+        Err(TableApplyError::MissingRowEndpoint { edge: pair, row: 9 })
+    );
+
+    let mistyped = SEdge::new("x", "b", "fk", None);
+    let mut mistyped_pair = TableDelta::identity();
+    mistyped_pair
+        .add
+        .insert(TElem::Pair(mistyped.clone(), 0, 1), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&mistyped_pair, &table),
+        Err(TableApplyError::MissingRowEndpoint {
+            edge: mistyped,
+            row: 0,
+        })
+    );
+
+    let kept = SEdge::new("a", "b", "fk", None);
+    let mut move_source = TableDelta::identity();
+    move_source.attrs.insert(
+        TKey::Table(0),
+        (TVal::Table("a".into()), TVal::Table("c".into())),
+    );
+    assert_eq!(
+        edit::apply_table(&move_source, &table),
+        Err(TableApplyError::MissingRowEndpoint { edge: kept, row: 0 })
+    );
+
+    let mut wrong = TableDelta::identity();
+    wrong.del.insert(TElem::Row(0), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&wrong, &table),
+        Err(TableApplyError::ElementTypeMismatch(TElem::Row(0)))
+    );
+    let mut wrong_attr = TableDelta::identity();
+    wrong_attr.attrs.insert(
+        TKey::Cell(0, "x".into()),
+        (TVal::Table("a".into()), TVal::Table("b".into())),
+    );
+    assert_eq!(
+        edit::apply_table(&wrong_attr, &table),
+        Err(TableApplyError::AttributeTypeMismatch(TKey::Cell(
+            0,
+            "x".into()
+        )))
+    );
+}
+
+#[test]
+fn graph_apply_reports_every_structural_refusal_variant_directly() {
+    let graph = graph();
+    let mut missing_node = GraphDelta::identity();
+    missing_node.del.insert(GElem::Node(9), node(9, "missing"));
+    assert_eq!(
+        edit::apply(&missing_node, &graph),
+        Err(edit::ApplyError::NodeNotFound(9))
+    );
+
+    let mut missing_edge = GraphDelta::identity();
+    missing_edge.del.insert(
+        GElem::Edge(9),
+        GPayload::Edge(GEdge {
+            src: 0,
+            tgt: 1,
+            label: SEdge::new("a", "b", "missing", None),
+            position: None,
+        }),
+    );
+    assert_eq!(
+        edit::apply(&missing_edge, &graph),
+        Err(edit::ApplyError::EdgeNotFound(9))
+    );
+
+    let mut duplicate_node = GraphDelta::identity();
+    duplicate_node.add.insert(GElem::Node(1), node(1, "b"));
+    assert_eq!(
+        edit::apply(&duplicate_node, &graph),
+        Err(edit::ApplyError::DuplicateNodeId(1))
+    );
+    let mut duplicate_edge = GraphDelta::identity();
+    duplicate_edge
+        .add
+        .insert(GElem::Edge(0), GPayload::Edge(graph.edges[&0].clone()));
+    assert_eq!(
+        edit::apply(&duplicate_edge, &graph),
+        Err(edit::ApplyError::DuplicateEdge(0))
+    );
+
+    let mut missing_endpoint = GraphDelta::identity();
+    missing_endpoint.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(GEdge {
+            src: 0,
+            tgt: 99,
+            label: SEdge::new("a", "missing", "e", None),
+            position: None,
+        }),
+    );
+    assert_eq!(
+        edit::apply(&missing_endpoint, &graph),
+        Err(edit::ApplyError::MissingEndpoint { edge: 7, node: 99 })
+    );
+
+    let mut malformed_fan = GraphDelta::identity();
+    let mut fan = Node::new(9, "fan");
+    fan.shape = NodeShape::HyperEdge;
+    malformed_fan
+        .add
+        .insert(GElem::Node(9), GPayload::Node(fan));
+    assert_eq!(
+        edit::apply(&malformed_fan, &graph),
+        Err(edit::ApplyError::MalformedFan {
+            node: 9,
+            reason: panproto_reference::fan::FanViolation::MissingParent,
+        })
+    );
+}
+
+#[test]
+fn table_row_surface_conversion_checks_sorted_cells_then_complete_incidence() {
+    let mut table = Table::default();
+    table.rows.insert(
+        0,
+        ("t".into(), BTreeMap::from([("b".into(), Value::Int(2))])),
+    );
+    table.rows.insert(1, ("u".into(), BTreeMap::new()));
+    let incoming = (SEdge::new("u", "t", "in", None), 1, 0);
+    let outgoing = (SEdge::new("t", "u", "out", None), 0, 1);
+    table.pairs.extend([incoming.clone(), outgoing.clone()]);
+
+    let expected_cells = BTreeMap::from([("a".into(), Value::Int(1))]);
+    let mut stale_cells = TableDelta::identity();
+    stale_cells
+        .del
+        .insert(TElem::Row(0), TPayload::Row("t".into(), expected_cells));
+    assert_eq!(
+        edit::apply_table(&stale_cells, &table),
+        Err(TableApplyError::StaleCell {
+            row: 0,
+            column: "a".into(),
+        })
+    );
+
+    let exact_cells = BTreeMap::from([("b".into(), Value::Int(2))]);
+    assert_eq!(
+        edit::delete_row_delta(&table, 0, "t", &exact_cells, &BTreeSet::new()),
+        Err(TableApplyError::StaleIncidence { row: 0 })
+    );
+    let incidence = BTreeSet::from([incoming, outgoing]);
+    let deletion = edit::delete_row_delta(&table, 0, "t", &exact_cells, &incidence).unwrap();
+    assert_eq!(deletion.del.len(), 3);
+    let after = edit::apply_table(&deletion, &table).unwrap();
+    assert_eq!(after.rows.keys().copied().collect::<Vec<_>>(), vec![1]);
+    assert!(after.pairs.is_empty());
+}
+
+#[test]
+fn graph_apply_uses_the_exact_stale_variant_for_every_attribute_sort() {
+    let graph = graph();
+    let cases = [
+        (
+            AttrKey::Value(0),
+            AttrVal::Presence(Some(Presence::Null)),
+            AttrVal::Presence(None),
+            edit::ApplyError::StaleValue { node: 0 },
+        ),
+        (
+            AttrKey::Field(0, "missing".into()),
+            AttrVal::Field(Some(Value::Int(1))),
+            AttrVal::Field(None),
+            edit::ApplyError::StaleField {
+                node: 0,
+                field: "missing".into(),
+            },
+        ),
+        (
+            AttrKey::Meta(0),
+            AttrVal::Meta(NodeMeta {
+                discriminator: None,
+                position: None,
+                shape: NodeShape::List,
+                annotations: BTreeMap::new(),
+            }),
+            AttrVal::Meta(NodeMeta {
+                discriminator: None,
+                position: None,
+                shape: NodeShape::Plain,
+                annotations: BTreeMap::new(),
+            }),
+            edit::ApplyError::StaleMeta { node: 0 },
+        ),
+        (
+            AttrKey::Anchor(0),
+            AttrVal::Anchor("wrong".into()),
+            AttrVal::Anchor("next".into()),
+            edit::ApplyError::StaleAnchor { node: 0 },
+        ),
+        (
+            AttrKey::EdgeLabel(0),
+            AttrVal::Label(SEdge::new("a", "b", "wrong", None)),
+            AttrVal::Label(SEdge::new("a", "b", "next", None)),
+            edit::ApplyError::StaleLabel { edge: 0 },
+        ),
+        (
+            AttrKey::EdgePosition(0),
+            AttrVal::Position(Some(1)),
+            AttrVal::Position(Some(2)),
+            edit::ApplyError::StalePosition { edge: 0 },
+        ),
+    ];
+    for (key, old, new, expected) in cases {
+        let mut delta = GraphDelta::identity();
+        delta.attrs.insert(key, (old, new));
+        assert_eq!(edit::apply(&delta, &graph), Err(expected));
+    }
+
+    let mut stale_node = GraphDelta::identity();
+    stale_node
+        .del
+        .insert(GElem::Node(0), GPayload::Node(Node::new(0, "wrong")));
+    assert_eq!(
+        edit::apply(&stale_node, &graph),
+        Err(edit::ApplyError::StaleNode { node: 0 })
+    );
+    let mut stale_edge = GraphDelta::identity();
+    let mut wrong_edge = graph.edges[&0].clone();
+    wrong_edge.label.kind = "wrong".into();
+    stale_edge
+        .del
+        .insert(GElem::Edge(0), GPayload::Edge(wrong_edge));
+    assert_eq!(
+        edit::apply(&stale_edge, &graph),
+        Err(edit::ApplyError::StaleEdge { edge: 0 })
+    );
+}
+
+#[test]
+fn graph_apply_names_an_absent_attribute_owner_before_staleness() {
+    let graph = graph();
+    let cases = [
+        (
+            AttrKey::Anchor(99),
+            AttrVal::Anchor("a".into()),
+            AttrVal::Anchor("b".into()),
+            edit::ApplyError::NodeNotFound(99),
+        ),
+        (
+            AttrKey::EdgeLabel(99),
+            AttrVal::Label(SEdge::new("a", "b", "old", None)),
+            AttrVal::Label(SEdge::new("a", "b", "new", None)),
+            edit::ApplyError::EdgeNotFound(99),
+        ),
+        (
+            AttrKey::EdgePosition(99),
+            AttrVal::Position(None),
+            AttrVal::Position(Some(0)),
+            edit::ApplyError::EdgeNotFound(99),
+        ),
+    ];
+    for (key, old, new, expected) in cases {
+        let mut delta = GraphDelta::identity();
+        delta.attrs.insert(key, (old, new));
+        assert_eq!(edit::apply(&delta, &graph), Err(expected));
+    }
+}
+
+#[test]
+fn table_apply_uses_exact_foreign_key_and_row_attribute_errors() {
+    let table = table();
+    let pair = SEdge::new("a", "b", "fk", None);
+
+    let absent = SEdge::new("a", "b", "other", None);
+    let mut absent_pair = TableDelta::identity();
+    absent_pair
+        .del
+        .insert(TElem::Pair(absent.clone(), 0, 1), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&absent_pair, &table),
+        Err(TableApplyError::ForeignKeyNotFound {
+            edge: absent,
+            src: 0,
+            tgt: 1,
+        })
+    );
+
+    let mut duplicate = TableDelta::identity();
+    duplicate
+        .add
+        .insert(TElem::Pair(pair.clone(), 0, 1), TPayload::Pair);
+    assert_eq!(
+        edit::apply_table(&duplicate, &table),
+        Err(TableApplyError::DuplicateForeignKey {
+            edge: pair,
+            src: 0,
+            tgt: 1,
+        })
+    );
+
+    let mut missing_row = TableDelta::identity();
+    missing_row.attrs.insert(
+        TKey::Cell(9, "x".into()),
+        (TVal::Cell(None), TVal::Cell(Some(Value::Int(1)))),
+    );
+    assert_eq!(
+        edit::apply_table(&missing_row, &table),
+        Err(TableApplyError::RowNotFound(9))
+    );
+
+    let mut stale_table = TableDelta::identity();
+    stale_table.attrs.insert(
+        TKey::Table(0),
+        (TVal::Table("wrong".into()), TVal::Table("next".into())),
+    );
+    assert_eq!(
+        edit::apply_table(&stale_table, &table),
+        Err(TableApplyError::StaleTable { row: 0 })
+    );
+}
+
+#[test]
+fn table_delta_diff_invert_compose_are_the_same_partial_algebra() {
+    let before = table();
+    let mut after = before.clone();
+    after
+        .rows
+        .get_mut(&0)
+        .unwrap()
+        .1
+        .insert("x".into(), Value::Int(2));
+    after.rows.insert(2, ("b".into(), BTreeMap::new()));
+    let delta = edit::diff_table(&before, &after);
+    assert_eq!(edit::apply_table(&delta, &before), Ok(after.clone()));
+    let inverse = edit::invert_table(&delta);
+    assert_eq!(edit::apply_table(&inverse, &after), Ok(before));
+    assert_eq!(
+        edit::compose_table(&delta, &inverse),
+        Ok(TableDelta::identity())
+    );
+}
+
+fn join_tree() -> Tree {
+    Tree {
+        nodes: [
+            (0, Node::new(0, "root")),
+            (1, Node::new(1, "feature")),
+            (2, Node::new(2, "feature")),
+            (3, Node::new(3, "leaf")),
+            (4, Node::new(4, "leaf")),
+        ]
+        .into_iter()
+        .collect(),
+        arcs: vec![
+            (0, 1, SEdge::new("root", "feature", "child", Some("a"))),
+            (0, 2, SEdge::new("root", "feature", "child", Some("b"))),
+            (2, 3, SEdge::new("feature", "leaf", "child", Some("c"))),
+            (2, 4, SEdge::new("feature", "leaf", "child", Some("d"))),
+        ],
+        fans: vec![Fan {
+            parent: 2,
+            hyper_edge: "fan".into(),
+            children: BTreeMap::from([("arm".into(), 3)]),
+        }],
+        root: 0,
+    }
+}
+
+fn literal_join_graph() -> Graph {
+    let mut graph = Graph {
+        nodes: join_tree().nodes,
+        edges: BTreeMap::new(),
+    };
+    let mut fan_node = Node::new(5, "fan");
+    fan_node.shape = NodeShape::HyperEdge;
+    graph.nodes.insert(5, fan_node);
+    for (id, src, tgt, label) in [
+        (0, 0, 1, SEdge::new("root", "feature", "child", Some("a"))),
+        (1, 0, 2, SEdge::new("root", "feature", "child", Some("b"))),
+        (2, 2, 3, SEdge::new("feature", "leaf", "child", Some("c"))),
+        (3, 2, 4, SEdge::new("feature", "leaf", "child", Some("d"))),
+        (
+            5,
+            5,
+            3,
+            SEdge::new("fan", "leaf", "hyper_label", Some("arm")),
+        ),
+    ] {
+        graph.edges.insert(
+            id,
+            GEdge {
+                src,
+                tgt,
+                label,
+                position: None,
+            },
+        );
+    }
+    graph.edges.insert(
+        4,
+        GEdge {
+            src: 5,
+            tgt: 2,
+            label: SEdge::new("fan", "feature", "hyper_parent", None),
+            position: None,
+        },
+    );
+    graph
+}
+
+fn graph_payload(graph: &Graph, element: &GElem) -> GPayload {
+    match element {
+        GElem::Node(id) => GPayload::Node(graph.nodes[id].clone()),
+        GElem::Edge(id) => GPayload::Edge(graph.edges[id].clone()),
+    }
+}
+
+fn literal_deletions(graph: &Graph, elements: impl IntoIterator<Item = GElem>) -> GraphDelta {
+    let mut delta = GraphDelta::identity();
+    for element in elements {
+        delta
+            .del
+            .insert(element.clone(), graph_payload(graph, &element));
+    }
+    delta
+}
+
+fn assert_literal_tree_lowering(
+    tree: &Tree,
+    edit_step: &TreeEdit,
+    expected: &GraphDelta,
+    expected_floors: (u32, u32),
+) {
+    let (before, embedding) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+    let mut followed = embedding.clone();
+    let actual = edit::graph_delta_from_tree_edit(tree, &mut followed, edit_step, None).unwrap();
+    assert_eq!(&actual, expected);
+    assert_eq!((followed.next_node, followed.next_edge), expected_floors);
+    assert!(edit::apply(expected, &before).unwrap().well_formed());
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(tree, &embedding, expected, None),
+        Ok(edit_step.clone())
+    );
+}
+
+fn assert_tree_steps_read_back_exactly(cases: Vec<(Tree, TreeEdit)>) {
+    for (tree, expected) in cases {
+        let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+        let mut followed = embedding.clone();
+        let delta =
+            edit::graph_delta_from_tree_edit(&tree, &mut followed, &expected, None).unwrap();
+        assert_eq!(
+            edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+            Ok(expected)
+        );
+    }
+}
+
+#[test]
+fn structural_tree_lowerings_match_independent_literal_deltas() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    assert_eq!(
+        panproto_reference::encode::tree_to_graph(&tree, None)
+            .unwrap()
+            .0,
+        graph
+    );
+    assert_literal_tree_lowering(&tree, &TreeEdit::Identity, &GraphDelta::identity(), (6, 6));
+
+    let insert = TreeEdit::InsertNode {
+        parent: 1,
+        child_id: 6,
+        node: Node::new(6, "leaf"),
+        edge: SEdge::new("feature", "leaf", "child", Some("new")),
+    };
+    let mut insert_delta = GraphDelta::identity();
+    insert_delta.add.insert(GElem::Node(6), node(6, "leaf"));
+    insert_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(GEdge {
+            src: 1,
+            tgt: 6,
+            label: SEdge::new("feature", "leaf", "child", Some("new")),
+            position: None,
+        }),
+    );
+    assert_literal_tree_lowering(&tree, &insert, &insert_delta, (7, 7));
+
+    let delete = TreeEdit::DeleteNode { id: 4 };
+    let delete_delta = literal_deletions(&graph, [GElem::Node(4), GElem::Edge(3)]);
+    assert_literal_tree_lowering(&tree, &delete, &delete_delta, (6, 6));
+
+    let move_edit = TreeEdit::MoveSubtree {
+        node_id: 3,
+        new_parent: 1,
+        edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+    };
+    let mut move_delta = literal_deletions(&graph, [GElem::Edge(2)]);
+    move_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(GEdge {
+            src: 1,
+            tgt: 3,
+            label: SEdge::new("feature", "leaf", "child", Some("moved")),
+            position: None,
+        }),
+    );
+    assert_literal_tree_lowering(&tree, &move_edit, &move_delta, (6, 7));
+}
+
+#[test]
+fn contract_and_fan_lowerings_match_independent_literal_deltas() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let contract = TreeEdit::ContractNode { id: 2 };
+    let mut contract_delta = literal_deletions(
+        &graph,
+        [
+            GElem::Node(2),
+            GElem::Node(5),
+            GElem::Edge(1),
+            GElem::Edge(2),
+            GElem::Edge(3),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    for (id, tgt, name) in [(6, 3, "c"), (7, 4, "d")] {
+        contract_delta.add.insert(
+            GElem::Edge(id),
+            GPayload::Edge(GEdge {
+                src: 0,
+                tgt,
+                label: SEdge::new("root", "leaf", "child", Some(name)),
+                position: None,
+            }),
+        );
+    }
+    assert_literal_tree_lowering(&tree, &contract, &contract_delta, (6, 8));
+
+    let insert_fan = TreeEdit::InsertFan {
+        fan: Fan {
+            parent: 1,
+            hyper_edge: "second-fan".into(),
+            children: BTreeMap::from([("arm".into(), 4)]),
+        },
+    };
+    let mut fan_delta = GraphDelta::identity();
+    let mut fan_node = Node::new(6, "second-fan");
+    fan_node.shape = NodeShape::HyperEdge;
+    fan_delta
+        .add
+        .insert(GElem::Node(6), GPayload::Node(fan_node));
+    for (id, tgt, kind, name) in [
+        (6, 1, "hyper_parent", None),
+        (7, 4, "hyper_label", Some("arm")),
+    ] {
+        fan_delta.add.insert(
+            GElem::Edge(id),
+            GPayload::Edge(GEdge {
+                src: 6,
+                tgt,
+                label: SEdge::new(
+                    "second-fan",
+                    if tgt == 1 { "feature" } else { "leaf" },
+                    kind,
+                    name,
+                ),
+                position: None,
+            }),
+        );
+    }
+    assert_literal_tree_lowering(&tree, &insert_fan, &fan_delta, (7, 8));
+
+    let delete_fan = TreeEdit::DeleteFan {
+        hyper_edge: "fan".into(),
+    };
+    let delete_fan_delta =
+        literal_deletions(&graph, [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)]);
+    assert_literal_tree_lowering(&tree, &delete_fan, &delete_fan_delta, (6, 6));
+}
+
+#[test]
+fn payload_tree_lowerings_match_independent_literal_deltas() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let relabel = TreeEdit::RelabelNode {
+        id: 3,
+        new_anchor: "renamed".into(),
+    };
+    let mut relabel_delta = GraphDelta::identity();
+    relabel_delta.attrs.insert(
+        AttrKey::Anchor(3),
+        (
+            AttrVal::Anchor("leaf".into()),
+            AttrVal::Anchor("renamed".into()),
+        ),
+    );
+    relabel_delta.attrs.insert(
+        AttrKey::EdgeLabel(5),
+        (
+            AttrVal::Label(SEdge::new("fan", "leaf", "hyper_label", Some("arm"))),
+            AttrVal::Label(SEdge::new("fan", "renamed", "hyper_label", Some("arm"))),
+        ),
+    );
+    assert_literal_tree_lowering(&tree, &relabel, &relabel_delta, (6, 6));
+
+    let set = TreeEdit::SetField {
+        node_id: 1,
+        field: "new".into(),
+        value: Value::Bool(true),
+    };
+    let set_delta = attribute_delta(
+        AttrKey::Field(1, "new".into()),
+        AttrVal::Field(None),
+        AttrVal::Field(Some(Value::Bool(true))),
+    );
+    assert_literal_tree_lowering(&tree, &set, &set_delta, (6, 6));
+
+    let mut with_field = tree.clone();
+    with_field
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("old".into(), Value::Int(7));
+    let remove = TreeEdit::RemoveField {
+        node_id: 1,
+        field: "old".into(),
+    };
+    let remove_delta = attribute_delta(
+        AttrKey::Field(1, "old".into()),
+        AttrVal::Field(Some(Value::Int(7))),
+        AttrVal::Field(None),
+    );
+    assert_literal_tree_lowering(&with_field, &remove, &remove_delta, (6, 6));
+
+    let mut value_node = tree.nodes[&3].clone();
+    value_node.value = Some(Presence::Present(Value::Int(9)));
+    let replace_value = TreeEdit::JoinFeatures {
+        primary: 3,
+        joined: Vec::new(),
+        produce: value_node,
+    };
+    let value_delta = attribute_delta(
+        AttrKey::Value(3),
+        AttrVal::Presence(None),
+        AttrVal::Presence(Some(Presence::Present(Value::Int(9)))),
+    );
+    assert_eq!(graph, literal_join_graph());
+    assert_literal_tree_lowering(&tree, &replace_value, &value_delta, (6, 6));
+}
+
+#[test]
+fn tree_reader_keeps_anchor_and_field_only_changes_as_ordered_primitives() {
+    let tree = join_tree();
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let delta = GraphDelta {
+        del: BTreeMap::new(),
+        add: BTreeMap::new(),
+        attrs: BTreeMap::from([
+            (
+                AttrKey::Field(1, "field".into()),
+                (AttrVal::Field(None), AttrVal::Field(Some(Value::Int(7)))),
+            ),
+            (
+                AttrKey::Anchor(1),
+                (
+                    AttrVal::Anchor("feature".into()),
+                    AttrVal::Anchor("renamed".into()),
+                ),
+            ),
+        ]),
+    };
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::RelabelNode {
+                id: 1,
+                new_anchor: "renamed".into(),
+            },
+            TreeEdit::SetField {
+                node_id: 1,
+                field: "field".into(),
+                value: Value::Int(7),
+            },
+        ]))
+    );
+}
+
+#[test]
+fn tree_reader_coalesces_value_or_meta_nodes_after_every_other_step() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let mut produce = tree.nodes[&1].clone();
+    produce.anchor = "coalesced".into();
+    produce.value = Some(Presence::Null);
+    produce.fields.insert("field".into(), Value::Int(7));
+    produce.shape = NodeShape::List;
+    let mut delta = literal_deletions(&graph, [GElem::Edge(2)]);
+    delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(GEdge {
+            src: 1,
+            tgt: 3,
+            label: SEdge::new("feature", "leaf", "child", Some("moved")),
+            position: None,
+        }),
+    );
+    delta.attrs.extend([
+        (
+            AttrKey::Value(1),
+            (
+                AttrVal::Presence(None),
+                AttrVal::Presence(Some(Presence::Null)),
+            ),
+        ),
+        (
+            AttrKey::Field(1, "field".into()),
+            (AttrVal::Field(None), AttrVal::Field(Some(Value::Int(7)))),
+        ),
+        (
+            AttrKey::Meta(1),
+            (
+                AttrVal::Meta(NodeMeta {
+                    discriminator: None,
+                    position: None,
+                    shape: NodeShape::Plain,
+                    annotations: BTreeMap::new(),
+                }),
+                AttrVal::Meta(NodeMeta {
+                    discriminator: None,
+                    position: None,
+                    shape: NodeShape::List,
+                    annotations: BTreeMap::new(),
+                }),
+            ),
+        ),
+        (
+            AttrKey::Anchor(1),
+            (
+                AttrVal::Anchor("feature".into()),
+                AttrVal::Anchor("coalesced".into()),
+            ),
+        ),
+    ]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 1,
+                edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+            },
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: Vec::new(),
+                produce,
+            },
+        ]))
+    );
+}
+
+#[test]
+fn join_and_sequence_lowerings_match_independent_literal_deltas() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let mut produce = tree.nodes[&1].clone();
+    produce.anchor = "joined".into();
+    let join = TreeEdit::JoinFeatures {
+        primary: 1,
+        joined: vec![2],
+        produce,
+    };
+    let mut join_delta = literal_deletions(
+        &graph,
+        [
+            GElem::Node(2),
+            GElem::Node(5),
+            GElem::Edge(1),
+            GElem::Edge(2),
+            GElem::Edge(3),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    join_delta.attrs.insert(
+        AttrKey::Anchor(1),
+        (
+            AttrVal::Anchor("feature".into()),
+            AttrVal::Anchor("joined".into()),
+        ),
+    );
+    for (id, tgt, name) in [(6, 3, "c"), (7, 4, "d")] {
+        join_delta.add.insert(
+            GElem::Edge(id),
+            GPayload::Edge(GEdge {
+                src: 1,
+                tgt,
+                label: SEdge::new("joined", "leaf", "child", Some(name)),
+                position: None,
+            }),
+        );
+    }
+    assert_literal_tree_lowering(&tree, &join, &join_delta, (6, 8));
+}
+
+#[test]
+fn composite_tree_readback_uses_canonical_primitive_order() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let sequence = TreeEdit::Sequence(vec![
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+        },
+        TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 1,
+            field: "joined".into(),
+            value: Value::Bool(true),
+        },
+    ]);
+    let mut sequence_delta = literal_deletions(&graph, [GElem::Edge(2)]);
+    sequence_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(GEdge {
+            src: 1,
+            tgt: 3,
+            label: SEdge::new("feature", "leaf", "child", Some("moved")),
+            position: None,
+        }),
+    );
+    sequence_delta.attrs.extend([
+        (
+            AttrKey::Field(1, "joined".into()),
+            (
+                AttrVal::Field(None),
+                AttrVal::Field(Some(Value::Bool(true))),
+            ),
+        ),
+        (
+            AttrKey::Anchor(3),
+            (
+                AttrVal::Anchor("leaf".into()),
+                AttrVal::Anchor("renamed".into()),
+            ),
+        ),
+        (
+            AttrKey::EdgeLabel(5),
+            (
+                AttrVal::Label(SEdge::new("fan", "leaf", "hyper_label", Some("arm"))),
+                AttrVal::Label(SEdge::new("fan", "renamed", "hyper_label", Some("arm"))),
+            ),
+        ),
+    ]);
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let mut followed = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut followed, &sequence, None),
+        Ok(sequence_delta.clone())
+    );
+    assert_eq!((followed.next_node, followed.next_edge), (6, 7));
+
+    let canonical = TreeEdit::Sequence(vec![
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+        },
+        TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 1,
+            field: "joined".into(),
+            value: Value::Bool(true),
+        },
+    ]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &sequence_delta, None),
+        Ok(canonical.clone())
+    );
+    let mut canonical_embedding = embedding;
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut canonical_embedding, &canonical, None),
+        Ok(sequence_delta)
+    );
+}
+
+fn assert_invalid_tree_embedding(
+    tree: &Tree,
+    mut embedding: panproto_reference::encode::TreeEmbedding,
+) {
+    let unchanged = embedding.clone();
+    assert_eq!(
+        edit::apply_tree(&TreeEdit::Identity, tree, &mut embedding),
+        Err(edit::TreeApplyError::InvalidEmbedding)
+    );
+    assert_eq!(embedding, unchanged);
+}
+
+fn assert_tree_apply_refusal(
+    tree: &Tree,
+    embedding: &panproto_reference::encode::TreeEmbedding,
+    edit_step: &TreeEdit,
+    expected: edit::TreeApplyError,
+) {
+    let mut actual_embedding = embedding.clone();
+    assert_eq!(
+        edit::apply_tree(edit_step, tree, &mut actual_embedding),
+        Err(expected)
+    );
+    assert_eq!(&actual_embedding, embedding);
+}
+
+#[test]
+fn tree_embedding_requires_exact_ordered_disjoint_carriers_and_durable_floors() {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    });
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_eq!(
+        embedding.arcs.values().copied().collect::<Vec<_>>(),
+        vec![0, 1, 2, 3]
+    );
+    assert_eq!(
+        embedding
+            .fans
+            .iter()
+            .map(|(node, _, _)| *node)
+            .collect::<Vec<_>>(),
+        vec![5, 6]
+    );
+
+    let mut missing_arc = embedding.clone();
+    missing_arc.arcs.remove(&4);
+    assert_invalid_tree_embedding(&tree, missing_arc);
+    let mut extra_arc = embedding.clone();
+    extra_arc.arcs.insert(99, 99);
+    assert_invalid_tree_embedding(&tree, extra_arc);
+    let mut nonascending_arcs = embedding.clone();
+    nonascending_arcs.arcs.insert(1, embedding.arcs[&2]);
+    nonascending_arcs.arcs.insert(2, embedding.arcs[&1]);
+    assert_invalid_tree_embedding(&tree, nonascending_arcs);
+    let mut duplicate_arc = embedding.clone();
+    duplicate_arc.arcs.insert(2, embedding.arcs[&1]);
+    assert_invalid_tree_embedding(&tree, duplicate_arc);
+
+    let mut nonascending_fans = embedding.clone();
+    nonascending_fans.fans[0].0 = embedding.fans[1].0;
+    nonascending_fans.fans[1].0 = embedding.fans[0].0;
+    assert_invalid_tree_embedding(&tree, nonascending_fans);
+    let mut missing_fan = embedding.clone();
+    missing_fan.fans.pop();
+    assert_invalid_tree_embedding(&tree, missing_fan);
+    let mut duplicate_fan_node = embedding.clone();
+    duplicate_fan_node.fans[1].0 = embedding.fans[0].0;
+    assert_invalid_tree_embedding(&tree, duplicate_fan_node);
+    let mut fan_node_overlaps_tree = embedding.clone();
+    fan_node_overlaps_tree.fans[0].0 = tree.root;
+    assert_invalid_tree_embedding(&tree, fan_node_overlaps_tree);
+    let mut missing_fan_child = embedding.clone();
+    missing_fan_child.fans[0].2.remove("arm");
+    assert_invalid_tree_embedding(&tree, missing_fan_child);
+    let mut extra_fan_child = embedding.clone();
+    extra_fan_child.fans[0].2.insert("extra".into(), 99);
+    assert_invalid_tree_embedding(&tree, extra_fan_child);
+    let mut fan_edge_overlaps_arc = embedding.clone();
+    fan_edge_overlaps_arc.fans[0].1 = embedding.arcs[&1];
+    assert_invalid_tree_embedding(&tree, fan_edge_overlaps_arc);
+    let mut fan_edges_overlap = embedding.clone();
+    fan_edges_overlap.fans[1]
+        .2
+        .insert("arm".into(), embedding.fans[0].1);
+    assert_invalid_tree_embedding(&tree, fan_edges_overlap);
+    let mut stale_node_floor = embedding.clone();
+    stale_node_floor.next_node = embedding.fans[1].0;
+    assert_invalid_tree_embedding(&tree, stale_node_floor);
+    let mut stale_edge_floor = embedding.clone();
+    stale_edge_floor.next_edge = embedding.fans[1].2["arm"];
+    assert_invalid_tree_embedding(&tree, stale_edge_floor);
+}
+
+#[test]
+fn insert_node_relocates_the_complete_fan_suffix_and_roundtrips() {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    });
+    let (before_graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let old_fans = embedding.fans.clone();
+    let edit_step = TreeEdit::InsertNode {
+        parent: 1,
+        child_id: old_fans[0].0,
+        node: Node::new(old_fans[0].0, "leaf"),
+        edge: SEdge::new("feature", "leaf", "child", Some("inserted")),
+    };
+    let mut applied_embedding = embedding.clone();
+    let after = edit::apply_tree(&edit_step, &tree, &mut applied_embedding).unwrap();
+    assert_eq!(
+        applied_embedding
+            .fans
+            .iter()
+            .map(|(node, parent, children)| (*node, *parent, children["arm"]))
+            .collect::<Vec<_>>(),
+        vec![(7, 8, 9), (8, 10, 11)]
+    );
+    assert_eq!(applied_embedding.arcs[&5], 12);
+    assert_eq!(
+        (applied_embedding.next_node, applied_embedding.next_edge),
+        (9, 13)
+    );
+
+    let mut lowered_embedding = embedding.clone();
+    let delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &edit_step, None).unwrap();
+    assert_eq!(lowered_embedding, applied_embedding);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(edit_step)
+    );
+    let after_graph = edit::apply(&delta, &before_graph).unwrap();
+    assert_eq!(after.nodes[&5], Node::new(5, "leaf"));
+    assert_eq!(
+        after_graph.nodes.keys().copied().collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 4, 5, 7, 8]
+    );
+    assert_eq!(
+        after_graph.edges.keys().copied().collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 8, 9, 10, 11, 12]
+    );
+}
+
+#[test]
+fn tree_apply_names_every_node_and_structure_precondition_exactly() {
+    let tree = join_tree();
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let leaf = Node::new(6, "leaf");
+    let edge = SEdge::new("feature", "leaf", "child", Some("new"));
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::InsertNode {
+            parent: 99,
+            child_id: 6,
+            node: leaf,
+            edge: edge.clone(),
+        },
+        edit::TreeApplyError::ParentNotFound(99),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::InsertNode {
+            parent: 1,
+            child_id: 1,
+            node: Node::new(1, "feature"),
+            edge: edge.clone(),
+        },
+        edit::TreeApplyError::DuplicateNodeId(1),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::InsertNode {
+            parent: 1,
+            child_id: 6,
+            node: Node::new(7, "leaf"),
+            edge,
+        },
+        edit::TreeApplyError::MisfiledNode {
+            expected: 6,
+            actual: 7,
+        },
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::DeleteNode { id: 99 },
+        edit::TreeApplyError::NodeNotFound(99),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::DeleteNode { id: 0 },
+        edit::TreeApplyError::RootOperation(0),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::DeleteNode { id: 2 },
+        edit::TreeApplyError::NotLeaf(2),
+    );
+}
+
+#[test]
+fn tree_apply_names_every_cycle_fan_join_and_allocation_refusal_exactly() {
+    let tree = join_tree();
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::MoveSubtree {
+            node_id: 2,
+            new_parent: 3,
+            edge: tree.arcs[1].2.clone(),
+        },
+        edit::TreeApplyError::Cycle { node: 2, parent: 3 },
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![1],
+            produce: tree.nodes[&1].clone(),
+        },
+        edit::TreeApplyError::InvalidJoin(1),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::DeleteFan {
+            hyper_edge: "absent".into(),
+        },
+        edit::TreeApplyError::FanNotFound("absent".into()),
+    );
+    assert_tree_apply_refusal(
+        &tree,
+        &embedding,
+        &TreeEdit::InsertFan {
+            fan: Fan {
+                parent: 1,
+                hyper_edge: "dangling".into(),
+                children: BTreeMap::from([("arm".into(), 99)]),
+            },
+        },
+        edit::TreeApplyError::NodeNotFound(99),
+    );
+    let mut exhausted = embedding.clone();
+    exhausted.next_edge = u32::MAX;
+    assert_tree_apply_refusal(
+        &tree,
+        &exhausted,
+        &TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: tree.arcs[2].2.clone(),
+        },
+        edit::TreeApplyError::IdsExhausted,
+    );
+    let mut node_exhausted = embedding.clone();
+    node_exhausted.next_node = u32::MAX;
+    assert_tree_apply_refusal(
+        &tree,
+        &node_exhausted,
+        &TreeEdit::InsertFan {
+            fan: Fan {
+                parent: 1,
+                hyper_edge: "exhausted".into(),
+                children: BTreeMap::from([("arm".into(), 4)]),
+            },
+        },
+        edit::TreeApplyError::IdsExhausted,
+    );
+    let mut reserved = tree;
+    reserved.nodes.get_mut(&1).unwrap().shape = NodeShape::HyperEdge;
+    assert_tree_apply_refusal(
+        &reserved,
+        &embedding,
+        &TreeEdit::Identity,
+        edit::TreeApplyError::ReservedVocabulary,
+    );
+}
+
+#[test]
+fn structural_tree_edit_variants_read_back_with_exact_lowerings() {
+    let base = join_tree();
+    assert_tree_steps_read_back_exactly(vec![
+        (base.clone(), TreeEdit::Identity),
+        (
+            base.clone(),
+            TreeEdit::InsertNode {
+                parent: 1,
+                child_id: 6,
+                node: Node::new(6, "leaf"),
+                edge: SEdge::new("feature", "leaf", "child", Some("new")),
+            },
+        ),
+        (base.clone(), TreeEdit::DeleteNode { id: 4 }),
+        (base.clone(), TreeEdit::ContractNode { id: 2 }),
+        (
+            base.clone(),
+            TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 1,
+                edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+            },
+        ),
+        (
+            base.clone(),
+            TreeEdit::InsertFan {
+                fan: Fan {
+                    parent: 1,
+                    hyper_edge: "second-fan".into(),
+                    children: BTreeMap::from([("arm".into(), 4)]),
+                },
+            },
+        ),
+        (
+            base,
+            TreeEdit::DeleteFan {
+                hyper_edge: "fan".into(),
+            },
+        ),
+    ]);
+}
+
+#[test]
+fn payload_tree_edit_variants_read_back_with_exact_lowerings() {
+    let base = join_tree();
+    let mut with_field = base.clone();
+    with_field
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("old".into(), Value::Int(7));
+    let mut joined = base.nodes[&1].clone();
+    joined.anchor = "joined".into();
+    let mut value_joined = base.nodes[&3].clone();
+    value_joined.value = Some(Presence::Present(Value::Int(9)));
+    assert_tree_steps_read_back_exactly(vec![
+        (
+            base.clone(),
+            TreeEdit::RelabelNode {
+                id: 3,
+                new_anchor: "renamed".into(),
+            },
+        ),
+        (
+            base.clone(),
+            TreeEdit::SetField {
+                node_id: 1,
+                field: "new".into(),
+                value: Value::Bool(true),
+            },
+        ),
+        (
+            with_field,
+            TreeEdit::RemoveField {
+                node_id: 1,
+                field: "old".into(),
+            },
+        ),
+        (
+            base.clone(),
+            TreeEdit::JoinFeatures {
+                primary: 3,
+                joined: Vec::new(),
+                produce: value_joined,
+            },
+        ),
+        (
+            base,
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![2],
+                produce: joined,
+            },
+        ),
+    ]);
+}
+
+#[test]
+fn tree_join_reader_preserves_nonascending_join_order_exactly() {
+    let mut tree = join_tree();
+    tree.nodes.insert(5, Node::new(5, "leaf"));
+    tree.arcs
+        .push((1, 5, SEdge::new("feature", "leaf", "child", Some("e"))));
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let join = TreeEdit::JoinFeatures {
+        primary: 0,
+        joined: vec![2, 1],
+        produce: tree.nodes[&0].clone(),
+    };
+    let mut followed = embedding.clone();
+    let delta = edit::graph_delta_from_tree_edit(&tree, &mut followed, &join, None).unwrap();
+    let recovered = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None).unwrap();
+    assert_eq!(recovered, join);
+    let mut recovered_embedding = embedding;
+    let after = edit::apply_tree(&recovered, &tree, &mut recovered_embedding).unwrap();
+    assert_eq!(
+        after
+            .arcs
+            .iter()
+            .map(|(parent, child, _)| (*parent, *child))
+            .collect::<Vec<_>>(),
+        vec![(0, 3), (0, 4), (0, 5)]
+    );
+}
+
+#[test]
+fn composite_tree_reading_does_not_allocate_for_unchanged_fans() {
+    let tree = join_tree();
+    let (_, mut embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    embedding.next_node = u32::MAX;
+    let composite = TreeEdit::Sequence(vec![
+        TreeEdit::SetField {
+            node_id: 0,
+            field: "root-field".into(),
+            value: Value::Int(10),
+        },
+        TreeEdit::SetField {
+            node_id: 1,
+            field: "feature-field".into(),
+            value: Value::Int(11),
+        },
+    ]);
+    let mut followed = embedding.clone();
+    let delta = edit::graph_delta_from_tree_edit(&tree, &mut followed, &composite, None).unwrap();
+    assert_eq!(followed.next_node, u32::MAX);
+    let recovered = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None).unwrap();
+    let mut recovered_embedding = embedding;
+    let after = edit::apply_tree(&recovered, &tree, &mut recovered_embedding).unwrap();
+    let mut expected = tree;
+    expected
+        .nodes
+        .get_mut(&0)
+        .unwrap()
+        .fields
+        .insert("root-field".into(), Value::Int(10));
+    expected
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("feature-field".into(), Value::Int(11));
+    assert_eq!(after, expected);
+    assert_eq!(recovered_embedding.next_node, u32::MAX);
+}
+
+#[test]
+fn tree_join_preserves_tr14_order_updates_embedding_floors_and_roundtrips_lowering() {
+    let tree = join_tree();
+    let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let start_embedding = embedding.clone();
+    let mut produce = tree.nodes[&1].clone();
+    produce.anchor = "merged".into();
+    let join = TreeEdit::JoinFeatures {
+        primary: 1,
+        joined: vec![2],
+        produce,
+    };
+
+    let mut applied_embedding = embedding.clone();
+    let applied = edit::apply_tree(&join, &tree, &mut applied_embedding).unwrap();
+    assert_eq!(
+        applied
+            .arcs
+            .iter()
+            .map(|(parent, child, _)| (*parent, *child))
+            .collect::<Vec<_>>(),
+        vec![(0, 1), (1, 3), (1, 4)]
+    );
+    assert!(applied.fans.is_empty());
+    assert_eq!(applied_embedding.next_edge, embedding.next_edge + 2);
+    assert!(applied_embedding.next_node >= embedding.next_node);
+
+    let mut lowered_embedding = embedding;
+    let delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &join, None).unwrap();
+    assert_eq!(
+        edit::apply(&delta, &graph).unwrap().nodes[&1].anchor,
+        "merged"
+    );
+    assert_eq!(lowered_embedding, applied_embedding);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &start_embedding, &delta, None),
+        Ok(join)
+    );
+}
+
+#[test]
+fn graph_delta_to_tree_edit_inverts_composite_lowerings_and_rejects_nonimages() {
+    let tree = join_tree();
+    let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let composite = TreeEdit::Sequence(vec![
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: SEdge::new("feature", "leaf", "child", Some("moved")),
+        },
+        TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 1,
+            field: "joined".into(),
+            value: Value::Bool(true),
+        },
+    ]);
+    let mut expected = tree.clone();
+    expected.arcs = vec![
+        (0, 1, SEdge::new("root", "feature", "child", Some("a"))),
+        (0, 2, SEdge::new("root", "feature", "child", Some("b"))),
+        (2, 4, SEdge::new("feature", "leaf", "child", Some("d"))),
+        (1, 3, SEdge::new("feature", "leaf", "child", Some("moved"))),
+    ];
+    expected.nodes.get_mut(&3).unwrap().anchor = "renamed".into();
+    expected
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("joined".into(), Value::Bool(true));
+    let mut lowered_embedding = embedding.clone();
+    let delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &composite, None).unwrap();
+    let recovered = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None).unwrap();
+    let mut recovered_embedding = embedding.clone();
+    assert_eq!(
+        edit::apply_tree(&recovered, &tree, &mut recovered_embedding),
+        Ok(expected)
+    );
+
+    let old_edge = embedding.arcs[&3];
+    let mut below_floor = GraphDelta::identity();
+    below_floor.del.insert(
+        GElem::Edge(old_edge),
+        GPayload::Edge(graph.edges[&old_edge].clone()),
+    );
+    let mut replacement = graph.edges[&old_edge].clone();
+    replacement.src = 1;
+    below_floor
+        .add
+        .insert(GElem::Edge(old_edge), GPayload::Edge(replacement));
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &below_floor, None),
+        Err(edit::TreeApplyError::NotTreeEdit { reason }) if reason.contains("below the embedding floor")
+    ));
+
+    let mut positioned = GraphDelta::identity();
+    positioned.attrs.insert(
+        AttrKey::EdgePosition(old_edge),
+        (AttrVal::Position(None), AttrVal::Position(Some(0))),
+    );
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &positioned, None),
+        Err(edit::TreeApplyError::NotTreeEdit { reason }) if reason.contains("edge position")
+    ));
+
+    let mut relabelled_arc = GraphDelta::identity();
+    let old_label = graph.edges[&old_edge].label.clone();
+    let mut new_label = old_label.clone();
+    new_label.kind = "other".into();
+    relabelled_arc.attrs.insert(
+        AttrKey::EdgeLabel(old_edge),
+        (AttrVal::Label(old_label), AttrVal::Label(new_label)),
+    );
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &relabelled_arc, None),
+        Err(edit::TreeApplyError::NotTreeEdit { reason }) if reason.contains("target relabel")
+    ));
+
+    let fan_edge = embedding.fans[0].2["arm"];
+    let fan_label = graph.edges[&fan_edge].label.clone();
+    let mut uninduced = fan_label.clone();
+    uninduced.tgt = "not-renamed".into();
+    let mut relabelled_fan = GraphDelta::identity();
+    relabelled_fan.attrs.insert(
+        AttrKey::EdgeLabel(fan_edge),
+        (AttrVal::Label(fan_label), AttrVal::Label(uninduced)),
+    );
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &relabelled_fan, None),
+        Err(edit::TreeApplyError::NotTreeEdit { reason }) if reason.contains("target relabel")
+    ));
+}
+
+#[test]
+fn tree_reader_rejects_root_replacements_even_when_the_payload_is_unchanged() {
+    let tree = Tree {
+        nodes: BTreeMap::from([(0, Node::new(0, "root"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    for replacement in [Node::new(0, "root"), Node::new(0, "different")] {
+        let mut delta = GraphDelta::identity();
+        delta.del.insert(GElem::Node(0), node(0, "root"));
+        delta
+            .add
+            .insert(GElem::Node(0), GPayload::Node(replacement));
+        assert!(matches!(
+            edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+            Err(edit::TreeApplyError::NotTreeEdit { reason })
+                if reason.contains("fixed carriers")
+        ));
+    }
+}
+
+#[test]
+fn tree_reader_rejects_partial_deletion_of_duplicate_named_fans() {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let (fan_node, parent_edge, child_edges) = &embedding.fans[1];
+    let mut delta = GraphDelta::identity();
+    for element in std::iter::once(GElem::Node(*fan_node)).chain(
+        std::iter::once(GElem::Edge(*parent_edge))
+            .chain(child_edges.values().copied().map(GElem::Edge)),
+    ) {
+        let payload = match element {
+            GElem::Node(id) => GPayload::Node(graph.nodes[&id].clone()),
+            GElem::Edge(id) => GPayload::Edge(graph.edges[&id].clone()),
+        };
+        delta.del.insert(element, payload);
+    }
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Err(edit::TreeApplyError::NotTreeEdit { reason })
+            if reason.contains("fixed carriers")
+    ));
+}
+
+#[test]
+fn conflict_classifier_has_direct_witnesses_for_all_six_variants() {
+    let mut delete_a = GraphDelta::identity();
+    let mut delete_b = GraphDelta::identity();
+    delete_a.del.insert(GElem::Node(8), node(8, "a"));
+    delete_b.del.insert(GElem::Node(8), node(8, "a"));
+    assert!(
+        edit::independence(&delete_a, &delete_b).contains(&EditConflict::DeleteDelete {
+            elem: GElem::Node(8),
+        })
+    );
+
+    let update_a = attribute_delta(
+        AttrKey::Field(0, "x".into()),
+        AttrVal::Field(None),
+        AttrVal::Field(Some(Value::Int(1))),
+    );
+    let update_b = attribute_delta(
+        AttrKey::Field(0, "x".into()),
+        AttrVal::Field(None),
+        AttrVal::Field(Some(Value::Int(2))),
+    );
+    assert!(
+        edit::independence(&update_a, &update_b).contains(&EditConflict::UpdateUpdate {
+            key: AttrKey::Field(0, "x".into()),
+        })
+    );
+
+    let mut add_a = GraphDelta::identity();
+    let mut add_b = GraphDelta::identity();
+    add_a.add.insert(GElem::Node(8), node(8, "a"));
+    add_b.add.insert(GElem::Node(8), node(8, "b"));
+    assert!(
+        edit::independence(&add_a, &add_b).contains(&EditConflict::AddAdd {
+            elem: GElem::Node(8),
+        })
+    );
+
+    let anchor = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".into()),
+        AttrVal::Anchor("b".into()),
+    );
+    let mut incident = GraphDelta::identity();
+    incident.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(GEdge {
+            src: 0,
+            tgt: 1,
+            label: SEdge::new("a", "b", "ordinary", None),
+            position: None,
+        }),
+    );
+    assert!(
+        edit::independence(&anchor, &incident).contains(&EditConflict::AnchorUse {
+            node: 0,
+            user: edit::ElemRef::Elem(GElem::Edge(7)),
+        })
+    );
+
+    let shape = attribute_delta(
+        AttrKey::Meta(0),
+        AttrVal::Meta(NodeMeta {
+            discriminator: None,
+            position: None,
+            shape: NodeShape::Plain,
+            annotations: BTreeMap::new(),
+        }),
+        AttrVal::Meta(NodeMeta {
+            discriminator: None,
+            position: None,
+            shape: NodeShape::HyperEdge,
+            annotations: BTreeMap::new(),
+        }),
+    );
+    let shape_change = edit::ElemRef::Attr(AttrKey::Meta(0));
+    assert!(
+        edit::independence(&shape, &incident)
+            .iter()
+            .any(|conflict| {
+                matches!(conflict, EditConflict::FanUse { first, second }
+            if first == &shape_change || second == &shape_change)
+            })
+    );
+}
+
+#[test]
+fn every_benign_conflict_class_depends_on_equal_result_payloads() {
+    let mut delete_a = GraphDelta::identity();
+    let mut delete_b = GraphDelta::identity();
+    delete_a.del.insert(GElem::Node(8), node(8, "a"));
+    delete_b.del.insert(GElem::Node(8), node(8, "a"));
+    let deletion = EditConflict::DeleteDelete {
+        elem: GElem::Node(8),
+    };
+    assert!(edit::is_benign(&deletion, &delete_a, &delete_b));
+    delete_b.del.insert(GElem::Node(8), node(8, "b"));
+    assert!(!edit::is_benign(&deletion, &delete_a, &delete_b));
+
+    let update_a = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".into()),
+        AttrVal::Anchor("same".into()),
+    );
+    let mut update_b = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("b".into()),
+        AttrVal::Anchor("same".into()),
+    );
+    let update = EditConflict::UpdateUpdate {
+        key: AttrKey::Anchor(0),
+    };
+    assert!(edit::is_benign(&update, &update_a, &update_b));
+    update_b.attrs.get_mut(&AttrKey::Anchor(0)).unwrap().1 = AttrVal::Anchor("other".into());
+    assert!(!edit::is_benign(&update, &update_a, &update_b));
+
+    let empty_a = GraphDelta::identity();
+    let empty_b = GraphDelta::identity();
+    assert!(!edit::is_benign(&deletion, &empty_a, &empty_b));
+    assert!(!edit::is_benign(&update, &empty_a, &empty_b));
+    assert!(!edit::is_benign(
+        &EditConflict::AddAdd {
+            elem: GElem::Node(8),
+        },
+        &empty_a,
+        &empty_b,
+    ));
+}
+
+#[test]
+fn canonical_edit_bytes_are_normalized_golden_and_domain_separated() {
+    assert_eq!(
+        edit::canonical_graph_delta_bytes(&GraphDelta::identity()),
+        Some(vec![0; 40])
+    );
+    assert_eq!(
+        edit::canonical_table_delta_bytes(&TableDelta::identity()),
+        Some(vec![0; 48])
+    );
+    assert_eq!(
+        edit::canonical_tree_edit_bytes(&TreeEdit::Identity),
+        Some(vec![0; 8])
+    );
+    let step = TreeEdit::DeleteNode { id: 7 };
+    assert_eq!(
+        edit::canonical_tree_edit_bytes(&step),
+        edit::canonical_tree_edit_bytes(&TreeEdit::Sequence(vec![
+            TreeEdit::Identity,
+            TreeEdit::Sequence(vec![step.clone()]),
+        ]))
+    );
+    assert_eq!(
+        edit::graph_delta_digest(&GraphDelta::identity()),
+        Some(blake3::derive_key(edit::GRAPH_DELTA_CONTEXT, &[0; 40]))
+    );
+    assert_eq!(
+        edit::table_delta_digest(&TableDelta::identity()),
+        Some(blake3::derive_key(edit::TABLE_DELTA_CONTEXT, &[0; 48]))
+    );
+    assert_eq!(
+        edit::tree_edit_digest(&TreeEdit::Identity),
+        Some(blake3::derive_key(edit::TREE_EDIT_CONTEXT, &[0; 8]))
+    );
+    assert_ne!(
+        blake3::derive_key(edit::GRAPH_DELTA_CONTEXT, b"same"),
+        blake3::derive_key(edit::TABLE_DELTA_CONTEXT, b"same")
+    );
+    assert_ne!(
+        blake3::derive_key(edit::TABLE_DELTA_CONTEXT, b"same"),
+        blake3::derive_key(edit::TREE_EDIT_CONTEXT, b"same")
+    );
+}
+
+#[test]
+fn canonical_nonidentity_edit_bytes_match_independent_literal_layouts() {
+    let relabel = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".into()),
+        AttrVal::Anchor("b".into()),
+    );
+    let mut expected_graph = vec![0; 32];
+    expected_graph.extend_from_slice(&1u64.to_le_bytes());
+    expected_graph.push(3);
+    expected_graph.extend_from_slice(&0u32.to_le_bytes());
+    expected_graph.push(3);
+    expected_graph.extend_from_slice(&1u64.to_le_bytes());
+    expected_graph.push(b'a');
+    expected_graph.push(3);
+    expected_graph.extend_from_slice(&1u64.to_le_bytes());
+    expected_graph.push(b'b');
+    assert_eq!(
+        edit::canonical_graph_delta_bytes(&relabel),
+        Some(expected_graph)
+    );
+
+    let mut table_change = TableDelta::identity();
+    table_change.attrs.insert(
+        TKey::Table(0),
+        (TVal::Table("a".into()), TVal::Table("b".into())),
+    );
+    let mut expected_table = vec![0; 40];
+    expected_table.extend_from_slice(&1u64.to_le_bytes());
+    expected_table.extend_from_slice(&0u32.to_le_bytes());
+    expected_table.extend_from_slice(&1u64.to_le_bytes());
+    expected_table.push(b'a');
+    expected_table.extend_from_slice(&1u64.to_le_bytes());
+    expected_table.push(b'b');
+    assert_eq!(
+        edit::canonical_table_delta_bytes(&table_change),
+        Some(expected_table)
+    );
+    assert_eq!(
+        edit::canonical_tree_edit_bytes(&TreeEdit::DeleteNode { id: 7 }),
+        Some(vec![1, 0, 0, 0, 0, 0, 0, 0, 2, 7, 0, 0, 0])
+    );
+
+    let equal_graph = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".into()),
+        AttrVal::Anchor("a".into()),
+    );
+    assert_eq!(edit::canonical_graph_delta_bytes(&equal_graph), None);
+    let mut equal_table = TableDelta::identity();
+    equal_table.attrs.insert(
+        TKey::Table(0),
+        (TVal::Table("a".into()), TVal::Table("a".into())),
+    );
+    assert_eq!(edit::canonical_table_delta_bytes(&equal_table), None);
+}
+
+#[test]
+fn canonical_graph_delta_covers_every_part_and_attribute_branch_in_order() {
+    let deleted_node = Node::new(1, "deleted");
+    let added_node = Node::new(2, "added");
+    let deleted_edge = GEdge {
+        src: 0,
+        tgt: 1,
+        label: SEdge::new("a", "deleted", "old", None),
+        position: None,
+    };
+    let added_edge = GEdge {
+        src: 0,
+        tgt: 2,
+        label: SEdge::new("a", "added", "new", Some("n")),
+        position: Some(4),
+    };
+    let plain = NodeMeta {
+        discriminator: None,
+        position: None,
+        shape: NodeShape::Plain,
+        annotations: BTreeMap::new(),
+    };
+    let list = NodeMeta {
+        shape: NodeShape::List,
+        ..plain.clone()
+    };
+    let attrs = BTreeMap::from([
+        (
+            AttrKey::Value(0),
+            (
+                AttrVal::Presence(None),
+                AttrVal::Presence(Some(Presence::Present(Value::Bool(true)))),
+            ),
+        ),
+        (
+            AttrKey::Field(0, "field".into()),
+            (AttrVal::Field(None), AttrVal::Field(Some(Value::Int(7)))),
+        ),
+        (
+            AttrKey::Meta(0),
+            (AttrVal::Meta(plain), AttrVal::Meta(list)),
+        ),
+        (
+            AttrKey::Anchor(0),
+            (AttrVal::Anchor("a".into()), AttrVal::Anchor("b".into())),
+        ),
+        (
+            AttrKey::EdgeLabel(0),
+            (
+                AttrVal::Label(SEdge::new("a", "a", "e", None)),
+                AttrVal::Label(SEdge::new("b", "a", "e", Some("named"))),
+            ),
+        ),
+        (
+            AttrKey::EdgePosition(0),
+            (AttrVal::Position(None), AttrVal::Position(Some(3))),
+        ),
+    ]);
+    let delta = GraphDelta {
+        del: BTreeMap::from([
+            (GElem::Node(1), GPayload::Node(deleted_node.clone())),
+            (GElem::Edge(1), GPayload::Edge(deleted_edge.clone())),
+        ]),
+        add: BTreeMap::from([
+            (GElem::Node(2), GPayload::Node(added_node.clone())),
+            (GElem::Edge(2), GPayload::Edge(added_edge.clone())),
+        ]),
+        attrs,
+    };
+    let mut expected = Writer::default();
+    for count in [1, 1, 1, 1, 6] {
+        expected.len(count);
+    }
+    canonical::write_node(&mut expected, &deleted_node).unwrap();
+    write_graph_edge_record(&mut expected, 1, &deleted_edge);
+    canonical::write_node(&mut expected, &added_node).unwrap();
+    write_graph_edge_record(&mut expected, 2, &added_edge);
+    for (key, (old, new)) in &delta.attrs {
+        write_attr_key(&mut expected, key);
+        write_attr_value(&mut expected, old).unwrap();
+        write_attr_value(&mut expected, new).unwrap();
+    }
+    assert_eq!(
+        edit::canonical_graph_delta_bytes(&delta),
+        Some(expected.bytes)
+    );
+}
+
+#[test]
+fn canonical_table_delta_covers_every_part_and_attribute_branch_in_order() {
+    let deleted_cells = BTreeMap::from([("old".into(), Value::Int(1))]);
+    let added_cells = BTreeMap::from([("new".into(), Value::Bool(true))]);
+    let deleted_pair = SEdge::new("old", "target", "fk", Some("deleted"));
+    let added_pair = SEdge::new("new", "target", "fk", Some("added"));
+    let delta = TableDelta {
+        del: BTreeMap::from([
+            (
+                TElem::Row(1),
+                TPayload::Row("old".into(), deleted_cells.clone()),
+            ),
+            (TElem::Pair(deleted_pair.clone(), 1, 0), TPayload::Pair),
+        ]),
+        add: BTreeMap::from([
+            (
+                TElem::Row(2),
+                TPayload::Row("new".into(), added_cells.clone()),
+            ),
+            (TElem::Pair(added_pair.clone(), 2, 0), TPayload::Pair),
+        ]),
+        attrs: BTreeMap::from([
+            (
+                TKey::Cell(0, "cell".into()),
+                (TVal::Cell(None), TVal::Cell(Some(Value::Int(3)))),
+            ),
+            (
+                TKey::Table(0),
+                (TVal::Table("before".into()), TVal::Table("after".into())),
+            ),
+        ]),
+    };
+    let mut expected = Writer::default();
+    for count in [1, 1, 1, 1, 1, 1] {
+        expected.len(count);
+    }
+    expected.u32(1);
+    expected.str("old");
+    write_value_map(&mut expected, &deleted_cells).unwrap();
+    expected.u32(2);
+    expected.str("new");
+    write_value_map(&mut expected, &added_cells).unwrap();
+    write_table_pair_record(&mut expected, &deleted_pair, 1, 0);
+    write_table_pair_record(&mut expected, &added_pair, 2, 0);
+    expected.u32(0);
+    expected.str("cell");
+    write_optional_value(&mut expected, None).unwrap();
+    write_optional_value(&mut expected, Some(&Value::Int(3))).unwrap();
+    expected.u32(0);
+    expected.str("before");
+    expected.str("after");
+    assert_eq!(
+        edit::canonical_table_delta_bytes(&delta),
+        Some(expected.bytes)
+    );
+}
+
+fn all_primitive_tree_edits() -> TreeEdit {
+    TreeEdit::Sequence(vec![
+        TreeEdit::InsertNode {
+            parent: 0,
+            child_id: 11,
+            node: Node::new(11, "leaf"),
+            edge: SEdge::new("root", "leaf", "child", Some("insert")),
+        },
+        TreeEdit::DeleteNode { id: 10 },
+        TreeEdit::ContractNode { id: 9 },
+        TreeEdit::RelabelNode {
+            id: 8,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 7,
+            field: "field".into(),
+            value: Value::Int(4),
+        },
+        TreeEdit::RemoveField {
+            node_id: 6,
+            field: "removed".into(),
+        },
+        TreeEdit::MoveSubtree {
+            node_id: 5,
+            new_parent: 0,
+            edge: SEdge::new("root", "leaf", "child", Some("move")),
+        },
+        TreeEdit::InsertFan {
+            fan: Fan {
+                parent: 0,
+                hyper_edge: "inserted-fan".into(),
+                children: BTreeMap::from([("arm".into(), 5)]),
+            },
+        },
+        TreeEdit::DeleteFan {
+            hyper_edge: "deleted-fan".into(),
+        },
+        TreeEdit::JoinFeatures {
+            primary: 4,
+            joined: vec![3, 2],
+            produce: Node::new(4, "merged"),
+        },
+    ])
+}
+
+fn independent_all_tree_edit_bytes() -> Vec<u8> {
+    let insert_edge = SEdge::new("root", "leaf", "child", Some("insert"));
+    let move_edge = SEdge::new("root", "leaf", "child", Some("move"));
+    let fan = Fan {
+        parent: 0,
+        hyper_edge: "inserted-fan".into(),
+        children: BTreeMap::from([("arm".into(), 5)]),
+    };
+    let mut writer = Writer::default();
+    writer.len(10);
+    writer.tag(1);
+    writer.u32(0);
+    writer.u32(11);
+    canonical::write_node(&mut writer, &Node::new(11, "leaf")).unwrap();
+    writer.edge(&insert_edge);
+    writer.tag(2);
+    writer.u32(10);
+    writer.tag(3);
+    writer.u32(9);
+    writer.tag(4);
+    writer.u32(8);
+    writer.str("renamed");
+    writer.tag(5);
+    writer.u32(7);
+    writer.str("field");
+    canonical::write_value(&mut writer, &Value::Int(4)).unwrap();
+    writer.tag(6);
+    writer.u32(6);
+    writer.str("removed");
+    writer.tag(7);
+    writer.u32(5);
+    writer.u32(0);
+    writer.edge(&move_edge);
+    writer.tag(8);
+    write_tree_fan_record(&mut writer, &fan);
+    writer.tag(9);
+    writer.str("deleted-fan");
+    writer.tag(10);
+    writer.u32(4);
+    writer.len(2);
+    writer.u32(3);
+    writer.u32(2);
+    canonical::write_node(&mut writer, &Node::new(4, "merged")).unwrap();
+    writer.bytes
+}
+
+#[test]
+fn canonical_tree_edit_covers_every_primitive_tag_in_flattened_order() {
+    assert_eq!(
+        edit::canonical_tree_edit_bytes(&all_primitive_tree_edits()),
+        Some(independent_all_tree_edit_bytes())
+    );
+}
+
+#[test]
+fn canonical_edit_encoders_reject_ill_formed_values_and_cross_sort_parts() {
+    let invalid = Value::Temporal(Temporal {
+        date: None,
+        time: None,
+        separator: None,
+        offset: Offset::Local,
+        infinity: None,
+    });
+    let graph_delta = attribute_delta(
+        AttrKey::Field(0, "invalid".into()),
+        AttrVal::Field(None),
+        AttrVal::Field(Some(invalid.clone())),
+    );
+    assert_eq!(edit::canonical_graph_delta_bytes(&graph_delta), None);
+    let mut table_delta = TableDelta::identity();
+    table_delta.attrs.insert(
+        TKey::Cell(0, "invalid".into()),
+        (TVal::Cell(None), TVal::Cell(Some(invalid.clone()))),
+    );
+    assert_eq!(edit::canonical_table_delta_bytes(&table_delta), None);
+    let tree_edit = TreeEdit::SetField {
+        node_id: 0,
+        field: "invalid".into(),
+        value: invalid,
+    };
+    assert_eq!(edit::canonical_tree_edit_bytes(&tree_edit), None);
+
+    let mut wrong_table_payload = TableDelta::identity();
+    wrong_table_payload
+        .add
+        .insert(TElem::Row(0), TPayload::Pair);
+    assert_eq!(
+        edit::canonical_table_delta_bytes(&wrong_table_payload),
+        None
+    );
+    let mut wrong_table_attribute = TableDelta::identity();
+    wrong_table_attribute.attrs.insert(
+        TKey::Table(0),
+        (TVal::Cell(None), TVal::Cell(Some(Value::Int(1)))),
+    );
+    assert_eq!(
+        edit::canonical_table_delta_bytes(&wrong_table_attribute),
+        None
+    );
+}
+
+#[test]
+fn benign_conflicts_and_typed_edit_translation_have_direct_witnesses() {
+    let payload = node(8, "a");
+    let mut a = GraphDelta::identity();
+    let mut b = GraphDelta::identity();
+    a.add.insert(GElem::Node(8), payload.clone());
+    b.add.insert(GElem::Node(8), payload);
+    let conflict = EditConflict::AddAdd {
+        elem: GElem::Node(8),
+    };
+    assert!(edit::is_benign(&conflict, &a, &b));
+    b.add.insert(GElem::Node(8), node(8, "different"));
+    assert!(!edit::is_benign(&conflict, &a, &b));
+
+    let source = graph();
+    let translated = edit::get_edit(
+        &|state| Ok::<_, &'static str>((state.clone(), state.nodes.len())),
+        &source,
+        &a,
+    )
+    .unwrap();
+    assert_eq!(translated.delta, a);
+    assert_eq!(translated.complement, 3);
+
+    let put = edit::put_edit(
+        &|_, edited, complement| Ok::<_, &'static str>((edited.clone(), complement + 1usize)),
+        &source,
+        &source,
+        &2,
+        &a,
+    )
+    .unwrap();
+    assert_eq!(put.delta, a);
+    assert_eq!(put.complement, 3);
+
+    let refused = edit::get_edit(
+        &|_| Err::<(Graph, ()), _>("lens refused"),
+        &source,
+        &GraphDelta::identity(),
+    );
+    assert_eq!(
+        refused,
+        Err(edit::EditTranslationError::Lens("lens refused"))
+    );
+}
+
+fn prefix_graph_anchors(state: &Graph, prefix: &str) -> Graph {
+    let mut mapped = state.clone();
+    for node in mapped.nodes.values_mut() {
+        node.anchor = format!("{prefix}{}", node.anchor);
+    }
+    for edge in mapped.edges.values_mut() {
+        edge.label.src = format!("{prefix}{}", edge.label.src);
+        edge.label.tgt = format!("{prefix}{}", edge.label.tgt);
+    }
+    mapped
+}
+
+fn strip_graph_anchor_prefix(state: &Graph, prefix: &str) -> Graph {
+    let mut mapped = state.clone();
+    for node in mapped.nodes.values_mut() {
+        node.anchor = node.anchor.strip_prefix(prefix).unwrap().to_owned();
+    }
+    for edge in mapped.edges.values_mut() {
+        edge.label.src = edge.label.src.strip_prefix(prefix).unwrap().to_owned();
+        edge.label.tgt = edge.label.tgt.strip_prefix(prefix).unwrap().to_owned();
+    }
+    mapped
+}
+
+#[test]
+fn nonidentity_get_and_put_edit_squares_have_explicit_deltas_and_complements() {
+    let source = graph();
+    let source_delta = GraphDelta {
+        del: BTreeMap::new(),
+        add: BTreeMap::new(),
+        attrs: BTreeMap::from([
+            (
+                AttrKey::Anchor(0),
+                (AttrVal::Anchor("a".into()), AttrVal::Anchor("c".into())),
+            ),
+            (
+                AttrKey::EdgeLabel(0),
+                (
+                    AttrVal::Label(SEdge::new("a", "b", "e", None)),
+                    AttrVal::Label(SEdge::new("c", "b", "e", None)),
+                ),
+            ),
+        ]),
+    };
+    let view = prefix_graph_anchors(&source, "view:");
+    let view_delta = GraphDelta {
+        del: BTreeMap::new(),
+        add: BTreeMap::new(),
+        attrs: BTreeMap::from([
+            (
+                AttrKey::Anchor(0),
+                (
+                    AttrVal::Anchor("view:a".into()),
+                    AttrVal::Anchor("view:c".into()),
+                ),
+            ),
+            (
+                AttrKey::EdgeLabel(0),
+                (
+                    AttrVal::Label(SEdge::new("view:a", "view:b", "e", None)),
+                    AttrVal::Label(SEdge::new("view:c", "view:b", "e", None)),
+                ),
+            ),
+        ]),
+    };
+
+    let get = |state: &Graph| {
+        Ok::<_, &'static str>((
+            prefix_graph_anchors(state, "view:"),
+            state.nodes.len() + state.edges.len(),
+        ))
+    };
+    let translated_get = edit::get_edit(&get, &source, &source_delta).unwrap();
+    assert_eq!(translated_get.delta, view_delta);
+    assert_eq!(translated_get.complement, 3);
+    let edited_source = edit::apply(&source_delta, &source).unwrap();
+    let edited_view = edit::apply(&translated_get.delta, &view).unwrap();
+    assert_eq!(get(&edited_source).unwrap().0, edited_view);
+
+    let put = |_: &Graph, edited_view: &Graph, complement: &usize| {
+        Ok::<_, &'static str>((
+            strip_graph_anchor_prefix(edited_view, "view:"),
+            complement + 7,
+        ))
+    };
+    let translated_put = edit::put_edit(&put, &source, &view, &3, &view_delta).unwrap();
+    assert_eq!(translated_put.delta, source_delta);
+    assert_eq!(translated_put.complement, 10);
+    assert_eq!(
+        edit::apply(&translated_put.delta, &source).unwrap(),
+        edited_source
+    );
 }

@@ -295,6 +295,90 @@ fn enumerate_tables_and_check_their_bytes_are_injective() {
 }
 
 #[test]
+fn table_count_uses_each_relation_endpoint() {
+    let columns = BTreeMap::from([("a", vec![]), ("b", vec!["payload"]), ("c", vec![])]);
+    let relations = [SEdge::new("a", "c", "r", None)];
+    let values = [Value::Int(0), Value::Null];
+    let tables = en::tables(&["a", "b", "c"], &columns, &values, &relations, 2);
+
+    // Independently: 1 empty table, 4 one-row tables, and 18 two-row
+    // tables. The asymmetric b-column and a-to-c relation make either
+    // endpoint substitution observable.
+    let expected = 1 + 4 + 18;
+    assert_eq!(tables.len(), expected);
+    assert_eq!(
+        en::tables_count(&["a", "b", "c"], &columns, 2, &relations, 2),
+        expected as u64,
+    );
+}
+
+#[test]
+fn graph_delta_count_uses_label_cardinality_as_a_factor() {
+    let labels = [
+        SEdge::new("a", "a", "x", None),
+        SEdge::new("a", "a", "y", None),
+    ];
+    let scope = en::DeltaScope {
+        nodes: &[0],
+        anchors: &[],
+        values: &[],
+        fields: &[],
+        edges: &[0],
+        labels: &labels,
+        positions: &[None],
+    };
+    let deltas = en::graph_deltas(&scope);
+
+    // Independently: one identity, four edge insertions/deletions, two node
+    // shape changes, and two edge-label changes.
+    let expected = 1 + 4 + 2 + 2;
+    assert_eq!(deltas.len(), expected);
+    assert_eq!(en::graph_deltas_count(1, 0, 0, 0, 1, 2, 1), expected as u64);
+}
+
+#[test]
+fn graph_delta_count_uses_edge_cardinality_as_a_factor() {
+    let labels = [SEdge::new("a", "a", "x", None)];
+    let scope = en::DeltaScope {
+        nodes: &[0],
+        anchors: &[],
+        values: &[],
+        fields: &[],
+        edges: &[0, 1],
+        labels: &labels,
+        positions: &[],
+    };
+    let deltas = en::graph_deltas(&scope);
+
+    // Independently: one identity, four edge insertions/deletions, and two
+    // node-shape changes. One label and no positions contribute no changes.
+    let expected = 1 + 4 + 2;
+    assert_eq!(deltas.len(), expected);
+    assert_eq!(en::graph_deltas_count(1, 0, 0, 0, 2, 1, 0), expected as u64);
+}
+
+#[test]
+fn graph_delta_count_adds_value_and_field_change_families() {
+    let values = [Value::Int(0)];
+    let scope = en::DeltaScope {
+        nodes: &[0],
+        anchors: &[],
+        values: &values,
+        fields: &[],
+        edges: &[],
+        labels: &[],
+        positions: &[],
+    };
+    let deltas = en::graph_deltas(&scope);
+
+    // Independently: one identity, two ordered value-presence changes, and
+    // two node-shape changes. With no fields, its change family contributes 0.
+    let expected = 1 + 2 + 2;
+    assert_eq!(deltas.len(), expected);
+    assert_eq!(en::graph_deltas_count(1, 0, 1, 0, 0, 0, 0), expected as u64);
+}
+
+#[test]
 fn enumerate_trees_and_check_their_encodings() {
     let mut total = 0;
     let labels: &[&str] = &["x", "y"];
@@ -889,4 +973,171 @@ fn manifest_page_enumerators_have_concrete_scopes() {
     assert!(!lenses::trees().is_empty());
     assert_eq!(resolution::sequences(&[0u8, 1]).len(), 15);
     assert!(!resolution::trees().is_empty());
+}
+
+#[test]
+fn kan_extension_enumerators_match_their_independent_labelled_counts() {
+    use panproto_reference::enumerate::kan_extensions as kan;
+
+    let family = kan::family();
+    assert_eq!(family.len(), 10);
+    assert!(family.iter().any(|case| case.relations.len() == 1));
+    assert!(family.iter().any(|case| case.tables.len() == 2));
+    assert!(family.iter().any(|case| !case.pi));
+    assert!(family.iter().any(|case| {
+        case.tables
+            .iter()
+            .filter(|(_, target)| *target == "m")
+            .count()
+            == 2
+    }));
+    assert!(family.iter().any(|case| {
+        case.cells
+            .iter()
+            .any(|value| matches!(value, Value::LabeledNull(_)))
+    }));
+    assert!(family.iter().any(|case| {
+        case.cells
+            .iter()
+            .any(|value| matches!(value, Value::Float(bits) if *bits == 1u64 << 63))
+    }));
+
+    let tiny = kan::objects(2, usize::MAX);
+    assert_eq!(tiny.len(), 4_080);
+    assert_eq!(kan::objects_count(2, usize::MAX), 4_080);
+    assert_eq!(kan::object_pairs_count(2, usize::MAX), 450_786);
+    let bounded = kan::objects(3, 6);
+    assert_eq!(bounded.len(), 248_552);
+    let case_counts = kan::case_object_counts(3, 6);
+    assert_eq!(
+        case_counts,
+        vec![
+            (7_225, 4_369),
+            (7_225, 85),
+            (85, 85),
+            (85, 4_369),
+            (85, 340),
+            (38_864, 33_033),
+            (33_033, 33_033),
+            (4_369, 85),
+            (4_369, 85),
+            (38_864, 38_864),
+        ]
+    );
+    let mut generated_case_counts = vec![(0u64, 0u64); family.len()];
+    for object in &bounded {
+        let slot = &mut generated_case_counts[object.case];
+        match object.side {
+            kan::CaseSide::Source => slot.0 += 1,
+            kan::CaseSide::Target => slot.1 += 1,
+        }
+    }
+    assert_eq!(generated_case_counts, case_counts);
+    assert_eq!(kan::objects_count(3, 6), 248_552);
+    assert_eq!(kan::object_pairs_count(3, 6), 3_918_714_467);
+
+    let graphs = kan::encoding_graphs();
+    assert_eq!(graphs.len(), 6_627);
+    assert_eq!(kan::encoding_graphs_count(), 6_627);
+    let graph_presentations = kan::encoding_graph_presentations();
+    assert_eq!(graph_presentations.len(), 26_508);
+    assert_eq!(kan::encoding_graph_presentations_count(), 26_508);
+    assert_eq!(
+        kan::carrier_graphs().len() as u64,
+        kan::carrier_graphs_count()
+    );
+    assert_eq!(kan::trees().len() as u64, kan::trees_count());
+    assert_eq!(kan::PRODUCT_BOUNDS, [4, 81]);
+
+    println!(
+        "kan family: cases=10 ordered 1..8,8',9; case source/target counts={case_counts:?}; cell alphabets={{Int(0), Int(1), null(0), null(1)}} and exact float bits={{+0,-0,+qNaN,-qNaN}}; small labelled objects={}; small ordered source-target pairs={}; P2-O205 bounds rows/table<=3,total<=6 labelled objects={}; ordered source-target pairs={}; product bounds={:?}; O7 graph bases={} and labelled presentations={}; carrier graphs={}; trees={}",
+        tiny.len(),
+        kan::object_pairs_count(2, usize::MAX),
+        kan::objects_count(3, 6),
+        kan::object_pairs_count(3, 6),
+        kan::PRODUCT_BOUNDS,
+        graphs.len(),
+        graph_presentations.len(),
+        kan::carrier_graphs_count(),
+        kan::trees_count(),
+    );
+}
+
+#[test]
+fn kan_hom_profiles_partition_every_labelled_object_and_pair() {
+    use panproto_reference::enumerate::kan_extensions as kan;
+
+    let classes = kan::hom_profile_classes(3, 6).unwrap();
+    let mut object_weight = 0u64;
+    let mut profiles_by_case = vec![(0u64, 0u64); kan::family().len()];
+    let mut weights_by_case = vec![(0u64, 0u64); kan::family().len()];
+    let mut certified_weights_by_case = vec![(0u64, 0u64); kan::family().len()];
+    let mut printed_profile_ids = BTreeSet::new();
+    for (profile, class) in &classes {
+        object_weight += class.multiplicity;
+        let certificate = kan::profile_multiplicity_certificate(
+            profile.case,
+            profile.side,
+            &class.representative,
+        )
+        .unwrap();
+        assert_eq!(certificate.multiplicity, class.multiplicity);
+        let (profile_count, weight, certified_weight) = match profile.side {
+            kan::CaseSide::Source => (
+                &mut profiles_by_case[profile.case].0,
+                &mut weights_by_case[profile.case].0,
+                &mut certified_weights_by_case[profile.case].0,
+            ),
+            kan::CaseSide::Target => (
+                &mut profiles_by_case[profile.case].1,
+                &mut weights_by_case[profile.case].1,
+                &mut certified_weights_by_case[profile.case].1,
+            ),
+        };
+        *profile_count += 1;
+        *weight += class.multiplicity;
+        *certified_weight += certificate.multiplicity;
+        let profile_id = kan::hom_profile_hash(profile);
+        assert!(printed_profile_ids.insert(profile_id));
+        println!(
+            "HomProfile {:016x}: class_size={}, group_order={}, stabilizer={}",
+            profile_id,
+            certificate.multiplicity,
+            certificate.group_order,
+            certificate.stabilizer_order,
+        );
+    }
+    assert_eq!(object_weight, 248_552);
+    assert_eq!(
+        profiles_by_case,
+        vec![
+            (697, 517),
+            (697, 24),
+            (24, 24),
+            (24, 517),
+            (24, 96),
+            (1_507, 3_367),
+            (3_367, 3_367),
+            (517, 24),
+            (969, 35),
+            (1_507, 1_507),
+        ]
+    );
+    assert_eq!(classes.len(), 18_811);
+    assert_eq!(weights_by_case, kan::case_object_counts(3, 6));
+    assert_eq!(certified_weights_by_case, kan::case_object_counts(3, 6));
+    let representative_pairs: u64 = profiles_by_case
+        .iter()
+        .map(|(source, target)| source * target)
+        .sum();
+    let weighted_pairs: u64 = weights_by_case
+        .iter()
+        .map(|(source, target)| source * target)
+        .sum();
+    assert_eq!(weighted_pairs, 3_918_714_467);
+    assert_eq!(representative_pairs, 19_120_495);
+    println!(
+        "kan HomProfile certificate: profiles={}, profiles/case={profiles_by_case:?}, representative pairs={representative_pairs}, object multiplicity={object_weight}, weighted pairs={weighted_pairs}",
+        classes.len(),
+    );
 }
