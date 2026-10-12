@@ -3431,7 +3431,8 @@ pub mod edit {
     }
 
     /// Definition: Canonical bytes of a tree edit's flattened, identity-free
-    /// sequence normal form.
+    /// sequence normal form. Defined only when every inserted or produced
+    /// node is filed under its own id and every value is well formed.
     #[must_use]
     pub fn canonical_tree_edit_bytes(edit: &TreeEdit) -> Option<Vec<u8>> {
         let steps = edit.steps();
@@ -3446,6 +3447,9 @@ pub mod edit {
                     node,
                     edge,
                 } => {
+                    if node.id != *child_id {
+                        return None;
+                    }
                     w.tag(1);
                     w.u32(*parent);
                     w.u32(*child_id);
@@ -3503,6 +3507,9 @@ pub mod edit {
                     joined,
                     produce,
                 } => {
+                    if produce.id != *primary {
+                        return None;
+                    }
                     w.tag(10);
                     w.u32(*primary);
                     w.len(joined.len());
