@@ -5121,6 +5121,44 @@ struct CeilingSweep {
     findings: Vec<String>,
 }
 
+/// Lower each script under the encoder's floors `base`, counting it in the
+/// sweep, and widen the sweep's room to the ids it and its reading take.
+fn base_lowerings<'a>(
+    tree: &Tree,
+    base: &TreeEmbedding,
+    scripts: &'a [TreeEdit],
+    sweep: &mut CeilingSweep,
+) -> Vec<(&'a TreeEdit, GraphDelta)> {
+    let mut lowerings = Vec::new();
+    for script in scripts {
+        let mut base_lowered = base.clone();
+        let Ok(base_delta) =
+            edit::graph_delta_from_tree_edit(tree, &mut base_lowered, script, None)
+        else {
+            continue;
+        };
+        sweep.counts.lowered += 1;
+        let Ok(base_reading) = edit::tree_edit_from_graph_delta(tree, base, &base_delta, None)
+        else {
+            sweep
+                .findings
+                .push(format!("{script:?} does not read back"));
+            continue;
+        };
+        for taken in [
+            ids_taken(tree, base, script),
+            ids_taken(tree, base, &base_reading),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            sweep.room = (sweep.room.0.max(taken.0), sweep.room.1.max(taken.1));
+        }
+        lowerings.push((script, base_delta));
+    }
+    lowerings
+}
+
 /// Lower each script under every pair of floors that leaves at most the
 /// sweep's room of node and edge ids below `u32::MAX`, and check each
 /// lowering: it is refused only by `IdsExhausted` and never with full room,
@@ -5138,33 +5176,7 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
         counts: CeilingCounts::default(),
         findings: Vec::new(),
     };
-    let mut lowerings = Vec::new();
-    for script in scripts {
-        let mut base_lowered = base.clone();
-        let Ok(base_delta) =
-            edit::graph_delta_from_tree_edit(tree, &mut base_lowered, script, None)
-        else {
-            continue;
-        };
-        sweep.counts.lowered += 1;
-        let Ok(base_reading) = edit::tree_edit_from_graph_delta(tree, &base, &base_delta, None)
-        else {
-            sweep
-                .findings
-                .push(format!("{script:?} does not read back"));
-            continue;
-        };
-        for taken in [
-            ids_taken(tree, &base, script),
-            ids_taken(tree, &base, &base_reading),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            sweep.room = (sweep.room.0.max(taken.0), sweep.room.1.max(taken.1));
-        }
-        lowerings.push((script, base_delta));
-    }
+    let lowerings = base_lowerings(tree, &base, scripts, &mut sweep);
     let room = sweep.room;
     for (script, base_delta) in lowerings {
         let effect = edit::apply_tree(script, tree, &mut base.clone());
@@ -5239,14 +5251,11 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
     sweep
 }
 
-// Law (a) holds over every lowering, at every floor: lower every short
-// script of every geometry above with each floor anywhere from the
-// ceiling down to the most ids any of these scripts or readings takes, and
-// read it back. The reading's own ids are immaterial, so a reading that
-// needs more ids than its delta's script is still a reading; applying it
-// under those floors is what refuses.
-#[test]
-fn lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling() {
+/// The base sets of the soundness sweep, named: every word of length one
+/// or two over [`fan_script_alphabet`] for each of the [`fan_geometries`],
+/// and over the narrow [`tree_edit_alphabet`] for each of the
+/// [`readback_trees`].
+fn short_script_sets() -> Vec<(String, Tree, Vec<TreeEdit>)> {
     let mut sets: Vec<(String, Tree, Vec<TreeEdit>)> = fan_geometries()
         .into_iter()
         .map(|(name, tree)| {
@@ -5262,11 +5271,23 @@ fn lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling() {
             words,
         ));
     }
+    sets
+}
+
+// Law (a) holds over every lowering, at every floor: lower every short
+// script of every geometry above with each floor anywhere from the
+// ceiling down to the most ids any of these scripts or readings takes, and
+// read it back. The reading's own ids are immaterial, so a reading that
+// needs more ids than its delta's script is still a reading; applying it
+// under those floors is what refuses.
+#[test]
+fn lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling() {
+    let sets = short_script_sets();
     let sweeps: Vec<CeilingSweep> = std::thread::scope(|scope| {
-        let handles: Vec<_> = sets
-            .iter()
-            .map(|(_, tree, words)| scope.spawn(move || ceiling_findings(tree, words)))
-            .collect();
+        let mut handles = Vec::with_capacity(sets.len());
+        for (_, tree, words) in &sets {
+            handles.push(scope.spawn(move || ceiling_findings(tree, words)));
+        }
         handles
             .into_iter()
             .map(|handle| handle.join().unwrap())
@@ -5753,7 +5774,7 @@ fn a_lowering_reads_back_when_its_reading_needs_more_edge_ids_than_remain() {
     );
     expected.add.insert(
         GElem::Edge(u32::MAX - 2),
-        GPayload::Edge(plain_edge(0, 2, b_arc.clone())),
+        GPayload::Edge(plain_edge(0, 2, b_arc)),
     );
     expected.add.insert(
         GElem::Edge(u32::MAX - 1),
