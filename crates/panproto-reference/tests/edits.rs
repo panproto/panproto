@@ -4502,12 +4502,19 @@ fn added_up_to_fresh_ids(
     Some(named)
 }
 
-/// Whether two deltas from one embedding differ only by renaming fresh ids.
-fn equal_up_to_fresh_ids(left: &GraphDelta, right: &GraphDelta, embedding: &TreeEmbedding) -> bool {
+/// Whether two deltas, each with fresh ids above the floors of its own
+/// embedding (the two with the same carriers), differ only by renaming
+/// fresh ids.
+fn equal_up_to_fresh_ids(
+    left: &GraphDelta,
+    left_floors: &TreeEmbedding,
+    right: &GraphDelta,
+    right_floors: &TreeEmbedding,
+) -> bool {
     left.del == right.del
         && left.attrs == right.attrs
-        && added_up_to_fresh_ids(left, embedding)
-            .is_some_and(|named| Some(named) == added_up_to_fresh_ids(right, embedding))
+        && added_up_to_fresh_ids(left, left_floors)
+            .is_some_and(|named| Some(named) == added_up_to_fresh_ids(right, right_floors))
 }
 
 /// The two steps that relocate the fan suffix from fan node `fan` and
@@ -4533,15 +4540,20 @@ fn relocation_from(tree: &Tree, fan: u32) -> Vec<TreeEdit> {
 /// The soundness oracle: applying `reading` to the tree gives the tree form
 /// of the delta's result, and the delta is, up to renaming fresh ids, the
 /// lowering of `reading` alone or of `reading` after relocating the fan
-/// suffix from some fan of the embedding.
+/// suffix from some fan of the embedding. The reading is applied and
+/// lowered under `allocation`, which has the carriers of `embedding` and
+/// floors with room for every id the reading draws: the ids it draws are
+/// immaterial up to that renaming, so such floors stand for an id space
+/// that does not run out.
 fn delta_is_an_image_of_reading(
     tree: &Tree,
     embedding: &TreeEmbedding,
+    allocation: &TreeEmbedding,
     graph: &Graph,
     delta: &GraphDelta,
     reading: &TreeEdit,
 ) -> bool {
-    let mut read_embedding = embedding.clone();
+    let mut read_embedding = allocation.clone();
     let read_tree = edit::apply_tree(reading, tree, &mut read_embedding).ok();
     let edited_tree = edit::apply(delta, graph).ok().and_then(|edited| {
         panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| None).ok()
@@ -4557,14 +4569,14 @@ fn delta_is_an_image_of_reading(
             )
             .any(|mut steps| {
                 steps.push(reading.clone());
-                let mut lowered_embedding = embedding.clone();
+                let mut lowered_embedding = allocation.clone();
                 edit::graph_delta_from_tree_edit(
                     tree,
                     &mut lowered_embedding,
                     &TreeEdit::Sequence(steps),
                     None,
                 )
-                .is_ok_and(|lowered| equal_up_to_fresh_ids(delta, &lowered, embedding))
+                .is_ok_and(|lowered| equal_up_to_fresh_ids(delta, embedding, &lowered, allocation))
             })
 }
 
@@ -4853,7 +4865,9 @@ fn soundness_findings(
         counts.lowered += 1;
         match edit::tree_edit_from_graph_delta(tree, &embedding, &delta, None) {
             Ok(reading)
-                if delta_is_an_image_of_reading(tree, &embedding, &graph, &delta, &reading) => {}
+                if delta_is_an_image_of_reading(
+                    tree, &embedding, &embedding, &graph, &delta, &reading,
+                ) => {}
             other => findings.push(format!("lowering of {script:?} read as {other:?}")),
         }
         for perturbed in delta_perturbations(&graph, &embedding, &delta) {
@@ -4862,7 +4876,9 @@ fn soundness_findings(
                 edit::tree_edit_from_graph_delta(tree, &embedding, &perturbed, None)
             {
                 counts.accepted += 1;
-                if !delta_is_an_image_of_reading(tree, &embedding, &graph, &perturbed, &reading) {
+                if !delta_is_an_image_of_reading(
+                    tree, &embedding, &embedding, &graph, &perturbed, &reading,
+                ) {
                     findings.push(format!(
                         "{perturbed:?} (perturbing {script:?}) accepted as {reading:?}"
                     ));
@@ -5060,6 +5076,278 @@ fn order_preserving_fresh_id_renamings_change_only_exact_single_step_readings() 
             (390, 13),
             (474, 13),
         ]
+    );
+}
+
+/// `embedding` with its floors set to `next_node` and `next_edge`.
+fn with_floors(embedding: &TreeEmbedding, next_node: u32, next_edge: u32) -> TreeEmbedding {
+    TreeEmbedding {
+        next_node,
+        next_edge,
+        ..embedding.clone()
+    }
+}
+
+/// The node and edge ids applying `edit` takes above the floors of
+/// `embedding`, or none when it refuses.
+fn ids_taken(tree: &Tree, embedding: &TreeEmbedding, edit: &TreeEdit) -> Option<(u32, u32)> {
+    let mut followed = embedding.clone();
+    edit::apply_tree(edit, tree, &mut followed).ok()?;
+    Some((
+        followed.next_node - embedding.next_node,
+        followed.next_edge - embedding.next_edge,
+    ))
+}
+
+/// Counts of a ceiling sweep: scripts lowered under the encoder's floors,
+/// (script, floors) pairs tried, lowerings refused for want of ids, lowerings
+/// read back, and readings that would themselves run out of ids under the
+/// floors their delta was lowered under.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CeilingCounts {
+    lowered: usize,
+    floors: usize,
+    exhausted: usize,
+    read: usize,
+    reading_exhausts: usize,
+}
+
+/// The room of a ceiling sweep (the most node and edge ids any lowered
+/// script or its reading takes under the encoder's floors), its counts and
+/// its findings, for [`ceiling_findings`].
+struct CeilingSweep {
+    room: (u32, u32),
+    counts: CeilingCounts,
+    findings: Vec<String>,
+}
+
+/// Lower each script under every pair of floors that leaves at most the
+/// sweep's room of node and edge ids below `u32::MAX`, and check each
+/// lowering: it is refused only by `IdsExhausted` and never with full room,
+/// it is the lowering under the encoder's floors up to renaming fresh ids,
+/// it reads back (law a), the reading has the script's effect (law b) and,
+/// for a script of at most one step, lowers to the delta and the script's
+/// embedding (law c), the soundness oracle accepts it with the encoder's
+/// floors standing for an unbounded id space, and applying the reading
+/// under the raised floors either has that effect or refuses with
+/// `IdsExhausted`.
+fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
+    let (graph, base) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+    let mut sweep = CeilingSweep {
+        room: (0, 0),
+        counts: CeilingCounts::default(),
+        findings: Vec::new(),
+    };
+    let mut lowerings = Vec::new();
+    for script in scripts {
+        let mut base_lowered = base.clone();
+        let Ok(base_delta) =
+            edit::graph_delta_from_tree_edit(tree, &mut base_lowered, script, None)
+        else {
+            continue;
+        };
+        sweep.counts.lowered += 1;
+        let Ok(base_reading) = edit::tree_edit_from_graph_delta(tree, &base, &base_delta, None)
+        else {
+            sweep
+                .findings
+                .push(format!("{script:?} does not read back"));
+            continue;
+        };
+        for taken in [
+            ids_taken(tree, &base, script),
+            ids_taken(tree, &base, &base_reading),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            sweep.room = (sweep.room.0.max(taken.0), sweep.room.1.max(taken.1));
+        }
+        lowerings.push((script, base_delta));
+    }
+    let room = sweep.room;
+    for (script, base_delta) in lowerings {
+        let effect = edit::apply_tree(script, tree, &mut base.clone());
+        for node_room in 0..=room.0 {
+            for edge_room in 0..=room.1 {
+                sweep.counts.floors += 1;
+                let ceiling = with_floors(&base, u32::MAX - node_room, u32::MAX - edge_room);
+                let full_room = (node_room, edge_room) == room;
+                let at = format!("{script:?} with room ({node_room}, {edge_room})");
+                let mut lowered = ceiling.clone();
+                let delta = match edit::graph_delta_from_tree_edit(tree, &mut lowered, script, None)
+                {
+                    Ok(delta) => delta,
+                    Err(edit::TreeApplyError::IdsExhausted) if !full_room => {
+                        sweep.counts.exhausted += 1;
+                        continue;
+                    }
+                    Err(error) => {
+                        sweep
+                            .findings
+                            .push(format!("{at}: lowering refused with {error:?}"));
+                        continue;
+                    }
+                };
+                if !equal_up_to_fresh_ids(&delta, &ceiling, &base_delta, &base) {
+                    sweep
+                        .findings
+                        .push(format!("{at}: lowering differs beyond fresh ids"));
+                }
+                let reading = match edit::tree_edit_from_graph_delta(tree, &ceiling, &delta, None) {
+                    Ok(reading) => reading,
+                    Err(error) => {
+                        sweep.findings.push(format!("{at}: read as {error:?}"));
+                        continue;
+                    }
+                };
+                sweep.counts.read += 1;
+                if edit::apply_tree(&reading, tree, &mut base.clone()) != effect {
+                    sweep
+                        .findings
+                        .push(format!("{at}: {reading:?} has another effect"));
+                }
+                if script.steps().len() <= 1 {
+                    let mut relowered = ceiling.clone();
+                    if edit::graph_delta_from_tree_edit(tree, &mut relowered, &reading, None)
+                        .as_ref()
+                        != Ok(&delta)
+                        || relowered != lowered
+                    {
+                        sweep
+                            .findings
+                            .push(format!("{at}: read inexactly as {reading:?}"));
+                    }
+                }
+                if !delta_is_an_image_of_reading(tree, &ceiling, &base, &graph, &delta, &reading) {
+                    sweep
+                        .findings
+                        .push(format!("{at}: not an image of {reading:?}"));
+                }
+                match edit::apply_tree(&reading, tree, &mut ceiling.clone()) {
+                    Err(edit::TreeApplyError::IdsExhausted) if !full_room => {
+                        sweep.counts.reading_exhausts += 1;
+                    }
+                    applied if applied == effect => {}
+                    applied => sweep.findings.push(format!(
+                        "{at}: {reading:?} applied under the raised floors as {applied:?}"
+                    )),
+                }
+            }
+        }
+    }
+    sweep
+}
+
+// Law (a) holds over every lowering, at every floor: lower every short
+// script of every geometry above with each floor anywhere from the
+// ceiling down to the most ids any of these scripts or readings takes, and
+// read it back. The reading's own ids are immaterial, so a reading that
+// needs more ids than its delta's script is still a reading; applying it
+// under those floors is what refuses.
+#[test]
+fn lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling() {
+    let mut sets: Vec<(String, Tree, Vec<TreeEdit>)> = fan_geometries()
+        .into_iter()
+        .map(|(name, tree)| {
+            let words = words_up_to_two(&fan_script_alphabet(&tree)).collect();
+            (name, tree, words)
+        })
+        .collect();
+    for tree in readback_trees() {
+        let words = words_up_to_two(&tree_edit_alphabet(&tree, false)).collect();
+        sets.push((
+            format!("readback tree with {} fans", tree.fans.len()),
+            tree,
+            words,
+        ));
+    }
+    let sweeps: Vec<CeilingSweep> = std::thread::scope(|scope| {
+        let handles: Vec<_> = sets
+            .iter()
+            .map(|(_, tree, words)| scope.spawn(move || ceiling_findings(tree, words)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    let mut findings = Vec::new();
+    let mut counts = Vec::new();
+    for ((name, _, _), sweep) in sets.iter().zip(sweeps) {
+        println!(
+            "ceiling [{name}]: room {:?}, {:?}, {} findings",
+            sweep.room,
+            sweep.counts,
+            sweep.findings.len()
+        );
+        if let Some(first) = sweep.findings.first() {
+            println!("  first finding: {first}");
+        }
+        findings.extend(sweep.findings);
+        counts.push((sweep.room, sweep.counts));
+    }
+    let total = counts
+        .iter()
+        .fold(CeilingCounts::default(), |sum, (_, each)| CeilingCounts {
+            lowered: sum.lowered + each.lowered,
+            floors: sum.floors + each.floors,
+            exhausted: sum.exhausted + each.exhausted,
+            read: sum.read + each.read,
+            reading_exhausts: sum.reading_exhausts + each.reading_exhausts,
+        });
+    println!("ceiling total: {total:?}, {} findings", findings.len());
+    assert_eq!(
+        findings.len(),
+        0,
+        "first findings: {:?}",
+        &findings[..findings.len().min(5)]
+    );
+    let pinned = |room, [lowered, floors, exhausted, read, reading_exhausts]: [usize; 5]| {
+        (
+            room,
+            CeilingCounts {
+                lowered,
+                floors,
+                exhausted,
+                read,
+                reading_exhausts,
+            },
+        )
+    };
+    assert_eq!(
+        counts,
+        [
+            pinned((4, 11), [245, 14_700, 3_469, 11_231, 235]),
+            pinned((4, 11), [277, 16_620, 4_294, 12_326, 235]),
+            pinned((4, 11), [277, 16_620, 4_294, 12_326, 235]),
+            pinned((4, 11), [279, 16_740, 4_365, 12_375, 284]),
+            pinned((4, 11), [279, 16_740, 4_365, 12_375, 268]),
+            pinned((4, 11), [280, 16_800, 4_350, 12_450, 284]),
+            pinned((4, 11), [280, 16_800, 4_350, 12_450, 268]),
+            pinned((4, 11), [308, 18_480, 4_570, 13_910, 235]),
+            pinned((4, 11), [308, 18_480, 4_570, 13_910, 235]),
+            pinned((4, 11), [308, 18_480, 4_555, 13_925, 235]),
+            pinned((4, 11), [308, 18_480, 4_555, 13_925, 235]),
+            pinned((4, 11), [310, 18_600, 4_626, 13_974, 284]),
+            pinned((4, 11), [310, 18_600, 4_626, 13_974, 268]),
+            pinned((4, 11), [310, 18_600, 4_611, 13_989, 284]),
+            pinned((4, 11), [310, 18_600, 4_611, 13_989, 268]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 515]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 515]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 495]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 471]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 495]),
+            pinned((6, 15), [390, 43_680, 11_083, 32_597, 471]),
+            pinned((8, 19), [474, 85_320, 22_163, 63_157, 671]),
+            pinned((4, 7), [1_534, 61_360, 15_731, 45_629, 1_697]),
+            pinned((4, 11), [1_689, 101_340, 24_695, 76_645, 1_630]),
+            pinned((4, 11), [1_695, 101_700, 24_639, 77_061, 1_650]),
+        ]
+    );
+    assert_eq!(
+        total,
+        pinned((0, 0), [12_121, 875_140, 219_937, 655_203, 12_463]).1
     );
 }
 
@@ -5418,6 +5706,137 @@ fn a_fan_whose_parent_keeps_an_original_child_arc_is_removed_through_its_member(
     assert_eq!(
         edit::apply_tree(&reading, &tree, &mut read_embedding),
         Ok(result)
+    );
+}
+
+/// The script of the test above, lowered with only two edge ids left above
+/// the floor. The script draws two edge ids; its reading re-inserts 3 before
+/// re-drawing the arc of 2 and so draws three. The reading's own ids are
+/// immaterial (the delta is its image up to renaming fresh ids), so the
+/// lowering reads back; applying the reading under this embedding is what
+/// runs out of ids.
+#[test]
+fn a_lowering_reads_back_when_its_reading_needs_more_edge_ids_than_remain() {
+    let tree = duplicate_fan_tree();
+    let (graph, base) = literal_duplicate_fan_graph_and_embedding();
+    let embedding = TreeEmbedding {
+        next_edge: u32::MAX - 2,
+        ..base.clone()
+    };
+    let b_arc = SEdge::new("root", "feature", "child", Some("b"));
+    let c_arc = SEdge::new("feature", "leaf", "child", Some("c"));
+    let reinsert = TreeEdit::InsertNode {
+        parent: 2,
+        child_id: 3,
+        node: Node::new(3, "leaf"),
+        edge: c_arc.clone(),
+    };
+    let refresh = TreeEdit::MoveSubtree {
+        node_id: 2,
+        new_parent: 0,
+        edge: b_arc.clone(),
+    };
+    let script = TreeEdit::Sequence(vec![
+        refresh.clone(),
+        TreeEdit::DeleteNode { id: 3 },
+        reinsert.clone(),
+    ]);
+    let mut expected = literal_deletions(
+        &graph,
+        [
+            GElem::Node(5),
+            GElem::Edge(1),
+            GElem::Edge(2),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    expected.add.insert(
+        GElem::Edge(u32::MAX - 2),
+        GPayload::Edge(plain_edge(0, 2, b_arc.clone())),
+    );
+    expected.add.insert(
+        GElem::Edge(u32::MAX - 1),
+        GPayload::Edge(plain_edge(2, 3, c_arc.clone())),
+    );
+    let mut lowered = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None),
+        Ok(expected.clone())
+    );
+    let reading = TreeEdit::Sequence(vec![
+        TreeEdit::DeleteNode { id: 3 },
+        reinsert,
+        refresh,
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 2,
+            edge: c_arc,
+        },
+    ]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected, None),
+        Ok(reading.clone())
+    );
+    let mut exhausted = embedding;
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut exhausted),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    let mut roomy = base.clone();
+    let mut scripted = base;
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut roomy),
+        edit::apply_tree(&script, &tree, &mut scripted)
+    );
+}
+
+/// The same on the node floor: the script inserts 5 under 2, which
+/// relocates both fans of [`duplicate_fan_tree`], then 6 under the root,
+/// drawing two fan node ids. Its reading inserts by depth, 6 first, so
+/// it relocates the second fan and then both, drawing three.
+#[test]
+fn a_lowering_reads_back_when_its_reading_needs_more_fan_node_ids_than_remain() {
+    let tree = duplicate_fan_tree();
+    let (_, base) = literal_duplicate_fan_graph_and_embedding();
+    let embedding = TreeEmbedding {
+        next_node: u32::MAX - 2,
+        ..base.clone()
+    };
+    let script = TreeEdit::Sequence(vec![insert_leaf(2, 5), insert_leaf(0, 6)]);
+    let mut lowered = embedding.clone();
+    let delta = edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None).unwrap();
+    let mut base_lowered = base.clone();
+    let base_delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut base_lowered, &script, None).unwrap();
+    assert_eq!((base_lowered.next_node, lowered.next_node), (9, u32::MAX));
+    assert_eq!(
+        delta,
+        rename_fresh_ids(&base_delta, &base, |id| id - 7 + (u32::MAX - 2), |id| id)
+    );
+    let reading = TreeEdit::Sequence(vec![
+        insert_leaf(0, 6),
+        insert_leaf(2, 5),
+        TreeEdit::MoveSubtree {
+            node_id: 6,
+            new_parent: 0,
+            edge: inserted_label(),
+        },
+    ]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(reading.clone())
+    );
+    let mut exhausted = embedding;
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut exhausted),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    let mut roomy = base.clone();
+    let mut scripted = base;
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut roomy),
+        edit::apply_tree(&script, &tree, &mut scripted)
     );
 }
 
