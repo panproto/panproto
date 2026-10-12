@@ -431,7 +431,8 @@ pub mod encode {
     ///
     /// [`TreeEncodeError`] for reserved vocabulary, a second parent, a
     /// dangling arc or fan, or exhausted node or edge ids. The id `u32::MAX`
-    /// is reserved and is never allocated.
+    /// is reserved and is never allocated; a tree holding node `u32::MAX`
+    /// leaves no node floor above it and is refused as `NodeIdsExhausted`.
     ///
     /// Book anchors: `L-representation-1`.
     pub fn tree_to_graph(
@@ -468,7 +469,12 @@ pub mod encode {
             );
             emb.arcs.insert(*c, edge_id);
         }
-        let mut next_node = crate::restrict::floor_of(t.nodes.keys().copied());
+        let mut next_node = match t.nodes.keys().next_back() {
+            Some(last) => last
+                .checked_add(1)
+                .ok_or(TreeEncodeError::NodeIdsExhausted)?,
+            None => 0,
+        };
         for f in &t.fans {
             let id = take_id(&mut next_node, TreeEncodeError::NodeIdsExhausted)?;
             let parent_name = schema

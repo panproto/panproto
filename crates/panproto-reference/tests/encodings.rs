@@ -91,6 +91,67 @@ fn tree_fan_nodes_use_max_minus_one_but_never_the_reserved_maximum() {
     );
 }
 
+// An embedding's node floor lies strictly above every tree node id, so a
+// tree holding node `u32::MAX` has no graph form even without fans; one
+// below it encodes with the floor at `u32::MAX`, an embedding tree apply
+// accepts.
+#[test]
+fn a_tree_node_at_the_reserved_maximum_has_no_graph_form_even_without_fans() {
+    let leaf_edge = SEdge::new("r", "leaf", "prop", Some("leaf"));
+    let tree_with = |leaf: u32| Tree {
+        nodes: BTreeMap::from([(0, Node::new(0, "r")), (leaf, Node::new(leaf, "leaf"))]),
+        arcs: vec![(0, leaf, leaf_edge.clone())],
+        fans: Vec::new(),
+        root: 0,
+    };
+    assert_eq!(
+        encode::tree_to_graph(&tree_with(u32::MAX), None),
+        Err(TreeEncodeError::NodeIdsExhausted)
+    );
+    let alone = Tree {
+        nodes: BTreeMap::from([(u32::MAX, Node::new(u32::MAX, "r"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: u32::MAX,
+    };
+    assert_eq!(
+        encode::tree_to_graph(&alone, None),
+        Err(TreeEncodeError::NodeIdsExhausted)
+    );
+
+    let empty = Tree {
+        nodes: BTreeMap::new(),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    assert_eq!(
+        encode::tree_to_graph(&empty, None),
+        Ok((Graph::default(), encode::TreeEmbedding::default()))
+    );
+
+    let below = tree_with(u32::MAX - 1);
+    let (graph, mut embedding) = encode::tree_to_graph(&below, None).unwrap();
+    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(
+        embedding,
+        encode::TreeEmbedding {
+            arcs: BTreeMap::from([(u32::MAX - 1, 0)]),
+            fans: Vec::new(),
+            next_node: u32::MAX,
+            next_edge: 1,
+        }
+    );
+    assert_eq!(
+        panproto_reference::edit::apply_tree(
+            &panproto_reference::edit::TreeEdit::Identity,
+            &below,
+            &mut embedding
+        ),
+        Ok(below.clone())
+    );
+}
+
 #[test]
 fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_encoding() {
     // Edge 0 runs from node 0 to node 5, which the graph does not hold.
