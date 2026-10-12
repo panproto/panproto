@@ -4041,6 +4041,1082 @@ fn tree_readback_laws_hold_on_every_short_script_over_three_fan_geometries() {
     assert_eq!(triple_counts, [54_301, 62_740, 63_175]);
 }
 
+fn arm_edges(edge: u32) -> BTreeMap<String, u32> {
+    BTreeMap::from([("arm".into(), edge)])
+}
+
+/// [`join_tree`] with a second fan of another name under node 1, and its
+/// literal embedding.
+fn two_fan_tree_and_embedding() -> (Tree, TreeEmbedding) {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    });
+    let embedding = TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+        fans: vec![(5, 4, arm_edges(5)), (6, 6, arm_edges(7))],
+        next_node: 7,
+        next_edge: 8,
+    };
+    (tree, embedding)
+}
+
+fn assert_valid_tree_embedding(tree: &Tree, mut embedding: TreeEmbedding) {
+    let unchanged = embedding.clone();
+    assert_eq!(
+        edit::apply_tree(&TreeEdit::Identity, tree, &mut embedding),
+        Ok(tree.clone())
+    );
+    assert_eq!(embedding, unchanged);
+}
+
+fn join_embedding_with_arcs(arcs: &[(u32, u32)]) -> TreeEmbedding {
+    TreeEmbedding {
+        arcs: arcs.iter().copied().collect(),
+        ..literal_join_embedding()
+    }
+}
+
+fn join_embedding_with_fans(
+    fans: Vec<(u32, u32, BTreeMap<String, u32>)>,
+    next_node: u32,
+    next_edge: u32,
+) -> TreeEmbedding {
+    TreeEmbedding {
+        fans,
+        next_node,
+        next_edge,
+        ..literal_join_embedding()
+    }
+}
+
+#[test]
+fn tr14_identity_refuses_every_literal_embedding_corruption_without_mutation() {
+    let tree = join_tree();
+    let valid = literal_join_embedding();
+    assert_valid_tree_embedding(&tree, valid.clone());
+    assert_valid_tree_embedding(
+        &tree,
+        TreeEmbedding {
+            next_node: 7,
+            next_edge: 9,
+            ..valid
+        },
+    );
+    let corruptions = [
+        (
+            "missing arcs key",
+            join_embedding_with_arcs(&[(1, 0), (2, 1), (3, 2)]),
+        ),
+        (
+            "extra arcs key",
+            TreeEmbedding {
+                arcs: BTreeMap::from([(0, 6), (1, 0), (2, 1), (3, 2), (4, 3)]),
+                next_edge: 7,
+                ..literal_join_embedding()
+            },
+        ),
+        (
+            "swapped ordinary-edge ids",
+            join_embedding_with_arcs(&[(1, 1), (2, 0), (3, 2), (4, 3)]),
+        ),
+        (
+            "duplicate ordinary-edge ids",
+            join_embedding_with_arcs(&[(1, 0), (2, 0), (3, 2), (4, 3)]),
+        ),
+        (
+            "fan count below the tree's",
+            join_embedding_with_fans(Vec::new(), 6, 6),
+        ),
+        (
+            "fan count above the tree's",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(5)), (6, 6, arm_edges(7))], 7, 8),
+        ),
+        (
+            "fan node colliding with a tree node",
+            join_embedding_with_fans(vec![(4, 4, arm_edges(5))], 6, 6),
+        ),
+        (
+            "missing fan child-label key",
+            join_embedding_with_fans(vec![(5, 4, BTreeMap::new())], 6, 6),
+        ),
+        (
+            "extra fan child-label key",
+            join_embedding_with_fans(
+                vec![(
+                    5,
+                    4,
+                    BTreeMap::from([("arm".into(), 5), ("extra".into(), 6)]),
+                )],
+                6,
+                7,
+            ),
+        ),
+        (
+            "fan parent edge colliding with an ordinary edge",
+            join_embedding_with_fans(vec![(5, 0, arm_edges(5))], 6, 6),
+        ),
+        (
+            "fan child edge colliding with an ordinary edge",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(0))], 6, 6),
+        ),
+        (
+            "fan child edge colliding with its fan's parent edge",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(4))], 6, 6),
+        ),
+        (
+            "next_node equal to the used fan node",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(5))], 5, 6),
+        ),
+        (
+            "next_node equal to a used tree node",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(5))], 4, 6),
+        ),
+        (
+            "next_edge equal to the used fan edge",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(5))], 6, 5),
+        ),
+        (
+            "next_edge equal to a used ordinary edge",
+            join_embedding_with_fans(vec![(5, 4, arm_edges(5))], 6, 3),
+        ),
+    ];
+    for (name, corrupted) in corruptions {
+        let mut actual = corrupted.clone();
+        assert_eq!(
+            edit::apply_tree(&TreeEdit::Identity, &tree, &mut actual),
+            Err(edit::TreeApplyError::InvalidEmbedding),
+            "{name}"
+        );
+        assert_eq!(actual, corrupted, "{name}");
+    }
+}
+
+#[test]
+fn tr14_identity_refuses_every_two_fan_embedding_corruption_without_mutation() {
+    let (two_fans, two_fan_embedding) = two_fan_tree_and_embedding();
+    assert_valid_tree_embedding(&two_fans, two_fan_embedding.clone());
+    let two_fan_with = |fans: Vec<(u32, u32, BTreeMap<String, u32>)>| TreeEmbedding {
+        fans,
+        ..two_fan_embedding.clone()
+    };
+    let two_fan_corruptions = [
+        (
+            "reversed fan entries",
+            two_fan_with(vec![(6, 6, arm_edges(7)), (5, 4, arm_edges(5))]),
+        ),
+        (
+            "duplicate fan nodes",
+            two_fan_with(vec![(5, 4, arm_edges(5)), (5, 6, arm_edges(7))]),
+        ),
+        (
+            "fan parent edge colliding with another fan's edge",
+            two_fan_with(vec![(5, 4, arm_edges(5)), (6, 5, arm_edges(7))]),
+        ),
+        (
+            "fan child edge colliding with another fan's child edge",
+            two_fan_with(vec![(5, 4, arm_edges(5)), (6, 6, arm_edges(5))]),
+        ),
+        (
+            "fan child edge colliding with another fan's parent edge",
+            two_fan_with(vec![(5, 4, arm_edges(5)), (6, 6, arm_edges(4))]),
+        ),
+    ];
+    for (name, corrupted) in two_fan_corruptions {
+        let mut actual = corrupted.clone();
+        assert_eq!(
+            edit::apply_tree(&TreeEdit::Identity, &two_fans, &mut actual),
+            Err(edit::TreeApplyError::InvalidEmbedding),
+            "{name}"
+        );
+        assert_eq!(actual, corrupted, "{name}");
+    }
+}
+
+#[test]
+fn tree_reader_refuses_deleting_either_duplicate_named_fan_alone() {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    let embedding = TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+        fans: vec![
+            (5, 4, arm_edges(5)),
+            (6, 6, BTreeMap::from([("other-arm".into(), 7)])),
+        ],
+        next_node: 7,
+        next_edge: 8,
+    };
+    let mut graph = literal_join_graph();
+    graph.nodes.insert(6, fan_node(6, "fan"));
+    graph.edges.insert(6, plain_edge(6, 1, fan_parent_label()));
+    graph.edges.insert(
+        7,
+        plain_edge(
+            6,
+            4,
+            SEdge::new("fan", "leaf", "hyper_label", Some("other-arm")),
+        ),
+    );
+    assert_eq!(
+        panproto_reference::encode::tree_to_graph(&tree, None),
+        Ok((graph.clone(), embedding.clone()))
+    );
+    let first = [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)];
+    let second = [GElem::Node(6), GElem::Edge(6), GElem::Edge(7)];
+    for alone in [first.clone(), second.clone()] {
+        assert!(not_tree_edit(
+            &edit::tree_edit_from_graph_delta(
+                &tree,
+                &embedding,
+                &literal_deletions(&graph, alone),
+                None
+            ),
+            "fixed carriers"
+        ));
+    }
+    let both = literal_deletions(&graph, first.into_iter().chain(second));
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &both, None),
+        Ok(TreeEdit::DeleteFan {
+            hyper_edge: "fan".into(),
+        })
+    );
+}
+
+/// One row of the literal lowering oracle: a start tree, an edit, and the
+/// hand-written delta, final embedding, final tree and final graph.
+struct LiteralLowering {
+    name: &'static str,
+    tree: Tree,
+    edit: TreeEdit,
+    delta: GraphDelta,
+    embedding: TreeEmbedding,
+    final_tree: Tree,
+    final_graph: Graph,
+}
+
+fn check_literal_lowering(row: LiteralLowering) {
+    let LiteralLowering {
+        name,
+        tree,
+        edit: edit_step,
+        delta,
+        embedding,
+        final_tree,
+        final_graph,
+    } = row;
+    let mut start_graph = literal_join_graph();
+    start_graph.nodes.clone_from(&tree.nodes);
+    start_graph.nodes.insert(5, fan_node(5, "fan"));
+    let start = literal_join_embedding();
+    let mut lowered = start.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered, &edit_step, None),
+        Ok(delta.clone()),
+        "{name}: lowering"
+    );
+    assert_eq!(lowered, embedding, "{name}: lowered embedding");
+    assert_eq!(
+        edit::apply(&delta, &start_graph),
+        Ok(final_graph),
+        "{name}: final graph"
+    );
+    let mut applied = start.clone();
+    assert_eq!(
+        edit::apply_tree(&edit_step, &tree, &mut applied),
+        Ok(final_tree),
+        "{name}: final tree"
+    );
+    assert_eq!(applied, embedding, "{name}: applied embedding");
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &start, &delta, None),
+        Ok(edit_step),
+        "{name}: reading"
+    );
+}
+
+fn join_tree_with(change: impl FnOnce(&mut Tree)) -> Tree {
+    let mut tree = join_tree();
+    change(&mut tree);
+    tree
+}
+
+fn join_graph_with(change: impl FnOnce(&mut Graph)) -> Graph {
+    let mut graph = literal_join_graph();
+    change(&mut graph);
+    graph
+}
+
+fn join_embedding_with(change: impl FnOnce(&mut TreeEmbedding)) -> TreeEmbedding {
+    let mut embedding = literal_join_embedding();
+    change(&mut embedding);
+    embedding
+}
+
+fn child_label(src: &str, name: &str) -> SEdge {
+    SEdge::new(src, "leaf", "child", Some(name))
+}
+
+fn added(mut delta: GraphDelta, elements: Vec<(GElem, GPayload)>) -> GraphDelta {
+    delta.add.extend(elements);
+    delta
+}
+
+fn with_attr(mut delta: GraphDelta, key: AttrKey, old: AttrVal, new: AttrVal) -> GraphDelta {
+    delta.attrs.insert(key, (old, new));
+    delta
+}
+
+fn structural_literal_rows() -> Vec<LiteralLowering> {
+    let graph = literal_join_graph();
+    vec![
+        LiteralLowering {
+            name: "identity",
+            tree: join_tree(),
+            edit: TreeEdit::Identity,
+            delta: GraphDelta::identity(),
+            embedding: literal_join_embedding(),
+            final_tree: join_tree(),
+            final_graph: literal_join_graph(),
+        },
+        LiteralLowering {
+            name: "insert node 6",
+            tree: join_tree(),
+            edit: TreeEdit::InsertNode {
+                parent: 1,
+                child_id: 6,
+                node: Node::new(6, "leaf"),
+                edge: child_label("feature", "new"),
+            },
+            delta: added(
+                GraphDelta::identity(),
+                vec![
+                    (GElem::Node(6), GPayload::Node(Node::new(6, "leaf"))),
+                    (
+                        GElem::Edge(6),
+                        GPayload::Edge(plain_edge(1, 6, child_label("feature", "new"))),
+                    ),
+                ],
+            ),
+            embedding: join_embedding_with(|e| {
+                e.arcs.insert(6, 6);
+                e.next_node = 7;
+                e.next_edge = 7;
+            }),
+            final_tree: join_tree_with(|t| {
+                t.nodes.insert(6, Node::new(6, "leaf"));
+                t.arcs.push((1, 6, child_label("feature", "new")));
+            }),
+            final_graph: join_graph_with(|g| {
+                g.nodes.insert(6, Node::new(6, "leaf"));
+                g.edges
+                    .insert(6, plain_edge(1, 6, child_label("feature", "new")));
+            }),
+        },
+        LiteralLowering {
+            name: "delete node 4",
+            tree: join_tree(),
+            edit: TreeEdit::DeleteNode { id: 4 },
+            delta: literal_deletions(&graph, [GElem::Node(4), GElem::Edge(3)]),
+            embedding: join_embedding_with(|e| {
+                e.arcs.remove(&4);
+            }),
+            final_tree: join_tree_with(|t| {
+                t.nodes.remove(&4);
+                t.arcs.retain(|(_, child, _)| *child != 4);
+            }),
+            final_graph: join_graph_with(|g| {
+                g.nodes.remove(&4);
+                g.edges.remove(&3);
+            }),
+        },
+    ]
+}
+
+fn reparenting_literal_rows() -> Vec<LiteralLowering> {
+    let graph = literal_join_graph();
+    vec![
+        LiteralLowering {
+            name: "contract node 2",
+            tree: join_tree(),
+            edit: TreeEdit::ContractNode { id: 2 },
+            delta: added(
+                literal_deletions(
+                    &graph,
+                    [2, 5]
+                        .map(GElem::Node)
+                        .into_iter()
+                        .chain((1..=5).map(GElem::Edge)),
+                ),
+                vec![
+                    (
+                        GElem::Edge(6),
+                        GPayload::Edge(plain_edge(0, 3, child_label("root", "c"))),
+                    ),
+                    (
+                        GElem::Edge(7),
+                        GPayload::Edge(plain_edge(0, 4, child_label("root", "d"))),
+                    ),
+                ],
+            ),
+            embedding: TreeEmbedding {
+                arcs: BTreeMap::from([(1, 0), (3, 6), (4, 7)]),
+                fans: Vec::new(),
+                next_node: 6,
+                next_edge: 8,
+            },
+            final_tree: join_tree_with(|t| {
+                t.nodes.remove(&2);
+                t.arcs = vec![
+                    (0, 1, SEdge::new("root", "feature", "child", Some("a"))),
+                    (0, 3, child_label("root", "c")),
+                    (0, 4, child_label("root", "d")),
+                ];
+                t.fans.clear();
+            }),
+            final_graph: join_graph_with(|g| {
+                g.nodes.remove(&2);
+                g.nodes.remove(&5);
+                g.edges.retain(|id, _| *id == 0);
+                g.edges
+                    .insert(6, plain_edge(0, 3, child_label("root", "c")));
+                g.edges
+                    .insert(7, plain_edge(0, 4, child_label("root", "d")));
+            }),
+        },
+        LiteralLowering {
+            name: "move subtree 3",
+            tree: join_tree(),
+            edit: TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 1,
+                edge: child_label("feature", "moved"),
+            },
+            delta: added(
+                literal_deletions(&graph, [GElem::Edge(2)]),
+                vec![(
+                    GElem::Edge(6),
+                    GPayload::Edge(plain_edge(1, 3, child_label("feature", "moved"))),
+                )],
+            ),
+            embedding: join_embedding_with(|e| {
+                e.arcs.insert(3, 6);
+                e.next_edge = 7;
+            }),
+            final_tree: join_tree_with(|t| {
+                t.arcs.retain(|(_, child, _)| *child != 3);
+                t.arcs.push((1, 3, child_label("feature", "moved")));
+            }),
+            final_graph: join_graph_with(|g| {
+                g.edges.remove(&2);
+                g.edges
+                    .insert(6, plain_edge(1, 3, child_label("feature", "moved")));
+            }),
+        },
+    ]
+}
+
+fn fan_and_join_literal_rows() -> Vec<LiteralLowering> {
+    let graph = literal_join_graph();
+    let second_fan = Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    };
+    let second_parent = plain_edge(
+        6,
+        1,
+        SEdge::new("second-fan", "feature", "hyper_parent", None),
+    );
+    let second_arm = plain_edge(
+        6,
+        4,
+        SEdge::new("second-fan", "leaf", "hyper_label", Some("arm")),
+    );
+    vec![
+        LiteralLowering {
+            name: "insert fan",
+            tree: join_tree(),
+            edit: TreeEdit::InsertFan {
+                fan: second_fan.clone(),
+            },
+            delta: added(
+                GraphDelta::identity(),
+                vec![
+                    (GElem::Node(6), GPayload::Node(fan_node(6, "second-fan"))),
+                    (GElem::Edge(6), GPayload::Edge(second_parent.clone())),
+                    (GElem::Edge(7), GPayload::Edge(second_arm.clone())),
+                ],
+            ),
+            embedding: join_embedding_with(|e| {
+                e.fans.push((6, 6, arm_edges(7)));
+                e.next_node = 7;
+                e.next_edge = 8;
+            }),
+            final_tree: join_tree_with(|t| t.fans.push(second_fan)),
+            final_graph: join_graph_with(|g| {
+                g.nodes.insert(6, fan_node(6, "second-fan"));
+                g.edges.insert(6, second_parent);
+                g.edges.insert(7, second_arm);
+            }),
+        },
+        LiteralLowering {
+            name: "delete fan",
+            tree: join_tree(),
+            edit: TreeEdit::DeleteFan {
+                hyper_edge: "fan".into(),
+            },
+            delta: literal_deletions(&graph, [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)]),
+            embedding: join_embedding_with(|e| e.fans.clear()),
+            final_tree: join_tree_with(|t| t.fans.clear()),
+            final_graph: join_graph_with(|g| {
+                g.nodes.remove(&5);
+                g.edges.remove(&4);
+                g.edges.remove(&5);
+            }),
+        },
+    ]
+}
+
+fn join_literal_rows() -> Vec<LiteralLowering> {
+    let graph = literal_join_graph();
+    vec![LiteralLowering {
+        name: "join 2 into 1",
+        tree: join_tree(),
+        edit: TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![2],
+            produce: Node::new(1, "joined"),
+        },
+        delta: with_attr(
+            added(
+                literal_deletions(
+                    &graph,
+                    [2, 5]
+                        .map(GElem::Node)
+                        .into_iter()
+                        .chain((1..=5).map(GElem::Edge)),
+                ),
+                vec![
+                    (
+                        GElem::Edge(6),
+                        GPayload::Edge(plain_edge(1, 3, child_label("joined", "c"))),
+                    ),
+                    (
+                        GElem::Edge(7),
+                        GPayload::Edge(plain_edge(1, 4, child_label("joined", "d"))),
+                    ),
+                ],
+            ),
+            AttrKey::Anchor(1),
+            AttrVal::Anchor("feature".into()),
+            AttrVal::Anchor("joined".into()),
+        ),
+        embedding: TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (3, 6), (4, 7)]),
+            fans: Vec::new(),
+            next_node: 6,
+            next_edge: 8,
+        },
+        final_tree: join_tree_with(|t| {
+            t.nodes.remove(&2);
+            t.nodes.insert(1, Node::new(1, "joined"));
+            t.arcs = vec![
+                (0, 1, SEdge::new("root", "feature", "child", Some("a"))),
+                (1, 3, child_label("joined", "c")),
+                (1, 4, child_label("joined", "d")),
+            ];
+            t.fans.clear();
+        }),
+        final_graph: join_graph_with(|g| {
+            g.nodes.remove(&2);
+            g.nodes.remove(&5);
+            g.nodes.insert(1, Node::new(1, "joined"));
+            g.edges.retain(|id, _| *id == 0);
+            g.edges
+                .insert(6, plain_edge(1, 3, child_label("joined", "c")));
+            g.edges
+                .insert(7, plain_edge(1, 4, child_label("joined", "d")));
+        }),
+    }]
+}
+
+fn payload_literal_rows() -> Vec<LiteralLowering> {
+    let renamed = |node: &mut Node| node.anchor = "renamed".into();
+    let with_old_field = |nodes: &mut BTreeMap<u32, Node>| {
+        nodes
+            .get_mut(&1)
+            .unwrap()
+            .fields
+            .insert("old".into(), Value::Int(7));
+    };
+    vec![
+        LiteralLowering {
+            name: "relabel node 3",
+            tree: join_tree(),
+            edit: TreeEdit::RelabelNode {
+                id: 3,
+                new_anchor: "renamed".into(),
+            },
+            delta: with_attr(
+                with_attr(
+                    GraphDelta::identity(),
+                    AttrKey::Anchor(3),
+                    AttrVal::Anchor("leaf".into()),
+                    AttrVal::Anchor("renamed".into()),
+                ),
+                AttrKey::EdgeLabel(5),
+                AttrVal::Label(fan_arm_label()),
+                AttrVal::Label(SEdge::new("fan", "renamed", "hyper_label", Some("arm"))),
+            ),
+            embedding: literal_join_embedding(),
+            final_tree: join_tree_with(|t| renamed(t.nodes.get_mut(&3).unwrap())),
+            final_graph: join_graph_with(|g| {
+                renamed(g.nodes.get_mut(&3).unwrap());
+                g.edges.get_mut(&5).unwrap().label.tgt = "renamed".into();
+            }),
+        },
+        LiteralLowering {
+            name: "set field",
+            tree: join_tree(),
+            edit: TreeEdit::SetField {
+                node_id: 1,
+                field: "new".into(),
+                value: Value::Bool(true),
+            },
+            delta: attribute_delta(
+                AttrKey::Field(1, "new".into()),
+                AttrVal::Field(None),
+                AttrVal::Field(Some(Value::Bool(true))),
+            ),
+            embedding: literal_join_embedding(),
+            final_tree: join_tree_with(|t| {
+                t.nodes
+                    .get_mut(&1)
+                    .unwrap()
+                    .fields
+                    .insert("new".into(), Value::Bool(true));
+            }),
+            final_graph: join_graph_with(|g| {
+                g.nodes
+                    .get_mut(&1)
+                    .unwrap()
+                    .fields
+                    .insert("new".into(), Value::Bool(true));
+            }),
+        },
+        LiteralLowering {
+            name: "remove field",
+            tree: join_tree_with(|t| with_old_field(&mut t.nodes)),
+            edit: TreeEdit::RemoveField {
+                node_id: 1,
+                field: "old".into(),
+            },
+            delta: attribute_delta(
+                AttrKey::Field(1, "old".into()),
+                AttrVal::Field(Some(Value::Int(7))),
+                AttrVal::Field(None),
+            ),
+            embedding: literal_join_embedding(),
+            final_tree: join_tree(),
+            final_graph: literal_join_graph(),
+        },
+    ]
+}
+
+fn value_and_sequence_literal_rows() -> Vec<LiteralLowering> {
+    let mut valued = Node::new(3, "leaf");
+    valued.value = Some(Presence::Present(Value::Int(9)));
+    vec![
+        LiteralLowering {
+            name: "join value into 3",
+            tree: join_tree(),
+            edit: TreeEdit::JoinFeatures {
+                primary: 3,
+                joined: Vec::new(),
+                produce: valued.clone(),
+            },
+            delta: attribute_delta(
+                AttrKey::Value(3),
+                AttrVal::Presence(None),
+                AttrVal::Presence(Some(Presence::Present(Value::Int(9)))),
+            ),
+            embedding: literal_join_embedding(),
+            final_tree: join_tree_with(|t| {
+                t.nodes.insert(3, valued.clone());
+            }),
+            final_graph: join_graph_with(|g| {
+                g.nodes.insert(3, valued);
+            }),
+        },
+        LiteralLowering {
+            name: "move then set field",
+            tree: join_tree(),
+            edit: TreeEdit::Sequence(vec![
+                TreeEdit::MoveSubtree {
+                    node_id: 3,
+                    new_parent: 1,
+                    edge: child_label("feature", "moved"),
+                },
+                TreeEdit::SetField {
+                    node_id: 1,
+                    field: "f".into(),
+                    value: Value::Int(7),
+                },
+            ]),
+            delta: with_attr(
+                added(
+                    literal_deletions(&literal_join_graph(), [GElem::Edge(2)]),
+                    vec![(
+                        GElem::Edge(6),
+                        GPayload::Edge(plain_edge(1, 3, child_label("feature", "moved"))),
+                    )],
+                ),
+                AttrKey::Field(1, "f".into()),
+                AttrVal::Field(None),
+                AttrVal::Field(Some(Value::Int(7))),
+            ),
+            embedding: join_embedding_with(|e| {
+                e.arcs.insert(3, 6);
+                e.next_edge = 7;
+            }),
+            final_tree: join_tree_with(|t| {
+                t.arcs.retain(|(_, child, _)| *child != 3);
+                t.arcs.push((1, 3, child_label("feature", "moved")));
+                t.nodes
+                    .get_mut(&1)
+                    .unwrap()
+                    .fields
+                    .insert("f".into(), Value::Int(7));
+            }),
+            final_graph: join_graph_with(|g| {
+                g.edges.remove(&2);
+                g.edges
+                    .insert(6, plain_edge(1, 3, child_label("feature", "moved")));
+                g.nodes
+                    .get_mut(&1)
+                    .unwrap()
+                    .fields
+                    .insert("f".into(), Value::Int(7));
+            }),
+        },
+    ]
+}
+
+#[test]
+fn every_tree_edit_variant_matches_a_hand_assembled_delta_embedding_tree_and_graph() {
+    let rows: Vec<_> = structural_literal_rows()
+        .into_iter()
+        .chain(reparenting_literal_rows())
+        .chain(fan_and_join_literal_rows())
+        .chain(join_literal_rows())
+        .chain(payload_literal_rows())
+        .chain(value_and_sequence_literal_rows())
+        .collect();
+    let names: Vec<_> = rows.iter().map(|row| row.name).collect();
+    assert_eq!(
+        names,
+        [
+            "identity",
+            "insert node 6",
+            "delete node 4",
+            "contract node 2",
+            "move subtree 3",
+            "insert fan",
+            "delete fan",
+            "join 2 into 1",
+            "relabel node 3",
+            "set field",
+            "remove field",
+            "join value into 3",
+            "move then set field",
+        ]
+    );
+    for row in rows {
+        check_literal_lowering(row);
+    }
+}
+
+fn assert_tree_lowering_refusal(
+    tree: &Tree,
+    embedding: &TreeEmbedding,
+    edit_step: &TreeEdit,
+    expected: &edit::TreeApplyError,
+) {
+    let mut lowered = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(tree, &mut lowered, edit_step, None).as_ref(),
+        Err(expected),
+        "lowering {edit_step:?}"
+    );
+    assert_eq!(&lowered, embedding, "lowering {edit_step:?}");
+    let mut applied = embedding.clone();
+    assert_eq!(
+        edit::apply_tree(edit_step, tree, &mut applied).as_ref(),
+        Err(expected),
+        "applying {edit_step:?}"
+    );
+    assert_eq!(&applied, embedding, "applying {edit_step:?}");
+}
+
+#[test]
+fn tree_lowering_refuses_absent_duplicate_and_misfiled_nodes_exactly_without_mutation() {
+    use edit::TreeApplyError as E;
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let leaf = |id: u32| Node::new(id, "leaf");
+    let label = || child_label("feature", "new");
+    let cases = [
+        (insert_leaf(99, 6), E::ParentNotFound(99)),
+        (
+            TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 99,
+                edge: label(),
+            },
+            E::ParentNotFound(99),
+        ),
+        (TreeEdit::DeleteNode { id: 99 }, E::NodeNotFound(99)),
+        (TreeEdit::ContractNode { id: 99 }, E::NodeNotFound(99)),
+        (
+            TreeEdit::RelabelNode {
+                id: 99,
+                new_anchor: "x".into(),
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::SetField {
+                node_id: 99,
+                field: "f".into(),
+                value: Value::Int(1),
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::RemoveField {
+                node_id: 99,
+                field: "f".into(),
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::MoveSubtree {
+                node_id: 99,
+                new_parent: 1,
+                edge: label(),
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 99,
+                joined: Vec::new(),
+                produce: leaf(99),
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![99],
+                produce: Node::new(1, "f"),
+            },
+            E::NodeNotFound(99),
+        ),
+        (insert_leaf(1, 1), E::DuplicateNodeId(1)),
+        (
+            TreeEdit::InsertNode {
+                parent: 1,
+                child_id: 6,
+                node: leaf(7),
+                edge: label(),
+            },
+            E::MisfiledNode {
+                expected: 6,
+                actual: 7,
+            },
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: Vec::new(),
+                produce: leaf(2),
+            },
+            E::MisfiledNode {
+                expected: 1,
+                actual: 2,
+            },
+        ),
+    ];
+    for (edit_step, expected) in &cases {
+        assert_tree_lowering_refusal(&tree, &embedding, edit_step, expected);
+    }
+}
+
+#[test]
+fn tree_lowering_refuses_root_leaf_cycle_join_fan_and_id_preconditions_exactly() {
+    use edit::TreeApplyError as E;
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let leaf = |id: u32| Node::new(id, "leaf");
+    let label = || child_label("feature", "new");
+    let cases = [
+        (TreeEdit::DeleteNode { id: 0 }, E::RootOperation(0)),
+        (TreeEdit::ContractNode { id: 0 }, E::RootOperation(0)),
+        (
+            TreeEdit::MoveSubtree {
+                node_id: 0,
+                new_parent: 1,
+                edge: label(),
+            },
+            E::RootOperation(0),
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![0],
+                produce: Node::new(1, "f"),
+            },
+            E::RootOperation(0),
+        ),
+        (TreeEdit::DeleteNode { id: 2 }, E::NotLeaf(2)),
+        (
+            TreeEdit::MoveSubtree {
+                node_id: 2,
+                new_parent: 3,
+                edge: label(),
+            },
+            E::Cycle { node: 2, parent: 3 },
+        ),
+        (
+            TreeEdit::MoveSubtree {
+                node_id: 2,
+                new_parent: 2,
+                edge: label(),
+            },
+            E::Cycle { node: 2, parent: 2 },
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 3,
+                joined: vec![2],
+                produce: leaf(3),
+            },
+            E::Cycle { node: 2, parent: 3 },
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![1],
+                produce: Node::new(1, "f"),
+            },
+            E::InvalidJoin(1),
+        ),
+        (
+            TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![2, 2],
+                produce: Node::new(1, "f"),
+            },
+            E::InvalidJoin(2),
+        ),
+        (
+            TreeEdit::DeleteFan {
+                hyper_edge: "absent".into(),
+            },
+            E::FanNotFound("absent".into()),
+        ),
+        (
+            TreeEdit::InsertFan {
+                fan: Fan {
+                    parent: 1,
+                    hyper_edge: "f".into(),
+                    children: BTreeMap::from([("arm".into(), 99)]),
+                },
+            },
+            E::NodeNotFound(99),
+        ),
+        (
+            TreeEdit::InsertFan {
+                fan: Fan {
+                    parent: 99,
+                    hyper_edge: "f".into(),
+                    children: BTreeMap::new(),
+                },
+            },
+            E::NodeNotFound(99),
+        ),
+        (insert_leaf(1, u32::MAX), E::IdsExhausted),
+    ];
+    for (edit_step, expected) in &cases {
+        assert_tree_lowering_refusal(&tree, &embedding, edit_step, expected);
+    }
+}
+
+#[test]
+fn tree_lowering_refuses_exhausted_floors_invalid_embeddings_and_reserved_vocabulary() {
+    use edit::TreeApplyError as E;
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let label = || child_label("feature", "new");
+
+    let edge_exhausted = join_embedding_with(|e| e.next_edge = u32::MAX);
+    assert_tree_lowering_refusal(
+        &tree,
+        &edge_exhausted,
+        &TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: label(),
+        },
+        &E::IdsExhausted,
+    );
+    let node_exhausted = join_embedding_with(|e| e.next_node = u32::MAX);
+    assert_tree_lowering_refusal(
+        &tree,
+        &node_exhausted,
+        &TreeEdit::InsertFan {
+            fan: Fan {
+                parent: 1,
+                hyper_edge: "f".into(),
+                children: BTreeMap::from([("arm".into(), 4)]),
+            },
+        },
+        &E::IdsExhausted,
+    );
+
+    let swapped =
+        join_embedding_with(|e| e.arcs = BTreeMap::from([(1, 1), (2, 0), (3, 2), (4, 3)]));
+    let set_field = TreeEdit::SetField {
+        node_id: 1,
+        field: "f".into(),
+        value: Value::Int(1),
+    };
+    assert_tree_lowering_refusal(&tree, &swapped, &set_field, &E::InvalidEmbedding);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &swapped, &GraphDelta::identity(), None),
+        Err(E::InvalidEmbedding)
+    );
+
+    let hyper_shaped =
+        join_tree_with(|t| t.nodes.get_mut(&1).unwrap().shape = NodeShape::HyperEdge);
+    let reserved_arc = join_tree_with(|t| t.arcs[0].2.kind = "hyper_parent".into());
+    for reserved in [hyper_shaped, reserved_arc] {
+        assert_tree_lowering_refusal(&reserved, &embedding, &set_field, &E::ReservedVocabulary);
+        assert_eq!(
+            edit::tree_edit_from_graph_delta(&reserved, &embedding, &GraphDelta::identity(), None),
+            Err(E::ReservedVocabulary)
+        );
+    }
+}
+
 /// A literal little-endian byte layout, written without the crate's writer.
 #[derive(Default)]
 struct Bytes(Vec<u8>);
@@ -4639,4 +5715,179 @@ fn canonical_tree_edit_refuses_misfiled_nodes_and_nested_ill_formed_values() {
         );
         assert_eq!(edit::tree_edit_digest(edit_step), None, "{edit_step:?}");
     }
+}
+
+fn single_node_graph(anchor: &str) -> Graph {
+    Graph {
+        nodes: BTreeMap::from([(0, Node::new(0, anchor))]),
+        edges: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn single_anchor_lens_commutes_both_edit_squares_with_literal_deltas_and_complements() {
+    let get = |state: &Graph| -> Result<(Graph, String), &'static str> {
+        let anchor = &state.nodes[&0].anchor;
+        Ok((single_node_graph(&format!("view:{anchor}")), anchor.clone()))
+    };
+    let put =
+        |_: &Graph, view: &Graph, complement: &String| -> Result<(Graph, String), &'static str> {
+            let anchor = view.nodes[&0]
+                .anchor
+                .strip_prefix("view:")
+                .ok_or("not a view anchor")?;
+            Ok((single_node_graph(anchor), format!("{complement}->{anchor}")))
+        };
+    let source = single_node_graph("a");
+    let view = single_node_graph("view:a");
+    let edited_source = single_node_graph("b");
+    let edited_view = single_node_graph("view:b");
+    let source_delta = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("a".into()),
+        AttrVal::Anchor("b".into()),
+    );
+    let view_delta = attribute_delta(
+        AttrKey::Anchor(0),
+        AttrVal::Anchor("view:a".into()),
+        AttrVal::Anchor("view:b".into()),
+    );
+
+    let translated_get = edit::get_edit(&get, &source, &source_delta).unwrap();
+    assert_eq!(translated_get.delta, view_delta);
+    assert_eq!(translated_get.complement, "b");
+    assert_eq!(
+        edit::apply(&source_delta, &source),
+        Ok(edited_source.clone())
+    );
+    assert_eq!(
+        get(&edited_source),
+        Ok((edited_view.clone(), "b".to_owned()))
+    );
+    assert_eq!(edit::apply(&view_delta, &view), Ok(edited_view.clone()));
+
+    let complement = "a".to_owned();
+    let translated_put = edit::put_edit(&put, &source, &view, &complement, &view_delta).unwrap();
+    assert_eq!(translated_put.delta, source_delta);
+    assert_eq!(translated_put.complement, "a->b");
+    assert_eq!(
+        put(&source, &edited_view, &complement),
+        Ok((edited_source.clone(), "a->b".to_owned()))
+    );
+    assert_eq!(
+        edit::apply(&translated_put.delta, &source),
+        Ok(edited_source)
+    );
+}
+
+/// The 25 atomic graph deltas of the finite carrier in their stated order,
+/// written out: the identity; for each anchor `a`, `b` and each of no value
+/// and the value 0, the node deletion then the node addition; for each label,
+/// the edge deletion then the edge addition; then the forward and reverse
+/// change of anchor, value, field, shape, edge label and edge position.
+fn literal_atomic_alphabet() -> Vec<GraphDelta> {
+    let mut alphabet = vec![GraphDelta::identity()];
+    for anchor in ["a", "b"] {
+        for value in [None, Some(Presence::Present(Value::Int(0)))] {
+            let mut payload = Node::new(0, anchor);
+            payload.value = value;
+            let mut deletion = GraphDelta::identity();
+            deletion
+                .del
+                .insert(GElem::Node(0), GPayload::Node(payload.clone()));
+            let mut addition = GraphDelta::identity();
+            addition.add.insert(GElem::Node(0), GPayload::Node(payload));
+            alphabet.extend([deletion, addition]);
+        }
+    }
+    for name in [None, Some("x")] {
+        let payload = GPayload::Edge(plain_edge(0, 0, SEdge::new("a", "a", "e", name)));
+        let mut deletion = GraphDelta::identity();
+        deletion.del.insert(GElem::Edge(0), payload.clone());
+        let mut addition = GraphDelta::identity();
+        addition.add.insert(GElem::Edge(0), payload);
+        alphabet.extend([deletion, addition]);
+    }
+    let shape = |shape| {
+        AttrVal::Meta(NodeMeta {
+            discriminator: None,
+            position: None,
+            shape,
+            annotations: BTreeMap::new(),
+        })
+    };
+    let changes = [
+        (
+            AttrKey::Anchor(0),
+            AttrVal::Anchor("a".into()),
+            AttrVal::Anchor("b".into()),
+        ),
+        (
+            AttrKey::Value(0),
+            AttrVal::Presence(None),
+            AttrVal::Presence(Some(Presence::Present(Value::Int(0)))),
+        ),
+        (
+            AttrKey::Field(0, "f".into()),
+            AttrVal::Field(None),
+            AttrVal::Field(Some(Value::Int(0))),
+        ),
+        (
+            AttrKey::Meta(0),
+            shape(NodeShape::Plain),
+            shape(NodeShape::HyperEdge),
+        ),
+        (
+            AttrKey::EdgeLabel(0),
+            AttrVal::Label(SEdge::new("a", "a", "e", None)),
+            AttrVal::Label(SEdge::new("a", "a", "e", Some("x"))),
+        ),
+        (
+            AttrKey::EdgePosition(0),
+            AttrVal::Position(None),
+            AttrVal::Position(Some(0)),
+        ),
+    ];
+    for (key, first, second) in changes {
+        alphabet.push(attribute_delta(key.clone(), first.clone(), second.clone()));
+        alphabet.push(attribute_delta(key, second, first));
+    }
+    alphabet
+}
+
+#[test]
+fn graph_delta_sequences_have_literal_membership_and_positions() {
+    let alphabet = literal_atomic_alphabet();
+    assert_eq!(alphabet.len(), 25);
+    let deltas = |word: &[carrier::GraphDeltaCase]| -> Vec<GraphDelta> {
+        word.iter().map(|case| case.delta.clone()).collect()
+    };
+    let sequences = carrier::graph_delta_sequences();
+    assert_eq!(sequences.len(), 1 + 25 + 625 + 15_625);
+    assert!(sequences[0].is_empty());
+    for (i, first) in alphabet.iter().enumerate() {
+        assert_eq!(
+            deltas(&sequences[1 + i]),
+            std::slice::from_ref(first),
+            "singleton {i}"
+        );
+        for (j, second) in alphabet.iter().enumerate() {
+            assert_eq!(
+                deltas(&sequences[26 + 25 * i + j]),
+                [first.clone(), second.clone()],
+                "pair ({i}, {j})"
+            );
+            for (k, third) in alphabet.iter().enumerate() {
+                assert_eq!(
+                    deltas(&sequences[651 + 625 * i + 25 * j + k]),
+                    [first.clone(), second.clone(), third.clone()],
+                    "triple ({i}, {j}, {k})"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        sequences.last().map(|word| deltas(word)),
+        Some(vec![alphabet[24].clone(); 3])
+    );
 }
