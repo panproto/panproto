@@ -1600,44 +1600,114 @@ pub mod edit {
         Ok(())
     }
 
-    /// Delete fans by name until the reconstruction's fans are a prefix of
-    /// the result's fans: first every fan absent from the result, then the
-    /// first fan out of the result's order. A deletion removes every fan of
-    /// its name, so no step names a fan an earlier step already removed.
+    fn fixed_carriers_refusal() -> TreeApplyError {
+        TreeApplyError::NotTreeEdit {
+            reason: "the delta's fixed carriers are outside the tree-edit image".to_owned(),
+        }
+    }
+
+    /// Remove every fan outside the reconstruction's kept fans, the fans
+    /// that match `after.fans[..limit]` in order: a fan matches a result fan
+    /// when both are equal and have the same identity (`after_keys`: the fan
+    /// node id of a carrier the delta keeps, else none). A step removes only
+    /// unkept fans: a deletion by name when no kept fan has that name, else
+    /// the deletion of a non-root node of the fan that is in no kept fan and
+    /// whose arc and child arcs the delta re-allocates (a later step
+    /// re-inserts it). Returns the steps, or none when a fan the delta keeps
+    /// is unkept or an unkept fan has no such step.
+    fn remove_unkept_tree_fans(
+        after: &crate::model::Tree,
+        after_keys: &[Option<u32>],
+        limit: usize,
+        refreshed: &BTreeSet<u32>,
+        current: &mut crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding,
+    ) -> Result<Option<Vec<TreeEdit>>, TreeApplyError> {
+        let mut kept = BTreeSet::new();
+        for (fan, (node, _, _)) in current.fans.iter().zip(&embedding.fans) {
+            let key = after_keys.contains(&Some(*node)).then_some(*node);
+            if kept.len() < limit && after.fans[kept.len()] == *fan && after_keys[kept.len()] == key
+            {
+                kept.insert(*node);
+            } else if key.is_some() {
+                return Ok(None);
+            }
+        }
+        let kept_fans = &after.fans[..kept.len()];
+        let in_kept_fan = |id: u32| {
+            kept_fans
+                .iter()
+                .any(|fan| fan.parent == id || fan.children.values().any(|child| *child == id))
+        };
+        let mut steps = Vec::new();
+        while let Some(index) = embedding
+            .fans
+            .iter()
+            .position(|(node, _, _)| !kept.contains(node))
+        {
+            let fan = current.fans[index].clone();
+            let step = if kept_fans
+                .iter()
+                .all(|kept_fan| kept_fan.hyper_edge != fan.hyper_edge)
+            {
+                TreeEdit::DeleteFan {
+                    hyper_edge: fan.hyper_edge,
+                }
+            } else if let Some(id) = std::iter::once(fan.parent)
+                .chain(fan.children.values().copied())
+                .find(|id| {
+                    *id != current.root
+                        && refreshed.contains(id)
+                        && !in_kept_fan(*id)
+                        && current
+                            .arcs
+                            .iter()
+                            .all(|(parent, child, _)| parent != id || refreshed.contains(child))
+                })
+            {
+                if current.arcs.iter().any(|(parent, _, _)| *parent == id) {
+                    TreeEdit::ContractNode { id }
+                } else {
+                    TreeEdit::DeleteNode { id }
+                }
+            } else {
+                return Ok(None);
+            };
+            push_tree_step(&mut steps, current, embedding, step)?;
+        }
+        Ok(Some(steps))
+    }
+
+    /// Remove fans until the reconstruction's fans are a prefix of the
+    /// result's fans, never a fan the delta keeps: those matching the
+    /// longest prefix of the result's fans whose unkept fans all have a
+    /// removal step that touches no kept fan.
     fn remove_changed_tree_fans(
         after: &crate::model::Tree,
+        after_keys: &[Option<u32>],
+        refreshed: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
         embedding: &mut crate::encode::TreeEmbedding,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
-        while let Some(hyper_edge) = current
-            .fans
-            .iter()
-            .find(|fan| !after.fans.contains(fan))
-            .map(|fan| fan.hyper_edge.clone())
-        {
-            push_tree_step(
-                steps,
-                current,
-                embedding,
-                TreeEdit::DeleteFan { hyper_edge },
-            )?;
+        for limit in (0..=after.fans.len()).rev() {
+            let mut trial = current.clone();
+            let mut trial_embedding = embedding.clone();
+            if let Some(removal) = remove_unkept_tree_fans(
+                after,
+                after_keys,
+                limit,
+                refreshed,
+                &mut trial,
+                &mut trial_embedding,
+            )? {
+                *current = trial;
+                *embedding = trial_embedding;
+                steps.extend(removal);
+                return Ok(());
+            }
         }
-        while let Some(hyper_edge) = current
-            .fans
-            .iter()
-            .enumerate()
-            .find(|(index, fan)| after.fans.get(*index) != Some(*fan))
-            .map(|(_, fan)| fan.hyper_edge.clone())
-        {
-            push_tree_step(
-                steps,
-                current,
-                embedding,
-                TreeEdit::DeleteFan { hyper_edge },
-            )?;
-        }
-        Ok(())
+        Err(fixed_carriers_refusal())
     }
 
     fn remove_missing_tree_nodes(
@@ -1906,6 +1976,7 @@ pub mod edit {
         before: &crate::model::Tree,
         embedding: &crate::encode::TreeEmbedding,
         after: &crate::model::Tree,
+        after_keys: &[Option<u32>],
         refreshed: &BTreeSet<u32>,
     ) -> Result<TreeEdit, TreeApplyError> {
         if before.root != after.root {
@@ -1917,7 +1988,14 @@ pub mod edit {
         let mut current_embedding = embedding.clone();
         let mut steps = Vec::new();
         remove_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
-        remove_changed_tree_fans(after, &mut current, &mut current_embedding, &mut steps)?;
+        remove_changed_tree_fans(
+            after,
+            after_keys,
+            refreshed,
+            &mut current,
+            &mut current_embedding,
+            &mut steps,
+        )?;
         insert_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
         reconcile_tree_arcs(after, &mut current, &mut current_embedding, &mut steps)?;
         reorder_refreshed_tree_arcs(
@@ -2278,15 +2356,19 @@ pub mod edit {
             })
             .map(|(_, edge)| edge.tgt)
             .collect();
-        let edit = tree_transform_edit(tree, embedding, &after_tree, &refreshed)?;
+        let after_keys: Vec<Option<u32>> = after_graph
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.shape == NodeShape::HyperEdge)
+            .map(|(id, _)| (*id < embedding.next_node).then_some(*id))
+            .collect();
+        let edit = tree_transform_edit(tree, embedding, &after_tree, &after_keys, &refreshed)?;
         let mut followed = embedding.clone();
         let lowered = graph_delta_from_tree_edit(tree, &mut followed, &edit, schema)?;
         if fixed_delta_parts_match(&before_graph, delta, &lowered) {
             Ok(edit)
         } else {
-            Err(TreeApplyError::NotTreeEdit {
-                reason: "the delta's fixed carriers are outside the tree-edit image".to_owned(),
-            })
+            Err(fixed_carriers_refusal())
         }
     }
 

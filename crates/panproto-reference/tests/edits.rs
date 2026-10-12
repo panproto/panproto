@@ -3820,6 +3820,158 @@ fn duplicate_named_fan_relocations_read_back_through_member_deletion() {
     );
 }
 
+/// [`join_tree`] with a second fan named like the first, under node 1.
+fn duplicate_fan_tree() -> Tree {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    tree
+}
+
+#[test]
+fn a_duplicate_named_fan_removed_through_a_reinserted_member_reads_back() {
+    let tree = duplicate_fan_tree();
+    let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let first_fan = tree.fans[0].clone();
+    let reinsert = TreeEdit::InsertNode {
+        parent: 2,
+        child_id: 3,
+        node: Node::new(3, "leaf"),
+        edge: SEdge::new("feature", "leaf", "child", Some("c")),
+    };
+    let script = TreeEdit::Sequence(vec![
+        TreeEdit::DeleteNode { id: 3 },
+        reinsert.clone(),
+        TreeEdit::InsertFan { fan: first_fan },
+    ]);
+    let mut expected = literal_deletions(
+        &graph,
+        [
+            GElem::Node(5),
+            GElem::Edge(2),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    expected.add.insert(
+        GElem::Edge(8),
+        GPayload::Edge(plain_edge(
+            2,
+            3,
+            SEdge::new("feature", "leaf", "child", Some("c")),
+        )),
+    );
+    expected
+        .add
+        .insert(GElem::Node(7), GPayload::Node(fan_node(7, "fan")));
+    expected.add.insert(
+        GElem::Edge(9),
+        GPayload::Edge(plain_edge(7, 2, fan_parent_label())),
+    );
+    expected.add.insert(
+        GElem::Edge(10),
+        GPayload::Edge(plain_edge(7, 3, fan_arm_label())),
+    );
+    let mut lowered = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None),
+        Ok(expected.clone())
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected, None),
+        Ok(script)
+    );
+
+    let without_reinsertion = TreeEdit::Sequence(vec![TreeEdit::DeleteNode { id: 3 }, reinsert]);
+    let mut lowered = embedding.clone();
+    let delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered, &without_reinsertion, None).unwrap();
+    assert_eq!(
+        delta,
+        added(
+            literal_deletions(
+                &graph,
+                [
+                    GElem::Node(5),
+                    GElem::Edge(2),
+                    GElem::Edge(4),
+                    GElem::Edge(5),
+                ],
+            ),
+            vec![(
+                GElem::Edge(8),
+                GPayload::Edge(plain_edge(
+                    2,
+                    3,
+                    SEdge::new("feature", "leaf", "child", Some("c")),
+                )),
+            )],
+        )
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(without_reinsertion)
+    );
+}
+
+#[test]
+fn a_fan_removed_through_a_member_reads_back_beside_relocated_fans_of_its_name() {
+    let tree = Tree {
+        fans: vec![
+            arm_fan(1, "fan", 4),
+            arm_fan(2, "other", 3),
+            arm_fan(0, "other", 1),
+            arm_fan(0, "fan", 2),
+        ],
+        ..join_tree()
+    };
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_eq!(
+        embedding.fans.iter().map(|fan| fan.0).collect::<Vec<_>>(),
+        [5, 6, 7, 8]
+    );
+    let reinsert = TreeEdit::InsertNode {
+        parent: 2,
+        child_id: 3,
+        node: Node::new(3, "leaf"),
+        edge: SEdge::new("feature", "leaf", "child", Some("c")),
+    };
+    let script = TreeEdit::Sequence(vec![
+        TreeEdit::DeleteNode { id: 3 },
+        reinsert.clone(),
+        insert_leaf(0, 7),
+    ]);
+    let mut lowered = embedding.clone();
+    let delta = edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None).unwrap();
+    assert_eq!(
+        lowered.fans.iter().map(|fan| fan.0).collect::<Vec<_>>(),
+        [5, 9, 10]
+    );
+    let read = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None);
+    assert_eq!(
+        read,
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 3 },
+            insert_leaf(0, 7),
+            reinsert,
+            TreeEdit::MoveSubtree {
+                node_id: 7,
+                new_parent: 0,
+                edge: inserted_label(),
+            },
+        ]))
+    );
+    let mut read_embedding = embedding.clone();
+    let mut script_embedding = embedding;
+    assert_eq!(
+        edit::apply_tree(&read.unwrap(), &tree, &mut read_embedding),
+        edit::apply_tree(&script, &tree, &mut script_embedding)
+    );
+}
+
 #[test]
 fn tree_reader_refuses_fresh_carriers_with_payloads_no_edit_writes() {
     let tree = join_tree();
@@ -4039,6 +4191,197 @@ fn tree_readback_laws_hold_on_every_short_script_over_three_fan_geometries() {
     );
     assert_eq!(pair_counts, [8_518, 8_879, 8_885]);
     assert_eq!(triple_counts, [54_301, 62_740, 63_175]);
+}
+
+fn arm_fan(parent: u32, hyper_edge: &str, member: u32) -> Fan {
+    Fan {
+        parent,
+        hyper_edge: hyper_edge.into(),
+        children: BTreeMap::from([("arm".into(), member)]),
+    }
+}
+
+/// [`join_tree`] under fan lists that cover every way fans relate: the
+/// first fan with each second fan that shares or not its name, its parent
+/// and its member, in both orders (once when the two are equal); every
+/// order of three fans, two of one name, one under the root with a root
+/// child as member; and four fans whose two names each have a fan the
+/// other's removal must not touch.
+fn fan_geometries() -> Vec<(String, Tree)> {
+    let first = arm_fan(2, "fan", 3);
+    let mut lists = Vec::new();
+    for name in ["fan", "other"] {
+        for parent in [2, 1] {
+            for member in [3, 4] {
+                let second = arm_fan(parent, name, member);
+                lists.push(vec![first.clone(), second.clone()]);
+                if second != first {
+                    lists.push(vec![second, first.clone()]);
+                }
+            }
+        }
+    }
+    let pool = [first, arm_fan(1, "fan", 4), arm_fan(0, "other", 1)];
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        lists.push(order.iter().map(|index| pool[*index].clone()).collect());
+    }
+    lists.push(vec![
+        arm_fan(1, "fan", 4),
+        arm_fan(2, "other", 3),
+        arm_fan(0, "other", 1),
+        arm_fan(0, "fan", 2),
+    ]);
+    lists
+        .into_iter()
+        .map(|fans| {
+            let name = fans
+                .iter()
+                .map(|fan| format!("{}@{}:{}", fan.hyper_edge, fan.parent, fan.children["arm"]))
+                .collect::<Vec<_>>()
+                .join(",");
+            (
+                name,
+                Tree {
+                    fans,
+                    ..join_tree()
+                },
+            )
+        })
+        .collect()
+}
+
+/// The edits that remove, keep, refresh or relocate fans of `tree`: leaf
+/// deletion and contraction of every fan-incident node, re-insertion of each
+/// under its original arc, insertion over every hidden fan id and the first
+/// fresh one, same-arc moves that refresh an arc, a member relabel, a join
+/// absorbing a fan parent, and deletion and re-insertion of every fan.
+fn fan_script_alphabet(tree: &Tree) -> Vec<TreeEdit> {
+    let arc = |src: &str, tgt: &str, name: &str| SEdge::new(src, tgt, "child", Some(name));
+    let mut alphabet = vec![
+        TreeEdit::Identity,
+        TreeEdit::DeleteNode { id: 1 },
+        TreeEdit::DeleteNode { id: 3 },
+        TreeEdit::DeleteNode { id: 4 },
+        TreeEdit::ContractNode { id: 2 },
+        TreeEdit::InsertNode {
+            parent: 0,
+            child_id: 1,
+            node: Node::new(1, "feature"),
+            edge: arc("root", "feature", "a"),
+        },
+        TreeEdit::InsertNode {
+            parent: 2,
+            child_id: 3,
+            node: Node::new(3, "leaf"),
+            edge: arc("feature", "leaf", "c"),
+        },
+        TreeEdit::InsertNode {
+            parent: 2,
+            child_id: 4,
+            node: Node::new(4, "leaf"),
+            edge: arc("feature", "leaf", "d"),
+        },
+    ];
+    let fan_ids = u32::try_from(tree.fans.len()).unwrap();
+    for child_id in 5..=5 + fan_ids {
+        alphabet.push(insert_leaf(0, child_id));
+    }
+    alphabet.extend([
+        TreeEdit::MoveSubtree {
+            node_id: 1,
+            new_parent: 0,
+            edge: arc("root", "feature", "a"),
+        },
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 2,
+            edge: arc("feature", "leaf", "c"),
+        },
+        TreeEdit::MoveSubtree {
+            node_id: 4,
+            new_parent: 2,
+            edge: arc("feature", "leaf", "d"),
+        },
+        TreeEdit::MoveSubtree {
+            node_id: 3,
+            new_parent: 1,
+            edge: arc("feature", "leaf", "c"),
+        },
+        TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![2],
+            produce: Node::new(1, "joined"),
+        },
+    ]);
+    let names: BTreeSet<_> = tree.fans.iter().map(|fan| fan.hyper_edge.clone()).collect();
+    alphabet.extend(
+        names
+            .into_iter()
+            .map(|hyper_edge| TreeEdit::DeleteFan { hyper_edge }),
+    );
+    for fan in &tree.fans {
+        let insert = TreeEdit::InsertFan { fan: fan.clone() };
+        if !alphabet.contains(&insert) {
+            alphabet.push(insert);
+        }
+    }
+    alphabet
+}
+
+#[test]
+fn tree_readback_laws_hold_on_every_fan_script_over_shared_name_parent_and_order_geometries() {
+    let mut counts = Vec::new();
+    let mut failures = Vec::new();
+    for (name, tree) in fan_geometries() {
+        let alphabet = fan_script_alphabet(&tree);
+        let letters = &alphabet;
+        let words = letters
+            .iter()
+            .cloned()
+            .chain(letters.iter().flat_map(|first| {
+                letters
+                    .iter()
+                    .map(move |second| TreeEdit::Sequence(vec![first.clone(), second.clone()]))
+            }))
+            .chain(letters.iter().flat_map(|first| {
+                letters.iter().flat_map(move |second| {
+                    letters.iter().map(move |third| {
+                        TreeEdit::Sequence(vec![first.clone(), second.clone(), third.clone()])
+                    })
+                })
+            }));
+        let (count, geometry_failures) = readback_law_failures(&tree, words);
+        println!(
+            "fan geometry [{name}]: {} letters, {count} lowered scripts, {} failures",
+            alphabet.len(),
+            geometry_failures.len()
+        );
+        if let Some(first) = geometry_failures.first() {
+            println!("  first failure: {first}");
+        }
+        failures.extend(geometry_failures);
+        counts.push(count);
+    }
+    println!("fan geometry lowered script counts {counts:?}");
+    assert_eq!(failures, Vec::<String>::new());
+    assert_eq!(
+        counts,
+        [
+            3_256, 3_947, 3_947, 4_014, 4_014, 4_038, 4_038, 4_629, 4_629, 4_613, 4_613, 4_686,
+            4_686, 4_670, 4_670, 6_795, 6_795, 6_795, 6_795, 6_795, 6_795, 9_231
+        ]
+    );
 }
 
 fn arm_edges(edge: u32) -> BTreeMap<String, u32> {
