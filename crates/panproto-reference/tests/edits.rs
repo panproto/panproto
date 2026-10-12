@@ -8,6 +8,7 @@ use panproto_reference::edit::{
     self, AttrKey, AttrVal, EditConflict, GElem, GPayload, GraphDelta, Mismatch, NodeMeta, TElem,
     TKey, TPayload, TVal, TableApplyError, TableDelta, TreeEdit,
 };
+use panproto_reference::encode::TreeEmbedding;
 use panproto_reference::enumerate::edits as carrier;
 use panproto_reference::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
 use panproto_reference::segment::Digest;
@@ -3252,4 +3253,790 @@ fn nonidentity_get_and_put_edit_squares_have_explicit_deltas_and_complements() {
         edit::apply(&translated_put.delta, &source).unwrap(),
         edited_source
     );
+}
+
+/// The embedding `tree_to_graph` assigns to [`join_tree`], written out.
+fn literal_join_embedding() -> TreeEmbedding {
+    TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+        fans: vec![(5, 4, BTreeMap::from([("arm".into(), 5)]))],
+        next_node: 6,
+        next_edge: 6,
+    }
+}
+
+fn fan_node(id: u32, hyper_edge: &str) -> Node {
+    let mut node = Node::new(id, hyper_edge);
+    node.shape = NodeShape::HyperEdge;
+    node
+}
+
+const fn plain_edge(src: u32, tgt: u32, label: SEdge) -> GEdge {
+    GEdge {
+        src,
+        tgt,
+        label,
+        position: None,
+    }
+}
+
+fn fan_parent_label() -> SEdge {
+    SEdge::new("fan", "feature", "hyper_parent", None)
+}
+
+fn fan_arm_label() -> SEdge {
+    SEdge::new("fan", "leaf", "hyper_label", Some("arm"))
+}
+
+fn inserted_label() -> SEdge {
+    SEdge::new("feature", "leaf", "child", Some("inserted"))
+}
+
+fn insert_leaf(parent: u32, child_id: u32) -> TreeEdit {
+    TreeEdit::InsertNode {
+        parent,
+        child_id,
+        node: Node::new(child_id, "leaf"),
+        edge: inserted_label(),
+    }
+}
+
+fn not_tree_edit(result: &Result<TreeEdit, edit::TreeApplyError>, needle: &str) -> bool {
+    matches!(result, Err(edit::TreeApplyError::NotTreeEdit { reason }) if reason.contains(needle))
+}
+
+/// The literal lowering of `InsertNode { parent: 1, child_id: 5 }` on
+/// [`join_tree`]: fan node 5 becomes the tree leaf 5 (its metadata and anchor
+/// change), the fan moves to node 6 with fresh edges 6 and 7 replacing 4 and
+/// 5, and the new arc is edge 8.
+fn fan_relocation_expected_delta() -> GraphDelta {
+    let mut expected_delta = GraphDelta::identity();
+    expected_delta.del.insert(
+        GElem::Edge(4),
+        GPayload::Edge(plain_edge(5, 2, fan_parent_label())),
+    );
+    expected_delta.del.insert(
+        GElem::Edge(5),
+        GPayload::Edge(plain_edge(5, 3, fan_arm_label())),
+    );
+    expected_delta
+        .add
+        .insert(GElem::Node(6), GPayload::Node(fan_node(6, "fan")));
+    expected_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(6, 2, fan_parent_label())),
+    );
+    expected_delta.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(6, 3, fan_arm_label())),
+    );
+    expected_delta.add.insert(
+        GElem::Edge(8),
+        GPayload::Edge(plain_edge(1, 5, inserted_label())),
+    );
+    let plain_meta = |shape| NodeMeta {
+        discriminator: None,
+        position: None,
+        shape,
+        annotations: BTreeMap::new(),
+    };
+    expected_delta.attrs.insert(
+        AttrKey::Meta(5),
+        (
+            AttrVal::Meta(plain_meta(NodeShape::HyperEdge)),
+            AttrVal::Meta(plain_meta(NodeShape::Plain)),
+        ),
+    );
+    expected_delta.attrs.insert(
+        AttrKey::Anchor(5),
+        (
+            AttrVal::Anchor("fan".into()),
+            AttrVal::Anchor("leaf".into()),
+        ),
+    );
+
+    expected_delta
+}
+
+/// The literal graph after [`fan_relocation_expected_delta`].
+fn fan_relocation_expected_graph() -> Graph {
+    let mut expected_graph = literal_join_graph();
+    expected_graph.nodes.insert(5, Node::new(5, "leaf"));
+    expected_graph.nodes.insert(6, fan_node(6, "fan"));
+    expected_graph.edges.remove(&4);
+    expected_graph.edges.remove(&5);
+    expected_graph
+        .edges
+        .insert(6, plain_edge(6, 2, fan_parent_label()));
+    expected_graph
+        .edges
+        .insert(7, plain_edge(6, 3, fan_arm_label()));
+    expected_graph
+        .edges
+        .insert(8, plain_edge(1, 5, inserted_label()));
+
+    expected_graph
+}
+
+// Why the reader's embedding-floor refusal never refuses a lowering, and why
+// readback across a fan relocation needs no exception to it.
+//
+// Fix a tree T and an embedding E that `apply_tree` accepts, so every id E
+// uses lies strictly below its floors: tree and fan node ids below
+// `E.next_node`, arc and fan edge ids below `E.next_edge`. Let e be any tree
+// edit, E' the embedding it leaves, and d = diff(G(T, E), G(T', E')) its
+// lowering.
+//
+// Lemma 1 (ids only grow). Every step draws a new id with `take_tree_id`,
+// which returns the current floor and then raises it, and `InsertNode` raises
+// `next_node` past its child before drawing. So every id E' holds that E
+// does not hold is at least the matching floor of E.
+//
+// Lemma 2 (kept ids keep their endpoints). A step changes an existing entry
+// of the embedding only by removing it or by overwriting it with a freshly
+// drawn id: `InsertNode` re-draws the node and every edge id of each
+// relocated fan; `ContractNode`, `JoinFeatures` and `MoveSubtree` re-draw the
+// arc of every child they re-parent or move. An arc entry that survives
+// unchanged has an unchanged parent and child, and a fan entry that survives
+// unchanged has an unchanged fan node, parent and children. Its graph edge
+// therefore has the same source and target in G(T, E) and G(T', E'). By
+// induction this holds across a sequence.
+//
+// Lemma 3 (no below-floor addition). The differ adds an edge id x either
+// when x is absent from G(T, E) or when x is in both graphs with other
+// endpoints. In the first case x is not an id of E, so x >= E.next_edge by
+// Lemma 1. The second case is excluded by Lemma 2. A fan node d adds is
+// absent from G(T, E), so its id is at least E.next_node by Lemma 1.
+//
+// Hence the floor clause of `check_graph_delta_tree_image` admits every
+// lowering. In particular `InsertNode { child_id: 5 }` on [`join_tree`]
+// relocates fan node 5 to 6 and re-draws both fan edges as 6 and 7 before
+// drawing the new arc as 8, and every added id is at or above the floor 6.
+// A delta that instead re-adds edges 4 and 5 in place with a new source is a
+// below-floor replacement, outside the image by Lemma 3, and is refused.
+#[test]
+fn insert_node_over_the_fan_id_lowers_reads_back_and_applies_exactly() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    assert_eq!(
+        panproto_reference::encode::tree_to_graph(&tree, None),
+        Ok((literal_join_graph(), embedding.clone()))
+    );
+    let insert = insert_leaf(1, 5);
+
+    let expected_delta = fan_relocation_expected_delta();
+    let expected_embedding = TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3), (5, 8)]),
+        fans: vec![(6, 6, BTreeMap::from([("arm".into(), 7)]))],
+        next_node: 7,
+        next_edge: 9,
+    };
+    let mut expected_tree = join_tree();
+    expected_tree.nodes.insert(5, Node::new(5, "leaf"));
+    expected_tree.arcs.push((1, 5, inserted_label()));
+    let mut lowered_embedding = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &insert, None),
+        Ok(expected_delta.clone())
+    );
+    assert_eq!(lowered_embedding, expected_embedding);
+    assert_eq!(
+        edit::apply(&expected_delta, &literal_join_graph()),
+        Ok(fan_relocation_expected_graph())
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected_delta, None),
+        Ok(insert.clone())
+    );
+    let mut applied_embedding = embedding;
+    assert_eq!(
+        edit::apply_tree(&insert, &tree, &mut applied_embedding),
+        Ok(expected_tree)
+    );
+    assert_eq!(applied_embedding, expected_embedding);
+}
+
+#[test]
+fn an_in_place_fan_edge_replacement_is_refused_below_the_floor() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let mut in_place = fan_relocation_expected_delta();
+    for id in [6, 7] {
+        in_place.add.remove(&GElem::Edge(id));
+    }
+    in_place.add.remove(&GElem::Edge(8));
+    in_place.add.insert(
+        GElem::Edge(4),
+        GPayload::Edge(plain_edge(6, 2, fan_parent_label())),
+    );
+    in_place.add.insert(
+        GElem::Edge(5),
+        GPayload::Edge(plain_edge(6, 3, fan_arm_label())),
+    );
+    in_place.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(1, 5, inserted_label())),
+    );
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &in_place, None),
+        "below the embedding floor"
+    ));
+}
+
+#[test]
+fn a_sequence_delta_that_skips_ids_reads_as_its_effect() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let transient = TreeEdit::Sequence(vec![insert_leaf(1, 5), TreeEdit::DeleteNode { id: 5 }]);
+    let mut expected_delta = literal_deletions(
+        &literal_join_graph(),
+        [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)],
+    );
+    expected_delta
+        .add
+        .insert(GElem::Node(6), GPayload::Node(fan_node(6, "fan")));
+    expected_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(6, 2, fan_parent_label())),
+    );
+    expected_delta.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(6, 3, fan_arm_label())),
+    );
+    let mut lowered_embedding = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &transient, None),
+        Ok(expected_delta.clone())
+    );
+    assert_eq!(
+        lowered_embedding,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+            fans: vec![(6, 6, BTreeMap::from([("arm".into(), 7)]))],
+            next_node: 7,
+            next_edge: 9,
+        }
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected_delta, None),
+        Ok(TreeEdit::Identity)
+    );
+    let mut applied_embedding = embedding;
+    assert_eq!(
+        edit::apply_tree(&transient, &tree, &mut applied_embedding),
+        Ok(join_tree())
+    );
+
+    let mut mislabelled = expected_delta.clone();
+    let mut bogus = fan_parent_label();
+    bogus.tgt = "bogus".into();
+    mislabelled
+        .add
+        .insert(GElem::Edge(6), GPayload::Edge(plain_edge(6, 2, bogus)));
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &literal_join_embedding(), &mislabelled, None),
+        "FanLabel { edge: 6 }"
+    ));
+
+    let mut relabelled = expected_delta;
+    let renamed_arm = SEdge::new("fan", "renamed", "hyper_label", Some("arm"));
+    relabelled.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(6, 3, renamed_arm)),
+    );
+    relabelled.attrs.insert(
+        AttrKey::Anchor(3),
+        (
+            AttrVal::Anchor("leaf".into()),
+            AttrVal::Anchor("renamed".into()),
+        ),
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &literal_join_embedding(), &relabelled, None),
+        Ok(TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        })
+    );
+}
+
+#[test]
+fn fan_relocations_read_back_as_suffix_relocations_or_reinsertions() {
+    let second_fan = Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    };
+    let mut tree = join_tree();
+    tree.fans.push(second_fan);
+    let embedding = TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+        fans: vec![
+            (5, 4, BTreeMap::from([("arm".into(), 5)])),
+            (6, 6, BTreeMap::from([("arm".into(), 7)])),
+        ],
+        next_node: 7,
+        next_edge: 8,
+    };
+    let (graph, encoded) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_eq!(encoded, embedding);
+    let second_parent = SEdge::new("second-fan", "feature", "hyper_parent", None);
+    let second_arm = SEdge::new("second-fan", "leaf", "hyper_label", Some("arm"));
+
+    let mut suffix = literal_deletions(&graph, [GElem::Node(6), GElem::Edge(6), GElem::Edge(7)]);
+    suffix
+        .add
+        .insert(GElem::Node(7), GPayload::Node(fan_node(7, "second-fan")));
+    suffix.add.insert(
+        GElem::Edge(8),
+        GPayload::Edge(plain_edge(7, 1, second_parent)),
+    );
+    suffix
+        .add
+        .insert(GElem::Edge(9), GPayload::Edge(plain_edge(7, 4, second_arm)));
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &suffix, None),
+        Ok(TreeEdit::Identity)
+    );
+
+    let mut first_only =
+        literal_deletions(&graph, [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)]);
+    first_only
+        .add
+        .insert(GElem::Node(7), GPayload::Node(fan_node(7, "fan")));
+    first_only.add.insert(
+        GElem::Edge(8),
+        GPayload::Edge(plain_edge(7, 2, fan_parent_label())),
+    );
+    first_only.add.insert(
+        GElem::Edge(9),
+        GPayload::Edge(plain_edge(7, 3, fan_arm_label())),
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &first_only, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteFan {
+                hyper_edge: "fan".into(),
+            },
+            TreeEdit::InsertFan {
+                fan: join_tree().fans[0].clone(),
+            },
+        ]))
+    );
+
+    let mut duplicate = join_tree();
+    duplicate.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    let (duplicate_graph, duplicate_embedding) =
+        panproto_reference::encode::tree_to_graph(&duplicate, None).unwrap();
+    assert_eq!(duplicate_embedding.fans[0].0, 5);
+    let mut duplicate_first_only = literal_deletions(
+        &duplicate_graph,
+        [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)],
+    );
+    duplicate_first_only
+        .add
+        .insert(GElem::Node(7), GPayload::Node(fan_node(7, "fan")));
+    duplicate_first_only.add.insert(
+        GElem::Edge(8),
+        GPayload::Edge(plain_edge(7, 2, fan_parent_label())),
+    );
+    duplicate_first_only.add.insert(
+        GElem::Edge(9),
+        GPayload::Edge(plain_edge(7, 3, fan_arm_label())),
+    );
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(
+            &duplicate,
+            &duplicate_embedding,
+            &duplicate_first_only,
+            None
+        ),
+        "fixed carriers"
+    ));
+}
+
+#[test]
+fn sibling_insertions_read_back_in_their_arc_order() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let script = TreeEdit::Sequence(vec![insert_leaf(1, 7), insert_leaf(1, 6)]);
+    let mut expected_delta = GraphDelta::identity();
+    expected_delta
+        .add
+        .insert(GElem::Node(6), GPayload::Node(Node::new(6, "leaf")));
+    expected_delta
+        .add
+        .insert(GElem::Node(7), GPayload::Node(Node::new(7, "leaf")));
+    expected_delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(1, 7, inserted_label())),
+    );
+    expected_delta.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(1, 6, inserted_label())),
+    );
+    let mut lowered_embedding = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &script, None),
+        Ok(expected_delta.clone())
+    );
+    let mut expected_tree = join_tree();
+    expected_tree.nodes.insert(6, Node::new(6, "leaf"));
+    expected_tree.nodes.insert(7, Node::new(7, "leaf"));
+    expected_tree.arcs.push((1, 7, inserted_label()));
+    expected_tree.arcs.push((1, 6, inserted_label()));
+    let reading = TreeEdit::Sequence(vec![
+        insert_leaf(1, 6),
+        insert_leaf(1, 7),
+        TreeEdit::MoveSubtree {
+            node_id: 6,
+            new_parent: 1,
+            edge: inserted_label(),
+        },
+    ]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected_delta, None),
+        Ok(reading.clone())
+    );
+    let mut reading_embedding = embedding;
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut reading_embedding),
+        Ok(expected_tree)
+    );
+}
+
+#[test]
+fn same_parent_moves_that_keep_the_label_read_back_exactly() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let graph = literal_join_graph();
+    for (child, old_edge, name, expected_arcs) in [
+        (4, 3, "d", [(0, 1), (0, 2), (2, 3), (2, 4)]),
+        (3, 2, "c", [(0, 1), (0, 2), (2, 4), (2, 3)]),
+    ] {
+        let label = SEdge::new("feature", "leaf", "child", Some(name));
+        let step = TreeEdit::MoveSubtree {
+            node_id: child,
+            new_parent: 2,
+            edge: label.clone(),
+        };
+        let mut expected_delta = literal_deletions(&graph, [GElem::Edge(old_edge)]);
+        expected_delta
+            .add
+            .insert(GElem::Edge(6), GPayload::Edge(plain_edge(2, child, label)));
+        let mut lowered_embedding = embedding.clone();
+        assert_eq!(
+            edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &step, None),
+            Ok(expected_delta.clone())
+        );
+        assert_eq!(
+            edit::tree_edit_from_graph_delta(&tree, &embedding, &expected_delta, None),
+            Ok(step.clone())
+        );
+        let mut applied_embedding = embedding.clone();
+        let applied = edit::apply_tree(&step, &tree, &mut applied_embedding).unwrap();
+        assert_eq!(
+            applied
+                .arcs
+                .iter()
+                .map(|(parent, child, _)| (*parent, *child))
+                .collect::<Vec<_>>(),
+            expected_arcs
+        );
+        assert_eq!(applied_embedding, lowered_embedding);
+    }
+}
+
+#[test]
+fn duplicate_named_fan_relocations_read_back_through_member_deletion() {
+    let mut tree = join_tree();
+    tree.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_eq!(
+        embedding,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+            fans: vec![
+                (5, 4, BTreeMap::from([("arm".into(), 5)])),
+                (6, 6, BTreeMap::from([("other-arm".into(), 7)])),
+            ],
+            next_node: 7,
+            next_edge: 8,
+        }
+    );
+    let script = TreeEdit::Sequence(vec![insert_leaf(0, 6), TreeEdit::DeleteNode { id: 1 }]);
+    let mut expected_delta = literal_deletions(
+        &graph,
+        [
+            GElem::Node(1),
+            GElem::Edge(0),
+            GElem::Edge(6),
+            GElem::Edge(7),
+        ],
+    );
+    expected_delta.add.insert(
+        GElem::Edge(10),
+        GPayload::Edge(plain_edge(0, 6, inserted_label())),
+    );
+    let plain_meta = |shape| NodeMeta {
+        discriminator: None,
+        position: None,
+        shape,
+        annotations: BTreeMap::new(),
+    };
+    expected_delta.attrs.insert(
+        AttrKey::Meta(6),
+        (
+            AttrVal::Meta(plain_meta(NodeShape::HyperEdge)),
+            AttrVal::Meta(plain_meta(NodeShape::Plain)),
+        ),
+    );
+    expected_delta.attrs.insert(
+        AttrKey::Anchor(6),
+        (
+            AttrVal::Anchor("fan".into()),
+            AttrVal::Anchor("leaf".into()),
+        ),
+    );
+    let mut lowered_embedding = embedding.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &script, None),
+        Ok(expected_delta.clone())
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &expected_delta, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 1 },
+            insert_leaf(0, 6),
+        ]))
+    );
+}
+
+#[test]
+fn tree_reader_refuses_fresh_carriers_with_payloads_no_edit_writes() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let mut positioned = GraphDelta::identity();
+    positioned
+        .add
+        .insert(GElem::Node(6), GPayload::Node(Node::new(6, "leaf")));
+    positioned.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(GEdge {
+            position: Some(0),
+            ..plain_edge(1, 6, inserted_label())
+        }),
+    );
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &positioned, None),
+        "PositionedEdge { edge: 6 }"
+    ));
+
+    let mut fan_label = GraphDelta::identity();
+    fan_label
+        .add
+        .insert(GElem::Node(6), GPayload::Node(fan_node(6, "second-fan")));
+    fan_label.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(
+            6,
+            1,
+            SEdge::new("second-fan", "not-the-anchor", "hyper_parent", None),
+        )),
+    );
+    fan_label.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(
+            6,
+            4,
+            SEdge::new("second-fan", "leaf", "hyper_label", Some("arm")),
+        )),
+    );
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &fan_label, None),
+        "FanLabel { edge: 6 }"
+    ));
+}
+
+/// A finite alphabet of tree edits over `tree` and its successors: every
+/// primitive variant, inserts that take hidden fan-node ids, same-parent moves
+/// that keep the arc label, fan deletion and re-insertion, and joins.
+fn tree_edit_alphabet(tree: &Tree, wide: bool) -> Vec<TreeEdit> {
+    let label = |name: &str| SEdge::new("feature", "leaf", "child", Some(name));
+    let parents: &[u32] = if wide { &[0, 1, 2, 3, 4] } else { &[0, 2] };
+    let moved: &[u32] = if wide {
+        &[1, 2, 3, 4, 5, 6, 7, 8]
+    } else {
+        &[3, 4, 6]
+    };
+    let new_parents = if wide { 0..=8 } else { 0..=6 };
+    let names: &[&str] = if wide {
+        &["c", "d", "inserted", "moved"]
+    } else {
+        &["c", "d"]
+    };
+    let mut alphabet = vec![TreeEdit::Identity];
+    for parent in parents {
+        for child_id in 5..=8 {
+            alphabet.push(insert_leaf(*parent, child_id));
+        }
+    }
+    for id in 1..=8 {
+        alphabet.push(TreeEdit::DeleteNode { id });
+        alphabet.push(TreeEdit::ContractNode { id });
+    }
+    for node_id in moved {
+        for new_parent in new_parents.clone() {
+            for name in names {
+                alphabet.push(TreeEdit::MoveSubtree {
+                    node_id: *node_id,
+                    new_parent,
+                    edge: label(name),
+                });
+            }
+        }
+    }
+    for fan in &tree.fans {
+        alphabet.push(TreeEdit::DeleteFan {
+            hyper_edge: fan.hyper_edge.clone(),
+        });
+        alphabet.push(TreeEdit::InsertFan { fan: fan.clone() });
+    }
+    alphabet.extend([
+        TreeEdit::RelabelNode {
+            id: 3,
+            new_anchor: "renamed".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 1,
+            field: "f".into(),
+            value: Value::Int(1),
+        },
+        TreeEdit::RemoveField {
+            node_id: 1,
+            field: "f".into(),
+        },
+        TreeEdit::InsertFan {
+            fan: Fan {
+                parent: 0,
+                hyper_edge: "third-fan".into(),
+                children: BTreeMap::from([("arm".into(), 1)]),
+            },
+        },
+        TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![2],
+            produce: Node::new(1, "joined"),
+        },
+        TreeEdit::JoinFeatures {
+            primary: 0,
+            joined: vec![2, 1],
+            produce: Node::new(0, "root"),
+        },
+    ]);
+    alphabet
+}
+
+/// [`join_tree`], the same with a second fan of another name, and the same
+/// with a second fan of the same name.
+fn readback_trees() -> Vec<Tree> {
+    let mut distinct = join_tree();
+    distinct.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "second-fan".into(),
+        children: BTreeMap::from([("arm".into(), 4)]),
+    });
+    let mut duplicate = join_tree();
+    duplicate.fans.push(Fan {
+        parent: 1,
+        hyper_edge: "fan".into(),
+        children: BTreeMap::from([("other-arm".into(), 4)]),
+    });
+    vec![join_tree(), distinct, duplicate]
+}
+
+/// Check the readback laws on every script that lowers: the reading exists,
+/// it has the script's effect on the tree, and on at most one step its
+/// lowering and resulting embedding are the script's. Returns the number of
+/// lowered scripts and every failure.
+fn readback_law_failures(
+    tree: &Tree,
+    scripts: impl Iterator<Item = TreeEdit>,
+) -> (usize, Vec<String>) {
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+    let mut lowered_count = 0;
+    let mut failures = Vec::new();
+    for script in scripts {
+        let mut lowered = embedding.clone();
+        let Ok(delta) = edit::graph_delta_from_tree_edit(tree, &mut lowered, &script, None) else {
+            continue;
+        };
+        lowered_count += 1;
+        let read = match edit::tree_edit_from_graph_delta(tree, &embedding, &delta, None) {
+            Ok(read) => read,
+            Err(error) => {
+                failures.push(format!("{error:?} on {script:?}"));
+                continue;
+            }
+        };
+        let mut read_embedding = embedding.clone();
+        let mut script_embedding = embedding.clone();
+        if edit::apply_tree(&read, tree, &mut read_embedding)
+            != edit::apply_tree(&script, tree, &mut script_embedding)
+        {
+            failures.push(format!("{read:?} has another effect than {script:?}"));
+        }
+        if script.steps().len() <= 1 {
+            let mut relowered = embedding.clone();
+            if edit::graph_delta_from_tree_edit(tree, &mut relowered, &read, None).as_ref()
+                != Ok(&delta)
+                || relowered != lowered
+            {
+                failures.push(format!("{script:?} read inexactly as {read:?}"));
+            }
+        }
+    }
+    (lowered_count, failures)
+}
+
+#[test]
+fn tree_readback_laws_hold_on_every_short_script_over_three_fan_geometries() {
+    let mut pair_counts = Vec::new();
+    let mut triple_counts = Vec::new();
+    for tree in readback_trees() {
+        let wide = tree_edit_alphabet(&tree, true);
+        let pairs = wide.iter().flat_map(|first| {
+            wide.iter()
+                .map(|second| TreeEdit::Sequence(vec![first.clone(), second.clone()]))
+        });
+        let (count, failures) = readback_law_failures(&tree, pairs);
+        assert_eq!(failures, Vec::<String>::new());
+        pair_counts.push(count);
+
+        let narrow_alphabet = tree_edit_alphabet(&tree, false);
+        let narrow = &narrow_alphabet;
+        let triples = narrow.iter().flat_map(|first| {
+            narrow.iter().flat_map(move |second| {
+                narrow.iter().map(move |third| {
+                    TreeEdit::Sequence(vec![first.clone(), second.clone(), third.clone()])
+                })
+            })
+        });
+        let (count, failures) = readback_law_failures(&tree, triples);
+        assert_eq!(failures, Vec::<String>::new());
+        triple_counts.push(count);
+    }
+    println!(
+        "tree readback laws: lowered pairs {pair_counts:?}, lowered triples {triple_counts:?}"
+    );
+    assert_eq!(pair_counts, [8_518, 8_879, 8_885]);
+    assert_eq!(triple_counts, [54_301, 62_740, 63_175]);
 }

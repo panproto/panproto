@@ -1600,19 +1600,36 @@ pub mod edit {
         Ok(())
     }
 
+    /// Delete fans by name until the reconstruction's fans are a prefix of
+    /// the result's fans: first every fan absent from the result, then the
+    /// first fan out of the result's order. A deletion removes every fan of
+    /// its name, so no step names a fan an earlier step already removed.
     fn remove_changed_tree_fans(
         after: &crate::model::Tree,
         current: &mut crate::model::Tree,
         embedding: &mut crate::encode::TreeEmbedding,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
-        let removed: Vec<_> = current
+        while let Some(hyper_edge) = current
             .fans
             .iter()
-            .filter(|fan| !after.fans.contains(fan))
+            .find(|fan| !after.fans.contains(fan))
             .map(|fan| fan.hyper_edge.clone())
-            .collect();
-        for hyper_edge in removed {
+        {
+            push_tree_step(
+                steps,
+                current,
+                embedding,
+                TreeEdit::DeleteFan { hyper_edge },
+            )?;
+        }
+        while let Some(hyper_edge) = current
+            .fans
+            .iter()
+            .enumerate()
+            .find(|(index, fan)| after.fans.get(*index) != Some(*fan))
+            .map(|(_, fan)| fan.hyper_edge.clone())
+        {
             push_tree_step(
                 steps,
                 current,
@@ -1713,6 +1730,64 @@ pub mod edit {
         Ok(())
     }
 
+    /// Re-append the arcs that the delta allocated afresh, so the
+    /// reconstruction has the result's arc order and re-allocates every arc
+    /// the delta re-allocates.
+    ///
+    /// The result's arcs are its kept arcs (ids below the start floor, in
+    /// their original order) followed by its `refreshed` arcs in ascending
+    /// fresh id. After the structural reconciliation the reconstruction has
+    /// the same arc set, with the kept arcs untouched and in order, so
+    /// re-appending a suffix of the result's arcs by same-parent moves (which
+    /// can never form a cycle) yields exactly the result's order. The suffix
+    /// is the longest one with that property that still includes every
+    /// refreshed arc the reconstruction has not yet re-allocated.
+    fn reorder_refreshed_tree_arcs(
+        after: &crate::model::Tree,
+        refreshed: &BTreeSet<u32>,
+        start: &crate::encode::TreeEmbedding,
+        current: &mut crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding,
+        steps: &mut Vec<TreeEdit>,
+    ) -> Result<(), TreeApplyError> {
+        let limit = after
+            .arcs
+            .iter()
+            .position(|(_, child, _)| {
+                refreshed.contains(child) && embedding.arcs.get(child) == start.arcs.get(child)
+            })
+            .unwrap_or(after.arcs.len());
+        let split = (0..=limit)
+            .rev()
+            .find(|split| {
+                let suffix: BTreeSet<u32> = after.arcs[*split..]
+                    .iter()
+                    .map(|(_, child, _)| *child)
+                    .collect();
+                current
+                    .arcs
+                    .iter()
+                    .filter(|(_, child, _)| !suffix.contains(child))
+                    .eq(after.arcs[..*split].iter())
+            })
+            .ok_or_else(|| TreeApplyError::NotTreeEdit {
+                reason: "the result's arc order is not reachable by re-appending arcs".to_owned(),
+            })?;
+        for (parent, child, edge) in after.arcs[split..].iter().cloned() {
+            push_tree_step(
+                steps,
+                current,
+                embedding,
+                TreeEdit::MoveSubtree {
+                    node_id: child,
+                    new_parent: parent,
+                    edge,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     fn reconcile_tree_relabels(
         after: &crate::model::Tree,
         joins: &BTreeSet<u32>,
@@ -1801,12 +1876,13 @@ pub mod edit {
             .collect();
         reconcile_tree_relabels(after, &joins, current, embedding, steps)?;
         reconcile_tree_fields(after, &joins, current, embedding, steps)?;
-        let inserted: Vec<_> = after
+        let inserted = after
             .fans
-            .iter()
-            .filter(|fan| !current.fans.contains(fan))
-            .cloned()
-            .collect();
+            .get(current.fans.len()..)
+            .ok_or_else(|| TreeApplyError::NotTreeEdit {
+                reason: "the reconstruction keeps more fans than the result has".to_owned(),
+            })?
+            .to_vec();
         for fan in inserted {
             push_tree_step(steps, current, embedding, TreeEdit::InsertFan { fan })?;
         }
@@ -1830,6 +1906,7 @@ pub mod edit {
         before: &crate::model::Tree,
         embedding: &crate::encode::TreeEmbedding,
         after: &crate::model::Tree,
+        refreshed: &BTreeSet<u32>,
     ) -> Result<TreeEdit, TreeApplyError> {
         if before.root != after.root {
             return Err(TreeApplyError::NotTreeEdit {
@@ -1839,10 +1916,18 @@ pub mod edit {
         let mut current = before.clone();
         let mut current_embedding = embedding.clone();
         let mut steps = Vec::new();
-        remove_changed_tree_fans(after, &mut current, &mut current_embedding, &mut steps)?;
         remove_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
+        remove_changed_tree_fans(after, &mut current, &mut current_embedding, &mut steps)?;
         insert_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
         reconcile_tree_arcs(after, &mut current, &mut current_embedding, &mut steps)?;
+        reorder_refreshed_tree_arcs(
+            after,
+            refreshed,
+            embedding,
+            &mut current,
+            &mut current_embedding,
+            &mut steps,
+        )?;
         reconcile_tree_payloads_and_fans(after, &mut current, &mut current_embedding, &mut steps)?;
         if current != *after {
             return Err(TreeApplyError::NotTreeEdit {
@@ -1869,10 +1954,52 @@ pub mod edit {
             .collect()
     }
 
-    fn fixed_delta_parts_match(left: &GraphDelta, right: &GraphDelta) -> bool {
-        left.del == right.del
-            && left.attrs == right.attrs
-            && fixed_added_tree_nodes(left) == fixed_added_tree_nodes(right)
+    /// Whether `element` is a fan carrier of `graph`: a fan node, or an edge
+    /// out of one.
+    fn is_fan_carrier(graph: &Graph, element: &GElem) -> bool {
+        let is_fan_node = |id: &u32| {
+            graph
+                .nodes
+                .get(id)
+                .is_some_and(|node| node.shape == NodeShape::HyperEdge)
+        };
+        match element {
+            GElem::Node(id) => is_fan_node(id),
+            GElem::Edge(id) => graph
+                .edges
+                .get(id)
+                .is_some_and(|edge| is_fan_node(&edge.src)),
+        }
+    }
+
+    /// Whether a composite delta has the fixed parts of the reconstruction's
+    /// lowering: every deletion of the lowering, beyond those only deletions
+    /// of fan carriers, equal added tree nodes, and equal attribute changes
+    /// apart from the lowering's changes of the carriers only the delta
+    /// deletes. Such an extra deletion is a fan relocation: the
+    /// reconstruction keeps the fan, so the equal result trees show that the
+    /// delta re-adds the same fan, in the same fan order, under fresh ids,
+    /// where any label change of the kept carriers is already in the re-added
+    /// payloads.
+    fn fixed_delta_parts_match(before: &Graph, delta: &GraphDelta, lowered: &GraphDelta) -> bool {
+        let relocated: BTreeSet<&GElem> = delta
+            .del
+            .keys()
+            .filter(|element| !lowered.del.contains_key(*element))
+            .collect();
+        relocated
+            .iter()
+            .all(|element| is_fan_carrier(before, element))
+            && lowered
+                .del
+                .iter()
+                .all(|(element, payload)| delta.del.get(element) == Some(payload))
+            && fixed_added_tree_nodes(delta) == fixed_added_tree_nodes(lowered)
+            && lowered
+                .attrs
+                .iter()
+                .filter(|(key, _)| !relocated.contains(&GraphSpace::owner(key)))
+                .eq(delta.attrs.iter())
     }
 
     fn check_graph_delta_tree_image(
@@ -2105,8 +2232,10 @@ pub mod edit {
     /// A single-step lowering is read to a step whose lowering and resulting
     /// embedding are exact; syntactically distinct tree edits may share that
     /// lowering. A composite lowering is recovered as a normalized sequence
-    /// with the same resulting tree; freshly allocated graph ids may differ,
-    /// as E.3 permits. Deltas outside the stated image are refused.
+    /// with the same resulting tree, arcs and fans in the same order;
+    /// freshly allocated graph ids may differ, and a fan the delta relocates
+    /// (deletes and re-adds unchanged, in fan order, under fresh ids) is read
+    /// as kept, as E.3 permits. Deltas outside the stated image are refused.
     ///
     /// # Errors
     ///
@@ -2137,10 +2266,22 @@ pub mod edit {
         if let Some(edit) = exact_tree_edit(&candidate, &after_tree) {
             return Ok(edit);
         }
-        let edit = tree_transform_edit(tree, embedding, &after_tree)?;
+        let refreshed: BTreeSet<u32> = after_graph
+            .edges
+            .iter()
+            .filter(|(id, edge)| {
+                **id >= embedding.next_edge
+                    && after_graph
+                        .nodes
+                        .get(&edge.src)
+                        .is_some_and(|node| node.shape != NodeShape::HyperEdge)
+            })
+            .map(|(_, edge)| edge.tgt)
+            .collect();
+        let edit = tree_transform_edit(tree, embedding, &after_tree, &refreshed)?;
         let mut followed = embedding.clone();
         let lowered = graph_delta_from_tree_edit(tree, &mut followed, &edit, schema)?;
-        if fixed_delta_parts_match(delta, &lowered) {
+        if fixed_delta_parts_match(&before_graph, delta, &lowered) {
             Ok(edit)
         } else {
             Err(TreeApplyError::NotTreeEdit {
