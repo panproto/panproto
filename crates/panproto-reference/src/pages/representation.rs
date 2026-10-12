@@ -373,17 +373,21 @@ pub mod encode {
     use crate::schema::Schema;
 
     /// How a tree's arcs and fans sit in its graph.
+    ///
+    /// `I` is the type of the embedded ids: `u32`, the graph's, except where
+    /// the tree-edit reader replays a reconstruction in a wider type so that
+    /// its own id draws never run out.
     #[derive(Clone, Debug, PartialEq, Eq, Default)]
-    pub struct TreeEmbedding {
+    pub struct TreeEmbedding<I = u32> {
         /// Child node to the edge id of its arc.
-        pub arcs: BTreeMap<u32, u32>,
+        pub arcs: BTreeMap<u32, I>,
         /// Per fan, in the tree's fan order: its node, its parent edge and its
         /// child edges by label.
-        pub fans: Vec<(u32, u32, BTreeMap<Name, u32>)>,
+        pub fans: Vec<(I, I, BTreeMap<Name, I>)>,
         /// The next free node id.
-        pub next_node: u32,
+        pub next_node: I,
         /// The next free edge id.
-        pub next_edge: u32,
+        pub next_edge: I,
     }
 
     /// Why a tree has no graph form.

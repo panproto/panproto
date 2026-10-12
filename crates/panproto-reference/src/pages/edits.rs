@@ -894,9 +894,29 @@ pub mod edit {
         },
     }
 
-    fn take_tree_id(counter: &mut u32) -> Result<u32, TreeApplyError> {
+    /// The type of embedded ids a tree edit runs over: `u32`, the graph's,
+    /// or `u128`, in which the reader replays its reconstruction. An id is
+    /// drawn by taking a floor's successor, which fails only at the type's
+    /// maximum.
+    trait TreeId: Copy + Ord + From<u32> {
+        fn successor(self) -> Option<Self>;
+    }
+
+    impl TreeId for u32 {
+        fn successor(self) -> Option<Self> {
+            self.checked_add(1)
+        }
+    }
+
+    impl TreeId for u128 {
+        fn successor(self) -> Option<Self> {
+            self.checked_add(1)
+        }
+    }
+
+    fn take_tree_id<I: TreeId>(counter: &mut I) -> Result<I, TreeApplyError> {
         let id = *counter;
-        *counter = id.checked_add(1).ok_or(TreeApplyError::IdsExhausted)?;
+        *counter = id.successor().ok_or(TreeApplyError::IdsExhausted)?;
         Ok(id)
     }
 
@@ -920,9 +940,9 @@ pub mod edit {
         false
     }
 
-    fn remove_tree_fans(
+    fn remove_tree_fans<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         mut remove: impl FnMut(&crate::model::Fan) -> bool,
     ) {
         let mut kept_fans = Vec::with_capacity(tree.fans.len());
@@ -939,9 +959,9 @@ pub mod edit {
         embedding.fans = kept_embeddings;
     }
 
-    fn apply_insert_node(
+    fn apply_insert_node<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         parent: u32,
         child_id: u32,
         node: &Node,
@@ -960,14 +980,14 @@ pub mod edit {
             });
         }
         embedding.next_node = embedding.next_node.max(
-            child_id
-                .checked_add(1)
+            I::from(child_id)
+                .successor()
                 .ok_or(TreeApplyError::IdsExhausted)?,
         );
         if let Some(first) = embedding
             .fans
             .iter()
-            .position(|(fan_node, _, _)| *fan_node == child_id)
+            .position(|(fan_node, _, _)| *fan_node == I::from(child_id))
         {
             for (fan_node, parent_edge, children) in embedding.fans.iter_mut().skip(first) {
                 *fan_node = take_tree_id(&mut embedding.next_node)?;
@@ -984,9 +1004,9 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_delete_node(
+    fn apply_delete_node<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         id: u32,
     ) -> Result<(), TreeApplyError> {
         if !tree.nodes.contains_key(&id) {
@@ -1007,9 +1027,9 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_contract_node(
+    fn apply_contract_node<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         id: u32,
     ) -> Result<(), TreeApplyError> {
         if !tree.nodes.contains_key(&id) {
@@ -1044,9 +1064,9 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_move_subtree(
+    fn apply_move_subtree<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         node_id: u32,
         new_parent: u32,
         edge: &SEdge,
@@ -1074,9 +1094,9 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_insert_fan(
+    fn apply_insert_fan<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         fan: &crate::model::Fan,
     ) -> Result<(), TreeApplyError> {
         if !tree.nodes.contains_key(&fan.parent) {
@@ -1090,9 +1110,6 @@ pub mod edit {
             return Err(TreeApplyError::NodeNotFound(*child));
         }
         let fan_node = take_tree_id(&mut embedding.next_node)?;
-        if tree.nodes.contains_key(&fan_node) {
-            return Err(TreeApplyError::DuplicateNodeId(fan_node));
-        }
         let parent_edge = take_tree_id(&mut embedding.next_edge)?;
         let mut children = BTreeMap::new();
         for label in fan.children.keys() {
@@ -1103,9 +1120,9 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_join_features(
+    fn apply_join_features<I: TreeId>(
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         primary: u32,
         joined: &[u32],
         produce: &Node,
@@ -1167,10 +1184,10 @@ pub mod edit {
         Ok(())
     }
 
-    fn apply_tree_step(
+    fn apply_tree_step<I: TreeId>(
         edit: &TreeEdit,
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
     ) -> Result<(), TreeApplyError> {
         match edit {
             TreeEdit::Identity => Ok(()),
@@ -1589,10 +1606,10 @@ pub mod edit {
             .cloned()
     }
 
-    fn push_tree_step(
+    fn push_tree_step<I: TreeId>(
         steps: &mut Vec<TreeEdit>,
         tree: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         step: TreeEdit,
     ) -> Result<(), TreeApplyError> {
         apply_tree_step(&step, tree, embedding)?;
@@ -1613,12 +1630,12 @@ pub mod edit {
     /// whose arc and child arcs the delta re-allocates (a later step
     /// re-inserts it; the root has no arc, so it is never such a node).
     /// Returns the steps, or none when an unkept fan has no such step.
-    fn remove_unkept_tree_fans(
+    fn remove_unkept_tree_fans<I: TreeId>(
         after: &crate::model::Tree,
         limit: usize,
         refreshed: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
     ) -> Result<Option<Vec<TreeEdit>>, TreeApplyError> {
         let mut kept = BTreeSet::new();
         for (fan, (node, _, _)) in current.fans.iter().zip(&embedding.fans) {
@@ -1674,11 +1691,11 @@ pub mod edit {
     /// result's fans: keep those matching the longest prefix of the result's
     /// fans whose unkept fans all have a removal step that touches no kept
     /// fan.
-    fn remove_changed_tree_fans(
+    fn remove_changed_tree_fans<I: TreeId>(
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         for limit in (0..=after.fans.len()).rev() {
@@ -1696,10 +1713,10 @@ pub mod edit {
         Err(fixed_carriers_refusal())
     }
 
-    fn remove_missing_tree_nodes(
+    fn remove_missing_tree_nodes<I: TreeId>(
         after: &crate::model::Tree,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         let mut deleted: Vec<_> = current
@@ -1720,10 +1737,10 @@ pub mod edit {
         Ok(())
     }
 
-    fn insert_missing_tree_nodes(
+    fn insert_missing_tree_nodes<I: TreeId>(
         after: &crate::model::Tree,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         let mut added: Vec<_> = after
@@ -1753,10 +1770,10 @@ pub mod edit {
         Ok(())
     }
 
-    fn reconcile_tree_arcs(
+    fn reconcile_tree_arcs<I: TreeId>(
         after: &crate::model::Tree,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         let mut children: Vec<_> = after
@@ -1798,12 +1815,12 @@ pub mod edit {
     /// can never form a cycle) yields exactly the result's order. The suffix
     /// is the longest one with that property that still includes every
     /// refreshed arc the reconstruction has not yet re-allocated.
-    fn reorder_refreshed_tree_arcs(
+    fn reorder_refreshed_tree_arcs<I: TreeId>(
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
-        start: &crate::encode::TreeEmbedding,
+        start: &crate::encode::TreeEmbedding<I>,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         let limit = after
@@ -1844,11 +1861,11 @@ pub mod edit {
         Ok(())
     }
 
-    fn reconcile_tree_relabels(
+    fn reconcile_tree_relabels<I: TreeId>(
         after: &crate::model::Tree,
         joins: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         for (id, target) in &after.nodes {
@@ -1867,11 +1884,11 @@ pub mod edit {
         Ok(())
     }
 
-    fn reconcile_tree_fields(
+    fn reconcile_tree_fields<I: TreeId>(
         after: &crate::model::Tree,
         joins: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         for (id, target) in &after.nodes {
@@ -1915,10 +1932,10 @@ pub mod edit {
         Ok(())
     }
 
-    fn reconcile_tree_payloads_and_fans(
+    fn reconcile_tree_payloads_and_fans<I: TreeId>(
         after: &crate::model::Tree,
         current: &mut crate::model::Tree,
-        embedding: &mut crate::encode::TreeEmbedding,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
         let joins: BTreeSet<_> = after
@@ -1958,12 +1975,14 @@ pub mod edit {
         Ok(())
     }
 
-    fn tree_transform_edit(
+    /// The reader's reconstruction: a normalized sequence that takes `before`
+    /// to `after`, with the embedding it reaches from `embedding`.
+    fn tree_transform_edit<I: TreeId>(
         before: &crate::model::Tree,
-        embedding: &crate::encode::TreeEmbedding,
+        embedding: &crate::encode::TreeEmbedding<I>,
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
-    ) -> Result<TreeEdit, TreeApplyError> {
+    ) -> Result<(TreeEdit, crate::encode::TreeEmbedding<I>), TreeApplyError> {
         if before.root != after.root {
             return Err(TreeApplyError::NotTreeEdit {
                 reason: "a tree edit cannot replace the root id".to_owned(),
@@ -1997,11 +2016,90 @@ pub mod edit {
                     .to_owned(),
             });
         }
-        Ok(match steps.len() {
+        let edit = match steps.len() {
             0 => TreeEdit::Identity,
             1 => steps.pop().unwrap_or(TreeEdit::Identity),
             _ => TreeEdit::Sequence(steps),
-        })
+        };
+        Ok((edit, current_embedding))
+    }
+
+    /// `embedding` with its ids in `u128`.
+    fn widened(embedding: &crate::encode::TreeEmbedding) -> crate::encode::TreeEmbedding<u128> {
+        crate::encode::TreeEmbedding {
+            arcs: embedding
+                .arcs
+                .iter()
+                .map(|(child, edge)| (*child, u128::from(*edge)))
+                .collect(),
+            fans: embedding
+                .fans
+                .iter()
+                .map(|(node, parent, children)| {
+                    (
+                        u128::from(*node),
+                        u128::from(*parent),
+                        children
+                            .iter()
+                            .map(|(label, edge)| (label.clone(), u128::from(*edge)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            next_node: u128::from(embedding.next_node),
+            next_edge: u128::from(embedding.next_edge),
+        }
+    }
+
+    /// The part of the graph of `tree` under the `u128` embedding `reached`
+    /// whose ids are below the floors of `start`: the tree nodes below the
+    /// node floor, the arcs whose edge ids are below the edge floor, and the
+    /// fans whose node ids are below the node floor. A fan's carriers are
+    /// kept from `start` or drawn afresh together, and an arc keeps its id
+    /// only while its parent and child do, so this is a valid embedded graph
+    /// holding every element of the whole graph with an id below the floors,
+    /// with the same payload.
+    fn graph_below_floors(
+        tree: &crate::model::Tree,
+        reached: &crate::encode::TreeEmbedding<u128>,
+        start: &crate::encode::TreeEmbedding,
+        schema: Option<&crate::schema::Schema>,
+    ) -> Result<Graph, TreeApplyError> {
+        let below = |id: u128, floor: u32| u32::try_from(id).ok().filter(|id| *id < floor);
+        let narrow = |id: &u128| u32::try_from(*id).unwrap_or(u32::MAX);
+        let mut kept_tree = crate::model::Tree {
+            nodes: tree
+                .nodes
+                .range(..start.next_node)
+                .map(|(id, node)| (*id, node.clone()))
+                .collect(),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+            root: tree.root,
+        };
+        let mut kept = crate::encode::TreeEmbedding {
+            arcs: BTreeMap::new(),
+            fans: Vec::new(),
+            next_node: start.next_node,
+            next_edge: start.next_edge,
+        };
+        for arc in &tree.arcs {
+            if let Some(edge) = below(reached.arcs[&arc.1], start.next_edge) {
+                kept.arcs.insert(arc.1, edge);
+                kept_tree.arcs.push(arc.clone());
+            }
+        }
+        for (fan, (node, parent, children)) in tree.fans.iter().zip(&reached.fans) {
+            if let Some(node) = below(*node, start.next_node) {
+                let children = children
+                    .iter()
+                    .map(|(label, edge)| (label.clone(), narrow(edge)))
+                    .collect();
+                kept.fans.push((node, narrow(parent), children));
+                kept_tree.fans.push(fan.clone());
+            }
+        }
+        graph_of_embedded_tree(&kept_tree, &kept, schema)
     }
 
     /// The carriers of the fan at fan node `fan` of `graph`: the node and
@@ -2018,8 +2116,9 @@ pub mod edit {
             .collect()
     }
 
-    /// Whether a composite delta has the fixed parts of the reconstruction's
-    /// lowering: it deletes every element the lowering deletes and, beyond
+    /// Whether a composite delta has the fixed parts (deletions and attribute
+    /// changes) of the reconstruction's lowering, given as `lowered`: it
+    /// deletes every element the lowering deletes and, beyond
     /// those, exactly the carriers of a suffix (in fan node order) of the
     /// fans the lowering keeps whole, which is the relocation `InsertNode`
     /// over the suffix's first fan id performs; and its attribute changes
@@ -2298,7 +2397,11 @@ pub mod edit {
     /// and every edge and re-added under fresh ids) are read as kept, as E.3
     /// permits. Every accepted delta is, up to renaming fresh ids, the
     /// lowering of its reading after such a relocation; all other deltas
-    /// are refused.
+    /// are refused. The reading's own ids are immaterial, so the
+    /// reconstruction runs over `u128` ids and never runs out: a reading may
+    /// draw more ids than the script its delta came from, and applying or
+    /// lowering it under `embedding` then refuses with `IdsExhausted`,
+    /// which this reader never returns.
     ///
     /// # Errors
     ///
@@ -2341,10 +2444,10 @@ pub mod edit {
             })
             .map(|(_, edge)| edge.tgt)
             .collect();
-        let edit = tree_transform_edit(tree, embedding, &after_tree, &refreshed)?;
-        let mut followed = embedding.clone();
-        let lowered = graph_delta_from_tree_edit(tree, &mut followed, &edit, schema)?;
-        if fixed_delta_parts_match(&before_graph, delta, &lowered) {
+        let (edit, reached) =
+            tree_transform_edit(tree, &widened(embedding), &after_tree, &refreshed)?;
+        let kept = graph_below_floors(&after_tree, &reached, embedding, schema)?;
+        if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
             Ok(edit)
         } else {
             Err(fixed_carriers_refusal())
