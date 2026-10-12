@@ -3129,6 +3129,20 @@ fn check_pi_adjoint_pair(
     (u64::try_from(left.len()).unwrap(), naturality_refusals)
 }
 
+/// Pairs between two progress lines of the representative-pair executor.
+const O14_PROGRESS_INTERVAL: u64 = 250_000;
+
+/// Print pairs done, elapsed seconds and integer pairs per second to stderr.
+fn report_o14_progress(pairs: u64, elapsed: std::time::Duration) {
+    let millis = elapsed.as_millis().max(1);
+    let rate = u128::from(pairs) * 1_000 / millis;
+    eprintln!(
+        "O14 progress: pairs={pairs}, elapsed={}.{:03}s, pairs/s={rate}",
+        elapsed.as_secs(),
+        elapsed.subsec_millis(),
+    );
+}
+
 fn execute_o14_representative_pair_prefix(limit: u64) -> O14PairStats {
     let classes = bounded::hom_profile_classes(3, 6).unwrap();
     let family = bounded::family();
@@ -3153,6 +3167,9 @@ fn execute_o14_representative_pair_prefix(limit: u64) -> O14PairStats {
                     break;
                 }
                 stats.pairs += 1;
+                if stats.pairs % O14_PROGRESS_INTERVAL == 0 {
+                    report_o14_progress(stats.pairs, started.elapsed());
+                }
                 stats.weighted_pairs += input_weight * target_weight;
                 match sigma {
                     Ok((sigma, _)) => {
