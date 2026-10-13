@@ -7292,6 +7292,146 @@ fn tree_reader_refuses_a_fan_redrawn_under_its_own_node_id() {
     ));
 }
 
+const BELOW_FLOOR: &str = "an added arc or fan id is below the embedding floor";
+
+/// [`join_tree`] with a two-member fan under node 2 and two equal fans
+/// under node 1, its encoder graph, and its encoder embedding with the
+/// floors raised to `next_node` and `next_edge` (the encoder's are 8 and
+/// 11, checked).
+fn two_member_and_twin_fan_tree(next_node: u32, next_edge: u32) -> (Tree, Graph, TreeEmbedding) {
+    let tree = Tree {
+        fans: vec![
+            Fan {
+                parent: 2,
+                hyper_edge: "fan".into(),
+                children: BTreeMap::from([("arm".into(), 3), ("leg".into(), 4)]),
+            },
+            arm_fan(1, "other", 2),
+            arm_fan(1, "other", 2),
+        ],
+        ..join_tree()
+    };
+    let (graph, encoded) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    assert_eq!(
+        encoded,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+            fans: vec![
+                (5, 4, BTreeMap::from([("arm".into(), 5), ("leg".into(), 6)])),
+                (6, 7, arm_edges(8)),
+                (7, 9, arm_edges(10)),
+            ],
+            next_node: 8,
+            next_edge: 11,
+        }
+    );
+    (tree, graph, with_floors(&encoded, next_node, next_edge))
+}
+
+/// The edge floor is strict at its boundary. With both floors at
+/// `u32::MAX`, a delta that deletes node 1 (its arc 0 and both fans under
+/// it) and re-draws arc 3 (2 -> 4) as edge `u32::MAX - 1`, one below the
+/// edge floor, is refused by the floor; re-drawn as edge `u32::MAX`, at
+/// the floor, it reads back as the deletion followed by the same-arc move
+/// that re-draws the arc.
+#[test]
+fn an_arc_redrawn_one_below_the_edge_floor_is_refused_and_at_the_floor_reads_back() {
+    let (tree, graph, embedding) = two_member_and_twin_fan_tree(u32::MAX, u32::MAX);
+    let redrawn = |id: u32| {
+        let mut delta = literal_deletions(
+            &graph,
+            [
+                GElem::Node(1),
+                GElem::Edge(0),
+                GElem::Node(6),
+                GElem::Edge(7),
+                GElem::Edge(8),
+                GElem::Node(7),
+                GElem::Edge(9),
+                GElem::Edge(10),
+                GElem::Edge(3),
+            ],
+        );
+        delta
+            .add
+            .insert(GElem::Edge(id), GPayload::Edge(graph.edges[&3].clone()));
+        delta
+    };
+    let below = redrawn(u32::MAX - 1);
+    let at = redrawn(u32::MAX);
+    for delta in [&below, &at] {
+        let edited = edit::apply(delta, &graph).unwrap();
+        assert!(panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).is_ok());
+    }
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &below, None),
+        BELOW_FLOOR
+    ));
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &at, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 1 },
+            TreeEdit::MoveSubtree {
+                node_id: 4,
+                new_parent: 2,
+                edge: SEdge::new("feature", "leaf", "child", Some("d")),
+            },
+        ]))
+    );
+}
+
+/// The fan-node floor is strict at its boundary. With the node floor at
+/// `u32::MAX`, a delta that re-draws the two-member fan (node 5 and edges
+/// 4 to 6) with fresh edges 11 to 13 and fan node `u32::MAX - 1`, one
+/// below the floor, is refused by the floor; with fan node `u32::MAX`, at
+/// the floor, it reads back as the fan's deletion and re-insertion (the
+/// re-drawn fan now follows the two others).
+#[test]
+fn a_fan_redrawn_one_below_the_node_floor_is_refused_and_at_the_floor_reads_back() {
+    let (tree, graph, embedding) = two_member_and_twin_fan_tree(u32::MAX, 11);
+    let redrawn = |fan: u32| {
+        let mut delta = literal_deletions(
+            &graph,
+            [
+                GElem::Node(5),
+                GElem::Edge(4),
+                GElem::Edge(5),
+                GElem::Edge(6),
+            ],
+        );
+        delta
+            .add
+            .insert(GElem::Node(fan), GPayload::Node(fan_node(fan, "fan")));
+        for (id, old) in [(11, 4), (12, 5), (13, 6)] {
+            let mut edge = graph.edges[&old].clone();
+            edge.src = fan;
+            delta.add.insert(GElem::Edge(id), GPayload::Edge(edge));
+        }
+        delta
+    };
+    let below = redrawn(u32::MAX - 1);
+    let at = redrawn(u32::MAX);
+    for delta in [&below, &at] {
+        let edited = edit::apply(delta, &graph).unwrap();
+        assert!(panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).is_ok());
+    }
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &below, None),
+        BELOW_FLOOR
+    ));
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &at, None),
+        Ok(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteFan {
+                hyper_edge: "fan".into()
+            },
+            TreeEdit::InsertFan {
+                fan: tree.fans[0].clone()
+            },
+        ]))
+    );
+}
+
 /// The unbounded lowering of an edit whose result has a carrier past
 /// `u32` returns `Ok(None)` and still advances the embedding to the one
 /// tree apply reaches: here the leaf `u32::MAX` lifts the node floor past
