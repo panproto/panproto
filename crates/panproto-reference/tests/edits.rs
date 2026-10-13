@@ -6117,6 +6117,142 @@ fn the_u32_tree_edit_semantics_refines_the_unbounded_one_near_the_id_ceiling() {
     );
 }
 
+/// `delta` with every edge id at or above `embedding.next_edge` raised by
+/// `edges` and every node id at or above `embedding.next_node` raised by
+/// `nodes`, in element ids and in the endpoints of added edges.
+fn shift_allocated_ids(
+    delta: &GraphDelta,
+    embedding: &TreeEmbedding,
+    nodes: u32,
+    edges: u32,
+) -> GraphDelta {
+    let node = |id: u32| {
+        if id >= embedding.next_node {
+            id + nodes
+        } else {
+            id
+        }
+    };
+    let edge = |id: u32| {
+        if id >= embedding.next_edge {
+            id + edges
+        } else {
+            id
+        }
+    };
+    let mut shifted = GraphDelta {
+        add: BTreeMap::new(),
+        ..delta.clone()
+    };
+    for (element, payload) in &delta.add {
+        match (element, payload.clone()) {
+            (GElem::Edge(id), GPayload::Edge(mut added)) => {
+                added.src = node(added.src);
+                added.tgt = node(added.tgt);
+                shifted
+                    .add
+                    .insert(GElem::Edge(edge(*id)), GPayload::Edge(added));
+            }
+            (GElem::Node(id), GPayload::Node(mut added)) => {
+                added.id = node(*id);
+                shifted
+                    .add
+                    .insert(GElem::Node(added.id), GPayload::Node(added));
+            }
+            (element, payload) => panic!("cross-sort addition {element:?}: {payload:?}"),
+        }
+    }
+    shifted
+}
+
+/// (R2) The reader returns what the reader over unbounded ids returns, so
+/// no reading depends on how much `u32` room is left. Edge ids are only
+/// drawn, never named by an edit, so raising the edge floor and every edge
+/// id the delta allocates by one amount reads the same; so does raising
+/// the node floor and the allocated fan node ids, when the result has no
+/// tree node at or above the node floor (a tree node id is named by its
+/// insertion). For every lowering over unbounded ids of every word and
+/// high-id word of the sets of [`high_id_script_sets`], from the encoder
+/// embedding, both raises (the node one where it applies) put the
+/// delta's largest allocated id at `u32::MAX` minus 0, 1, 2 and 5; the
+/// reading must be the one at the encoder floors, and never
+/// `IdsExhausted`. A reader that took the exact single step only where
+/// its `u32` run fits would fail here.
+#[test]
+fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
+    let mut counts = [0_usize; 5];
+    let mut findings = Vec::new();
+    for (name, tree, words, high) in high_id_script_sets() {
+        let (graph, base) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+        for script in words.iter().chain(&high) {
+            let mut lowered = edit::unbounded_embedding(&base);
+            let Ok(Some(delta)) =
+                edit::graph_delta_from_tree_edit_unbounded(&tree, &mut lowered, script, None)
+            else {
+                continue;
+            };
+            counts[0] += 1;
+            let reading = edit::tree_edit_from_graph_delta(&tree, &base, &delta, None);
+            let allocated = |floor: u32, nodes: bool| {
+                delta
+                    .add
+                    .iter()
+                    .filter_map(|(element, payload)| match (element, payload) {
+                        (GElem::Edge(id), _) if !nodes => Some(*id),
+                        (GElem::Node(id), GPayload::Node(added))
+                            if nodes && added.shape == NodeShape::HyperEdge =>
+                        {
+                            Some(*id)
+                        }
+                        _ => None,
+                    })
+                    .fold(floor, u32::max)
+            };
+            let tree_nodes_below_floor = edit::apply(&delta, &graph)
+                .unwrap()
+                .nodes
+                .iter()
+                .all(|(id, added)| added.shape == NodeShape::HyperEdge || *id < base.next_node);
+            for room in [0, 1, 2, 5] {
+                let edges = u32::MAX - room - allocated(base.next_edge, false);
+                let nodes = if tree_nodes_below_floor {
+                    u32::MAX - room - allocated(base.next_node, true)
+                } else {
+                    0
+                };
+                let shifted = shift_allocated_ids(&delta, &base, nodes, edges);
+                let raised = with_floors(&base, base.next_node + nodes, base.next_edge + edges);
+                let shifted_reading =
+                    edit::tree_edit_from_graph_delta(&tree, &raised, &shifted, None);
+                counts[1] += 1;
+                counts[2] += usize::from(nodes > 0);
+                counts[3] += usize::from(shifted_reading.is_ok());
+                counts[4] += usize::from(shifted_reading.as_ref().is_ok_and(|read| {
+                    edit::apply_tree(read, &tree, &mut raised.clone())
+                        == Err(edit::TreeApplyError::IdsExhausted)
+                }));
+                if shifted_reading != reading
+                    || shifted_reading == Err(edit::TreeApplyError::IdsExhausted)
+                {
+                    findings.push(format!(
+                        "{name}: {script:?} with room {room}: {reading:?} became {shifted_reading:?}"
+                    ));
+                }
+            }
+        }
+    }
+    println!(
+        "lowered {}, shifted {}, with the node floor raised {}, read {}, readings exhausting in u32 at the raised floors {}",
+        counts[0], counts[1], counts[2], counts[3], counts[4]
+    );
+    assert!(
+        findings.is_empty(),
+        "{:#?}",
+        &findings[..findings.len().min(10)]
+    );
+    assert_eq!(counts, [16_570, 66_280, 41_132, 66_280, 21_207]);
+}
+
 fn arm_edges(edge: u32) -> BTreeMap<String, u32> {
     BTreeMap::from([("arm".into(), edge)])
 }
