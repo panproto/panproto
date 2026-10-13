@@ -2163,55 +2163,37 @@ pub mod edit {
         Ok((edit, current_embedding))
     }
 
-    /// The part of the graph of `tree` under the `u128` embedding `reached`
-    /// whose ids are below the floors of `start`: the tree nodes below the
-    /// node floor, the arcs whose edge ids are below the edge floor, and the
-    /// fans whose node ids are below the node floor. A fan's carriers are
-    /// kept from `start` or drawn afresh together, and an arc keeps its id
-    /// only while its parent and child do, so this is a valid embedded graph
-    /// (built without checking it again) holding every element of the whole
-    /// graph with an id below the floors, with the same payload.
-    fn graph_below_floors(
+    /// The graph of `tree` under the `u128` embedding `reached`, with every
+    /// carrier id past `u32` written as `u32::MAX`. Every id of the start
+    /// graph is below the start floors, so below `u32::MAX`, and at each
+    /// such id this graph holds exactly the element of the graph over
+    /// unbounded ids; the reader reads nothing else from it.
+    fn graph_at_start_ids(
         tree: &crate::model::Tree,
         reached: &crate::encode::TreeEmbedding<u128>,
-        start: &crate::encode::TreeEmbedding,
         schema: Option<&crate::schema::Schema>,
     ) -> Graph {
-        let below = |id: u128, floor: u32| u32::try_from(id).ok().filter(|id| *id < floor);
-        let narrow = |id: &u128| u32::try_from(*id).unwrap_or(u32::MAX);
-        let mut kept_tree = crate::model::Tree {
-            nodes: tree
-                .nodes
-                .range(..start.next_node)
-                .map(|(id, node)| (*id, node.clone()))
-                .collect(),
-            arcs: Vec::new(),
-            fans: Vec::new(),
-            root: tree.root,
-        };
-        let mut kept = crate::encode::TreeEmbedding {
-            arcs: BTreeMap::new(),
-            fans: Vec::new(),
-            next_node: start.next_node,
-            next_edge: start.next_edge,
-        };
-        for arc in &tree.arcs {
-            if let Some(edge) = below(reached.arcs[&arc.1], start.next_edge) {
-                kept.arcs.insert(arc.1, edge);
-                kept_tree.arcs.push(arc.clone());
-            }
-        }
-        for (fan, (node, parent, children)) in tree.fans.iter().zip(&reached.fans) {
-            if let Some(node) = below(*node, start.next_node) {
-                let children = children
-                    .iter()
-                    .map(|(label, edge)| (label.clone(), narrow(edge)))
-                    .collect();
-                kept.fans.push((node, narrow(parent), children));
-                kept_tree.fans.push(fan.clone());
-            }
-        }
-        build_embedded_graph(&kept_tree, &kept.arcs, &kept.fans, schema)
+        let narrow = |id: &u128| id.graph_id().unwrap_or(u32::MAX);
+        let arcs = reached
+            .arcs
+            .iter()
+            .map(|(child, edge)| (*child, narrow(edge)))
+            .collect();
+        let fans: Vec<FanCarriers> = reached
+            .fans
+            .iter()
+            .map(|(node, parent, children)| {
+                (
+                    narrow(node),
+                    narrow(parent),
+                    children
+                        .iter()
+                        .map(|(label, edge)| (label.clone(), narrow(edge)))
+                        .collect(),
+                )
+            })
+            .collect();
+        build_embedded_graph(tree, &arcs, &fans, schema)
     }
 
     /// The carriers of the fan at fan node `fan` of `graph`: the node and
@@ -2595,7 +2577,7 @@ pub mod edit {
             &after_tree,
             &refreshed,
         )?;
-        let kept = graph_below_floors(&after_tree, &reached, embedding, schema);
+        let kept = graph_at_start_ids(&after_tree, &reached, schema);
         if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
             Ok(edit)
         } else {
