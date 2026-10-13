@@ -5861,6 +5861,218 @@ fn a_lowering_reads_back_when_its_reading_needs_more_fan_node_ids_than_remain() 
     );
 }
 
+/// [`join_tree`] without its fan, with its literal graph and embedding.
+fn fanless_join_tree_graph_and_embedding() -> (Tree, Graph, TreeEmbedding) {
+    let tree = Tree {
+        fans: Vec::new(),
+        ..join_tree()
+    };
+    let mut graph = literal_join_graph();
+    graph.nodes.remove(&5);
+    graph.edges.retain(|id, _| *id < 4);
+    let embedding = TreeEmbedding {
+        arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3)]),
+        fans: Vec::new(),
+        next_node: 5,
+        next_edge: 4,
+    };
+    assert_eq!(
+        panproto_reference::encode::tree_to_graph(&tree, None),
+        Ok((graph.clone(), embedding.clone()))
+    );
+    (tree, graph, embedding)
+}
+
+/// `u32::MAX + 1`, the node floor after inserting node `u32::MAX` over
+/// unbounded ids.
+const PAST_U32: u128 = 1 << 32;
+
+// A delta that adds tree node `u32::MAX` is the lowering of its reading
+// over unbounded ids, exactly; under `u32` ids the node floor cannot pass
+// `u32::MAX`, so applying or lowering the reading refuses with
+// `IdsExhausted`, the exhaustion the `u32` refinement permits.
+#[test]
+fn a_tree_node_at_the_id_maximum_reads_exactly_over_unbounded_ids_and_exhausts_in_u32() {
+    let (tree, graph, embedding) = fanless_join_tree_graph_and_embedding();
+    let top = SEdge::new("root", "leaf", "child", Some("top"));
+    let mut delta = GraphDelta::identity();
+    delta
+        .add
+        .insert(GElem::Node(u32::MAX), node(u32::MAX, "leaf"));
+    delta.add.insert(
+        GElem::Edge(4),
+        GPayload::Edge(plain_edge(0, u32::MAX, top.clone())),
+    );
+    let reading = TreeEdit::InsertNode {
+        parent: 0,
+        child_id: u32::MAX,
+        node: Node::new(u32::MAX, "leaf"),
+        edge: top,
+    };
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(reading.clone())
+    );
+    let edited_tree = panproto_reference::encode::graph_to_tree(
+        &edit::apply(&delta, &graph).unwrap(),
+        0,
+        &|_| None,
+    )
+    .unwrap();
+    let mut unbounded = edit::unbounded_embedding(&embedding);
+    assert_eq!(
+        edit::apply_tree_unbounded(&reading, &tree, &mut unbounded.clone()),
+        Ok(edited_tree)
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut unbounded, &reading, None),
+        Ok(Some(delta))
+    );
+    assert_eq!(
+        unbounded,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3), (u32::MAX, 4)]),
+            fans: Vec::new(),
+            next_node: PAST_U32,
+            next_edge: 5,
+        }
+    );
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut embedding.clone()),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &reading, None),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+}
+
+// The script inserts a fan and then tree node `u32::MAX - 1`; its reading
+// inserts the node first (nodes before fans), so over unbounded ids the
+// fan is drawn at `u32::MAX` and the reading's lowering is the script's
+// up to renaming fresh ids (effect law b), while under `u32` ids the fan
+// draw finds no `u32` floor past `u32::MAX` and refuses, although the
+// script applies.
+#[test]
+fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids_only() {
+    let (tree, graph, embedding) = fanless_join_tree_graph_and_embedding();
+    let fan = Fan {
+        parent: 0,
+        hyper_edge: "f".into(),
+        children: BTreeMap::from([("arm".into(), 1)]),
+    };
+    let high = u32::MAX - 1;
+    let top = SEdge::new("root", "leaf", "child", Some("top"));
+    let insert_fan = TreeEdit::InsertFan { fan };
+    let insert_high = TreeEdit::InsertNode {
+        parent: 0,
+        child_id: high,
+        node: Node::new(high, "leaf"),
+        edge: top.clone(),
+    };
+    let script = TreeEdit::Sequence(vec![insert_fan.clone(), insert_high.clone()]);
+    let parent_label = SEdge::new("f", "root", "hyper_parent", None);
+    let arm_label = SEdge::new("f", "feature", "hyper_label", Some("arm"));
+    let mut delta = GraphDelta::identity();
+    delta
+        .add
+        .insert(GElem::Node(5), GPayload::Node(fan_node(5, "f")));
+    delta.add.insert(GElem::Node(high), node(high, "leaf"));
+    delta.add.insert(
+        GElem::Edge(4),
+        GPayload::Edge(plain_edge(5, 0, parent_label.clone())),
+    );
+    delta.add.insert(
+        GElem::Edge(5),
+        GPayload::Edge(plain_edge(5, 1, arm_label.clone())),
+    );
+    delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(0, high, top.clone())),
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &script, None),
+        Ok(delta.clone())
+    );
+    let reading = TreeEdit::Sequence(vec![insert_high, insert_fan]);
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(reading.clone())
+    );
+    let edited_tree = panproto_reference::encode::graph_to_tree(
+        &edit::apply(&delta, &graph).unwrap(),
+        0,
+        &|_| None,
+    )
+    .unwrap();
+    let mut scripted = edit::unbounded_embedding(&embedding);
+    assert_eq!(
+        edit::apply_tree_unbounded(&script, &tree, &mut scripted),
+        Ok(edited_tree.clone())
+    );
+    let mut unbounded = edit::unbounded_embedding(&embedding);
+    assert_eq!(
+        edit::apply_tree_unbounded(&reading, &tree, &mut unbounded.clone()),
+        Ok(edited_tree)
+    );
+    let mut relocated = GraphDelta::identity();
+    relocated.add.insert(
+        GElem::Node(u32::MAX),
+        GPayload::Node(fan_node(u32::MAX, "f")),
+    );
+    relocated.add.insert(GElem::Node(high), node(high, "leaf"));
+    relocated
+        .add
+        .insert(GElem::Edge(4), GPayload::Edge(plain_edge(0, high, top)));
+    relocated.add.insert(
+        GElem::Edge(5),
+        GPayload::Edge(plain_edge(u32::MAX, 0, parent_label)),
+    );
+    relocated.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(u32::MAX, 1, arm_label)),
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut unbounded, &reading, None),
+        Ok(Some(relocated.clone()))
+    );
+    assert_eq!(
+        relocated,
+        rename_fresh_ids(
+            &delta,
+            &embedding,
+            |id| if id == 5 { u32::MAX } else { id },
+            |id| [5, 6, 4][usize::try_from(id - 4).unwrap()]
+        )
+    );
+    assert_eq!(
+        unbounded,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3), (high, 4)]),
+            fans: vec![(u128::from(u32::MAX), 5, BTreeMap::from([("arm".into(), 6)]))],
+            next_node: PAST_U32,
+            next_edge: 7,
+        }
+    );
+    assert_eq!(
+        scripted,
+        TreeEmbedding {
+            arcs: BTreeMap::from([(1, 0), (2, 1), (3, 2), (4, 3), (high, 6)]),
+            fans: vec![(5, 4, BTreeMap::from([("arm".into(), 5)]))],
+            next_node: u128::from(u32::MAX),
+            next_edge: 7,
+        }
+    );
+    assert_eq!(
+        edit::apply_tree(&reading, &tree, &mut embedding.clone()),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &reading, None),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+}
+
 /// A fan node re-added under its own id is a fresh fan only in name: no
 /// lowering re-uses a fan node id, so the node floor refuses it although
 /// the result is the same tree.
