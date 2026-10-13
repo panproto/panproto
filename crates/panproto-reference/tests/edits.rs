@@ -5468,6 +5468,57 @@ fn high_id_script_sets() -> Vec<(String, Tree, Vec<TreeEdit>, Vec<TreeEdit>)> {
     sets
 }
 
+/// The graph of `tree` under `embedding`, written from the tree-to-graph
+/// layout rather than by the crate: the tree's nodes; each arc at its
+/// edge id with its own label; and per fan a node of the fan shape named
+/// for the fan, a `hyper_parent` edge to the fan's parent and one
+/// `hyper_label` edge per member, named for the member's label, each
+/// labelled from the fan's name to its target's anchor. None when a
+/// carrier id is not a `u32` id. Floors play no part.
+fn graph_of_carriers(tree: &Tree, embedding: &TreeEmbedding<u128>) -> Option<Graph> {
+    let mut graph = Graph {
+        nodes: tree.nodes.clone(),
+        edges: BTreeMap::new(),
+    };
+    for (parent, child, label) in &tree.arcs {
+        let id = u32::try_from(*embedding.arcs.get(child)?).ok()?;
+        graph
+            .edges
+            .insert(id, plain_edge(*parent, *child, label.clone()));
+    }
+    for (fan, (node_id, parent_edge, member_edges)) in tree.fans.iter().zip(&embedding.fans) {
+        let node_id = u32::try_from(*node_id).ok()?;
+        graph
+            .nodes
+            .insert(node_id, fan_node(node_id, &fan.hyper_edge));
+        let anchor = |id: &u32| tree.nodes[id].anchor.clone();
+        graph.edges.insert(
+            u32::try_from(*parent_edge).ok()?,
+            plain_edge(
+                node_id,
+                fan.parent,
+                SEdge::new(&fan.hyper_edge, &anchor(&fan.parent), "hyper_parent", None),
+            ),
+        );
+        for (label, member) in &fan.children {
+            graph.edges.insert(
+                u32::try_from(*member_edges.get(label)?).ok()?,
+                plain_edge(
+                    node_id,
+                    *member,
+                    SEdge::new(
+                        &fan.hyper_edge,
+                        &anchor(member),
+                        "hyper_label",
+                        Some(label.as_str()),
+                    ),
+                ),
+            );
+        }
+    }
+    Some(graph)
+}
+
 /// `reached` with the ids at or above the floors of `start` renamed in
 /// order onto the lowest graph ids at or above those floors (fan nodes
 /// skipping the tree's node ids), or none when too few remain. The renaming
@@ -5578,9 +5629,7 @@ fn delta_is_an_unbounded_image_of_reading(
                 else {
                     return false;
                 };
-                let Ok(Some(lowered)) =
-                    edit::graph_of_unbounded_embedding(&relocated_tree, &compacted, None)
-                else {
+                let Some(lowered) = graph_of_carriers(&relocated_tree, &compacted) else {
                     return false;
                 };
                 equal_up_to_fresh_ids(delta, embedding, &edit::diff(graph, &lowered), embedding)
