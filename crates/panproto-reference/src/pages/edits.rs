@@ -2373,6 +2373,10 @@ pub mod edit {
         }
     }
 
+    /// The single steps other than joins that may lower to the delta
+    /// exactly. A fan insertion is not among them: when one is exact, the
+    /// result is the tree with that fan appended, and the reconstruction
+    /// reads it as that one insertion.
     fn non_join_tree_candidates(
         tree: &crate::model::Tree,
         after: &crate::model::Tree,
@@ -2446,14 +2450,6 @@ pub mod edit {
                 });
             }
         }
-        candidates.extend(
-            after
-                .fans
-                .iter()
-                .filter(|fan| !tree.fans.contains(fan))
-                .cloned()
-                .map(|fan| TreeEdit::InsertFan { fan }),
-        );
         candidates.extend(
             tree.fans
                 .iter()
