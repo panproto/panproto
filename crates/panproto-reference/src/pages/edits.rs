@@ -2518,7 +2518,16 @@ pub mod edit {
     /// - Effect (A9 (1) (b)): then `apply_N(e)` and `apply_N(s)` from `N(E)`
     ///   give the same tree.
     /// - Exactness (A9 (1) (c)): when s has at most one step, `lower_N(e)`
-    ///   from `N(E)` is d itself.
+    ///   from `N(E)` is d itself, and the embedding e reaches has the
+    ///   carriers of the one s reaches: the same arcs (so the same tree
+    ///   nodes) and the same fans with their node and edge ids. The floors
+    ///   are allocation state and may differ, constrained only by the
+    ///   embedding's validity: two scripts may lower to one delta and leave
+    ///   different floors (joining a node and then its descendant draws an
+    ///   arc id for the descendant before removing it, which no delta
+    ///   shows), and a reader sees only the delta. The carriers follow from
+    ///   d: a valid embedding lists its fans by ascending node id, so the
+    ///   result graph and tree determine every carrier.
     ///
     /// Every other delta is refused. The `u32` forms refine the unbounded
     /// ones: [`apply_tree`] and [`graph_delta_from_tree_edit`] from E return
