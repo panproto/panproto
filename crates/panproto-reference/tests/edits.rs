@@ -5883,6 +5883,52 @@ fn fanless_join_tree_graph_and_embedding() -> (Tree, Graph, TreeEmbedding) {
     (tree, graph, embedding)
 }
 
+/// That applying and lowering `reading` under `embedding` refuse for want
+/// of `u32` ids.
+fn assert_exhausts_in_u32(tree: &Tree, embedding: &TreeEmbedding, reading: &TreeEdit) {
+    assert_eq!(
+        edit::apply_tree(reading, tree, &mut embedding.clone()),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(tree, &mut embedding.clone(), reading, None),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+}
+
+/// The lowering of inserting fan `f` (root, `arm` member 1) and then leaf
+/// `high` under the root on the fanless [`join_tree`], and the lowering of
+/// the two steps in the other order over unbounded ids, which draws the
+/// fan at `u32::MAX`, both written out.
+fn fan_then_high_node_deltas(high: u32, top: &SEdge) -> (GraphDelta, GraphDelta) {
+    let parent_label = SEdge::new("f", "root", "hyper_parent", None);
+    let arm_label = SEdge::new("f", "feature", "hyper_label", Some("arm"));
+    let mut scripted = GraphDelta::identity();
+    let mut relocated = GraphDelta::identity();
+    for (delta, fan, [arc, parent, arm]) in [
+        (&mut scripted, 5, [6, 4, 5]),
+        (&mut relocated, u32::MAX, [4, 5, 6]),
+    ] {
+        delta
+            .add
+            .insert(GElem::Node(fan), GPayload::Node(fan_node(fan, "f")));
+        delta.add.insert(GElem::Node(high), node(high, "leaf"));
+        delta.add.insert(
+            GElem::Edge(arc),
+            GPayload::Edge(plain_edge(0, high, top.clone())),
+        );
+        delta.add.insert(
+            GElem::Edge(parent),
+            GPayload::Edge(plain_edge(fan, 0, parent_label.clone())),
+        );
+        delta.add.insert(
+            GElem::Edge(arm),
+            GPayload::Edge(plain_edge(fan, 1, arm_label.clone())),
+        );
+    }
+    (scripted, relocated)
+}
+
 /// `u32::MAX + 1`, the node floor after inserting node `u32::MAX` over
 /// unbounded ids.
 const PAST_U32: u128 = 1 << 32;
@@ -5937,14 +5983,7 @@ fn a_tree_node_at_the_id_maximum_reads_exactly_over_unbounded_ids_and_exhausts_i
             next_edge: 5,
         }
     );
-    assert_eq!(
-        edit::apply_tree(&reading, &tree, &mut embedding.clone()),
-        Err(edit::TreeApplyError::IdsExhausted)
-    );
-    assert_eq!(
-        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &reading, None),
-        Err(edit::TreeApplyError::IdsExhausted)
-    );
+    assert_exhausts_in_u32(&tree, &embedding, &reading);
 }
 
 // The script inserts a fan and then tree node `u32::MAX - 1`; its reading
@@ -5971,25 +6010,7 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
         edge: top.clone(),
     };
     let script = TreeEdit::Sequence(vec![insert_fan.clone(), insert_high.clone()]);
-    let parent_label = SEdge::new("f", "root", "hyper_parent", None);
-    let arm_label = SEdge::new("f", "feature", "hyper_label", Some("arm"));
-    let mut delta = GraphDelta::identity();
-    delta
-        .add
-        .insert(GElem::Node(5), GPayload::Node(fan_node(5, "f")));
-    delta.add.insert(GElem::Node(high), node(high, "leaf"));
-    delta.add.insert(
-        GElem::Edge(4),
-        GPayload::Edge(plain_edge(5, 0, parent_label.clone())),
-    );
-    delta.add.insert(
-        GElem::Edge(5),
-        GPayload::Edge(plain_edge(5, 1, arm_label.clone())),
-    );
-    delta.add.insert(
-        GElem::Edge(6),
-        GPayload::Edge(plain_edge(0, high, top.clone())),
-    );
+    let (delta, relocated) = fan_then_high_node_deltas(high, &top);
     assert_eq!(
         edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &script, None),
         Ok(delta.clone())
@@ -6014,23 +6035,6 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
     assert_eq!(
         edit::apply_tree_unbounded(&reading, &tree, &mut unbounded.clone()),
         Ok(edited_tree)
-    );
-    let mut relocated = GraphDelta::identity();
-    relocated.add.insert(
-        GElem::Node(u32::MAX),
-        GPayload::Node(fan_node(u32::MAX, "f")),
-    );
-    relocated.add.insert(GElem::Node(high), node(high, "leaf"));
-    relocated
-        .add
-        .insert(GElem::Edge(4), GPayload::Edge(plain_edge(0, high, top)));
-    relocated.add.insert(
-        GElem::Edge(5),
-        GPayload::Edge(plain_edge(u32::MAX, 0, parent_label)),
-    );
-    relocated.add.insert(
-        GElem::Edge(6),
-        GPayload::Edge(plain_edge(u32::MAX, 1, arm_label)),
     );
     assert_eq!(
         edit::graph_delta_from_tree_edit_unbounded(&tree, &mut unbounded, &reading, None),
@@ -6063,14 +6067,7 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
             next_edge: 7,
         }
     );
-    assert_eq!(
-        edit::apply_tree(&reading, &tree, &mut embedding.clone()),
-        Err(edit::TreeApplyError::IdsExhausted)
-    );
-    assert_eq!(
-        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &reading, None),
-        Err(edit::TreeApplyError::IdsExhausted)
-    );
+    assert_exhausts_in_u32(&tree, &embedding, &reading);
 }
 
 // Law (c) over unbounded ids: a join that re-parents two arcs draws edge
