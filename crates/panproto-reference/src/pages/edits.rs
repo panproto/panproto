@@ -2351,10 +2351,13 @@ pub mod edit {
     }
 
     impl TreeEditCandidate<'_> {
+        /// Whether `edit` lowers to the delta exactly over unbounded ids,
+        /// where the readback laws are stated: a step may draw `u32::MAX`
+        /// there, which a `u32` run cannot.
         fn is_exact(&self, edit: &TreeEdit) -> bool {
-            let mut followed = self.embedding.clone();
-            graph_delta_from_tree_edit(self.tree, &mut followed, edit, self.schema)
-                .is_ok_and(|lowered| lowered == *self.delta)
+            let mut followed = unbounded_embedding(self.embedding);
+            graph_delta_from_tree_edit_unbounded(self.tree, &mut followed, edit, self.schema)
+                .is_ok_and(|lowered| lowered.as_ref() == Some(self.delta))
         }
 
         fn ordered_join(
@@ -2512,25 +2515,45 @@ pub mod edit {
 
     /// Definition: Read a tree edit from a graph delta in the tree-edit image.
     ///
-    /// A single-step lowering is read to a step whose lowering and resulting
-    /// embedding are exact; syntactically distinct tree edits may share that
-    /// lowering. A composite lowering is recovered as a normalized sequence
-    /// with the same resulting tree, arcs and fans in the same order;
-    /// freshly allocated graph ids may differ, and the fans a delta relocates
-    /// (a suffix of the fans it otherwise keeps, each deleted with its node
-    /// and every edge and re-added under fresh ids) are read as kept, as E.3
-    /// permits. Every accepted delta is, up to renaming fresh ids, the
-    /// lowering of its reading after such a relocation; all other deltas
-    /// are refused. The reading's own ids are immaterial, so the
-    /// reconstruction runs over `u128` ids and never runs out: a reading may
-    /// draw more ids than the script its delta came from, and applying or
-    /// lowering it under `embedding` then refuses with `IdsExhausted`,
-    /// which this reader never returns.
+    /// The laws are stated over unbounded ids. Write `apply_N` and
+    /// `lower_N` for [`apply_tree_unbounded`] and
+    /// [`graph_delta_from_tree_edit_unbounded`], whose `u128` ids stand for
+    /// the natural numbers, and `N(E)` for [`unbounded_embedding`]`(E)`. Let
+    /// T be a tree, E a valid embedding of it, G their graph and d a graph
+    /// delta.
+    ///
+    /// - Soundness: if the reader returns `Ok(e)`, then `apply_N(e)` from
+    ///   `N(E)` gives the tree form W of `apply(d, G)`, and d is
+    ///   `lower_N(P ; e)` from `N(E)` up to a bijective renaming of the ids
+    ///   d allocates (edge ids at or above `E.next_edge`, fan node ids at or
+    ///   above `E.next_node`), where P is empty or relocates the fans of E
+    ///   from one of them on (a leaf inserted under the root over that fan's
+    ///   node id, then deleted; E.3 lets a reading keep such fans).
+    /// - Totality (Arbiter ruling A9 (1) (a)): if d is `lower_N(s)` from
+    ///   `N(E)` for some edit s, the reader returns some `Ok(e)`.
+    /// - Effect (A9 (1) (b)): then `apply_N(e)` and `apply_N(s)` from `N(E)`
+    ///   give the same tree.
+    /// - Exactness (A9 (1) (c)): when s has at most one step, `lower_N(e)`
+    ///   from `N(E)` is d itself.
+    ///
+    /// Every other delta is refused. The `u32` forms refine the unbounded
+    /// ones: [`apply_tree`] and [`graph_delta_from_tree_edit`] from E return
+    /// what `apply_N` and `lower_N` return from `N(E)`, or `IdsExhausted`.
+    /// The reader takes `u32` deltas and returns what the reader over
+    /// unbounded ids returns: it tests single steps for exactness with
+    /// `lower_N` and replays its reconstruction over `u128`, so it never
+    /// returns `IdsExhausted`. A reading may thus need ids that `u32` lacks,
+    /// and applying or lowering it under E refuses with `IdsExhausted`. For
+    /// instance, a delta adding tree node `u32::MAX` reads as its insertion,
+    /// which needs a node floor past `u32::MAX`; and a script that inserts a
+    /// fan and then node `u32::MAX - 1` reads with the node first (nodes
+    /// before fans), which draws the fan at `u32::MAX`. Both readings meet
+    /// the laws over unbounded ids.
     ///
     /// # Errors
     ///
     /// Returns the graph-application error, an invalid-embedding error, or a
-    /// typed refusal when the delta is outside the single-step image.
+    /// typed refusal when the delta is outside the tree-edit image.
     ///
     /// Book anchors: `L-edits-3`.
     pub fn tree_edit_from_graph_delta(
