@@ -6073,6 +6073,79 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
     );
 }
 
+// Law (c) over unbounded ids: a join that re-parents two arcs draws edge
+// ids `u32::MAX - 1` and `u32::MAX`. Its lowering is a `u32` delta, though
+// the `u32` run cannot draw `u32::MAX` (no floor follows it). The reader
+// must read the single step exactly, as over unbounded ids, and not fall
+// back to a reconstruction that contracts and moves.
+#[test]
+fn a_single_step_whose_lowering_needs_the_last_edge_id_reads_back_exactly() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let embedding = TreeEmbedding {
+        next_edge: u32::MAX - 1,
+        ..literal_join_embedding()
+    };
+    let join = TreeEdit::JoinFeatures {
+        primary: 1,
+        joined: vec![2],
+        produce: Node::new(1, "joined"),
+    };
+    let mut expected = literal_deletions(
+        &graph,
+        [
+            GElem::Node(2),
+            GElem::Node(5),
+            GElem::Edge(1),
+            GElem::Edge(2),
+            GElem::Edge(3),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    expected.add.insert(
+        GElem::Edge(u32::MAX - 1),
+        GPayload::Edge(plain_edge(
+            1,
+            3,
+            SEdge::new("joined", "leaf", "child", Some("c")),
+        )),
+    );
+    expected.add.insert(
+        GElem::Edge(u32::MAX),
+        GPayload::Edge(plain_edge(
+            1,
+            4,
+            SEdge::new("joined", "leaf", "child", Some("d")),
+        )),
+    );
+    expected.attrs.insert(
+        AttrKey::Anchor(1),
+        (
+            AttrVal::Anchor("feature".into()),
+            AttrVal::Anchor("joined".into()),
+        ),
+    );
+    let mut lowered = edit::unbounded_embedding(&embedding);
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut lowered, &join, None),
+        Ok(Some(expected.clone()))
+    );
+    assert_eq!((lowered.next_node, lowered.next_edge), (6, PAST_U32));
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &join, None),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    let reading = edit::tree_edit_from_graph_delta(&tree, &embedding, &expected, None);
+    assert_eq!(reading, Ok(join.clone()));
+    let mut relowered = edit::unbounded_embedding(&embedding);
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut relowered, &join, None),
+        Ok(Some(expected))
+    );
+    assert_eq!(relowered, lowered);
+}
+
 /// A fan node re-added under its own id is a fresh fan only in name: no
 /// lowering re-uses a fan node id, so the node floor refuses it although
 /// the result is the same tree.
