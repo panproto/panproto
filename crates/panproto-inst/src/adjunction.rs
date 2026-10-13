@@ -3787,21 +3787,19 @@ mod tests {
                             .collect(),
                     );
                     let needed = u64::from(rows);
-                    match max.checked_add(needed) {
-                        None => assert!(
+                    if max.checked_add(needed).is_none() {
+                        assert!(
                             matches!(f_sigma(&x, &f), Err(AdjunctionError::NullIdsExhausted)),
                             "max {max}, rows {rows}"
-                        ),
-                        Some(_) => {
-                            let sigma = f_sigma(&x, &f).unwrap();
-                            let fresh: Vec<_> = (0..rows)
-                                .map(|r| sigma.row(RowId(r)).and_then(|c| c.get("y")).cloned())
-                                .collect();
-                            let expected: Vec<_> =
-                                (1..=needed).map(|k| Some(null(max + k))).collect();
-                            assert_eq!(fresh, expected, "max {max}, rows {rows}");
-                        }
+                        );
+                        continue;
                     }
+                    let sigma = f_sigma(&x, &f).unwrap();
+                    let fresh: Vec<_> = (0..rows)
+                        .map(|r| sigma.row(RowId(r)).and_then(|c| c.get("y")).cloned())
+                        .collect();
+                    let expected: Vec<_> = (1..=needed).map(|k| Some(null(max + k))).collect();
+                    assert_eq!(fresh, expected, "max {max}, rows {rows}");
                 }
                 let kept = one_table("a", vec![(0, row(&[("x", null(max))]))]);
                 assert_eq!(f_sigma(&kept, &identity).unwrap(), kept, "max {max}");
