@@ -13,8 +13,8 @@ use panproto_inst::resolution_complement::{
     RedirectedFragment, ResolutionComplement, ResolutionSpan, ResolutionTextId,
 };
 use panproto_inst::{
-    AnyInstance, EdgeId, FInstance, FieldPresence, GEdge, GInstance, Node, TreeShapeReport, Value,
-    ViewRef, WInstance,
+    AnyInstance, EdgeId, FInstance, FieldPresence, GEdge, GInstance, IdAllocator, IdRange, Node,
+    TreeShapeReport, Value, ViewRef, WInstance,
 };
 use panproto_schema::{Edge, OffsetUnit, RefTextSource, ResolveMode};
 
@@ -346,7 +346,7 @@ impl Resolution {
                 .values()
                 .flat_map(|f| f.nodes.keys().copied()),
         );
-        let node_floor = tree_node_floor(all_tree_nodes).map_err(Refusal::Operational)?;
+        let node_floor = tree_node_floor(all_tree_nodes);
         let slot_floor = taken_slots
             .iter()
             .max()
@@ -592,25 +592,21 @@ impl TreeParts<'_, '_> {
     }
 }
 
-/// The node floor of a source's tree nodes: one above the largest.
-fn tree_node_floor(ids: impl Iterator<Item = u32>) -> Result<u32, ResolveError> {
-    ids.max()
-        .map_or(Some(0), |id| id.checked_add(1))
-        .ok_or(ResolveError::IdExhausted {
-            kind: panproto_inst::segment::IdKind::Node,
-        })
+/// The node floor of a source's tree nodes: one above the largest,
+/// saturating at `u32::MAX`, and 0 for none.
+fn tree_node_floor(ids: impl Iterator<Item = u32>) -> u32 {
+    IdAllocator::from_source(IdRange::FULL, ids).floor()
 }
 
-/// The node ids of `count` new holders, upward from `node_floor`.
+/// The node ids of `count` new holders, upward from `node_floor`; the id
+/// `u32::MAX` is never handed out.
 fn holder_ids_from(node_floor: u32, count: usize) -> Result<Vec<u32>, ResolveError> {
+    let mut ids = IdAllocator::from_floor(IdRange::FULL, node_floor);
     (0..count)
-        .map(|k| {
-            u32::try_from(k)
-                .ok()
-                .and_then(|k| node_floor.checked_add(k))
-                .ok_or(ResolveError::IdExhausted {
-                    kind: panproto_inst::segment::IdKind::Node,
-                })
+        .map(|_| {
+            ids.allocate().map_err(|_| ResolveError::IdExhausted {
+                kind: panproto_inst::segment::IdKind::Node,
+            })
         })
         .collect()
 }
@@ -1457,8 +1453,50 @@ pub(super) fn holder_arc(arcs: &[&Edge], label: &Edge) -> Option<Edge> {
 #[cfg(test)]
 mod tests {
     use panproto_inst::Fan;
+    use panproto_inst::segment::IdKind;
 
-    use super::merge_fans;
+    use super::{holder_ids_from, merge_fans, tree_node_floor};
+    use crate::resolution::error::ResolveError;
+
+    const TOP: u32 = u32::MAX;
+
+    fn exhausted<T>(result: &Result<T, ResolveError>) -> bool {
+        matches!(
+            result,
+            Err(ResolveError::IdExhausted { kind: IdKind::Node })
+        )
+    }
+
+    #[test]
+    fn a_source_holding_the_top_id_records_the_floor_top() {
+        assert_eq!(tree_node_floor([0, TOP].into_iter()), TOP);
+        assert_eq!(tree_node_floor([0, TOP - 1].into_iter()), TOP);
+        assert_eq!(tree_node_floor(std::iter::empty()), 0);
+    }
+
+    #[test]
+    fn holder_ids_withhold_the_top_id() {
+        assert_eq!(holder_ids_from(TOP - 1, 1).ok(), Some(vec![TOP - 1]));
+        assert!(exhausted(&holder_ids_from(TOP - 1, 2)));
+        assert_eq!(holder_ids_from(TOP, 0).ok(), Some(Vec::new()));
+        assert!(exhausted(&holder_ids_from(TOP, 1)));
+    }
+
+    /// At every floor in the last four ids, `count` holders take the ids
+    /// from the floor up when they all lie below `u32::MAX`.
+    #[test]
+    fn holder_ids_are_exhaustive_at_the_top() {
+        for floor in (TOP - 3)..=TOP {
+            for count in 0..=4_u32 {
+                let ids = holder_ids_from(floor, usize::try_from(count).unwrap_or(0));
+                if count <= TOP - floor {
+                    assert_eq!(ids.ok(), Some((floor..floor + count).collect()));
+                } else {
+                    assert!(exhausted(&ids), "{count} holders at floor {floor}");
+                }
+            }
+        }
+    }
 
     fn fan(parent: u32) -> Fan {
         Fan::new("h", parent)

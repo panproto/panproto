@@ -633,14 +633,42 @@ mod tests {
     use crate::resolution::error::ResolveError;
 
     #[test]
-    fn allocation_is_checked_at_the_top_of_the_id_space() {
+    fn allocation_withholds_the_top_id() {
         for kind in [IdKind::Node, IdKind::Edge] {
-            let mut ids = IdAllocator::from_floor(IdRange::FULL, u32::MAX);
-            assert!(matches!(allocate(&mut ids, kind), Ok(u32::MAX)));
+            let mut ids = IdAllocator::from_floor(IdRange::FULL, u32::MAX - 1);
+            assert!(matches!(allocate(&mut ids, kind), Ok(id) if id == u32::MAX - 1));
             assert!(matches!(
                 allocate(&mut ids, kind),
                 Err(ResolveError::IdExhausted { kind: found }) if found == kind
             ));
+            let mut top = IdAllocator::from_floor(IdRange::FULL, u32::MAX);
+            assert!(matches!(
+                allocate(&mut top, kind),
+                Err(ResolveError::IdExhausted { kind: found }) if found == kind
+            ));
+        }
+    }
+
+    /// At every floor in the last four ids, allocation hands out the ids
+    /// from the floor to `u32::MAX - 1`, then the typed error of its kind.
+    #[test]
+    fn allocation_is_exhaustive_at_the_top() {
+        for kind in [IdKind::Node, IdKind::Edge] {
+            for floor in (u32::MAX - 3)..=u32::MAX {
+                let mut ids = IdAllocator::from_floor(IdRange::FULL, floor);
+                let mut drawn = Vec::new();
+                let error = loop {
+                    match allocate(&mut ids, kind) {
+                        Ok(id) => drawn.push(id),
+                        Err(error) => break error,
+                    }
+                    assert!(drawn.len() <= 4, "allocation past the top");
+                };
+                assert_eq!(drawn, (floor..u32::MAX).collect::<Vec<_>>());
+                assert!(
+                    matches!(error, ResolveError::IdExhausted { kind: found } if found == kind)
+                );
+            }
         }
     }
 
