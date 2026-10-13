@@ -14,7 +14,7 @@ use panproto_schema::Edge;
 
 const TOP: u32 = u32::MAX;
 
-fn graph_complement(floor: u32) -> GraphComplement {
+const fn graph_complement(floor: u32) -> GraphComplement {
     let mut complement = GraphComplement::empty();
     complement.id_floor = IdFloor {
         node: floor,
