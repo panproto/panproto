@@ -1236,6 +1236,67 @@ mod preserving {
         )
     }
 
+    /// One edited value for each exact-value anchor every forced-rerender
+    /// fixture carries, each different from the value the fixture holds.
+    fn exact_value_edits() -> Vec<(&'static str, Value)> {
+        vec![
+            ("long_decimal", edited_decimal()),
+            (
+                "numeric_38_10",
+                Value::Decimal(
+                    DecimalValue::parse("1234567890123456789012345678.1234567891")
+                        .expect("edited numeric"),
+                ),
+            ),
+            (
+                "timestamp_offset",
+                Value::Temporal(
+                    Temporal::parse("2026-09-29T12:34:56.789+05:30")
+                        .expect("edited offset timestamp"),
+                ),
+            ),
+            (
+                "timestamp_local",
+                Value::Temporal(
+                    Temporal::parse("2026-09-29T12:34:56.789").expect("edited local timestamp"),
+                ),
+            ),
+            ("bytes", Value::Bytes(vec![0x03, 0x04, 0x05])),
+            (
+                "u64_max",
+                Value::parse_integer("18446744073709551614").expect("edited u64 integer"),
+            ),
+            (
+                "ten_to_29",
+                Value::parse_integer("100000000000000000000000000001")
+                    .expect("edited 10^29 integer"),
+            ),
+            (
+                "huge",
+                Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
+            ),
+        ]
+    }
+
+    /// The fixture's integers beyond `i64` parse as big integers and its
+    /// decimal beyond `f64` as an exact decimal.
+    fn assert_big_numbers_parsed(instance: &WInstance) {
+        assert!(matches!(
+            value_at(instance, "u64_max"),
+            FieldPresence::Present(Value::BigInt(value))
+                if value.to_string() == "18446744073709551615"
+        ));
+        assert!(matches!(
+            value_at(instance, "ten_to_29"),
+            FieldPresence::Present(Value::BigInt(value))
+                if value.to_string() == "100000000000000000000000000000"
+        ));
+        assert!(matches!(
+            value_at(instance, "huge"),
+            FieldPresence::Present(Value::Decimal(value)) if value.to_string() == "1e400"
+        ));
+    }
+
     fn open_yaml_schema() -> Schema {
         let protocol = Protocol {
             name: "fidelity-cst".into(),
@@ -1423,6 +1484,92 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         ));
     }
 
+    /// The canonical (non-preserving) route of a unified CSV (`csv`) or
+    /// TSV codec: the empty table and an exact value round-trip, and a
+    /// quote in a cell or a header is refused by CSV and ordinary text in
+    /// TSV.
+    fn assert_unified_tabular_canonical(
+        codec: &UnifiedCodec,
+        csv: bool,
+        schema: &Schema,
+        instance: &FInstance,
+    ) {
+        let empty_emitted = codec
+            .emit_functor(schema, &FInstance::new())
+            .expect("schema-guided empty canonical emit");
+        assert_eq!(
+            codec
+                .parse_functor(schema, &empty_emitted)
+                .expect("reparse schema-guided empty canonical emit")
+                .total_row_count(),
+            0
+        );
+        let emitted = codec
+            .emit_functor(schema, instance)
+            .expect("schema-guided canonical emit");
+        let reparsed = codec
+            .parse_functor(schema, &emitted)
+            .expect("schema-guided canonical reparse");
+        let (_, row) = reparsed.rows("rows")[0];
+        assert_eq!(row.get("u64_max"), Some(&Value::Int(1)));
+
+        let quoted_cell = FInstance::new()
+            .with_table(
+                "rows",
+                vec![HashMap::from([(
+                    "null_value".to_owned(),
+                    Value::Str("\"wrapped\"".into()),
+                )])],
+            )
+            .expect("quoted-cell table");
+        if csv {
+            assert!(matches!(
+                codec.emit_functor(schema, &quoted_cell),
+                Err(EmitInstanceError::Value(error))
+                    if error.reason == EmitValueReason::NotRepresentable
+            ));
+        } else {
+            let emitted = codec
+                .emit_functor(schema, &quoted_cell)
+                .expect("a quote is ordinary TSV cell text");
+            let reparsed = codec
+                .parse_functor(schema, &emitted)
+                .expect("reparse TSV quoted text");
+            assert_eq!(
+                reparsed.rows("rows")[0].1.get("null_value"),
+                Some(&Value::Str("\"wrapped\"".into()))
+            );
+        }
+
+        let quoted_header = FInstance::new()
+            .with_table(
+                "rows",
+                vec![HashMap::from([(
+                    "\"quoted\"".to_owned(),
+                    Value::Str("value".into()),
+                )])],
+            )
+            .expect("quoted-header table");
+        if csv {
+            assert!(matches!(
+                codec.emit_functor(schema, &quoted_header),
+                Err(EmitInstanceError::Emit { message, .. })
+                    if message.contains("header")
+            ));
+        } else {
+            let emitted = codec
+                .emit_functor(schema, &quoted_header)
+                .expect("a quote is ordinary TSV header text");
+            let reparsed = codec
+                .parse_functor(schema, &emitted)
+                .expect("reparse TSV quoted header");
+            assert_eq!(
+                reparsed.rows("rows")[0].1.get("\"quoted\""),
+                Some(&Value::Str("value".into()))
+            );
+        }
+    }
+
     #[test]
     #[expect(
         deprecated,
@@ -1443,80 +1590,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 false,
             ),
         ] {
-            let empty_emitted = codec
-                .emit_functor(&schema, &FInstance::new())
-                .expect("schema-guided empty canonical emit");
-            assert_eq!(
-                codec
-                    .parse_functor(&schema, &empty_emitted)
-                    .expect("reparse schema-guided empty canonical emit")
-                    .total_row_count(),
-                0
-            );
-            let emitted = codec
-                .emit_functor(&schema, &instance)
-                .expect("schema-guided canonical emit");
-            let reparsed = codec
-                .parse_functor(&schema, &emitted)
-                .expect("schema-guided canonical reparse");
-            let (_, row) = reparsed.rows("rows")[0];
-            assert_eq!(row.get("u64_max"), Some(&Value::Int(1)));
-
-            let quoted_cell = FInstance::new()
-                .with_table(
-                    "rows",
-                    vec![HashMap::from([(
-                        "null_value".to_owned(),
-                        Value::Str("\"wrapped\"".into()),
-                    )])],
-                )
-                .expect("quoted-cell table");
-            if csv {
-                assert!(matches!(
-                    codec.emit_functor(&schema, &quoted_cell),
-                    Err(EmitInstanceError::Value(error))
-                        if error.reason == EmitValueReason::NotRepresentable
-                ));
-            } else {
-                let emitted = codec
-                    .emit_functor(&schema, &quoted_cell)
-                    .expect("a quote is ordinary TSV cell text");
-                let reparsed = codec
-                    .parse_functor(&schema, &emitted)
-                    .expect("reparse TSV quoted text");
-                assert_eq!(
-                    reparsed.rows("rows")[0].1.get("null_value"),
-                    Some(&Value::Str("\"wrapped\"".into()))
-                );
-            }
-
-            let quoted_header = FInstance::new()
-                .with_table(
-                    "rows",
-                    vec![HashMap::from([(
-                        "\"quoted\"".to_owned(),
-                        Value::Str("value".into()),
-                    )])],
-                )
-                .expect("quoted-header table");
-            if csv {
-                assert!(matches!(
-                    codec.emit_functor(&schema, &quoted_header),
-                    Err(EmitInstanceError::Emit { message, .. })
-                        if message.contains("header")
-                ));
-            } else {
-                let emitted = codec
-                    .emit_functor(&schema, &quoted_header)
-                    .expect("a quote is ordinary TSV header text");
-                let reparsed = codec
-                    .parse_functor(&schema, &emitted)
-                    .expect("reparse TSV quoted header");
-                assert_eq!(
-                    reparsed.rows("rows")[0].1.get("\"quoted\""),
-                    Some(&Value::Str("value".into()))
-                );
-            }
+            assert_unified_tabular_canonical(&codec, csv, &schema, &instance);
         }
 
         for codec in [
@@ -1984,6 +2058,117 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         }
     }
 
+    /// The TOML CST route writes exact numeral and integer tokens and
+    /// representable timestamp, byte and float edits, and refuses a null,
+    /// which TOML cannot spell.
+    fn assert_toml_cst_rerenders(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        mut instance: WInstance,
+        complement: &CstComplement,
+    ) {
+        for (anchor, value) in [
+            ("long_decimal", edited_decimal()),
+            (
+                "numeric_38_10",
+                Value::Decimal(
+                    DecimalValue::parse("1234567890123456789012345678.1234567891")
+                        .expect("edited numeric"),
+                ),
+            ),
+            (
+                "huge",
+                Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
+            ),
+        ] {
+            let mut edited = instance.clone();
+            set_tree_value(&mut edited, anchor, FieldPresence::Present(value.clone()));
+            let emitted = codec
+                .emit_wtype_preserving(schema, &edited, complement)
+                .expect("TOML CST writes an exact numeral token");
+            let (reparsed, _) = codec
+                .parse_wtype_preserving(schema, &emitted)
+                .expect("reparse exact TOML numeral token");
+            assert_eq!(value_at(&reparsed, anchor), &FieldPresence::Present(value));
+        }
+
+        let edited_timestamp =
+            Temporal::parse("2026-09-29T01:02:03.456").expect("edited local timestamp");
+        set_tree_value(
+            &mut instance,
+            "timestamp_local",
+            FieldPresence::Present(Value::Temporal(edited_timestamp)),
+        );
+        let edited_offset =
+            Temporal::parse("2026-09-29T01:02:03.456+05:30").expect("edited offset timestamp");
+        set_tree_value(
+            &mut instance,
+            "timestamp_offset",
+            FieldPresence::Present(Value::Temporal(edited_offset)),
+        );
+        set_tree_value(
+            &mut instance,
+            "bytes",
+            FieldPresence::Present(Value::Bytes(vec![0x03, 0x04, 0x05])),
+        );
+        set_tree_value(
+            &mut instance,
+            "nan",
+            FieldPresence::Present(Value::Float(f64::INFINITY)),
+        );
+        let emitted = codec
+            .emit_wtype_preserving(schema, &instance, complement)
+            .expect("TOML CST renders a representable timestamp edit");
+        let (reparsed, _) = codec
+            .parse_wtype_preserving(schema, &emitted)
+            .expect("reparse edited TOML CST");
+        assert_eq!(
+            value_at(&reparsed, "timestamp_local"),
+            value_at(&instance, "timestamp_local"),
+            "TOML changed the timestamp during rerender"
+        );
+        assert_eq!(
+            value_at(&reparsed, "timestamp_offset"),
+            value_at(&instance, "timestamp_offset"),
+            "TOML changed the offset timestamp during rerender"
+        );
+        assert_eq!(value_at(&reparsed, "bytes"), value_at(&instance, "bytes"));
+        assert_eq!(value_at(&reparsed, "nan"), value_at(&instance, "nan"));
+
+        for (anchor, value) in [
+            (
+                "u64_max",
+                Value::parse_integer("18446744073709551614").expect("edited TOML u64"),
+            ),
+            (
+                "ten_to_29",
+                Value::parse_integer("100000000000000000000000000001").expect("edited TOML 10^29"),
+            ),
+        ] {
+            let mut edited = instance.clone();
+            set_tree_value(&mut edited, anchor, FieldPresence::Present(value.clone()));
+            let emitted = codec
+                .emit_wtype_preserving(schema, &edited, complement)
+                .expect("TOML CST writes an exact integer token");
+            let (reparsed, _) = codec
+                .parse_wtype_preserving(schema, &emitted)
+                .expect("reparse exact TOML integer token");
+            assert_eq!(value_at(&reparsed, anchor), &FieldPresence::Present(value));
+        }
+
+        for presence in [FieldPresence::Null, FieldPresence::Present(Value::Null)] {
+            set_tree_value(&mut instance, "long_decimal", presence);
+            let error = codec
+                .emit_wtype_preserving(schema, &instance, complement)
+                .expect_err("TOML CST has no null spelling");
+            assert!(matches!(
+                error,
+                EmitInstanceError::Value(error)
+                    if error.reason == EmitValueReason::NullNotRepresentable
+            ));
+        }
+    }
+
     #[test]
     fn json_cst_yaml_cst_and_toml_cst_exact_routes_force_a_rerender() {
         let schema = exact_value_schema("root");
@@ -2030,20 +2215,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 FieldPresence::Present(Value::Decimal(value))
                     if value.to_string() == "12345678901234567890.123456789"
             ));
-            assert!(matches!(
-                value_at(&instance, "u64_max"),
-                FieldPresence::Present(Value::BigInt(value))
-                    if value.to_string() == "18446744073709551615"
-            ));
-            assert!(matches!(
-                value_at(&instance, "ten_to_29"),
-                FieldPresence::Present(Value::BigInt(value))
-                    if value.to_string() == "100000000000000000000000000000"
-            ));
-            assert!(matches!(
-                value_at(&instance, "huge"),
-                FieldPresence::Present(Value::Decimal(value)) if value.to_string() == "1e400"
-            ));
+            assert_big_numbers_parsed(&instance);
             if label == "YAML" {
                 assert_eq!(
                     value_at(&instance, "bytes"),
@@ -2057,148 +2229,14 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             assert_eq!(unchanged, input, "{label} changed untouched source bytes");
 
             if label == "TOML" {
-                for (anchor, value) in [
-                    ("long_decimal", edited_decimal()),
-                    (
-                        "numeric_38_10",
-                        Value::Decimal(
-                            DecimalValue::parse("1234567890123456789012345678.1234567891")
-                                .expect("edited numeric"),
-                        ),
-                    ),
-                    (
-                        "huge",
-                        Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
-                    ),
-                ] {
-                    let mut edited = instance.clone();
-                    set_tree_value(&mut edited, anchor, FieldPresence::Present(value.clone()));
-                    let emitted = codec
-                        .emit_wtype_preserving(&schema, &edited, &complement)
-                        .expect("TOML CST writes an exact numeral token");
-                    let (reparsed, _) = codec
-                        .parse_wtype_preserving(&schema, &emitted)
-                        .expect("reparse exact TOML numeral token");
-                    assert_eq!(value_at(&reparsed, anchor), &FieldPresence::Present(value));
-                }
-
-                let edited_timestamp =
-                    Temporal::parse("2026-09-29T01:02:03.456").expect("edited local timestamp");
-                set_tree_value(
-                    &mut instance,
-                    "timestamp_local",
-                    FieldPresence::Present(Value::Temporal(edited_timestamp)),
-                );
-                let edited_offset = Temporal::parse("2026-09-29T01:02:03.456+05:30")
-                    .expect("edited offset timestamp");
-                set_tree_value(
-                    &mut instance,
-                    "timestamp_offset",
-                    FieldPresence::Present(Value::Temporal(edited_offset)),
-                );
-                set_tree_value(
-                    &mut instance,
-                    "bytes",
-                    FieldPresence::Present(Value::Bytes(vec![0x03, 0x04, 0x05])),
-                );
-                set_tree_value(
-                    &mut instance,
-                    "nan",
-                    FieldPresence::Present(Value::Float(f64::INFINITY)),
-                );
-                let emitted = codec
-                    .emit_wtype_preserving(&schema, &instance, &complement)
-                    .expect("TOML CST renders a representable timestamp edit");
-                let (reparsed, _) = codec
-                    .parse_wtype_preserving(&schema, &emitted)
-                    .expect("reparse edited TOML CST");
-                assert_eq!(
-                    value_at(&reparsed, "timestamp_local"),
-                    value_at(&instance, "timestamp_local"),
-                    "TOML changed the timestamp during rerender"
-                );
-                assert_eq!(
-                    value_at(&reparsed, "timestamp_offset"),
-                    value_at(&instance, "timestamp_offset"),
-                    "TOML changed the offset timestamp during rerender"
-                );
-                assert_eq!(value_at(&reparsed, "bytes"), value_at(&instance, "bytes"));
-                assert_eq!(value_at(&reparsed, "nan"), value_at(&instance, "nan"));
-
-                for (anchor, value) in [
-                    (
-                        "u64_max",
-                        Value::parse_integer("18446744073709551614").expect("edited TOML u64"),
-                    ),
-                    (
-                        "ten_to_29",
-                        Value::parse_integer("100000000000000000000000000001")
-                            .expect("edited TOML 10^29"),
-                    ),
-                ] {
-                    let mut edited = instance.clone();
-                    set_tree_value(&mut edited, anchor, FieldPresence::Present(value.clone()));
-                    let emitted = codec
-                        .emit_wtype_preserving(&schema, &edited, &complement)
-                        .expect("TOML CST writes an exact integer token");
-                    let (reparsed, _) = codec
-                        .parse_wtype_preserving(&schema, &emitted)
-                        .expect("reparse exact TOML integer token");
-                    assert_eq!(value_at(&reparsed, anchor), &FieldPresence::Present(value));
-                }
-
-                for presence in [FieldPresence::Null, FieldPresence::Present(Value::Null)] {
-                    set_tree_value(&mut instance, "long_decimal", presence);
-                    let error = codec
-                        .emit_wtype_preserving(&schema, &instance, &complement)
-                        .expect_err("TOML CST has no null spelling");
-                    assert!(matches!(
-                        error,
-                        EmitInstanceError::Value(error)
-                            if error.reason == EmitValueReason::NullNotRepresentable
-                    ));
-                }
+                assert_toml_cst_rerenders(&codec, &schema, instance, &complement);
                 continue;
             }
 
-            for (anchor, value) in [
-                ("long_decimal", edited_decimal()),
-                (
-                    "numeric_38_10",
-                    Value::Decimal(
-                        DecimalValue::parse("1234567890123456789012345678.1234567891")
-                            .expect("edited numeric"),
-                    ),
-                ),
-                (
-                    "timestamp_offset",
-                    Value::Temporal(
-                        Temporal::parse("2026-09-29T12:34:56.789+05:30")
-                            .expect("edited offset timestamp"),
-                    ),
-                ),
-                (
-                    "timestamp_local",
-                    Value::Temporal(
-                        Temporal::parse("2026-09-29T12:34:56.789").expect("edited local timestamp"),
-                    ),
-                ),
-                ("bytes", Value::Bytes(vec![0x03, 0x04, 0x05])),
-                (
-                    "u64_max",
-                    Value::parse_integer("18446744073709551614").expect("edited u64 integer"),
-                ),
-                (
-                    "ten_to_29",
-                    Value::parse_integer("100000000000000000000000000001")
-                        .expect("edited 10^29 integer"),
-                ),
-                (
-                    "huge",
-                    Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
-                ),
-                ("null_value", Value::Str("materialized-null".into())),
-            ] {
+            for (anchor, value) in exact_value_edits()
+                .into_iter()
+                .chain([("null_value", Value::Str("materialized-null".into()))])
+            {
                 set_tree_value(&mut instance, anchor, FieldPresence::Present(value));
             }
             if label == "YAML" {
@@ -2220,23 +2258,18 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             let (reparsed, _) = codec
                 .parse_wtype_preserving(&schema, &emitted)
                 .unwrap_or_else(|error| panic!("reparse edited {label} CST: {error}"));
-            for anchor in [
-                "long_decimal",
-                "numeric_38_10",
-                "timestamp_offset",
-                "timestamp_local",
-                "bytes",
-                "u64_max",
-                "ten_to_29",
-                "huge",
-                "null_value",
-            ] {
+            for (anchor, _) in exact_value_edits() {
                 assert_eq!(
                     value_at(&reparsed, anchor),
                     value_at(&instance, anchor),
                     "{label} changed {anchor} during rerender"
                 );
             }
+            assert_eq!(
+                value_at(&reparsed, "null_value"),
+                value_at(&instance, "null_value"),
+                "{label} changed null_value during rerender"
+            );
             if label == "YAML" {
                 assert_eq!(value_at(&reparsed, "nan"), value_at(&instance, "nan"));
             }
@@ -2582,20 +2615,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             value_at(&instance, "null_value"),
             FieldPresence::Null
         ));
-        assert!(matches!(
-            value_at(&instance, "u64_max"),
-            FieldPresence::Present(Value::BigInt(value))
-                if value.to_string() == "18446744073709551615"
-        ));
-        assert!(matches!(
-            value_at(&instance, "ten_to_29"),
-            FieldPresence::Present(Value::BigInt(value))
-                if value.to_string() == "100000000000000000000000000000"
-        ));
-        assert!(matches!(
-            value_at(&instance, "huge"),
-            FieldPresence::Present(Value::Decimal(value)) if value.to_string() == "1e400"
-        ));
+        assert_big_numbers_parsed(&instance);
         assert!(matches!(
             value_at(&instance, "nan"),
             FieldPresence::Present(Value::Float(value)) if value.is_nan()
@@ -2611,46 +2631,12 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             .expect("emit unchanged XML CST");
         assert_eq!(unchanged, input);
 
-        for (anchor, value) in [
-            ("long_decimal", edited_decimal()),
-            (
-                "numeric_38_10",
-                Value::Decimal(
-                    DecimalValue::parse("1234567890123456789012345678.1234567891")
-                        .expect("edited numeric"),
-                ),
-            ),
-            (
-                "timestamp_offset",
-                Value::Temporal(
-                    Temporal::parse("2026-09-29T12:34:56.789+05:30")
-                        .expect("edited offset timestamp"),
-                ),
-            ),
-            (
-                "timestamp_local",
-                Value::Temporal(
-                    Temporal::parse("2026-09-29T12:34:56.789").expect("edited local timestamp"),
-                ),
-            ),
-            ("bytes", Value::Bytes(vec![0x03, 0x04, 0x05])),
-            (
-                "u64_max",
-                Value::parse_integer("18446744073709551614").expect("edited u64 integer"),
-            ),
-            (
-                "ten_to_29",
-                Value::parse_integer("100000000000000000000000000001")
-                    .expect("edited 10^29 integer"),
-            ),
-            (
-                "huge",
-                Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
-            ),
+        let extra_edits = [
             ("nan", Value::Float(f64::INFINITY)),
             ("null_value", Value::Str("materialized-null".into())),
             ("empty", Value::Str("materialized-empty".into())),
-        ] {
+        ];
+        for (anchor, value) in exact_value_edits().into_iter().chain(extra_edits.clone()) {
             set_tree_value(&mut instance, anchor, FieldPresence::Present(value));
         }
         instance
@@ -2666,19 +2652,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         let (reparsed, _) = codec
             .parse_wtype_preserving(&schema, &emitted)
             .expect("reparse edited XML CST");
-        for anchor in [
-            "long_decimal",
-            "numeric_38_10",
-            "timestamp_offset",
-            "timestamp_local",
-            "bytes",
-            "u64_max",
-            "ten_to_29",
-            "huge",
-            "nan",
-            "null_value",
-            "empty",
-        ] {
+        for (anchor, _) in exact_value_edits().into_iter().chain(extra_edits) {
             assert_eq!(value_at(&reparsed, anchor), value_at(&instance, anchor));
         }
         assert!(
@@ -3132,6 +3106,118 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         ));
     }
 
+    /// A delimited CST codec refuses a repeated header name and a row with
+    /// more fields than headers.
+    fn assert_delimited_parse_refusals(codec: &UnifiedCodec, schema: &Schema, label: &str) {
+        let duplicate_header = if label == "CSV" {
+            b"x,x\na,b\n".as_slice()
+        } else {
+            b"x\tx\na\tb\n".as_slice()
+        };
+        let error = codec
+            .parse_functor_preserving(schema, duplicate_header)
+            .expect_err("duplicate headers must not collapse");
+        assert!(matches!(
+            error,
+            ParseInstanceError::Parse { ref message, .. }
+                if message.contains("duplicate tabular header name 'x'")
+        ));
+
+        let overlong_row = if label == "CSV" {
+            b"1\nleft,right\n".as_slice()
+        } else {
+            b"1\nleft\tright\n".as_slice()
+        };
+        let error = codec
+            .parse_functor_preserving(schema, overlong_row)
+            .expect_err("a synthesized column must not overwrite header 1");
+        assert!(matches!(
+            error,
+            ParseInstanceError::Parse { ref message, .. }
+                if message.contains("data row 1")
+                    && message.contains("2 fields")
+                    && message.contains("1 header")
+        ));
+    }
+
+    /// A delimited CST codec refuses a null or an absent cell, which it has
+    /// no token for, and a cell spelling a reserved delimiter, and keeps
+    /// `_` as ordinary text.
+    fn assert_delimited_cell_refusals(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        instance: &FInstance,
+        complement: &CstComplement,
+        row: RowId,
+        label: &str,
+    ) {
+        let mut null = instance.clone();
+        null.row_mut(row)
+            .expect("value row")
+            .insert("null_value".into(), Value::Null);
+        let error = codec
+            .emit_functor_preserving(schema, &null, complement)
+            .expect_err("delimited CST has no configured null token");
+        assert!(matches!(
+            error,
+            EmitInstanceError::Value(error)
+                if error.reason == EmitValueReason::NullNotRepresentable
+        ));
+
+        let mut absent = instance.clone();
+        absent
+            .row_mut(row)
+            .expect("value row")
+            .remove("long_decimal");
+        let error = codec
+            .emit_functor_preserving(schema, &absent, complement)
+            .expect_err("an absent delimited cell has no implicit token");
+        assert!(matches!(
+            error,
+            EmitInstanceError::Value(error)
+                if error.reason == EmitValueReason::AbsentNotRepresentable
+        ));
+
+        let mut underscore = instance.clone();
+        underscore
+            .row_mut(row)
+            .expect("value row")
+            .insert("null_value".into(), Value::Str("_".into()));
+        let emitted = codec
+            .emit_functor_preserving(schema, &underscore, complement)
+            .expect("underscore is ordinary delimited text");
+        let (reparsed, _) = codec
+            .parse_functor_preserving(schema, &emitted)
+            .expect("reparse underscore cell");
+        assert_eq!(
+            reparsed.rows("rows")[0].1.get("null_value"),
+            Some(&Value::Str("_".into()))
+        );
+
+        for reserved in [
+            if label == "CSV" {
+                "left,right"
+            } else {
+                "left\tright"
+            },
+            "left\nright",
+        ] {
+            let mut invalid = instance.clone();
+            invalid
+                .row_mut(row)
+                .expect("value row")
+                .insert("null_value".into(), Value::Str(reserved.into()));
+            let error = codec
+                .emit_functor_preserving(schema, &invalid, complement)
+                .expect_err("reserved delimited spelling must be refused");
+            assert!(matches!(
+                error,
+                EmitInstanceError::Value(error)
+                    if error.reason == EmitValueReason::NotRepresentable
+            ));
+        }
+    }
+
     #[test]
     fn delimited_cst_routes_force_exact_cell_rerenders() {
         let schema = exact_value_schema("rows");
@@ -3147,35 +3233,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 "TSV",
             ),
         ] {
-            let duplicate_header = if label == "CSV" {
-                b"x,x\na,b\n".as_slice()
-            } else {
-                b"x\tx\na\tb\n".as_slice()
-            };
-            let error = codec
-                .parse_functor_preserving(&schema, duplicate_header)
-                .expect_err("duplicate headers must not collapse");
-            assert!(matches!(
-                error,
-                ParseInstanceError::Parse { ref message, .. }
-                    if message.contains("duplicate tabular header name 'x'")
-            ));
-
-            let overlong_row = if label == "CSV" {
-                b"1\nleft,right\n".as_slice()
-            } else {
-                b"1\nleft\tright\n".as_slice()
-            };
-            let error = codec
-                .parse_functor_preserving(&schema, overlong_row)
-                .expect_err("a synthesized column must not overwrite header 1");
-            assert!(matches!(
-                error,
-                ParseInstanceError::Parse { ref message, .. }
-                    if message.contains("data row 1")
-                        && message.contains("2 fields")
-                        && message.contains("1 header")
-            ));
+            assert_delimited_parse_refusals(&codec, &schema, label);
 
             let input = read_fixture(fixture_path);
             let (mut instance, complement) = codec
@@ -3200,46 +3258,12 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             assert_eq!(unchanged, input, "{label} changed untouched source bytes");
 
             let edited_row = instance.row_mut(row).expect("value row");
-            for (column, value) in [
-                ("long_decimal", edited_decimal()),
-                (
-                    "numeric_38_10",
-                    Value::Decimal(
-                        DecimalValue::parse("1234567890123456789012345678.1234567891")
-                            .expect("edited numeric"),
-                    ),
-                ),
-                (
-                    "timestamp_offset",
-                    Value::Temporal(
-                        Temporal::parse("2026-09-29T12:34:56.789+05:30")
-                            .expect("edited offset timestamp"),
-                    ),
-                ),
-                (
-                    "timestamp_local",
-                    Value::Temporal(
-                        Temporal::parse("2026-09-29T12:34:56.789").expect("edited local timestamp"),
-                    ),
-                ),
-                ("bytes", Value::Bytes(vec![0x03, 0x04, 0x05])),
-                (
-                    "u64_max",
-                    Value::parse_integer("18446744073709551614").expect("edited u64 integer"),
-                ),
-                (
-                    "ten_to_29",
-                    Value::parse_integer("100000000000000000000000000001")
-                        .expect("edited 10^29 integer"),
-                ),
-                (
-                    "huge",
-                    Value::Decimal(DecimalValue::parse("2e400").expect("edited huge decimal")),
-                ),
+            let extra_edits = [
                 ("nan", Value::Float(f64::INFINITY)),
                 ("null_value", Value::Str("materialized-null".into())),
                 ("absent", Value::Str("materialized-absent".into())),
-            ] {
+            ];
+            for (column, value) in exact_value_edits().into_iter().chain(extra_edits.clone()) {
                 edited_row.insert(column.into(), value);
             }
             let emitted = codec
@@ -3248,19 +3272,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             let (reparsed, _) = codec
                 .parse_functor_preserving(&schema, &emitted)
                 .unwrap_or_else(|error| panic!("reparse edited {label} CST: {error}"));
-            for column in [
-                "long_decimal",
-                "numeric_38_10",
-                "timestamp_offset",
-                "timestamp_local",
-                "bytes",
-                "u64_max",
-                "ten_to_29",
-                "huge",
-                "nan",
-                "null_value",
-                "absent",
-            ] {
+            for (column, _) in exact_value_edits().into_iter().chain(extra_edits) {
                 assert_eq!(
                     table_value(&reparsed, "rows", column),
                     table_value(&instance, "rows", column),
@@ -3268,71 +3280,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 );
             }
 
-            let mut null = instance.clone();
-            null.row_mut(row)
-                .expect("value row")
-                .insert("null_value".into(), Value::Null);
-            let error = codec
-                .emit_functor_preserving(&schema, &null, &complement)
-                .expect_err("delimited CST has no configured null token");
-            assert!(matches!(
-                error,
-                EmitInstanceError::Value(error)
-                    if error.reason == EmitValueReason::NullNotRepresentable
-            ));
-
-            let mut absent = instance.clone();
-            absent
-                .row_mut(row)
-                .expect("value row")
-                .remove("long_decimal");
-            let error = codec
-                .emit_functor_preserving(&schema, &absent, &complement)
-                .expect_err("an absent delimited cell has no implicit token");
-            assert!(matches!(
-                error,
-                EmitInstanceError::Value(error)
-                    if error.reason == EmitValueReason::AbsentNotRepresentable
-            ));
-
-            let mut underscore = instance.clone();
-            underscore
-                .row_mut(row)
-                .expect("value row")
-                .insert("null_value".into(), Value::Str("_".into()));
-            let emitted = codec
-                .emit_functor_preserving(&schema, &underscore, &complement)
-                .expect("underscore is ordinary delimited text");
-            let (reparsed, _) = codec
-                .parse_functor_preserving(&schema, &emitted)
-                .expect("reparse underscore cell");
-            assert_eq!(
-                reparsed.rows("rows")[0].1.get("null_value"),
-                Some(&Value::Str("_".into()))
-            );
-
-            for reserved in [
-                if label == "CSV" {
-                    "left,right"
-                } else {
-                    "left\tright"
-                },
-                "left\nright",
-            ] {
-                let mut invalid = instance.clone();
-                invalid
-                    .row_mut(row)
-                    .expect("value row")
-                    .insert("null_value".into(), Value::Str(reserved.into()));
-                let error = codec
-                    .emit_functor_preserving(&schema, &invalid, &complement)
-                    .expect_err("reserved delimited spelling must be refused");
-                assert!(matches!(
-                    error,
-                    EmitInstanceError::Value(error)
-                        if error.reason == EmitValueReason::NotRepresentable
-                ));
-            }
+            assert_delimited_cell_refusals(&codec, &schema, &instance, &complement, row, label);
         }
     }
 
