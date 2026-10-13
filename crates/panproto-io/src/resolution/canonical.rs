@@ -333,19 +333,9 @@ impl Resolution {
             kept_fans,
             holder_edges,
         } = self.plan_tree(graph, discovered, tree_arcs, fan_nodes)?;
-        let mut next_id = discovered
-            .iter()
-            .max()
-            .and_then(|max| max.checked_add(1))
-            .ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::segment::IdKind::Node,
-            })?;
+        let holder_ids = holder_ids_above(discovered, holder_edges.len())?;
         let mut holders = Vec::new();
-        for (parent, key) in holder_edges {
-            let id = next_id;
-            next_id = next_id.checked_add(1).ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::segment::IdKind::Node,
-            })?;
+        for ((parent, key), id) in holder_edges.into_iter().zip(holder_ids) {
             holders.push((key.2, id, key.1));
             children
                 .entry(parent)
@@ -573,4 +563,24 @@ impl Resolution {
                 })
             })
     }
+}
+
+/// The node ids of `count` redirect holders, upward from one above every
+/// discovered node.
+fn holder_ids_above(discovered: &BTreeSet<u32>, count: usize) -> Result<Vec<u32>, ResolveError> {
+    let exhausted = ResolveError::IdExhausted {
+        kind: panproto_inst::segment::IdKind::Node,
+    };
+    let mut next_id = discovered
+        .iter()
+        .max()
+        .and_then(|max| max.checked_add(1))
+        .ok_or_else(|| exhausted.clone())?;
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = next_id;
+        next_id = next_id.checked_add(1).ok_or_else(|| exhausted.clone())?;
+        ids.push(id);
+    }
+    Ok(ids)
 }

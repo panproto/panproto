@@ -346,16 +346,14 @@ impl Resolution {
                 .values()
                 .flat_map(|f| f.nodes.keys().copied()),
         );
-        let node_floor = all_tree_nodes.max().map_or(Some(0), |id| id.checked_add(1));
+        let node_floor = tree_node_floor(all_tree_nodes).map_err(Refusal::Operational)?;
         let slot_floor = taken_slots
             .iter()
             .max()
-            .map_or(Some(0), |id| id.checked_add(1));
-        let (Some(node_floor), Some(slot_floor)) = (node_floor, slot_floor) else {
-            return Err(Refusal::Operational(ResolveError::IdExhausted {
+            .map_or(Some(0), |id| id.checked_add(1))
+            .ok_or(Refusal::Operational(ResolveError::IdExhausted {
                 kind: panproto_inst::segment::IdKind::Node,
-            }));
-        };
+            }))?;
         let mut holders = Vec::new();
         for (carrier, label) in &classified.new_references {
             let Ok(compiled) = self.writer(*carrier, label) else {
@@ -590,17 +588,31 @@ impl TreeParts<'_, '_> {
     }
 
     fn holder_ids(&self) -> Result<Vec<u32>, Refusal> {
-        (0..self.holders.len())
-            .map(|k| {
-                u32::try_from(k)
-                    .ok()
-                    .and_then(|k| self.node_floor.checked_add(k))
-                    .ok_or(Refusal::Operational(ResolveError::IdExhausted {
-                        kind: panproto_inst::segment::IdKind::Node,
-                    }))
-            })
-            .collect()
+        holder_ids_from(self.node_floor, self.holders.len()).map_err(Refusal::Operational)
     }
+}
+
+/// The node floor of a source's tree nodes: one above the largest.
+fn tree_node_floor(ids: impl Iterator<Item = u32>) -> Result<u32, ResolveError> {
+    ids.max()
+        .map_or(Some(0), |id| id.checked_add(1))
+        .ok_or(ResolveError::IdExhausted {
+            kind: panproto_inst::segment::IdKind::Node,
+        })
+}
+
+/// The node ids of `count` new holders, upward from `node_floor`.
+fn holder_ids_from(node_floor: u32, count: usize) -> Result<Vec<u32>, ResolveError> {
+    (0..count)
+        .map(|k| {
+            u32::try_from(k)
+                .ok()
+                .and_then(|k| node_floor.checked_add(k))
+                .ok_or(ResolveError::IdExhausted {
+                    kind: panproto_inst::segment::IdKind::Node,
+                })
+        })
+        .collect()
 }
 
 impl Resolution {
