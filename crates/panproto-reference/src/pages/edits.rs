@@ -895,22 +895,33 @@ pub mod edit {
     }
 
     /// The type of embedded ids a tree edit runs over: `u32`, the graph's,
-    /// or `u128`, in which the reader replays its reconstruction. An id is
-    /// drawn by taking a floor's successor, which fails only at the type's
-    /// maximum.
+    /// or `u128`, the unbounded id space of the tree-edit laws (no run from
+    /// a `u32` embedding that this crate builds draws near `u128::MAX`). An
+    /// id is drawn by taking a floor's successor, which fails only at the
+    /// type's maximum.
     trait TreeId: Copy + Ord + From<u32> {
         fn successor(self) -> Option<Self>;
+        /// The graph id this id names, when it has one.
+        fn graph_id(self) -> Option<u32>;
     }
 
     impl TreeId for u32 {
         fn successor(self) -> Option<Self> {
             self.checked_add(1)
         }
+
+        fn graph_id(self) -> Option<u32> {
+            Some(self)
+        }
     }
 
     impl TreeId for u128 {
         fn successor(self) -> Option<Self> {
             self.checked_add(1)
+        }
+
+        fn graph_id(self) -> Option<u32> {
+            u32::try_from(self).ok()
         }
     }
 
@@ -1268,11 +1279,76 @@ pub mod edit {
         tree: &crate::model::Tree,
         embedding: &mut crate::encode::TreeEmbedding,
     ) -> Result<crate::model::Tree, TreeApplyError> {
-        graph_of_embedded_tree(tree, embedding, None)?;
+        apply_tree_in(edit, tree, embedding)
+    }
+
+    /// Definition: Apply a tree edit over unbounded ids, the id space in
+    /// which the tree-edit laws are stated.
+    ///
+    /// This is [`apply_tree`] with the embedding's ids in `u128`, which
+    /// stands for the natural numbers: a step draws an id by taking a
+    /// floor's successor, and `u128` runs out only after more than
+    /// `2^128 - 2^32` draws. The `u32` form refines it: for every edit and
+    /// valid embedding E, [`apply_tree`] from E returns this function's
+    /// result from [`unbounded_embedding`]`(E)` (the same tree, and the
+    /// same embedding read in `u32`), or `IdsExhausted`.
+    ///
+    /// # Errors
+    ///
+    /// As [`apply_tree`]; `IdsExhausted` only past `u128::MAX`.
+    ///
+    /// Book anchors: `L-edits-3`, `L-edits-6`.
+    pub fn apply_tree_unbounded(
+        edit: &TreeEdit,
+        tree: &crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding<u128>,
+    ) -> Result<crate::model::Tree, TreeApplyError> {
+        apply_tree_in(edit, tree, embedding)
+    }
+
+    /// Definition: A `u32` embedding's ids in the unbounded id space of
+    /// [`apply_tree_unbounded`]: the same carriers and floors, as `u128`.
+    ///
+    /// Book anchors: `L-edits-3`.
+    #[must_use]
+    pub fn unbounded_embedding(
+        embedding: &crate::encode::TreeEmbedding,
+    ) -> crate::encode::TreeEmbedding<u128> {
+        crate::encode::TreeEmbedding {
+            arcs: embedding
+                .arcs
+                .iter()
+                .map(|(child, edge)| (*child, u128::from(*edge)))
+                .collect(),
+            fans: embedding
+                .fans
+                .iter()
+                .map(|(node, parent, children)| {
+                    (
+                        u128::from(*node),
+                        u128::from(*parent),
+                        children
+                            .iter()
+                            .map(|(label, edge)| (label.clone(), u128::from(*edge)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            next_node: u128::from(embedding.next_node),
+            next_edge: u128::from(embedding.next_edge),
+        }
+    }
+
+    fn apply_tree_in<I: TreeId>(
+        edit: &TreeEdit,
+        tree: &crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
+    ) -> Result<crate::model::Tree, TreeApplyError> {
+        check_embedded_tree(tree, embedding)?;
         let mut next_tree = tree.clone();
         let mut next_embedding = embedding.clone();
         apply_tree_step(edit, &mut next_tree, &mut next_embedding)?;
-        graph_of_embedded_tree(&next_tree, &next_embedding, None)?;
+        check_embedded_tree(&next_tree, &next_embedding)?;
         *embedding = next_embedding;
         Ok(next_tree)
     }
@@ -1375,9 +1451,9 @@ pub mod edit {
         delta
     }
 
-    fn tree_embedding_layout_is_exact(
+    fn tree_embedding_layout_is_exact<I: TreeId>(
         tree: &crate::model::Tree,
-        embedding: &crate::encode::TreeEmbedding,
+        embedding: &crate::encode::TreeEmbedding<I>,
     ) -> bool {
         if tree.arcs.len() != embedding.arcs.len() {
             return false;
@@ -1395,7 +1471,7 @@ pub mod edit {
         }
 
         let mut last_fan_node = None;
-        let mut used_nodes: BTreeSet<_> = tree.nodes.keys().copied().collect();
+        let mut used_nodes: BTreeSet<I> = tree.nodes.keys().map(|id| I::from(*id)).collect();
         for (fan, (node, parent, children)) in tree.fans.iter().zip(&embedding.fans) {
             if last_fan_node.is_some_and(|last| *node <= last) || !used_nodes.insert(*node) {
                 return false;
@@ -1411,9 +1487,9 @@ pub mod edit {
         true
     }
 
-    fn check_tree_embedding_carriers(
+    fn check_tree_embedding_carriers<I: TreeId>(
         tree: &crate::model::Tree,
-        embedding: &crate::encode::TreeEmbedding,
+        embedding: &crate::encode::TreeEmbedding<I>,
     ) -> Result<(), TreeApplyError> {
         if tree.fans.len() != embedding.fans.len()
             || !tree_embedding_layout_is_exact(tree, embedding)
@@ -1431,7 +1507,10 @@ pub mod edit {
         {
             return Err(TreeApplyError::ReservedVocabulary);
         }
-        if tree.nodes.keys().any(|id| *id >= embedding.next_node)
+        if tree
+            .nodes
+            .keys()
+            .any(|id| I::from(*id) >= embedding.next_node)
             || embedding
                 .fans
                 .iter()
@@ -1450,79 +1529,94 @@ pub mod edit {
         Ok(())
     }
 
-    fn insert_embedded_edge(graph: &mut Graph, id: u32, edge: GEdge) -> Result<(), TreeApplyError> {
-        if graph.edges.insert(id, edge).is_some() {
+    /// Whether `tree` under `embedding` has a graph form: the carriers are
+    /// exact, ordered, disjoint and below the floors, no reserved vocabulary
+    /// occurs, every node is filed under its own id, and every arc and fan
+    /// names nodes of the tree. Then the graph form is built without a
+    /// further check ([`build_embedded_graph`]).
+    fn check_embedded_tree<I: TreeId>(
+        tree: &crate::model::Tree,
+        embedding: &crate::encode::TreeEmbedding<I>,
+    ) -> Result<(), TreeApplyError> {
+        check_tree_embedding_carriers(tree, embedding)?;
+        let is_node = |id: &u32| tree.nodes.contains_key(id);
+        if tree.nodes.iter().any(|(id, node)| node.id != *id)
+            || tree
+                .arcs
+                .iter()
+                .any(|(parent, child, _)| !is_node(parent) || !is_node(child))
+            || tree
+                .fans
+                .iter()
+                .any(|fan| !is_node(&fan.parent) || !fan.children.values().all(is_node))
+        {
             return Err(TreeApplyError::InvalidEmbedding);
         }
         Ok(())
     }
 
-    fn insert_embedded_fan(
-        graph: &mut Graph,
+    /// The graph form of a tree whose embedding [`check_embedded_tree`]
+    /// accepts, with the carriers given as graph ids.
+    fn build_embedded_graph(
         tree: &crate::model::Tree,
-        fan: &crate::model::Fan,
-        fan_embedding: &(u32, u32, BTreeMap<Name, u32>),
+        arcs: &BTreeMap<u32, u32>,
+        fans: &[(u32, u32, BTreeMap<Name, u32>)],
         schema: Option<&crate::schema::Schema>,
-    ) -> Result<(), TreeApplyError> {
-        let (node_id, parent_edge, child_edges) = fan_embedding;
-        if tree.nodes.contains_key(node_id) || child_edges.len() != fan.children.len() {
-            return Err(TreeApplyError::InvalidEmbedding);
-        }
-        let mut node = Node::new(*node_id, &fan.hyper_edge);
-        node.shape = NodeShape::HyperEdge;
-        if graph.nodes.insert(*node_id, node).is_some() {
-            return Err(TreeApplyError::InvalidEmbedding);
-        }
-        let parent_name = schema
-            .and_then(|schema| schema.hyper_edges.get(&fan.hyper_edge))
-            .map(|edge| edge.parent_label.clone());
-        let parent_anchor = tree
-            .nodes
-            .get(&fan.parent)
-            .map(|node| node.anchor.clone())
-            .ok_or(TreeApplyError::InvalidEmbedding)?;
-        insert_embedded_edge(
-            graph,
-            *parent_edge,
-            GEdge {
-                src: *node_id,
-                tgt: fan.parent,
-                label: SEdge {
-                    src: fan.hyper_edge.clone(),
-                    tgt: parent_anchor,
-                    kind: crate::restrict::HYPER_PARENT.to_owned(),
-                    name: parent_name,
+    ) -> Graph {
+        let mut graph = Graph {
+            nodes: tree.nodes.clone(),
+            edges: BTreeMap::new(),
+        };
+        for (parent, child, label) in &tree.arcs {
+            graph.edges.insert(
+                arcs[child],
+                GEdge {
+                    src: *parent,
+                    tgt: *child,
+                    label: label.clone(),
+                    position: None,
                 },
-                position: None,
-            },
-        )?;
-        for (label, child) in &fan.children {
-            let edge_id = child_edges
-                .get(label)
-                .copied()
-                .ok_or(TreeApplyError::InvalidEmbedding)?;
-            let child_anchor = tree
-                .nodes
-                .get(child)
-                .map(|node| node.anchor.clone())
-                .ok_or(TreeApplyError::InvalidEmbedding)?;
-            insert_embedded_edge(
-                graph,
-                edge_id,
+            );
+        }
+        for (fan, (node_id, parent_edge, child_edges)) in tree.fans.iter().zip(fans) {
+            let mut node = Node::new(*node_id, &fan.hyper_edge);
+            node.shape = NodeShape::HyperEdge;
+            graph.nodes.insert(*node_id, node);
+            let parent_name = schema
+                .and_then(|schema| schema.hyper_edges.get(&fan.hyper_edge))
+                .map(|edge| edge.parent_label.clone());
+            graph.edges.insert(
+                *parent_edge,
                 GEdge {
                     src: *node_id,
-                    tgt: *child,
+                    tgt: fan.parent,
                     label: SEdge {
                         src: fan.hyper_edge.clone(),
-                        tgt: child_anchor,
-                        kind: crate::restrict::HYPER_LABEL.to_owned(),
-                        name: Some(label.clone()),
+                        tgt: tree.nodes[&fan.parent].anchor.clone(),
+                        kind: crate::restrict::HYPER_PARENT.to_owned(),
+                        name: parent_name,
                     },
                     position: None,
                 },
-            )?;
+            );
+            for (label, child) in &fan.children {
+                graph.edges.insert(
+                    child_edges[label],
+                    GEdge {
+                        src: *node_id,
+                        tgt: *child,
+                        label: SEdge {
+                            src: fan.hyper_edge.clone(),
+                            tgt: tree.nodes[child].anchor.clone(),
+                            kind: crate::restrict::HYPER_LABEL.to_owned(),
+                            name: Some(label.clone()),
+                        },
+                        position: None,
+                    },
+                );
+            }
         }
-        Ok(())
+        graph
     }
 
     fn graph_of_embedded_tree(
@@ -1530,35 +1624,58 @@ pub mod edit {
         embedding: &crate::encode::TreeEmbedding,
         schema: Option<&crate::schema::Schema>,
     ) -> Result<Graph, TreeApplyError> {
-        check_tree_embedding_carriers(tree, embedding)?;
-        let mut graph = Graph {
-            nodes: tree.nodes.clone(),
-            edges: BTreeMap::new(),
-        };
-        for (parent, child, label) in &tree.arcs {
-            let edge_id = embedding
-                .arcs
-                .get(child)
-                .copied()
-                .ok_or(TreeApplyError::InvalidEmbedding)?;
-            insert_embedded_edge(
-                &mut graph,
-                edge_id,
-                GEdge {
-                    src: *parent,
-                    tgt: *child,
-                    label: label.clone(),
-                    position: None,
-                },
-            )?;
-        }
-        for (fan, fan_embedding) in tree.fans.iter().zip(&embedding.fans) {
-            insert_embedded_fan(&mut graph, tree, fan, fan_embedding, schema)?;
-        }
-        if !graph.well_formed() {
-            return Err(TreeApplyError::InvalidEmbedding);
-        }
-        Ok(graph)
+        check_embedded_tree(tree, embedding)?;
+        Ok(build_embedded_graph(
+            tree,
+            &embedding.arcs,
+            &embedding.fans,
+            schema,
+        ))
+    }
+
+    /// Definition: The graph form of a tree under an embedding over
+    /// unbounded ids, when every carrier id is a graph (`u32`) id.
+    ///
+    /// The graph is the one [`graph_delta_from_tree_edit`] builds under a
+    /// `u32` embedding with the same carriers; floors are not part of a
+    /// graph, so a floor beyond `u32` (after inserting node `u32::MAX`, say)
+    /// does not prevent it. `Ok(None)` when a carrier id is `2^32` or more,
+    /// which no [`Graph`] can name.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidEmbedding` or `ReservedVocabulary` exactly as under a `u32`
+    /// embedding.
+    ///
+    /// Book anchors: `L-edits-3`.
+    pub fn graph_of_unbounded_embedding(
+        tree: &crate::model::Tree,
+        embedding: &crate::encode::TreeEmbedding<u128>,
+        schema: Option<&crate::schema::Schema>,
+    ) -> Result<Option<Graph>, TreeApplyError> {
+        check_embedded_tree(tree, embedding)?;
+        let arcs: Option<BTreeMap<u32, u32>> = embedding
+            .arcs
+            .iter()
+            .map(|(child, edge)| Some((*child, edge.graph_id()?)))
+            .collect();
+        let fans: Option<Vec<(u32, u32, BTreeMap<Name, u32>)>> = embedding
+            .fans
+            .iter()
+            .map(|(node, parent, children)| {
+                Some((
+                    node.graph_id()?,
+                    parent.graph_id()?,
+                    children
+                        .iter()
+                        .map(|(label, edge)| Some((label.clone(), edge.graph_id()?)))
+                        .collect::<Option<_>>()?,
+                ))
+            })
+            .collect();
+        Ok(arcs
+            .zip(fans)
+            .map(|(arcs, fans)| build_embedded_graph(tree, &arcs, &fans, schema)))
     }
 
     /// Definition: Lower a tree edit to its exact graph delta.
@@ -1584,6 +1701,40 @@ pub mod edit {
         let after = graph_of_embedded_tree(&after_tree, &next_embedding, schema)?;
         *embedding = next_embedding;
         Ok(diff(&before, &after))
+    }
+
+    /// Definition: Lower a tree edit over unbounded ids.
+    ///
+    /// The delta from the graph of `tree` to the graph of
+    /// [`apply_tree_unbounded`]'s result, both by
+    /// [`graph_of_unbounded_embedding`]; `Ok(None)` when either graph has a
+    /// carrier id that is no `u32`. The `u32` form refines it: for every
+    /// edit and valid embedding E, [`graph_delta_from_tree_edit`] from E
+    /// returns `IdsExhausted` or what this function returns from
+    /// [`unbounded_embedding`]`(E)`, `Ok(d)` standing for `Ok(Some(d))`
+    /// (so never `Ok` where this function returns `Ok(None)`), and leaves
+    /// the embedding this function leaves, read in `u32`.
+    ///
+    /// # Errors
+    ///
+    /// As [`apply_tree_unbounded`]. The caller's embedding is unchanged on
+    /// every error.
+    ///
+    /// Book anchors: `L-edits-3`.
+    pub fn graph_delta_from_tree_edit_unbounded(
+        tree: &crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding<u128>,
+        edit: &TreeEdit,
+        schema: Option<&crate::schema::Schema>,
+    ) -> Result<Option<GraphDelta>, TreeApplyError> {
+        let before = graph_of_unbounded_embedding(tree, embedding, schema)?;
+        let mut next_embedding = embedding.clone();
+        let after_tree = apply_tree_unbounded(edit, tree, &mut next_embedding)?;
+        let after = graph_of_unbounded_embedding(&after_tree, &next_embedding, schema)?;
+        *embedding = next_embedding;
+        Ok(before
+            .zip(after)
+            .map(|(before, after)| diff(&before, &after)))
     }
 
     fn tree_depth(tree: &crate::model::Tree, node: u32) -> usize {
@@ -2024,33 +2175,6 @@ pub mod edit {
         Ok((edit, current_embedding))
     }
 
-    /// `embedding` with its ids in `u128`.
-    fn widened(embedding: &crate::encode::TreeEmbedding) -> crate::encode::TreeEmbedding<u128> {
-        crate::encode::TreeEmbedding {
-            arcs: embedding
-                .arcs
-                .iter()
-                .map(|(child, edge)| (*child, u128::from(*edge)))
-                .collect(),
-            fans: embedding
-                .fans
-                .iter()
-                .map(|(node, parent, children)| {
-                    (
-                        u128::from(*node),
-                        u128::from(*parent),
-                        children
-                            .iter()
-                            .map(|(label, edge)| (label.clone(), u128::from(*edge)))
-                            .collect(),
-                    )
-                })
-                .collect(),
-            next_node: u128::from(embedding.next_node),
-            next_edge: u128::from(embedding.next_edge),
-        }
-    }
-
     /// The part of the graph of `tree` under the `u128` embedding `reached`
     /// whose ids are below the floors of `start`: the tree nodes below the
     /// node floor, the arcs whose edge ids are below the edge floor, and the
@@ -2444,8 +2568,12 @@ pub mod edit {
             })
             .map(|(_, edge)| edge.tgt)
             .collect();
-        let (edit, reached) =
-            tree_transform_edit(tree, &widened(embedding), &after_tree, &refreshed)?;
+        let (edit, reached) = tree_transform_edit(
+            tree,
+            &unbounded_embedding(embedding),
+            &after_tree,
+            &refreshed,
+        )?;
         let kept = graph_below_floors(&after_tree, &reached, embedding, schema)?;
         if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
             Ok(edit)
