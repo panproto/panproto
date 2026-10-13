@@ -374,9 +374,12 @@ pub mod encode {
 
     /// How a tree's arcs and fans sit in its graph.
     ///
-    /// `I` is the type of the embedded ids: `u32`, the graph's, except where
-    /// the tree-edit reader replays a reconstruction in a wider type so that
-    /// its own id draws never run out.
+    /// `I` is the type of the embedded ids: `u32`, the graph's, or `u128`,
+    /// which stands for the natural numbers in the unbounded forms of tree
+    /// apply and lowering ([`crate::edit::apply_tree_unbounded`],
+    /// [`crate::edit::graph_delta_from_tree_edit_unbounded`]), where the
+    /// tree-edit laws are stated, and in the tree-edit reader's
+    /// reconstruction.
     #[derive(Clone, Debug, PartialEq, Eq, Default)]
     pub struct TreeEmbedding<I = u32> {
         /// Child node to the edge id of its arc.
