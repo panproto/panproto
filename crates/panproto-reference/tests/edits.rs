@@ -4147,10 +4147,19 @@ fn readback_trees() -> Vec<Tree> {
     vec![join_tree(), distinct, duplicate]
 }
 
+/// Whether two embeddings have the same carriers: the edge id of every arc,
+/// keyed by its child (so the result's tree nodes other than the root), and
+/// the node, parent edge and child edges of every fan, in fan order. The
+/// floors are not compared: they are allocation state, and two scripts that
+/// lower to one delta may leave different floors.
+fn same_carriers<I: PartialEq>(left: &TreeEmbedding<I>, right: &TreeEmbedding<I>) -> bool {
+    left.arcs == right.arcs && left.fans == right.fans
+}
+
 /// Check the readback laws on every script that lowers: the reading exists,
-/// it has the script's effect on the tree, and on at most one step its
-/// lowering and resulting embedding are the script's. Returns the number of
-/// lowered scripts and every failure.
+/// it has the script's effect on the tree, and on at most one step it
+/// lowers to the script's delta and reaches the carriers of the script's
+/// embedding. Returns the number of lowered scripts and every failure.
 fn readback_law_failures(
     tree: &Tree,
     scripts: impl Iterator<Item = TreeEdit>,
@@ -4182,7 +4191,7 @@ fn readback_law_failures(
             let mut relowered = embedding.clone();
             if edit::graph_delta_from_tree_edit(tree, &mut relowered, &read, None).as_ref()
                 != Ok(&delta)
-                || relowered != lowered
+                || !same_carriers(&relowered, &lowered)
             {
                 failures.push(format!("{script:?} read inexactly as {read:?}"));
             }
@@ -5170,8 +5179,9 @@ fn base_lowerings<'a>(
 /// lowering: it is refused only by `IdsExhausted` and never with full room,
 /// it is the lowering under the encoder's floors up to renaming fresh ids,
 /// it reads back (law a), the reading has the script's effect (law b) and,
-/// for a script of at most one step, lowers to the delta and the script's
-/// embedding (law c), the soundness oracle accepts it with the encoder's
+/// for a script of at most one step, lowers over unbounded ids to the delta
+/// and reaches the carriers of the script's embedding (law c), while its
+/// `u32` lowering is that one or, short of full room, runs out of ids, the soundness oracle accepts it with the encoder's
 /// floors standing for an unbounded id space, and applying the reading
 /// under the raised floors either has that effect or refuses with
 /// `IdsExhausted`.
@@ -5226,12 +5236,28 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
                         .push(format!("{at}: {reading:?} has another effect"));
                 }
                 if script.steps().len() <= 1 {
+                    let mut relowered = edit::unbounded_embedding(&ceiling);
+                    let exact = edit::graph_delta_from_tree_edit_unbounded(
+                        tree,
+                        &mut relowered,
+                        &reading,
+                        None,
+                    ) == Ok(Some(delta.clone()))
+                        && same_carriers(&relowered, &edit::unbounded_embedding(&lowered));
                     let mut relowered = ceiling.clone();
-                    if edit::graph_delta_from_tree_edit(tree, &mut relowered, &reading, None)
-                        .as_ref()
-                        != Ok(&delta)
-                        || relowered != lowered
-                    {
+                    let refines = match edit::graph_delta_from_tree_edit(
+                        tree,
+                        &mut relowered,
+                        &reading,
+                        None,
+                    ) {
+                        Ok(relowering) => {
+                            relowering == delta && same_carriers(&relowered, &lowered)
+                        }
+                        Err(edit::TreeApplyError::IdsExhausted) => !full_room,
+                        Err(_) => false,
+                    };
+                    if !exact || !refines {
                         sweep
                             .findings
                             .push(format!("{at}: read inexactly as {reading:?}"));
@@ -5745,8 +5771,8 @@ enum Reads {
 
 /// Check one unbounded lowering `delta` of `script` under `embedding`: it
 /// reads back (law a); the reading has the script's effect over unbounded
-/// ids (law b); on at most one step it lowers to the delta with the
-/// script's unbounded embedding (law c); the unbounded soundness oracle
+/// ids (law b); on at most one step it lowers to the delta and reaches the
+/// carriers of the script's unbounded embedding (law c); the unbounded soundness oracle
 /// holds; and the reading satisfies the refinement law. Returns whether
 /// the reading's `u32` lowering ran out.
 fn check_unbounded_lowering(
@@ -5778,7 +5804,7 @@ fn check_unbounded_lowering(
         let mut relowered = edit::unbounded_embedding(embedding);
         if edit::graph_delta_from_tree_edit_unbounded(tree, &mut relowered, &reading, None)
             != Ok(Some(delta.clone()))
-            || relowered != script_embedding
+            || !same_carriers(&relowered, &script_embedding)
         {
             findings.push(format!("{at}: read inexactly as {reading:?}"));
         }
@@ -7034,6 +7060,156 @@ fn a_single_step_whose_lowering_needs_the_last_edge_id_reads_back_exactly() {
         Ok(Some(expected))
     );
     assert_eq!(relowered, lowered);
+}
+
+// Law (c) compares carriers, not floors. Joining 2 and then 4 into 1
+// re-parents 4's arc to 1 (drawing edge 7) before 4 goes, a draw no delta
+// shows; joining 4 first draws only edge 6 for 3's arc. Both lower to one
+// delta, reach the same arcs and fans, and leave floors (6, 8) and (6, 7).
+// The reader sees only the delta and reads both as the later order, so no
+// reading leaves both floors, and both scripts meet law (c) over `u32` and
+// over unbounded ids, in each shared law check.
+#[test]
+fn joins_that_differ_only_in_a_dead_draw_meet_law_c_on_carriers_with_other_floors() {
+    let tree = join_tree();
+    let graph = literal_join_graph();
+    let embedding = literal_join_embedding();
+    let join = |joined: Vec<u32>| TreeEdit::JoinFeatures {
+        primary: 1,
+        joined,
+        produce: Node::new(1, "joined"),
+    };
+    let (parent_first, descendant_first) = (join(vec![2, 4]), join(vec![4, 2]));
+    let mut expected = literal_deletions(
+        &graph,
+        [
+            GElem::Node(2),
+            GElem::Node(4),
+            GElem::Node(5),
+            GElem::Edge(1),
+            GElem::Edge(2),
+            GElem::Edge(3),
+            GElem::Edge(4),
+            GElem::Edge(5),
+        ],
+    );
+    expected.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(
+            1,
+            3,
+            SEdge::new("joined", "leaf", "child", Some("c")),
+        )),
+    );
+    expected.attrs.insert(
+        AttrKey::Anchor(1),
+        (
+            AttrVal::Anchor("feature".into()),
+            AttrVal::Anchor("joined".into()),
+        ),
+    );
+    let arcs = BTreeMap::from([(1, 0), (3, 6)]);
+    for (script, floors) in [(&parent_first, (6, 8)), (&descendant_first, (6, 7))] {
+        let mut lowered = embedding.clone();
+        assert_eq!(
+            edit::graph_delta_from_tree_edit(&tree, &mut lowered, script, None),
+            Ok(expected.clone()),
+            "{script:?}"
+        );
+        assert_eq!(lowered.arcs, arcs);
+        assert_eq!(lowered.fans, Vec::new());
+        assert_eq!((lowered.next_node, lowered.next_edge), floors);
+        assert_eq!(
+            edit::tree_edit_from_graph_delta(&tree, &embedding, &expected, None),
+            Ok(parent_first.clone())
+        );
+        let mut relowered = embedding.clone();
+        assert_eq!(
+            edit::graph_delta_from_tree_edit(&tree, &mut relowered, &parent_first, None),
+            Ok(expected.clone())
+        );
+        assert!(same_carriers(&relowered, &lowered), "{script:?}");
+        assert_eq!(
+            relowered == lowered,
+            script == &parent_first,
+            "{script:?}: the floors differ exactly when the orders do"
+        );
+
+        let mut lowered_n = edit::unbounded_embedding(&embedding);
+        assert_eq!(
+            edit::graph_delta_from_tree_edit_unbounded(&tree, &mut lowered_n, script, None),
+            Ok(Some(expected.clone()))
+        );
+        assert_eq!(
+            (lowered_n.next_node, lowered_n.next_edge),
+            (u128::from(floors.0), u128::from(floors.1))
+        );
+        let mut relowered_n = edit::unbounded_embedding(&embedding);
+        assert_eq!(
+            edit::graph_delta_from_tree_edit_unbounded(
+                &tree,
+                &mut relowered_n,
+                &parent_first,
+                None
+            ),
+            Ok(Some(expected.clone()))
+        );
+        assert!(same_carriers(&relowered_n, &lowered_n), "{script:?}");
+
+        let mut findings = Vec::new();
+        check_unbounded_lowering(&tree, &embedding, &graph, script, &expected, &mut findings);
+        assert_eq!(findings, Vec::<String>::new());
+    }
+    let scripts = [parent_first, descendant_first];
+    assert_eq!(
+        readback_law_failures(&tree, scripts.iter().cloned()),
+        (2, Vec::new())
+    );
+    let sweep = ceiling_findings(&tree, &scripts);
+    assert_eq!(sweep.findings, Vec::<String>::new());
+    assert_eq!(sweep.counts.lowered, 2);
+}
+
+// The carrier comparison of law (c) ignores the floors and nothing else.
+#[test]
+fn same_carriers_compares_every_arc_and_fan_id_and_no_floor() {
+    let embedding = literal_join_embedding();
+    let changed = |change: fn(&mut TreeEmbedding)| {
+        let mut other = embedding.clone();
+        change(&mut other);
+        same_carriers(&embedding, &other)
+    };
+    assert!(changed(|_| {}));
+    assert!(changed(|other| other.next_node += 1));
+    assert!(changed(|other| other.next_edge += 1));
+    assert!(changed(|other| {
+        other.next_node = u32::MAX;
+        other.next_edge = u32::MAX;
+    }));
+    assert!(!changed(|other| {
+        other.arcs.insert(3, 7);
+    }));
+    assert!(!changed(|other| {
+        other.arcs.remove(&4);
+    }));
+    assert!(!changed(|other| {
+        other.arcs.insert(6, 7);
+    }));
+    assert!(!changed(|other| other.fans[0].0 = 6));
+    assert!(!changed(|other| other.fans[0].1 = 7));
+    assert!(!changed(|other| {
+        other.fans[0].2.insert("arm".into(), 7);
+    }));
+    assert!(!changed(|other| {
+        other.fans[0].2.insert("other-arm".into(), 7);
+    }));
+    assert!(!changed(|other| other.fans.clear()));
+    let unbounded = edit::unbounded_embedding(&embedding);
+    let mut raised = unbounded.clone();
+    raised.next_edge = PAST_U32;
+    assert!(same_carriers(&unbounded, &raised));
+    raised.fans[0].1 = PAST_U32;
+    assert!(!same_carriers(&unbounded, &raised));
 }
 
 /// A fan node re-added under its own id is a fresh fan only in name: no
