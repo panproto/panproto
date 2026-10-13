@@ -68,6 +68,10 @@ pub enum ChaseError {
     /// for the row it adds.
     #[error("no row id is free above the largest in use")]
     RowIdsExhausted,
+    /// A tuple-generating dependency fired but no labelled null id was free
+    /// above the largest in use for an existential position it fills.
+    #[error("no labelled null id is free above the largest in use")]
+    NullIdsExhausted,
 }
 
 impl ChaseError {
@@ -498,8 +502,11 @@ type Binding = HashMap<String, Value>;
 /// # Errors
 ///
 /// Returns [`ChaseError::Inconsistent`] when an equality-generating
-/// dependency tries to equate two distinct constants, and
-/// [`ChaseError::RowIdsExhausted`] when a fresh row id runs out.
+/// dependency tries to equate two distinct constants,
+/// [`ChaseError::RowIdsExhausted`] when a fresh row id runs out, and
+/// [`ChaseError::NullIdsExhausted`] when a firing needs a fresh labeled null
+/// and none is left above the largest in use (`u64::MAX` is handed out; an
+/// id is never wrapped).
 pub fn chase(
     instance: &FInstance,
     dependencies: &[Dependency],
@@ -553,8 +560,10 @@ pub fn chase_with_hom(
                                         if nulls_created >= budget.max_nulls {
                                             return Ok((ChaseOutcome::NonTermination, hom(forced)));
                                         }
-                                        firing.insert(v.clone(), Value::LabeledNull(next_null));
-                                        next_null += 1;
+                                        let fresh =
+                                            next_null.ok_or(ChaseError::NullIdsExhausted)?;
+                                        next_null = fresh.checked_add(1);
+                                        firing.insert(v.clone(), Value::LabeledNull(fresh));
                                         nulls_created += 1;
                                     }
                                 }
@@ -614,8 +623,9 @@ fn input_nulls(instance: &FInstance) -> BTreeMap<u64, Value> {
     nulls
 }
 
-/// The first labeled-null id not already used anywhere in the instance.
-fn fresh_null_seed(instance: &FInstance) -> u64 {
+/// The least labeled-null id above every null of the instance (`0` when it
+/// holds none), or `None` when no id is above them.
+fn fresh_null_seed(instance: &FInstance) -> Option<u64> {
     let mut max_id: Option<u64> = None;
     for (_, table) in instance.tables() {
         for (_, row) in table.rows() {
@@ -626,7 +636,7 @@ fn fresh_null_seed(instance: &FInstance) -> u64 {
             }
         }
     }
-    max_id.map_or(0, |m| m + 1)
+    max_id.map_or(Some(0), |m| m.checked_add(1))
 }
 
 /// Resolve an atom term to a concrete value under a binding, or `None` when
@@ -1635,5 +1645,82 @@ mod tests {
         };
         let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
         assert_eq!(result.row_count("q"), 1);
+    }
+
+    /// `t(a = x) -> s(a = x, h0 = y0, ..)`: a tuple-generating dependency
+    /// whose every firing invents `fresh` labelled nulls.
+    fn inventing(fresh: usize) -> Dependency {
+        let mut head = vec![("a".to_owned(), AtomTerm::Var("x".into()))];
+        head.extend((0..fresh).map(|k| (format!("h{k}"), AtomTerm::Var(format!("y{k}")))));
+        Dependency::Tgd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("x".into()))])],
+            head: vec![Atom::new("s", head)],
+        }
+    }
+
+    /// Every labelled null of `instance`'s table `table`.
+    fn table_nulls(instance: &FInstance, table: &str) -> Vec<u64> {
+        let mut nulls: Vec<u64> = instance
+            .rows(table)
+            .into_iter()
+            .flat_map(|(_, row)| {
+                row.values()
+                    .filter_map(Value::as_labeled_null)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        nulls.sort_unstable();
+        nulls
+    }
+
+    /// Fresh labelled nulls continue above the largest in use, up to and
+    /// including `u64::MAX`; a firing that needs one more is refused with
+    /// `NullIdsExhausted`, never a wrapped id that collides with a null of
+    /// the input, and a firing that needs none is no obstacle. Exhaustive
+    /// over the largest input null in `u64::MAX - 3..=u64::MAX` and every
+    /// fresh-null count up to 5, with and without a null `0` in the input.
+    #[test]
+    fn fresh_null_ids_are_checked_at_the_top_of_u64() {
+        for max in u64::MAX - 3..=u64::MAX {
+            for with_zero in [false, true] {
+                for fresh in 0..=5_usize {
+                    let mut inputs = vec![max];
+                    if with_zero {
+                        inputs.insert(0, 0);
+                    }
+                    let rows: Vec<_> = inputs
+                        .iter()
+                        .map(|n| row("a", Value::LabeledNull(*n)))
+                        .collect();
+                    let instance = FInstance::new().with_table("t", rows).unwrap();
+                    let budget = ChaseBudget::new(10, 100);
+                    let outcome = chase(&instance, &[inventing(fresh)], budget);
+                    let needed = u64::try_from(fresh * inputs.len()).unwrap();
+                    let fits = max.checked_add(needed).is_some();
+                    let case = format!("max {max}, zero {with_zero}, fresh {fresh}");
+                    if !fits {
+                        assert!(
+                            matches!(outcome, Err(ChaseError::NullIdsExhausted)),
+                            "{case}: {outcome:?}"
+                        );
+                        continue;
+                    }
+                    let Ok(ChaseOutcome::Saturated(out)) = outcome else {
+                        panic!("{case}: {outcome:?}");
+                    };
+                    let mut expected: Vec<u64> = inputs.clone();
+                    expected.extend((1..=needed).map(|k| max + k));
+                    expected.sort_unstable();
+                    assert_eq!(table_nulls(&out, "s"), expected, "{case}");
+                }
+            }
+        }
+    }
+
+    /// Running out of labelled null ids is a property of the input, so a
+    /// larger budget cannot help.
+    #[test]
+    fn null_exhaustion_is_not_retryable() {
+        assert!(!ChaseError::NullIdsExhausted.is_retryable());
     }
 }
