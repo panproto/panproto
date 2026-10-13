@@ -1015,9 +1015,6 @@ fn decode_with_trace(
 }
 
 fn allocate_fresh(allocator: &mut IdAllocator) -> Result<u32, ()> {
-    if allocator.floor().is_none_or(|floor| floor == u32::MAX) {
-        return Err(());
-    }
     allocator.allocate().map_err(|_| ())
 }
 
@@ -2410,4 +2407,25 @@ pub fn g_pi_transpose_right(
     f_pi_transpose_right(&hom.as_table(), &target, &source, functor, max_product_size)
         .map(GraphKanHom::from_table)
         .map_err(GraphKanError::Adjunction)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allocate_fresh;
+    use crate::segment::{IdAllocator, IdRange};
+
+    /// At every floor in the last four ids, fresh decode ids are the ids
+    /// from the floor up to `u32::MAX - 1`, and then allocation fails.
+    #[test]
+    fn fresh_decode_ids_are_exhaustive_at_the_top() {
+        for floor in (u32::MAX - 3)..=u32::MAX {
+            let mut ids = IdAllocator::from_floor(IdRange::FULL, floor);
+            let mut drawn = Vec::new();
+            while let Ok(id) = allocate_fresh(&mut ids) {
+                drawn.push(id);
+                assert!(drawn.len() <= 4, "allocation past the top at floor {floor}");
+            }
+            assert_eq!(drawn, (floor..u32::MAX).collect::<Vec<_>>());
+        }
+    }
 }

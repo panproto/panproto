@@ -1372,6 +1372,35 @@ mod tests {
         assert_eq!(id, RowId(2), "a fresh id above the input");
     }
 
+    /// The fresh row of a table outside the image comes from the row floor
+    /// and never takes `u32::MAX`: at every floor in the last four ids, the
+    /// row is the floor itself below `u32::MAX` and the typed exhaustion
+    /// error at it.
+    #[test]
+    fn pi_withholds_the_top_row_id() {
+        let src = tables(&[("a", &["x"])], &[]);
+        let tgt = tables(&[("a", &["x"]), ("z", &[])], &[]);
+        let migration = migration_of(&[("a", "a")], &[("a", "x")]);
+        for floor in (u32::MAX - 3)..=u32::MAX {
+            let inst = FInstance::new()
+                .with_rows("a", x_rows(&[(0, 5), (floor - 1, 6)]))
+                .unwrap();
+            let out = pi(&inst, &src, &tgt, &migration, 100);
+            if floor < u32::MAX {
+                let out = out.unwrap();
+                assert_eq!(out.rows("z")[0].0, RowId(floor), "the floor itself");
+            } else {
+                assert!(
+                    matches!(
+                        out,
+                        Err(AdjunctionError::Pi(RestrictError::RowIdsExhausted))
+                    ),
+                    "floor {floor}: {out:?}"
+                );
+            }
+        }
+    }
+
     /// A target list column's element vertex is part of a cell, not a table
     /// outside the image, so the limit gives it no row.
     #[test]

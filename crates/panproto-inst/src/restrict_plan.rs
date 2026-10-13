@@ -992,3 +992,39 @@ impl RestrictError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::allocate_synthesized;
+    use crate::error::RestrictError;
+    use crate::ginstance::EdgeId;
+    use crate::segment::IdKind;
+    use crate::view_ref::SynthKey;
+
+    /// At every floor in the last four ids, `count` synthesized ids are the
+    /// ids from the floor up when they all lie below `u32::MAX`, and the
+    /// typed exhaustion error of their kind otherwise.
+    #[test]
+    fn synthesized_ids_are_exhaustive_at_the_top() {
+        for kind in [IdKind::Node, IdKind::Edge] {
+            for floor in (u32::MAX - 3)..=u32::MAX {
+                for count in 0..=4_u32 {
+                    let keys = (0..count).map(|i| SynthKey::Expand {
+                        source_edge: EdgeId(i),
+                        hop: 0,
+                    });
+                    let ids = allocate_synthesized(keys, floor, kind);
+                    if count <= u32::MAX - floor {
+                        let ids: Vec<u32> = ids.unwrap_or_default().into_values().collect();
+                        assert_eq!(ids, (floor..floor + count).collect::<Vec<_>>());
+                    } else {
+                        assert!(
+                            matches!(ids, Err(RestrictError::IdsExhausted { kind: found }) if found == kind),
+                            "{count} {kind} ids at floor {floor}: {ids:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

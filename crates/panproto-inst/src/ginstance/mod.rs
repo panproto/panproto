@@ -591,11 +591,12 @@ impl GInstance {
     /// # Errors
     ///
     /// Returns [`InstError::DanglingEdge`] if an endpoint is not a node and
-    /// [`InstError::EdgeIdsExhausted`] if the id `u32::MAX` has been used.
+    /// [`InstError::EdgeIdsExhausted`] if the largest edge id in use is
+    /// `u32::MAX - 1` or `u32::MAX`: the id `u32::MAX` is never handed out.
     pub fn add_edge(&mut self, src: u32, tgt: u32, edge: Edge) -> Result<EdgeId, InstError> {
         for endpoint in [src, tgt] {
             if !self.nodes.contains_key(&endpoint) {
-                let id = EdgeId(self.edge_ids.floor().unwrap_or(u32::MAX));
+                let id = EdgeId(self.edge_ids.floor());
                 return Err(InstError::DanglingEdge { edge: id, endpoint });
             }
         }
@@ -616,7 +617,7 @@ impl GInstance {
     pub fn remove_edge(&mut self, id: EdgeId) -> Result<GEdge, InstError> {
         let edge = self.edges.remove(&id).ok_or(InstError::EdgeNotFound(id))?;
         self.edge_order.remove(&id.0);
-        if self.edge_ids.floor() == id.0.checked_add(1) {
+        if self.edge_ids.floor() == id.0.saturating_add(1) {
             self.edge_ids =
                 IdAllocator::from_source(IdRange::FULL, self.edge_order.last().copied());
         }

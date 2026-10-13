@@ -88,8 +88,9 @@ impl GInstance {
     /// [`NotTreeReason::MultipleParents`] when two arcs enter one child,
     /// [`InstError::MalformedFan`] when a node has the fan shape or an arc
     /// has a reserved fan kind, and [`InstError::NodeIdsExhausted`] or
-    /// [`InstError::EdgeIdsExhausted`] when the ids, and the counters one
-    /// above them, do not fit in `u32`.
+    /// [`InstError::EdgeIdsExhausted`] when no id below `u32::MAX` is left
+    /// for an arc, a fan node or a fan edge. A tree holding the node id
+    /// `u32::MAX` embeds with `next_node` at `u32::MAX`.
     pub fn from_wtype_embedded(
         tree: &WInstance,
         schema: Option<&Schema>,
@@ -111,8 +112,8 @@ impl GInstance {
         let mut nodes = IdAllocator::from_source(IdRange::FULL, tree.nodes.keys().copied());
         let (graph, fans) = reify::reify_into(graph, &tree.fans, schema, &mut nodes, &mut edges)?;
         embedding.fans = fans.into_iter().map(FanEmbedding::from).collect();
-        embedding.next_node = nodes.floor().ok_or(InstError::NodeIdsExhausted)?;
-        embedding.next_edge = edges.floor().ok_or(InstError::EdgeIdsExhausted)?;
+        embedding.next_node = nodes.floor();
+        embedding.next_edge = edges.floor();
         Ok((graph, embedding))
     }
 

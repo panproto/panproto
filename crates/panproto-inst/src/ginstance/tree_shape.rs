@@ -447,16 +447,13 @@ fn read_tree(
 }
 
 /// Set an embedding's counters to the floors of whole-state allocators over
-/// the graph's node and edge ids: one above the largest, 0 for none.
-fn set_floors(embedding: &mut TreeEmbedding, graph: &GInstance) -> Result<(), InstError> {
-    embedding.next_node = IdAllocator::from_source(IdRange::FULL, graph.nodes().keys().copied())
-        .floor()
-        .ok_or(InstError::NodeIdsExhausted)?;
+/// the graph's node and edge ids: one above the largest, saturating at
+/// `u32::MAX`, and 0 for none.
+fn set_floors(embedding: &mut TreeEmbedding, graph: &GInstance) {
+    embedding.next_node =
+        IdAllocator::from_source(IdRange::FULL, graph.nodes().keys().copied()).floor();
     embedding.next_edge =
-        IdAllocator::from_source(IdRange::FULL, graph.edges().keys().map(|e| e.0))
-            .floor()
-            .ok_or(InstError::EdgeIdsExhausted)?;
-    Ok(())
+        IdAllocator::from_source(IdRange::FULL, graph.edges().keys().map(|e| e.0)).floor();
 }
 
 impl GInstance {
@@ -512,9 +509,8 @@ impl GInstance {
     ///
     /// Returns [`InstError::NotATree`] with the reason
     /// [`Self::tree_shape`] gives, and with [`NotTreeReason::NoRoot`] for a
-    /// forest; [`InstError::NodeIdsExhausted`] or
-    /// [`InstError::EdgeIdsExhausted`] when the graph holds the id
-    /// `u32::MAX`, above which no counter can be stored.
+    /// forest. A graph holding the id `u32::MAX` reads back with that
+    /// counter at `u32::MAX`, against which allocation fails.
     pub fn to_wtype_embedded(
         &self,
         schema: &Schema,
@@ -533,7 +529,7 @@ impl GInstance {
             &|_| true,
             true,
         );
-        set_floors(&mut embedding, self)?;
+        set_floors(&mut embedding, self);
         Ok((tree, embedding))
     }
 

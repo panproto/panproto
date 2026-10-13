@@ -20,19 +20,29 @@
 //! exceed `R.hi`. Nothing computes `floor - 1`, so an id below the floor is
 //! never handed out again.
 //!
+//! No allocator hands out `u32::MAX`. A floor is a `u32` and saturates
+//! there: one above `u32::MAX` cannot be stored, so a source holding
+//! `u32::MAX` records the floor `u32::MAX`, and allocation from a range
+//! ending at `u32::MAX` stops at `u32::MAX - 1`. Saturation loses nothing.
+//! With `u32::MAX` withheld, the ids allocation may use at floor `f` are the
+//! free ids of `[f, u32::MAX - 1]`; for the true floor `F = max + 1` and
+//! `s = min(F, u32::MAX)`, either `F <= u32::MAX` and `s = F`, or
+//! `F = 2^32` and both `[s, u32::MAX - 1]` and `[F, u32::MAX - 1]` are
+//! empty. A range ending below `u32::MAX` hands out its own `hi`.
+//!
 //! Whole-state execution uses one allocator over [`IdRange::FULL`] per id
 //! kind. Its floor is then the [`IdFloor`](crate::IdFloor) component of the
-//! source (the maximum id plus one, and 0 for an empty source), and its
-//! fresh ids are the ones the whole-state rule gives; the range check at
-//! `u32::MAX` is that rule's overflow check. A segment allocates from the
-//! ranges its partition assigns it instead.
+//! source (the maximum id plus one, saturating at `u32::MAX`, and 0 for an
+//! empty source), and its fresh ids are the ones the whole-state rule
+//! gives. A segment allocates from the ranges its partition assigns it
+//! instead.
 //!
 //! ```
 //! use panproto_inst::segment::{IdAllocator, IdRange};
 //!
 //! // Whole-state: the source holds node ids 0, 3 and 7.
 //! let mut nodes = IdAllocator::from_source(IdRange::FULL, [0, 3, 7]);
-//! assert_eq!(nodes.floor(), Some(8));
+//! assert_eq!(nodes.floor(), 8);
 //! // A view that already uses id 9 pushes the fresh id past it.
 //! assert_eq!(nodes.fresh([2, 9]), Ok(10));
 //! assert_eq!(nodes.allocate(), Ok(8));
@@ -44,6 +54,12 @@
 //! assert_eq!(segment.allocate(), Ok(100));
 //! assert_eq!(segment.allocate(), Ok(101));
 //! assert!(segment.allocate().is_err());
+//!
+//! // At the top of the id space, `u32::MAX` itself is withheld.
+//! let mut top = IdAllocator::from_floor(IdRange::FULL, u32::MAX - 1);
+//! assert_eq!(top.allocate(), Ok(u32::MAX - 1));
+//! assert_eq!(top.floor(), u32::MAX);
+//! assert!(top.allocate().is_err());
 //! ```
 
 use std::fmt;
@@ -169,10 +185,11 @@ impl fmt::Display for IdKind {
 /// range's `lo`, rises past every id [observed](IdAllocator::observe) inside
 /// the range and past every id [allocated](IdAllocator::allocate), and never
 /// falls, so an id below it is never handed out. Ids outside the range do not
-/// move it. The floor is held wider than `u32`, so an allocator whose range
-/// ends at `u32::MAX` and has handed out (or observed) `u32::MAX` reports
-/// exhaustion on its next allocation rather than when the floor is formed,
-/// exactly as the whole-state rule reports it.
+/// move it. The floor is a `u32` that saturates at `u32::MAX`, and the
+/// allocator never hands out `u32::MAX`: an allocator that has observed
+/// `u32::MAX`, or handed out `u32::MAX - 1`, records the floor `u32::MAX`
+/// and reports exhaustion on its next allocation rather than when the floor
+/// is formed.
 ///
 /// ```
 /// use panproto_inst::segment::{IdAllocator, IdRange};
@@ -180,16 +197,16 @@ impl fmt::Display for IdKind {
 /// let mut edges = IdAllocator::new(IdRange { lo: 10, hi: 19 });
 /// edges.observe(4); // outside the range: ignored
 /// edges.observe(12);
-/// assert_eq!(edges.floor(), Some(13));
+/// assert_eq!(edges.floor(), 13);
 /// assert_eq!(edges.allocate(), Ok(13));
-/// assert_eq!(edges.floor(), Some(14));
+/// assert_eq!(edges.floor(), 14);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct IdAllocator {
     range: IdRange,
-    /// The least id allocation may use; above `u32::MAX` once every id of a
-    /// range ending there is spent.
-    floor: u64,
+    /// The least id allocation may use, saturating at `u32::MAX`, which is
+    /// never handed out.
+    floor: u32,
 }
 
 impl IdAllocator {
@@ -199,7 +216,7 @@ impl IdAllocator {
     pub const fn new(range: IdRange) -> Self {
         Self {
             range,
-            floor: range.lo as u64,
+            floor: range.lo,
         }
     }
 
@@ -223,7 +240,7 @@ impl IdAllocator {
     pub fn from_floor(range: IdRange, floor: u32) -> Self {
         Self {
             range,
-            floor: u64::from(range.lo.max(floor)),
+            floor: range.lo.max(floor),
         }
     }
 
@@ -249,24 +266,28 @@ impl IdAllocator {
         self.range
     }
 
-    /// The floor, or `None` when it lies above `u32::MAX` (the range ends at
-    /// `u32::MAX` and that id is in use).
+    /// The floor: one above every id observed or allocated in the range,
+    /// and at least the range's `lo`, saturating at `u32::MAX`. This is the
+    /// value a recorded floor ([`IdFloor`](crate::IdFloor), a stored
+    /// counter) holds.
     #[must_use]
-    pub fn floor(&self) -> Option<u32> {
-        u32::try_from(self.floor).ok()
+    pub const fn floor(&self) -> u32 {
+        self.floor
     }
 
-    /// Whether no id of the range is left at or above the floor.
+    /// Whether no id of the range below `u32::MAX` is left at or above the
+    /// floor.
     #[must_use]
     pub fn is_exhausted(&self) -> bool {
-        self.floor > u64::from(self.range.hi)
+        self.next().is_err()
     }
 
     /// Record an id in use (a source id, a view id, a reserved id or a
-    /// synthesized id): when it lies in the range, the floor rises past it.
+    /// synthesized id): when it lies in the range, the floor rises past it,
+    /// saturating at `u32::MAX`.
     pub fn observe(&mut self, id: u32) {
         if self.range.contains(id) {
-            self.floor = self.floor.max(u64::from(id) + 1);
+            self.floor = self.floor.max(id.saturating_add(1));
         }
     }
 
@@ -277,7 +298,8 @@ impl IdAllocator {
     ///
     /// # Errors
     ///
-    /// Returns [`RangeExhausted`] when that id exceeds the range's `hi`.
+    /// Returns [`RangeExhausted`] when that id exceeds the range's `hi` or
+    /// is `u32::MAX`.
     pub fn fresh(&self, taken: impl IntoIterator<Item = u32>) -> Result<u32, RangeExhausted> {
         let mut probe = *self;
         for id in taken {
@@ -290,29 +312,33 @@ impl IdAllocator {
     ///
     /// # Errors
     ///
-    /// Returns [`RangeExhausted`] when the floor exceeds the range's `hi`;
-    /// the allocator is then unchanged.
+    /// Returns [`RangeExhausted`] when the floor exceeds the range's `hi`
+    /// or is `u32::MAX`; the allocator is then unchanged.
     pub fn allocate(&mut self) -> Result<u32, RangeExhausted> {
         let id = self.next()?;
-        self.floor = u64::from(id) + 1;
+        self.floor = id.saturating_add(1);
         Ok(id)
     }
 
-    fn next(&self) -> Result<u32, RangeExhausted> {
-        match u32::try_from(self.floor) {
-            Ok(id) if id <= self.range.hi => Ok(id),
-            _ => Err(RangeExhausted { range: self.range }),
+    /// The floor, when it is an id allocation may hand out: at most the
+    /// range's `hi`, and never `u32::MAX`.
+    const fn next(&self) -> Result<u32, RangeExhausted> {
+        if self.floor <= self.range.hi && self.floor != u32::MAX {
+            Ok(self.floor)
+        } else {
+            Err(RangeExhausted { range: self.range })
         }
     }
 }
 
-/// No id of an allocator's range is left at or above its floor.
+/// No id of an allocator's range below `u32::MAX` is left at or above its
+/// floor.
 ///
 /// The allocator does not know which kind of id it draws or which segment it
 /// serves; the caller converts the failure with
 /// [`RangeExhausted::whole_state`] or [`RangeExhausted::in_segment`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, thiserror::Error)]
-#[error("no id is free at or above the floor in {range}")]
+#[error("no id below u32::MAX is free at or above the floor in {range}")]
 pub struct RangeExhausted {
     /// The exhausted range.
     pub range: IdRange,
@@ -382,20 +408,21 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-    /// The whole-state floor of a set of ids: the maximum plus one, 0 for no
-    /// id, and `None` where that is not a `u32`.
-    fn whole_state_floor(ids: &[u32]) -> Option<u32> {
-        ids.iter().max().map_or(Some(0), |max| max.checked_add(1))
+    /// The whole-state floor of a set of ids: the maximum plus one,
+    /// saturating at `u32::MAX`, and 0 for no id.
+    fn whole_state_floor(ids: &[u32]) -> u32 {
+        ids.iter().max().map_or(0, |max| max.saturating_add(1))
     }
 
-    /// The whole-state fresh id: the floor, raised past every taken id, with
-    /// the overflow check at `u32::MAX`.
+    /// The whole-state fresh id: the floor, raised past every taken id, and
+    /// none when that is `u32::MAX`, which no allocation hands out.
     fn whole_state_fresh(source: &[u32], taken: &[u32]) -> Option<u32> {
-        let floor = whole_state_floor(source)?;
-        match taken.iter().max() {
-            None => Some(floor),
-            Some(max) => Some(floor.max(max.checked_add(1)?)),
-        }
+        let floor = whole_state_floor(source);
+        let fresh = taken
+            .iter()
+            .max()
+            .map_or(floor, |max| floor.max(max.saturating_add(1)));
+        (fresh != u32::MAX).then_some(fresh)
     }
 
     /// A range and ids spread around it, some inside and some outside.
@@ -478,7 +505,7 @@ mod tests {
         let failure = alloc.allocate();
         assert_eq!(failure, Err(RangeExhausted { range }));
         // A failed allocation leaves the allocator unchanged.
-        assert_eq!(alloc.floor(), Some(43));
+        assert_eq!(alloc.floor(), 43);
         assert_eq!(alloc.fresh([]), Err(RangeExhausted { range }));
         assert_eq!(
             RangeExhausted { range }.in_segment(segment, IdKind::Edge),
@@ -536,9 +563,10 @@ mod tests {
 
     #[test]
     fn a_full_range_allocator_reports_exhaustion_per_kind() {
-        // The source already holds u32::MAX: no fresh id exists.
+        // The source already holds u32::MAX: it records the floor u32::MAX,
+        // and no fresh id exists.
         let mut nodes = IdAllocator::from_source(IdRange::FULL, [0, u32::MAX]);
-        assert_eq!(nodes.floor(), None);
+        assert_eq!(nodes.floor(), u32::MAX);
         assert!(nodes.is_exhausted());
         let exhausted = nodes.allocate();
         assert_eq!(
@@ -561,14 +589,21 @@ mod tests {
             .whole_state(IdKind::Edge),
             InstError::EdgeIdsExhausted
         ));
-        // Handing out u32::MAX is allowed once; the next allocation fails.
+        // u32::MAX is never handed out: the floor u32::MAX allocates
+        // nothing, and the floor below it hands out u32::MAX - 1 and then
+        // fails, with the floor at u32::MAX.
         let mut edges = IdAllocator::from_floor(IdRange::FULL, u32::MAX);
-        assert_eq!(edges.allocate(), Ok(u32::MAX));
         assert!(edges.allocate().is_err());
-        // A view id at u32::MAX exhausts a fresh id without touching the floor.
+        let mut edges = IdAllocator::from_floor(IdRange::FULL, u32::MAX - 1);
+        assert_eq!(edges.allocate(), Ok(u32::MAX - 1));
+        assert_eq!(edges.floor(), u32::MAX);
+        assert!(edges.allocate().is_err());
+        // A view id at u32::MAX - 1 or u32::MAX exhausts a fresh id without
+        // touching the floor.
         let fresh = IdAllocator::new(IdRange::FULL);
         assert!(fresh.fresh([u32::MAX]).is_err());
-        assert_eq!(fresh.floor(), Some(0));
+        assert!(fresh.fresh([u32::MAX - 1]).is_err());
+        assert_eq!(fresh.floor(), 0);
     }
 
     fn knows() -> Edge {
@@ -593,8 +628,8 @@ mod tests {
         fn an_allocator_floor_follows_the_range_rule((range, ids) in range_and_ids()) {
             let alloc = IdAllocator::from_source(range, ids.iter().copied());
             let inside = ids.iter().copied().filter(|&id| range.contains(id)).max();
-            let expected = inside.map_or_else(|| u64::from(range.lo), |max| u64::from(max) + 1);
-            prop_assert_eq!(alloc.floor(), u32::try_from(expected).ok());
+            let expected = inside.map_or(range.lo, |max| max.saturating_add(1));
+            prop_assert_eq!(alloc.floor(), expected);
             prop_assert_eq!(alloc.range(), range);
         }
 
@@ -615,7 +650,8 @@ mod tests {
                 match alloc.allocate() {
                     Ok(id) => {
                         prop_assert!(range.contains(id));
-                        prop_assert!(floor.is_some_and(|f| id >= f));
+                        prop_assert!(id != u32::MAX);
+                        prop_assert!(id >= floor);
                         prop_assert!(!ids.contains(&id) && !taken.contains(&id));
                         prop_assert!(seen.insert(id), "id {} handed out twice", id);
                     }
@@ -636,9 +672,12 @@ mod tests {
             let hi = lo.saturating_add(width);
             let range = IdRange { lo, hi };
             let alloc = IdAllocator::from_source(range, [hi.saturating_sub(1)]);
-            // Taking hi - 1 leaves hi as the one fresh id (when hi > lo).
-            if hi > lo {
+            // Taking hi - 1 leaves hi as the one fresh id (when hi > lo),
+            // unless hi is u32::MAX, which is never handed out.
+            if hi > lo && hi < u32::MAX {
                 prop_assert_eq!(alloc.fresh([]), Ok(hi));
+            } else if hi > lo {
+                prop_assert_eq!(alloc.fresh([]), Err(RangeExhausted { range }));
             }
             prop_assert_eq!(alloc.fresh([hi]), Err(RangeExhausted { range }));
         }
@@ -652,12 +691,13 @@ mod tests {
             let edge_alloc = IdAllocator::from_source(IdRange::FULL, edges.iter().copied());
             prop_assert_eq!(node_alloc.floor(), whole_state_floor(&nodes));
             prop_assert_eq!(edge_alloc.floor(), whole_state_floor(&edges));
-            if let (Some(node), Some(edge)) = (node_alloc.floor(), edge_alloc.floor()) {
-                let floor = IdFloor { node, edge };
-                // Resuming from the recorded floor gives the same allocator.
-                prop_assert_eq!(IdAllocator::from_floor(IdRange::FULL, floor.node), node_alloc);
-                prop_assert_eq!(IdAllocator::from_floor(IdRange::FULL, floor.edge), edge_alloc);
-            }
+            let floor = IdFloor {
+                node: node_alloc.floor(),
+                edge: edge_alloc.floor(),
+            };
+            // Resuming from the recorded floor gives the same allocator.
+            prop_assert_eq!(IdAllocator::from_floor(IdRange::FULL, floor.node), node_alloc);
+            prop_assert_eq!(IdAllocator::from_floor(IdRange::FULL, floor.edge), edge_alloc);
         }
 
         #[test]
