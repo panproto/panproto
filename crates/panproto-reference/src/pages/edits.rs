@@ -2163,22 +2163,19 @@ pub mod edit {
         Ok((edit, current_embedding))
     }
 
-    /// The graph of `tree` under the `u128` embedding `reached`, with every
-    /// carrier id past `u32` written as `u32::MAX`. Every id of the start
-    /// graph is below the start floors, so below `u32::MAX`, and at each
-    /// such id this graph holds exactly the element of the graph over
-    /// unbounded ids; the reader reads nothing else from it.
-    fn graph_at_start_ids(
+    /// The tree nodes and fans of the graph of `tree` under the `u128`
+    /// embedding `reached`, with every fan carrier id past `u32` written as
+    /// `u32::MAX`. Every id of the start graph is below the start floors, so
+    /// below `u32::MAX`, and at each such id this holds exactly the node or
+    /// fan edge of the graph over unbounded ids. Arcs are left out: the
+    /// fixed-part comparison reads deletions on nodes and fan carriers only,
+    /// and no lowering changes an attribute of an arc it keeps.
+    fn fixed_graph(
         tree: &crate::model::Tree,
         reached: &crate::encode::TreeEmbedding<u128>,
         schema: Option<&crate::schema::Schema>,
     ) -> Graph {
         let narrow = |id: &u128| id.graph_id().unwrap_or(u32::MAX);
-        let arcs = reached
-            .arcs
-            .iter()
-            .map(|(child, edge)| (*child, narrow(edge)))
-            .collect();
         let fans: Vec<FanCarriers> = reached
             .fans
             .iter()
@@ -2193,7 +2190,11 @@ pub mod edit {
                 )
             })
             .collect();
-        build_embedded_graph(tree, &arcs, &fans, schema)
+        let without_arcs = crate::model::Tree {
+            arcs: Vec::new(),
+            ..tree.clone()
+        };
+        build_embedded_graph(&without_arcs, &BTreeMap::new(), &fans, schema)
     }
 
     /// The carriers of the fan at fan node `fan` of `graph`: the node and
@@ -2219,14 +2220,17 @@ pub mod edit {
     /// are the lowering's apart from those of the relocated carriers, whose
     /// label changes the re-added payloads carry.
     ///
-    /// Called only once `delta` applies to `before` and its result has a
-    /// tree form, which makes two parts of that statement follow from less.
-    /// Deletions are compared on nodes: an edge the lowering deletes is an
-    /// edge of a node it deletes, or an arc into a node the delta gives a
-    /// fresh arc, so a delta keeping it leaves an edge dangling or a second
-    /// parent arc. Attribute changes are compared by key: both read the old
-    /// value from `before`, and the new value of a kept element is fixed by
-    /// the result's tree form.
+    /// `lowered` is read from [`fixed_graph`], which leaves arcs out, so it
+    /// deletes every arc of `before`. It is called only once `delta`
+    /// applies to `before` and its result has a tree form, which makes the
+    /// statement follow from less. Deletions are compared on nodes: an edge
+    /// the lowering deletes is an edge of a node it deletes, or an arc into
+    /// a node the delta gives a fresh arc, so a delta keeping it leaves an
+    /// edge dangling or a second parent arc; and every arc the delta deletes
+    /// the lowering deletes too, so no arc is among the relocated carriers.
+    /// Attribute changes are compared by key: both read the old value from
+    /// `before`, the new value of a kept element is fixed by the result's
+    /// tree form, and no lowering changes an attribute of an arc.
     fn fixed_delta_parts_match(before: &Graph, delta: &GraphDelta, lowered: &GraphDelta) -> bool {
         let relocated: BTreeSet<GElem> = delta
             .del
@@ -2577,7 +2581,7 @@ pub mod edit {
             &after_tree,
             &refreshed,
         )?;
-        let kept = graph_at_start_ids(&after_tree, &reached, schema);
+        let kept = fixed_graph(&after_tree, &reached, schema);
         if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
             Ok(edit)
         } else {
