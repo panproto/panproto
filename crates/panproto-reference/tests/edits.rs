@@ -7432,6 +7432,61 @@ fn a_fan_redrawn_one_below_the_node_floor_is_refused_and_at_the_floor_reads_back
     );
 }
 
+/// A fan kept at node `u32::MAX - 1` while its `arm` edge is re-drawn to
+/// another member is no lowering (an edit changing a fan draws a new fan
+/// node), and the reader refuses it although the fan's node is a start id
+/// next to the ids its reconstruction runs past. The node floor is
+/// `u32::MAX`; the delta also adds leaf `u32::MAX`, so the reconstruction
+/// (delete the fan, insert the leaf, insert the changed fan) draws the
+/// fan's node past `u32`. The comparison writes that node at `u32::MAX`,
+/// an id no start element has, so the kept node `u32::MAX - 1` counts as
+/// deleted by the reconstruction and kept by the delta.
+#[test]
+fn a_fan_kept_under_a_redrawn_member_edge_is_refused_when_its_reading_draws_past_u32() {
+    let tree = join_tree();
+    let fan = u32::MAX - 1;
+    let embedding = TreeEmbedding {
+        fans: vec![(fan, 4, arm_edges(5))],
+        next_node: u32::MAX,
+        ..literal_join_embedding()
+    };
+    assert_eq!(
+        edit::apply_tree(&TreeEdit::Identity, &tree, &mut embedding.clone()),
+        Ok(join_tree())
+    );
+    let mut graph = literal_join_graph();
+    graph.nodes.remove(&5);
+    graph.nodes.insert(fan, fan_node(fan, "fan"));
+    graph.edges.get_mut(&4).unwrap().src = fan;
+    graph.edges.get_mut(&5).unwrap().src = fan;
+    assert_eq!(
+        graph_of_carriers(&tree, &edit::unbounded_embedding(&embedding)),
+        Some(graph.clone())
+    );
+    let mut delta = literal_deletions(&graph, [GElem::Edge(5)]);
+    delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(fan, 4, fan_arm_label())),
+    );
+    delta
+        .add
+        .insert(GElem::Node(u32::MAX), node(u32::MAX, "leaf"));
+    let top = SEdge::new("root", "leaf", "child", Some("top"));
+    delta
+        .add
+        .insert(GElem::Edge(7), GPayload::Edge(plain_edge(0, u32::MAX, top)));
+    let edited = edit::apply(&delta, &graph).unwrap();
+    let edited_tree = panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).unwrap();
+    assert_eq!(edited_tree.fans, vec![arm_fan(2, "fan", 4)]);
+    assert!(edited_tree.nodes.contains_key(&u32::MAX));
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Err(edit::TreeApplyError::NotTreeEdit {
+            reason: FIXED_CARRIERS.to_owned(),
+        })
+    );
+}
+
 /// The unbounded lowering of an edit whose result has a carrier past
 /// `u32` returns `Ok(None)` and still advances the embedding to the one
 /// tree apply reaches: here the leaf `u32::MAX` lifts the node floor past
