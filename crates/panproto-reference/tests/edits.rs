@@ -6663,6 +6663,121 @@ fn fan_then_high_node_deltas(high: u32, top: &SEdge) -> (GraphDelta, GraphDelta)
     (scripted, relocated)
 }
 
+/// Embeddings with no graph form, each refused by both id types: a node
+/// filed under another id, an arc to an absent node, a fan whose parent is
+/// absent, an arc id at the edge floor that the edit itself would remove,
+/// and an edit that inserts a node of the fan shape.
+#[test]
+fn tree_apply_refuses_embeddings_without_a_graph_form_over_both_id_types() {
+    let (tree, _, embedding) = fanless_join_tree_graph_and_embedding();
+    let mut misfiled = tree.clone();
+    misfiled.nodes.insert(4, Node::new(9, "leaf"));
+    let mut dangling_arc = tree.clone();
+    dangling_arc
+        .arcs
+        .push((2, 9, SEdge::new("feature", "leaf", "child", Some("e"))));
+    let mut dangling_arc_embedding = embedding.clone();
+    dangling_arc_embedding.arcs.insert(9, 4);
+    dangling_arc_embedding.next_edge = 5;
+    let mut dangling_fan = tree.clone();
+    dangling_fan.fans.push(arm_fan(9, "fan", 3));
+    let mut dangling_fan_embedding = embedding.clone();
+    dangling_fan_embedding
+        .fans
+        .push((5, 4, BTreeMap::from([("arm".into(), 5)])));
+    dangling_fan_embedding.next_node = 6;
+    dangling_fan_embedding.next_edge = 6;
+    let low_edge_floor = TreeEmbedding {
+        next_edge: 3,
+        ..embedding.clone()
+    };
+    let mut fan_shaped = Node::new(7, "leaf");
+    fan_shaped.shape = NodeShape::HyperEdge;
+    let fan_shaped_insert = TreeEdit::InsertNode {
+        parent: 0,
+        child_id: 7,
+        node: fan_shaped,
+        edge: inserted_label(),
+    };
+    let cases = [
+        (
+            &misfiled,
+            &embedding,
+            TreeEdit::Identity,
+            edit::TreeApplyError::InvalidEmbedding,
+        ),
+        (
+            &dangling_arc,
+            &dangling_arc_embedding,
+            TreeEdit::Identity,
+            edit::TreeApplyError::InvalidEmbedding,
+        ),
+        (
+            &dangling_fan,
+            &dangling_fan_embedding,
+            TreeEdit::Identity,
+            edit::TreeApplyError::InvalidEmbedding,
+        ),
+        (
+            &tree,
+            &low_edge_floor,
+            TreeEdit::DeleteNode { id: 4 },
+            edit::TreeApplyError::InvalidEmbedding,
+        ),
+        (
+            &tree,
+            &embedding,
+            fan_shaped_insert,
+            edit::TreeApplyError::ReservedVocabulary,
+        ),
+    ];
+    for (case_tree, case_embedding, case_edit, expected) in cases {
+        assert_tree_apply_refusal(case_tree, case_embedding, &case_edit, expected.clone());
+        let mut unbounded = edit::unbounded_embedding(case_embedding);
+        assert_eq!(
+            edit::apply_tree_unbounded(&case_edit, case_tree, &mut unbounded),
+            Err(expected)
+        );
+        assert_eq!(unbounded, edit::unbounded_embedding(case_embedding));
+    }
+    let mut after_delete = edit::unbounded_embedding(&low_edge_floor);
+    after_delete.arcs.remove(&4);
+    let mut deleted = tree.clone();
+    deleted.nodes.remove(&4);
+    deleted.arcs.retain(|(_, child, _)| *child != 4);
+    assert_eq!(
+        edit::apply_tree_unbounded(&TreeEdit::Identity, &deleted, &mut after_delete),
+        Ok(deleted)
+    );
+}
+
+/// An edge-label change of an arc, beside the relabel of its target, is
+/// not the fan relabel a lowering writes: it is refused for that reason.
+#[test]
+fn tree_reader_refuses_an_arc_label_change_beside_its_target_relabel() {
+    let (tree, graph, embedding) = fanless_join_tree_graph_and_embedding();
+    let old = SEdge::new("feature", "leaf", "child", Some("c"));
+    let mut new = old.clone();
+    new.tgt = "renamed".into();
+    let mut delta = GraphDelta::identity();
+    delta.attrs.insert(
+        AttrKey::Anchor(3),
+        (
+            AttrVal::Anchor("leaf".into()),
+            AttrVal::Anchor("renamed".into()),
+        ),
+    );
+    delta.attrs.insert(
+        AttrKey::EdgeLabel(2),
+        (AttrVal::Label(old), AttrVal::Label(new)),
+    );
+    assert!(edit::apply(&delta, &graph).is_ok());
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        "an edge-label change is not the required fan relabel"
+    ));
+}
+
 /// `u32::MAX + 1`, the node floor after inserting node `u32::MAX` over
 /// unbounded ids.
 const PAST_U32: u128 = 1 << 32;
