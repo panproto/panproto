@@ -5174,6 +5174,32 @@ fn base_lowerings<'a>(
     lowerings
 }
 
+/// Law (c) for a single-step script lowered to `delta` under the raised
+/// floors `ceiling`, reaching `lowered`, read as `reading`: over unbounded
+/// ids the reading lowers to `delta` and reaches the carriers of `lowered`,
+/// and (R1) its `u32` lowering under `ceiling` is that delta with those
+/// carriers or, short of full room, runs out of ids.
+fn reads_exactly_at_the_ceiling(
+    tree: &Tree,
+    ceiling: &TreeEmbedding,
+    delta: &GraphDelta,
+    lowered: &TreeEmbedding,
+    reading: &TreeEdit,
+    full_room: bool,
+) -> bool {
+    let mut relowered = edit::unbounded_embedding(ceiling);
+    let exact = edit::graph_delta_from_tree_edit_unbounded(tree, &mut relowered, reading, None)
+        == Ok(Some(delta.clone()))
+        && same_carriers(&relowered, &edit::unbounded_embedding(lowered));
+    let mut relowered = ceiling.clone();
+    let refines = match edit::graph_delta_from_tree_edit(tree, &mut relowered, reading, None) {
+        Ok(relowering) => relowering == *delta && same_carriers(&relowered, lowered),
+        Err(edit::TreeApplyError::IdsExhausted) => !full_room,
+        Err(_) => false,
+    };
+    exact && refines
+}
+
 /// Lower each script under every pair of floors that leaves at most the
 /// sweep's room of node and edge ids below `u32::MAX`, and check each
 /// lowering: it is refused only by `IdsExhausted` and never with full room,
@@ -5235,33 +5261,14 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
                         .findings
                         .push(format!("{at}: {reading:?} has another effect"));
                 }
-                if script.steps().len() <= 1 {
-                    let mut relowered = edit::unbounded_embedding(&ceiling);
-                    let exact = edit::graph_delta_from_tree_edit_unbounded(
-                        tree,
-                        &mut relowered,
-                        &reading,
-                        None,
-                    ) == Ok(Some(delta.clone()))
-                        && same_carriers(&relowered, &edit::unbounded_embedding(&lowered));
-                    let mut relowered = ceiling.clone();
-                    let refines = match edit::graph_delta_from_tree_edit(
-                        tree,
-                        &mut relowered,
-                        &reading,
-                        None,
-                    ) {
-                        Ok(relowering) => {
-                            relowering == delta && same_carriers(&relowered, &lowered)
-                        }
-                        Err(edit::TreeApplyError::IdsExhausted) => !full_room,
-                        Err(_) => false,
-                    };
-                    if !exact || !refines {
-                        sweep
-                            .findings
-                            .push(format!("{at}: read inexactly as {reading:?}"));
-                    }
+                if script.steps().len() <= 1
+                    && !reads_exactly_at_the_ceiling(
+                        tree, &ceiling, &delta, &lowered, &reading, full_room,
+                    )
+                {
+                    sweep
+                        .findings
+                        .push(format!("{at}: read inexactly as {reading:?}"));
                 }
                 if !delta_is_an_image_of_reading(tree, &ceiling, &base, &graph, &delta, &reading) {
                     sweep
@@ -6165,24 +6172,26 @@ fn shift_allocated_ids(
     shifted
 }
 
-/// (R2) The reader returns what the reader over unbounded ids returns, so
-/// no reading depends on how much `u32` room is left. Edge ids are only
-/// drawn, never named by an edit, so raising the edge floor and every edge
-/// id the delta allocates by one amount reads the same; so does raising
-/// the node floor and the allocated fan node ids, when the result has no
-/// tree node at or above the node floor (a tree node id is named by its
-/// insertion). For every lowering over unbounded ids of every word and
-/// high-id word of the sets of [`high_id_script_sets`], from the encoder
-/// embedding, both raises (the node one where it applies) put the
-/// delta's largest allocated id at `u32::MAX` minus 0, 1, 2 and 5; the
-/// reading must be the one at the encoder floors, and never
-/// `IdsExhausted`. A reader that took the exact single step only where
-/// its `u32` run fits would fail here.
-#[test]
-fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
+/// A tree-edit reader, as the room-shift check calls it.
+type Reader = dyn Fn(&Tree, &TreeEmbedding, &GraphDelta) -> Result<TreeEdit, edit::TreeApplyError>;
+
+/// The room-shift check of (R2) with the reader `read`: for every
+/// lowering over unbounded ids of every word and high-id word of `sets`,
+/// from the encoder embedding, raise the edge floor and every edge id the
+/// delta allocates, and the node floor and every fan node id it
+/// allocates when the result has no tree node at or above the node floor,
+/// so that the delta's largest allocated ids sit at `u32::MAX` minus 0, 1,
+/// 2 and 5; the reading must be the one at the encoder floors, and never
+/// `IdsExhausted`. Returns the counts (lowerings, shifted deltas, those
+/// with the node floor raised, readings, readings whose application under
+/// the raised floors runs out of `u32` ids) and the findings.
+fn room_shift_findings(
+    sets: Vec<(String, Tree, Vec<TreeEdit>, Vec<TreeEdit>)>,
+    read: &Reader,
+) -> ([usize; 5], Vec<String>) {
     let mut counts = [0_usize; 5];
     let mut findings = Vec::new();
-    for (name, tree, words, high) in high_id_script_sets() {
+    for (name, tree, words, high) in sets {
         let (graph, base) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
         for script in words.iter().chain(&high) {
             let mut lowered = edit::unbounded_embedding(&base);
@@ -6192,7 +6201,7 @@ fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
                 continue;
             };
             counts[0] += 1;
-            let reading = edit::tree_edit_from_graph_delta(&tree, &base, &delta, None);
+            let reading = read(&tree, &base, &delta);
             let allocated = |floor: u32, nodes: bool| {
                 delta
                     .add
@@ -6222,13 +6231,12 @@ fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
                 };
                 let shifted = shift_allocated_ids(&delta, &base, nodes, edges);
                 let raised = with_floors(&base, base.next_node + nodes, base.next_edge + edges);
-                let shifted_reading =
-                    edit::tree_edit_from_graph_delta(&tree, &raised, &shifted, None);
+                let shifted_reading = read(&tree, &raised, &shifted);
                 counts[1] += 1;
                 counts[2] += usize::from(nodes > 0);
                 counts[3] += usize::from(shifted_reading.is_ok());
-                counts[4] += usize::from(shifted_reading.as_ref().is_ok_and(|read| {
-                    edit::apply_tree(read, &tree, &mut raised.clone())
+                counts[4] += usize::from(shifted_reading.as_ref().is_ok_and(|shifted| {
+                    edit::apply_tree(shifted, &tree, &mut raised.clone())
                         == Err(edit::TreeApplyError::IdsExhausted)
                 }));
                 if shifted_reading != reading
@@ -6241,6 +6249,24 @@ fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
             }
         }
     }
+    (counts, findings)
+}
+
+/// (R2) The reader returns what the reader over unbounded ids returns, so
+/// no reading depends on how much `u32` room is left. Edge ids are only
+/// drawn, never named by an edit, so raising the edge floor and every edge
+/// id the delta allocates by one amount reads the same; so does raising
+/// the node floor and the allocated fan node ids, when the result has no
+/// tree node at or above the node floor (a tree node id is named by its
+/// insertion). [`room_shift_findings`] checks this on the sets of
+/// [`high_id_script_sets`]. A reader that took the exact single step only
+/// where its `u32` run fits would fail here.
+#[test]
+fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
+    let (counts, findings) =
+        room_shift_findings(high_id_script_sets(), &|tree, embedding, delta| {
+            edit::tree_edit_from_graph_delta(tree, embedding, delta, None)
+        });
     println!(
         "lowered {}, shifted {}, with the node floor raised {}, read {}, readings exhausting in u32 at the raised floors {}",
         counts[0], counts[1], counts[2], counts[3], counts[4]
@@ -6251,6 +6277,89 @@ fn tree_edit_readings_do_not_depend_on_the_room_left_below_the_id_ceiling() {
         &findings[..findings.len().min(10)]
     );
     assert_eq!(counts, [16_570, 66_280, 41_132, 66_280, 21_207]);
+}
+
+/// The room-shift check fails a reader whose readings depend on the room
+/// left: one that returns its single readings wrapped in a one-step
+/// sequence (the same edit in effect, another reading) once the edge floor
+/// is within two ids of `u32::MAX`.
+#[test]
+fn the_room_shift_check_fails_a_reader_whose_readings_depend_on_the_room_left() {
+    let sets = high_id_script_sets().into_iter().take(1).collect();
+    let (_, findings) = room_shift_findings(sets, &|tree, embedding, delta| {
+        let reading = edit::tree_edit_from_graph_delta(tree, embedding, delta, None)?;
+        Ok(if embedding.next_edge > u32::MAX - 3 {
+            TreeEdit::Sequence(vec![reading])
+        } else {
+            reading
+        })
+    });
+    assert!(!findings.is_empty());
+}
+
+/// The ceiling sweep's exactness check fails a reading that is exact only
+/// in effect where its `u32` lowering runs out short of full room. With
+/// the edge floor at `u32::MAX - 2`, `JoinFeatures {1, [2], "joined"}` on
+/// [`join_tree`] lowers in `u32`, re-drawing arcs 3 and 4 at
+/// `u32::MAX - 2` and `u32::MAX - 1`. Its contraction-and-moves form has
+/// the same effect, but its moves draw past `u32` (over unbounded ids its
+/// lowering has no graph form, and in `u32` it runs out), so only the
+/// exactness over unbounded ids refuses it; the join itself passes.
+#[test]
+fn the_ceiling_exactness_check_fails_an_inexact_reading_whose_u32_lowering_runs_out() {
+    let tree = join_tree();
+    let ceiling = TreeEmbedding {
+        next_edge: u32::MAX - 2,
+        ..literal_join_embedding()
+    };
+    let join = TreeEdit::JoinFeatures {
+        primary: 1,
+        joined: vec![2],
+        produce: Node::new(1, "joined"),
+    };
+    let moved = |child: u32, name: &str| TreeEdit::MoveSubtree {
+        node_id: child,
+        new_parent: 1,
+        edge: SEdge::new("joined", "leaf", "child", Some(name)),
+    };
+    let contracted = TreeEdit::Sequence(vec![
+        TreeEdit::ContractNode { id: 2 },
+        moved(3, "c"),
+        moved(4, "d"),
+        TreeEdit::RelabelNode {
+            id: 1,
+            new_anchor: "joined".into(),
+        },
+    ]);
+    let mut lowered = ceiling.clone();
+    let delta = edit::graph_delta_from_tree_edit(&tree, &mut lowered, &join, None).unwrap();
+    let start = edit::unbounded_embedding(&ceiling);
+    assert_eq!(
+        edit::apply_tree_unbounded(&contracted, &tree, &mut start.clone()),
+        edit::apply_tree_unbounded(&join, &tree, &mut start.clone())
+    );
+    let mut relowered = start;
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut relowered, &contracted, None),
+        Ok(None)
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut ceiling.clone(), &contracted, None),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    for full_room in [false, true] {
+        assert!(reads_exactly_at_the_ceiling(
+            &tree, &ceiling, &delta, &lowered, &join, full_room
+        ));
+        assert!(!reads_exactly_at_the_ceiling(
+            &tree,
+            &ceiling,
+            &delta,
+            &lowered,
+            &contracted,
+            full_room
+        ));
+    }
 }
 
 fn arm_edges(edge: u32) -> BTreeMap<String, u32> {
