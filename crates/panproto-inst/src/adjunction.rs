@@ -3765,6 +3765,49 @@ mod tests {
             assert_eq!(f_sigma(&kept, &functor(&identity)).unwrap(), kept);
         }
 
+        /// Fresh nulls at the top of `u64`, exhaustively over the largest
+        /// input null in `u64::MAX - 3..=u64::MAX` and one to five rows (one
+        /// fresh null each): the ids `max + 1..=max + rows` in ascending
+        /// `RowId` order when they fit, `u64::MAX` included, else
+        /// `NullIdsExhausted`; with no fresh null needed, any largest id is
+        /// accepted unchanged.
+        #[test]
+        fn null_ids_are_checked_at_the_top_of_u64() {
+            let f = functor(&widening());
+            let identity = functor(&spec_identity_on_a());
+            for max in u64::MAX - 3..=u64::MAX {
+                for rows in 1..=5_u32 {
+                    let x = one_table(
+                        "a",
+                        (0..rows)
+                            .map(|r| {
+                                let gone = if r == 0 { null(max) } else { int(r.into()) };
+                                (r, row(&[("x", int(r.into())), ("gone", gone)]))
+                            })
+                            .collect(),
+                    );
+                    let needed = u64::from(rows);
+                    match max.checked_add(needed) {
+                        None => assert!(
+                            matches!(f_sigma(&x, &f), Err(AdjunctionError::NullIdsExhausted)),
+                            "max {max}, rows {rows}"
+                        ),
+                        Some(_) => {
+                            let sigma = f_sigma(&x, &f).unwrap();
+                            let fresh: Vec<_> = (0..rows)
+                                .map(|r| sigma.row(RowId(r)).and_then(|c| c.get("y")).cloned())
+                                .collect();
+                            let expected: Vec<_> =
+                                (1..=needed).map(|k| Some(null(max + k))).collect();
+                            assert_eq!(fresh, expected, "max {max}, rows {rows}");
+                        }
+                    }
+                }
+                let kept = one_table("a", vec![(0, row(&[("x", null(max))]))]);
+                assert_eq!(f_sigma(&kept, &identity).unwrap(), kept, "max {max}");
+            }
+        }
+
         fn spec_identity_on_a() -> Spec {
             spec(
                 side(&[("a", &["x"])], &[]),
