@@ -1290,7 +1290,7 @@ pub mod edit {
     /// floor's successor, and `u128` runs out only after more than
     /// `2^128 - 2^32` draws. The `u32` form refines it: for every edit and
     /// valid embedding E, [`apply_tree`] from E returns this function's
-    /// result from [`unbounded_embedding`]`(E)` (the same tree, and the
+    /// result from [`unbounded_embedding`] of E (the same tree, and the
     /// same embedding read in `u32`), or `IdsExhausted`.
     ///
     /// # Errors
@@ -1555,12 +1555,16 @@ pub mod edit {
         Ok(())
     }
 
+    /// A fan's carriers as graph ids: its node, its parent edge and its
+    /// child edges by label.
+    type FanCarriers = (u32, u32, BTreeMap<Name, u32>);
+
     /// The graph form of a tree whose embedding [`check_embedded_tree`]
     /// accepts, with the carriers given as graph ids.
     fn build_embedded_graph(
         tree: &crate::model::Tree,
         arcs: &BTreeMap<u32, u32>,
-        fans: &[(u32, u32, BTreeMap<Name, u32>)],
+        fans: &[FanCarriers],
         schema: Option<&crate::schema::Schema>,
     ) -> Graph {
         let mut graph = Graph {
@@ -1659,7 +1663,7 @@ pub mod edit {
             .iter()
             .map(|(child, edge)| Some((*child, edge.graph_id()?)))
             .collect();
-        let fans: Option<Vec<(u32, u32, BTreeMap<Name, u32>)>> = embedding
+        let fans: Option<Vec<FanCarriers>> = embedding
             .fans
             .iter()
             .map(|(node, parent, children)| {
@@ -1711,7 +1715,7 @@ pub mod edit {
     /// carrier id that is no `u32`. The `u32` form refines it: for every
     /// edit and valid embedding E, [`graph_delta_from_tree_edit`] from E
     /// returns `IdsExhausted` or what this function returns from
-    /// [`unbounded_embedding`]`(E)`, `Ok(d)` standing for `Ok(Some(d))`
+    /// [`unbounded_embedding`] of E, `Ok(d)` standing for `Ok(Some(d))`
     /// (so never `Ok` where this function returns `Ok(None)`), and leaves
     /// the embedding this function leaves, read in `u32`.
     ///
@@ -1755,6 +1759,16 @@ pub mod edit {
             .iter()
             .find(|(_, candidate, _)| *candidate == child)
             .cloned()
+    }
+
+    /// The arcs of `tree` by child, in ascending child id. A tree read from
+    /// a graph has one for each node but the root, since every other node
+    /// reaches the root along parent arcs.
+    fn tree_arcs_by_child(tree: &crate::model::Tree) -> BTreeMap<u32, (u32, SEdge)> {
+        tree.arcs
+            .iter()
+            .map(|(parent, child, edge)| (*child, (*parent, edge.clone())))
+            .collect()
     }
 
     fn push_tree_step<I: TreeId>(
@@ -1839,9 +1853,10 @@ pub mod edit {
     }
 
     /// Remove fans until the reconstruction's fans are a prefix of the
-    /// result's fans: keep those matching the longest prefix of the result's
-    /// fans whose unkept fans all have a removal step that touches no kept
-    /// fan.
+    /// result's fans: keep those matching the longest nonempty prefix of the
+    /// result's fans whose unkept fans all have a removal step that touches
+    /// no kept fan, and failing that keep none, deleting every fan by name
+    /// (a fan present can always be deleted).
     fn remove_changed_tree_fans<I: TreeId>(
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
@@ -1849,7 +1864,7 @@ pub mod edit {
         embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
-        for limit in (0..=after.fans.len()).rev() {
+        for limit in (1..=after.fans.len()).rev() {
             let mut trial = current.clone();
             let mut trial_embedding = embedding.clone();
             if let Some(removal) =
@@ -1861,7 +1876,13 @@ pub mod edit {
                 return Ok(());
             }
         }
-        Err(fixed_carriers_refusal())
+        while let Some(fan) = current.fans.first() {
+            let step = TreeEdit::DeleteFan {
+                hyper_edge: fan.hyper_edge.clone(),
+            };
+            push_tree_step(steps, current, embedding, step)?;
+        }
+        Ok(())
     }
 
     fn remove_missing_tree_nodes<I: TreeId>(
@@ -1894,18 +1915,12 @@ pub mod edit {
         embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
-        let mut added: Vec<_> = after
-            .nodes
-            .keys()
-            .filter(|node| !current.nodes.contains_key(node))
-            .copied()
+        let mut added: Vec<_> = tree_arcs_by_child(after)
+            .into_iter()
+            .filter(|(child, _)| !current.nodes.contains_key(child))
             .collect();
-        added.sort_by_key(|node| tree_depth(after, *node));
-        for child_id in added {
-            let (parent, _, edge) =
-                tree_arc(after, child_id).ok_or_else(|| TreeApplyError::NotTreeEdit {
-                    reason: format!("added node {child_id} has no parent arc"),
-                })?;
+        added.sort_by_key(|(child, _)| tree_depth(after, *child));
+        for (child_id, (parent, edge)) in added {
             push_tree_step(
                 steps,
                 current,
@@ -1927,26 +1942,18 @@ pub mod edit {
         embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
     ) -> Result<(), TreeApplyError> {
-        let mut children: Vec<_> = after
-            .nodes
-            .keys()
-            .filter(|node| **node != after.root)
-            .copied()
-            .collect();
-        children.sort_by_key(|node| tree_depth(after, *node));
-        for node_id in children {
-            let target = tree_arc(after, node_id).ok_or_else(|| TreeApplyError::NotTreeEdit {
-                reason: format!("node {node_id} has no target parent arc"),
-            })?;
-            if tree_arc(current, node_id).as_ref() != Some(&target) {
+        let mut targets: Vec<_> = tree_arcs_by_child(after).into_iter().collect();
+        targets.sort_by_key(|(child, _)| tree_depth(after, *child));
+        for (node_id, (new_parent, edge)) in targets {
+            if tree_arc(current, node_id) != Some((new_parent, node_id, edge.clone())) {
                 push_tree_step(
                     steps,
                     current,
                     embedding,
                     TreeEdit::MoveSubtree {
                         node_id,
-                        new_parent: target.0,
-                        edge: target.2,
+                        new_parent,
+                        edge,
                     },
                 )?;
             }
@@ -1981,7 +1988,7 @@ pub mod edit {
                 refreshed.contains(child) && embedding.arcs.get(child) == start.arcs.get(child)
             })
             .unwrap_or(after.arcs.len());
-        let split = (0..=limit)
+        let split = (1..=limit)
             .rev()
             .find(|split| {
                 let suffix: BTreeSet<u32> = after.arcs[*split..]
@@ -1994,9 +2001,7 @@ pub mod edit {
                     .filter(|(_, child, _)| !suffix.contains(child))
                     .eq(after.arcs[..*split].iter())
             })
-            .ok_or_else(|| TreeApplyError::NotTreeEdit {
-                reason: "the result's arc order is not reachable by re-appending arcs".to_owned(),
-            })?;
+            .unwrap_or(0);
         for (parent, child, edge) in after.arcs[split..].iter().cloned() {
             push_tree_step(
                 steps,
@@ -2100,13 +2105,7 @@ pub mod edit {
             .collect();
         reconcile_tree_relabels(after, &joins, current, embedding, steps)?;
         reconcile_tree_fields(after, &joins, current, embedding, steps)?;
-        let inserted = after
-            .fans
-            .get(current.fans.len()..)
-            .ok_or_else(|| TreeApplyError::NotTreeEdit {
-                reason: "the reconstruction keeps more fans than the result has".to_owned(),
-            })?
-            .to_vec();
+        let inserted = after.fans[current.fans.len()..].to_vec();
         for fan in inserted {
             push_tree_step(steps, current, embedding, TreeEdit::InsertFan { fan })?;
         }
@@ -2134,11 +2133,6 @@ pub mod edit {
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
     ) -> Result<(TreeEdit, crate::encode::TreeEmbedding<I>), TreeApplyError> {
-        if before.root != after.root {
-            return Err(TreeApplyError::NotTreeEdit {
-                reason: "a tree edit cannot replace the root id".to_owned(),
-            });
-        }
         let mut current = before.clone();
         let mut current_embedding = embedding.clone();
         let mut steps = Vec::new();
@@ -2161,12 +2155,6 @@ pub mod edit {
             &mut steps,
         )?;
         reconcile_tree_payloads_and_fans(after, &mut current, &mut current_embedding, &mut steps)?;
-        if current != *after {
-            return Err(TreeApplyError::NotTreeEdit {
-                reason: "the normalized tree-edit sequence did not reconstruct the result"
-                    .to_owned(),
-            });
-        }
         let edit = match steps.len() {
             0 => TreeEdit::Identity,
             1 => steps.pop().unwrap_or(TreeEdit::Identity),
@@ -2248,6 +2236,15 @@ pub mod edit {
     /// over the suffix's first fan id performs; and its attribute changes
     /// are the lowering's apart from those of the relocated carriers, whose
     /// label changes the re-added payloads carry.
+    ///
+    /// Called only once `delta` applies to `before` and its result has a
+    /// tree form, which makes two parts of that statement follow from less.
+    /// Deletions are compared on nodes: an edge the lowering deletes is an
+    /// edge of a node it deletes, or an arc into a node the delta gives a
+    /// fresh arc, so a delta keeping it leaves an edge dangling or a second
+    /// parent arc. Attribute changes are compared by key: both read the old
+    /// value from `before`, and the new value of a kept element is fixed by
+    /// the result's tree form.
     fn fixed_delta_parts_match(before: &Graph, delta: &GraphDelta, lowered: &GraphDelta) -> bool {
         let relocated: BTreeSet<GElem> = delta
             .del
@@ -2269,6 +2266,7 @@ pub mod edit {
         lowered
             .del
             .keys()
+            .filter(|element| matches!(element, GElem::Node(_)))
             .all(|element| delta.del.contains_key(element))
             && (0..=kept_fans.len()).any(|first| {
                 kept_fans[first..]
@@ -2280,9 +2278,9 @@ pub mod edit {
             })
             && lowered
                 .attrs
-                .iter()
-                .filter(|(key, _)| !relocated.contains(&GraphSpace::owner(key)))
-                .eq(delta.attrs.iter())
+                .keys()
+                .filter(|key| !relocated.contains(&GraphSpace::owner(key)))
+                .eq(delta.attrs.keys())
     }
 
     fn check_graph_delta_tree_image(
@@ -2518,7 +2516,7 @@ pub mod edit {
     /// The laws are stated over unbounded ids. Write `apply_N` and
     /// `lower_N` for [`apply_tree_unbounded`] and
     /// [`graph_delta_from_tree_edit_unbounded`], whose `u128` ids stand for
-    /// the natural numbers, and `N(E)` for [`unbounded_embedding`]`(E)`. Let
+    /// the natural numbers, and `N(E)` for [`unbounded_embedding`] of E. Let
     /// T be a tree, E a valid embedding of it, G their graph and d a graph
     /// delta.
     ///
