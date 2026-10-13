@@ -2169,14 +2169,14 @@ pub mod edit {
     /// fans whose node ids are below the node floor. A fan's carriers are
     /// kept from `start` or drawn afresh together, and an arc keeps its id
     /// only while its parent and child do, so this is a valid embedded graph
-    /// holding every element of the whole graph with an id below the floors,
-    /// with the same payload.
+    /// (built without checking it again) holding every element of the whole
+    /// graph with an id below the floors, with the same payload.
     fn graph_below_floors(
         tree: &crate::model::Tree,
         reached: &crate::encode::TreeEmbedding<u128>,
         start: &crate::encode::TreeEmbedding,
         schema: Option<&crate::schema::Schema>,
-    ) -> Result<Graph, TreeApplyError> {
+    ) -> Graph {
         let below = |id: u128, floor: u32| u32::try_from(id).ok().filter(|id| *id < floor);
         let narrow = |id: &u128| u32::try_from(*id).unwrap_or(u32::MAX);
         let mut kept_tree = crate::model::Tree {
@@ -2211,7 +2211,7 @@ pub mod edit {
                 kept_tree.fans.push(fan.clone());
             }
         }
-        graph_of_embedded_tree(&kept_tree, &kept, schema)
+        build_embedded_graph(&kept_tree, &kept.arcs, &kept.fans, schema)
     }
 
     /// The carriers of the fan at fan node `fan` of `graph`: the node and
@@ -2595,7 +2595,7 @@ pub mod edit {
             &after_tree,
             &refreshed,
         )?;
-        let kept = graph_below_floors(&after_tree, &reached, embedding, schema)?;
+        let kept = graph_below_floors(&after_tree, &reached, embedding, schema);
         if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
             Ok(edit)
         } else {
