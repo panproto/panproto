@@ -278,7 +278,7 @@ impl IdAllocator {
     /// Whether no id of the range below `u32::MAX` is left at or above the
     /// floor.
     #[must_use]
-    pub fn is_exhausted(&self) -> bool {
+    pub const fn is_exhausted(&self) -> bool {
         self.next().is_err()
     }
 
