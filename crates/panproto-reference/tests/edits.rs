@@ -4627,9 +4627,15 @@ fn rename_fresh_ids(
 }
 
 /// `delta` with every fresh id raised by `by`, which keeps the order of the
-/// fresh fan nodes and of the fresh edges among all ids.
+/// fresh fan nodes and of the fresh edges among all ids short of the
+/// maximum (an id that would pass it wraps, still a delta to read).
 fn shift_fresh_ids(delta: &GraphDelta, embedding: &TreeEmbedding, by: u32) -> GraphDelta {
-    rename_fresh_ids(delta, embedding, |id| id + by, |id| id + by)
+    rename_fresh_ids(
+        delta,
+        embedding,
+        |id| id.wrapping_add(by),
+        |id| id.wrapping_add(by),
+    )
 }
 
 /// The deltas one perturbation away from `delta`: one part dropped; one
@@ -4730,7 +4736,7 @@ fn fan_redraw_perturbations(
         .add
         .keys()
         .filter_map(|element| match element {
-            GElem::Node(id) => Some(id + 1),
+            GElem::Node(id) => Some(id.wrapping_add(1)),
             GElem::Edge(_) => None,
         })
         .fold(embedding.next_node, u32::max);
@@ -4738,7 +4744,7 @@ fn fan_redraw_perturbations(
         .add
         .keys()
         .filter_map(|element| match element {
-            GElem::Edge(id) => Some(id + 1),
+            GElem::Edge(id) => Some(id.wrapping_add(1)),
             GElem::Node(_) => None,
         })
         .fold(embedding.next_edge, u32::max);
@@ -5369,6 +5375,670 @@ fn lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling() {
     assert_eq!(
         total,
         pinned((0, 0), [12_121, 875_140, 219_937, 655_203, 12_805]).1
+    );
+}
+
+/// The letters that name tree node ids at the top of `u32`: a leaf
+/// inserted under the root at each of the three highest ids, one under
+/// node 2, one under another high node, a high node moved under node 2,
+/// and the highest deleted.
+fn high_id_letters() -> Vec<TreeEdit> {
+    let [top, next, third] = HIGH_IDS;
+    vec![
+        insert_leaf(0, top),
+        insert_leaf(0, next),
+        insert_leaf(0, third),
+        insert_leaf(2, next),
+        insert_leaf(next, third),
+        TreeEdit::MoveSubtree {
+            node_id: next,
+            new_parent: 2,
+            edge: inserted_label(),
+        },
+        TreeEdit::DeleteNode { id: top },
+    ]
+}
+
+/// The three highest node ids.
+const HIGH_IDS: [u32; 3] = [u32::MAX, u32::MAX - 1, u32::MAX - 2];
+
+/// Every word of length one or two over `alphabet` and [`high_id_letters`]
+/// with at least one high letter.
+fn high_id_words(alphabet: &[TreeEdit]) -> Vec<TreeEdit> {
+    let high = high_id_letters();
+    let all: Vec<TreeEdit> = alphabet.iter().chain(&high).cloned().collect();
+    let mut words: Vec<TreeEdit> = high.clone();
+    for first in &all {
+        for second in &all {
+            if high.contains(first) || high.contains(second) {
+                words.push(TreeEdit::Sequence(vec![first.clone(), second.clone()]));
+            }
+        }
+    }
+    words
+}
+
+/// The short-script sets of [`short_script_sets`] with their words split:
+/// the words over the set's alphabet, and the words with a high letter.
+fn high_id_script_sets() -> Vec<(String, Tree, Vec<TreeEdit>, Vec<TreeEdit>)> {
+    let mut sets: Vec<_> = fan_geometries()
+        .into_iter()
+        .map(|(name, tree)| {
+            let alphabet = fan_script_alphabet(&tree);
+            let words = words_up_to_two(&alphabet).collect();
+            (name, tree, words, high_id_words(&alphabet))
+        })
+        .collect();
+    for tree in readback_trees() {
+        let alphabet = tree_edit_alphabet(&tree, false);
+        let words = words_up_to_two(&alphabet).collect();
+        sets.push((
+            format!("readback tree with {} fans", tree.fans.len()),
+            tree,
+            words,
+            high_id_words(&alphabet),
+        ));
+    }
+    sets
+}
+
+/// `reached` with the ids at or above the floors of `start` renamed in
+/// order onto the lowest graph ids at or above those floors (fan nodes
+/// skipping the tree's node ids), or none when too few remain. The renaming
+/// keeps every id below the floors and the order of the fresh fan nodes
+/// and of the fresh edges, so the graph it gives is the unbounded graph
+/// with its fresh ids renamed.
+fn compact_fresh_ids(
+    tree: &Tree,
+    start: &TreeEmbedding,
+    reached: &TreeEmbedding<u128>,
+) -> Option<TreeEmbedding<u128>> {
+    let node_floor = u128::from(start.next_node);
+    let edge_floor = u128::from(start.next_edge);
+    let mut free_nodes = (start.next_node..=u32::MAX)
+        .filter(|id| !tree.nodes.contains_key(id))
+        .map(u128::from);
+    let mut nodes = BTreeMap::new();
+    for (node, _, _) in &reached.fans {
+        if *node >= node_floor {
+            nodes.insert(*node, free_nodes.next()?);
+        }
+    }
+    let fresh_edges: BTreeSet<u128> = reached
+        .arcs
+        .values()
+        .chain(
+            reached
+                .fans
+                .iter()
+                .flat_map(|(_, parent, children)| std::iter::once(parent).chain(children.values())),
+        )
+        .filter(|edge| **edge >= edge_floor)
+        .copied()
+        .collect();
+    let mut edges = BTreeMap::new();
+    for (rank, edge) in fresh_edges.into_iter().enumerate() {
+        let renamed = edge_floor + u128::try_from(rank).ok()?;
+        if renamed > u128::from(u32::MAX) {
+            return None;
+        }
+        edges.insert(edge, renamed);
+    }
+    let node = |id: &u128| *nodes.get(id).unwrap_or(id);
+    let edge = |id: &u128| *edges.get(id).unwrap_or(id);
+    Some(TreeEmbedding {
+        arcs: reached
+            .arcs
+            .iter()
+            .map(|(child, id)| (*child, edge(id)))
+            .collect(),
+        fans: reached
+            .fans
+            .iter()
+            .map(|(fan, parent, children)| {
+                (
+                    node(fan),
+                    edge(parent),
+                    children
+                        .iter()
+                        .map(|(label, id)| (label.clone(), edge(id)))
+                        .collect(),
+                )
+            })
+            .collect(),
+        next_node: reached.next_node,
+        next_edge: reached.next_edge,
+    })
+}
+
+/// The soundness oracle over unbounded ids: applying `reading` to the tree
+/// from the unbounded `embedding` gives the tree form of the delta's
+/// result, and the delta is, up to renaming fresh ids, the unbounded
+/// lowering of `reading` alone or after relocating the fan suffix from
+/// some fan of the embedding. The lowering's fresh ids are compacted first
+/// ([`compact_fresh_ids`]), which changes nothing up to that renaming and
+/// lets a graph hold a lowering whose ids pass `u32::MAX`.
+fn delta_is_an_unbounded_image_of_reading(
+    tree: &Tree,
+    embedding: &TreeEmbedding,
+    graph: &Graph,
+    delta: &GraphDelta,
+    reading: &TreeEdit,
+) -> bool {
+    let Some(edited_tree) = edit::apply(delta, graph).ok().and_then(|edited| {
+        panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| None).ok()
+    }) else {
+        return false;
+    };
+    let read_tree =
+        edit::apply_tree_unbounded(reading, tree, &mut edit::unbounded_embedding(embedding));
+    read_tree.as_ref() == Ok(&edited_tree)
+        && std::iter::once(Vec::new())
+            .chain(
+                embedding
+                    .fans
+                    .iter()
+                    .map(|(fan, _, _)| relocation_from(tree, *fan)),
+            )
+            .any(|mut steps| {
+                steps.push(reading.clone());
+                let mut reached = edit::unbounded_embedding(embedding);
+                let Ok(relocated_tree) =
+                    edit::apply_tree_unbounded(&TreeEdit::Sequence(steps), tree, &mut reached)
+                else {
+                    return false;
+                };
+                let Some(compacted) = compact_fresh_ids(&relocated_tree, embedding, &reached)
+                else {
+                    return false;
+                };
+                let Ok(Some(lowered)) =
+                    edit::graph_of_unbounded_embedding(&relocated_tree, &compacted, None)
+                else {
+                    return false;
+                };
+                equal_up_to_fresh_ids(delta, embedding, &edit::diff(graph, &lowered), embedding)
+            })
+}
+
+/// The refinement law on one edit: applying and lowering it under the
+/// `u32` embedding gives what the unbounded forms give, or refuses with
+/// `IdsExhausted`. Returns whether the `u32` lowering ran out, or the
+/// violation.
+fn refinement_violation(
+    tree: &Tree,
+    embedding: &TreeEmbedding,
+    edit_under: &TreeEdit,
+) -> Result<bool, String> {
+    let mut applied_embedding = embedding.clone();
+    let applied = edit::apply_tree(edit_under, tree, &mut applied_embedding);
+    let mut unbounded = edit::unbounded_embedding(embedding);
+    let applied_unbounded = edit::apply_tree_unbounded(edit_under, tree, &mut unbounded);
+    let apply_refines = match (&applied, &applied_unbounded) {
+        (Err(edit::TreeApplyError::IdsExhausted), _) => true,
+        (Ok(_), Ok(_)) => {
+            applied == applied_unbounded
+                && edit::unbounded_embedding(&applied_embedding) == unbounded
+        }
+        _ => applied == applied_unbounded,
+    };
+    let lowered = edit::graph_delta_from_tree_edit(tree, &mut embedding.clone(), edit_under, None);
+    let lowered_unbounded = edit::graph_delta_from_tree_edit_unbounded(
+        tree,
+        &mut edit::unbounded_embedding(embedding),
+        edit_under,
+        None,
+    );
+    let lower_refines = match (&lowered, &lowered_unbounded) {
+        (Err(edit::TreeApplyError::IdsExhausted), _) => true,
+        (Ok(delta), Ok(Some(unbounded_delta))) => delta == unbounded_delta,
+        (Err(error), Err(unbounded_error)) => error == unbounded_error,
+        _ => false,
+    };
+    if apply_refines && lower_refines {
+        Ok(lowered == Err(edit::TreeApplyError::IdsExhausted))
+    } else {
+        Err(format!(
+            "{edit_under:?} under {embedding:?}: u32 {applied:?} / {lowered:?}, unbounded \
+             {applied_unbounded:?} / {lowered_unbounded:?}"
+        ))
+    }
+}
+
+/// The deltas one high-id perturbation away from `delta`: each added tree
+/// node moved onto each free id of [`HIGH_IDS`] (its arcs and fan edges
+/// following it), and a leaf added under the root at each free high id
+/// with an arc above every edge id the delta adds.
+fn high_id_perturbations(graph: &Graph, delta: &GraphDelta) -> Vec<GraphDelta> {
+    let taken = |id: u32| graph.nodes.contains_key(&id) || delta.add.contains_key(&GElem::Node(id));
+    let added_tree_nodes: Vec<u32> = delta
+        .add
+        .iter()
+        .filter_map(|(element, payload)| match (element, payload) {
+            (GElem::Node(id), GPayload::Node(node)) if node.shape != NodeShape::HyperEdge => {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect();
+    let next_edge = delta
+        .add
+        .keys()
+        .filter_map(|element| match element {
+            GElem::Edge(id) => Some(id.wrapping_add(1)),
+            GElem::Node(_) => None,
+        })
+        .chain(graph.edges.keys().map(|id| id.wrapping_add(1)))
+        .max()
+        .unwrap_or(0);
+    let mut out = Vec::new();
+    for high in HIGH_IDS.into_iter().filter(|id| !taken(*id)) {
+        for moved in &added_tree_nodes {
+            let mut perturbed = delta.clone();
+            perturbed.add = delta
+                .add
+                .iter()
+                .map(|(element, payload)| {
+                    let rename = |id: u32| if id == *moved { high } else { id };
+                    match (element, payload) {
+                        (GElem::Node(id), GPayload::Node(node)) => {
+                            let mut node = node.clone();
+                            node.id = rename(node.id);
+                            (GElem::Node(rename(*id)), GPayload::Node(node))
+                        }
+                        (GElem::Edge(id), GPayload::Edge(edge)) => {
+                            let mut edge = edge.clone();
+                            edge.src = rename(edge.src);
+                            edge.tgt = rename(edge.tgt);
+                            (GElem::Edge(*id), GPayload::Edge(edge))
+                        }
+                        (element, payload) => (element.clone(), payload.clone()),
+                    }
+                })
+                .collect();
+            out.push(perturbed);
+        }
+        let mut perturbed = delta.clone();
+        perturbed.add.insert(GElem::Node(high), node(high, "leaf"));
+        perturbed.add.insert(
+            GElem::Edge(next_edge),
+            GPayload::Edge(plain_edge(
+                0,
+                high,
+                SEdge::new(&graph.nodes[&0].anchor, "leaf", "child", Some("top")),
+            )),
+        );
+        out.push(perturbed);
+    }
+    out
+}
+
+/// Counts of a sweep over unbounded ids: (script, floors) pairs tried,
+/// scripts lowered over unbounded ids, unbounded lowerings with an id past
+/// `u32` (no graph delta, so no reader input), unbounded lowerings read
+/// back, scripts whose `u32`
+/// lowering ran out, readings whose `u32` lowering ran out, perturbed
+/// deltas and accepted perturbed deltas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct UnboundedCounts {
+    pairs: usize,
+    lowered: usize,
+    beyond_u32: usize,
+    read: usize,
+    script_exhausts: usize,
+    reading_exhausts: usize,
+    perturbed: usize,
+    accepted: usize,
+}
+
+impl UnboundedCounts {
+    const fn plus(self, other: Self) -> Self {
+        Self {
+            pairs: self.pairs + other.pairs,
+            lowered: self.lowered + other.lowered,
+            beyond_u32: self.beyond_u32 + other.beyond_u32,
+            read: self.read + other.read,
+            script_exhausts: self.script_exhausts + other.script_exhausts,
+            reading_exhausts: self.reading_exhausts + other.reading_exhausts,
+            perturbed: self.perturbed + other.perturbed,
+            accepted: self.accepted + other.accepted,
+        }
+    }
+}
+
+/// [`UnboundedCounts`] from its fields in declaration order.
+const fn unbounded_counts(
+    [
+        pairs,
+        lowered,
+        beyond_u32,
+        read,
+        script_exhausts,
+        reading_exhausts,
+        perturbed,
+        accepted,
+    ]: [usize; 8],
+) -> UnboundedCounts {
+    UnboundedCounts {
+        pairs,
+        lowered,
+        beyond_u32,
+        read,
+        script_exhausts,
+        reading_exhausts,
+        perturbed,
+        accepted,
+    }
+}
+
+/// Which deltas [`unbounded_findings`] reads: every unbounded lowering
+/// with all perturbations, with the high-id perturbations or alone, or
+/// only the unbounded lowerings whose `u32` lowering runs out (the others
+/// are the deltas [`ceiling_findings`] reads).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reads {
+    AllPerturbed,
+    HighIdPerturbed,
+    Unperturbed,
+    BeyondU32Runs,
+}
+
+/// Check one unbounded lowering `delta` of `script` under `embedding`: it
+/// reads back (law a); the reading has the script's effect over unbounded
+/// ids (law b); on at most one step it lowers to the delta with the
+/// script's unbounded embedding (law c); the unbounded soundness oracle
+/// holds; and the reading satisfies the refinement law. Returns whether
+/// the reading's `u32` lowering ran out.
+fn check_unbounded_lowering(
+    tree: &Tree,
+    embedding: &TreeEmbedding,
+    graph: &Graph,
+    script: &TreeEdit,
+    delta: &GraphDelta,
+    findings: &mut Vec<String>,
+) -> Option<bool> {
+    let at = format!(
+        "{script:?} with floors ({}, {})",
+        embedding.next_node, embedding.next_edge
+    );
+    let reading = match edit::tree_edit_from_graph_delta(tree, embedding, delta, None) {
+        Ok(reading) => reading,
+        Err(error) => {
+            findings.push(format!("{at}: read as {error:?}"));
+            return None;
+        }
+    };
+    let mut script_embedding = edit::unbounded_embedding(embedding);
+    let effect = edit::apply_tree_unbounded(script, tree, &mut script_embedding);
+    let mut read_embedding = edit::unbounded_embedding(embedding);
+    if edit::apply_tree_unbounded(&reading, tree, &mut read_embedding) != effect {
+        findings.push(format!("{at}: {reading:?} has another effect"));
+    }
+    if script.steps().len() <= 1 {
+        let mut relowered = edit::unbounded_embedding(embedding);
+        if edit::graph_delta_from_tree_edit_unbounded(tree, &mut relowered, &reading, None)
+            != Ok(Some(delta.clone()))
+            || relowered != script_embedding
+        {
+            findings.push(format!("{at}: read inexactly as {reading:?}"));
+        }
+    }
+    if !delta_is_an_unbounded_image_of_reading(tree, embedding, graph, delta, &reading) {
+        findings.push(format!("{at}: not an unbounded image of {reading:?}"));
+    }
+    match refinement_violation(tree, embedding, &reading) {
+        Ok(exhausts) => Some(exhausts),
+        Err(violation) => {
+            findings.push(format!("{at}: reading {violation}"));
+            None
+        }
+    }
+}
+
+/// Lower each script over unbounded ids under each pair of floors, check
+/// the refinement law on the script, and check every lowering a graph
+/// delta can hold with [`check_unbounded_lowering`]; then read its
+/// perturbations and check the unbounded soundness oracle on each that the
+/// reader accepts.
+fn unbounded_findings(
+    tree: &Tree,
+    scripts: &[TreeEdit],
+    floors: &[(u32, u32)],
+    reads: Reads,
+) -> (UnboundedCounts, Vec<String>) {
+    let (graph, base) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+    let mut counts = UnboundedCounts::default();
+    let mut findings = Vec::new();
+    for script in scripts {
+        for (next_node, next_edge) in floors {
+            let embedding = with_floors(&base, *next_node, *next_edge);
+            counts.pairs += 1;
+            let script_exhausts = match refinement_violation(tree, &embedding, script) {
+                Ok(exhausts) => exhausts,
+                Err(violation) => {
+                    findings.push(format!("script {violation}"));
+                    false
+                }
+            };
+            counts.script_exhausts += usize::from(script_exhausts);
+            let mut lowered = edit::unbounded_embedding(&embedding);
+            let Ok(delta) =
+                edit::graph_delta_from_tree_edit_unbounded(tree, &mut lowered, script, None)
+            else {
+                continue;
+            };
+            counts.lowered += 1;
+            let Some(delta) = delta else {
+                counts.beyond_u32 += 1;
+                continue;
+            };
+            if reads == Reads::BeyondU32Runs && !script_exhausts {
+                continue;
+            }
+            counts.read += 1;
+            if let Some(exhausts) =
+                check_unbounded_lowering(tree, &embedding, &graph, script, &delta, &mut findings)
+            {
+                counts.reading_exhausts += usize::from(exhausts);
+            }
+            let perturbations = match reads {
+                Reads::Unperturbed | Reads::BeyondU32Runs => Vec::new(),
+                Reads::HighIdPerturbed => high_id_perturbations(&graph, &delta),
+                Reads::AllPerturbed => {
+                    let mut all = delta_perturbations(&graph, &embedding, &delta);
+                    all.extend(high_id_perturbations(&graph, &delta));
+                    all
+                }
+            };
+            for perturbed in perturbations {
+                counts.perturbed += 1;
+                if let Ok(reading) =
+                    edit::tree_edit_from_graph_delta(tree, &embedding, &perturbed, None)
+                {
+                    counts.accepted += 1;
+                    if !delta_is_an_unbounded_image_of_reading(
+                        tree, &embedding, &graph, &perturbed, &reading,
+                    ) {
+                        findings.push(format!(
+                            "{perturbed:?} (perturbing {script:?}) accepted as {reading:?}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    (counts, findings)
+}
+
+/// Run `sweep` on every set of [`high_id_script_sets`], one thread per
+/// set, print and return the counts per set, and assert no finding.
+fn run_unbounded_sweep(
+    label: &str,
+    sweep: impl Fn(&Tree, &[TreeEdit], &[TreeEdit]) -> (UnboundedCounts, Vec<String>) + Sync,
+) -> Vec<UnboundedCounts> {
+    let sets = high_id_script_sets();
+    let results: Vec<(UnboundedCounts, Vec<String>)> = std::thread::scope(|scope| {
+        let sweep = &sweep;
+        let mut handles = Vec::with_capacity(sets.len());
+        for (_, tree, words, high) in &sets {
+            handles.push(scope.spawn(move || sweep(tree, words, high)));
+        }
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    let mut findings = Vec::new();
+    let mut counts = Vec::new();
+    for ((name, _, _, _), (set_counts, set_findings)) in sets.iter().zip(results) {
+        println!(
+            "{label} [{name}]: {set_counts:?}, {} findings",
+            set_findings.len()
+        );
+        if let Some(first) = set_findings.first() {
+            println!("  first finding: {first}");
+        }
+        findings.extend(set_findings);
+        counts.push(set_counts);
+    }
+    let total = counts
+        .iter()
+        .fold(UnboundedCounts::default(), |sum, each| sum.plus(*each));
+    println!("{label} total: {total:?}, {} findings", findings.len());
+    assert_eq!(
+        findings.len(),
+        0,
+        "first findings: {:?}",
+        &findings[..findings.len().min(5)]
+    );
+    counts
+}
+
+// Soundness, totality, effect and exactness over unbounded ids, with tree
+// node ids at the top of `u32` (the gap that hid the two readings that
+// exhaust only in `u32`): every short script with a high letter is
+// lowered over unbounded ids under the encoder's floors and read back with
+// all perturbations, every short script without one with the high-id
+// perturbations; the refinement law is checked on every script and
+// reading.
+#[test]
+fn unbounded_readback_laws_hold_with_node_ids_at_the_top_of_u32() {
+    let counts = run_unbounded_sweep("high ids", |tree, words, high| {
+        let (_, base) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+        let floors = [(base.next_node, base.next_edge)];
+        let (word_counts, mut findings) =
+            unbounded_findings(tree, words, &floors, Reads::HighIdPerturbed);
+        let (high_counts, high_findings) =
+            unbounded_findings(tree, high, &floors, Reads::AllPerturbed);
+        findings.extend(high_findings);
+        (word_counts.plus(high_counts), findings)
+    });
+    assert_eq!(
+        counts,
+        [
+            unbounded_counts([702, 390, 5, 385, 53, 40, 6_695, 2_363]),
+            unbounded_counts([756, 430, 6, 424, 57, 45, 7_109, 2_582]),
+            unbounded_counts([756, 430, 6, 424, 57, 45, 7_109, 2_566]),
+            unbounded_counts([756, 432, 6, 426, 57, 45, 7_217, 2_556]),
+            unbounded_counts([756, 432, 6, 426, 57, 45, 7_217, 2_564]),
+            unbounded_counts([756, 433, 6, 427, 57, 45, 7_188, 2_591]),
+            unbounded_counts([756, 433, 6, 427, 57, 45, 7_188, 2_583]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_552, 2_829]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_552, 2_829]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_520, 2_837]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_520, 2_837]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_628, 2_827]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_628, 2_827]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_596, 2_835]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_596, 2_835]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_316]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_370]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_316]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_354]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_390]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_374]),
+            unbounded_counts([1_056, 667, 16, 651, 77, 59, 12_902, 3_868]),
+            unbounded_counts([6_806, 1_870, 4, 1_866, 134, 93, 17_028, 9_685]),
+            unbounded_counts([7_140, 2_041, 11, 2_030, 146, 101, 20_583, 10_129]),
+            unbounded_counts([7_140, 2_047, 11, 2_036, 146, 101, 20_489, 9_943]),
+        ]
+    );
+    assert_eq!(
+        counts
+            .iter()
+            .fold(UnboundedCounts::default(), |sum, each| sum.plus(*each)),
+        unbounded_counts([39_456, 16_767, 197, 16_570, 1_778, 1_358, 242_013, 94_206])
+    );
+}
+
+// The refinement law and the laws over unbounded ids at every floor near
+// the ceiling: every short script, with or without a high letter, is
+// lowered over unbounded ids with each floor from the ceiling down to the
+// sweep room of its set, and its `u32` application and lowering must equal
+// the unbounded ones or refuse with `IdsExhausted`. Every unbounded
+// lowering a graph delta can hold that a `u32` run cannot produce, and
+// every lowering of a script with a high letter, must read back soundly with the script's effect,
+// exactly on single steps, and its reading must satisfy the refinement
+// law too. The other lowerings are `u32` lowerings, read by the ceiling
+// sweep above.
+#[test]
+fn the_u32_tree_edit_semantics_refines_the_unbounded_one_near_the_id_ceiling() {
+    let counts = run_unbounded_sweep("refinement", |tree, words, high| {
+        let (_, base) = panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+        let mut sweep = CeilingSweep {
+            room: (0, 0),
+            counts: CeilingCounts::default(),
+            findings: Vec::new(),
+        };
+        base_lowerings(tree, &base, words, &mut sweep);
+        let (node_room, edge_room) = sweep.room;
+        let floors: Vec<(u32, u32)> = (0..=node_room)
+            .flat_map(|node| (0..=edge_room).map(move |edge| (u32::MAX - node, u32::MAX - edge)))
+            .collect();
+        let (word_counts, mut findings) =
+            unbounded_findings(tree, words, &floors, Reads::BeyondU32Runs);
+        let (high_counts, high_findings) =
+            unbounded_findings(tree, high, &floors, Reads::Unperturbed);
+        findings.extend(high_findings);
+        (word_counts.plus(high_counts), findings)
+    });
+    assert_eq!(
+        counts,
+        [
+            unbounded_counts([42_120, 23_400, 2_927, 9_242, 8_862, 4_342, 0, 0]),
+            unbounded_counts([45_360, 25_800, 3_471, 10_003, 10_183, 4_955, 0, 0]),
+            unbounded_counts([45_360, 25_800, 3_471, 10_003, 10_183, 4_955, 0, 0]),
+            unbounded_counts([45_360, 25_920, 3_515, 10_030, 10_214, 4_987, 0, 0]),
+            unbounded_counts([45_360, 25_920, 3_511, 10_034, 10_214, 4_999, 0, 0]),
+            unbounded_counts([45_360, 25_980, 3_497, 10_033, 10_199, 4_987, 0, 0]),
+            unbounded_counts([45_360, 25_980, 3_493, 10_037, 10_199, 4_999, 0, 0]),
+            unbounded_counts([48_720, 28_140, 3_577, 10_653, 10_629, 5_260, 0, 0]),
+            unbounded_counts([48_720, 28_140, 3_577, 10_653, 10_629, 5_260, 0, 0]),
+            unbounded_counts([48_720, 28_140, 3_559, 10_656, 10_614, 5_260, 0, 0]),
+            unbounded_counts([48_720, 28_140, 3_559, 10_656, 10_614, 5_260, 0, 0]),
+            unbounded_counts([48_720, 28_260, 3_603, 10_683, 10_645, 5_292, 0, 0]),
+            unbounded_counts([48_720, 28_260, 3_599, 10_687, 10_645, 5_304, 0, 0]),
+            unbounded_counts([48_720, 28_260, 3_585, 10_686, 10_630, 5_292, 0, 0]),
+            unbounded_counts([48_720, 28_260, 3_581, 10_690, 10_630, 5_304, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_455, 21_452, 23_312, 10_476, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_433, 21_474, 23_312, 10_489, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_465, 21_442, 23_312, 10_458, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_429, 21_478, 23_312, 10_505, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_433, 21_474, 23_312, 10_469, 0, 0]),
+            unbounded_counts([104_160, 63_504, 9_419, 21_488, 23_312, 10_503, 0, 0]),
+            unbounded_counts([190_080, 120_060, 20_172, 36_731, 43_795, 17_841, 0, 0]),
+            unbounded_counts([272_240, 74_800, 8_913, 20_258, 32_403, 12_137, 0, 0]),
+            unbounded_counts([428_400, 122_460, 15_225, 30_590, 48_469, 17_307, 0, 0]),
+            unbounded_counts([428_400, 122_820, 15_169, 30_590, 48_393, 17_222, 0, 0]),
+        ]
+    );
+    assert_eq!(
+        counts
+            .iter()
+            .fold(UnboundedCounts::default(), |sum, each| sum.plus(*each)),
+        unbounded_counts([
+            2_648_120, 1_225_564, 168_638, 401_723, 468_022, 203_863, 0, 0
+        ])
     );
 }
 
