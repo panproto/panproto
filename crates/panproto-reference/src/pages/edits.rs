@@ -1637,27 +1637,17 @@ pub mod edit {
         ))
     }
 
-    /// Definition: The graph form of a tree under an embedding over
-    /// unbounded ids, when every carrier id is a graph (`u32`) id.
-    ///
-    /// The graph is the one [`graph_delta_from_tree_edit`] builds under a
-    /// `u32` embedding with the same carriers; floors are not part of a
-    /// graph, so a floor beyond `u32` (after inserting node `u32::MAX`, say)
-    /// does not prevent it. `Ok(None)` when a carrier id is `2^32` or more,
-    /// which no [`Graph`] can name.
-    ///
-    /// # Errors
-    ///
-    /// `InvalidEmbedding` or `ReservedVocabulary` exactly as under a `u32`
-    /// embedding.
-    ///
-    /// Book anchors: `L-edits-3`.
-    pub fn graph_of_unbounded_embedding(
+    /// The graph form of a tree under an unbounded embedding that
+    /// [`check_embedded_tree`] accepts, when every carrier id is a graph
+    /// (`u32`) id: the graph [`build_embedded_graph`] builds from the same
+    /// carriers. Floors are not part of a graph, so a floor beyond `u32`
+    /// (after inserting node `u32::MAX`, say) does not prevent it. `None`
+    /// when a carrier id is `2^32` or more, which no [`Graph`] can name.
+    fn graph_of_checked_unbounded_embedding(
         tree: &crate::model::Tree,
         embedding: &crate::encode::TreeEmbedding<u128>,
         schema: Option<&crate::schema::Schema>,
-    ) -> Result<Option<Graph>, TreeApplyError> {
-        check_embedded_tree(tree, embedding)?;
+    ) -> Option<Graph> {
         let arcs: Option<BTreeMap<u32, u32>> = embedding
             .arcs
             .iter()
@@ -1677,9 +1667,8 @@ pub mod edit {
                 ))
             })
             .collect();
-        Ok(arcs
-            .zip(fans)
-            .map(|(arcs, fans)| build_embedded_graph(tree, &arcs, &fans, schema)))
+        arcs.zip(fans)
+            .map(|(arcs, fans)| build_embedded_graph(tree, &arcs, &fans, schema))
     }
 
     /// Definition: Lower a tree edit to its exact graph delta.
@@ -1699,10 +1688,17 @@ pub mod edit {
         edit: &TreeEdit,
         schema: Option<&crate::schema::Schema>,
     ) -> Result<GraphDelta, TreeApplyError> {
-        let before = graph_of_embedded_tree(tree, embedding, schema)?;
         let mut next_embedding = embedding.clone();
         let after_tree = apply_tree(edit, tree, &mut next_embedding)?;
-        let after = graph_of_embedded_tree(&after_tree, &next_embedding, schema)?;
+        // Tree apply checks the embedding before and after the edit, so both
+        // graph forms exist.
+        let before = build_embedded_graph(tree, &embedding.arcs, &embedding.fans, schema);
+        let after = build_embedded_graph(
+            &after_tree,
+            &next_embedding.arcs,
+            &next_embedding.fans,
+            schema,
+        );
         *embedding = next_embedding;
         Ok(diff(&before, &after))
     }
@@ -1710,9 +1706,13 @@ pub mod edit {
     /// Definition: Lower a tree edit over unbounded ids.
     ///
     /// The delta from the graph of `tree` to the graph of
-    /// [`apply_tree_unbounded`]'s result, both by
-    /// [`graph_of_unbounded_embedding`]; `Ok(None)` when either graph has a
-    /// carrier id that is no `u32`. The `u32` form refines it: for every
+    /// [`apply_tree_unbounded`]'s result, each the graph
+    /// [`graph_delta_from_tree_edit`] builds from the same carriers; floors
+    /// are not part of a graph, so a floor beyond `u32` (after inserting
+    /// node `u32::MAX`, say) does not prevent one. `Ok(None)` when either
+    /// graph has a carrier id that is no `u32`; the edit has still applied,
+    /// so the embedding becomes the one [`apply_tree_unbounded`] reaches,
+    /// as it does on `Ok(Some(_))`. The `u32` form refines it: for every
     /// edit and valid embedding E, [`graph_delta_from_tree_edit`] from E
     /// returns `IdsExhausted` or what this function returns from
     /// [`unbounded_embedding`] of E, `Ok(d)` standing for `Ok(Some(d))`
@@ -1721,8 +1721,9 @@ pub mod edit {
     ///
     /// # Errors
     ///
-    /// As [`apply_tree_unbounded`]. The caller's embedding is unchanged on
-    /// every error.
+    /// As [`apply_tree_unbounded`]: an invalid embedding is refused with
+    /// `InvalidEmbedding` or `ReservedVocabulary`, as under a `u32`
+    /// embedding. The caller's embedding is unchanged on every error.
     ///
     /// Book anchors: `L-edits-3`.
     pub fn graph_delta_from_tree_edit_unbounded(
@@ -1731,10 +1732,11 @@ pub mod edit {
         edit: &TreeEdit,
         schema: Option<&crate::schema::Schema>,
     ) -> Result<Option<GraphDelta>, TreeApplyError> {
-        let before = graph_of_unbounded_embedding(tree, embedding, schema)?;
         let mut next_embedding = embedding.clone();
         let after_tree = apply_tree_unbounded(edit, tree, &mut next_embedding)?;
-        let after = graph_of_unbounded_embedding(&after_tree, &next_embedding, schema)?;
+        // As in the `u32` form, tree apply has checked both embeddings.
+        let before = graph_of_checked_unbounded_embedding(tree, embedding, schema);
+        let after = graph_of_checked_unbounded_embedding(&after_tree, &next_embedding, schema);
         *embedding = next_embedding;
         Ok(before
             .zip(after)

@@ -7292,6 +7292,68 @@ fn tree_reader_refuses_a_fan_redrawn_under_its_own_node_id() {
     ));
 }
 
+/// The unbounded lowering of an edit whose result has a carrier past
+/// `u32` returns `Ok(None)` and still advances the embedding to the one
+/// tree apply reaches: here the leaf `u32::MAX` lifts the node floor past
+/// `u32`, so the fan inserted next is drawn at `2^32`. The same holds when
+/// the start embedding already has a carrier past `u32`. An invalid
+/// embedding is refused, with the embedding unchanged, exactly as tree
+/// apply refuses it.
+#[test]
+fn the_unbounded_lowering_without_a_graph_form_still_advances_the_embedding() {
+    let tree = join_tree();
+    let start = edit::unbounded_embedding(&literal_join_embedding());
+    let fan = arm_fan(0, "f", 1);
+    let script = TreeEdit::Sequence(vec![insert_leaf(1, u32::MAX), TreeEdit::InsertFan { fan }]);
+    let mut applied = start.clone();
+    let edited = edit::apply_tree_unbounded(&script, &tree, &mut applied).unwrap();
+    assert_eq!(
+        applied.fans[1],
+        (PAST_U32, 7, BTreeMap::from([("arm".into(), 8)]))
+    );
+    assert_eq!(applied.next_node, PAST_U32 + 1);
+    let mut lowered = start.clone();
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&tree, &mut lowered, &script, None),
+        Ok(None)
+    );
+    assert_eq!(lowered, applied);
+
+    let mut advanced = applied.clone();
+    let mut reapplied = applied.clone();
+    let leaf = insert_leaf(0, 9);
+    let leafed = edit::apply_tree_unbounded(&leaf, &edited, &mut reapplied).unwrap();
+    assert!(leafed.nodes.contains_key(&9));
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(&edited, &mut advanced, &leaf, None),
+        Ok(None)
+    );
+    assert_eq!(advanced, reapplied);
+    assert_ne!(advanced, applied);
+
+    let low_floor = TreeEmbedding {
+        next_edge: 5,
+        ..start.clone()
+    };
+    let mut fan_shaped = tree.clone();
+    fan_shaped.nodes.insert(4, fan_node(4, "leaf"));
+    for (invalid_tree, corrupt, error) in [
+        (&tree, low_floor, edit::TreeApplyError::InvalidEmbedding),
+        (&fan_shaped, start, edit::TreeApplyError::ReservedVocabulary),
+    ] {
+        let mut unchanged = corrupt.clone();
+        assert_eq!(
+            edit::graph_delta_from_tree_edit_unbounded(invalid_tree, &mut unchanged, &leaf, None),
+            Err(error.clone())
+        );
+        assert_eq!(unchanged, corrupt);
+        assert_eq!(
+            edit::apply_tree_unbounded(&leaf, invalid_tree, &mut unchanged),
+            Err(error)
+        );
+    }
+}
+
 /// Attribute changes no lowering writes: a no-op anchor change, and the
 /// label change of a fan edge that the delta also deletes (the relocated
 /// copy already carries the new label). Graph application accepts both and
