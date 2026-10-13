@@ -6264,6 +6264,70 @@ fn tree_reader_refuses_deleting_either_duplicate_named_fan_alone() {
 
 const FIXED_CARRIERS: &str = "the delta's fixed carriers are outside the tree-edit image";
 
+/// A fan node kept while every edge of it is re-drawn to another member:
+/// the result has one fan, `fan@2` with member 4, which the reading
+/// deletes by name and inserts afresh, so its lowering deletes fan node 5.
+/// The delta keeps node 5, which no lowering does (a lowering draws a new
+/// fan node for a new fan), and the deletion clause of the fixed-part
+/// comparison refuses it although every edge the lowering deletes is
+/// deleted.
+#[test]
+fn tree_reader_refuses_a_fan_node_kept_under_edges_redrawn_to_another_member() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let graph = literal_join_graph();
+    let mut delta = literal_deletions(&graph, [GElem::Edge(4), GElem::Edge(5)]);
+    delta.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(5, 2, fan_parent_label())),
+    );
+    delta.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(5, 4, fan_arm_label())),
+    );
+    let edited = edit::apply(&delta, &graph).unwrap();
+    let mut moved_member = join_tree();
+    moved_member.fans[0].children.insert("arm".into(), 4);
+    assert_eq!(
+        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None),
+        Ok(moved_member.clone())
+    );
+    let reading = TreeEdit::Sequence(vec![
+        TreeEdit::DeleteFan {
+            hyper_edge: "fan".into(),
+        },
+        TreeEdit::InsertFan {
+            fan: moved_member.fans[0].clone(),
+        },
+    ]);
+    let mut lowered = literal_deletions(&graph, [GElem::Node(5), GElem::Edge(4), GElem::Edge(5)]);
+    lowered
+        .add
+        .insert(GElem::Node(6), GPayload::Node(fan_node(6, "fan")));
+    lowered.add.insert(
+        GElem::Edge(6),
+        GPayload::Edge(plain_edge(6, 2, fan_parent_label())),
+    );
+    lowered.add.insert(
+        GElem::Edge(7),
+        GPayload::Edge(plain_edge(6, 4, fan_arm_label())),
+    );
+    assert_eq!(
+        edit::graph_delta_from_tree_edit(&tree, &mut embedding.clone(), &reading, None),
+        Ok(lowered.clone())
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &lowered, None),
+        Ok(reading)
+    );
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Err(edit::TreeApplyError::NotTreeEdit {
+            reason: FIXED_CARRIERS.to_owned(),
+        })
+    );
+}
+
 /// No lowering re-draws part of a fan: a fan is re-drawn only by
 /// `InsertNode` over a fan id, which re-draws the fan node and every edge
 /// of each fan in the suffix. Re-drawing the arm edge, the parent edge, or
