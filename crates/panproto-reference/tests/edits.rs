@@ -6740,6 +6740,50 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
     assert_exhausts_in_u32(&tree, &embedding, &reading);
 }
 
+// The unbounded forms stand for the natural numbers only as far as
+// `u128` reaches: past `u128::MAX` they refuse with `IdsExhausted` like
+// the `u32` forms past `u32::MAX`. No embedding read from a `u32` one
+// comes near that floor.
+#[test]
+fn the_unbounded_forms_run_out_only_past_the_u128_maximum() {
+    let (tree, _, embedding) = fanless_join_tree_graph_and_embedding();
+    let fan = TreeEdit::InsertFan {
+        fan: Fan {
+            parent: 0,
+            hyper_edge: "f".into(),
+            children: BTreeMap::from([("arm".into(), 1)]),
+        },
+    };
+    let mut at_node_maximum = TreeEmbedding {
+        next_node: u128::MAX,
+        ..edit::unbounded_embedding(&embedding)
+    };
+    let mut below_node_maximum = TreeEmbedding {
+        next_node: u128::MAX - 1,
+        ..edit::unbounded_embedding(&embedding)
+    };
+    assert_eq!(
+        edit::apply_tree_unbounded(&fan, &tree, &mut at_node_maximum),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    assert!(edit::apply_tree_unbounded(&fan, &tree, &mut below_node_maximum).is_ok());
+    assert_eq!(below_node_maximum.next_node, u128::MAX);
+    let mut at_edge_maximum = TreeEmbedding {
+        next_edge: u128::MAX,
+        ..edit::unbounded_embedding(&embedding)
+    };
+    assert_eq!(
+        edit::graph_delta_from_tree_edit_unbounded(
+            &tree,
+            &mut at_edge_maximum,
+            &insert_leaf(0, 5),
+            None
+        ),
+        Err(edit::TreeApplyError::IdsExhausted)
+    );
+    assert_eq!(at_edge_maximum.next_edge, u128::MAX);
+}
+
 // Law (c) over unbounded ids: a join that re-parents two arcs draws edge
 // ids `u32::MAX - 1` and `u32::MAX`. Its lowering is a `u32` delta, though
 // the `u32` run cannot draw `u32::MAX` (no floor follows it). The reader
