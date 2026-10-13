@@ -293,6 +293,19 @@ fn every_id_allocator_is_exhaustive_at_the_top() {
             assert_eq!(drawn, expected, "range {range} at floor {floor}");
             assert_eq!(error, Some(RangeExhausted { range }));
         }
+        // A recorded floor below the range's `lo` resumes at `lo`.
+        let high = IdRange {
+            lo: TOP - 1,
+            hi: TOP,
+        };
+        let mut ids = IdAllocator::from_floor(high, floor);
+        let (drawn, error) = drain(|| ids.allocate());
+        assert_eq!(
+            drawn,
+            below_top(floor.max(TOP - 1)),
+            "range {high} at floor {floor}"
+        );
+        assert_eq!(error, Some(RangeExhausted { range: high }));
         // A range ending one below the top hands out its own `hi`.
         let range = IdRange {
             lo: TOP - 3,
