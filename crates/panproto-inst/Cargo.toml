@@ -24,6 +24,7 @@ regex = "1.12"
 unicode-segmentation = "1.12"
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }
 
