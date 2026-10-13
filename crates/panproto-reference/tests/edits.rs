@@ -7487,6 +7487,38 @@ fn a_fan_kept_under_a_redrawn_member_edge_is_refused_when_its_reading_draws_past
     );
 }
 
+/// An anchor change whose old anchor is stale, beside the label change of
+/// the fan edge into that node with the graph's old label: the label
+/// change is not the one the anchor change implies (its old target is the
+/// graph's anchor, not the delta's old anchor), so the reader refuses it
+/// as outside the image before it tries to apply the delta, which would
+/// refuse it as stale.
+#[test]
+fn tree_reader_refuses_a_fan_relabel_whose_anchor_change_has_another_old_anchor() {
+    let tree = join_tree();
+    let embedding = literal_join_embedding();
+    let graph = literal_join_graph();
+    let mut renamed = fan_arm_label();
+    renamed.tgt = "renamed".into();
+    let mut delta = GraphDelta::identity();
+    delta.attrs.insert(
+        AttrKey::Anchor(3),
+        (
+            AttrVal::Anchor("stale".into()),
+            AttrVal::Anchor("renamed".into()),
+        ),
+    );
+    delta.attrs.insert(
+        AttrKey::EdgeLabel(5),
+        (AttrVal::Label(fan_arm_label()), AttrVal::Label(renamed)),
+    );
+    assert!(edit::apply(&delta, &graph).is_err());
+    assert!(not_tree_edit(
+        &edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        "an edge-label change is not the required fan relabel"
+    ));
+}
+
 /// The unbounded lowering of an edit whose result has a carrier past
 /// `u32` returns `Ok(None)` and still advances the embedding to the one
 /// tree apply reaches: here the leaf `u32::MAX` lifts the node floor past
