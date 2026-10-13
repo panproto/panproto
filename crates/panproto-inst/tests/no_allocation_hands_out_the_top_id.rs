@@ -69,7 +69,7 @@ fn enrichment() -> SectionEnrichment {
         anchor: "b".into(),
         edge: label("q"),
         value: None,
-        extra_fields: Default::default(),
+        extra_fields: rustc_hash::FxHashMap::default(),
     }
 }
 
@@ -214,7 +214,7 @@ fn a_tree_holding_the_top_id_records_the_floor_top() {
     assert_eq!(read.next_node, TOP);
     // An edit that introduces the top id raises the counter to it.
     let mut counters = TreeEmbedding::default();
-    let _ = counters.observe_node(TOP);
+    counters.observe_node(TOP);
     assert_eq!(counters.next_node, TOP);
     // Allocation against the recorded floor then fails.
     assert!(matches!(
@@ -253,7 +253,7 @@ fn drain<T, E>(mut draw: impl FnMut() -> Result<T, E>) -> (Vec<T>, Option<E>) {
 }
 
 /// The floors of the last four ids, `u32::MAX` included.
-fn top_floors() -> std::ops::RangeInclusive<u32> {
+const fn top_floors() -> std::ops::RangeInclusive<u32> {
     (TOP - 3)..=TOP
 }
 
