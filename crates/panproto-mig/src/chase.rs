@@ -1717,6 +1717,37 @@ mod tests {
         }
     }
 
+    /// With no labelled null in the input, the first fresh null is `0`.
+    #[test]
+    fn the_first_fresh_null_of_a_null_free_input_is_zero() {
+        let instance = FInstance::new()
+            .with_table("t", vec![row("a", Value::Int(1))])
+            .unwrap();
+        let dep = Dependency::Tgd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("x".into()))])],
+            head: vec![Atom::new(
+                "s",
+                [
+                    ("a", AtomTerm::Var("x".into())),
+                    ("b", AtomTerm::Var("y".into())),
+                ],
+            )],
+        };
+        let outcome = chase(&instance, &[dep], ChaseBudget::new(10, 10)).unwrap();
+        let ChaseOutcome::Saturated(out) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        let rows: Vec<_> = out
+            .rows("s")
+            .into_iter()
+            .map(|(_, row)| row.clone())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![row2("a", Value::Int(1), "b", Value::LabeledNull(0))]
+        );
+    }
+
     /// Running out of labelled null ids is a property of the input, so a
     /// larger budget cannot help.
     #[test]
