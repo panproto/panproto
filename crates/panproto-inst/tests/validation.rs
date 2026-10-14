@@ -1816,7 +1816,15 @@ fn the_listed_formats_are_public_and_each_is_evaluated() {
             "uuid",
             "ipv4",
             "ipv6",
-            "did"
+            "did",
+            "at-identifier",
+            "at-uri",
+            "cid",
+            "handle",
+            "nsid",
+            "tid",
+            "record-key",
+            "language"
         ]
     );
     for format in ValueFormat::ALL {
