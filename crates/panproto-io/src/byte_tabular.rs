@@ -81,6 +81,7 @@ pub struct ByteTabularCodec {
     table_vertex: String,
     delimiter: u8,
     comment_prefix: Option<u8>,
+    schema_entry: bool,
 }
 
 impl ByteTabularCodec {
@@ -100,7 +101,49 @@ impl ByteTabularCodec {
             table_vertex: table_vertex.into(),
             delimiter,
             comment_prefix,
+            schema_entry: false,
         }
+    }
+
+    /// Require the configured table vertex to be a vertex of the schema.
+    ///
+    /// With this set, every route that takes a schema (the canonical and
+    /// preserving parses and emits of the registry) refuses a schema that
+    /// does not declare the table vertex, with
+    /// [`ParseInstanceError::SchemaMismatch`] on parse and
+    /// [`EmitInstanceError::Emit`] on emit, before reading or writing
+    /// anything. This is the entry rule of a configured table vertex that
+    /// the TSV [`UnifiedCodec`](crate::unified_codec::UnifiedCodec)
+    /// applies, so a protocol registered with this codec in one build and
+    /// with that one in another answers a schema the same way in both.
+    #[must_use]
+    pub const fn with_schema_entry(mut self) -> Self {
+        self.schema_entry = true;
+        self
+    }
+
+    /// The parse refusal of a schema that does not declare the table
+    /// vertex, when [`Self::with_schema_entry`] is set.
+    pub(crate) fn check_parse_entry(&self, schema: &Schema) -> Result<(), ParseInstanceError> {
+        if self.schema_entry && !schema.has_vertex(&self.table_vertex) {
+            return Err(ParseInstanceError::SchemaMismatch {
+                protocol: self.protocol.clone(),
+                message: crate::json_codec::missing_entry_message(Some(&self.table_vertex), schema),
+            });
+        }
+        Ok(())
+    }
+
+    /// The emit refusal of a schema that does not declare the table vertex,
+    /// when [`Self::with_schema_entry`] is set.
+    pub(crate) fn check_emit_entry(&self, schema: &Schema) -> Result<(), EmitInstanceError> {
+        if self.schema_entry && !schema.has_vertex(&self.table_vertex) {
+            return Err(EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: crate::json_codec::missing_entry_message(Some(&self.table_vertex), schema),
+            });
+        }
+        Ok(())
     }
 
     /// Parse raw bytes into an `FInstance` plus the byte-faithful complement.
@@ -605,9 +648,10 @@ impl InstanceParser for ByteTabularCodec {
 
     fn parse_functor(
         &self,
-        _schema: &Schema,
+        schema: &Schema,
         input: &[u8],
     ) -> Result<FInstance, ParseInstanceError> {
+        self.check_parse_entry(schema)?;
         let (instance, _complement) = self.parse(input)?;
         Ok(instance)
     }
@@ -632,9 +676,10 @@ impl InstanceEmitter for ByteTabularCodec {
 
     fn emit_functor(
         &self,
-        _schema: &Schema,
+        schema: &Schema,
         instance: &FInstance,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        self.check_emit_entry(schema)?;
         if matches!(self.delimiter, b'\n' | b'\r') {
             return Err(EmitInstanceError::Emit {
                 protocol: self.protocol.clone(),
