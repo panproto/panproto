@@ -20,7 +20,9 @@ use panproto_inst::{ValueSite, WInstance};
 use panproto_schema::{Protocol, ScalarKind, Schema, ValueSpec};
 
 use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason};
-use crate::json_pathway::{encode_bytes, protocol_definition, validate_canonical_tree_structure};
+use crate::json_pathway::{
+    TreeReader, encode_bytes, protocol_definition, validate_canonical_tree_structure,
+};
 
 /// Emit a `WInstance` as canonical TOML bytes.
 ///
@@ -34,7 +36,7 @@ pub fn emit_toml_bytes(
     instance: &WInstance,
     protocol: &str,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    validate_canonical_tree_structure(schema, instance, protocol, "TOML")?;
+    validate_canonical_tree_structure(schema, instance, protocol, "TOML", TreeReader::Canonical)?;
     let protocol_definition = protocol_definition(protocol);
     let mut raw = RawTomlTokens::new(instance);
     let toml_value = build_toml_node(

@@ -831,7 +831,7 @@ fn xml_parser_child_route(schema: &Schema, parent: &str, tag: &str) -> Option<Na
         .map(|edge| edge.tgt.clone())
 }
 
-fn is_exact_open_toml_property(schema: &Schema, parent: &Node, child: &Node, edge: &Edge) -> bool {
+fn is_exact_open_property(schema: &Schema, parent: &Node, child: &Node, edge: &Edge) -> bool {
     parent.value.is_none()
         && !parent.is_list()
         && schema.outgoing_edges(&parent.anchor).is_empty()
@@ -1027,7 +1027,23 @@ pub fn emit_json_bytes(
     instance: &WInstance,
     protocol: &str,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    validate_canonical_tree_structure(schema, instance, protocol, "JSON")?;
+    emit_json_bytes_read_back_by(schema, instance, protocol, TreeReader::Canonical)
+}
+
+/// Emit canonical JSON that `reader` reads back as `instance`.
+///
+/// [`emit_json_bytes`] pairs with [`parse_json_bytes`], which keeps the
+/// members of an object whose vertex declares no routes in `extra_fields`.
+/// YAML's complement-free route writes this JSON syntax, which YAML reads,
+/// and reads it back through the CST reader, which makes the same members
+/// child nodes, so that route validates against the CST reading.
+pub(crate) fn emit_json_bytes_read_back_by(
+    schema: &Schema,
+    instance: &WInstance,
+    protocol: &str,
+    reader: TreeReader,
+) -> Result<Vec<u8>, EmitInstanceError> {
+    validate_canonical_tree_structure(schema, instance, protocol, "JSON", reader)?;
     let protocol = protocol_definition(protocol);
     let mut output = Vec::new();
     write_json_node(schema, &protocol, instance, instance.root, &mut output)?;
@@ -1041,14 +1057,32 @@ pub(crate) fn validate_canonical_tree_structure(
     instance: &WInstance,
     protocol: &str,
     format: &str,
+    reader: TreeReader,
 ) -> Result<(), EmitInstanceError> {
     CanonicalTreeValidator {
         schema,
         instance,
         protocol,
         format,
+        reader,
     }
     .validate()
+}
+
+/// The reader that reads a canonical tree emitter's output back.
+///
+/// Canonical emission is refused unless its output reads back as the
+/// instance, and readers differ in how they read the members of an object
+/// whose vertex declares no outgoing routes: the canonical JSON reader keeps
+/// them in `extra_fields`, while the canonical TOML reader and the CST
+/// readers make each member a child node under a `prop` arc named by its
+/// key, anchored at the parent anchor followed by `:` and the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TreeReader {
+    /// The format's canonical pathway reader.
+    Canonical,
+    /// The tree-sitter CST reader of the format-preserving codec.
+    Cst,
 }
 
 struct CanonicalTreeValidator<'a> {
@@ -1056,6 +1090,7 @@ struct CanonicalTreeValidator<'a> {
     instance: &'a WInstance,
     protocol: &'a str,
     format: &'a str,
+    reader: TreeReader,
 }
 
 type TreeParents = HashMap<u32, u32>;
@@ -1064,6 +1099,12 @@ type TreeIncidence = (TreeParents, TreeChildren);
 
 impl CanonicalTreeValidator<'_> {
     const MAX_DEPTH: usize = MAX_JSON_DEPTH;
+
+    /// Whether the paired reader reads the members of an object whose
+    /// vertex declares no routes as child nodes rather than extra fields.
+    fn open_members_are_nodes(&self) -> bool {
+        self.format == "TOML" || (self.format == "JSON" && self.reader == TreeReader::Cst)
+    }
 
     fn error(&self, message: impl std::fmt::Display) -> EmitInstanceError {
         EmitInstanceError::Emit {
@@ -1240,9 +1281,9 @@ impl CanonicalTreeValidator<'_> {
             }) || (child_node.is_xml_text_segment()
                 && edge.kind.as_ref() == "prop"
                 && edge.name.as_deref() == Some("$xml_text")));
-        let open_toml = self.format == "TOML"
-            && is_exact_open_toml_property(self.schema, parent_node, child_node, edge);
-        if !declared && !open_xml && !open_toml && !synthetic_list {
+        let open_member = self.open_members_are_nodes()
+            && is_exact_open_property(self.schema, parent_node, child_node, edge);
+        if !declared && !open_xml && !open_member && !synthetic_list {
             return Err(self.error(format!(
                 "arc {parent} -> {child} is not declared by the supplied schema"
             )));
@@ -1330,9 +1371,10 @@ impl CanonicalTreeValidator<'_> {
                     "JSON discriminator on node {node_id} is also claimed by a declared field route"
                 )));
             }
-            if self.format == "TOML" && routes.is_empty() && !node.extra_fields.is_empty() {
+            if self.open_members_are_nodes() && routes.is_empty() && !node.extra_fields.is_empty() {
                 return Err(self.error(format!(
-                    "TOML open table node {node_id} carries extra fields that would reparse as child nodes"
+                    "{} open object node {node_id} carries extra fields that would reparse as child nodes",
+                    self.format
                 )));
             }
             self.validate_child_route_functionality(node_id, node, routes)?;
@@ -1368,11 +1410,11 @@ impl CanonicalTreeValidator<'_> {
                 .iter()
                 .filter(|route| route.name.as_deref().unwrap_or(&route.tgt) == key)
                 .collect::<Vec<_>>();
-            let open_toml = self.format == "TOML"
+            let open_member = self.open_members_are_nodes()
                 && self.instance.node(*child).is_some_and(|child_node| {
-                    is_exact_open_toml_property(self.schema, node, child_node, edge)
+                    is_exact_open_property(self.schema, node, child_node, edge)
                 });
-            if !open_toml && (matching.len() != 1 || matching[0] != edge) {
+            if !open_member && (matching.len() != 1 || matching[0] != edge) {
                 return Err(self.error(format!(
                     "{} field '{key}' on node {node_id} does not have one unambiguous parser route",
                     self.format
