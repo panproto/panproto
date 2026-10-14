@@ -632,13 +632,8 @@ pub(crate) fn allocate_synthesized(
     floor: u32,
     kind: IdKind,
 ) -> Result<BTreeMap<SynthKey, u32>, RestrictError> {
-    let mut allocator = crate::segment::IdAllocator::from_floor(
-        crate::segment::IdRange {
-            lo: 0,
-            hi: u32::MAX - 1,
-        },
-        floor,
-    );
+    let mut allocator =
+        crate::segment::IdAllocator::from_floor(crate::segment::IdRange::FULL, floor);
     let sorted: BTreeSet<SynthKey> = keys.into_iter().collect();
     let mut ids = BTreeMap::new();
     for key in sorted {
