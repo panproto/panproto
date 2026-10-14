@@ -42,6 +42,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("cloudformation", Tree, Graph),
     ("concrete", Tree, Graph),
     ("conllu", Table, Graph),
+    ("csv", Table, Table),
     ("dataframe", Table, Table),
     ("decomp", Tree, Graph),
     ("docx", Tree, Graph),
@@ -76,10 +77,12 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("swift-mt", Table, Tree),
     ("tei", Tree, Graph),
     ("timeml", Tree, Graph),
+    ("toml", Tree, Tree),
     ("ucca", Tree, Graph),
     ("uima", Tree, Graph),
     ("vcard-ical", Tree, Tree),
     ("web-annotation", Tree, Graph),
+    ("yaml", Tree, Graph),
 ];
 
 /// Protocols whose shape row is kept in a table file that another family
