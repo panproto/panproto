@@ -1,5 +1,5 @@
 //! A record parsed at a vertex that resolves through a transparent
-//! indirection (an ATProto lexicon's record vertex resolves to its body)
+//! indirection (an `ATProto` lexicon's record vertex resolves to its body)
 //! is anchored at the body, so the instance's schema root is the body too.
 //!
 //! `WInstance::schema_root` is the vertex the root node is anchored to. A

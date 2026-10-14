@@ -1,5 +1,5 @@
 //! The JSON codec anchors a record's root through a transparent
-//! indirection (an ATProto lexicon's record vertex resolves to its body),
+//! indirection (an `ATProto` lexicon's record vertex resolves to its body),
 //! and the instance's schema root is the vertex the root node is anchored
 //! to, as it is for `panproto_inst::parse_json` of the same record.
 
