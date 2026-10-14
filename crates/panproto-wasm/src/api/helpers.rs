@@ -585,73 +585,12 @@ pub(super) fn builtin_protocol_names() -> Vec<String> {
 }
 
 /// Look up a built-in protocol by name.
+///
+/// Resolves through `panproto_core::protocols::registry`, so every spelling
+/// the registry accepts reaches the protocol: the canonical name
+/// (`rss-atom`), its underscore form (`rss_atom`), and each alias.
 pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol> {
-    Some(match name {
-        // annotation
-        "brat" => protocols::annotation::brat::protocol(),
-        "conllu" => protocols::annotation::conllu::protocol(),
-        "naf" => protocols::annotation::naf::protocol(),
-        "uima" => protocols::annotation::uima::protocol(),
-        "folia" => protocols::annotation::folia::protocol(),
-        "tei" => protocols::annotation::tei::protocol(),
-        "timeml" => protocols::annotation::timeml::protocol(),
-        "elan" => protocols::annotation::elan::protocol(),
-        "iso_space" => protocols::annotation::iso_space::protocol(),
-        "paula" => protocols::annotation::paula::protocol(),
-        "laf_graf" => protocols::annotation::laf_graf::protocol(),
-        "decomp" => protocols::annotation::decomp::protocol(),
-        "ucca" => protocols::annotation::ucca::protocol(),
-        "fovea" => protocols::annotation::fovea::protocol(),
-        "bead" => protocols::annotation::bead::protocol(),
-        "web_annotation" => protocols::annotation::web_annotation::protocol(),
-        "amr" => protocols::annotation::amr::protocol(),
-        "concrete" => protocols::annotation::concrete::protocol(),
-        "nif" => protocols::annotation::nif::protocol(),
-        // api
-        "openapi" => protocols::api::openapi::protocol(),
-        "asyncapi" => protocols::api::asyncapi::protocol(),
-        "jsonapi" => protocols::api::jsonapi::protocol(),
-        "raml" => protocols::api::raml::protocol(),
-        "graphql" => protocols::api::graphql::protocol(),
-        // config
-        "cloudformation" => protocols::config::cloudformation::protocol(),
-        "ansible" => protocols::config::ansible::protocol(),
-        "k8s_crd" => protocols::config::k8s_crd::protocol(),
-        // data_schema
-        "cddl" => protocols::data_schema::cddl::protocol(),
-        "bson" => protocols::data_schema::bson::protocol(),
-        "json-schema" => protocols::data_schema::json_schema::protocol(),
-        // data_science
-        "dataframe" => protocols::data_science::dataframe::protocol(),
-        "parquet" => protocols::data_science::parquet::protocol(),
-        "arrow" => protocols::data_science::arrow::protocol(),
-        // database
-        "mongodb" => protocols::database::mongodb::protocol(),
-        "dynamodb" => protocols::database::dynamodb::protocol(),
-        "cassandra" => protocols::database::cassandra::protocol(),
-        "neo4j" => protocols::database::neo4j::protocol(),
-        "redis" => protocols::database::redis::protocol(),
-        "sql" => protocols::database::sql::protocol(),
-        // domain
-        "geojson" => protocols::domain::geojson::protocol(),
-        "fhir" => protocols::domain::fhir::protocol(),
-        "rss_atom" => protocols::domain::rss_atom::protocol(),
-        "vcard_ical" => protocols::domain::vcard_ical::protocol(),
-        "swift_mt" => protocols::domain::swift_mt::protocol(),
-        "edi_x12" => protocols::domain::edi_x12::protocol(),
-        // serialization
-        "avro" => protocols::serialization::avro::protocol(),
-        "flatbuffers" => protocols::serialization::flatbuffers::protocol(),
-        "asn1" => protocols::serialization::asn1::protocol(),
-        "bond" => protocols::serialization::bond::protocol(),
-        "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
-        "protobuf" => protocols::serialization::protobuf::protocol(),
-        // web_document
-        "atproto" => protocols::web_document::atproto::protocol(),
-        "docx" => protocols::web_document::docx::protocol(),
-        "odf" => protocols::web_document::odf::protocol(),
-        _ => return None,
-    })
+    protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
 /// Build a minimal `Schema` from a `CompiledMigration`'s surviving

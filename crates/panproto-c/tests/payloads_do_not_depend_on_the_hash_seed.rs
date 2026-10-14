@@ -61,7 +61,7 @@ fn status_ok(status: i32, what: &str) {
     assert_eq!(status, PpStatus::Ok as i32, "{what} failed");
 }
 
-/// Parse an ATProto lexicon through the ABI, as a host does.
+/// Parse an `ATProto` lexicon through the ABI, as a host does.
 fn parse(name: &str) -> u32 {
     let json = lexicon(name);
     let mut handle = 0_u32;
@@ -177,9 +177,11 @@ fn each_payload_is_the_same_on_every_call_and_every_thread() {
             seen.insert(payload(name));
         }
         let answers: Vec<Vec<u8>> = std::thread::scope(|scope| {
-            let workers: Vec<_> = (0..THREADS)
-                .map(|_| scope.spawn(|| payload(name)))
-                .collect();
+            // Every worker is spawned before any is joined, so they run at once.
+            let mut workers = Vec::with_capacity(THREADS);
+            for _ in 0..THREADS {
+                workers.push(scope.spawn(|| payload(name)));
+            }
             workers
                 .into_iter()
                 .map(|worker| {

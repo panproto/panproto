@@ -44,6 +44,14 @@ fn edge(src: &str, tgt: &str, label: &str) -> Edge {
     }
 }
 
+/// The entries one index contributes to both sides, by name.
+struct Entry {
+    shared: String,
+    own: String,
+    own_edge: Edge,
+    shared_edge: Edge,
+}
+
 /// One side of the pair. `side` is 0 for the old schema and 1 for the new;
 /// every category gets entries only one side has, entries both have alike,
 /// and entries both have that differ.
@@ -52,138 +60,160 @@ fn schema(side: usize) -> Schema {
         protocol: "determinism".into(),
         ..Default::default()
     };
-    let other = 1 - side;
     for i in 0..WIDTH {
-        // Vertices: shared ones whose kind flips, and ones only this side has.
-        let shared = format!("v{i}");
-        let kind = if i % 2 == 0 {
-            "object"
-        } else {
-            ["string", "integer"][side]
-        };
-        s.vertices.insert(
-            name(&shared),
-            Vertex {
-                id: name(&shared),
-                kind: name(kind),
-                nsid: None,
-            },
-        );
-        let own = format!("only{side}_{i}");
-        s.vertices.insert(
-            name(&own),
-            Vertex {
-                id: name(&own),
-                kind: name("object"),
-                nsid: None,
-            },
-        );
-
-        let own_edge = edge(&shared, &own, &format!("e{side}_{i}"));
-        s.edges.insert(own_edge.clone(), name("e"));
-        let shared_edge = edge(&shared, &format!("v{}", (i + 1) % WIDTH), "next");
-        s.edges.insert(shared_edge.clone(), name("e"));
-
-        // Constraints: one added, one removed, one changed on each vertex.
-        s.constraints.insert(
-            name(&shared),
-            vec![
-                Constraint {
-                    sort: name(&format!("only{side}")),
-                    value: "1".into(),
-                },
-                Constraint {
-                    sort: name("maxLength"),
-                    value: format!("{}", 10 + side),
-                },
-            ],
-        );
-
-        // Hyper-edges whose signatures gain, lose and retarget labels.
-        s.hyper_edges.insert(
-            name(&format!("h{i}")),
-            HyperEdge {
-                id: name(&format!("h{i}")),
-                kind: name("rel"),
-                signature: (0..4)
-                    .map(|j| (name(&format!("l{side}_{j}")), name(&shared)))
-                    .chain(std::iter::once((
-                        name("moved"),
-                        name(&format!("v{}", i + side)),
-                    )))
-                    .collect(),
-                parent_label: name("p"),
-            },
-        );
-
-        s.required
-            .insert(name(&shared), vec![own_edge.clone(), shared_edge.clone()]);
-        s.nsids
-            .insert(name(&own), name(&format!("com.example.{side}.{i}")));
-        s.nsids.insert(
-            name(&shared),
-            name(&format!("com.example.shared{side}.{i}")),
-        );
-
-        s.variants.insert(
-            name(&shared),
-            vec![
-                Variant {
-                    id: name(&format!("var{side}_{i}")),
-                    parent_vertex: name(&shared),
-                    tag: None,
-                },
-                Variant {
-                    id: name("tagged"),
-                    parent_vertex: name(&shared),
-                    tag: Some(name(&format!("t{side}"))),
-                },
-            ],
-        );
-
-        s.orderings
-            .insert(shared_edge.clone(), u32::try_from(i + side).unwrap_or(0));
-        s.orderings.insert(own_edge.clone(), 0);
-
-        s.recursion_points.insert(
-            name(&format!("mu{side}_{i}")),
-            RecursionPoint {
-                target_vertex: name(&shared),
-            },
-        );
-        s.recursion_points.insert(
-            name(&format!("mu{i}")),
-            RecursionPoint {
-                target_vertex: name(&format!("v{}", (i + side) % WIDTH)),
-            },
-        );
-
-        s.usage_modes.insert(
-            shared_edge.clone(),
-            [UsageMode::Structural, UsageMode::Linear][side].clone(),
-        );
-
-        s.spans.insert(
-            name(&format!("s{i}")),
-            Span {
-                id: name(&format!("s{i}")),
-                left: name(&shared),
-                right: name(&format!("v{}", (i + side) % WIDTH)),
-            },
-        );
-        s.spans.insert(
-            name(&format!("s{side}_{i}")),
-            Span {
-                id: name(&format!("s{side}_{i}")),
-                left: name(&shared),
-                right: name(&own),
-            },
-        );
-
-        s.nominal.insert(name(&shared), side == 1);
-        s.nominal.insert(name(&format!("only{other}_{i}")), false);
+        let entry = add_graph(&mut s, side, i);
+        add_annotations(&mut s, side, i, &entry);
     }
     s
+}
+
+/// Vertices, edges and constraints for index `i`.
+fn add_graph(s: &mut Schema, side: usize, i: usize) -> Entry {
+    // Vertices: shared ones whose kind flips, and ones only this side has.
+    let shared = format!("v{i}");
+    let kind = if i % 2 == 0 {
+        "object"
+    } else {
+        ["string", "integer"][side]
+    };
+    s.vertices.insert(
+        name(&shared),
+        Vertex {
+            id: name(&shared),
+            kind: name(kind),
+            nsid: None,
+        },
+    );
+    let own = format!("only{side}_{i}");
+    s.vertices.insert(
+        name(&own),
+        Vertex {
+            id: name(&own),
+            kind: name("object"),
+            nsid: None,
+        },
+    );
+
+    let own_edge = edge(&shared, &own, &format!("e{side}_{i}"));
+    s.edges.insert(own_edge.clone(), name("e"));
+    let shared_edge = edge(&shared, &format!("v{}", (i + 1) % WIDTH), "next");
+    s.edges.insert(shared_edge.clone(), name("e"));
+
+    // Constraints: one added, one removed, one changed on each vertex.
+    s.constraints.insert(
+        name(&shared),
+        vec![
+            Constraint {
+                sort: name(&format!("only{side}")),
+                value: "1".into(),
+            },
+            Constraint {
+                sort: name("maxLength"),
+                value: format!("{}", 10 + side),
+            },
+        ],
+    );
+
+    Entry {
+        shared,
+        own,
+        own_edge,
+        shared_edge,
+    }
+}
+
+/// Every other category for index `i`.
+fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
+    let Entry {
+        shared,
+        own,
+        own_edge,
+        shared_edge,
+    } = entry;
+    let other = 1 - side;
+    // Hyper-edges whose signatures gain, lose and retarget labels.
+    s.hyper_edges.insert(
+        name(&format!("h{i}")),
+        HyperEdge {
+            id: name(&format!("h{i}")),
+            kind: name("rel"),
+            signature: (0..4)
+                .map(|j| (name(&format!("l{side}_{j}")), name(&shared)))
+                .chain(std::iter::once((
+                    name("moved"),
+                    name(&format!("v{}", i + side)),
+                )))
+                .collect(),
+            parent_label: name("p"),
+        },
+    );
+
+    s.required
+        .insert(name(&shared), vec![own_edge.clone(), shared_edge.clone()]);
+    s.nsids
+        .insert(name(&own), name(&format!("com.example.{side}.{i}")));
+    s.nsids.insert(
+        name(&shared),
+        name(&format!("com.example.shared{side}.{i}")),
+    );
+
+    s.variants.insert(
+        name(&shared),
+        vec![
+            Variant {
+                id: name(&format!("var{side}_{i}")),
+                parent_vertex: name(&shared),
+                tag: None,
+            },
+            Variant {
+                id: name("tagged"),
+                parent_vertex: name(&shared),
+                tag: Some(name(&format!("t{side}"))),
+            },
+        ],
+    );
+
+    s.orderings
+        .insert(shared_edge.clone(), u32::try_from(i + side).unwrap_or(0));
+    s.orderings.insert(own_edge.clone(), 0);
+
+    s.recursion_points.insert(
+        name(&format!("mu{side}_{i}")),
+        RecursionPoint {
+            target_vertex: name(&shared),
+        },
+    );
+    s.recursion_points.insert(
+        name(&format!("mu{i}")),
+        RecursionPoint {
+            target_vertex: name(&format!("v{}", (i + side) % WIDTH)),
+        },
+    );
+
+    s.usage_modes.insert(
+        shared_edge.clone(),
+        [UsageMode::Structural, UsageMode::Linear][side].clone(),
+    );
+
+    s.spans.insert(
+        name(&format!("s{i}")),
+        Span {
+            id: name(&format!("s{i}")),
+            left: name(&shared),
+            right: name(&format!("v{}", (i + side) % WIDTH)),
+        },
+    );
+    s.spans.insert(
+        name(&format!("s{side}_{i}")),
+        Span {
+            id: name(&format!("s{side}_{i}")),
+            left: name(&shared),
+            right: name(&own),
+        },
+    );
+
+    s.nominal.insert(name(&shared), side == 1);
+    s.nominal.insert(name(&format!("only{other}_{i}")), false);
 }
 
 fn protocol() -> Protocol {
@@ -289,7 +319,11 @@ fn a_diff_and_its_report_are_the_same_on_every_rebuild() {
         answers.insert(answer());
     }
     let threaded: Vec<_> = std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..THREADS).map(|_| scope.spawn(answer)).collect();
+        // Every worker is spawned before any is joined, so they run at once.
+        let mut workers = Vec::with_capacity(THREADS);
+        for _ in 0..THREADS {
+            workers.push(scope.spawn(answer));
+        }
         workers
             .into_iter()
             .map(|worker| {
