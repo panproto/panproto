@@ -56,3 +56,15 @@ scaling = { max-threads = 1 }
 filter = 'package(panproto-inst) & test(/_not_charged_per_/)'
 test-group = 'scaling'
 threads-required = 'num-cpus'
+
+# The throughput tests of the integration suite (`performance`) time a
+# fixed number of lifts against a records-per-second floor. A lift validates
+# its input and its output under their protocols, which is most of its cost
+# in a debug build, so the measured rate sits within a factor of two of the
+# floor and the suite's own parallel load is enough to push it under. They
+# run the way the scaling tests do: one at a time, with no other test of the
+# run holding a thread.
+[[profile.default.overrides]]
+filter = 'package(panproto-integration-tests) & binary(performance)'
+test-group = 'scaling'
+threads-required = 'num-cpus'
