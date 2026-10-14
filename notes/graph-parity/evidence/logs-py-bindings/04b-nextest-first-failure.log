@@ -1,0 +1,708 @@
+/dev/disk3s1s1   926Gi    17Gi    38Gi    32%    427k  400M    0%   /
+   Compiling unicode-ident v1.0.24
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling cfg-if v1.0.4
+   Compiling equivalent v1.0.2
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.17
+   Compiling regex-syntax v0.8.10
+   Compiling serde_derive v1.0.229
+   Compiling zmij v1.0.21
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling bitflags v2.11.0
+   Compiling rustix v1.1.4
+   Compiling find-msvc-tools v0.1.12
+   Compiling shlex v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling thiserror v2.0.20
+   Compiling hashbrown v0.16.1
+   Compiling thiserror-impl v2.0.20
+   Compiling indexmap v2.13.0
+   Compiling once_cell v1.21.4
+   Compiling rustc-hash v2.1.3
+   Compiling unicode-width v0.2.2
+   Compiling panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr)
+   Compiling jobserver v0.1.34
+   Compiling errno v0.3.14
+   Compiling cc v1.4.5
+   Compiling autocfg v1.5.0
+   Compiling num-traits v0.2.19
+   Compiling zerocopy v0.8.42
+   Compiling terminal_size v0.4.3
+   Compiling zerocopy-derive v0.8.42
+   Compiling adler2 v2.0.1
+   Compiling gimli v0.32.3
+   Compiling miniz_oxide v0.8.9
+   Compiling rustc-demangle v0.1.27
+   Compiling owo-colors v4.3.0
+   Compiling is_ci v1.2.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling textwrap v0.16.2
+   Compiling addr2line v0.25.1
+   Compiling supports-color v3.0.2
+   Compiling miette-derive v7.6.0
+   Compiling supports-hyperlinks v3.2.0
+   Compiling object v0.37.3
+   Compiling supports-unicode v3.0.0
+   Compiling unicode-width v0.1.14
+   Compiling fnv v1.0.7
+   Compiling aho-corasick v1.1.4
+   Compiling getrandom v0.3.4
+   Compiling regex-automata v0.4.14
+   Compiling bit-vec v0.8.0
+   Compiling fastrand v2.3.0
+   Compiling bit-set v0.8.0
+   Compiling tempfile v3.27.0
+   Compiling colorchoice v1.0.4
+   Compiling strsim v0.11.1
+   Compiling unicode-segmentation v1.12.0
+   Compiling blake3 v1.8.7
+   Compiling backtrace v0.3.76
+   Compiling arrayvec v0.7.6
+   Compiling regex v1.12.3
+   Compiling backtrace-ext v0.2.1
+   Compiling miette v7.6.0
+   Compiling constant_time_eq v0.4.2
+   Compiling rmp v0.8.15
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat)
+   Compiling smallvec v2.0.0-alpha.12
+   Compiling bumpalo v3.20.3
+   Compiling rmp-serde v1.3.1
+   Compiling half v2.7.1
+   Compiling ciborium-io v0.2.2
+   Compiling wait-timeout v0.2.1
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_core v0.9.5
+   Compiling ciborium v0.2.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling quick-error v1.2.3
+   Compiling rusty-fork v0.3.1
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.2
+   Compiling unarray v0.1.4
+   Compiling heck v0.5.0
+   Compiling utf8parse v0.2.2
+   Compiling anstyle v1.0.13
+   Compiling anstyle-parse v1.0.0
+   Compiling proptest v1.11.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling clap_lex v1.0.0
+   Compiling anstream v1.0.0
+   Compiling clap_derive v4.6.1
+   Compiling clap_builder v4.6.0
+   Compiling divan-macros v0.1.21
+   Compiling clap v4.6.1
+   Compiling regex-lite v0.1.9
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-schema)
+   Compiling condtype v1.3.0
+   Compiling divan v0.1.21
+   Compiling winnow v1.0.1
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-inst)
+   Compiling toml_parser v1.1.1+spec-1.1.0
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling tree-sitter-language v0.1.7
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling tree-sitter v0.26.13
+   Compiling streaming-iterator v0.1.9
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars)
+   Compiling ryu v1.0.23
+   Compiling log v0.4.29
+   Compiling version_check v0.9.5
+   Compiling libyaml-rs v0.3.0
+   Compiling yaml_serde v0.10.7
+   Compiling tree-sitter-tags v0.26.13
+   Compiling typenum v1.19.0
+   Compiling smallvec v1.15.1
+   Compiling generic-array v0.14.7
+   Compiling termcolor v1.4.1
+   Compiling rustversion v1.0.22
+   Compiling block-buffer v0.10.4
+   Compiling either v1.15.0
+   Compiling allocator-api2 v0.2.21
+   Compiling foldhash v0.1.5
+   Compiling hashbrown v0.15.5
+   Compiling itertools v0.14.0
+   Compiling logos-codegen v0.16.1
+   Compiling base64 v0.22.1
+   Compiling parking_lot_core v0.9.12
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling logos-derive v0.16.1
+   Compiling crypto-common v0.1.7
+   Compiling cpufeatures v0.2.17
+   Compiling libm v0.2.16
+   Compiling logos v0.16.1
+   Compiling siphasher v1.0.2
+   Compiling phf_shared v0.11.3
+   Compiling keccak v0.1.6
+   Compiling digest v0.10.7
+   Compiling parking_lot v0.12.5
+   Compiling ar_archive_writer v0.5.1
+   Compiling precomputed-hash v0.1.1
+   Compiling new_debug_unreachable v1.0.6
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-mig)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-protocols)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-lens)
+   Compiling same-file v1.0.6
+   Compiling term v1.2.1
+   Compiling fixedbitset v0.5.7
+   Compiling petgraph v0.7.1
+   Compiling ascii-canvas v4.0.0
+   Compiling walkdir v2.5.0
+   Compiling psm v0.1.30
+   Compiling string_cache v0.8.9
+   Compiling sha3 v0.10.8
+   Compiling lalrpop-util v0.22.2
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-check)
+   Compiling ena v0.14.4
+   Compiling malachite-nz v0.9.2
+   Compiling unicode-xid v0.2.6
+   Compiling pico-args v0.5.0
+   Compiling bytemuck v1.25.0
+   Compiling wide v1.7.0
+   Compiling lalrpop v0.22.2
+   Compiling malachite-base v0.9.2
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling stacker v0.1.23
+   Compiling paste v1.0.15
+   Compiling chumsky v1.0.0-alpha.8
+   Compiling yansi v1.0.1
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling winnow v0.7.15
+   Compiling heck v0.4.1
+   Compiling bitmaps v3.2.1
+   Compiling ouroboros_macro v0.18.5
+   Compiling imbl-sized-chunks v0.1.3
+   Compiling nickel-lang-parser v0.3.0
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-vcs)
+   Compiling malachite-q v0.9.2
+   Compiling malachite-float v0.9.2
+   Compiling hashlink v0.10.0
+   Compiling codespan-reporting v0.13.1
+   Compiling arraydeque v0.5.1
+   Compiling arrayvec v0.5.2
+   Compiling typed-arena v2.0.2
+   Compiling static_assertions v1.1.0
+   Compiling aliasable v0.1.3
+   Compiling ouroboros v0.18.5
+   Compiling pretty v0.12.5
+   Compiling saphyr-parser v0.0.6
+   Compiling malachite v0.9.2
+   Compiling codespan v0.13.1
+   Compiling nickel-lang-vector v0.2.0
+   Compiling toml_edit v0.24.1+spec-1.1.0
+   Compiling nickel-lang-core v0.18.0
+   Compiling vte v0.14.1
+   Compiling unsafe-libyaml v0.2.11
+   Compiling simple-counter v0.1.0
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling strip-ansi-escapes v0.2.1
+   Compiling sha2 v0.10.9
+   Compiling sha-1 v0.10.1
+   Compiling panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr-parser)
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling md-5 v0.10.6
+   Compiling quick-xml v0.41.0
+   Compiling json_scanner v0.1.0
+   Compiling indoc v2.0.7
+   Compiling bstr v1.12.1
+   Compiling globset v0.4.19
+   Compiling console v0.16.3
+   Compiling similar v2.7.0
+   Compiling insta v1.48.0
+   Compiling panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/tests/integration)
+   Compiling synstructure v0.13.2
+   Compiling pin-project-lite v0.2.17
+   Compiling zerofrom-derive v0.1.6
+   Compiling yoke-derive v0.8.1
+   Compiling zerofrom v0.1.6
+   Compiling futures-core v0.3.32
+   Compiling bytes v1.11.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.1
+   Compiling zerovec-derive v0.11.2
+   Compiling futures-sink v0.3.32
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.3
+   Compiling tokio-macros v2.7.2
+   Compiling zerovec v0.11.5
+   Compiling displaydoc v0.2.5
+   Compiling tokio v1.53.1
+   Compiling slab v0.4.12
+   Compiling target-lexicon v0.13.5
+   Compiling futures-channel v0.3.32
+   Compiling tinystr v0.8.2
+   Compiling http v1.4.0
+   Compiling futures-macro v0.3.32
+   Compiling futures-io v0.3.32
+   Compiling litemap v0.8.1
+   Compiling futures-task v0.3.32
+   Compiling syn v1.0.109
+   Compiling pkg-config v0.3.32
+   Compiling writeable v0.6.2
+   Compiling nickel-lang v2.2.0
+   Compiling futures-util v0.3.32
+   Compiling icu_locale_core v2.1.1
+   Compiling pyo3-build-config v0.29.2
+   Compiling zerotrie v0.2.3
+   Compiling panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-dsl-eval)
+   Compiling potential_utf v0.1.4
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-theory-dsl)
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-lens-dsl)
+   Compiling ring v0.17.14
+   Compiling icu_normalizer_data v2.1.1
+   Compiling icu_properties_data v2.1.2
+   Compiling vcpkg v0.2.15
+   Compiling icu_collections v2.1.1
+   Compiling icu_provider v2.1.1
+   Compiling http-body v1.0.1
+   Compiling tracing-core v0.1.36
+   Compiling percent-encoding v2.3.2
+   Compiling httparse v1.10.1
+   Compiling zeroize v1.8.2
+   Compiling rustls-pki-types v1.14.0
+   Compiling tracing v0.1.44
+   Compiling pyo3-ffi v0.29.2
+   Compiling tokio-util v0.7.18
+   Compiling getrandom v0.2.17
+   Compiling try-lock v0.2.5
+   Compiling untrusted v0.9.0
+   Compiling tower-service v0.3.3
+   Compiling atomic-waker v1.1.2
+   Compiling want v0.3.1
+   Compiling h2 v0.4.16
+   Compiling icu_properties v2.1.2
+   Compiling icu_normalizer v2.1.1
+   Compiling openssl-src v300.5.0+3.5.0
+   Compiling rustls v0.23.45
+   Compiling httpdate v1.0.3
+   Compiling pin-utils v0.1.0
+   Compiling openssl-sys v0.9.112
+   Compiling hyper v1.8.1
+   Compiling idna_adapter v1.2.1
+   Compiling form_urlencoded v1.2.2
+   Compiling libz-sys v1.1.25
+   Compiling pyo3 v0.29.2
+   Compiling pyo3-macros-backend v0.29.2
+   Compiling rustls-webpki v0.103.15
+   Compiling subtle v2.6.1
+   Compiling utf8_iter v1.0.4
+   Compiling ipnet v2.12.0
+   Compiling target-triple v1.0.0
+   Compiling hyper-util v0.1.20
+   Compiling idna v1.1.0
+   Compiling pyo3-macros v0.29.2
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling tokio-rustls v0.26.4
+   Compiling tower v0.5.3
+   Compiling url v2.5.8
+   Compiling ext-trait-proc_macros v1.0.1
+   Compiling webpki-roots v1.0.6
+   Compiling http-body-util v0.1.3
+   Compiling libgit2-sys v0.18.5+1.9.4
+   Compiling iri-string v0.7.11
+   Compiling prettyplease v0.1.25
+   Compiling glob v0.3.3
+   Compiling hyper-rustls v0.27.7
+   Compiling ext-trait v1.0.1
+   Compiling serde_urlencoded v0.7.1
+   Compiling macro_rules_attribute-proc_macro v0.1.3
+   Compiling tower-http v0.6.8
+   Compiling macro_rules_attribute v0.1.3
+   Compiling extension-traits v1.0.1
+   Compiling reqwest v0.12.28
+   Compiling with_builtin_macros-proc_macros v0.0.3
+   Compiling hex v0.4.3
+   Compiling safer-ffi v0.1.13
+   Compiling wasm-bindgen-shared v0.2.114
+   Compiling with_builtin_macros v0.0.3
+   Compiling safer_ffi-proc_macros v0.1.13
+   Compiling uninit v0.5.1
+   Compiling panproto-gat-macros v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat-macros)
+   Compiling unwind_safe v0.1.0
+   Compiling extern-c v0.1.0
+   Compiling panproto-xrpc v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-xrpc)
+   Compiling trybuild v1.0.119
+   Compiling cfg_aliases v0.2.1
+   Compiling nix v0.31.3
+   Compiling wasm-bindgen-macro-support v0.2.114
+   Compiling futures-executor v0.3.32
+   Compiling wasm-bindgen v0.2.114
+   Compiling nibble_vec v0.1.0
+   Compiling num_cpus v1.17.0
+   Compiling predicates-core v1.0.10
+   Compiling lazy_static v1.5.0
+   Compiling deadpool-runtime v0.1.4
+   Compiling endian-type v0.2.0
+   Compiling radix_trie v0.3.0
+   Compiling deadpool v0.12.3
+   Compiling wasm-bindgen-macro v0.2.114
+   Compiling futures v0.3.32
+   Compiling float-cmp v0.10.0
+   Compiling assert-json-diff v2.0.2
+   Compiling difflib v0.4.0
+   Compiling termtree v0.5.1
+   Compiling home v0.5.12
+   Compiling normalize-line-endings v0.3.0
+   Compiling assert_cmd v2.2.2
+   Compiling anyhow v1.0.104
+   Compiling predicates v3.1.4
+   Compiling predicates-tree v1.0.13
+   Compiling rustyline v18.0.1
+   Compiling wiremock v0.6.5
+   Compiling pythonize v0.29.0
+   Compiling xtask v0.0.0 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/xtask)
+   Compiling git2 v0.21.0
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-parse)
+   Compiling panproto-grammars-data v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-data)
+   Compiling panproto-grammars-all v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-all)
+   Compiling panproto-grammars-scripting v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-scripting)
+   Compiling panproto-grammars-mobile v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-mobile)
+   Compiling panproto-grammars-jvm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-jvm)
+   Compiling panproto-grammars-music v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-music)
+   Compiling panproto-grammars-devops v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-devops)
+   Compiling panproto-grammars-functional v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-functional)
+   Compiling panproto-grammars-systems v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-systems)
+   Compiling panproto-grammars-web v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-web)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-io)
+   Compiling panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-project)
+   Compiling panproto-git v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-git)
+   Compiling panproto-git-remote v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-git-remote)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-core)
+   Compiling book-doctest-stub v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/book-doctest-stub)
+   Compiling panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-c)
+   Compiling panproto-wasm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-wasm)
+   Compiling panproto-cli v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-cli)
+   Compiling panproto-py v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-py)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13m 45s
+────────────
+ Nextest run ID d306c9b4-32c4-4b11-89da-619a56bb6421 with nextest profile: ci
+    Starting 6700 tests across 324 binaries (5 tests skipped via profile.ci.default-filter)
+        PASS [   0.040s] (   1/6700) panproto-c api::check::tests::diff_simple_on_protocol_handle_yields_type_mismatch
+        PASS [   0.043s] (   2/6700) panproto-c api::check::tests::diff_full_with_invalid_handle_yields_invalid_handle
+        PASS [   0.062s] (   3/6700) panproto-c api::data::tests::check_staleness_matches_and_mismatches
+        PASS [   0.063s] (   4/6700) panproto-c api::data::tests::get_dataset_rejects_schema_handle
+        PASS [   0.067s] (   5/6700) panproto-c api::check::tests::report_text_rejects_garbage
+        PASS [   0.071s] (   6/6700) panproto-c api::check::tests::diff_full_reports_removed_vertex
+        PASS [   0.073s] (   7/6700) panproto-c api::check::tests::diff_simple_reports_added_vertex
+        PASS [   0.084s] (   8/6700) panproto-c api::data::tests::a_complement_list_naming_another_format_is_refused
+        PASS [   0.045s] (   9/6700) panproto-c api::data::tests::migrate_backward_refuses_a_short_complement_list
+        PASS [   0.089s] (  10/6700) panproto-c api::check::tests::classify_rejects_garbage_diff
+        PASS [   0.055s] (  11/6700) panproto-c api::data::tests::get_migration_complement_rejects_garbage
+        PASS [   0.034s] (  12/6700) panproto-c api::data::tests::store_rejects_garbage_json
+        PASS [   0.050s] (  13/6700) panproto-c api::data::tests::migrate_forward_then_backward_round_trips
+        PASS [   0.119s] (  14/6700) panproto-c api::check::tests::classify_then_report_round_trip
+        PASS [   0.061s] (  15/6700) panproto-c api::data::tests::store_accepts_bare_object
+        PASS [   0.054s] (  16/6700) panproto-c api::data::tests::store_rejects_invalid_schema_handle
+        PASS [   0.049s] (  17/6700) panproto-c api::enriched::tests::add_coercion_installs_coercion_entry
+        PASS [   0.050s] (  18/6700) panproto-c api::enriched::tests::add_default_records_constraint
+        PASS [   0.050s] (  19/6700) panproto-c api::enriched::tests::add_merger_records_constraint
+        PASS [   0.062s] (  20/6700) panproto-c api::enriched::tests::add_merger_on_missing_vertex_errors
+        PASS [   0.089s] (  21/6700) panproto-c api::data::tests::store_then_get_round_trips
+        PASS [   0.066s] (  22/6700) panproto-c api::enriched::tests::add_policy_records_constraint
+        PASS [   0.055s] (  23/6700) panproto-c api::expr::tests::check_ill_formed_term_reports_error
+        PASS [   0.057s] (  24/6700) panproto-c api::expr::tests::check_well_formed_op_reports_output_sort
+        PASS [   0.055s] (  25/6700) panproto-c api::expr::tests::eval_func_resolves_variable_from_env
+        PASS [   0.065s] (  26/6700) panproto-c api::expr::tests::eval_func_rejects_garbage_expr_with_serialization_status
+        PASS [   0.046s] (  27/6700) panproto-c api::expr::tests::eval_gat_case_selects_matching_branch
+        PASS [   0.064s] (  28/6700) panproto-c api::expr::tests::eval_gat_case_binds_constructor_arguments
+        PASS [   0.041s] (  29/6700) panproto-c api::expr::tests::eval_gat_rejects_non_theory_handle
+        PASS [   0.070s] (  30/6700) panproto-c api::expr::tests::eval_gat_case_no_matching_branch_is_error
+        PASS [   0.046s] (  31/6700) panproto-c api::expr::tests::eval_gat_unary_op_builds_structured_value
+        PASS [   0.047s] (  32/6700) panproto-c api::expr::tests::eval_gat_unbound_variable_is_operation_error
+        PASS [   0.126s] (  33/6700) panproto-c api::enriched::tests::refinement_subsort_is_subset_check
+        PASS [   0.053s] (  34/6700) panproto-c api::expr::tests::parse_then_eval_func_adds
+        PASS [   0.056s] (  35/6700) panproto-c api::expr::tests::query_matches_anchor_nodes
+        PASS [   0.074s] (  36/6700) panproto-c api::expr::tests::parse_rejects_garbage_source_with_operation_status
+        PASS [   0.070s] (  37/6700) panproto-c api::expr::tests::query_rejects_bad_schema_handle
+        PASS [   0.058s] (  38/6700) panproto-c api::gat::tests::check_morphism_reports_invalid_when_sort_missing
+        PASS [   0.075s] (  39/6700) panproto-c api::gat::tests::check_model_of_free_model_reports_no_violations
+        PASS [   0.063s] (  40/6700) panproto-c api::gat::tests::check_morphism_reports_valid_identity
+        PASS [   0.062s] (  41/6700) panproto-c api::gat::tests::colimit_pushes_out_over_shared_base
+        PASS [   0.050s] (  42/6700) panproto-c api::gat::tests::create_theory_rejects_garbage_cbor
+        PASS [   0.147s] (  43/6700) panproto-c api::expr::tests::eval_gat_nullary_constant_reduces_to_name
+        PASS [   0.056s] (  44/6700) panproto-c api::gat::tests::create_theory_round_trips_through_ffi
+        PASS [   0.049s] (  45/6700) panproto-c api::gat::tests::eval_in_model_rejects_unknown_op
+        PASS [   0.030s] (  46/6700) panproto-c api::gat::tests::free_model_with_default_config_builds_model_handle
+        PASS [   0.058s] (  47/6700) panproto-c api::gat::tests::eval_in_model_runs_a_free_model_operation
+        PASS [   0.056s] (  48/6700) panproto-c api::gat::tests::free_model_honors_explicit_config
+        PASS [   0.104s] (  49/6700) panproto-c api::gat::tests::colimit_rejects_non_theory_handle
+        PASS [   0.051s] (  50/6700) panproto-c api::gat::tests::migrate_model_reindexes_sort_interp
+        PASS [   0.147s] (  51/6700) panproto-c api::gat::tests::check_model_rejects_non_model_handle
+        PASS [   0.045s] (  52/6700) panproto-c api::gat::tests::model_sort_interp_rejects_non_model_handle
+        PASS [   0.055s] (  53/6700) panproto-c api::gat::tests::model_sort_interp_is_non_empty_for_a_free_model
+        PASS [   0.049s] (  54/6700) panproto-c api::gat::tests::serialize_theory_rejects_non_theory_handle
+        PASS [   0.048s] (  55/6700) panproto-c api::gat::tests::serialize_theory_round_trips_through_create
+        PASS [   0.051s] (  56/6700) panproto-c api::graph::tests::conversion_distance_is_finite_for_reachable
+        PASS [   0.048s] (  57/6700) panproto-c api::graph::tests::conversion_distance_is_infinite_for_unreachable
+        PASS [   0.047s] (  58/6700) panproto-c api::graph::tests::conversion_distance_unknown_schema_is_infinite
+        PASS [   0.047s] (  59/6700) panproto-c api::graph::tests::fiber_at_collects_all_remapped_nodes
+        PASS [   0.041s] (  60/6700) panproto-c api::graph::tests::fiber_at_rejects_garbage_instance
+        PASS [   0.051s] (  61/6700) panproto-c api::graph::tests::fiber_at_empty_for_unknown_anchor
+        PASS [   0.047s] (  62/6700) panproto-c api::graph::tests::fiber_decomposition_collapse_unions
+        PASS [   0.042s] (  63/6700) panproto-c api::graph::tests::poly_hom_round_trips_to_a_schema
+        PASS [   0.052s] (  64/6700) panproto-c api::graph::tests::fiber_decomposition_partitions_source
+        PASS [   0.046s] (  65/6700) panproto-c api::graph::tests::preferred_path_reports_unreachable_as_operation
+        PASS [   0.048s] (  66/6700) panproto-c api::graph::tests::preferred_path_traverses_two_hops
+        PASS [   0.049s] (  67/6700) panproto-c api::helpers::tests::a_minimal_schema_is_the_same_under_any_hash_seed
+        PASS [   0.048s] (  68/6700) panproto-c api::hom::tests::find_best_morphism_returns_some
+        PASS [   0.048s] (  69/6700) panproto-c api::hom::tests::find_morphisms_finds_the_rename
+        PASS [   0.052s] (  70/6700) panproto-c api::hom::tests::find_morphisms_max_results_zero_returns_one
+        PASS [   0.049s] (  71/6700) panproto-c api::hom::tests::find_morphisms_rejects_garbage_opts
+        PASS [   0.050s] (  72/6700) panproto-c api::hom::tests::find_morphisms_rejects_invalid_handle
+        PASS [   0.051s] (  73/6700) panproto-c api::hom::tests::find_morphisms_rejects_non_schema_handle
+        PASS [   0.191s] (  74/6700) panproto-c api::gat::tests::migrate_model_rejects_garbage_morphism
+        PASS [   0.058s] (  75/6700) panproto-c api::hom::tests::find_morphisms_top_matches_find_best
+        PASS [   0.052s] (  76/6700) panproto-c api::hom::tests::find_span_honours_excluded_sources
+        PASS [   0.234s] (  77/6700) panproto-c api::gat::tests::free_model_rejects_non_theory_handle
+        PASS [   0.052s] (  78/6700) panproto-c api::hom::tests::find_span_rejects_unusable_scoring_weights
+        PASS [   0.058s] (  79/6700) panproto-c api::hom::tests::induce_migration_from_theory_yields_morphism_and_handle
+        PASS [   0.059s] (  80/6700) panproto-c api::hom::tests::induce_schema_morphism_round_trips
+        PASS [   0.062s] (  81/6700) panproto-c api::hom::tests::minimal_schemas_are_the_same_under_any_hash_seed
+        PASS [   0.087s] (  82/6700) panproto-c api::hom::tests::find_span_rejects_a_non_protocol_third_handle
+        PASS [   0.042s] (  83/6700) panproto-c api::hom::tests::search_options_wire_tolerates_missing_fields
+        PASS [   0.069s] (  84/6700) panproto-c api::hom::tests::morphism_to_migration_yields_a_migration_handle
+        PASS [   0.064s] (  85/6700) panproto-c api::hom::tests::search_options_wire_round_trips
+        PASS [   0.089s] (  86/6700) panproto-c api::hom::tests::morphism_to_migration_lowers_maps
+        PASS [   0.047s] (  87/6700) panproto-c api::instance::tests::element_count_rejects_garbage_instance
+        PASS [   0.160s] (  88/6700) panproto-c api::hom::tests::find_span_answers_where_no_total_morphism_exists
+        PASS [   0.061s] (  89/6700) panproto-c api::hom::tests::span_to_overlap_rejects_garbage
+        PASS [   0.092s] (  90/6700) panproto-c api::hom::tests::span_to_overlap_matches_the_engine
+        PASS [   0.155s] (  91/6700) panproto-c api::hom::tests::morphism_to_migration_handles_empty_morphism
+        PASS [   0.072s] (  92/6700) panproto-c api::instance::tests::json_to_instance_unknown_root_with_no_entry_fails
+        PASS [   0.082s] (  93/6700) panproto-c api::instance::tests::json_round_trip_through_ffi
+        PASS [   0.060s] (  94/6700) panproto-c api::instance::tests::validate_reports_unknown_anchor
+        PASS [   0.066s] (  95/6700) panproto-c api::instance::tests::validate_with_invalid_handle_yields_invalid_handle
+        PASS [   0.053s] (  96/6700) panproto-c api::lens::tests::a_compiled_document_with_multiple_groups_is_not_a_single_lens
+        PASS [   0.098s] (  97/6700) panproto-c api::instance::tests::to_json_on_non_schema_handle_yields_type_mismatch
+        PASS [   0.237s] (  98/6700) panproto-c api::hom::tests::find_span_over_a_rename_is_total
+        PASS [   0.090s] (  99/6700) panproto-c api::instance::tests::validate_well_formed_instance_returns_no_messages
+        PASS [   0.107s] ( 100/6700) panproto-c api::instance::tests::validate_rejects_garbage_instance
+        PASS [   0.061s] ( 101/6700) panproto-c api::lens::tests::auto_generate_candidates_each_carries_a_chain
+        PASS [   0.056s] ( 102/6700) panproto-c api::lens::tests::complement_host_shape_round_trips
+        PASS [   0.064s] ( 103/6700) panproto-c api::lens::tests::auto_generate_emits_step_summary_json
+        PASS [   0.077s] ( 104/6700) panproto-c api::lens::tests::a_host_complement_naming_another_format_is_refused
+        PASS [   0.048s] ( 105/6700) panproto-c api::lens::tests::from_json_parses_full_serde_chain
+        PASS [   0.061s] ( 106/6700) panproto-c api::lens::tests::compose_chain_concatenates_steps
+        PASS [   0.073s] ( 107/6700) panproto-c api::lens::tests::complement_spec_and_fuse
+        PASS [   0.043s] ( 108/6700) panproto-c api::mig::tests::check_existence_unknown_protocol_errors
+        PASS [   0.044s] ( 109/6700) panproto-c api::mig::tests::compile_then_lift_record_round_trips
+        PASS [   0.072s] ( 110/6700) panproto-c api::lens::tests::unknown_stringency_is_rejected
+        PASS [   0.081s] ( 111/6700) panproto-c api::lens::tests::parse_stringency_accepts_tiers
+        PASS [   0.037s] ( 112/6700) panproto-c api::mig::tests::compose_yields_a_liftable_migration_handle
+        PASS [   0.081s] ( 113/6700) panproto-c api::mig::tests::check_existence_accepts_valid_rename
+        PASS [   0.045s] ( 114/6700) panproto-c api::mig::tests::coverage_reports_all_succeeded
+        PASS [   0.038s] ( 115/6700) panproto-c api::mig::tests::invert_bijective_migration_round_trips
+        PASS [   0.039s] ( 116/6700) panproto-c api::mig::tests::lift_json_round_trips
+        PASS [   0.082s] ( 117/6700) panproto-c api::mig::tests::compose_rejects_non_migration_handle
+        PASS [   0.092s] ( 118/6700) panproto-c api::mig::tests::compile_with_invalid_schema_handle_errors
+        PASS [   0.053s] ( 119/6700) panproto-c api::mig::tests::serialize_compiled_decodes_as_compiled_migration
+        PASS [   0.137s] ( 120/6700) panproto-c api::lens::tests::instantiate_get_put_round_trip
+        PASS [   0.038s] ( 121/6700) panproto-c api::protocol::tests::internal_panic_is_caught
+        PASS [   0.073s] ( 122/6700) panproto-c api::mig::tests::lift_record_rejects_garbage_record
+        PASS [   0.043s] ( 123/6700) panproto-c api::protocol::tests::protocol_serialize_on_schema_handle_yields_type_mismatch
+        PASS [   0.071s] ( 124/6700) panproto-c api::protocol::tests::invalid_handle_yields_its_status
+        PASS [   0.042s] ( 125/6700) panproto-c api::registry::tests::list_builtin_protocols_non_empty
+        PASS [   0.037s] ( 126/6700) panproto-c api::registry::tests::list_protocols_invalid_handle
+        PASS [   0.066s] ( 127/6700) panproto-c api::registry::tests::emit_rejects_garbage_instance
+        PASS [   0.090s] ( 128/6700) panproto-c api::protocol::tests::malformed_cbor_yields_serialization_status
+        PASS [   0.044s] ( 129/6700) panproto-c api::registry::tests::list_protocols_rejects_non_registry_handle
+        PASS [   0.113s] ( 130/6700) panproto-c api::mig::tests::serialize_compiled_rejects_non_migration_handle
+        PASS [   0.069s] ( 131/6700) panproto-c api::registry::tests::get_builtin_protocol_unknown_is_operation_error
+        PASS [   0.090s] ( 132/6700) panproto-c api::protocol::tests::round_trip_through_ffi
+        PASS [   0.048s] ( 133/6700) panproto-c api::schema::tests::metadata_on_protocol_handle_yields_type_mismatch
+        PASS [   0.063s] ( 134/6700) panproto-c api::registry::tests::parse_unknown_protocol_is_operation_error
+        PASS [   0.050s] ( 135/6700) panproto-c api::schema::tests::normalize_yields_a_fresh_schema_handle
+        PASS [   0.081s] ( 136/6700) panproto-c api::registry::tests::parse_emit_round_trip_geojson
+        PASS [   0.071s] ( 137/6700) panproto-c api::schema::tests::build_then_metadata_round_trips_vertices_and_edges
+        PASS [   0.058s] ( 138/6700) panproto-c api::schema::tests::parse_atproto_lexicon_builds_schema
+        PASS [   0.131s] ( 139/6700) panproto-c api::registry::tests::get_builtin_protocol_round_trips
+        PASS [   0.036s] ( 140/6700) panproto-c api::schema::tests::schema_from_cbor_rejects_garbage
+        PASS [   0.030s] ( 141/6700) panproto-c api::schema::tests::validate_empty_schema_returns_no_messages
+        PASS [   0.105s] ( 142/6700) panproto-c api::registry::tests::register_and_list_protocols
+        PASS [   0.100s] ( 143/6700) panproto-c api::schema::tests::build_with_invalid_proto_handle_errors
+        PASS [   0.050s] ( 144/6700) panproto-c api::schema::tests::schema_to_cbor_on_protocol_handle_yields_type_mismatch
+        PASS [   0.062s] ( 145/6700) panproto-c api::schema::tests::schema_round_trip_through_ffi
+        PASS [   0.051s] ( 146/6700) panproto-c api::schema::tests::validate_with_invalid_handle_yields_invalid_handle
+        PASS [   0.054s] ( 147/6700) panproto-c api::tests::handle_free_of_an_unallocated_handle_is_a_no_op
+        PASS [   0.072s] ( 148/6700) panproto-c api::schema::tests::validate_reports_unknown_vertex_kind
+        PASS [   0.056s] ( 149/6700) panproto-c api::tests::pp_init_returns_ok
+        PASS [   0.081s] ( 150/6700) panproto-c api::vcs::tests::add_on_non_repo_handle_is_type_mismatch
+        PASS [   0.179s] ( 151/6700) panproto-c api::schema::tests::parse_atproto_lexicon_rejects_non_json
+        PASS [   0.079s] ( 152/6700) panproto-c api::vcs::tests::branch_requires_a_commit
+        PASS [   0.094s] ( 153/6700) panproto-c api::vcs::tests::commit_with_nothing_staged_errors
+        PASS [   0.091s] ( 154/6700) panproto-c api::vcs::tests::init_open_existing_repo
+        PASS [   0.091s] ( 155/6700) panproto-c api::vcs::tests::log_on_empty_repo_is_empty
+        PASS [   0.205s] ( 156/6700) panproto-c api::vcs::tests::add_returns_real_schema_id
+        PASS [   0.208s] ( 157/6700) panproto-c api::vcs::tests::blame_attributes_a_vertex
+        PASS [   0.020s] ( 158/6700) panproto-c canonical::tests::decode_accepts_exact_bytes
+        PASS [   0.020s] ( 159/6700) panproto-c canonical::tests::decode_garbage_returns_serialization_error
+        PASS [   0.019s] ( 160/6700) panproto-c canonical::tests::decode_rejects_trailing_bytes
+        PASS [   0.287s] ( 161/6700) panproto-c api::vcs::tests::branch_and_checkout
+        PASS [   0.017s] ( 162/6700) panproto-c canonical::tests::protocol_round_trip
+        PASS [   0.017s] ( 163/6700) panproto-c error::tests::an_error_slot_is_shared_across_threads
+        PASS [   0.020s] ( 164/6700) panproto-c error::tests::an_error_slot_keeps_the_most_recent_write
+        PASS [   0.017s] ( 165/6700) panproto-c error::tests::an_error_slot_set_then_take_clears_it
+        PASS [   0.020s] ( 166/6700) panproto-c error::tests::each_variant_has_distinct_tag
+        PASS [   0.020s] ( 167/6700) panproto-c error::tests::ffi_error_status_mapping
+        PASS [   0.026s] ( 168/6700) panproto-c error::tests::envelope_carries_message_and_tag
+        PASS [   0.284s] ( 169/6700) panproto-c api::vcs::tests::list_branches_after_create_and_checkout
+        PASS [   0.027s] ( 170/6700) panproto-c error::tests::status_round_trips_via_i32
+        PASS [   0.033s] ( 171/6700) panproto-c error::tests::status_try_from_unknown_returns_code
+        PASS [   0.035s] ( 172/6700) panproto-c error::tests::the_entry_point_slot_is_shared_across_threads
+        PASS [   0.028s] ( 173/6700) panproto-c error::tests::type_mismatch_envelope_includes_both_kinds
+        PASS [   0.023s] ( 174/6700) panproto-c handle::tests::a_borrow_may_span_another_handles_borrow
+        PASS [   0.020s] ( 175/6700) panproto-c handle::tests::alloc_and_get_protocol
+        PASS [   0.019s] ( 176/6700) panproto-c handle::tests::alloc_and_get_schema
+        PASS [   0.025s] ( 177/6700) panproto-c handle::tests::alloc_grows_then_reuses
+        PASS [   0.020s] ( 178/6700) panproto-c handle::tests::double_free_is_safe
+        PASS [   0.496s] ( 179/6700) panproto-c api::vcs::tests::add_commit_then_log
+        PASS [   0.038s] ( 180/6700) panproto-c handle::tests::concurrent_alloc_use_free_is_consistent
+        PASS [   0.019s] ( 181/6700) panproto-c handle::tests::handle_allocated_on_another_thread_is_valid
+        PASS [   0.292s] ( 182/6700) panproto-c api::vcs::tests::status_reflects_head_after_commit
+        PASS [   0.023s] ( 183/6700) panproto-c handle::tests::free_reuses_slot
+        PASS [   0.018s] ( 184/6700) panproto-c handle::tests::invalid_handle_errors
+        PASS [   0.026s] ( 185/6700) panproto-c handle::tests::migration_projection_accepts_both_variants
+        PASS [   0.034s] ( 186/6700) panproto-c handle::tests::non_schema_handle_rejected_by_schema_arc
+        PASS [   0.033s] ( 187/6700) panproto-c handle::tests::protocol_handle_rejected_as_schema
+        PASS [   0.043s] ( 188/6700) panproto-c handle::tests::schema_handle_rejected_as_protocol
+        PASS [   0.038s] ( 189/6700) panproto-c handle::tests::schema_lookup_shares_the_slot_allocation
+        PASS [   0.034s] ( 190/6700) panproto-c handle::tests::slow_work_on_one_handle_does_not_stall_another
+        PASS [   0.036s] ( 191/6700) panproto-c handle::tests::type_name_is_correct
+        PASS [   0.038s] ( 192/6700) panproto-c handle::tests::with_three_resources_invalid_handle
+        PASS [   0.034s] ( 193/6700) panproto-c handle::tests::with_three_resources_works
+        PASS [   0.553s] ( 194/6700) panproto-c api::vcs::tests::diff_reports_head_change
+        PASS [   0.399s] ( 195/6700) panproto-c api::vcs::tests::stash_and_pop_round_trip
+        PASS [   0.042s] ( 196/6700) panproto-c handle::tests::with_two_resources_invalid_handle
+        PASS [   0.039s] ( 197/6700) panproto-c handle::tests::with_two_resources_works
+        PASS [   0.023s] ( 198/6700) panproto-c panic::tests::err_path_returns_its_status
+        PASS [   0.020s] ( 199/6700) panproto-c panic::tests::ok_path_returns_ok
+        PASS [   0.087s] ( 200/6700) panproto-c handle::tests::with_resource_mut_allows_mutation
+        PASS [   0.586s] ( 201/6700) panproto-c api::vcs::tests::diff_between_two_refs
+        PASS [   0.477s] ( 202/6700) panproto-c api::vcs::tests::merge_fast_forward
+        PASS [   0.047s] ( 203/6700) panproto-c panic::tests::panic_with_str_is_caught
+        PASS [   0.048s] ( 204/6700) panproto-c panic::tests::panic_with_string_is_caught
+        PASS [   0.055s] ( 205/6700) panproto-c::error_envelopes a_guarded_str_panic_is_stashed
+        PASS [   0.065s] ( 206/6700) panproto-c::error_envelopes a_guarded_error_is_stashed
+        PASS [   0.077s] ( 207/6700) panproto-c::error_envelopes a_branch_before_any_commit_is_an_operation_error
+        PASS [   0.073s] ( 208/6700) panproto-c::error_envelopes a_commit_with_nothing_staged_is_an_operation_error
+        PASS [   0.043s] ( 209/6700) panproto-c::error_envelopes a_schema_handle_serialized_as_a_protocol_is_a_type_mismatch
+        PASS [   0.054s] ( 210/6700) panproto-c::error_envelopes a_short_complement_list_names_both_lengths
+        PASS [   0.062s] ( 211/6700) panproto-c::error_envelopes a_protocol_handle_encoded_as_a_schema_is_a_type_mismatch
+        PASS [   0.061s] ( 212/6700) panproto-c::error_envelopes a_guarded_string_panic_is_stashed
+        PASS [   0.056s] ( 213/6700) panproto-c::error_envelopes a_stashed_error_round_trips_through_the_drain
+        PASS [   0.047s] ( 214/6700) panproto-c::error_envelopes an_empty_slot_drains_to_an_empty_buffer
+        PASS [   0.049s] ( 215/6700) panproto-c::error_envelopes a_successful_guarded_call_leaves_the_slot_empty
+        PASS [   0.603s] ( 216/6700) panproto-c api::vcs::tests::merge_commit_records_the_named_author
+        PASS [   0.049s] ( 217/6700) panproto-c::error_envelopes an_invalid_handle_is_reported
+        PASS [   0.052s] ( 218/6700) panproto-c::error_slot the_process_global_slot_crosses_threads_and_drains_once
+        PASS [   0.047s] ( 219/6700) panproto-c::panic_hook the_panic_hook_covers_the_ffi_boundary_and_nothing_else
+        PASS [   0.044s] ( 220/6700) panproto-c::the_span_wire_carries_the_apex_digest the_span_wire_carries_the_digest_the_engine_computed
+        PASS [   0.040s] ( 221/6700) panproto-check classify::tests::classify_added_constraint_on_unlisted_sort_as_breaking
+        PASS [   0.056s] ( 222/6700) panproto-c::the_span_wire_carries_the_apex_digest a_nine_key_span_from_a_host_encoder_still_converts
+        PASS [   0.037s] ( 223/6700) panproto-check classify::tests::classify_constraint_relaxing_as_non_breaking
+        PASS [   0.073s] ( 224/6700) panproto-c::the_span_wire_carries_the_apex_digest the_cbor_a_host_holds_is_not_the_digest_pre_image
+        PASS [   0.056s] ( 225/6700) panproto-check classify::tests::classify_added_variant_as_breaking_under_unknown_openness
+        PASS [   0.086s] ( 226/6700) panproto-c::the_span_wire_carries_the_apex_digest the_vcs_schema_id_is_not_the_canonical_digest
+        PASS [   0.070s] ( 227/6700) panproto-check classify::tests::classify_added_required_edge_as_breaking
+        PASS [   0.050s] ( 228/6700) panproto-check classify::tests::classify_empty_diff_is_fully_compatible
+        PASS [   0.045s] ( 229/6700) panproto-check classify::tests::classify_modified_variant_as_breaking
+        PASS [   0.054s] ( 230/6700) panproto-check classify::tests::classify_kind_change_as_breaking
+        PASS [   0.051s] ( 231/6700) panproto-check classify::tests::classify_removed_governed_edge_as_breaking
+        PASS [   0.105s] ( 232/6700) panproto-check classify::tests::classify_added_optional_field_as_non_breaking
+        PASS [   0.042s] ( 233/6700) panproto-check classify::tests::classify_rename_suppresses_removed_added_pair
+        PASS [   0.062s] ( 234/6700) panproto-check classify::tests::classify_removed_non_governed_edge_as_non_breaking
+        PASS [   0.063s] ( 235/6700) panproto-check classify::tests::classify_removed_required_edge_as_breaking
+        PASS [   0.068s] ( 236/6700) panproto-check classify::tests::classify_removed_required_field_as_breaking
+        PASS [   0.128s] ( 237/6700) panproto-check classify::tests::classify_constraint_tightening_as_breaking
+        PASS [   0.052s] ( 238/6700) panproto-check classify::tests::fail_closed_every_category_is_classified
+        PASS [   0.078s] ( 239/6700) panproto-check classify::tests::classify_unlisted_sort_constraint_change_as_breaking
+        PASS [   0.079s] ( 240/6700) panproto-check classify::tests::classify_with_schemas_sets_classification
+        PASS [   0.077s] ( 241/6700) panproto-check classify::tests::enrichment_add_non_breaking_remove_modify_breaking
+        PASS [   0.048s] ( 242/6700) panproto-check classify::tests::ordering_transitions_breaking
+        PASS [   0.046s] ( 243/6700) panproto-check classify::tests::recursion_point_add_remove_modify_breaking
+        PASS [   0.048s] ( 244/6700) panproto-check classify::tests::span_add_non_breaking_remove_modify_breaking
+        PASS [   0.047s] ( 245/6700) panproto-check classify::tests::usage_mode_tighten_breaking_relax_non_breaking
+        PASS [   0.049s] ( 246/6700) panproto-check diff::tests::apply_renames_ignores_unmatched_pairs
+        PASS [   0.049s] ( 247/6700) panproto-check diff::tests::apply_renames_moves_pair_into_renamed_vertices
+        PASS [   0.030s] ( 248/6700) panproto-check diff::tests::diff_hyper_edge_added
+        PASS [   0.043s] ( 249/6700) panproto-check diff::tests::diff_constraint_on_added_vertex_is_not_a_modification
+        PASS [   0.062s] ( 250/6700) panproto-check diff::tests::diff_added_and_removed_vertices
+        PASS [   0.135s] ( 251/6700) panproto-check classify::tests::hyper_edge_add_non_breaking_remove_modify_breaking
+        PASS [   0.125s] ( 252/6700) panproto-check classify::tests::nsid_add_non_breaking_change_remove_breaking
+        PASS [   0.077s] ( 253/6700) panproto-check diff::tests::diff_constraint_changed
+        PASS [   0.047s] ( 254/6700) panproto-check diff::tests::diff_hyper_edge_removed
+        PASS [   0.047s] ( 255/6700) panproto-check diff::tests::diff_kind_change
+        PASS [   0.028s] ( 256/6700) panproto-check diff::tests::diff_nsid_removed
+        PASS [   0.056s] ( 257/6700) panproto-check diff::tests::diff_nominal_changed
+        PASS [   0.054s] ( 258/6700) panproto-check diff::tests::diff_nsid_added
+        PASS [   0.089s] ( 259/6700) panproto-check diff::tests::diff_hyper_edge_modified_signature
+        PASS [   0.104s] ( 260/6700) panproto-check diff::tests::diff_hyper_edge_modified_kind
+        PASS [   0.196s] ( 261/6700) panproto-check classify::tests::nominal_flip_breaking_both_directions
+        PASS [   0.049s] ( 262/6700) panproto-check diff::tests::diff_required_edge_removed
+        PASS [   0.064s] ( 263/6700) panproto-check diff::tests::diff_required_edge_added
+        PASS [   0.046s] ( 264/6700) panproto-check diff::tests::diff_variant_tag_modified
+        PASS [   0.042s] ( 265/6700) panproto-check diff::tests::empty_diff_for_identical_schemas
+        PASS [   0.034s] ( 266/6700) panproto-check report::tests::report_json_structure
+        PASS [   0.076s] ( 267/6700) panproto-check diff::tests::diff_span_added
+        PASS [   0.118s] ( 268/6700) panproto-check diff::tests::diff_nsid_changed
+        PASS [   0.061s] ( 269/6700) panproto-check diff::tests::is_empty_false_for_each_field
+        PASS [   0.038s] ( 270/6700) panproto-check report::tests::report_text_incompatible
+        PASS [   0.060s] ( 271/6700) panproto-check report::tests::report_json_valid_structure
+        PASS [   0.055s] ( 272/6700) panproto-check scope::tests::added_scope_detected
+        PASS [   0.059s] ( 273/6700) panproto-check scope::tests::body_modified_groups_anonymous
+        PASS [   0.063s] ( 274/6700) panproto-check scope::tests::constraint_only_change_appears_in_scope_report
+        PASS [   0.055s] ( 275/6700) panproto-check scope::tests::kind_change_only_appears_as_signature_change
+        PASS [   0.065s] ( 276/6700) panproto-check scope::tests::empty_diff_produces_empty_report
+        PASS [   0.040s] ( 277/6700) panproto-check scope::tests::removed_scope_detected
+        PASS [   0.069s] ( 278/6700) panproto-check scope::tests::named_elements_lists_all
+        PASS [   0.033s] ( 279/6700) panproto-check scope::tests::text_report_formats
+        PASS [   0.129s] ( 280/6700) panproto-check report::tests::report_text_compatible
+        PASS [   0.204s] ( 281/6700) panproto-check diff::tests::diff_recursion_point_target_modified
+        FAIL [   0.048s] ( 282/6700) panproto-check::keys_and_references declaration_changes_render_in_text_and_json_reports
+  stdout ───
+
+    running 1 test
+    test declaration_changes_render_in_text_and_json_reports ... FAILED
+
+    failures:
+
+    failures:
+        declaration_changes_render_in_text_and_json_reports
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'declaration_changes_render_in_text_and_json_reports' (85019587) panicked at crates/panproto-check/tests/keys_and_references.rs:345:5:
+    {"compatible":false,"classification":"breaking","breaking":[{"type":"key_added","vertex_id":"film","key_id":"pk"},{"type":"reference_added","reference_id":"store_film"}],"non_breaking":[],"breaking_count":2,"non_breaking_count":0}
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  Cancelling due to test failure: 9 tests still running
+        PASS [   0.043s] ( 283/6700) panproto-check::keys_and_references reference_changes_are_classified
+        PASS [   0.056s] ( 284/6700) panproto-check::keys_and_references key_changes_are_classified
+        PASS [   0.118s] ( 285/6700) panproto-check scope::tests::nearest_scope_skips_anonymous
+        PASS [   0.056s] ( 286/6700) panproto-check::keys_and_references schema_diff_reports_key_and_reference_changes
+        PASS [   0.102s] ( 287/6700) panproto-check scope::tests::scope_name_extracts_last_named
+        PASS [   0.230s] ( 288/6700) panproto-check diff::tests::diff_span_modified
+        PASS [   0.182s] ( 289/6700) panproto-check::diff_snapshot diff_json_shape_is_stable
+        PASS [   4.366s] ( 290/6700) panproto-cli::cli_compat compat_bare_lexicon_directories_use_requested_protocol
+        PASS [   4.371s] ( 291/6700) panproto-cli::cli_compat compat_bad_format_exits_2
+────────────
+     Summary [   6.579s] 291/6700 tests run: 290 passed, 1 failed, 5 skipped
+        FAIL [   0.048s] ( 282/6700) panproto-check::keys_and_references declaration_changes_render_in_text_and_json_reports
+warning: 6409/6700 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed
+nextest=100
+/dev/disk3s1s1   926Gi    17Gi   8.8Gi    67%    427k   92M    0%   /

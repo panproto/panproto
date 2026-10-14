@@ -1,0 +1,18 @@
+    Checking panproto-py v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-py)
+    Checking book-doctest-stub v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/book-doctest-stub)
+    Checking panproto-cli v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-cli)
+crates/panproto-py/src/inst.rs:85:22: error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+crates/panproto-py/src/inst.rs:86:16: error[E0599]: `ValidationReport` is not an iterator: `ValidationReport` is not an iterator
+crates/panproto-py/src/mig.rs:171:22: error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+crates/panproto-py/src/mig.rs:399:9: error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+error: could not compile `panproto-py` (lib test) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/tests/integration)
+error: could not compile `panproto-py` (lib) due to 4 previous errors
+    Checking panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-core)
+tests/integration/tests/optional_ref_root_inference.rs:69:18: error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+tests/integration/tests/optional_ref_root_inference.rs:71:16: error[E0599]: no method named `is_empty` found for struct `ValidationReport` in the current scope: method not found in `ValidationReport`
+error: could not compile `panproto-integration-tests` (test "optional_ref_root_inference") due to 2 previous errors
+    Checking panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-project)
+    Checking panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-io)
+    Checking panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-parse)

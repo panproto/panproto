@@ -1,0 +1,72 @@
+    Updating crates.io index
+     Locking 16 packages to latest Rust 1.98.0 compatible versions
+      Adding aho-corasick v1.1.5
+      Adding autocfg v1.5.1
+      Adding ciborium v0.2.2
+      Adding ciborium-io v0.2.2
+      Adding ciborium-ll v0.2.2
+      Adding crunchy v0.2.4
+      Adding half v2.7.1
+      Adding num-traits v0.2.19
+      Adding regex v1.13.1
+      Adding regex-automata v0.4.18
+      Adding regex-syntax v0.8.11
+      Adding rmp v0.8.15
+      Adding rmp-serde v1.3.1
+      Adding unicode-segmentation v1.13.3
+      Adding zerocopy v0.8.63
+      Adding zerocopy-derive v0.8.63
+ Downloading crates ...
+  Downloaded zerocopy-derive v0.8.63
+  Downloaded zerocopy v0.8.63
+   Compiling libc v0.2.189
+   Compiling syn v2.0.119
+   Compiling syn v3.0.3
+   Compiling jobserver v0.1.35
+   Compiling find-msvc-tools v0.1.10
+   Compiling cc v1.4.2
+   Compiling rustix v1.1.4
+   Compiling serde_derive v1.0.229
+   Compiling zerocopy v0.8.63
+    Checking bitflags v2.13.1
+   Compiling autocfg v1.5.1
+    Checking rustc-demangle v0.1.28
+   Compiling zerocopy-derive v0.8.63
+   Compiling num-traits v0.2.19
+    Checking serde v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling miette-derive v7.6.0
+    Checking thiserror v2.0.20
+   Compiling blake3 v1.8.6
+   Compiling zmij v1.0.23
+    Checking panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr)
+    Checking errno v0.3.14
+    Checking backtrace v0.3.76
+    Checking terminal_size v0.4.4
+    Checking backtrace-ext v0.2.1
+    Checking miette v7.6.0
+    Checking half v2.7.1
+    Checking aho-corasick v1.1.5
+    Checking arrayvec v0.7.8
+    Checking arrayref v0.3.9
+    Checking regex-syntax v0.8.11
+    Checking ciborium-ll v0.2.2
+    Checking panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat)
+    Checking rmp v0.8.15
+    Checking itoa v1.0.18
+    Checking rmp-serde v1.3.1
+    Checking serde_json v1.0.151
+    Checking ciborium v0.2.2
+    Checking regex-automata v0.4.18
+    Checking unicode-segmentation v1.13.3
+   Compiling derive_arbitrary v1.4.2
+   Compiling libfuzzer-sys v0.4.13
+    Checking arbitrary v1.4.2
+    Checking regex v1.13.1
+    Checking panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-schema)
+    Checking panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-inst)
+    Checking panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-mig)
+    Checking panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-protocols)
+    Checking panproto-fuzz v0.0.0 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/fuzz)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.04s
+fuzz=0
