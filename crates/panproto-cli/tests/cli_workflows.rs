@@ -27,6 +27,13 @@ fn init_repo(dir: &Path) {
 }
 
 fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
+    write_schema_under(dir, name, "test", vertices);
+}
+
+/// Write a schema naming `protocol`. Staged data is validated under the
+/// protocol its schema names, so a test that stages data names one the
+/// protocol registry declares.
+fn write_schema_under(dir: &Path, name: &str, protocol: &str, vertices: &[(&str, &str)]) {
     let mut verts = serde_json::Map::new();
     for (id, kind) in vertices {
         verts.insert(
@@ -37,7 +44,7 @@ fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
         );
     }
     let schema = serde_json::json!({
-        "protocol": "test",
+        "protocol": protocol,
         "vertices": verts,
         "edges": [],
         "hyper_edges": {},
@@ -352,7 +359,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
 
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+    write_schema_under(tmp.path(), "v1.json", "json-schema", &[("a", "object")]);
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
@@ -418,7 +425,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
 fn cli_add_data_failure_stages_nothing_and_reports_it() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+    write_schema_under(tmp.path(), "v1.json", "json-schema", &[("a", "object")]);
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
@@ -3115,8 +3122,12 @@ fn cli_lens_compile_retains_value_transforms_and_stage_order() {
     );
 }
 
+/// A compiled artifact whose ordered stages form two tree normal-form
+/// groups is a lens path, not one lens. Until the CLI applies lens paths
+/// stage by stage, `lens apply` refuses it with the typed single-stage
+/// error rather than fusing stages the tree composition rule keeps apart.
 #[test]
-fn cli_lens_apply_accepts_compiled_artifact_with_ordered_stages() {
+fn cli_lens_apply_refuses_a_compiled_artifact_of_two_normal_form_groups() {
     let tmp = tempfile::tempdir().unwrap();
     write_ordered_lens_document(tmp.path(), "ordered.json");
     write_schema_with_edges(
@@ -3155,14 +3166,16 @@ fn cli_lens_apply_accepts_compiled_artifact_with_ordered_stages() {
         ])
         .current_dir(tmp.path())
         .assert()
-        .success()
+        .failure()
         .get_output()
         .clone();
 
-    let view: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(view["amount"], "hello");
-    assert_eq!(view["derived"], "hello!");
-    assert!(view.get("text").is_none());
+    assert!(output.stdout.is_empty(), "a refused apply prints no view");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("lens path has 2 normal-form groups; one is required"),
+        "the refusal names the number of groups: {stderr}"
+    );
 }
 
 /// `schema lens compile` on an `auto` body without schema context must
