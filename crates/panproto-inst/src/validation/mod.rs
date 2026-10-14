@@ -23,8 +23,10 @@
 //!
 //! A [`ConstraintSemantics::Format`](panproto_schema::ConstraintSemantics::Format)
 //! constraint is evaluated for the fixed set of [`ValueFormat`]s: `date-time`
-//! (also `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`, `ipv6` and
-//! `did`. Any other format is an unsupported declaration.
+//! (also `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`, `ipv6`, `did`,
+//! and the AT Protocol Lexicon string formats `at-identifier`, `at-uri`,
+//! `cid`, `handle`, `nsid`, `tid`, `record-key` and `language`. Any other
+//! format is an unsupported declaration.
 //!
 //! ```
 //! use panproto_inst::validation::validate_graph;
@@ -50,6 +52,7 @@
 
 mod checks;
 mod footprint;
+mod lexicon_formats;
 mod plan;
 mod report;
 mod schedule;
