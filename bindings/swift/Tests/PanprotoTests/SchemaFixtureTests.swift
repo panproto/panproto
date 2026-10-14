@@ -162,9 +162,11 @@ struct ProtocolFixtureTests {
         let schemaRecipe = try #require(spec.schemaComposition)
         #expect(schemaRecipe.resultName == "ThATProtoSchema")
         #expect(schemaRecipe.version == 1)
-        guard case .diagram(let nodes, _, let mode, let clash, _, _) = try #require(
-            schemaRecipe.steps.first
-        ) else {
+        guard
+            case .diagram(let nodes, _, let mode, let clash, _, _) = try #require(
+                schemaRecipe.steps.first
+            )
+        else {
             Issue.record("the schema recipe does not start with a diagram step")
             return
         }
@@ -173,9 +175,11 @@ struct ProtocolFixtureTests {
         #expect(clash == .reject)
         let instanceRecipe = try #require(spec.instanceComposition)
         #expect(instanceRecipe.resultName == "ThATProtoInstance")
-        guard case .diagram(let instanceNodes, _, _, _, _, _) = try #require(
-            instanceRecipe.steps.first
-        ) else {
+        guard
+            case .diagram(let instanceNodes, _, _, _, _, _) = try #require(
+                instanceRecipe.steps.first
+            )
+        else {
             Issue.record("the instance recipe does not start with a diagram step")
             return
         }

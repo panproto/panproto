@@ -80,13 +80,13 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 25066 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
 | `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10513 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
 | `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5811 | the `app.bsky.feed.post` schema |
-| `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1324 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
+| `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1323 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
 | `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7006 | post schema against profile schema |
 | `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 8395 | post schema against profile schema |
 | `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 9461 | the full diff against the `atproto` protocol |
 | `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 415 | the chain auto-generated at stringency `lenient` |
 | `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 573 | the same chain at the post schema |
-| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1815 | the post instance through the post schema's chain against itself |
+| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1814 | the post instance through the post schema's chain against itself |
 | `vcs-add.cbor` | `Raw.vcsAdd(repo:schema:)` | 119 | the post schema staged into a fresh repository |
 | `vcs-commit.cbor` | `Raw.vcsCommit(repo:message:author:)` | 163 | the commit that records the staged post schema |
 | `vcs-branches.cbor` | `Raw.vcsListBranches(repo:)` | 211 | the listing after `Raw.vcsBranch(repo:name:)` created `post-fixture` |

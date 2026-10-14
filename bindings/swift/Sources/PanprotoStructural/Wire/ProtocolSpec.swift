@@ -295,7 +295,8 @@ public enum CompositionStep: Codable, Hashable, Sendable {
                 right: try payload.decode(String.self, forKey: .right),
                 sharedSorts: try payload.decode([String].self, forKey: .sharedSorts),
                 sharedOps: try payload.decodeIfPresent([String].self, forKey: .sharedOps) ?? [],
-                mode: try payload.decodeIfPresent(CompositionMode.self, forKey: .mode) ?? .amalgamate
+                mode: try payload.decodeIfPresent(CompositionMode.self, forKey: .mode)
+                    ?? .amalgamate
             )
         case .diagram:
             let payload = try container.nestedContainer(keyedBy: DiagramKey.self, forKey: .diagram)
