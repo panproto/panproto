@@ -140,7 +140,15 @@ struct GetRecordFixtureTests {
     @Test("the complement replays through the array-of-pairs shape")
     func complementReplays() throws {
         let bytes = try fixtureBytes("get-record")
-        let complement = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes).complement()
+        var complement = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes)
+            .complement()
+        // The record's arcs are all determined by the schema, so the
+        // engine records no arc edge; one is added to exercise the shape.
+        complement.arcEdges[NodePair(parent: 2, child: 3)] = Edge(
+            src: "app.bsky.feed.post:body.langs",
+            tgt: "app.bsky.feed.post:body.langs:items",
+            kind: "items"
+        )
         let reencoded = try CBOREncoder().encode(complement)
 
         #expect(try CBORDecoder().decode(Complement.self, from: reencoded) == complement)
@@ -148,7 +156,7 @@ struct GetRecordFixtureTests {
         // What the engine writes for a pair-keyed field is an array,
         // and what this type writes has to be one too.
         let item = try CBORValue(decoding: reencoded)
-        #expect(item["arc_edges"]?.arrayValue?.isEmpty == true)
+        #expect(item["arc_edges"]?.arrayValue?.count == 1)
         #expect(item["contraction_choices"]?.arrayValue?.isEmpty == true)
     }
 }

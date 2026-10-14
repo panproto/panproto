@@ -219,7 +219,9 @@ fn parse_array(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    let node = Node::new(node_id, vertex_id);
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
     state.nodes.insert(node_id, node);
 
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();

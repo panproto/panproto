@@ -36,3 +36,34 @@ fn the_codec_roots_a_record_where_its_root_node_is_anchored() {
     assert_eq!(anchor.as_ref(), "app.bsky.feed.post:body");
     assert_eq!(&instance.schema_root, anchor);
 }
+
+/// The codec and `panproto_inst::parse_json` read one record to one
+/// instance, its list node marked as a list on both routes.
+#[test]
+fn the_codec_and_the_schema_parse_read_a_record_alike() {
+    let lexicon: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(repository(
+            "fixtures/atproto/lexicons/app.bsky.feed.post.json",
+        ))
+        .expect("the lexicon reads"),
+    )
+    .expect("the lexicon is JSON");
+    let schema = panproto_protocols::atproto::parse_lexicon(&lexicon).expect("the lexicon parses");
+    let bytes = std::fs::read(repository("fixtures/atproto/records/post-0.json"))
+        .expect("the record reads");
+
+    let through_codec = panproto_io::default_registry()
+        .parse_wtype("atproto", &schema, &bytes)
+        .expect("the codec parses the record");
+    let through_schema = panproto_inst::parse_json(
+        &schema,
+        "app.bsky.feed.post",
+        &serde_json::from_slice(&bytes).expect("the record is JSON"),
+    )
+    .expect("the schema parse reads the record");
+
+    assert_eq!(
+        serde_json::to_value(&through_codec).expect("the instance serializes"),
+        serde_json::to_value(&through_schema).expect("the instance serializes"),
+    );
+}
