@@ -322,16 +322,43 @@ impl Nat {
         Self::one().shift10(k)
     }
 
-    /// Half of an even number (the quotient by two, rounding down).
-    fn half(&self) -> Self {
+    /// The quotient and remainder by a divisor `0 < d <= 2^32`, by schoolbook
+    /// short division from the most significant digit (each partial
+    /// dividend is below `2^32 * 10^9 < 2^62`).
+    fn div_small(&self, d: u64) -> (Self, u64) {
         let mut out = vec![0u32; self.limbs.len()];
         let mut carry = 0u64;
         for i in (0..self.limbs.len()).rev() {
             let cur = carry * BASE + self.limb(i);
-            out[i] = u32::try_from(cur / 2).unwrap_or(0);
-            carry = cur % 2;
+            out[i] = u32::try_from(cur / d).unwrap_or(0);
+            carry = cur % d;
         }
-        Self::normalized(out)
+        (Self::normalized(out), carry)
+    }
+
+    /// Half of an even number (the quotient by two, rounding down).
+    fn half(&self) -> Self {
+        self.div_small(2).0
+    }
+
+    /// The number of binary digits, i.e. the least `b` with `self < 2^b`
+    /// (zero has none).
+    ///
+    /// The loop keeps `n = floor(self / 2^bits)` and strips 32 binary digits
+    /// per step; once `n < 2^32` the answer is `bits` plus the bit length of
+    /// the machine word `n`. No step estimates anything.
+    #[must_use]
+    pub fn bit_length(&self) -> u64 {
+        let mut n = self.clone();
+        let mut bits = 0;
+        loop {
+            let (q, r) = n.div_small(1 << 32);
+            if q.is_zero() {
+                return bits + u64::from(u64::BITS - r.leading_zeros());
+            }
+            bits += 32;
+            n = q;
+        }
     }
 
     /// The greatest common divisor by the binary algorithm (Stein): strip
@@ -731,27 +758,22 @@ impl Ord for Rat {
     }
 }
 
-/// `floor(log2(q))` for a positive rational `q`, found by exact comparison
-/// with powers of two, starting from an estimate made from digit counts.
+/// `floor(log2(q))` for a positive rational `q`, by one exact comparison
+/// with a power of two. Returns `None` for a non-positive `q`.
 ///
-/// Returns `None` for a non-positive `q`.
+/// A numerator of `a` bits and a denominator of `b` bits satisfy
+/// `2^(a-1) <= num < 2^a` and `2^(b-1) <= den < 2^b`, which put `q` in
+/// `(2^(a-b-1), 2^(a-b+1))`; so the floor is `a - b` or one less, and it is
+/// `a - b` exactly when `2^(a-b) <= q`.
 #[must_use]
 pub fn floor_log2(q: &Rat) -> Option<i64> {
     if q.is_zero() || q.is_negative() {
         return None;
     }
-    let ln = i64::try_from(q.num().magnitude().digit_count()).unwrap_or(i64::MAX);
-    let ld = i64::try_from(q.den().digit_count()).unwrap_or(i64::MAX);
-    // log2(10) is 3.3219...; the estimate only chooses where the exact search
-    // starts, so its accuracy does not matter for the result.
-    let mut e = (ln - ld) * 33_219 / 10_000;
-    while Rat::pow2(e) > *q {
-        e -= 1;
-    }
-    while Rat::pow2(e + 1) <= *q {
-        e += 1;
-    }
-    Some(e)
+    let a = i64::try_from(q.num().magnitude().bit_length()).unwrap_or(i64::MAX);
+    let b = i64::try_from(q.den().bit_length()).unwrap_or(i64::MAX);
+    let e = a - b;
+    Some(if Rat::pow2(e) > *q { e - 1 } else { e })
 }
 
 /// `floor(log10(q))` for a positive rational `q`, by one exact comparison

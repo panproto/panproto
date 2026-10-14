@@ -577,3 +577,122 @@ fn floor_logarithms_agree_with_integer_search() {
         }
     });
 }
+
+/// The number of binary digits of `v`, from the machine word.
+fn bits_u128(v: u128) -> u64 {
+    u64::from(u128::BITS - v.leading_zeros())
+}
+
+#[test]
+fn bit_lengths_agree_with_machine_words_and_powers_of_two() {
+    bounded::within(60, || {
+        for v in boundary_values() {
+            assert_eq!(nat(v).bit_length(), bits_u128(v), "bit length of {v}");
+        }
+        for v in 0..=5_000u128 {
+            assert_eq!(nat(v).bit_length(), bits_u128(v), "bit length of {v}");
+        }
+        let one = Nat::one();
+        for k in 1..=1_100u32 {
+            let p = Nat::parse(&Decimal::pow(2, k).text()).unwrap();
+            let below = p.checked_sub(&one).unwrap();
+            let above = p.add(&one);
+            let k64 = u64::from(k);
+            assert_eq!(p.bit_length(), k64 + 1, "bit length of 2^{k}");
+            assert_eq!(below.bit_length(), k64, "bit length of 2^{k} - 1");
+            assert_eq!(above.bit_length(), k64 + 1, "bit length of 2^{k} + 1");
+        }
+    });
+}
+
+/// `floor(log2(p / q))` for positive `p` and `q`, by shifting: for `p >= q`
+/// the greatest `e` with `floor(p / 2^e) >= q` (halving `p`), otherwise
+/// minus the least `k` with `p * 2^k >= q` (doubling `p`).
+const fn floor_log2_by_shifts(p: u128, q: u128) -> i64 {
+    if p >= q {
+        let mut e = 0;
+        while (p >> (e + 1)) >= q {
+            e += 1;
+        }
+        e
+    } else {
+        let mut k = 0;
+        while (p << k) < q {
+            k += 1;
+        }
+        -k
+    }
+}
+
+fn rat_u128(p: u128, q: u128) -> Rat {
+    rat(i128::try_from(p).unwrap(), i128::try_from(q).unwrap())
+}
+
+#[test]
+fn floor_log2_agrees_with_shifting_on_all_small_fractions_and_power_boundaries() {
+    bounded::within(60, || {
+        for p in 1..=512u128 {
+            for q in 1..=512u128 {
+                let expected = floor_log2_by_shifts(p, q);
+                assert_eq!(floor_log2(&rat_u128(p, q)), Some(expected), "log2 {p}/{q}");
+            }
+        }
+        let mut bases: Vec<u128> = (1..=40).collect();
+        for j in 1..=24u32 {
+            bases.extend([(1 << j) - 1, (1 << j) + 1, 3u128.pow(j / 2 + 1)]);
+        }
+        for d in bases {
+            for k in 0..=100u32 {
+                let edge = d << k;
+                if edge >= 1 << 125 {
+                    continue;
+                }
+                for n in [edge - 1, edge, edge + 1] {
+                    if n == 0 {
+                        continue;
+                    }
+                    let expected = floor_log2_by_shifts(n, d);
+                    assert_eq!(floor_log2(&rat_u128(n, d)), Some(expected), "log2 {n}/{d}");
+                    let expected = floor_log2_by_shifts(d, n);
+                    assert_eq!(floor_log2(&rat_u128(d, n)), Some(expected), "log2 {d}/{n}");
+                }
+            }
+        }
+        let one = Nat::one();
+        let three = Nat::from_u64(3);
+        let ratio = |n: &Nat, d: &Nat| Rat::new(Int::new(false, n.clone()), d.clone()).unwrap();
+        for k in 2..=1_100u32 {
+            let p = Nat::parse(&Decimal::pow(2, k).text()).unwrap();
+            let (below, above) = (p.checked_sub(&one).unwrap(), p.add(&one));
+            let k = i64::from(k);
+            assert_eq!(floor_log2(&ratio(&p, &one)), Some(k), "log2 2^{k}");
+            assert_eq!(
+                floor_log2(&ratio(&below, &one)),
+                Some(k - 1),
+                "log2 2^{k}-1"
+            );
+            assert_eq!(floor_log2(&ratio(&above, &one)), Some(k), "log2 2^{k}+1");
+            assert_eq!(floor_log2(&ratio(&one, &p)), Some(-k), "log2 2^-{k}");
+            assert_eq!(
+                floor_log2(&ratio(&one, &below)),
+                Some(-k),
+                "log2 1/(2^{k}-1)"
+            );
+            assert_eq!(
+                floor_log2(&ratio(&one, &above)),
+                Some(-k - 1),
+                "log2 1/(2^{k}+1)"
+            );
+            assert_eq!(
+                floor_log2(&ratio(&above, &three)),
+                Some(k - 2),
+                "log2 (2^{k}+1)/3"
+            );
+            assert_eq!(
+                floor_log2(&ratio(&three, &above)),
+                Some(1 - k),
+                "log2 3/(2^{k}+1)"
+            );
+        }
+    });
+}
