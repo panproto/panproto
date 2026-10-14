@@ -1,0 +1,55 @@
+$ PP_REGEN_HEADERS=1 cargo test -p panproto-c --features headers -- generate_headers && git diff --exit-code crates/panproto-c/include/panproto.h && diff -u crates/panproto-c/include/panproto.h bindings/swift/Sources/CPanproto/include/panproto.h
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling safer-ffi v0.1.13
+   Compiling safer_ffi-proc_macros v0.1.13
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling inventory v0.3.24
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+   Compiling panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-c)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.58s
+     Running unittests src/lib.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/panproto_c-d26ee93166ce97f4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 205 filtered out; finished in 0.00s
+
+     Running tests/error_envelopes.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/error_envelopes-91a4108a26d51dbe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/error_slot.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/error_slot-51b561814566d86b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/headers.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/headers-14574a319b070833)
+
+running 1 test
+test generate_headers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/panic_hook.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/panic_hook-7b4ac64a79097d0e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/the_span_wire_carries_the_apex_digest.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/the_span_wire_carries_the_apex_digest-35d529f990c84dfa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+   Doc-tests panproto_c
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

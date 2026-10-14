@@ -1,0 +1,135 @@
+$ cabal test -f native-only
+Resolving dependencies...
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - panproto-0.74.4 (lib) (configuration changed)
+ - panproto-0.74.4 (test:panproto-test) (configuration changed)
+Configuring library for panproto-0.74.4...
+Preprocessing library for panproto-0.74.4...
+Building library for panproto-0.74.4...
+[ 1 of 23] Compiling Panproto.Canonical ( src/Panproto/Canonical.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Canonical.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Canonical.dyn_o ) [Flags changed]
+[ 2 of 23] Compiling Panproto.Effect  ( src/Panproto/Effect.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Effect.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Effect.dyn_o ) [Flags changed]
+[ 3 of 23] Compiling Panproto.Errors  ( src/Panproto/Errors.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Errors.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Errors.dyn_o ) [Flags changed]
+[ 4 of 23] Compiling Panproto.Json    ( src/Panproto/Json.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Json.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Json.dyn_o ) [Flags changed]
+[ 5 of 23] Compiling Panproto.Gat     ( src/Panproto/Gat.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Gat.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Gat.dyn_o ) [Flags changed]
+[ 6 of 23] Compiling Panproto.Protocol ( src/Panproto/Protocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Protocol.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Protocol.dyn_o ) [Flags changed]
+[ 7 of 23] Compiling Panproto.Schema  ( src/Panproto/Schema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Schema.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Schema.dyn_o ) [Flags changed]
+[ 8 of 23] Compiling Panproto.Class   ( src/Panproto/Class.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Class.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Class.dyn_o ) [Flags changed]
+[ 9 of 23] Compiling Panproto.Native.Schema ( src/Panproto/Native/Schema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Schema.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Schema.dyn_o ) [Flags changed]
+[10 of 23] Compiling Panproto.Native.Protocol ( src/Panproto/Native/Protocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Protocol.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Protocol.dyn_o ) [Flags changed]
+[11 of 23] Compiling Panproto.Instance ( src/Panproto/Instance.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Instance.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Instance.dyn_o ) [Flags changed]
+[12 of 23] Compiling Panproto.Migration ( src/Panproto/Migration.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration.dyn_o ) [Flags changed]
+[13 of 23] Compiling Panproto.Migration.Combinators ( src/Panproto/Migration/Combinators.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration/Combinators.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration/Combinators.dyn_o ) [Flags changed]
+[14 of 23] Compiling Panproto.Lens    ( src/Panproto/Lens.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Lens.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Lens.dyn_o ) [Flags changed]
+[15 of 23] Compiling Panproto.Io      ( src/Panproto/Io.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Io.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Io.dyn_o ) [Flags changed]
+[16 of 23] Compiling Panproto.Hom     ( src/Panproto/Hom.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Hom.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Hom.dyn_o ) [Flags changed]
+[17 of 23] Compiling Panproto.Graph   ( src/Panproto/Graph.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Graph.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Graph.dyn_o ) [Flags changed]
+[18 of 23] Compiling Panproto.Expr    ( src/Panproto/Expr.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Expr.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Expr.dyn_o ) [Flags changed]
+[19 of 23] Compiling Panproto.Enriched ( src/Panproto/Enriched.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Enriched.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Enriched.dyn_o ) [Flags changed]
+[20 of 23] Compiling Panproto.Data    ( src/Panproto/Data.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Data.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Data.dyn_o ) [Flags changed]
+[21 of 23] Compiling Panproto.Check   ( src/Panproto/Check.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Check.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Check.dyn_o ) [Flags changed]
+[22 of 23] Compiling Panproto.Vcs     ( src/Panproto/Vcs.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Vcs.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Vcs.dyn_o ) [Flags changed]
+[23 of 23] Compiling Panproto         ( src/Panproto.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto.dyn_o ) [Flags changed]
+Configuring test suite 'panproto-test' for panproto-0.74.4...
+Preprocessing test suite 'panproto-test' for panproto-0.74.4...
+Building test suite 'panproto-test' for panproto-0.74.4...
+[1 of 7] Compiling Spec.CanonicalRoundtrip ( test/Spec/CanonicalRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/CanonicalRoundtrip.o ) [Flags changed]
+[2 of 7] Compiling Spec.Errors      ( test/Spec/Errors.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/Errors.o ) [Flags changed]
+[3 of 7] Compiling Spec.InstanceRoundtrip ( test/Spec/InstanceRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/InstanceRoundtrip.o ) [Flags changed]
+[4 of 7] Compiling Spec.Laws        ( test/Spec/Laws.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/Laws.o ) [Flags changed]
+[5 of 7] Compiling Spec.NativeProtocol ( test/Spec/NativeProtocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/NativeProtocol.o ) [Flags changed]
+[6 of 7] Compiling Spec.StructuredSchema ( test/Spec/StructuredSchema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/StructuredSchema.o ) [Flags changed]
+[7 of 7] Compiling Main             ( test/Main.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Main.o ) [Flags changed]
+[8 of 8] Linking dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test [Objects changed]
+Running 1 test suites...
+Test suite panproto-test: RUNNING...
+panproto
+  Spec.CanonicalRoundtrip
+    encode . decode = id (default):                                 OK
+    encode . decode = id (populated):                               OK
+    encode . decode = id (with edge rules):                         OK
+    encode . decode = id (all flags):                               OK
+    decode tolerates unknown fields:                                OK
+    decode tolerates indef-length map:                              OK
+    decode rejects malformed input:                                 OK
+  Spec.Errors
+    statusFromInt . statusToInt = id:                               OK
+    unknown status preserves the numeric code:                      OK
+    decode envelope with required fields:                           OK
+    decode envelope ignores unknown fields:                         OK
+    decode envelope rejects empty bytes:                            OK
+    decode envelope rejects garbage:                                OK
+    decode envelope tolerates indef-length map:                     OK
+    envelopeStatus translates the numeric code:                     OK
+  Spec.InstanceRoundtrip
+    instance encode . decode = id (empty):                          OK
+    instance encode . decode = id (populated):                      OK
+    complement encode . decode = id (empty):                        OK
+    complement encode . decode = id (populated):                    OK
+    complement list encode . decode = id:                           OK
+    instance accessors:                                             OK
+    complement accessors:                                           OK
+  algebraic laws
+    Migration
+      (<>) is associative (incl. resolver remap):                   OK
+      identityMigrationOn is a left identity over its carriers:     OK
+      identityMigrationOn is a right identity over its carriers:    OK
+      pipeline folds (<>) and does not annihilate (regression):     OK
+    Migration codec (decode . encode = Right)
+      empty migration round-trips:                                  OK
+      every field round-trips (incl. tuple-keyed + hyper-resolver): OK
+    Expr codec (decode . encode = Right)
+      every Expr/Pattern/Literal variant round-trips:               OK
+      every BuiltinOp round-trips through encodeExpr:               OK
+    Term codec (decode . encode = Right)
+      every Term variant round-trips:                               OK
+    ProtolensChain
+      (<>) is associative:                                          OK
+      mempty is a left identity:                                    OK
+      mempty is a right identity:                                   OK
+      mempty is identityChain:                                      OK
+      LensArr (.) is associative:                                   OK
+      LensArr id is a two-sided identity:                           OK
+    Stringency
+      (<>) is associative (all triples):                            OK
+      mempty is a left identity (all elements):                     OK
+      mempty is a right identity (all elements):                    OK
+    OpticKind
+      (<>) is associative (all triples):                            OK
+      mempty is a left identity (all elements):                     OK
+      mempty is a right identity (all elements):                    OK
+    ByQuality (Eq/Ord agreement)
+      equal scores compare EQ and ==, even with different maps:     OK
+      different scores order by score and are /=:                   OK
+    Exception hierarchy
+      PanprotoError:                                                OK
+      SchemaValidationError:                                        OK
+      CheckError:                                                   OK
+      ExistenceCheckError:                                          OK
+      ExprError:                                                    OK
+      GatError:                                                     OK
+      GitBridgeError:                                               OK
+      IoError:                                                      OK
+      LensError:                                                    OK
+      MigrationError:                                               OK
+      ParseError:                                                   OK
+      ProjectError:                                                 OK
+      VcsError:                                                     OK
+      distinct children do not alias each other:                    OK
+  Spec.NativeProtocol
+    round-trip default:                                             OK
+    round-trip populated:                                           OK
+    release is a no-op:                                             OK
+  Spec.StructuredSchema
+    encode . decode = id (empty):                                   OK
+    encode . decode = id (populated):                               OK
+    encode . decode = id (every field populated):                   OK
+    builder accessors:                                              OK
+    derived adjacency:                                              OK
+    field text accessor:                                            OK
+
+All 68 tests passed (0.00s)
+Test suite panproto-test: PASS
+Test suite logged to:
+/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/haskell/./dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/test/panproto-0.74.4-panproto-test.log
+1 of 1 test suites (1 of 1 test cases) passed.

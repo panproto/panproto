@@ -1,0 +1,194 @@
+# failing-first: tests of f7a2b528 (committed before the implementation), production code of f7a2b528, 2026-10-14T13:37:27Z
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 12s
+────────────
+ Nextest run ID 5b91e6a7-74d9-4ce7-afa7-8026efc23b05 with nextest profile: default
+    Starting 112 tests across 2 binaries
+        PASS [   0.021s] (  1/112) panproto-core::atproto_records_validate every_committed_post_carries_langs
+        FAIL [   0.037s] (  2/112) panproto-core::atproto_records_validate a_post_with_a_malformed_language_tag_fails_and_is_refused
+  stdout ───
+
+    running 1 test
+    test a_post_with_a_malformed_language_tag_fails_and_is_refused ... FAILED
+
+    failures:
+
+    failures:
+        a_post_with_a_malformed_language_tag_fails_and_is_refused
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'a_post_with_a_malformed_language_tag_fails_and_is_refused' (721715) panicked at crates/panproto-core/tests/atproto_records_validate.rs:111:5:
+    assertion `left == right` failed: ValidationReport { shape: Tree, scope: Instance, plan: Digest(cceeb8ac74b6cf796156716f01b912416de079145aacdcef8e05affa0d9bd4b8), status: Incomplete, diagnostics: [], incomplete: [IncompleteCheck { check: CheckKey { kind: DeclarationInterpretable, decl: Schema }, class: Static, requirement: Required, subject: None, reason: UnsupportedDeclaration { sort: Name("format") } }, IncompleteCheck { check: CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.langs:items"), constraint: Constraint { sort: Name("format"), value: "language" } } }, class: GraphLocal, requirement: Required, subject: None, reason: UnsupportedDeclaration { sort: Name("format") } }], coverage: {CheckKey { kind: SchemaWellFormed, decl: Schema }: CheckCoverage { class: Static, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: DeclarationInterpretable, decl: Schema }: CheckCoverage { class: Static, requirement: Required, instances: 1, passed: 0, failed: 0, incomplete: 1 }, CheckKey { kind: NodeAnchor, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 5, passed: 5, failed: 0, incomplete: 0 }, CheckKey { kind: ReservedVocabulary, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 9, passed: 9, failed: 0, incomplete: 0 }, CheckKey { kind: EdgeDeclared, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 4, passed: 4, failed: 0, incomplete: 0 }, CheckKey { kind: EndpointCoherence, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 4, passed: 4, failed: 0, incomplete: 0 }, CheckKey { kind: FanWellFormed, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#entity"), edge: Edge { src: Name("app.bsky.feed.post#entity"), tgt: Name("app.bsky.feed.post#entity.index"), kind: Name("prop"), name: Some(Name("index")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#entity"), edge: Edge { src: Name("app.bsky.feed.post#entity"), tgt: Name("app.bsky.feed.post#entity.type"), kind: Name("prop"), name: Some(Name("type")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#entity"), edge: Edge { src: Name("app.bsky.feed.post#entity"), tgt: Name("app.bsky.feed.post#entity.value"), kind: Name("prop"), name: Some(Name("value")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#replyRef"), edge: Edge { src: Name("app.bsky.feed.post#replyRef"), tgt: Name("app.bsky.feed.post#replyRef.parent"), kind: Name("prop"), name: Some(Name("parent")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#replyRef"), edge: Edge { src: Name("app.bsky.feed.post#replyRef"), tgt: Name("app.bsky.feed.post#replyRef.root"), kind: Name("prop"), name: Some(Name("root")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#textSlice"), edge: Edge { src: Name("app.bsky.feed.post#textSlice"), tgt: Name("app.bsky.feed.post#textSlice.end"), kind: Name("prop"), name: Some(Name("end")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post#textSlice"), edge: Edge { src: Name("app.bsky.feed.post#textSlice"), tgt: Name("app.bsky.feed.post#textSlice.start"), kind: Name("prop"), name: Some(Name("start")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post:body"), edge: Edge { src: Name("app.bsky.feed.post:body"), tgt: Name("app.bsky.feed.post:body.createdAt"), kind: Name("prop"), name: Some(Name("createdAt")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: RequiredEdge, decl: Required { vertex: Name("app.bsky.feed.post:body"), edge: Edge { src: Name("app.bsky.feed.post:body"), tgt: Name("app.bsky.feed.post:body.text"), kind: Name("prop"), name: Some(Name("text")) } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post#textSlice.end"), constraint: Constraint { sort: Name("minimum"), value: "0" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post#textSlice.start"), constraint: Constraint { sort: Name("minimum"), value: "0" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.createdAt"), constraint: Constraint { sort: Name("format"), value: "datetime" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.langs:items"), constraint: Constraint { sort: Name("format"), value: "language" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 0, failed: 0, incomplete: 1 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.tags:items"), constraint: Constraint { sort: Name("maxGraphemes"), value: "64" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.tags:items"), constraint: Constraint { sort: Name("maxLength"), value: "640" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.text"), constraint: Constraint { sort: Name("maxGraphemes"), value: "300" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.text"), constraint: Constraint { sort: Name("maxLength"), value: "3000" } } }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post#entity")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post#replyRef.parent")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post#replyRef.root")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post#textSlice")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.embed:variant0")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.embed:variant1")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.embed:variant2")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.embed:variant3")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.embed:variant4")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.facets:items")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.labels:variant0")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.langs")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: Attribute, decl: Vertex(Name("app.bsky.feed.post:body.tags")) }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 0, passed: 0, failed: 0, incomplete: 0 }, CheckKey { kind: TreeRoot, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 1, passed: 1, failed: 0, incomplete: 0 }, CheckKey { kind: TreeParentMap, decl: Schema }: CheckCoverage { class: GraphLocal, requirement: Required, instances: 5, passed: 5, failed: 0, incomplete: 0 }, CheckKey { kind: TreeReachable, decl: Schema }: CheckCoverage { class: MaintainedGlobal, requirement: Required, instances: 5, passed: 5, failed: 0, incomplete: 0 }} }
+      left: Incomplete
+     right: Failed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.043s] (  3/112) panproto-core::atproto_records_validate real_posts_with_langs_validate_and_lift
+  stdout ───
+
+    running 1 test
+    test real_posts_with_langs_validate_and_lift ... FAILED
+
+    failures:
+
+    failures:
+        real_posts_with_langs_validate_and_lift
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'real_posts_with_langs_validate_and_lift' (721718) panicked at crates/panproto-core/tests/atproto_records_validate.rs:73:9:
+    assertion `left == right` failed: post-0: [] [IncompleteCheck { check: CheckKey { kind: DeclarationInterpretable, decl: Schema }, class: Static, requirement: Required, subject: None, reason: UnsupportedDeclaration { sort: Name("format") } }, IncompleteCheck { check: CheckKey { kind: ValueConstraint, decl: Constraint { vertex: Name("app.bsky.feed.post:body.langs:items"), constraint: Constraint { sort: Name("format"), value: "language" } } }, class: GraphLocal, requirement: Required, subject: None, reason: UnsupportedDeclaration { sort: Name("format") } }]
+      left: Incomplete
+     right: Passed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.033s] (  4/112) panproto-inst::validation a_cached_plan_validates_like_the_schema_taking_call
+        PASS [   0.064s] (  5/112) panproto-inst::validation a_budget_cuts_a_suffix_in_check_instance_order
+        PASS [   0.028s] (  6/112) panproto-inst::validation a_fan_of_an_undeclared_hyper_edge_is_one_malformed_fan_in_every_shape
+        PASS [   0.032s] (  7/112) panproto-inst::validation a_foreign_edge_at_a_fan_node_is_a_non_fan_edge_in_either_direction
+        PASS [   0.032s] (  8/112) panproto-inst::validation a_format_family_does_not_change_validation
+        PASS [   0.038s] (  9/112) panproto-inst::validation a_key_scoped_within_an_ancestor_is_unique_per_ancestor
+        PASS [   0.036s] ( 10/112) panproto-inst::validation a_label_less_fan_of_an_undeclared_hyper_edge_leaves_the_fan_domain
+        PASS [   0.031s] ( 11/112) panproto-inst::validation a_pair_outside_its_edges_tables_is_rejected_by_construction
+        PASS [   0.029s] ( 12/112) panproto-inst::validation a_pattern_with_lookahead_is_ill_formed
+        PASS [   0.020s] ( 13/112) panproto-inst::validation a_plan_has_one_check_key_per_compiled_check
+        PASS [   0.024s] ( 14/112) panproto-inst::validation a_reference_compiles_to_reference_resolves_when_the_shapes_agree
+        PASS [   0.032s] ( 15/112) panproto-inst::validation a_required_edge_is_met_only_by_an_edge_to_its_target
+        PASS [   0.027s] ( 16/112) panproto-inst::validation a_schema_problem_is_incomplete_never_failed
+        PASS [   0.025s] ( 17/112) panproto-inst::validation a_sibling_variant_is_not_an_endpoint_of_its_siblings_edge
+        PASS [   0.029s] ( 18/112) panproto-inst::validation a_source_map_does_not_change_the_schema_digest
+        PASS [   0.022s] ( 19/112) panproto-inst::validation a_sql_table_signature_must_equal_its_columns
+        PASS [   0.024s] ( 20/112) panproto-inst::validation a_tree_fan_of_an_undeclared_hyper_edge_is_malformed
+        PASS [   0.026s] ( 21/112) panproto-inst::validation a_tree_fan_of_an_undeclared_hyper_edge_with_no_labels_is_a_malformed_fan
+        PASS [   0.026s] ( 22/112) panproto-inst::validation a_tree_fan_with_an_absent_child_is_missing_child
+        PASS [   0.030s] ( 23/112) panproto-inst::validation a_tree_node_of_the_fan_shape_anchored_at_a_declared_vertex_has_a_known_anchor
+        PASS [   0.029s] ( 24/112) panproto-inst::validation a_tree_node_of_the_fan_shape_anchored_at_a_hyper_edge_has_an_unknown_anchor
+        PASS [   0.024s] ( 25/112) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_attributes
+        PASS [   0.026s] ( 26/112) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_out_degree
+        PASS [   0.023s] ( 27/112) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_required_edges
+        PASS [   0.024s] ( 28/112) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_value
+        PASS [   0.024s] ( 29/112) panproto-inst::validation a_valid_tree_passes
+        PASS [   0.025s] ( 30/112) panproto-inst::validation acyclic_rejects_two_cycles_long_cycles_and_self_loops
+        PASS [   0.024s] ( 31/112) panproto-inst::validation advisory_entries_are_listed_and_never_change_the_status
+        PASS [   0.024s] ( 32/112) panproto-inst::validation an_incomplete_check_without_subject_covers_every_instance
+        PASS [   0.023s] ( 33/112) panproto-inst::validation an_undeclared_edge_label_is_reported_by_validate_graph
+        PASS [   0.023s] ( 34/112) panproto-inst::validation an_unknown_anchor_suppresses_value_checks_but_not_edge_checks
+        PASS [   0.024s] ( 35/112) panproto-inst::validation an_unknown_fan_label_needs_a_schema
+        PASS [   0.024s] ( 36/112) panproto-inst::validation an_unlisted_format_is_unsupported
+        PASS [   0.024s] ( 37/112) panproto-inst::validation an_unregistered_sort_is_unsupported
+        PASS [   0.025s] ( 38/112) panproto-inst::validation an_untyped_element_is_an_unknown_anchor
+        PASS [   0.025s] ( 39/112) panproto-inst::validation anchor_families_satisfy_edge_endpoints_in_trees
+        PASS [   0.024s] ( 40/112) panproto-inst::validation annotation_and_value_parameter_compile_to_no_check
+        PASS [   0.025s] ( 41/112) panproto-inst::validation attribute_validation_agrees_on_a_tree_and_its_graph
+        PASS [   0.025s] ( 42/112) panproto-inst::validation bounds_compare_exact_values_exactly
+        PASS [   0.023s] ( 43/112) panproto-inst::validation check_class_serde_names_are_the_contract_names
+        PASS [   0.024s] ( 44/112) panproto-inst::validation check_kind_class_is_the_contract_table
+        PASS [   0.025s] ( 45/112) panproto-inst::validation check_kind_order_is_the_contract_order
+        PASS [   0.025s] ( 46/112) panproto-inst::validation check_kinds_compile_only_for_their_shapes
+        PASS [   0.026s] ( 47/112) panproto-inst::validation check_spec_locality_is_the_contract_table
+        PASS [   0.026s] ( 48/112) panproto-inst::validation dangling_endpoints_are_rejected_by_construction_and_decode
+        PASS [   0.023s] ( 49/112) panproto-inst::validation declaration_interpretable_reports_each_listed_defect
+        PASS [   0.021s] ( 50/112) panproto-inst::validation decoding_a_report_with_a_wrong_status_is_rejected
+        PASS [   0.019s] ( 51/112) panproto-inst::validation decoding_a_report_with_unordered_entries_is_rejected
+        PASS [   0.022s] ( 52/112) panproto-inst::validation decoding_a_report_with_unordered_incomplete_checks_is_rejected
+        PASS [   0.018s] ( 53/112) panproto-inst::validation default_validation_budget_is_unlimited
+        PASS [   0.015s] ( 54/112) panproto-inst::validation degree_bounds_count_non_fan_out_edges_and_fk_pairs
+        PASS [   0.018s] ( 55/112) panproto-inst::validation default_validation_options_are_empty
+        PASS [   0.208s] ( 56/112) panproto-inst::validation duplicate_positions_are_reported_and_none_is_allowed
+        PASS [   0.231s] ( 57/112) panproto-inst::validation enum_and_const_members_compare_by_kind
+        PASS [   0.321s] ( 58/112) panproto-inst::validation coverage_counts_sum_to_instances
+        PASS [   0.150s] ( 59/112) panproto-inst::validation equal_tree_fans_give_one_diagnostic_per_reason
+        PASS [   0.161s] ( 60/112) panproto-inst::validation error_detail_validation_round_trips
+        PASS [   0.430s] ( 61/112) panproto-inst::validation diagnostic_elements_are_ascending_and_cover_the_violation
+        PASS [   0.050s] ( 62/112) panproto-inst::validation evaluation_and_budget_follow_check_instance_order
+        PASS [   0.036s] ( 63/112) panproto-inst::validation every_public_validator_returns_a_validation_report
+        PASS [   0.050s] ( 64/112) panproto-inst::validation every_tree_fan_reason_reaches_the_report
+        PASS [   0.073s] ( 65/112) panproto-inst::validation every_violation_renders_a_nonempty_message
+        PASS [   0.070s] ( 66/112) panproto-inst::validation external_verdicts_missing_and_rejected
+        PASS [   0.032s] ( 67/112) panproto-inst::validation fan_edges_are_checked_against_hyper_edges_not_schema_edges
+        PASS [   0.025s] ( 68/112) panproto-inst::validation fan_record_order_is_the_canonical_fan_record_order
+        PASS [   0.023s] ( 69/112) panproto-inst::validation graph_fans_are_checked_by_fan_well_formed_only
+        PASS [   0.022s] ( 70/112) panproto-inst::validation incomplete_reason_round_trips_every_variant
+        PASS [   0.027s] ( 71/112) panproto-inst::validation keys_compile_to_key_unique_and_primary_parts_to_required_value
+        PASS [   0.026s] ( 72/112) panproto-inst::validation legacy_invariants_map_to_typed_violations
+        PASS [   0.022s] ( 73/112) panproto-inst::validation length_units_count_chars_bytes_and_graphemes
+        PASS [   0.021s] ( 74/112) panproto-inst::validation malformed_fan_bytes_and_messages_name_the_fan
+        PASS [   0.151s] ( 75/112) panproto-inst::validation fan_domain_reports_the_first_fan_violation_the_validator_reports
+        PASS [   0.021s] ( 76/112) panproto-inst::validation non_string_keyed_maps_round_trip_in_four_encodings
+        PASS [   0.030s] ( 77/112) panproto-inst::validation max_length_abc_is_ill_formed
+        PASS [   0.024s] ( 78/112) panproto-inst::validation parallel_edges_and_self_loops_count_toward_degree_and_keys
+        PASS [   0.028s] ( 79/112) panproto-inst::validation plan_digest_changes_with_schema_semantics_or_options
+        PASS [   0.024s] ( 80/112) panproto-inst::validation plan_digest_covers_every_protocol_field_compilation_reads
+        PASS [   0.026s] ( 81/112) panproto-inst::validation plan_digest_keeps_edge_rule_kind_order_and_repeats
+        PASS [   0.058s] ( 82/112) panproto-inst::validation plans_for_different_schemas_have_different_digests
+        PASS [   0.056s] ( 83/112) panproto-inst::validation references_compile_to_reference_resolves_with_the_declared_requirement
+        PASS [   0.053s] ( 84/112) panproto-inst::validation report_canonical_bytes_are_pinned
+        PASS [   0.201s] ( 85/112) panproto-inst::validation report_scope_round_trips_every_variant
+        PASS [   0.198s] ( 86/112) panproto-inst::validation requirement_defaults_to_required
+        PASS [   0.020s] ( 87/112) panproto-inst::validation schema_ref_round_trips_every_variant_in_every_encoding
+        PASS [   0.015s] ( 88/112) panproto-inst::validation schema_well_formed_reports_p4_key_defects
+        PASS [   0.015s] ( 89/112) panproto-inst::validation semantic_references_compile_to_degree_and_required_edge_checks
+        PASS [   0.016s] ( 90/112) panproto-inst::validation static_findings_appear_in_every_report_of_the_plan
+        PASS [   0.015s] ( 91/112) panproto-inst::validation status_is_passed_iff_no_required_failure_or_incomplete
+        PASS [   0.016s] ( 92/112) panproto-inst::validation tables_report_unknown_tables_and_undeclared_fk_edges
+        FAIL [   0.016s] ( 93/112) panproto-inst::validation the_listed_formats_are_public_and_each_is_evaluated
+  stdout ───
+
+    running 1 test
+    test the_listed_formats_are_public_and_each_is_evaluated ... FAILED
+
+    failures:
+
+    failures:
+        the_listed_formats_are_public_and_each_is_evaluated
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'the_listed_formats_are_public_and_each_is_evaluated' (722747) panicked at crates/panproto-inst/tests/validation.rs:1809:5:
+    assertion `left == right` failed
+      left: ["date-time", "date", "time", "uri", "uuid", "ipv4", "ipv6", "did"]
+     right: ["date-time", "date", "time", "uri", "uuid", "ipv4", "ipv6", "did", "at-identifier", "at-uri", "cid", "handle", "nsid", "tid", "record-key", "language"]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.016s] ( 94/112) panproto-inst::validation the_probe_instance_fails_with_five_diagnostics
+        PASS [   0.017s] ( 95/112) panproto-inst::validation tree_fan_diagnostics_at_an_absent_parent_name_the_fan
+        PASS [   0.015s] ( 96/112) panproto-inst::validation tree_fan_diagnostics_name_children_the_tree_does_not_hold
+        PASS [   0.813s] ( 97/112) panproto-inst::validation equal_plan_digests_give_equal_reports
+        PASS [   0.017s] ( 98/112) panproto-inst::validation tree_fan_diagnostics_name_the_fan_they_concern
+        PASS [   0.017s] ( 99/112) panproto-inst::validation tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_hyper_edge
+        PASS [   0.019s] (100/112) panproto-inst::validation tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_label_assignment
+        PASS [   0.020s] (101/112) panproto-inst::validation tree_validation_reports_each_tree_kind
+        PASS [   0.326s] (102/112) panproto-inst::validation report_entries_are_sorted
+        PASS [   0.021s] (103/112) panproto-inst::validation trigger_table_is_the_rustdoc_table_restricted_to_compiled_kinds
+        PASS [   0.030s] (104/112) panproto-inst::validation v1_status_soundness_over_random_verdict_sets
+        PASS [   0.024s] (105/112) panproto-inst::validation validate_attributes_is_the_tree_attribute_projection
+        PASS [   0.027s] (106/112) panproto-inst::validation validate_graph_reports_every_fan_violation
+        PASS [   0.022s] (107/112) panproto-inst::validation validate_wtype_reports_reserved_vocabulary
+        PASS [   0.026s] (108/112) panproto-inst::validation validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses
+        PASS [   0.024s] (109/112) panproto-inst::validation value_constraints_apply_to_node_values_and_table_cells
+        PASS [   0.019s] (110/112) panproto-inst::validation violation_serde_tags_are_the_contract_tags_in_order
+        PASS [   0.026s] (111/112) panproto-inst::validation whole_instance_checks_have_no_subject
+        PASS [   0.155s] (112/112) panproto-inst::validation v7_finite_budget_never_passes_where_unlimited_does_not
+────────────
+     Summary [   1.593s] 112 tests run: 109 passed, 3 failed, 0 skipped
+        FAIL [   0.037s] (  2/112) panproto-core::atproto_records_validate a_post_with_a_malformed_language_tag_fails_and_is_refused
+        FAIL [   0.043s] (  3/112) panproto-core::atproto_records_validate real_posts_with_langs_validate_and_lift
+        FAIL [   0.016s] ( 93/112) panproto-inst::validation the_listed_formats_are_public_and_each_is_evaluated
+error: test run failed

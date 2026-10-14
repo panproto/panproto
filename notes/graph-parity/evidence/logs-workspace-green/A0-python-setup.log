@@ -1,0 +1,6 @@
+$ python3.13 -m venv /private/tmp/claude-503/-Users-awhite48-Projects-phrom/39ffc723-4893-418a-acd8-808fc996c319/scratchpad/venv-wg && pip install maturin pytest ruff pyright
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: /private/tmp/claude-503/-Users-awhite48-Projects-phrom/39ffc723-4893-418a-acd8-808fc996c319/scratchpad/venv-wg/bin/python3.13 -m pip install --upgrade pip
+Python 3.13.9
+maturin 1.15.0

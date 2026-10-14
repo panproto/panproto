@@ -1,0 +1,124 @@
+
+
+at://
+
+	•	Docs
+	•	SDKs
+	•	Blog
+	•	Podcast
+
+Find something...K
+AI
+	•	
+	•	
+	•	EnglishPortuguês日本語한국어
+
+
+AI
+	•	Get Started
+	◦	Tutorials
+	◦	Understand Atproto
+	◦	SDKs
+	◦	Cookbook
+	•	Docs
+	◦	Auth
+	◦	Reads and Writes
+	◦	Sync
+	◦	Lexicons
+	◦	Images and Video
+	◦	Moderation
+	•	Deploy
+	◦	The AT Stack
+	◦	Self-hosting
+	◦	Going to production
+	◦	User Accounts
+	◦	Deploy recipes
+	•	About
+	◦	Trademarks
+	•	Specs
+	◦	Overview
+	◦	Data Model
+	◦	Lexicon
+	◦	Cryptography
+	◦	Accounts
+	◦	Repository
+	◦	Media Blobs
+	◦	Labels
+	◦	HTTP API (XRPC)
+	◦	OAuth
+	◦	Permissions
+	◦	Event Stream
+	◦	Sync
+	◦	DID
+	◦	Handle
+	◦	Namespaced ID (NSID)
+	◦	Timestamp ID (TID)
+	◦	Record Key
+	◦	AT URI Scheme
+	◦	Glossary
+Namespaced Identifiers (NSIDs)
+A specification for global semantic IDs.
+Namespaced Identifiers (NSIDs)
+Namespaced Identifiers (NSIDs) are used to reference Lexicon schemas for records, XRPC endpoints, and more. For example, com.atproto.sync.getRecord.
+The basic structure and semantics of an NSID are a fully-qualified hostname in reverse domain-name order, followed by an additional name segment. The hostname part is the domain authority, and the final segment is the name.
+
+NSID Syntax
+Lexicon string type: nsid
+The domain authority part of an NSID must be a valid handle (hostname) with the order of segments reversed. That is followed by a name segment that must be an ASCII camel-case string.
+For example, com.example.fooBar is a syntactically valid NSID, where com.example is the domain authority, and fooBar is the name segment.
+The comprehensive list of syntax rules is:
+	•	Overall NSID:
+	◦	must contain only ASCII characters
+	◦	separate the domain authority and the name by an ASCII period character (.)
+	◦	must have at least 3 segments
+	◦	can have a maximum total length of 317 characters
+	•	Domain authority:
+	◦	made of segments separated by periods (.)
+	◦	at most 253 characters (including periods), and must contain at least two segments
+	◦	each segment must have at least 1 and at most 63 characters (not including any periods)
+	◦	the allowed characters are ASCII letters (a-z), digits (0-9), and hyphens (-)
+	◦	segments can not start or end with a hyphen
+	◦	the first segment (the top-level domain) can not start with a numeric digit
+	◦	the domain authority is not case-sensitive, and should be normalized to lowercase (that is, normalize ASCII A-Z to a-z)
+	•	Name:
+	◦	must have at least 1 and at most 63 characters
+	◦	the allowed characters are ASCII letters and digits only (A-Z, a-z, 0-9)
+	◦	hyphens are not allowed
+	◦	the first character can not be a digit
+	◦	case-sensitive and should not be normalized
+A reference regex for NSID is:
+/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(\.[a-zA-Z]([a-zA-Z0-9]{0,62})?)$/
+CopyCopied!
+
+NSID Syntax Variations
+When referring to a group or pattern of NSIDs, a trailing ASCII star character (*) can be used as a "glob" character. For example, com.atproto.* would refer to any NSIDs under the atproto.com domain authority, including nested sub-domains (sub-authorities). A free-standing * would match all NSIDs from all authorities. Currently, there may be only a single star character; it must be the last character; and it must be at a segment boundary (no partial matching of segment names). This means the start character must be proceeded by a period, or be a bare star matching all NSIDs.
+
+Examples
+Syntactically valid NSIDs:
+com.example.fooBar
+net.users.bob.ping
+a-0.b-1.c
+a.b.c
+com.example.fooBarV2
+cn.8.lex.stuff
+CopyCopied!
+Invalid NSIDs:
+com.exa💩ple.thing
+com.example
+com.example.3
+CopyCopied!
+
+Usage and Implementation Guidelines
+A strongly-encouraged best practice is to use authority domains with only ASCII alphabetic characters (that is, no digits or hyphens). This makes it significantly easier to generate client libraries in most programming languages.
+The overall NSID is case-sensitive for display, storage, and validation. However, having multiple NSIDs that differ only by casing is not allowed. Namespace authorities are responsible for preventing duplication and confusion. Implementations should not force-lowercase NSIDs.
+It is common to use "subdomains" as part of the "domain authority" to organize related NSIDs. For example, the NSID com.atproto.sync.getRecord uses the sync segment. Note that this requires control of the full domain sync.atproto.com, in addition to the domain atproto.com.
+The Lexicon Style Guide gives guidance on chosing NSID names.
+Interop test vectors are available from the atproto-interop-tests repository.
+
+Possible Future Changes
+It is conceivable that NSID syntax would be relaxed to allow Unicode characters in the final segment.
+The "glob" syntax variation may be modified to extended to make the distinction between single-level and nested matching more explicit.
+PreviousHandle
+NextTimestamp ID (TID)
+© Copyright (CC-BY) Bluesky Social PBC 2026. All rights reserved.
+Follow us on BlueskyFollow us on GitHub

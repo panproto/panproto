@@ -1,0 +1,18 @@
+# CI run on b31c8862dea3652aef0d8c0190540d5f059861ad, started 2026-10-14T15:25:10Z
+# env: CARGO_TARGET_DIR=/Users/awhite48/Projects/phrom/target-lanes/workspace-green CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_INCREMENTAL=0 PYO3_PYTHON=/opt/homebrew/bin/python3.13 RUSTFLAGS='-D warnings'
+91-fmt exit=0 secs=7 disk=43Gi System-wide memory free percentage: 66%
+mem free 66% swap used 0.00M disk 43Gi
+92-clippy exit=0 secs=522 disk=42Gi System-wide memory free percentage: 68%
+mem free 68% swap used 0.00M disk 42Gi
+93-fuzz-check exit=0 secs=20 disk=41Gi System-wide memory free percentage: 68%
+mem free 68% swap used 0.00M disk 41Gi
+94-nextest exit=100 secs=2479 disk=32Gi System-wide memory free percentage: 66%
+mem free 66% swap used 0.00M disk 32Gi
+95-doctest exit=0 secs=350 disk=15Gi System-wide memory free percentage: 67%
+mem free 67% swap used 0.00M disk 15Gi
+96-doc exit=0 secs=307 disk=14Gi System-wide memory free percentage: 67%
+mem free 67% swap used 0.00M disk 14Gi
+97-header-drift exit=0 secs=29 disk=14Gi System-wide memory free percentage: 67%
+mem free 67% swap used 0.00M disk 14Gi
+98-wasm32 exit=0 secs=52 disk=13Gi System-wide memory free percentage: 67%
+# finished 2026-10-14T16:28:00Z

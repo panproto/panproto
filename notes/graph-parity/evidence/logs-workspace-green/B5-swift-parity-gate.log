@@ -1,0 +1,5 @@
+$ python3.13 -I Scripts/parity-gate.py
+C ABI entry points declared: 122
+bound in the raw layer:      122
+
+parity holds

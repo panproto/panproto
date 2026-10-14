@@ -1,0 +1,22 @@
+# same test, tree-sitter build (-p panproto-io --features tree-sitter), same production code, 2026-10-14T13:31:37Z
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling indexmap v2.13.0
+   Compiling tree-sitter-language v0.1.7
+   Compiling serde v1.0.229
+   Compiling streaming-iterator v0.1.9
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling tree-sitter v0.26.13
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling tree-sitter-tags v0.26.13
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.69s
+────────────
+ Nextest run ID 0c1eff61-683b-43b4-952b-2e812ec5821b with nextest profile: default
+    Starting 1 test across 1 binary
+        PASS [   0.038s] (1/1) panproto-io::amr_entry_rule the_registered_amr_codec_refuses_a_schema_without_its_table
+────────────
+     Summary [   0.038s] 1 test run: 1 passed, 0 skipped

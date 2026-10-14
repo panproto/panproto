@@ -1,0 +1,97 @@
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - panproto-0.74.4 (test:panproto-test) (first run)
+Preprocessing test suite 'panproto-test' for panproto-0.74.4...
+Building test suite 'panproto-test' for panproto-0.74.4...
+Running 1 test suites...
+Test suite panproto-test: RUNNING...
+panproto
+  Spec.CanonicalRoundtrip
+    encode . decode = id (default):                                 OK
+    encode . decode = id (populated):                               OK
+    encode . decode = id (with edge rules):                         OK
+    encode . decode = id (all flags):                               OK
+    decode tolerates unknown fields:                                OK
+    decode tolerates indef-length map:                              OK
+    decode rejects malformed input:                                 OK
+  Spec.Errors
+    statusFromInt . statusToInt = id:                               OK
+    unknown status preserves the numeric code:                      OK
+    decode envelope with required fields:                           OK
+    decode envelope ignores unknown fields:                         OK
+    decode envelope rejects empty bytes:                            OK
+    decode envelope rejects garbage:                                OK
+    decode envelope tolerates indef-length map:                     OK
+    envelopeStatus translates the numeric code:                     OK
+  Spec.InstanceRoundtrip
+    instance encode . decode = id (empty):                          OK
+    instance encode . decode = id (populated):                      OK
+    complement encode . decode = id (empty):                        OK
+    complement encode . decode = id (populated):                    OK
+    complement list encode . decode = id:                           OK
+    instance accessors:                                             OK
+    complement accessors:                                           OK
+  algebraic laws
+    Migration
+      (<>) is associative (incl. resolver remap):                   OK
+      identityMigrationOn is a left identity over its carriers:     OK
+      identityMigrationOn is a right identity over its carriers:    OK
+      pipeline folds (<>) and does not annihilate (regression):     OK
+    Migration codec (decode . encode = Right)
+      empty migration round-trips:                                  OK
+      every field round-trips (incl. tuple-keyed + hyper-resolver): OK
+    Expr codec (decode . encode = Right)
+      every Expr/Pattern/Literal variant round-trips:               OK
+      every BuiltinOp round-trips through encodeExpr:               OK
+    Term codec (decode . encode = Right)
+      every Term variant round-trips:                               OK
+    ProtolensChain
+      (<>) is associative:                                          OK
+      mempty is a left identity:                                    OK
+      mempty is a right identity:                                   OK
+      mempty is identityChain:                                      OK
+      LensArr (.) is associative:                                   OK
+      LensArr id is a two-sided identity:                           OK
+    Stringency
+      (<>) is associative (all triples):                            OK
+      mempty is a left identity (all elements):                     OK
+      mempty is a right identity (all elements):                    OK
+    OpticKind
+      (<>) is associative (all triples):                            OK
+      mempty is a left identity (all elements):                     OK
+      mempty is a right identity (all elements):                    OK
+    ByQuality (Eq/Ord agreement)
+      equal scores compare EQ and ==, even with different maps:     OK
+      different scores order by score and are /=:                   OK
+    Exception hierarchy
+      PanprotoError:                                                OK
+      SchemaValidationError:                                        OK
+      CheckError:                                                   OK
+      ExistenceCheckError:                                          OK
+      ExprError:                                                    OK
+      GatError:                                                     OK
+      GitBridgeError:                                               OK
+      IoError:                                                      OK
+      LensError:                                                    OK
+      MigrationError:                                               OK
+      ParseError:                                                   OK
+      ProjectError:                                                 OK
+      VcsError:                                                     OK
+      distinct children do not alias each other:                    OK
+  Spec.NativeProtocol
+    round-trip default:                                             OK
+    round-trip populated:                                           OK
+    release is a no-op:                                             OK
+  Spec.StructuredSchema
+    encode . decode = id (empty):                                   OK
+    encode . decode = id (populated):                               OK
+    encode . decode = id (every field populated):                   OK
+    builder accessors:                                              OK
+    derived adjacency:                                              OK
+    field text accessor:                                            OK
+
+All 68 tests passed (0.00s)
+Test suite panproto-test: PASS
+Test suite logged to:
+/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/haskell/./dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/test/panproto-0.74.4-panproto-test.log
+1 of 1 test suites (1 of 1 test cases) passed.

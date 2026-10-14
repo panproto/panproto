@@ -136,3 +136,153 @@ Cleanup: `target-lanes/workspace-green` and `target-lanes/workspace-green-bisect
 removed, the scratch bisect worktree removed, Swift `.build` and
 `.panproto-c`, Haskell `dist-newstyle`, `.panproto-c` and
 `cabal.project.local`, and the Python extension and caches deleted.
+
+## Run 3 (2026-10-14): owner decision 38, R5 descriptors, AMR entry rule
+
+Base `1964ef3b`. The WIP commit `aa8f8575` (partial Lexicon validators) was
+reviewed against the fetched specifications, unwound and replaced by the
+commits below; `lane/workspace-green` history after `1964ef3b` was rewritten
+(unmerged lane). HEAD `9656ab69`.
+
+| Commit | Subject |
+|---|---|
+| `f7a2b528` | test: require real Bluesky posts with langs to validate and lift |
+| `6ecd26cb` | feat(inst): validate the AT Protocol Lexicon string formats |
+| `d229cb7b` | test(io): require the amr codec to apply one entry rule in every build |
+| `95e5edc6` | fix(io): apply the amr entry rule on the byte-tabular route |
+| `9656ab69` | feat(protocols)!: describe the yaml, toml and csv protocols |
+
+Environment as in run 2, plus `NEXTEST_TEST_THREADS=4` and
+`PYO3_PYTHON=/opt/homebrew/bin/python3.13` (the first CI attempt stopped in
+clippy because `pyo3-ffi`'s build script found the host's default Python
+3.9; its logs are kept in `aborted-ci-1/`). The memory gate (system free at
+least 40%, no swap) was checked before every heavy step and held throughout
+(lowest 61% free, swap 0).
+
+### Owner decision 38: the Lexicon string formats
+
+Sources, fetched 2026-10-14 13:16 UTC, kept as text with hashes of the raw
+downloads in `logs-workspace-green/specs-2026-10-14/` (`SOURCES.md`,
+`SOURCES.sha256`): atproto.com/specs/lexicon ("String Formats"),
+/specs/handle, /specs/nsid, /specs/tid, /specs/record-key,
+/specs/at-uri-scheme ("Restricted AT URI Syntax"), /specs/did,
+/specs/data-model ("Link and CID Formats"), dasl.ing/cid.html ("Parsing
+CIDs"), rfc-editor.org/rfc/rfc5646.txt (Sec 2.1, 2.1.1), and the
+atproto-interop-tests repository at `056e5741` (README and syntax vectors;
+the 17 vendored vector files and the licence compare byte-identical with
+`cmp`).
+
+Review of the WIP against them: every validator matched its specification
+(handle, NSID with the 253-character authority limit, TID, record key, DID
+syntax inside `at-identifier` and `at-uri`, restricted AT URI, DASL CID,
+RFC 5646 `langtag`/`privateuse`/grandfathered). Kept: rejecting nonzero
+base32 pad bits (RFC 4648 Sec 3.5 permits it) and bytes after a CID's
+digest. Added: a `language_limits` test at each ABNF limit. Removed from the
+new tests: the crate-level `#![allow(clippy::unwrap_used,
+clippy::expect_used)]` (tests return `Result` instead).
+
+Interop vectors that disagree with the specifications (the README makes the
+specs the authority; each case is named in its test): one valid NSID vector
+with a 283-character domain authority (spec: at most 253); the invalid
+`language` vectors `jaja` and `JA` (well-formed under RFC 5646); eight valid
+`cid` vectors outside the data model's blessed form (the two `bafybei`
+CIDs have the dag-pb codec, the rest other multibase prefixes or no CID).
+The `cid` vectors match neither reference implementation's rule: indigo's
+`ParseCID` is a regex (`^[a-zA-Z0-9+=]{8,256}$`, not `Qm`) and the
+TypeScript validator calls `CID.parse`. **Owner attention:** the Lexicon
+also says "the most expansive identifier syntax format should be
+permitted"; if that is read to cover `cid`, a CIDv1 of any codec would pass
+and the eight vectors with it. The implementation follows the normative
+chain Lexicon -> data model -> DASL.
+
+Not changed, reported: the existing `did` format (shared by every family)
+accepts `did:m123:val`, which the atproto DID specification lists as
+invalid (its method is lowercase letters only).
+
+The genericity guard failed on the new format names and spec citations in
+`panproto-inst` and `panproto-schema` (`94`); the owner decision places them
+there, so the baseline gains those 15 file/term pairs in the formats commit
+(`99`).
+
+| Test | Before | After |
+|---|---|---|
+| `real_posts_with_langs_validate_and_lift`, `a_post_with_a_malformed_language_tag_fails_and_is_refused`, `the_listed_formats_are_public_and_each_is_evaluated` | 3 fail (`Incomplete`, `UnsupportedDeclaration { sort: "format" }`) (`80`) | 138/138 with `lexicon_formats` (`81`) |
+
+### Orchestrator ruling: AMR entry rule on the byte-tabular route
+
+`ByteTabularCodec::with_schema_entry` applies the configured-table entry
+rule on the canonical and preserving parse and emit routes; the default
+build's `amr` registration sets it. `amr_entry_rule.rs`: the registry test
+fails in the default build before the fix (`82`) and passes under
+tree-sitter (`83`); after it, io passes in both builds (`84` default
+448/448; `85` tree-sitter 669/671, the 2 failures being question 2), and
+`both_amr_routes_agree` runs the byte-tabular and TSV `UnifiedCodec` routes
+side by side on every schema-taking route.
+
+### Orchestrator ruling: R5 descriptors and shape rows
+
+`panproto_protocols::text::{yaml, toml, csv}`: yaml and toml register the
+constrained multigraph with `ThWType`, csv the constrained hypergraph with
+`ThFunctor`; shape rows csv Table/Table, toml Tree/Tree, yaml Tree/Graph;
+no kinds, edge rules or constraint sorts. They read no schema documents:
+`registry::Parser` gains `Programmatic` (breaking for exhaustive matches),
+refused by both dispatches and absent from both listings. Not done here (R5
+items left with `text-formats`): the Table Schema reader, `tsv`, yaml's
+Variable Redirect declaration, the D29/D30 vertices. Tests updated: shape
+declarations, table-protocol list, dispatch refusal, and the default build's
+`NO_CODEC_YET` (text codecs exist only under tree-sitter). `86` protocols
+550/550, `87` io tree-sitter 671/671, `88` io default 448/448. Book catalog
+lists the `text` family.
+
+### CI table (run 3)
+
+Rust gates on `b31c8862` (`90-ci-summary.txt`); the only tree difference
+from HEAD `9656ab69` is the 15 genericity baseline lines, and the genericity
+test was rerun on HEAD (`99`). Python, Swift and Haskell ran on HEAD.
+
+| Command | Result | Log |
+|---|---|---|
+| `cargo fmt --all -- --check` | pass | `91` |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pass | `92` |
+| `cargo check --manifest-path fuzz/Cargo.toml` | pass, lockfile unchanged | `93` |
+| `cargo nextest run --workspace --profile ci` (`--no-fail-fast`) | 6,744 run: 6,743 pass, 1 fail (`no_protocol_names_in_generic_crates`, fixed by the baseline entries), 5 skipped | `94` |
+| genericity on HEAD | 3/3 | `99` |
+| `cargo test --doc --workspace` | pass | `95` |
+| `RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps` | pass | `96` |
+| C header drift gate | pass | `97` |
+| `cargo check -p panproto-wasm --target wasm32-unknown-unknown` | pass | `98` |
+| Python, fresh 3.13 venv: `maturin develop`, import smoke | pass, 65 protocols | `A0`-`A2` |
+| `pytest tests/ -x` | 202 passed | `A3` |
+| `pyright` (strict) | 0 errors | `A4` |
+| `ruff check`, `ruff format --check` | clean | `A5` |
+| Swift: dev-link, lint, `swift build --build-tests`, three trait builds | pass | `B0`-`B3` |
+| Swift: `swift test` | 788 tests in 112 suites pass, 0 issues (run 2 had 28, all the format gap) | `B4` |
+| Swift: parity gate, tutorial gate, documentation gate | pass | `B5`-`B7` |
+| Haskell: `cabal test` (FFI) | 107/107 | `C5`, `C8` |
+| Haskell: `cabal test -f native-only` | 68/68 | `C6`, `C7` |
+
+Haskell note: `cabal update` (`C1`) moved this host's index-state from
+2025-12-15 to 2026-10-14, the solver then picked hashable 1.5.1.0, whose
+build fails on this host at GHC's object merge (`ld: file not found:
+@.../ghc_tmp_9_6.rsp`, `C2`, `C3`), a toolchain fault unrelated to this
+lane. The index-state was restored (`C4`), after which both suites pass.
+
+Cleanup: `target-lanes/workspace-green` (39.9 GiB) and the worktree's
+`target/` removed, the venv deleted, Swift `.build`, `.panproto-c` and
+`Package.resolved`, Haskell `dist-newstyle`, `.panproto-c` and
+`cabal.project.local`, and the Python extension and caches deleted.
+
+### Follow-up owned elsewhere: the reference validation page
+
+In `crates/panproto-reference/src/pages/validation.rs` (`lane/reference`,
+`ee6612d0`), module `implementation`:
+
+1. `fn format_matches(name: &str, value: &Value) -> Option<bool>` (line 942):
+   needs arms for `at-identifier`, `at-uri`, `cid`, `handle`, `nsid`, `tid`,
+   `record-key`, `language` (it returns `None` for them today).
+2. `fn supported_format(bound: &str) -> bool` (line 2277): the eight names
+   join the `matches!` list, or a Lexicon-format constraint stays
+   `UnsupportedDeclaration` in the reference while production passes it.
+
+Their callers `passes` (line 1065, `Semantics::Format => format_matches`)
+and `constraint_declaration_reason` (line 2212) need no change.
