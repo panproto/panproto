@@ -49,6 +49,26 @@ fn generic_schema() -> panproto_schema::Schema {
         .expect("build schema")
 }
 
+/// The generic schema with the `amr_graph` table vertex that the AMR TSV
+/// codec is configured to read rows into: a codec whose configured table is
+/// not a vertex of the schema refuses to anchor rows outside it.
+#[cfg(feature = "tree-sitter")]
+fn amr_schema() -> panproto_schema::Schema {
+    let proto = Protocol {
+        name: "fixture".into(),
+        schema_theory: "ThfixtureSchema".into(),
+        instance_theory: "ThfixtureInstance".into(),
+        ..Default::default()
+    };
+    SchemaBuilder::new(&proto)
+        .vertex("root", "object", None)
+        .expect("root vertex")
+        .vertex("amr_graph", "table", None)
+        .expect("amr_graph vertex")
+        .build()
+        .expect("build schema")
+}
+
 #[cfg(feature = "tree-sitter")]
 fn collect_fixtures(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("read fixtures dir") {
@@ -220,6 +240,7 @@ fn fixture_corpus_is_byte_faithful() {
     );
 
     let schema = generic_schema();
+    let amr_schema = amr_schema();
     let mut covered = 0usize;
     let mut failures: Vec<String> = Vec::new();
 
@@ -263,9 +284,9 @@ fn fixture_corpus_is_byte_faithful() {
                     continue;
                 }
             };
-            match codec.parse_functor_preserving(&schema, &input) {
+            match codec.parse_functor_preserving(&amr_schema, &input) {
                 Ok((instance, complement)) => {
-                    match codec.emit_functor_preserving(&schema, &instance, &complement) {
+                    match codec.emit_functor_preserving(&amr_schema, &instance, &complement) {
                         Ok(out) if out == input => covered += 1,
                         Ok(out) => failures.push(format!(
                             "{label}: byte mismatch ({} in / {} out)",
@@ -462,7 +483,7 @@ fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
 fn amr_edit_rewrites_one_cell() {
     // AMR rides the tree-sitter TSV preserving path; an edited cell value
     // re-emits changed while the rest of the table stays byte-identical.
-    let schema = generic_schema();
+    let schema = amr_schema();
     let input = b"variable\tconcept\trole\ttarget\nb\tboy\t_\t_\nw\twant-01\tARG0\tb\n";
     let codec = UnifiedCodec::tsv("amr", "amr_graph").expect("codec");
     let (mut instance, complement) = codec

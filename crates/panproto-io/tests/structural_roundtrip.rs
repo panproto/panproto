@@ -316,8 +316,11 @@ fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
         constraint_sorts: vec![],
         ..Default::default()
     };
+    // The schema declares the table the rows are read into: a codec whose
+    // configured table is not a vertex of the schema refuses to anchor rows
+    // outside it.
     let schema = SchemaBuilder::new(&proto)
-        .vertex("table", "table", None)
+        .vertex(table, "table", None)
         .expect("table vertex")
         .build()
         .expect("build schema");

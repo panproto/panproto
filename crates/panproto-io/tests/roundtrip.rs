@@ -32,8 +32,10 @@ fn open_schema(protocol_name: &str) -> panproto_schema::Schema {
         .expect("build schema")
 }
 
-/// Build a minimal open schema for tabular protocols.
-fn tabular_schema(protocol_name: &str) -> panproto_schema::Schema {
+/// Build a minimal schema for a tabular protocol that declares `table`,
+/// the table the codec reads rows into: a codec whose configured table is
+/// not a vertex of the schema refuses to anchor rows outside it.
+fn tabular_schema(protocol_name: &str, table: &str) -> panproto_schema::Schema {
     let proto = Protocol {
         name: protocol_name.into(),
         schema_theory: format!("Th{protocol_name}Schema"),
@@ -43,9 +45,8 @@ fn tabular_schema(protocol_name: &str) -> panproto_schema::Schema {
         constraint_sorts: vec![],
         ..Default::default()
     };
-    // Tabular schemas need no vertices; FInstance is schema-independent.
     SchemaBuilder::new(&proto)
-        .vertex("table", "table", None)
+        .vertex(table, "table", None)
         .expect("table vertex")
         .build()
         .expect("build schema")
@@ -143,7 +144,7 @@ macro_rules! tabular_functor_roundtrip {
         #[test]
         fn $name() {
             let reg = registry();
-            let schema = tabular_schema($protocol);
+            let schema = tabular_schema($protocol, $table);
             let input = include_bytes!($fixture);
 
             let instance = reg
@@ -597,7 +598,7 @@ fn roundtrip_toml() {
 #[test]
 fn roundtrip_csv() {
     let reg = registry();
-    let schema = tabular_schema("csv");
+    let schema = tabular_schema("csv", "table");
     let input = b"name,age\nAlice,30\nBob,25\n";
 
     let instance = reg.parse_functor("csv", &schema, input).expect("parse csv");
@@ -720,7 +721,7 @@ fn json_nested_arrays_survive_round_trip() {
 #[test]
 fn tsv_header_and_rows_survive_round_trip() {
     let reg = registry();
-    let schema = tabular_schema("amr");
+    let schema = tabular_schema("amr", "amr_graph");
     let input = b"variable\tconcept\nb\tboy\nw\twant-01\n" as &[u8];
     let inst = reg
         .parse_functor("amr", &schema, input)
