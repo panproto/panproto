@@ -551,28 +551,43 @@ pub fn chase_with_hom(
                         if head_satisfied(head, &result, &binding) {
                             continue;
                         }
-                        // Fresh labeled nulls for head-only variables.
+                        // Instantiate the head under the binding, giving each
+                        // head-only variable a fresh labeled null at its first
+                        // occurrence; no row is added until every null is in hand.
                         let mut firing = binding.clone();
+                        let mut rows = Vec::with_capacity(head.len());
                         for atom in head {
-                            for term in atom.columns.values() {
-                                if let AtomTerm::Var(v) = term {
-                                    if !firing.contains_key(v) {
-                                        if nulls_created >= budget.max_nulls {
-                                            return Ok((ChaseOutcome::NonTermination, hom(forced)));
+                            let mut row = HashMap::with_capacity(atom.columns.len());
+                            for (col, term) in &atom.columns {
+                                let value = match term {
+                                    AtomTerm::Const(v) => v.clone(),
+                                    AtomTerm::Var(v) => {
+                                        if let Some(bound) = firing.get(v) {
+                                            bound.clone()
+                                        } else {
+                                            if nulls_created >= budget.max_nulls {
+                                                return Ok((
+                                                    ChaseOutcome::NonTermination,
+                                                    hom(forced),
+                                                ));
+                                            }
+                                            let id =
+                                                next_null.ok_or(ChaseError::NullIdsExhausted)?;
+                                            next_null = id.checked_add(1);
+                                            let fresh = Value::LabeledNull(id);
+                                            firing.insert(v.clone(), fresh.clone());
+                                            nulls_created += 1;
+                                            fresh
                                         }
-                                        let fresh =
-                                            next_null.ok_or(ChaseError::NullIdsExhausted)?;
-                                        next_null = fresh.checked_add(1);
-                                        firing.insert(v.clone(), Value::LabeledNull(fresh));
-                                        nulls_created += 1;
                                     }
-                                }
+                                };
+                                row.insert(col.clone(), value);
                             }
+                            rows.push((atom.table.as_str(), row));
                         }
-                        for atom in head {
-                            let row = instantiate_row(atom, &firing);
+                        for (table, row) in rows {
                             result
-                                .push_row(atom.table.as_str(), row)
+                                .push_row(table, row)
                                 .map_err(|_| ChaseError::RowIdsExhausted)?;
                         }
                         changed = true;
@@ -717,25 +732,6 @@ fn head_satisfied(head: &[Atom], instance: &FInstance, binding: &Binding) -> boo
         }
     }
     !bindings.is_empty()
-}
-
-/// Build a concrete row from a head atom under a (fully-instantiated)
-/// binding. Head variables are guaranteed to be bound (to a body value or a
-/// fresh null) before this is called.
-fn instantiate_row(atom: &Atom, binding: &Binding) -> HashMap<String, Value> {
-    atom.columns
-        .iter()
-        .map(|(col, term)| {
-            let value = match term {
-                AtomTerm::Const(v) => v.clone(),
-                AtomTerm::Var(v) => binding
-                    .get(v)
-                    .cloned()
-                    .unwrap_or(Value::LabeledNull(u64::MAX)),
-            };
-            (col.clone(), value)
-        })
-        .collect()
 }
 
 /// Merge two values under an equality-generating dependency.
