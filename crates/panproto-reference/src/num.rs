@@ -154,9 +154,9 @@ impl Nat {
             out.push(u32::try_from(s % BASE).unwrap_or(0));
             carry = s / BASE;
         }
-        if carry > 0 {
-            out.push(u32::try_from(carry).unwrap_or(0));
-        }
+        // A zero carry is a most-significant zero digit, which `normalized`
+        // strips.
+        out.push(u32::try_from(carry).unwrap_or(0));
         Self::normalized(out)
     }
 
@@ -232,8 +232,16 @@ impl Nat {
     /// base-`10^9` digit of the quotient at a time; each digit is the
     /// largest q with `divisor * q <= remainder`, found from a lower
     /// estimate (the remainder's leading digits over the divisor's leading
-    /// digit plus one) raised one step at a time; `None` for a zero
+    /// digits plus one) raised one step at a time; `None` for a zero
     /// divisor.
+    ///
+    /// The estimate is never above the digit. The remainder before each
+    /// step is below `divisor * 10^9`, so it has at most `k + 1` digits for
+    /// a `k`-digit divisor, and `top` is exactly `floor(rem / B^(k-2))`
+    /// (`rem` itself when `k = 1`, `B = 10^9`). For `k >= 2`, `lead` exceeds
+    /// `divisor / B^(k-2)`, so `top / lead < rem / divisor`; for `k = 1`,
+    /// `top / lead` is `floor(rem / divisor)`. Either way the estimate is at
+    /// most the digit, which is below `B`, so it fits `mul_small`.
     #[must_use]
     pub fn div_rem(&self, divisor: &Self) -> Option<(Self, Self)> {
         if divisor.is_zero() {
@@ -259,12 +267,8 @@ impl Nat {
             let top = (low..=k)
                 .rev()
                 .fold(0u128, |acc, j| acc * b + u128::from(rem.limb(j)));
-            let mut q = u64::try_from((top / lead).min(u128::from(BASE - 1))).unwrap_or(0);
+            let mut q = u64::try_from(top / lead).unwrap_or(0);
             let mut product = divisor.mul_small(q);
-            while product > rem {
-                q -= 1;
-                product = divisor.mul_small(q);
-            }
             loop {
                 let next = product.add(divisor);
                 if next > rem {
@@ -355,10 +359,9 @@ impl Nat {
             while y.is_even() {
                 y = y.half();
             }
-            if x > y {
-                std::mem::swap(&mut x, &mut y);
-            }
-            y = y.checked_sub(&x).unwrap_or_default();
+            let low = std::cmp::min(&x, &y).clone();
+            y = std::cmp::max(&x, &y).checked_sub(&low).unwrap_or_default();
+            x = low;
         }
         x.mul(&Self::pow2(twos))
     }
@@ -434,13 +437,13 @@ impl Int {
     /// The integer `n`.
     #[must_use]
     pub fn from_i64(n: i64) -> Self {
-        Self::new(n < 0, Nat::from_u64(n.unsigned_abs()))
+        Self::new(n.is_negative(), Nat::from_u64(n.unsigned_abs()))
     }
 
     /// The integer `n`.
     #[must_use]
     pub fn from_i128(n: i128) -> Self {
-        Self::new(n < 0, Nat::from_u128(n.unsigned_abs()))
+        Self::new(n.is_negative(), Nat::from_u128(n.unsigned_abs()))
     }
 
     /// Read an optional sign (`+` or `-`) followed by decimal digits.
@@ -573,7 +576,7 @@ impl Rat {
             return Some(Self { num, den });
         }
         let g = Nat::gcd(num.magnitude(), &den);
-        if g.is_zero() || g == Nat::one() {
+        if g == Nat::one() {
             return Some(Self { num, den });
         }
         let (m, _) = num.magnitude().div_rem(&g)?;
@@ -677,28 +680,22 @@ impl Rat {
     /// `2^k` for an integer exponent `k` (negative allowed).
     #[must_use]
     pub fn pow2(k: i64) -> Self {
-        let mag = Nat::pow2(u32::try_from(k.unsigned_abs()).unwrap_or(u32::MAX));
-        if k >= 0 {
-            Self::from_int(Int::new(false, mag))
-        } else {
-            Self {
-                num: Int::from_i64(1),
-                den: mag,
-            }
+        let up = u32::try_from(k.max(0)).unwrap_or(u32::MAX);
+        let down = u32::try_from(k.min(0).unsigned_abs()).unwrap_or(u32::MAX);
+        Self {
+            num: Int::new(false, Nat::pow2(up)),
+            den: Nat::pow2(down),
         }
     }
 
     /// `10^k` for an integer exponent `k` (negative allowed).
     #[must_use]
     pub fn pow10(k: i64) -> Self {
-        let mag = Nat::pow10(usize::try_from(k.unsigned_abs()).unwrap_or(usize::MAX));
-        if k >= 0 {
-            Self::from_int(Int::new(false, mag))
-        } else {
-            Self {
-                num: Int::from_i64(1),
-                den: mag,
-            }
+        let up = usize::try_from(k.max(0)).unwrap_or(usize::MAX);
+        let down = usize::try_from(k.min(0).unsigned_abs()).unwrap_or(usize::MAX);
+        Self {
+            num: Int::new(false, Nat::pow10(up)),
+            den: Nat::pow10(down),
         }
     }
 
@@ -757,8 +754,11 @@ pub fn floor_log2(q: &Rat) -> Option<i64> {
     Some(e)
 }
 
-/// `floor(log10(q))` for a positive rational `q`, by exact comparison with
-/// powers of ten. Returns `None` for a non-positive `q`.
+/// `floor(log10(q))` for a positive rational `q`, by one exact comparison
+/// with a power of ten. Returns `None` for a non-positive `q`.
+///
+/// A numerator of `ln` digits and a denominator of `ld` digits put `q` in
+/// `(10^(ln-ld-1), 10^(ln-ld+1))`, so the floor is `ln - ld` or one less.
 #[must_use]
 pub fn floor_log10(q: &Rat) -> Option<i64> {
     if q.is_zero() || q.is_negative() {
@@ -766,14 +766,8 @@ pub fn floor_log10(q: &Rat) -> Option<i64> {
     }
     let ln = i64::try_from(q.num().magnitude().digit_count()).unwrap_or(i64::MAX);
     let ld = i64::try_from(q.den().digit_count()).unwrap_or(i64::MAX);
-    let mut e = ln - ld;
-    while Rat::pow10(e) > *q {
-        e -= 1;
-    }
-    while Rat::pow10(e + 1) <= *q {
-        e += 1;
-    }
-    Some(e)
+    let e = ln - ld;
+    Some(if Rat::pow10(e) > *q { e - 1 } else { e })
 }
 
 #[cfg(test)]
