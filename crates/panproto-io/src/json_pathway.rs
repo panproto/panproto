@@ -696,12 +696,18 @@ pub fn parse_json_bytes(
             .sort_by_key(|error| error.site.byte_offset.unwrap_or(u64::MAX));
         return Err(ParseInstanceError::Fidelity(state.fidelity));
     }
+    // The root may resolve through a transparent indirection to another
+    // vertex; the schema root is the vertex the root node is anchored to.
+    let schema_root = state
+        .nodes
+        .get(&root_id)
+        .map_or_else(|| Name::from(root_vertex), |node| node.anchor.clone());
     Ok(WInstance::new(
         state.nodes,
         state.arcs,
         Vec::new(),
         root_id,
-        Name::from(root_vertex),
+        schema_root,
     ))
 }
 
