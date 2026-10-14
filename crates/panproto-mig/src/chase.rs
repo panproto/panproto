@@ -1744,6 +1744,63 @@ mod tests {
         );
     }
 
+    /// A head-only variable that occurs in two head atoms is one fresh null
+    /// in both rows.
+    #[test]
+    fn a_head_only_variable_is_one_null_across_the_head() {
+        let instance = FInstance::new()
+            .with_table("t", vec![row("a", Value::Int(1))])
+            .unwrap();
+        let dep = Dependency::Tgd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("x".into()))])],
+            head: vec![
+                Atom::new(
+                    "s",
+                    [
+                        ("a", AtomTerm::Var("x".into())),
+                        ("b", AtomTerm::Var("y".into())),
+                    ],
+                ),
+                Atom::new("u", [("c", AtomTerm::Var("y".into()))]),
+            ],
+        };
+        let outcome = chase(&instance, &[dep], ChaseBudget::new(10, 10)).unwrap();
+        let ChaseOutcome::Saturated(out) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(table_nulls(&out, "s"), vec![0]);
+        assert_eq!(table_nulls(&out, "u"), vec![0]);
+    }
+
+    /// A firing that needs `fresh` nulls runs under a null budget of at
+    /// least `fresh` and reports non-termination under a smaller one, before
+    /// adding any row. Exhaustive over budgets and fresh-null counts up to 3.
+    #[test]
+    fn the_null_budget_is_exact() {
+        let instance = FInstance::new()
+            .with_table("t", vec![row("a", Value::Int(1))])
+            .unwrap();
+        for max_nulls in 0..=3_usize {
+            for fresh in 0..=3_usize {
+                let budget = ChaseBudget::new(10, max_nulls);
+                let outcome = chase(&instance, &[inventing(fresh)], budget);
+                let case = format!("budget {max_nulls}, fresh {fresh}");
+                if fresh <= max_nulls {
+                    let Ok(ChaseOutcome::Saturated(out)) = outcome else {
+                        panic!("{case}: {outcome:?}");
+                    };
+                    let expected: Vec<u64> = (0..u64::try_from(fresh).unwrap()).collect();
+                    assert_eq!(table_nulls(&out, "s"), expected, "{case}");
+                } else {
+                    assert!(
+                        matches!(outcome, Ok(ChaseOutcome::NonTermination)),
+                        "{case}: {outcome:?}"
+                    );
+                }
+            }
+        }
+    }
+
     /// Running out of labelled null ids is a property of the input, so a
     /// larger budget cannot help.
     #[test]
