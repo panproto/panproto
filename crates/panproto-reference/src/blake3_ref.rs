@@ -167,14 +167,13 @@ impl ChunkState {
         while !input.is_empty() {
             if self.block_len == BLOCK_LEN {
                 let block_words = bytes_to_words_16(&self.block);
-                let words = compress(
+                self.chaining_value = compress(
                     self.chaining_value,
                     block_words,
                     self.chunk_counter,
                     BLOCK_LEN_U32,
                     self.flags + self.start_flag(),
                 );
-                self.chaining_value.copy_from_slice(&words[..8]);
                 self.blocks_compressed += 1;
                 self.block = [0; BLOCK_LEN];
                 self.block_len = 0;
@@ -210,27 +209,23 @@ struct Output {
 
 impl Output {
     fn chaining_value(&self) -> [u32; 8] {
-        let words = compress(
+        compress(
             self.input_chaining_value,
             self.block_words,
             self.counter,
             self.block_len,
             self.flags,
-        );
-        let mut cv = [0; 8];
-        cv.copy_from_slice(&words[..8]);
-        cv
+        )
     }
 
     fn root_hash(&self) -> [u8; OUT_LEN] {
-        let words = compress(
+        words_8_to_bytes(compress(
             self.input_chaining_value,
             self.block_words,
             0,
             self.block_len,
             self.flags + ROOT,
-        );
-        words_8_to_bytes(words[..8].try_into().unwrap_or_else(|_| unreachable!()))
+        ))
     }
 }
 
@@ -253,13 +248,17 @@ fn hash_with_mode(key_words: [u32; 8], flags: u32, input: &[u8]) -> [u8; OUT_LEN
     hasher.finalize()
 }
 
+/// The compression function, truncated to the eight words of a chaining
+/// value or a 32-byte output. The specification's other eight output words
+/// (`state[8..]` fed forward with the input chaining value) only extend the
+/// output past 32 bytes, which this module never produces.
 fn compress(
     chaining_value: [u32; 8],
     block_words: [u32; 16],
     counter: u64,
     block_len: u32,
     flags: u32,
-) -> [u32; 16] {
+) -> [u32; 8] {
     let counter_bytes = counter.to_le_bytes();
     let counter_low = u32::from_le_bytes(
         counter_bytes[..4]
@@ -296,11 +295,7 @@ fn compress(
             message = permute(message);
         }
     }
-    for index in 0..8 {
-        state[index] ^= state[index + 8];
-        state[index + 8] ^= chaining_value[index];
-    }
-    state
+    std::array::from_fn(|index| state[index] ^ state[index + 8])
 }
 
 const fn round(state: &mut [u32; 16], message: [u32; 16]) {
@@ -371,7 +366,7 @@ fn words_8_to_bytes(words: [u32; 8]) -> [u8; OUT_LEN] {
 
 #[cfg(test)]
 mod tests {
-    use super::{BLOCK_LEN, Hasher, MAX_CHUNKS, derive_key};
+    use super::{BLOCK_LEN, Hasher, IV, MAX_CHUNKS, bytes_to_words_8, derive_key, hash_with_mode};
 
     const OFFICIAL_CONTEXT: &str = "BLAKE3 2019-12-27 16:29:52 test vectors context";
     // First 32 bytes of every official derive-key vector at
@@ -524,6 +519,192 @@ mod tests {
         ),
     ];
 
+    // The `hash` and `keyed_hash` vectors of the same file, first 32 bytes
+    // each, for every listed input length. The fetched file's SHA-256 is
+    // dcb91ea8accc77e6d6e632af7cdc1a99a9f3ae78cf648da595c7d064db32f624.
+    const OFFICIAL_HASH_AND_KEYED_HASH_VECTORS: &[(usize, &str, &str)] = &[
+        (
+            0,
+            "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+            "92b2b75604ed3c761f9d6f62392c8a9227ad0ea3f09573e783f1498a4ed60d26",
+        ),
+        (
+            1,
+            "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            "6d7878dfff2f485635d39013278ae14f1454b8c0a3a2d34bc1ab38228a80c95b",
+        ),
+        (
+            2,
+            "7b7015bb92cf0b318037702a6cdd81dee41224f734684c2c122cd6359cb1ee63",
+            "5392ddae0e0a69d5f40160462cbd9bd889375082ff224ac9c758802b7a6fd20a",
+        ),
+        (
+            3,
+            "e1be4d7a8ab5560aa4199eea339849ba8e293d55ca0a81006726d184519e647f",
+            "39e67b76b5a007d4921969779fe666da67b5213b096084ab674742f0d5ec62b9",
+        ),
+        (
+            4,
+            "f30f5ab28fe047904037f77b6da4fea1e27241c5d132638d8bedce9d40494f32",
+            "7671dde590c95d5ac9616651ff5aa0a27bee5913a348e053b8aa9108917fe070",
+        ),
+        (
+            5,
+            "b40b44dfd97e7a84a996a91af8b85188c66c126940ba7aad2e7ae6b385402aa2",
+            "73ac69eecf286894d8102018a6fc729f4b1f4247d3703f69bdc6a5fe3e0c8461",
+        ),
+        (
+            6,
+            "06c4e8ffb6872fad96f9aaca5eee1553eb62aed0ad7198cef42e87f6a616c844",
+            "82d3199d0013035682cc7f2a399d4c212544376a839aa863a0f4c91220ca7a6d",
+        ),
+        (
+            7,
+            "3f8770f387faad08faa9d8414e9f449ac68e6ff0417f673f602a646a891419fe",
+            "af0a7ec382aedc0cfd626e49e7628bc7a353a4cb108855541a5651bf64fbb28a",
+        ),
+        (
+            8,
+            "2351207d04fc16ade43ccab08600939c7c1fa70a5c0aaca76063d04c3228eaeb",
+            "be2f5495c61cba1bb348a34948c004045e3bd4dae8f0fe82bf44d0da245a0600",
+        ),
+        (
+            63,
+            "e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b",
+            "bb1eb5d4afa793c1ebdd9fb08def6c36d10096986ae0cfe148cd101170ce37ae",
+        ),
+        (
+            64,
+            "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98",
+            "ba8ced36f327700d213f120b1a207a3b8c04330528586f414d09f2f7d9ccb7e6",
+        ),
+        (
+            65,
+            "de1e5fa0be70df6d2be8fffd0e99ceaa8eb6e8c93a63f2d8d1c30ecb6b263dee",
+            "c0a4edefa2d2accb9277c371ac12fcdbb52988a86edc54f0716e1591b4326e72",
+        ),
+        (
+            127,
+            "d81293fda863f008c09e92fc382a81f5a0b4a1251cba1634016a0f86a6bd640d",
+            "c64200ae7dfaf35577ac5a9521c47863fb71514a3bcad18819218b818de85818",
+        ),
+        (
+            128,
+            "f17e570564b26578c33bb7f44643f539624b05df1a76c81f30acd548c44b45ef",
+            "b04fe15577457267ff3b6f3c947d93be581e7e3a4b018679125eaf86f6a628ec",
+        ),
+        (
+            129,
+            "683aaae9f3c5ba37eaaf072aed0f9e30bac0865137bae68b1fde4ca2aebdcb12",
+            "d4a64dae6cdccbac1e5287f54f17c5f985105457c1a2ec1878ebd4b57e20d38f",
+        ),
+        (
+            1_023,
+            "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11",
+            "c951ecdf03288d0fcc96ee3413563d8a6d3589547f2c2fb36d9786470f1b9d6e",
+        ),
+        (
+            1_024,
+            "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7",
+            "75c46f6f3d9eb4f55ecaaee480db732e6c2105546f1e675003687c31719c7ba4",
+        ),
+        (
+            1_025,
+            "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+            "357dc55de0c7e382c900fd6e320acc04146be01db6a8ce7210b7189bd664ea69",
+        ),
+        (
+            2_048,
+            "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a",
+            "879cf1fa2ea0e79126cb1063617a05b6ad9d0b696d0d757cf053439f60a99dd1",
+        ),
+        (
+            2_049,
+            "5f4d72f40d7a5f82b15ca2b2e44b1de3c2ef86c426c95c1af0b6879522563030",
+            "9f29700902f7c86e514ddc4df1e3049f258b2472b6dd5267f61bf13983b78dd5",
+        ),
+        (
+            3_072,
+            "b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2",
+            "044a0e7b172a312dc02a4c9a818c036ffa2776368d7f528268d2e6b5df191770",
+        ),
+        (
+            3_073,
+            "7124b49501012f81cc7f11ca069ec9226cecb8a2c850cfe644e327d22d3e1cd3",
+            "68dede9bef00ba89e43f31a6825f4cf433389fedae75c04ee9f0cf16a427c95a",
+        ),
+        (
+            4_096,
+            "015094013f57a5277b59d8475c0501042c0b642e531b0a1c8f58d2163229e969",
+            "befc660aea2f1718884cd8deb9902811d332f4fc4a38cf7c7300d597a081bfc0",
+        ),
+        (
+            4_097,
+            "9b4052b38f1c5fc8b1f9ff7ac7b27cd242487b3d890d15c96a1c25b8aa0fb995",
+            "00df940cd36bb9fa7cbbc3556744e0dbc8191401afe70520ba292ee3ca80abbc",
+        ),
+        (
+            5_120,
+            "9cadc15fed8b5d854562b26a9536d9707cadeda9b143978f319ab34230535833",
+            "2c493e48e9b9bf31e0553a22b23503c0a3388f035cece68eb438d22fa1943e20",
+        ),
+        (
+            5_121,
+            "628bd2cb2004694adaab7bbd778a25df25c47b9d4155a55f8fbd79f2fe154cff",
+            "6ccf1c34753e7a044db80798ecd0782a8f76f33563accaddbfbb2e0ea4b2d024",
+        ),
+        (
+            6_144,
+            "3e2e5b74e048f3add6d21faab3f83aa44d3b2278afb83b80b3c35164ebeca205",
+            "3d6b6d21281d0ade5b2b016ae4034c5dec10ca7e475f90f76eac7138e9bc8f1d",
+        ),
+        (
+            6_145,
+            "f1323a8631446cc50536a9f705ee5cb619424d46887f3c376c695b70e0f0507f",
+            "9ac301e9e39e45e3250a7e3b3df701aa0fb6889fbd80eeecf28dbc6300fbc539",
+        ),
+        (
+            7_168,
+            "61da957ec2499a95d6b8023e2b0e604ec7f6b50e80a9678b89d2628e99ada77a",
+            "b42835e40e9d4a7f42ad8cc04f85a963a76e18198377ed84adddeaecacc6f3fc",
+        ),
+        (
+            7_169,
+            "a003fc7a51754a9b3c7fae0367ab3d782dccf28855a03d435f8cfe74605e7817",
+            "ed9b1a922c046fdb3d423ae34e143b05ca1bf28b710432857bf738bcedbfa511",
+        ),
+        (
+            8_192,
+            "aae792484c8efe4f19e2ca7d371d8c467ffb10748d8a5a1ae579948f718a2a63",
+            "dc9637c8845a770b4cbf76b8daec0eebf7dc2eac11498517f08d44c8fc00d58a",
+        ),
+        (
+            8_193,
+            "bab6c09cb8ce8cf459261398d2e7aef35700bf488116ceb94a36d0f5f1b7bc3b",
+            "954a2a75420c8d6547e3ba5b98d963e6fa6491addc8c023189cc519821b4a1f5",
+        ),
+        (
+            16_384,
+            "f875d6646de28985646f34ee13be9a576fd515f76b5b0a26bb324735041ddde4",
+            "9e9fc4eb7cf081ea7c47d1807790ed211bfec56aa25bb7037784c13c4b707b0d",
+        ),
+        (
+            31_744,
+            "62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47",
+            "efa53b389ab67c593dba624d898d0f7353ab99e4ac9d42302ee64cbf9939a419",
+        ),
+        (
+            102_400,
+            "bc3e3d41a1146b069abffad3c0d44860cf664390afce4d9661f7902e7943e085",
+            "1c35d1a5811083fd7119f5d5d1ba027b4d01c0c6c49fb6ff2cf75393ea5db4a7",
+        ),
+    ];
+
+    /// The keyed-hash mode flag and the vectors' key, from the specification
+    /// and the vector file.
+    const KEYED_HASH: u32 = 1 << 4;
+    const OFFICIAL_KEY: &[u8; 32] = b"whats the Elvish word for friend";
+
     fn official_input(length: usize) -> Vec<u8> {
         (0..length)
             .map(|index| u8::try_from(index % 251).unwrap_or_else(|_| unreachable!()))
@@ -555,6 +736,24 @@ mod tests {
                 derive_key(OFFICIAL_CONTEXT, &input),
                 decode_digest(expected),
                 "official derive-key vector length {length}"
+            );
+        }
+    }
+
+    #[test]
+    fn all_official_hash_and_keyed_hash_vectors_match() {
+        let key_words = bytes_to_words_8(OFFICIAL_KEY);
+        for &(length, hash, keyed_hash) in OFFICIAL_HASH_AND_KEYED_HASH_VECTORS {
+            let input = official_input(length);
+            assert_eq!(
+                hash_with_mode(IV, 0, &input),
+                decode_digest(hash),
+                "official hash vector length {length}"
+            );
+            assert_eq!(
+                hash_with_mode(key_words, KEYED_HASH, &input),
+                decode_digest(keyed_hash),
+                "official keyed-hash vector length {length}"
             );
         }
     }
