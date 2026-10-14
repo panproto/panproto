@@ -3,6 +3,7 @@
 //! extensions on tiny instances.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
 
 use panproto_reference::encode::{
     self, CellLayout, EdgeLayout, GraphKanError, GraphLayout, GraphSide,
@@ -148,21 +149,44 @@ fn hom_from_rows(domain: &Table, codomain: &Table, rows: BTreeMap<u32, u32>) -> 
 }
 
 fn sigma_on_hom(f: &RelFunctor, domain: &Table, codomain: &Table, hom: &Hom) -> Option<Hom> {
-    hom.check(domain, codomain).ok()?;
     let sigma_domain = rel::sigma(f, domain).ok()?.0;
     let sigma_codomain = rel::sigma(f, codomain).ok()?.0;
+    sigma_on_hom_with(domain, codomain, &sigma_domain, &sigma_codomain, hom)
+}
+
+/// [`sigma_on_hom`] given `Sigma(domain)` and `Sigma(codomain)`.
+fn sigma_on_hom_with(
+    domain: &Table,
+    codomain: &Table,
+    sigma_domain: &Table,
+    sigma_codomain: &Table,
+    hom: &Hom,
+) -> Option<Hom> {
+    hom.check(domain, codomain).ok()?;
     let rows = sigma_domain
         .rows
         .keys()
         .map(|row| Some((*row, *hom.rows.get(row)?)))
         .collect::<Option<_>>()?;
-    hom_from_rows(&sigma_domain, &sigma_codomain, rows)
+    hom_from_rows(sigma_domain, sigma_codomain, rows)
 }
 
 fn delta_on_hom(f: &RelFunctor, domain: &Table, codomain: &Table, hom: &Hom) -> Option<Hom> {
+    let delta_domain = rel::delta(f, domain).ok()?;
+    let delta_codomain = rel::delta(f, codomain).ok()?;
+    delta_on_hom_with(domain, codomain, &delta_domain, &delta_codomain, hom)
+}
+
+/// [`delta_on_hom`] given `Delta(domain)` and `Delta(codomain)` with their
+/// copy provenance.
+fn delta_on_hom_with(
+    domain: &Table,
+    codomain: &Table,
+    (delta_domain, domain_copies): &(Table, rel::DeltaProvenance),
+    (delta_codomain, codomain_copies): &(Table, rel::DeltaProvenance),
+    hom: &Hom,
+) -> Option<Hom> {
     hom.check(domain, codomain).ok()?;
-    let (delta_domain, domain_copies) = rel::delta(f, domain).ok()?;
-    let (delta_codomain, codomain_copies) = rel::delta(f, codomain).ok()?;
     let codomain_index: BTreeMap<_, _> = codomain_copies
         .iter()
         .map(|(copy, origin)| (origin.clone(), *copy))
@@ -174,7 +198,7 @@ fn delta_on_hom(f: &RelFunctor, domain: &Table, codomain: &Table, hom: &Hom) -> 
             Some((*copy, *codomain_index.get(&(table.clone(), image))?))
         })
         .collect::<Option<_>>()?;
-    hom_from_rows(&delta_domain, &delta_codomain, rows)
+    hom_from_rows(delta_domain, delta_codomain, rows)
 }
 
 fn pi_on_hom(
@@ -184,9 +208,21 @@ fn pi_on_hom(
     hom: &Hom,
     max_product_size: usize,
 ) -> Option<Hom> {
+    let pi_domain = rel::pi(f, domain, max_product_size).ok()?;
+    let pi_codomain = rel::pi(f, codomain, max_product_size).ok()?;
+    pi_on_hom_with(domain, codomain, &pi_domain, &pi_codomain, hom)
+}
+
+/// [`pi_on_hom`] given `Pi(domain)` and `Pi(codomain)` at one product bound,
+/// with their tuple provenance.
+fn pi_on_hom_with(
+    domain: &Table,
+    codomain: &Table,
+    (pi_domain, domain_tuples): &(Table, rel::PiProvenance),
+    (pi_codomain, codomain_tuples): &(Table, rel::PiProvenance),
+    hom: &Hom,
+) -> Option<Hom> {
     hom.check(domain, codomain).ok()?;
-    let (pi_domain, domain_tuples) = rel::pi(f, domain, max_product_size).ok()?;
-    let (pi_codomain, codomain_tuples) = rel::pi(f, codomain, max_product_size).ok()?;
     let codomain_index: BTreeMap<_, _> = codomain_tuples
         .iter()
         .map(|(product, origin)| (origin.clone(), *product))
@@ -201,7 +237,7 @@ fn pi_on_hom(
             Some((*product, *codomain_index.get(&(table.clone(), tuple))?))
         })
         .collect::<Option<_>>()?;
-    hom_from_rows(&pi_domain, &pi_codomain, rows)
+    hom_from_rows(pi_domain, pi_codomain, rows)
 }
 
 fn sigma_clash_features(f: &RelFunctor, table: &Table) -> BTreeSet<(Vec<u8>, Vec<u8>)> {
@@ -2976,157 +3012,330 @@ struct O14PairStats {
     pi_over_bound: u64,
 }
 
-type SourceProfile = (
-    Table,
-    u64,
-    Result<(Table, rel::SigmaProvenance), KanError>,
-    Result<(Table, rel::PiProvenance), KanError>,
-    Result<(Table, rel::PiProvenance), KanError>,
-);
-type TargetProfile = (Table, u64, Table);
-
-fn source_profiles_for_case(
-    classes: &BTreeMap<bounded::HomProfile, bounded::HomProfileClass>,
-    case_index: usize,
-    functor: &RelFunctor,
-) -> Vec<SourceProfile> {
-    classes
-        .iter()
-        .filter(|(profile, _)| {
-            profile.case == case_index && profile.side == bounded::CaseSide::Source
-        })
-        .map(|(profile, class)| {
-            let certificate = bounded::profile_multiplicity_certificate(
-                profile.case,
-                profile.side,
-                &class.representative,
-            )
-            .unwrap();
-            let input = class.representative.clone();
-            let sigma = rel::sigma(functor, &input);
-            let pi4 = rel::pi(functor, &input, 4);
-            let pi81 = rel::pi(functor, &input, 81);
-            (input, certificate.multiplicity, sigma, pi4, pi81)
-        })
-        .collect()
+impl O14PairStats {
+    /// Add every counter of `other` to this one.
+    const fn absorb(&mut self, other: &Self) {
+        let Self {
+            pairs,
+            weighted_pairs,
+            sigma_homs,
+            pi_bound4_homs,
+            pi_bound81_homs,
+            pi_naturality_refusals,
+            sigma_refusals,
+            pi_outside_image,
+            pi_over_bound,
+        } = *other;
+        self.pairs += pairs;
+        self.weighted_pairs += weighted_pairs;
+        self.sigma_homs += sigma_homs;
+        self.pi_bound4_homs += pi_bound4_homs;
+        self.pi_bound81_homs += pi_bound81_homs;
+        self.pi_naturality_refusals += pi_naturality_refusals;
+        self.sigma_refusals += sigma_refusals;
+        self.pi_outside_image += pi_outside_image;
+        self.pi_over_bound += pi_over_bound;
+    }
 }
 
-fn target_profiles_for_case(
-    classes: &BTreeMap<bounded::HomProfile, bounded::HomProfileClass>,
-    case_index: usize,
-    functor: &RelFunctor,
-) -> Vec<TargetProfile> {
-    classes
-        .iter()
-        .filter(|(profile, _)| {
-            profile.case == case_index && profile.side == bounded::CaseSide::Target
-        })
-        .map(|(profile, class)| {
+/// The two product bounds every representative pair is checked at.
+const PI_BOUNDS: [usize; 2] = [4, 81];
+
+/// A source-side representative with every image of it that the pair checks
+/// read. Each entry is the value of the call named in its comment, made once
+/// per representative instead of once per pair or per homomorphism.
+struct RepresentativeSource {
+    input: Table,
+    weight: u64,
+    /// `rel::sigma(f, input)`.
+    sigma: Result<(Table, rel::SigmaProvenance), KanError>,
+    /// `rel::delta(f, Sigma(input))`, when Sigma succeeds.
+    delta_of_sigma: Option<(Table, rel::DeltaProvenance)>,
+    /// `rel::sigma_unit(f, input)`.
+    sigma_unit: Result<Hom, rel::TransposeError>,
+    /// `rel::pi(f, input, bound)` at each of [`PI_BOUNDS`].
+    pi: [Result<(Table, rel::PiProvenance), KanError>; 2],
+    /// `rel::delta(f, Pi(input))` at each bound, when Pi succeeds.
+    delta_of_pi: [Option<(Table, rel::DeltaProvenance)>; 2],
+    /// `rel::pi_counit(f, input, bound)` at each bound.
+    pi_counit: [Result<Hom, rel::TransposeError>; 2],
+}
+
+/// A target-side representative with every image of it that the pair checks
+/// read, made once per representative.
+struct RepresentativeTarget {
+    target: Table,
+    weight: u64,
+    /// `rel::delta(f, target)`.
+    delta: (Table, rel::DeltaProvenance),
+    /// `rel::sigma(f, Delta(target))`, when it succeeds.
+    sigma_of_delta: Option<Table>,
+    /// `rel::sigma_counit(f, target)`.
+    sigma_counit: Result<Hom, rel::TransposeError>,
+    /// `rel::pi(f, Delta(target), bound)` at each bound, when it succeeds.
+    pi_of_delta: [Option<(Table, rel::PiProvenance)>; 2],
+    /// `rel::pi_unit(f, target, bound)` at each bound.
+    pi_unit: [Result<Hom, rel::TransposeError>; 2],
+}
+
+/// One case of the Kan family with its source and target representatives.
+struct RepresentativeCase {
+    name: &'static str,
+    functor: RelFunctor,
+    sources: Vec<RepresentativeSource>,
+    targets: Vec<RepresentativeTarget>,
+}
+
+fn representative_source(functor: &RelFunctor, input: Table, weight: u64) -> RepresentativeSource {
+    let sigma = rel::sigma(functor, &input);
+    let delta_of_sigma = sigma
+        .as_ref()
+        .ok()
+        .and_then(|(sigma, _)| rel::delta(functor, sigma).ok());
+    let sigma_unit = rel::sigma_unit(functor, &input);
+    let pi = PI_BOUNDS.map(|bound| rel::pi(functor, &input, bound));
+    let delta_of_pi = [0, 1].map(|slot| {
+        pi[slot]
+            .as_ref()
+            .ok()
+            .and_then(|(pi, _)| rel::delta(functor, pi).ok())
+    });
+    let pi_counit = PI_BOUNDS.map(|bound| rel::pi_counit(functor, &input, bound));
+    RepresentativeSource {
+        input,
+        weight,
+        sigma,
+        delta_of_sigma,
+        sigma_unit,
+        pi,
+        delta_of_pi,
+        pi_counit,
+    }
+}
+
+fn representative_target(functor: &RelFunctor, target: Table, weight: u64) -> RepresentativeTarget {
+    let delta = rel::delta(functor, &target).unwrap();
+    let sigma_of_delta = rel::sigma(functor, &delta.0).ok().map(|(sigma, _)| sigma);
+    let sigma_counit = rel::sigma_counit(functor, &target);
+    let pi_of_delta = PI_BOUNDS.map(|bound| rel::pi(functor, &delta.0, bound).ok());
+    let pi_unit = PI_BOUNDS.map(|bound| rel::pi_unit(functor, &target, bound));
+    RepresentativeTarget {
+        target,
+        weight,
+        delta,
+        sigma_of_delta,
+        sigma_counit,
+        pi_of_delta,
+        pi_unit,
+    }
+}
+
+/// Every case of the Kan family with its hom-profile representatives, in
+/// family order and, within a side, in profile order.
+fn representative_cases() -> Vec<RepresentativeCase> {
+    let classes = bounded::hom_profile_classes(3, 6).unwrap();
+    let value_kinds = BTreeSet::from(["value".to_owned()]);
+    let non_value_kinds = BTreeSet::from(["record".to_owned()]);
+    let mut cases = Vec::new();
+    for (case_index, case) in bounded::family().iter().enumerate() {
+        let source = rel::classify(&case.source_schema(), &value_kinds, &non_value_kinds).unwrap();
+        let target = rel::classify(&case.target_schema(), &value_kinds, &non_value_kinds).unwrap();
+        let functor = rel::entity_functor(&source, &target, &case.migration())
+            .unwrap()
+            .into_kan()
+            .unwrap();
+        let mut sources = Vec::new();
+        let mut targets = Vec::new();
+        for (profile, class) in &classes {
+            if profile.case != case_index {
+                continue;
+            }
             let certificate = bounded::profile_multiplicity_certificate(
                 profile.case,
                 profile.side,
                 &class.representative,
             )
             .unwrap();
-            let target = class.representative.clone();
-            let delta = rel::delta(functor, &target).unwrap().0;
-            (target, certificate.multiplicity, delta)
-        })
-        .collect()
+            let representative = class.representative.clone();
+            match profile.side {
+                bounded::CaseSide::Source => sources.push(representative_source(
+                    &functor,
+                    representative,
+                    certificate.multiplicity,
+                )),
+                bounded::CaseSide::Target => targets.push(representative_target(
+                    &functor,
+                    representative,
+                    certificate.multiplicity,
+                )),
+            }
+        }
+        cases.push(RepresentativeCase {
+            name: case.name,
+            functor,
+            sources,
+            targets,
+        });
+    }
+    cases
 }
 
 fn check_sigma_adjoint_pair(
     f: &RelFunctor,
-    input: &Table,
-    target: &Table,
+    source: &RepresentativeSource,
     sigma: &Table,
-    delta: &Table,
+    target: &RepresentativeTarget,
 ) -> u64 {
-    let left = rel::homs(sigma, target);
+    let input = &source.input;
+    let (delta, _) = &target.delta;
+    let left = rel::homs(sigma, &target.target);
     let right = rel::homs(input, delta);
-    let unit = rel::sigma_unit(f, input).unwrap();
-    let counit = rel::sigma_counit(f, target).unwrap();
+    let unit = source.sigma_unit.as_ref().unwrap();
+    let counit = target.sigma_counit.as_ref().unwrap();
     let right_keys: BTreeSet<_> = right.iter().map(|hom| hom_key(hom, input)).collect();
     assert_eq!(left.len(), right.len());
     for hom in &left {
-        let image = rel::sigma_transpose_forward(f, input, target, hom).unwrap();
+        let image = rel::sigma_transpose_forward(f, input, &target.target, hom).unwrap();
         assert!(right_keys.contains(&hom_key(&image, input)));
-        let back = rel::sigma_transpose_inverse(f, input, target, &image).unwrap();
+        let back = rel::sigma_transpose_inverse(f, input, &target.target, &image).unwrap();
         assert!(back.same_as(hom, sigma));
 
         // Phi(h) = eta_I ; Delta(h), the component formula from which
         // two-variable naturality follows by functoriality and composition.
-        let delta_h = delta_on_hom(f, sigma, target, hom).unwrap();
+        let delta_h = source
+            .delta_of_sigma
+            .as_ref()
+            .and_then(|delta_sigma| {
+                delta_on_hom_with(sigma, &target.target, delta_sigma, &target.delta, hom)
+            })
+            .unwrap();
         let formula = unit.compose(&delta_h).unwrap();
         assert!(image.same_as(&formula, input));
     }
     let left_keys: BTreeSet<_> = left.iter().map(|hom| hom_key(hom, sigma)).collect();
     for hom in &right {
-        let image = rel::sigma_transpose_inverse(f, input, target, hom).unwrap();
+        let image = rel::sigma_transpose_inverse(f, input, &target.target, hom).unwrap();
         assert!(left_keys.contains(&hom_key(&image, sigma)));
-        let back = rel::sigma_transpose_forward(f, input, target, &image).unwrap();
+        let back = rel::sigma_transpose_forward(f, input, &target.target, &image).unwrap();
         assert!(back.same_as(hom, input));
 
         // Phi^-1(k) = Sigma(k) ; epsilon_J.
-        let sigma_h = sigma_on_hom(f, input, delta, hom).unwrap();
-        let formula = sigma_h.compose(&counit).unwrap();
+        let sigma_h = target
+            .sigma_of_delta
+            .as_ref()
+            .and_then(|sigma_delta| sigma_on_hom_with(input, delta, sigma, sigma_delta, hom))
+            .unwrap();
+        let formula = sigma_h.compose(counit).unwrap();
         assert!(image.same_as(&formula, sigma));
     }
     u64::try_from(left.len()).unwrap()
 }
 
+/// Check the Delta–Pi adjunction on one pair at `PI_BOUNDS[slot]`, where
+/// `pi` is `Pi(input)` at that bound.
 fn check_pi_adjoint_pair(
     f: &RelFunctor,
-    target: &Table,
-    input: &Table,
-    delta: &Table,
-    pi: &Table,
-    bound: usize,
+    target: &RepresentativeTarget,
+    source: &RepresentativeSource,
+    pi: &(Table, rel::PiProvenance),
+    slot: usize,
 ) -> (u64, u64) {
+    let bound = PI_BOUNDS[slot];
+    let input = &source.input;
+    let (delta, _) = &target.delta;
     let left = rel::homs(delta, input);
-    let right = rel::homs(target, pi);
-    let unit = match rel::pi_unit(f, target, bound) {
+    let right = rel::homs(&target.target, &pi.0);
+    let unit = match &target.pi_unit[slot] {
         Ok(unit) => Some(unit),
         Err(rel::TransposeError::Adjunction(error))
-            if matches!(*error, rel::AdjunctionError::ProductSizeExceeded { .. }) =>
+            if matches!(**error, rel::AdjunctionError::ProductSizeExceeded { .. }) =>
         {
             None
         }
         Err(error) => panic!("unexpected Pi unit refusal at bound {bound}: {error:?}"),
     };
-    let counit = rel::pi_counit(f, input, bound).unwrap();
+    let counit = source.pi_counit[slot].as_ref().unwrap();
     let mut naturality_refusals = 0u64;
-    let right_keys: BTreeSet<_> = right.iter().map(|hom| hom_key(hom, target)).collect();
+    let right_keys: BTreeSet<_> = right
+        .iter()
+        .map(|hom| hom_key(hom, &target.target))
+        .collect();
     assert_eq!(left.len(), right.len());
     for hom in &left {
-        let image = rel::pi_transpose_forward(f, target, input, hom, bound).unwrap();
-        assert!(right_keys.contains(&hom_key(&image, target)));
-        let back = rel::pi_transpose_inverse(f, target, input, &image, bound).unwrap();
+        let image = rel::pi_transpose_forward(f, &target.target, input, hom, bound).unwrap();
+        assert!(right_keys.contains(&hom_key(&image, &target.target)));
+        let back = rel::pi_transpose_inverse(f, &target.target, input, &image, bound).unwrap();
         assert!(back.same_as(hom, delta));
 
         // Psi(h) = eta_J ; Pi(h).
-        match &unit {
+        match unit {
             Some(unit) => {
-                let pi_h = pi_on_hom(f, delta, input, hom, bound).unwrap();
+                let pi_h = target.pi_of_delta[slot]
+                    .as_ref()
+                    .and_then(|pi_delta| pi_on_hom_with(delta, input, pi_delta, pi, hom))
+                    .unwrap();
                 let formula = unit.compose(&pi_h).unwrap();
-                assert!(image.same_as(&formula, target));
+                assert!(image.same_as(&formula, &target.target));
             }
             None => naturality_refusals += 1,
         }
     }
     let left_keys: BTreeSet<_> = left.iter().map(|hom| hom_key(hom, delta)).collect();
     for hom in &right {
-        let image = rel::pi_transpose_inverse(f, target, input, hom, bound).unwrap();
+        let image = rel::pi_transpose_inverse(f, &target.target, input, hom, bound).unwrap();
         assert!(left_keys.contains(&hom_key(&image, delta)));
-        let back = rel::pi_transpose_forward(f, target, input, &image, bound).unwrap();
-        assert!(back.same_as(hom, target));
+        let back = rel::pi_transpose_forward(f, &target.target, input, &image, bound).unwrap();
+        assert!(back.same_as(hom, &target.target));
 
         // Psi^-1(k) = Delta(k) ; epsilon_I.
-        let delta_h = delta_on_hom(f, target, pi, hom).unwrap();
-        let formula = delta_h.compose(&counit).unwrap();
+        let delta_h = source.delta_of_pi[slot]
+            .as_ref()
+            .and_then(|delta_pi| {
+                delta_on_hom_with(&target.target, &pi.0, &target.delta, delta_pi, hom)
+            })
+            .unwrap();
+        let formula = delta_h.compose(counit).unwrap();
         assert!(image.same_as(&formula, delta));
     }
     (u64::try_from(left.len()).unwrap(), naturality_refusals)
+}
+
+/// Check both adjunctions on one representative pair and count the result.
+fn execute_representative_pair(
+    case: &RepresentativeCase,
+    source: &RepresentativeSource,
+    target: &RepresentativeTarget,
+    stats: &mut O14PairStats,
+) {
+    stats.pairs += 1;
+    stats.weighted_pairs += source.weight * target.weight;
+    match &source.sigma {
+        Ok((sigma, _)) => {
+            stats.sigma_homs += check_sigma_adjoint_pair(&case.functor, source, sigma, target);
+        }
+        Err(KanError::SigmaConstantClash { .. }) => stats.sigma_refusals += 1,
+        Err(other) => panic!("{} unexpected Sigma refusal: {other:?}", case.name),
+    }
+    for (slot, pi) in source.pi.iter().enumerate() {
+        match pi {
+            Ok(pi) => {
+                let (homs, refusals) =
+                    check_pi_adjoint_pair(&case.functor, target, source, pi, slot);
+                if slot == 0 {
+                    stats.pi_bound4_homs += homs;
+                } else {
+                    stats.pi_bound81_homs += homs;
+                }
+                stats.pi_naturality_refusals += refusals;
+            }
+            Err(KanError::AttributeOutsideImage { .. }) => stats.pi_outside_image += 1,
+            Err(KanError::ProductSizeExceeded { .. }) => stats.pi_over_bound += 1,
+            Err(other) => panic!(
+                "{} unexpected Pi(bound={}) refusal: {other:?}",
+                case.name, PI_BOUNDS[slot]
+            ),
+        }
+    }
 }
 
 /// Pairs between two progress lines of the representative-pair executor.
@@ -3143,78 +3352,125 @@ fn report_o14_progress(pairs: u64, elapsed: std::time::Duration) {
     );
 }
 
-fn execute_o14_representative_pair_prefix(limit: u64) -> O14PairStats {
-    let classes = bounded::hom_profile_classes(3, 6).unwrap();
-    let family = bounded::family();
-    let value_kinds = BTreeSet::from(["value".to_owned()]);
-    let non_value_kinds = BTreeSet::from(["record".to_owned()]);
-    let started = std::time::Instant::now();
-    let mut stats = O14PairStats::default();
+/// The pairs of one source representative of one case against the first
+/// `targets` target representatives of that case.
+struct PairUnit {
+    case: usize,
+    source: usize,
+    targets: usize,
+}
 
-    for (case_index, case) in family.iter().enumerate() {
-        let source = rel::classify(&case.source_schema(), &value_kinds, &non_value_kinds).unwrap();
-        let target = rel::classify(&case.target_schema(), &value_kinds, &non_value_kinds).unwrap();
-        let functor = rel::entity_functor(&source, &target, &case.migration())
-            .unwrap()
-            .into_kan()
-            .unwrap();
-        let source_profiles = source_profiles_for_case(&classes, case_index, &functor);
-        let target_profiles = target_profiles_for_case(&classes, case_index, &functor);
-
-        for (input, input_weight, sigma, pi4, pi81) in &source_profiles {
-            for (target, target_weight, delta) in &target_profiles {
-                if stats.pairs == limit {
-                    break;
-                }
-                stats.pairs += 1;
-                if stats.pairs % O14_PROGRESS_INTERVAL == 0 {
-                    report_o14_progress(stats.pairs, started.elapsed());
-                }
-                stats.weighted_pairs += input_weight * target_weight;
-                match sigma {
-                    Ok((sigma, _)) => {
-                        stats.sigma_homs +=
-                            check_sigma_adjoint_pair(&functor, input, target, sigma, delta);
-                    }
-                    Err(KanError::SigmaConstantClash { .. }) => stats.sigma_refusals += 1,
-                    Err(other) => panic!("{} unexpected Sigma refusal: {other:?}", case.name),
-                }
-                match pi4 {
-                    Ok((pi, _)) => {
-                        let (homs, refusals) =
-                            check_pi_adjoint_pair(&functor, target, input, delta, pi, 4);
-                        stats.pi_bound4_homs += homs;
-                        stats.pi_naturality_refusals += refusals;
-                    }
-                    Err(KanError::AttributeOutsideImage { .. }) => stats.pi_outside_image += 1,
-                    Err(KanError::ProductSizeExceeded { .. }) => stats.pi_over_bound += 1,
-                    Err(other) => panic!("{} unexpected Pi(bound=4) refusal: {other:?}", case.name),
-                }
-                match pi81 {
-                    Ok((pi, _)) => {
-                        let (homs, refusals) =
-                            check_pi_adjoint_pair(&functor, target, input, delta, pi, 81);
-                        stats.pi_bound81_homs += homs;
-                        stats.pi_naturality_refusals += refusals;
-                    }
-                    Err(KanError::AttributeOutsideImage { .. }) => stats.pi_outside_image += 1,
-                    Err(KanError::ProductSizeExceeded { .. }) => stats.pi_over_bound += 1,
-                    Err(other) => {
-                        panic!("{} unexpected Pi(bound=81) refusal: {other:?}", case.name)
-                    }
-                }
+/// The first `limit` representative pairs in case, source, target order, cut
+/// into one unit per source representative.
+fn pair_units(cases: &[RepresentativeCase], limit: u64) -> Vec<PairUnit> {
+    let mut units = Vec::new();
+    let mut remaining = limit;
+    for (case_index, case) in cases.iter().enumerate() {
+        for source in 0..case.sources.len() {
+            let targets = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(case.targets.len());
+            if targets == 0 {
+                continue;
             }
-            if stats.pairs == limit {
-                break;
-            }
-        }
-        if stats.pairs == limit {
-            break;
+            units.push(PairUnit {
+                case: case_index,
+                source,
+                targets,
+            });
+            remaining -= u64::try_from(targets).unwrap();
         }
     }
+    units
+}
+
+/// Worker threads for the representative-pair executor: the positive integer
+/// in `PANPROTO_KAN_THREADS`, or else four fewer than the available
+/// parallelism, and at least one.
+fn pair_threads() -> usize {
+    std::env::var("PANPROTO_KAN_THREADS").map_or_else(
+        |_| {
+            std::thread::available_parallelism()
+                .map_or(1, |available| available.get().saturating_sub(4))
+                .max(1)
+        },
+        |text| {
+            text.parse::<usize>()
+                .ok()
+                .filter(|threads| *threads > 0)
+                .expect("PANPROTO_KAN_THREADS must be a positive integer")
+        },
+    )
+}
+
+/// Sets the flag when the owning worker unwinds, so the other workers stop.
+struct StopOnPanic<'a>(&'a AtomicBool);
+
+impl Drop for StopOnPanic<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.store(true, AtomicOrdering::Relaxed);
+        }
+    }
+}
+
+/// Execute the first `limit` representative pairs on `threads` workers.
+///
+/// Worker `w` takes units `w`, `w + threads`, `w + 2 * threads`, ... of
+/// [`pair_units`], so the partition depends only on `limit` and `threads`, and
+/// every pair is executed by exactly one worker. The counters are sums over
+/// pairs, so the merged counters equal those of one worker taking every unit
+/// in order. The first panic stops the other workers and is re-raised.
+fn execute_representative_pairs(
+    cases: &[RepresentativeCase],
+    limit: u64,
+    threads: usize,
+) -> O14PairStats {
+    let units = pair_units(cases, limit);
+    let threads = threads.clamp(1, units.len().max(1));
+    let started = std::time::Instant::now();
+    let done = AtomicU64::new(0);
+    let stop = AtomicBool::new(false);
+    let run_share = |share: usize| {
+        let _stop_on_panic = StopOnPanic(&stop);
+        let mut stats = O14PairStats::default();
+        for unit in units.iter().skip(share).step_by(threads) {
+            let case = &cases[unit.case];
+            let source = &case.sources[unit.source];
+            for target in &case.targets[..unit.targets] {
+                if stop.load(AtomicOrdering::Relaxed) {
+                    return stats;
+                }
+                execute_representative_pair(case, source, target, &mut stats);
+                let pairs = done.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+                if pairs % O14_PROGRESS_INTERVAL == 0 {
+                    report_o14_progress(pairs, started.elapsed());
+                }
+            }
+        }
+        stats
+    };
+    let stats = if threads == 1 {
+        run_share(0)
+    } else {
+        let run_share = &run_share;
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads)
+                .map(|share| scope.spawn(move || run_share(share)))
+                .collect();
+            let mut stats = O14PairStats::default();
+            for worker in workers {
+                match worker.join() {
+                    Ok(share) => stats.absorb(&share),
+                    Err(panic) => std::panic::resume_unwind(panic),
+                }
+            }
+            stats
+        })
+    };
 
     println!(
-        "O14 representative executor: pairs={}, weighted={}, Sigma homs={}, Sigma refusals={}, Pi(4) homs={}, Pi(81) homs={}, Pi naturality refusals={}, Pi outside-image={}, Pi over-bound={}, elapsed={:?}",
+        "O14 representative executor: threads={threads}, pairs={}, weighted={}, Sigma homs={}, Sigma refusals={}, Pi(4) homs={}, Pi(81) homs={}, Pi naturality refusals={}, Pi outside-image={}, Pi over-bound={}, elapsed={:?}",
         stats.pairs,
         stats.weighted_pairs,
         stats.sigma_homs,
@@ -3229,10 +3485,14 @@ fn execute_o14_representative_pair_prefix(limit: u64) -> O14PairStats {
     stats
 }
 
+/// Representative pairs in the full certificate.
+const REPRESENTATIVE_PAIRS: u64 = 19_120_495;
+
 #[test]
 fn o14_executes_every_representative_profile_pair() {
-    let stats = execute_o14_representative_pair_prefix(u64::MAX);
-    assert_eq!(stats.pairs, 19_120_495);
+    let cases = representative_cases();
+    let stats = execute_representative_pairs(&cases, u64::MAX, pair_threads());
+    assert_eq!(stats.pairs, REPRESENTATIVE_PAIRS);
     assert_eq!(stats.weighted_pairs, 3_918_714_467);
     assert!(stats.sigma_homs > 0);
     assert!(stats.pi_bound4_homs > 0);
@@ -3242,16 +3502,42 @@ fn o14_executes_every_representative_profile_pair() {
     assert!(stats.pi_over_bound > 0);
 }
 
-#[test]
-#[ignore = "development-only throughput pilot; O14 acceptance is the unlimited test"]
-fn o14_representative_profile_pair_throughput_pilot() {
+/// The pair prefix for the development-only executor checks:
+/// `PANPROTO_KAN_PAIR_LIMIT`, or `default`.
+fn pilot_pair_limit(default: u64) -> u64 {
     let limit = std::env::var("PANPROTO_KAN_PAIR_LIMIT")
         .ok()
         .and_then(|text| text.parse::<u64>().ok())
-        .unwrap_or(10_000);
-    assert!(limit < 19_120_495);
-    let stats = execute_o14_representative_pair_prefix(limit);
+        .unwrap_or(default);
+    assert!(limit < REPRESENTATIVE_PAIRS);
+    limit
+}
+
+#[test]
+#[ignore = "development-only throughput pilot; O14 acceptance is the unlimited test"]
+fn o14_representative_profile_pair_throughput_pilot() {
+    let limit = pilot_pair_limit(10_000);
+    let cases = representative_cases();
+    let stats = execute_representative_pairs(&cases, limit, pair_threads());
     assert_eq!(stats.pairs, limit);
+}
+
+#[test]
+#[ignore = "development-only check that the parallel executor matches one worker on a pair prefix"]
+fn representative_pairs_on_parallel_workers_match_one_worker() {
+    let limit = pilot_pair_limit(20_000);
+    let threads = pair_threads().max(2);
+    let cases = representative_cases();
+    let units = pair_units(&cases, limit);
+    let unit_pairs: u64 = units
+        .iter()
+        .map(|unit| u64::try_from(unit.targets).unwrap())
+        .sum();
+    assert_eq!(unit_pairs, limit);
+    let one_worker = execute_representative_pairs(&cases, limit, 1);
+    let parallel = execute_representative_pairs(&cases, limit, threads);
+    assert_eq!(one_worker.pairs, limit);
+    assert_eq!(parallel, one_worker);
 }
 
 #[derive(Default)]
