@@ -42,7 +42,6 @@ enum ClassItem {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node {
-    Empty,
     Char(char),
     Any,
     Class {
@@ -51,7 +50,9 @@ enum Node {
     },
     Start,
     End,
+    /// A sequence; the empty one matches the empty string.
     Concat(Vec<Self>),
+    /// A choice among at least one branch.
     Alt(Vec<Self>),
     Repeat {
         node: Box<Self>,
@@ -123,11 +124,10 @@ impl Parser<'_> {
         while self.eat('|') {
             branches.push(self.concat()?);
         }
-        Ok(if branches.len() == 1 {
-            branches.remove(0)
-        } else {
-            Node::Alt(branches)
-        })
+        // A single branch is kept as a one-branch choice: `ends` returns
+        // sorted, deduplicated positions for every node, so wrapping changes
+        // nothing.
+        Ok(Node::Alt(branches))
     }
 
     fn concat(&mut self) -> Result<Node, PatternError> {
@@ -139,11 +139,9 @@ impl Parser<'_> {
             let atom = self.atom()?;
             items.push(self.repetition(atom)?);
         }
-        Ok(match items.len() {
-            0 => Node::Empty,
-            1 => items.remove(0),
-            _ => Node::Concat(items),
-        })
+        // As in `alternation`, a one-item or empty sequence stays a
+        // sequence; an empty one ends where it starts.
+        Ok(Node::Concat(items))
     }
 
     fn number(&mut self) -> Option<u32> {
@@ -157,21 +155,16 @@ impl Parser<'_> {
 
     fn repetition(&mut self, mut atom: Node) -> Result<Node, PatternError> {
         loop {
-            let (min, max) = match self.peek() {
-                Some('*') => {
-                    self.at += 1;
-                    (0, None)
-                }
-                Some('+') => {
-                    self.at += 1;
-                    (1, None)
-                }
-                Some('?') => {
-                    self.at += 1;
-                    (0, Some(1))
-                }
-                Some('{') => {
-                    self.at += 1;
+            // Every quantifier opener is one character, consumed here once.
+            let Some(opener @ ('*' | '+' | '?' | '{')) = self.peek() else {
+                return Ok(atom);
+            };
+            self.at += 1;
+            let (min, max) = match opener {
+                '*' => (0, None),
+                '+' => (1, None),
+                '?' => (0, Some(1)),
+                _ => {
                     let Some(lo) = self.number() else {
                         return invalid("a repetition count is not a decimal number");
                     };
@@ -192,7 +185,6 @@ impl Parser<'_> {
                     }
                     (lo, hi)
                 }
-                _ => return Ok(atom),
             };
             // A lazy marker changes which match is found first, never
             // whether one exists.
@@ -284,9 +276,11 @@ impl Parser<'_> {
             self.at += n;
             t
         };
+        // `from_str_radix` also reads a leading sign, which the syntax does
+        // not; an empty text it refuses itself.
         u32::from_str_radix(&text, 16)
             .ok()
-            .filter(|_| !text.is_empty() && text.len() <= 8)
+            .filter(|_| text.chars().all(|c| c.is_ascii_hexdigit()))
             .and_then(char::from_u32)
             .map_or_else(|| invalid("a hexadecimal escape names no character"), Ok)
     }
@@ -337,9 +331,12 @@ impl Parser<'_> {
         } else {
             c
         };
+        // `&&`, `--` and `~~` are set operations, and so is `--` after an
+        // item (`[a--b]` is a difference, never a range ending in `-`).
         if (lo == '&' && self.peek() == Some('&'))
             || (lo == '-' && self.peek() == Some('-'))
             || (lo == '~' && self.peek() == Some('~'))
+            || (self.peek() == Some('-') && self.chars.get(self.at + 1) == Some(&'-'))
         {
             return unsupported("a class set operation");
         }
@@ -389,8 +386,9 @@ impl Parser<'_> {
                     if name.starts_with('^') {
                         return unsupported("a negated ASCII class");
                     }
+                    // An unknown name makes `[:..:]` a nested class.
                     let Some((_, ranges)) = ASCII_CLASSES.iter().find(|(n, _)| *n == name) else {
-                        return invalid("an unknown ASCII class");
+                        return unsupported("a nested class");
                     };
                     items.extend(ranges.iter().map(|(a, b)| ClassItem::Range(*a, *b)));
                     self.at += 2 + end + 2;
@@ -434,10 +432,10 @@ fn class_has(items: &[ClassItem], c: char) -> bool {
     })
 }
 
-/// Every position at which `node` can end when it starts at `at`.
+/// Every position at which `node` can end when it starts at `at`, ascending
+/// and without repeats.
 fn ends(node: &Node, text: &[char], at: usize) -> Vec<usize> {
     match node {
-        Node::Empty => vec![at],
         Node::Char(c) => {
             if text.get(at) == Some(c) {
                 vec![at + 1]
