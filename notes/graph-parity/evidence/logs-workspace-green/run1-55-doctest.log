@@ -1,0 +1,66 @@
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-all`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-data`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-devops`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-functional`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-jvm`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-mobile`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-music`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-scripting`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-systems`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-web`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-py`
+   Compiling proc-macro2 v1.0.107
+   Compiling target-triple v1.0.0
+   Compiling glob v0.3.3
+   Compiling quote v1.0.47
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling syn v1.0.109
+   Compiling prettyplease v0.1.25
+   Compiling logos-codegen v0.16.1
+   Compiling synstructure v0.13.2
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling zerocopy-derive v0.8.42
+   Compiling miette-derive v7.6.0
+   Compiling thiserror v2.0.20
+   Compiling logos-derive v0.16.1
+   Compiling miette v7.6.0
+   Compiling clap_derive v4.6.1
+   Compiling zerocopy v0.8.42
+   Compiling serde v1.0.229
+   Compiling panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr)
+   Compiling rmp-serde v1.3.1
+   Compiling malachite-nz v0.9.2
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling clap v4.6.1
+   Compiling half v2.7.1
+   Compiling logos v0.16.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling divan-macros v0.1.21
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling divan v0.1.21
+   Compiling ouroboros_macro v0.18.5
+   Compiling ppv-lite86 v0.2.21
+   Compiling codespan-reporting v0.13.1
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling malachite-q v0.9.2
+   Compiling malachite-float v0.9.2
+   Compiling codespan v0.13.1
+   Compiling rand_chacha v0.9.0
+   Compiling malachite v0.9.2
+   Compiling ouroboros v0.18.5
+   Compiling nickel-lang-vector v0.2.0
+   Compiling zerofrom-derive v0.1.6
+   Compiling nickel-lang-parser v0.3.0
+   Compiling zerofrom v0.1.6
+   Compiling proptest v1.11.0
+   Compiling yaml_serde v0.10.7
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling tree-sitter-tags v0.26.13
+   Compiling yoke-derive v0.8.1
+   Compiling yoke v0.8.1
+   Compiling zerovec-derive v0.11.2

@@ -1,0 +1,113 @@
+
+# >>>>>>>>>>>>>>>>>>>>>> ERROR REPORT <<<<<<<<<<<<<<<<<<<<<<
+
+    Traceback (most recent call last):
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/exceptions.py", line 1132, in __call__
+        return func(*args, **kwargs)
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/cli/main.py", line 94, in main_sourced
+        print(activator.execute(), end="")
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/activate.py", line 171, in execute
+        return getattr(self, self.command)()
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/activate.py", line 143, in activate
+        builder_result = self.build_activate(self.env_name_or_prefix)
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/activate.py", line 304, in build_activate
+        return self._build_activate_stack(env_name_or_prefix, False)
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/activate.py", line 385, in _build_activate_stack
+        deactivate_scripts = self._get_deactivate_scripts(old_conda_prefix)
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/site-packages/conda/activate.py", line 696, in _get_deactivate_scripts
+        entry.path for entry in os.scandir(join(prefix, "etc", "conda", "deactivate.d"))
+      File "/Users/awhite48/opt/anaconda3/lib/python3.9/posixpath.py", line 76, in join
+        a = os.fspath(a)
+    TypeError: expected str, bytes or os.PathLike object, not NoneType
+
+`$ /Users/awhite48/opt/anaconda3/bin/conda shell.posix activate base`
+
+  environment variables:
+     BUNDLED_DEBUGPY_PATH=/Users/awhite48/.vscode/extensions/ms-python.debugpy-2026.6.0-darwin-
+                          arm64/bundled/libs/debugpy
+                 CIO_TEST=<not set>
+     CLAUDE_CODE_EXECPATH=/Users/awhite48/.local/share/claude/versions/2.1.292
+        CONDA_DEFAULT_ENV=base
+                CONDA_EXE=/Users/awhite48/opt/anaconda3/bin/conda
+    CONDA_PROMPT_MODIFIER=(base)
+         CONDA_PYTHON_EXE=/Users/awhite48/opt/anaconda3/bin/python
+               CONDA_ROOT=/Users/awhite48/opt/anaconda3
+              CONDA_SHLVL=1
+           CURL_CA_BUNDLE=<not set>
+                    FPATH=/opt/homebrew/share/zsh/site-functions:/usr/local/share/zsh/site-
+                          functions:/usr/share/zsh/site-
+                          functions:/usr/share/zsh/5.9/functions:/Users/awhite48/.zfunc
+                 GEM_PATH=/Users/awhite48/.gem/ruby/3.1.3:/Users/awhite48/.rubies/ruby-3.1.3/lib
+                          /ruby/gems/3.1.0
+                 INFOPATH=/opt/homebrew/share/info:
+               LD_PRELOAD=<not set>
+NoDefaultCurrentDirectoryInExePath=1
+                     PATH=/Users/awhite48/Library/pnpm:/Users/awhite48/.nvm/versions/node/v22.22
+                          .0/bin:/Users/awhite48/.gem/ruby/3.1.3/bin:/Users/awhite48/.rubies/rub
+                          y-3.1.3/lib/ruby/gems/3.1.0/bin:/Users/awhite48/.rubies/ruby-3.1.3/bin
+                          :/Users/awhite48/opt/anaconda3/bin:/Users/awhite48/opt/anaconda3/conda
+                          bin:/Users/awhite48/Library/Application
+                          Support/Code/User/globalStorage/github.copilot-
+                          chat/debugCommand:/Users/awhite48/Library/Application
+                          Support/Code/User/globalStorage/github.copilot-chat/copilotCli:/Applic
+                          ations/quarto/bin:/Users/awhite48/.elan/bin:/opt/homebrew/bin:/opt/hom
+                          ebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:
+                          /usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/boot
+                          strap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/
+                          bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bo
+                          otstrap/usr/appleinternal/bin:/Library/Apple/usr/bin:/Library/TeX/texb
+                          in:/Applications/quarto/bin:/Users/awhite48/.nvm/versions/node/v22.22.
+                          0/bin:/Users/awhite48/.cargo/bin:/Users/awhite48/Library/Application
+                          Support/Code/User/globalStorage/github.copilot-
+                          chat/debugCommand:/Users/awhite48/Library/Application
+                          Support/Code/User/globalStorage/github.copilot-
+                          chat/copilotCli:/Users/awhite48/.vscode/extensions/ms-
+                          python.debugpy-2026.6.0-darwin-arm64/bundled/scripts/noConfigScripts:/
+                          Users/awhite48/.local/bin:/Users/awhite48/.cabal/bin:/Users/awhite48/.
+                          ghcup/bin:/Users/awhite48/.local/bin:/Users/awhite48/.lmstudio/bin
+            PYTHONSTARTUP=/Users/awhite48/Library/Application Support/Code/User/workspaceStorage
+                          /fc3dd0fca2c0e7e89f290c5a3644eb93/ms-python.python/pythonrc.py
+        PYTHON_BASIC_REPL=1
+       REQUESTS_CA_BUNDLE=<not set>
+            SSL_CERT_FILE=<not set>
+
+     active environment : None
+            shell level : 1
+       user config file : /Users/awhite48/.condarc
+ populated config files : /Users/awhite48/.condarc
+          conda version : 23.3.1
+    conda-build version : 3.22.0
+         python version : 3.9.13.final.0
+       virtual packages : __archspec=1=x86_64
+                          __osx=10.16=0
+                          __unix=0=0
+       base environment : /Users/awhite48/opt/anaconda3  (writable)
+      conda av data dir : /Users/awhite48/opt/anaconda3/etc/conda
+  conda av metadata url : None
+           channel URLs : https://conda.anaconda.org/conda-forge/osx-64
+                          https://conda.anaconda.org/conda-forge/noarch
+                          https://repo.anaconda.com/pkgs/main/osx-64
+                          https://repo.anaconda.com/pkgs/main/noarch
+                          https://repo.anaconda.com/pkgs/r/osx-64
+                          https://repo.anaconda.com/pkgs/r/noarch
+          package cache : /Users/awhite48/opt/anaconda3/pkgs
+                          /Users/awhite48/.conda/pkgs
+       envs directories : /Users/awhite48/opt/anaconda3/envs
+                          /Users/awhite48/.conda/envs
+               platform : osx-64
+             user-agent : conda/23.3.1 requests/2.32.4 CPython/3.9.13 Darwin/24.6.0 OSX/10.16
+                UID:GID : 503:20
+             netrc file : /Users/awhite48/.netrc
+           offline mode : False
+
+
+An unexpected error has occurred. Conda has prepared the above report.
+
+building panproto-c (release)...
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+   Compiling panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-c)
+    Finished `release` profile [optimized] target(s) in 2m 01s
+staged into /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/swift/.panproto-c/
+libpanproto_c.a
+libpanproto_c.dylib

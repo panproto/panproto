@@ -1,0 +1,4 @@
+51-fmt exit=0 secs=5 free=36GB
+52-clippy exit=101 secs=310 free=35GB
+53-fuzz-check exit=0 secs=17 free=34GB
+54-nextest exit=100 secs=2003 free=14GB

@@ -1,0 +1,374 @@
+   Compiling libc v0.2.189
+   Compiling syn v2.0.119
+   Compiling regex-automata v0.4.14
+   Compiling regex v1.12.3
+   Compiling synstructure v0.13.2
+   Compiling zerocopy-derive v0.8.42
+   Compiling smallvec v1.15.1
+   Compiling miette-derive v7.6.0
+   Compiling zerocopy v0.8.42
+   Compiling zerofrom-derive v0.1.6
+   Compiling jobserver v0.1.34
+   Compiling cc v1.4.5
+   Compiling errno v0.3.14
+   Compiling rustix v1.1.4
+   Compiling backtrace v0.3.76
+   Compiling blake3 v1.8.7
+   Compiling terminal_size v0.4.3
+   Compiling backtrace-ext v0.2.1
+   Compiling zerofrom v0.1.6
+   Compiling miette v7.6.0
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling yoke-derive v0.8.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling parking_lot_core v0.9.12
+   Compiling ciborium v0.2.2
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling yoke v0.8.1
+   Compiling cpufeatures v0.2.17
+   Compiling keccak v0.1.6
+   Compiling parking_lot v0.12.5
+   Compiling zerovec-derive v0.11.2
+   Compiling string_cache v0.8.9
+   Compiling sha3 v0.10.8
+   Compiling displaydoc v0.2.5
+   Compiling pin-project-lite v0.2.17
+   Compiling bytes v1.11.1
+   Compiling zerovec v0.11.5
+   Compiling lalrpop v0.22.2
+   Compiling pkg-config v0.3.32
+   Compiling futures-core v0.3.32
+   Compiling logos-codegen v0.16.1
+   Compiling vcpkg v0.2.15
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling tinystr v0.8.2
+   Compiling logos-derive v0.16.1
+   Compiling ring v0.17.14
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.3
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling writeable v0.6.2
+   Compiling litemap v0.8.1
+   Compiling ouroboros_macro v0.18.5
+   Compiling icu_locale_core v2.1.1
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling tokio v1.53.1
+   Compiling nickel-lang-parser v0.3.0
+   Compiling logos v0.16.1
+   Compiling tree-sitter v0.26.13
+   Compiling psm v0.1.30
+   Compiling potential_utf v0.1.4
+   Compiling http v1.4.0
+   Compiling zerotrie v0.2.3
+   Compiling icu_properties_data v2.1.2
+   Compiling icu_normalizer_data v2.1.1
+   Compiling zeroize v1.8.2
+   Compiling rustls-pki-types v1.14.0
+   Compiling ouroboros v0.18.5
+   Compiling icu_provider v2.1.1
+   Compiling http-body v1.0.1
+   Compiling icu_collections v2.1.1
+   Compiling nickel-lang-core v0.18.0
+   Compiling lalrpop-util v0.22.2
+   Compiling stacker v0.1.23
+   Compiling openssl-src v300.5.0+3.5.0
+   Compiling getrandom v0.2.17
+   Compiling futures-task v0.3.32
+   Compiling httparse v1.10.1
+   Compiling slab v0.4.12
+   Compiling percent-encoding v2.3.2
+   Compiling untrusted v0.9.0
+   Compiling getrandom v0.3.4
+   Compiling futures-util v0.3.32
+   Compiling openssl-sys v0.9.112
+   Compiling sha2 v0.10.9
+   Compiling sha-1 v0.10.1
+   Compiling libz-sys v1.1.25
+   Compiling try-lock v0.2.5
+   Compiling rustls v0.23.45
+   Compiling tower-service v0.3.3
+   Compiling want v0.3.1
+   Compiling icu_normalizer v2.1.1
+   Compiling icu_properties v2.1.2
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling rustls-webpki v0.103.15
+   Compiling futures-channel v0.3.32
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling tracing-core v0.1.36
+   Compiling pin-utils v0.1.0
+   Compiling atomic-waker v1.1.2
+   Compiling subtle v2.6.1
+   Compiling utf8parse v0.2.2
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling nickel-lang v2.2.0
+   Compiling hyper v1.8.1
+   Compiling tempfile v3.27.0
+   Compiling tracing v0.1.44
+   Compiling chumsky v1.0.0-alpha.8
+   Compiling idna_adapter v1.2.1
+   Compiling form_urlencoded v1.2.2
+   Compiling sync_wrapper v1.0.2
+   Compiling libgit2-sys v0.18.5+1.9.4
+   Compiling bstr v1.12.1
+   Compiling utf8_iter v1.0.4
+   Compiling cfg_aliases v0.2.1
+   Compiling ipnet v2.12.0
+   Compiling tower-layer v0.3.3
+   Compiling hyper-util v0.1.20
+   Compiling tower v0.5.3
+   Compiling idna v1.1.0
+   Compiling nix v0.31.3
+   Compiling panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-dsl-eval)
+   Compiling tokio-rustls v0.26.4
+   Compiling anstyle-parse v1.0.0
+   Compiling tree-sitter-tags v0.26.13
+   Compiling webpki-roots v1.0.6
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling iri-string v0.7.11
+   Compiling tower-http v0.6.8
+   Compiling anstream v1.0.0
+   Compiling hyper-rustls v0.27.7
+   Compiling url v2.5.8
+   Compiling globset v0.4.19
+   Compiling serde_urlencoded v0.7.1
+   Compiling http-body-util v0.1.3
+   Compiling nibble_vec v0.1.0
+   Compiling endian-type v0.2.0
+   Compiling predicates-core v1.0.10
+   Compiling heck v0.5.0
+   Compiling radix_trie v0.3.0
+   Compiling clap_derive v4.6.1
+   Compiling clap_builder v4.6.0
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling reqwest v0.12.28
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling float-cmp v0.10.0
+   Compiling hex v0.4.3
+   Compiling home v0.5.12
+   Compiling assert_cmd v2.2.2
+   Compiling termtree v0.5.1
+   Compiling normalize-line-endings v0.3.0
+   Compiling difflib v0.4.0
+   Compiling predicates v3.1.4
+   Compiling predicates-tree v1.0.13
+   Compiling rustyline v18.0.1
+   Compiling panproto-xrpc v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-xrpc)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+   Compiling clap v4.6.1
+   Compiling wait-timeout v0.2.1
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+   Compiling panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-project)
+   Compiling git2 v0.21.0
+   Compiling panproto-git v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-git)
+   Compiling panproto-cli v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 34s
+────────────
+ Nextest run ID 49b4e266-98fb-4a40-8b18-3f3857046ec3 with nextest profile: ci
+    Starting 100 tests across 1 binary (2 binaries skipped)
+        PASS [   2.196s] (  1/100) panproto-cli::cli_workflows cli_auto_migrate_refuses_an_unresolvable_protocol
+        PASS [   2.218s] (  2/100) panproto-cli::cli_workflows cli_auto_migrate_json_emits_the_right_leg
+        PASS [   0.068s] (  3/100) panproto-cli::cli_workflows cli_auto_migrate_reports_a_partial_span_by_default
+        PASS [   2.277s] (  4/100) panproto-cli::cli_workflows cli_add_dry_run
+        FAIL [   2.283s] (  5/100) panproto-cli::cli_workflows cli_add_data_stages_one_index_entry_per_file
+  stdout ───
+
+    running 1 test
+    test cli_add_data_stages_one_index_entry_per_file ... FAILED
+
+    failures:
+
+    failures:
+        cli_add_data_stages_one_index_entry_per_file
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 99 filtered out; finished in 2.23s
+
+  stderr ───
+
+    thread 'cli_add_data_stages_one_index_entry_per_file' (86300892) panicked at crates/panproto-cli/tests/cli_workflows.rs:370:10:
+    Unexpected failure.
+    code=1
+    stderr=``````
+    Error:   × failed to stage data file records/one.json; no data files were staged
+      ╰─▶ records/one.json: does not validate against this schema: [\"record 0 at
+          a: unknown protocol \\\"test\\\"\"]
+
+    ```
+    ```
+    command=`cd "/var/folders/0q/s59s3kh51f9gkvj96vpx89bc0000gq/T/.tmpyOkDkb" && "/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/schema" "add" "v1.json" "--data" "records"`
+    code=1
+    stdout="Staged schema from v1.json\n"
+    stderr=```
+    Error:   × failed to stage data file records/one.json; no data files were staged
+      ╰─▶ records/one.json: does not validate against this schema: [\"record 0 at
+          a: unknown protocol \\\"test\\\"\"]
+
+    ```
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   2.294s] (  6/100) panproto-cli::cli_workflows cli_atproto_project_versions_compare_through_compat
+        PASS [   0.078s] (  7/100) panproto-cli::cli_workflows cli_auto_migrate_total_accepts_a_pair_that_maps_entirely
+        FAIL [   2.300s] (  8/100) panproto-cli::cli_workflows cli_add_data_failure_stages_nothing_and_reports_it
+  stdout ───
+
+    running 1 test
+    test cli_add_data_failure_stages_nothing_and_reports_it ... FAILED
+
+    failures:
+
+    failures:
+        cli_add_data_failure_stages_nothing_and_reports_it
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 99 filtered out; finished in 2.24s
+
+  stderr ───
+
+    thread 'cli_add_data_failure_stages_nothing_and_reports_it' (86300897) panicked at crates/panproto-cli/tests/cli_workflows.rs:443:5:
+    the failing file must be named in the error: Error:   × failed to stage data file records/good.json; no data files were staged
+      ╰─▶ records/good.json: does not validate against this schema: ["record 0 at
+          a: unknown protocol \"test\""]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.058s] (  9/100) panproto-cli::cli_workflows cli_auto_migrate_total_and_span_conflict
+        PASS [   0.071s] ( 10/100) panproto-cli::cli_workflows cli_auto_migrate_warns_when_the_right_leg_contracts
+        PASS [   0.108s] ( 11/100) panproto-cli::cli_workflows cli_auto_migrate_total_finds_a_morphism_the_optimal_span_is_not
+        PASS [   0.101s] ( 12/100) panproto-cli::cli_workflows cli_auto_migrate_total_refuses_a_partial_span_and_says_what_it_found
+        PASS [   2.421s] ( 13/100) panproto-cli::cli_workflows cli_atproto_project_stages_data_and_keeps_its_protocol
+        PASS [   2.421s] ( 14/100) panproto-cli::cli_workflows cli_add_unchanged_fails
+        PASS [   2.475s] ( 15/100) panproto-cli::cli_workflows cli_add_commit_log
+        PASS [   0.082s] ( 16/100) panproto-cli::cli_workflows cli_check_valid_migration
+        PASS [   0.394s] ( 17/100) panproto-cli::cli_workflows cli_blame_vertex
+        PASS [   0.390s] ( 18/100) panproto-cli::cli_workflows cli_branch_create_list
+        PASS [   0.367s] ( 19/100) panproto-cli::cli_workflows cli_branch_delete
+        PASS [   2.749s] ( 20/100) panproto-cli::cli_workflows cli_add_atproto_directory_stages_per_file_tree_and_reuses_unchanged_leaf
+        PASS [   0.374s] ( 21/100) panproto-cli::cli_workflows cli_branch_force_delete
+        PASS [   0.343s] ( 22/100) panproto-cli::cli_workflows cli_branch_verbose
+        PASS [   0.375s] ( 23/100) panproto-cli::cli_workflows cli_branch_rename
+        PASS [   0.319s] ( 24/100) panproto-cli::cli_workflows cli_checkout_create
+        PASS [   0.079s] ( 25/100) panproto-cli::cli_workflows cli_clone_requires_panproto_url
+        PASS [   0.383s] ( 26/100) panproto-cli::cli_workflows cli_checkout_branch
+        PASS [   0.054s] ( 27/100) panproto-cli::cli_workflows cli_diff_name_only
+        PASS [   0.061s] ( 28/100) panproto-cli::cli_workflows cli_diff_name_status
+        PASS [   0.140s] ( 29/100) panproto-cli::cli_workflows cli_commit_no_staged_fails
+        PASS [   0.072s] ( 30/100) panproto-cli::cli_workflows cli_diff_stat
+        PASS [   0.088s] ( 31/100) panproto-cli::cli_workflows cli_diff_two_files
+        PASS [   0.105s] ( 32/100) panproto-cli::cli_workflows cli_init_success
+        PASS [   0.299s] ( 33/100) panproto-cli::cli_workflows cli_commit_allow_empty
+        PASS [   0.359s] ( 34/100) panproto-cli::cli_workflows cli_checkout_detached
+        PASS [   0.052s] ( 35/100) panproto-cli::cli_workflows cli_lens_compile_retains_value_transforms_and_stage_order
+        PASS [   0.065s] ( 36/100) panproto-cli::cli_workflows cli_lens_compile_auto_body_without_schemas_fails
+        FAIL [   0.108s] ( 37/100) panproto-cli::cli_workflows cli_lens_apply_accepts_compiled_artifact_with_ordered_stages
+  stdout ───
+
+    running 1 test
+    test cli_lens_apply_accepts_compiled_artifact_with_ordered_stages ... FAILED
+
+    failures:
+
+    failures:
+        cli_lens_apply_accepts_compiled_artifact_with_ordered_stages
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.08s
+
+  stderr ───
+
+    thread 'cli_lens_apply_accepts_compiled_artifact_with_ordered_stages' (86301579) panicked at crates/panproto-cli/tests/cli_workflows.rs:3158:10:
+    Unexpected failure.
+    code=1
+    stderr=``````
+    Error:   × failed to instantiate compiled lens artifact at schema
+      ╰─▶ lens path has 2 normal-form groups; one is required
+
+    ```
+    ```
+    command=`cd "/var/folders/0q/s59s3kh51f9gkvj96vpx89bc0000gq/T/.tmpjUZQWI" && "/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/schema" "lens" "apply" "compiled.json" "data.json" "--protocol" "atproto" "--schema" "source.json"`
+    code=1
+    stdout=""
+    stderr=```
+    Error:   × failed to instantiate compiled lens artifact at schema
+      ╰─▶ lens path has 2 normal-form groups; one is required
+
+    ```
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.043s] ( 38/100) panproto-cli::cli_workflows cli_lens_compile_yaml_emits_chain_json
+        PASS [   0.871s] ( 39/100) panproto-cli::cli_workflows cli_bisect_output
+        PASS [   0.404s] ( 40/100) panproto-cli::cli_workflows cli_commit_amend
+        PASS [   0.048s] ( 41/100) panproto-cli::cli_workflows cli_lens_generate_chain_topn_single_document
+        PASS [   0.280s] ( 42/100) panproto-cli::cli_workflows cli_gc_dry_run
+        PASS [   0.081s] ( 43/100) panproto-cli::cli_workflows cli_lens_generate_json_topn_requirements_single_document
+        PASS [   0.093s] ( 44/100) panproto-cli::cli_workflows cli_lens_generate_json_fuse_empty_chain_does_not_leak_partial_json
+        PASS [   0.085s] ( 45/100) panproto-cli::cli_workflows cli_lift_string_identity
+        PASS [   0.114s] ( 46/100) panproto-cli::cli_workflows cli_lift_integer_identity
+        PASS [   0.134s] ( 47/100) panproto-cli::cli_workflows cli_lift_identity
+        PASS [   0.135s] ( 48/100) panproto-cli::cli_workflows cli_lift_bad_migration_fails
+        PASS [   0.441s] ( 49/100) panproto-cli::cli_workflows cli_diff_staged
+        PASS [   0.347s] ( 50/100) panproto-cli::cli_workflows cli_init_with_initial_branch
+        PASS [   0.094s] ( 51/100) panproto-cli::cli_workflows cli_lift_verbose
+        PASS [   0.642s] ( 52/100) panproto-cli::cli_workflows cli_cherry_pick_success
+        PASS [   0.366s] ( 53/100) panproto-cli::cli_workflows cli_log_default
+        PASS [   0.975s] ( 54/100) panproto-cli::cli_workflows cli_cherry_pick_with_x
+        PASS [   0.405s] ( 55/100) panproto-cli::cli_workflows cli_merge_abort
+        PASS [   0.438s] ( 56/100) panproto-cli::cli_workflows cli_log_oneline
+        PASS [   0.457s] ( 57/100) panproto-cli::cli_workflows cli_log_format
+        PASS [   0.134s] ( 58/100) panproto-cli::cli_workflows cli_pull_fetch_require_url
+        PASS [   0.143s] ( 59/100) panproto-cli::cli_workflows cli_push_requires_url
+        PASS [   0.631s] ( 60/100) panproto-cli::cli_workflows cli_log_limit
+        PASS [   0.709s] ( 61/100) panproto-cli::cli_workflows cli_log_author_filter
+        PASS [   0.082s] ( 62/100) panproto-cli::cli_workflows cli_remote_stubs_complete
+        PASS [   0.681s] ( 63/100) panproto-cli::cli_workflows cli_log_grep
+        PASS [   0.703s] ( 64/100) panproto-cli::cli_workflows cli_merge_fast_forward
+        PASS [   0.320s] ( 65/100) panproto-cli::cli_workflows cli_reflog_with_all
+        PASS [   0.682s] ( 66/100) panproto-cli::cli_workflows cli_merge_no_commit
+        PASS [   0.351s] ( 67/100) panproto-cli::cli_workflows cli_show_commit
+        PASS [   0.742s] ( 68/100) panproto-cli::cli_workflows cli_reflog_shows_history
+        PASS [   1.179s] ( 69/100) panproto-cli::cli_workflows cli_merge_ff_only_fails
+        PASS [   0.121s] ( 70/100) panproto-cli::cli_workflows cli_status_no_commits
+        PASS [   0.669s] ( 71/100) panproto-cli::cli_workflows cli_reset_soft_output
+        PASS [   0.736s] ( 72/100) panproto-cli::cli_workflows cli_reset_hard_output
+        PASS [   0.704s] ( 73/100) panproto-cli::cli_workflows cli_show_with_stat
+        PASS [   0.692s] ( 74/100) panproto-cli::cli_workflows cli_stash_apply
+        PASS [   0.094s] ( 75/100) panproto-cli::cli_workflows cli_status_short
+        PASS [   0.087s] ( 76/100) panproto-cli::cli_workflows cli_validate_exit_code_contract
+        PASS [   0.056s] ( 77/100) panproto-cli::cli_workflows cli_validate_invalid_schema
+        PASS [   0.629s] ( 78/100) panproto-cli::cli_workflows cli_stash_clear
+        PASS [   0.148s] ( 79/100) panproto-cli::cli_workflows cli_status_porcelain
+        PASS [   0.055s] ( 80/100) panproto-cli::cli_workflows cli_validate_valid_schema
+        PASS [   0.027s] ( 81/100) panproto-cli::cli_workflows lift_api_add_field
+        PASS [   1.078s] ( 82/100) panproto-cli::cli_workflows cli_rebase_success
+        PASS [   0.491s] ( 83/100) panproto-cli::cli_workflows cli_stash_drop
+        PASS [   0.031s] ( 84/100) panproto-cli::cli_workflows lift_api_identity_all_fields_survive
+        PASS [   0.037s] ( 85/100) panproto-cli::cli_workflows lift_api_multi_field_projection
+        PASS [   0.058s] ( 86/100) panproto-cli::cli_workflows lift_api_drop_field
+        PASS [   0.053s] ( 87/100) panproto-cli::cli_workflows lift_api_preserves_value_types
+        PASS [   0.542s] ( 88/100) panproto-cli::cli_workflows cli_stash_push_list_pop
+        PASS [   0.095s] ( 89/100) panproto-cli::cli_workflows theory_check_coercion_laws_accepts_var_name_override
+        PASS [   0.424s] ( 90/100) panproto-cli::cli_workflows cli_stash_show
+        PASS [   0.093s] ( 91/100) panproto-cli::cli_workflows theory_check_coercion_laws_json_output_is_valid
+        PASS [   0.267s] ( 92/100) panproto-cli::cli_workflows cli_tag_annotated
+        PASS [   0.119s] ( 93/100) panproto-cli::cli_workflows theory_check_coercion_laws_emits_var_name_hint
+        PASS [   0.103s] ( 94/100) panproto-cli::cli_workflows theory_check_coercion_laws_passes_on_honest_iso
+        PASS [   0.123s] ( 95/100) panproto-cli::cli_workflows theory_check_coercion_laws_json_violations_carry_typed_kind
+        PASS [   0.143s] ( 96/100) panproto-cli::cli_workflows theory_check_coercion_laws_fails_on_lying_iso
+        PASS [   0.088s] ( 97/100) panproto-cli::cli_workflows verify_json_output_names_the_status_of_every_theory
+        PASS [   0.054s] ( 98/100) panproto-cli::cli_workflows verify_reports_a_completed_check_as_passed
+        PASS [   0.064s] ( 99/100) panproto-cli::cli_workflows verify_rejects_an_unknown_format
+        PASS [   0.151s] (100/100) panproto-cli::cli_workflows theory_compile_json_output_is_deterministic_across_runs
+────────────
+     Summary [   5.035s] 100 tests run: 97 passed, 3 failed, 0 skipped
+        FAIL [   2.283s] (  5/100) panproto-cli::cli_workflows cli_add_data_stages_one_index_entry_per_file
+        FAIL [   2.300s] (  8/100) panproto-cli::cli_workflows cli_add_data_failure_stages_nothing_and_reports_it
+        FAIL [   0.108s] ( 37/100) panproto-cli::cli_workflows cli_lens_apply_accepts_compiled_artifact_with_ordered_stages
+error: test run failed

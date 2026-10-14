@@ -1,0 +1,380 @@
+   Compiling unicode-ident v1.0.24
+   Compiling version_check v0.9.5
+   Compiling aho-corasick v1.1.4
+   Compiling typenum v1.19.0
+   Compiling proc-macro2 v1.0.107
+   Compiling generic-array v0.14.7
+   Compiling quote v1.0.47
+   Compiling indexmap v2.13.0
+   Compiling syn v3.0.5
+   Compiling syn v2.0.119
+   Compiling regex-automata v0.4.14
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling regex v1.12.3
+   Compiling zerocopy-derive v0.8.42
+   Compiling thiserror v2.0.20
+   Compiling serde v1.0.229
+   Compiling zerocopy v0.8.42
+   Compiling block-buffer v0.10.4
+   Compiling either v1.15.0
+   Compiling foldhash v0.2.0
+   Compiling hashbrown v0.16.1
+   Compiling itertools v0.14.0
+   Compiling miette-derive v7.6.0
+   Compiling panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr)
+   Compiling cpufeatures v0.2.17
+   Compiling rustversion v1.0.22
+   Compiling parking_lot_core v0.9.12
+   Compiling miette v7.6.0
+   Compiling smallvec v1.15.1
+   Compiling log v0.4.29
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling crypto-common v0.1.7
+   Compiling half v2.7.1
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling ciborium-ll v0.2.2
+   Compiling libm v0.2.16
+   Compiling siphasher v1.0.2
+   Compiling ciborium v0.2.2
+   Compiling phf_shared v0.11.3
+   Compiling digest v0.10.7
+   Compiling rmp-serde v1.3.1
+   Compiling parking_lot v0.12.5
+   Compiling keccak v0.1.6
+   Compiling bit-vec v0.8.0
+   Compiling precomputed-hash v0.1.1
+   Compiling new_debug_unreachable v1.0.6
+   Compiling term v1.2.1
+   Compiling same-file v1.0.6
+   Compiling fixedbitset v0.5.7
+   Compiling walkdir v2.5.0
+   Compiling ascii-canvas v4.0.0
+   Compiling petgraph v0.7.1
+   Compiling bit-set v0.8.0
+   Compiling string_cache v0.8.9
+   Compiling sha3 v0.10.8
+   Compiling lalrpop-util v0.22.2
+   Compiling ena v0.14.4
+   Compiling toml_parser v1.1.1+spec-1.1.0
+   Compiling pico-args v0.5.0
+   Compiling malachite-nz v0.9.2
+   Compiling allocator-api2 v0.2.21
+   Compiling unicode-xid v0.2.6
+   Compiling object v0.37.3
+   Compiling foldhash v0.1.5
+   Compiling bytemuck v1.25.0
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling wide v1.7.0
+   Compiling hashbrown v0.15.5
+   Compiling lalrpop v0.22.2
+   Compiling malachite-base v0.9.2
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling logos-codegen v0.16.1
+   Compiling yansi v1.0.1
+   Compiling once_cell v1.21.4
+   Compiling logos-derive v0.16.1
+   Compiling ar_archive_writer v0.5.1
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling winnow v0.7.15
+   Compiling termcolor v1.4.1
+   Compiling heck v0.4.1
+   Compiling bitmaps v3.2.1
+   Compiling imbl-sized-chunks v0.1.3
+   Compiling ouroboros_macro v0.18.5
+   Compiling codespan-reporting v0.13.1
+   Compiling psm v0.1.30
+   Compiling logos v0.16.1
+   Compiling serde_json v1.0.151
+   Compiling nickel-lang-parser v0.3.0
+   Compiling hashlink v0.10.0
+   Compiling static_assertions v1.1.0
+   Compiling typed-arena v2.0.2
+   Compiling paste v1.0.15
+   Compiling aliasable v0.1.3
+   Compiling arraydeque v0.5.1
+   Compiling arrayvec v0.5.2
+   Compiling pretty v0.12.5
+   Compiling malachite-q v0.9.2
+   Compiling saphyr-parser v0.0.6
+   Compiling ouroboros v0.18.5
+   Compiling malachite-float v0.9.2
+   Compiling tree-sitter v0.26.13
+   Compiling tempfile v3.27.0
+   Compiling malachite v0.9.2
+   Compiling codespan v0.13.1
+   Compiling toml_edit v0.24.1+spec-1.1.0
+   Compiling nickel-lang-vector v0.2.0
+   Compiling nickel-lang-core v0.18.0
+   Compiling stacker v0.1.23
+   Compiling vte v0.14.1
+   Compiling unsafe-libyaml v0.2.11
+   Compiling simple-counter v0.1.0
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling strip-ansi-escapes v0.2.1
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling md-5 v0.10.6
+   Compiling sha2 v0.10.9
+   Compiling sha-1 v0.10.1
+   Compiling json_scanner v0.1.0
+   Compiling indoc v2.0.7
+   Compiling base64 v0.22.1
+   Compiling strsim v0.11.1
+   Compiling chumsky v1.0.0-alpha.8
+   Compiling colorchoice v1.0.4
+   Compiling yaml_serde v0.10.7
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling ppv-lite86 v0.2.21
+   Compiling rusty-fork v0.3.1
+   Compiling rand_chacha v0.9.0
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling tree-sitter-tags v0.26.13
+   Compiling bstr v1.12.1
+   Compiling proptest v1.11.0
+   Compiling globset v0.4.19
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+   Compiling nickel-lang v2.2.0
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-dsl-eval)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+   Compiling panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-project)
+   Compiling panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/integration)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 34s
+────────────
+ Nextest run ID 462d5a21-a1c9-4b72-931a-fcac3a092d2c with nextest profile: ci
+    Starting 18 tests across 5 binaries (42 binaries skipped)
+        FAIL [   0.021s] ( 1/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_full_post_lexicon_to_the_test_one_has_no_total_morphism
+  stdout ───
+
+    running 1 test
+    test the_full_post_lexicon_to_the_test_one_has_no_total_morphism ... FAILED
+
+    failures:
+
+    failures:
+        the_full_post_lexicon_to_the_test_one_has_no_total_morphism
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'the_full_post_lexicon_to_the_test_one_has_no_total_morphism' (85978137) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+    /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.038s] ( 2/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_test_post_lexicon_to_the_full_one_has_no_total_morphism
+  stdout ───
+
+    running 1 test
+    test the_test_post_lexicon_to_the_full_one_has_no_total_morphism ... FAILED
+
+    failures:
+
+    failures:
+        the_test_post_lexicon_to_the_full_one_has_no_total_morphism
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'the_test_post_lexicon_to_the_full_one_has_no_total_morphism' (85978145) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+    /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.045s] ( 3/18) panproto-integration-tests::every_identity_matches_the_golden_file every_identity_matches_the_golden_file
+  stdout ───
+
+    running 1 test
+    test every_identity_matches_the_golden_file ... FAILED
+
+    failures:
+
+    failures:
+        every_identity_matches_the_golden_file
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'every_identity_matches_the_golden_file' (85978147) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+    /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.071s] ( 4/18) panproto-integration-tests::genericity scanners_detect_synthetic_violations
+        FAIL [   0.081s] ( 5/18) panproto-integration-tests::every_identity_matches_the_golden_file distinct_content_has_distinct_digests
+  stdout ───
+
+    running 1 test
+    test distinct_content_has_distinct_digests ... FAILED
+
+    failures:
+
+    failures:
+        distinct_content_has_distinct_digests
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'distinct_content_has_distinct_digests' (85978157) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+    /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.045s] ( 6/18) panproto-integration-tests::invertible_field_transforms apply_expr_over_an_extra_field_still_inverts_in_place
+        FAIL [   0.093s] ( 7/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists users_to_users_posts_has_no_total_morphism
+  stdout ───
+
+    running 1 test
+    test users_to_users_posts_has_no_total_morphism ... FAILED
+
+    failures:
+
+    failures:
+        users_to_users_posts_has_no_total_morphism
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'users_to_users_posts_has_no_total_morphism' (85978165) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+    /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.095s] ( 8/18) panproto-integration-tests::invertible_field_transforms a_computed_field_beside_its_source_is_derived
+        PASS [   0.103s] ( 9/18) panproto-integration-tests::invertible_field_transforms a_computed_field_replacing_its_source_round_trips_edits
+        PASS [   0.088s] (10/18) panproto-integration-tests::invertible_field_transforms a_multi_source_computation_is_not_invertible
+        FAIL [   0.057s] (11/18) panproto-integration-tests::invertible_field_transforms invertible_compute_field_satisfies_both_laws
+  stdout ───
+
+    running 1 test
+    test invertible_compute_field_satisfies_both_laws ... FAILED
+
+    failures:
+
+    failures:
+        invertible_compute_field_satisfies_both_laws
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'invertible_compute_field_satisfies_both_laws' (85978174) panicked at tests/integration/tests/invertible_field_transforms.rs:184:9:
+    extra field: PutGet must hold: Err(PutGet { detail: "field_edit: node 0 differs" })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.090s] (12/18) panproto-integration-tests::invertible_field_transforms apply_expr_over_a_child_scalar_leaves_no_shadow_field
+        PASS [   0.039s] (13/18) panproto-integration-tests::invertible_field_transforms renaming_the_source_does_not_make_the_computation_independent
+        PASS [   0.061s] (14/18) panproto-integration-tests::invertible_field_transforms put_does_not_reinstate_the_computed_key
+        PASS [   0.052s] (15/18) panproto-integration-tests::the_identity_is_the_same_in_every_process one_process_answer
+        FAIL [   0.059s] (16/18) panproto-integration-tests::the_identity_is_the_same_in_every_process every_identity_is_the_same_in_every_process
+  stdout ───
+
+    running 1 test
+    test every_identity_is_the_same_in_every_process ... FAILED
+
+    failures:
+
+    failures:
+        every_identity_is_the_same_in_every_process
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'every_identity_is_the_same_in_every_process' (85978181) panicked at tests/integration/tests/the_identity_is_the_same_in_every_process.rs:57:34:
+    the child printed its answer
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.710s] (17/18) panproto-integration-tests::genericity no_programming_language_names_as_identifiers
+  stdout ───
+
+    running 1 test
+    test no_programming_language_names_as_identifiers ... FAILED
+
+    failures:
+
+    failures:
+        no_programming_language_names_as_identifiers
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.68s
+
+  stderr ───
+
+    thread 'no_programming_language_names_as_identifiers' (85978140) panicked at tests/integration/tests/genericity.rs:520:5:
+    new protocol/language leakage in generic crates:
+      + crates/panproto-inst/src/validation/mod.rssubset_validation_trusts_the_selected_subject_schedulerust
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/validation/mod.rs:1073: `subset_validation_trusts_the_selected_subject_schedule` contains `rust`
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   2.979s] (18/18) panproto-integration-tests::genericity no_protocol_names_in_generic_crates
+  stdout ───
+
+    running 1 test
+    test no_protocol_names_in_generic_crates ... FAILED
+
+    failures:
+
+    failures:
+        no_protocol_names_in_generic_crates
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 2.92s
+
+  stderr ───
+
+    thread 'no_protocol_names_in_generic_crates' (85978152) panicked at tests/integration/tests/genericity.rs:520:5:
+    new protocol/language leakage in generic crates:
+      + crates/panproto-inst/src/migration_functor.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/migration_functor.rs:94
+      + crates/panproto-inst/src/rel_schema.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/rel_schema.rs:132
+      + crates/panproto-inst/src/table_restrict.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/table_restrict.rs:818
+      + crates/panproto-inst/src/validation/footprint.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/validation/footprint.rs:351
+      + crates/panproto-inst/src/validation/mod.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/validation/mod.rs:38
+      + crates/panproto-inst/src/validation/state_tests.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/validation/state_tests.rs:67
+      + crates/panproto-inst/src/validation/witness.rsnsid
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst/src/validation/witness.rs:40
+      + crates/panproto-schema/src/constraint_semantics.rsat-uri
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema/src/constraint_semantics.rs:527
+      + crates/panproto-schema/src/constraint_semantics.rsatproto
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema/src/constraint_semantics.rs:449
+      + crates/panproto-schema/src/constraint_semantics.rsjson-schema
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema/src/constraint_semantics.rs:51
+      + crates/panproto-schema/src/keys.rsgraphql
+          at /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema/src/keys.rs:56
+
+    stale baseline entries (no longer present, please update):
+      - crates/panproto-inst/src/acset.rsnsid
+      - crates/panproto-inst/src/validate.rsnsid
+
+    Run with UPDATE_GENERICITY_BASELINE=1 to refresh.
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   2.980s] 18 tests run: 9 passed, 9 failed, 0 skipped
+        FAIL [   0.021s] ( 1/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_full_post_lexicon_to_the_test_one_has_no_total_morphism
+        FAIL [   0.038s] ( 2/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_test_post_lexicon_to_the_full_one_has_no_total_morphism
+        FAIL [   0.045s] ( 3/18) panproto-integration-tests::every_identity_matches_the_golden_file every_identity_matches_the_golden_file
+        FAIL [   0.081s] ( 5/18) panproto-integration-tests::every_identity_matches_the_golden_file distinct_content_has_distinct_digests
+        FAIL [   0.093s] ( 7/18) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists users_to_users_posts_has_no_total_morphism
+        FAIL [   0.057s] (11/18) panproto-integration-tests::invertible_field_transforms invertible_compute_field_satisfies_both_laws
+        FAIL [   0.059s] (16/18) panproto-integration-tests::the_identity_is_the_same_in_every_process every_identity_is_the_same_in_every_process
+        FAIL [   0.710s] (17/18) panproto-integration-tests::genericity no_programming_language_names_as_identifiers
+        FAIL [   2.979s] (18/18) panproto-integration-tests::genericity no_protocol_names_in_generic_crates
+error: test run failed

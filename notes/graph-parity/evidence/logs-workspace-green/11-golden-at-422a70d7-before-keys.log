@@ -1,0 +1,5 @@
+test every_identity_matches_the_golden_file ... ok
+test distinct_content_has_distinct_digests ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+

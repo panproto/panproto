@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+────────────
+ Nextest run ID b1d9358c-7646-46b2-93f1-d04dc95ab230 with nextest profile: ci
+    Starting 7 tests across 3 binaries (44 binaries skipped)
+        PASS [   0.022s] (1/7) panproto-integration-tests::the_identity_is_the_same_in_every_process one_process_answer
+        PASS [   0.109s] (2/7) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists users_to_users_posts_has_no_total_morphism
+        PASS [   0.114s] (3/7) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_test_post_lexicon_to_the_full_one_has_no_total_morphism
+        PASS [   0.126s] (4/7) panproto-integration-tests::auto_generate_reports_no_morphism_where_none_exists the_full_post_lexicon_to_the_test_one_has_no_total_morphism
+        PASS [   1.441s] (5/7) panproto-integration-tests::every_identity_matches_the_golden_file every_identity_matches_the_golden_file
+        PASS [   1.466s] (6/7) panproto-integration-tests::every_identity_matches_the_golden_file distinct_content_has_distinct_digests
+        PASS [  45.682s] (7/7) panproto-integration-tests::the_identity_is_the_same_in_every_process every_identity_is_the_same_in_every_process
+────────────
+     Summary [  45.683s] 7 tests run: 7 passed, 0 skipped

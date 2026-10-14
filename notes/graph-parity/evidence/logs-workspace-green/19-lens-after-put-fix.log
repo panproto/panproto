@@ -1,0 +1,781 @@
+   Compiling miette v7.6.0
+   Compiling aho-corasick v1.1.4
+   Compiling serde_json v1.0.151
+   Compiling console v0.16.3
+   Compiling similar v2.7.0
+   Compiling regex-automata v0.4.14
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling proptest v1.11.0
+   Compiling insta v1.48.0
+   Compiling regex v1.12.3
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.00s
+────────────
+ Nextest run ID f99ffe79-70f0-4672-87de-79c3a6e7a981 with nextest profile: ci
+    Starting 756 tests across 16 binaries (1 test skipped)
+        PASS [   0.029s] (  1/756) panproto-lens asymmetric::tests::complement_is_empty_for_identity
+        PASS [   0.035s] (  2/756) panproto-lens asymmetric::tests::partial_monoid::commutative_on_disjoint_keys
+        PASS [   0.044s] (  3/756) panproto-lens asymmetric::tests::get_then_put_round_trips_identity
+        PASS [   0.048s] (  4/756) panproto-lens asymmetric::tests::partial_monoid::idempotent_on_equal_entries
+        PASS [   0.057s] (  5/756) panproto-lens asymmetric::tests::get_with_identity_lens_produces_empty_complement
+        PASS [   0.064s] (  6/756) panproto-lens asymmetric::tests::partial_monoid::empty_is_left_identity
+        PASS [   0.070s] (  7/756) panproto-lens asymmetric::tests::partial_monoid::empty_is_right_identity
+        PASS [   0.078s] (  8/756) panproto-lens asymmetric::tests::partial_monoid::associative_on_disjoint_keys
+        PASS [   0.078s] (  9/756) panproto-lens asymmetric::tests::partial_monoid::propagates_fingerprint_when_only_one_set
+        PASS [   0.070s] ( 10/756) panproto-lens asymmetric::tests::partial_monoid::props::complement_partial_monoid_conflict
+        PASS [   0.061s] ( 11/756) panproto-lens asymmetric::tests::partial_monoid::rejects_cross_fingerprint_when_both_set
+        PASS [   0.058s] ( 12/756) panproto-lens asymmetric::tests::partial_monoid::rejects_data_bound_to_no_lens
+        PASS [   0.072s] ( 13/756) panproto-lens asymmetric::tests::partial_monoid::props::complement_partial_monoid_identity
+        PASS [   0.091s] ( 14/756) panproto-lens asymmetric::tests::partial_monoid::props::complement_partial_monoid_commutative
+        PASS [   0.057s] ( 15/756) panproto-lens asymmetric::tests::partial_monoid::rejects_distinct_entries_on_same_key
+        PASS [   0.085s] ( 16/756) panproto-lens asymmetric::tests::reanchoring::a_node_moved_onto_an_edge_with_several_preimages_is_ambiguous
+        PASS [   0.078s] ( 17/756) panproto-lens asymmetric::tests::reanchoring::a_node_moved_to_a_merged_anchor_takes_the_anchor_its_edge_names
+        PASS [   0.083s] ( 18/756) panproto-lens asymmetric::tests::reanchoring::a_node_moved_to_a_merged_anchor_under_an_unknown_edge_is_ambiguous
+        PASS [   0.057s] ( 19/756) panproto-lens asymmetric::tests::reanchoring::a_relabelled_arc_on_a_merged_anchor_restores_the_other_preimage
+        PASS [   0.059s] ( 20/756) panproto-lens asymmetric::tests::reanchoring::a_relabelled_parallel_arc_is_restored_on_the_edge_it_names
+        PASS [   0.176s] ( 21/756) panproto-lens asymmetric::tests::partial_monoid::props::complement_partial_monoid_associative
+        PASS [   0.063s] ( 22/756) panproto-lens auto_lens::tests::a_span_tier_returns_candidates_where_no_total_morphism_exists
+        PASS [   0.066s] ( 23/756) panproto-lens asymmetric::tests::reanchoring::a_view_edit_that_moves_a_recorded_node_is_kept
+        PASS [   0.073s] ( 24/756) panproto-lens asymmetric::tests::reanchoring::a_rename_onto_the_name_of_a_dropped_vertex_round_trips
+        PASS [   0.041s] ( 25/756) panproto-lens auto_lens::tests::alignment_to_morphism_preserves_kinds
+        PASS [   0.046s] ( 26/756) panproto-lens auto_lens::tests::alignment_to_theory_morphism_emit_spans_full_coverage_no_drops
+        PASS [   0.045s] ( 27/756) panproto-lens auto_lens::tests::auto_generate_applies_configured_default_through_public_get
+        PASS [   0.044s] ( 28/756) panproto-lens auto_lens::tests::auto_generate_between_different_schemas
+        PASS [   0.063s] ( 29/756) panproto-lens auto_lens::tests::alignment_to_theory_morphism_is_deterministic_across_hash_iterations
+        PASS [   0.047s] ( 30/756) panproto-lens auto_lens::tests::auto_generate_candidates_errors_when_no_morphism
+        PASS [   0.052s] ( 31/756) panproto-lens auto_lens::tests::auto_generate_candidates_ordering_is_stable_on_ties
+        PASS [   0.053s] ( 32/756) panproto-lens auto_lens::tests::auto_generate_candidates_reports_coverage_and_strategies
+        PASS [   0.053s] ( 33/756) panproto-lens auto_lens::tests::auto_generate_candidates_returns_ranked_non_empty_list
+        PASS [   0.055s] ( 34/756) panproto-lens auto_lens::tests::auto_generate_candidates_top_n_zero_returns_one
+        PASS [   0.159s] ( 35/756) panproto-lens asymmetric::tests::reanchoring::a_recorded_anchor_is_restored_while_the_view_keeps_it
+        PASS [   0.102s] ( 36/756) panproto-lens auto_lens::tests::auto_generate_between_same_schemas
+        PASS [   0.061s] ( 37/756) panproto-lens auto_lens::tests::auto_generate_with_hints_preserves_caller_excluded_sources
+        PASS [   0.086s] ( 38/756) panproto-lens auto_lens::tests::auto_generate_does_not_invent_null_for_an_unspecified_default
+        PASS [   0.059s] ( 39/756) panproto-lens auto_lens::tests::balanced_finds_alias_aligned_morphism_when_strict_cannot
+        PASS [   0.060s] ( 40/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_add_sort
+        PASS [   0.062s] ( 41/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_coerce_sort_tags_target_kind_in_name
+        PASS [   0.102s] ( 42/756) panproto-lens auto_lens::tests::auto_generate_is_deterministic_across_runs
+        PASS [   0.089s] ( 43/756) panproto-lens auto_lens::tests::auto_generate_with_hints_rejects_nan_quality_threshold
+        PASS [   0.054s] ( 44/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_preserves_add_sort_default_expr
+        PASS [   0.049s] ( 45/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_rejects_add_op_with_no_inputs
+        PASS [   0.047s] ( 46/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_rejects_identity
+        PASS [   0.088s] ( 47/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_drop_sort
+        PASS [   0.049s] ( 48/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_roundtrips_coerce_sort
+        PASS [   0.143s] ( 49/756) panproto-lens auto_lens::tests::auto_generate_surfaces_coerce_proposals_at_exploratory
+        PASS [   0.051s] ( 50/756) panproto-lens auto_lens::tests::filter_coerce_proposals_default_entry_point_uses_keep_policy
+        PASS [   0.059s] ( 51/756) panproto-lens auto_lens::tests::exploratory_surfaces_coerce_proposals_on_result
+        PASS [   0.058s] ( 52/756) panproto-lens auto_lens::tests::filter_coerce_proposals_drops_missing_samples_under_drop_policy
+        PASS [   0.037s] ( 53/756) panproto-lens auto_lens::tests::filter_coerce_proposals_keeps_missing_samples_under_keep_policy
+        PASS [   0.052s] ( 54/756) panproto-lens auto_lens::tests::filter_coerce_proposals_keeps_honest_witness
+        PASS [   0.062s] ( 55/756) panproto-lens auto_lens::tests::filter_coerce_proposals_drops_unknown_witness_under_drop_policy
+        PASS [   0.049s] ( 56/756) panproto-lens auto_lens::tests::filter_coerce_proposals_keeps_unknown_witness_under_keep_policy
+        PASS [   0.044s] ( 57/756) panproto-lens auto_lens::tests::graph_auto_generation_validates_executable_plan
+        PASS [   0.053s] ( 58/756) panproto-lens auto_lens::tests::filter_coerce_proposals_no_registry_path_is_identity
+        PASS [   0.048s] ( 59/756) panproto-lens auto_lens::tests::lenient_partial_kind_coverage_keeps_sort
+        PASS [   0.050s] ( 60/756) panproto-lens auto_lens::tests::lenient_span_search_drops_orphan_source_sorts
+        PASS [   0.051s] ( 61/756) panproto-lens auto_lens::tests::only_the_objective_decides_which_sources_are_dropped
+        PASS [   0.049s] ( 62/756) panproto-lens auto_lens::tests::protolens_from_identity_alignment
+        PASS [   0.120s] ( 63/756) panproto-lens auto_lens::tests::filter_coerce_proposals_drops_on_law_violation
+        PASS [   0.040s] ( 64/756) panproto-lens auto_lens::tests::stringency_serde_round_trip
+        PASS [   0.059s] ( 65/756) panproto-lens auto_lens::tests::stringency_as_str_matches_display_and_serde
+        PASS [   0.059s] ( 66/756) panproto-lens auto_lens::tests::stringency_display_matches_serde_tokens
+        PASS [   0.054s] ( 67/756) panproto-lens auto_lens::tests::stringency_thresholds_form_monotone_ladder
+        PASS [   0.055s] ( 68/756) panproto-lens auto_lens::tests::stringency_uses_coerce_only_at_exploratory
+        PASS [   0.061s] ( 69/756) panproto-lens auto_lens::tests::table_auto_generation_refuses_a_shape_neutral_result_without_table_boundaries
+        PASS [   0.053s] ( 70/756) panproto-lens auto_lens::tests::uses_coerce_is_exploratory_only
+        PASS [   0.056s] ( 71/756) panproto-lens candidate::tests::coverage_ratio_asymmetric_clamps_below_one
+        PASS [   0.123s] ( 72/756) panproto-lens auto_lens::tests::score_weights_are_pinned
+        PASS [   0.057s] ( 73/756) panproto-lens candidate::tests::coverage_ratio_identity
+        PASS [   0.235s] ( 74/756) panproto-lens auto_lens::tests::endofunctor_to_protolens_rename
+        PASS [   0.077s] ( 75/756) panproto-lens candidate::tests::coverage_ratio_clamps_out_of_range
+        PASS [   0.063s] ( 76/756) panproto-lens candidate::tests::enrich_steps_correlates_coerce_sort_via_sort_name
+        PASS [   0.057s] ( 77/756) panproto-lens candidate::tests::enrich_steps_deterministic_under_anchor_permutations
+        PASS [   0.059s] ( 78/756) panproto-lens candidate::tests::enrich_steps_prefers_src_match_over_tgt_on_exact_rename
+        PASS [   0.128s] ( 79/756) panproto-lens auto_lens::tests::table_auto_generation_validates_executable_plan
+        PASS [   0.047s] ( 80/756) panproto-lens candidate::tests::structural_explanation_handles_coerce_sort
+        PASS [   0.061s] ( 81/756) panproto-lens candidate::tests::strategies_used_dedups
+        PASS [   0.067s] ( 82/756) panproto-lens candidate::tests::score_monotonic_in_quality_coverage_confidence
+        PASS [   0.055s] ( 83/756) panproto-lens coercion_laws::tests::check_directed_equation_matches_explicit_call
+        PASS [   0.055s] ( 84/756) panproto-lens coercion_laws::tests::check_theory_reports_mixed_honesty
+        PASS [   0.057s] ( 85/756) panproto-lens coercion_laws::tests::coercion_law_validation_trait_flags_lying
+        PASS [   0.141s] ( 86/756) panproto-lens candidate::tests::enrich_steps_coerce_sort_falls_back_to_strategy_scan
+        PASS [   0.067s] ( 87/756) panproto-lens coercion_laws::tests::coercion_law_validation_trait_succeeds_on_honest
+        PASS [   0.066s] ( 88/756) panproto-lens coercion_laws::tests::declaration_failures_are_reported_once_without_a_carrier_sample
+        PASS [   0.130s] ( 89/756) panproto-lens candidate::tests::score_combines_quality_coverage_confidence
+        PASS [   0.073s] ( 90/756) panproto-lens coercion_laws::tests::exhaustive_check_coercion_class
+        PASS [   0.066s] ( 91/756) panproto-lens coercion_laws::tests::honest_identity_passes_on_graph_and_table_carriers
+        PASS [   0.093s] ( 92/756) panproto-lens coercion_laws::tests::eval_error_on_wrong_type_is_reported
+        PASS [   0.094s] ( 93/756) panproto-lens coercion_laws::tests::graph_carrier_rejects_inexpressible_value_with_location
+        PASS [   0.071s] ( 94/756) panproto-lens coercion_laws::tests::iso_with_lying_identity_inverse_is_flagged
+        PASS [   0.101s] ( 95/756) panproto-lens coercion_laws::tests::graph_carriers_use_shared_algebra_and_retain_location
+        PASS [   0.076s] ( 96/756) panproto-lens coercion_laws::tests::iso_without_inverse_reports_missing_inverse
+        PASS [   0.076s] ( 97/756) panproto-lens coercion_laws::tests::opaque_declares_no_law_so_always_passes
+        PASS [   0.107s] ( 98/756) panproto-lens coercion_laws::tests::iso_with_honest_identity_passes
+        PASS [   0.057s] ( 99/756) panproto-lens coercion_laws::tests::registry_check_flags_lying_iso
+        PASS [   0.059s] (100/756) panproto-lens coercion_laws::tests::registry_check_passes_on_honest_iso
+        PASS [   0.079s] (101/756) panproto-lens coercion_laws::tests::registry_check_falls_back_to_any_when_kind_missing
+        PASS [   0.051s] (102/756) panproto-lens coercion_laws::tests::retraction_checks_only_backward_direction
+        PASS [   0.067s] (103/756) panproto-lens coercion_laws::tests::registry_defaults_cover_every_primitive_kind
+        PASS [   0.052s] (104/756) panproto-lens coercion_laws::tests::table_cells_use_shared_algebra_and_retain_location
+        PASS [   0.089s] (105/756) panproto-lens coercion_laws::tests::registry_defaults_any_union_is_deterministic
+        PASS [   0.053s] (106/756) panproto-lens complement_type::tests::chain_mixed
+        PASS [   0.052s] (107/756) panproto-lens complement_type::tests::chain_with_drop_has_data_captured
+        PASS [   0.088s] (108/756) panproto-lens coercion_laws::tests::retraction_without_inverse_reports_missing_inverse
+        PASS [   0.055s] (109/756) panproto-lens complement_type::tests::drop_op_captures_data
+        PASS [   0.070s] (110/756) panproto-lens complement_type::tests::complement_spec_wire_format_matches_ts_sdk
+        PASS [   0.174s] (111/756) panproto-lens coercion_laws::tests::projection_checks_determinism
+        PASS [   0.068s] (112/756) panproto-lens complement_type::tests::drop_sort_captures_data
+        PASS [   0.039s] (113/756) panproto-lens complement_type::tests::summary_describes_complement
+        PASS [   0.069s] (114/756) panproto-lens complement_type::tests::graph_residue_names_edges_and_reified_hyperedges
+        PASS [   0.045s] (115/756) panproto-lens complement_type::tests::table_residue_names_rows_cells_and_foreign_key_pairs
+        PASS [   0.075s] (116/756) panproto-lens complement_type::tests::rename_sort_has_empty_complement
+        PASS [   0.077s] (117/756) panproto-lens complement_type::tests::shape_chain_classifiers_stop_at_the_first_invalid_step
+        PASS [   0.052s] (118/756) panproto-lens compose::tests::compose_rejects_edge_mismatch
+        PASS [   0.056s] (119/756) panproto-lens compose::tests::compose_rejects_hyper_edge_mismatch
+        PASS [   0.181s] (120/756) panproto-lens complement_type::tests::add_sort_has_defaults_required_complement
+        PASS [   0.141s] (121/756) panproto-lens complement_type::tests::empty_chain_is_empty
+        PASS [   0.097s] (122/756) panproto-lens cost::tests::cost_added_element
+        PASS [   0.096s] (123/756) panproto-lens cost::tests::cost_coerced_iso_is_zero
+        PASS [   0.150s] (124/756) panproto-lens compose::tests::compose_identity_with_identity
+        PASS [   0.075s] (125/756) panproto-lens cost::tests::cost_coerced_retraction_is_one
+        PASS [   0.126s] (126/756) panproto-lens cost::tests::cost_coerced_opaque_is_infinity
+        PASS [   0.112s] (127/756) panproto-lens cost::tests::cost_composite_sums_children
+        PASS [   0.189s] (128/756) panproto-lens cost::quantale_laws::lens_graph_metric_axioms
+        PASS [   0.065s] (129/756) panproto-lens cost::tests::cost_dropped_op_data
+        PASS [   0.182s] (130/756) panproto-lens cost::quantale_laws::triangle_inequality_vertical_compose
+        PASS [   0.093s] (131/756) panproto-lens cost::tests::cost_dropped_sort_data
+        PASS [   0.095s] (132/756) panproto-lens cost::tests::cost_nat_trans_kernel
+        PASS [   0.065s] (133/756) panproto-lens cost::tests::cost_nested_composite
+        PASS [   0.249s] (134/756) panproto-lens cost::quantale_laws::triangle_inequality_fuse
+        PASS [   0.151s] (135/756) panproto-lens cost::tests::cost_empty_is_zero
+        PASS [   0.126s] (136/756) panproto-lens cost::tests::identity_cost_is_zero
+        PASS [   0.126s] (137/756) panproto-lens cost::tests::subadditivity_holds
+        PASS [   0.141s] (138/756) panproto-lens cost::tests::subadditivity_coerced_retraction_pair
+        PASS [   0.107s] (139/756) panproto-lens cost::tests::subadditivity_nested
+        PASS [   0.071s] (140/756) panproto-lens derived::tests::an_invertible_compute_field_beside_its_source_is_derived
+        PASS [   0.104s] (141/756) panproto-lens cost::tests::subadditivity_with_empty
+        PASS [   0.108s] (142/756) panproto-lens derived::tests::a_multi_source_compute_field_is_derived
+        PASS [   0.162s] (143/756) panproto-lens cost::tests::subadditivity_coerced_with_opaque
+        PASS [   0.053s] (144/756) panproto-lens derived::tests::case_branches_union_their_derived_targets
+        PASS [   0.087s] (145/756) panproto-lens derived::tests::an_invertible_compute_field_replacing_its_source_is_independent
+        PASS [   0.370s] (146/756) panproto-lens cost::quantale_laws::triangle_inequality_data_level
+        PASS [   0.083s] (147/756) panproto-lens derived::tests::modulo_comparison_ignores_only_the_derived_key
+        PASS [   0.088s] (148/756) panproto-lens derived::tests::iso_without_inverse_is_derived
+        PASS [   0.088s] (149/756) panproto-lens derived::tests::projection_compute_field_is_derived
+        PASS [   0.115s] (150/756) panproto-lens derived::tests::rename_and_drop_derive_nothing
+        PASS [   0.110s] (151/756) panproto-lens diff_to_protolens::tests::added_same_kind_vertices_and_edges_instantiate_exactly_and_get_defaults
+        PASS [   0.177s] (152/756) panproto-lens diff_to_protolens::tests::absent_default_does_not_become_an_explicit_null
+        PASS [   0.174s] (153/756) panproto-lens diff_to_protolens::tests::added_vertex_produces_add_sort
+        PASS [   0.130s] (154/756) panproto-lens diff_to_protolens::tests::diff_to_lens_rejects_an_unplaceable_default
+        PASS [   0.219s] (155/756) panproto-lens derived::tests::path_transform_records_nested_location
+        PASS [   0.135s] (156/756) panproto-lens diff_to_protolens::tests::empty_diff_empty_chain
+        PASS [   0.101s] (157/756) panproto-lens diff_to_protolens::tests::removed_elements_cascade_supported_metadata_exactly
+        PASS [   0.046s] (158/756) panproto-lens diff_to_protolens::tests::removed_vertex_and_one_of_several_same_kind_edges_instantiate_exactly
+        PASS [   0.162s] (159/756) panproto-lens diff_to_protolens::tests::edge_label_default_must_identify_one_added_vertex_globally
+        PASS [   0.129s] (160/756) panproto-lens diff_to_protolens::tests::explicit_null_default_remains_executable
+        PASS [   0.056s] (161/756) panproto-lens diff_to_protolens::tests::removed_vertex_produces_drop_sort
+        PASS [   0.063s] (162/756) panproto-lens diff_to_protolens::tests::removing_one_parallel_edge_does_not_relabel_its_arc
+        PASS [   0.057s] (163/756) panproto-lens diff_to_protolens::tests::stale_target_adjacency_is_rejected
+        PASS [   0.058s] (164/756) panproto-lens diff_to_protolens::tests::target_entry_order_must_be_reproducible
+        PASS [   0.057s] (165/756) panproto-lens diff_to_protolens::tests::unnamed_edge_survives_protolens_serde_and_instantiation
+        PASS [   0.060s] (166/756) panproto-lens diff_to_protolens::tests::unsupported_added_edge_metadata_is_rejected_precisely
+        PASS [   0.060s] (167/756) panproto-lens diff_to_protolens::tests::vertex_kind_change_installs_registered_value_coercion
+        PASS [   0.270s] (168/756) panproto-lens diff_to_protolens::tests::diff_to_lens_rejects_a_default_with_the_wrong_value_kind
+        PASS [   0.063s] (169/756) panproto-lens dispatch::tests::a_direct_expand_between_siblings_commutes
+        PASS [   0.075s] (170/756) panproto-lens diff_to_protolens::tests::vertex_kind_change_without_registered_coercion_is_rejected
+        PASS [   0.061s] (171/756) panproto-lens dispatch::tests::a_dispatched_put_rejects_an_edited_synthesized_edge
+        PASS [   0.060s] (172/756) panproto-lens dispatch::tests::a_fan_is_not_a_table_complement
+        PASS [   0.062s] (173/756) panproto-lens dispatch::tests::a_fast_path_error_reruns_the_graph_path
+        PASS [   0.058s] (174/756) panproto-lens dispatch::tests::a_partially_dropped_graph_fan_converts_to_tree_residue
+        PASS [   0.064s] (175/756) panproto-lens dispatch::tests::a_recursive_dropped_wrapper_contracts_to_one_edge_and_restores
+        PASS [   0.103s] (176/756) panproto-lens dispatch::tests::a_dispatched_put_rejects_a_reused_dropped_edge_id
+        PASS [   0.344s] (177/756) panproto-lens diff_to_protolens::tests::diff_to_lens_applies_defaults_in_get_and_public_lift
+        PASS [   0.067s] (178/756) panproto-lens dispatch::tests::cell_residue_converts_by_difference_against_the_view_row
+        PASS [   0.061s] (179/756) panproto-lens dispatch::tests::dispatch_accepts_distinct_direct_and_contracted_pairs_with_the_same_edge_image
+        PASS [   0.062s] (180/756) panproto-lens dispatch::tests::dispatch_declines_when_a_contraction_pair_coincides_with_a_direct_pair
+        PASS [   0.061s] (181/756) panproto-lens dispatch::tests::dispatched_and_graph_puts_report_the_same_first_error
+        PASS [   0.062s] (182/756) panproto-lens dispatch::tests::fans_with_an_expansion_commute
+        PASS [   0.056s] (183/756) panproto-lens dispatch::tests::graph_complement_converts_to_the_table_complement_table_get_writes
+        PASS [   0.049s] (184/756) panproto-lens dispatch::tests::graph_fan_residue_converts_to_a_dropped_tree_fan
+        PASS [   0.063s] (185/756) panproto-lens dispatch::tests::graph_complement_converts_to_the_tree_complement_tree_get_writes
+        PASS [   0.056s] (186/756) panproto-lens dispatch::tests::graph_synthesized_contract_arcs_enter_the_tree_complement_and_embedding
+        PASS [   0.056s] (187/756) panproto-lens dispatch::tests::table_and_graph_complements_convert_both_ways
+        PASS [   0.062s] (188/756) panproto-lens dispatch::tests::table_dispatch_runs_laws_only_where_table_shape_accepts_both_sides
+        PASS [   0.053s] (189/756) panproto-lens dispatch::tests::the_direct_tree_get_and_put_square_is_identical
+        PASS [   0.082s] (190/756) panproto-lens dispatch::tests::the_direct_table_get_and_put_square_is_identical
+        PASS [   0.074s] (191/756) panproto-lens dispatch::tests::the_tree_graph_get_square_is_identical
+        PASS [   0.070s] (192/756) panproto-lens dispatch::tests::the_tree_graph_put_square_is_identical
+        PASS [   0.202s] (193/756) panproto-lens dispatch::tests::a_root_pruned_tree_get_falls_back_to_the_graph_path
+        PASS [   0.054s] (194/756) panproto-lens dispatch::tests::tree_synthesized_contract_expansion_keys_replace_the_generic_contract_key
+        PASS [   0.200s] (195/756) panproto-lens dispatch::tests::complement_conversions_invert_on_their_images
+        PASS [   0.053s] (196/756) panproto-lens dispatch::tests::tree_synthesized_expansion_keys_use_durable_graph_edge_ids_and_last_hops
+        PASS [   0.046s] (197/756) panproto-lens dispatch::tests::two_contracted_leaves_keep_sibling_order
+        PASS [   0.040s] (198/756) panproto-lens edit_laws::action_laws::compose_associativity
+        PASS [   0.051s] (199/756) panproto-lens edit_laws::action_laws::action_coherence
+        PASS [   0.048s] (200/756) panproto-lens edit_laws::action_laws::identity_action
+        PASS [   0.143s] (201/756) panproto-lens dispatch::tests::the_direct_tree_square_is_identical_for_arbitrary_distinct_ids
+        PASS [   0.049s] (202/756) panproto-lens edit_laws::functor_laws::functor_preserves_identity_identity
+        PASS [   0.044s] (203/756) panproto-lens edit_laws::functor_laws::functor_preserves_identity_projection
+        PASS [   0.030s] (204/756) panproto-lens edit_laws::tests::coherence_detects_content_drift
+        PASS [   0.030s] (205/756) panproto-lens edit_laws::tests::complement_coherence_identity_lens
+        PASS [   0.036s] (206/756) panproto-lens edit_laws::tests::consistency_detects_value_corruption
+        PASS [   0.151s] (207/756) panproto-lens dispatch::tests::tree_and_graph_complements_convert_both_ways
+        PASS [   0.046s] (208/756) panproto-lens edit_laws::tests::consistency_identity_lens
+        PASS [   0.044s] (209/756) panproto-lens edit_laws::tests::relabel_to_a_non_surviving_anchor_keeps_the_payload
+        PASS [   0.043s] (210/756) panproto-lens edit_lens::tests::a_complement_filled_by_edits_alone_is_stamped
+        PASS [   0.210s] (211/756) panproto-lens dispatch::tests::the_direct_table_square_is_identical_for_arbitrary_rows
+        PASS [   0.048s] (212/756) panproto-lens edit_lens::tests::an_unexpressible_field_edit_is_refused_as_not_expressible
+        PASS [   0.033s] (213/756) panproto-lens edit_lens::tests::delete_fan_in_complement_is_absorbed
+        PASS [   0.050s] (214/756) panproto-lens edit_lens::tests::delete_node_in_complement
+        PASS [   0.127s] (215/756) panproto-lens edit_laws::functor_laws::functor_preserves_composition_projection
+        PASS [   0.035s] (216/756) panproto-lens edit_lens::tests::delete_node_in_view_passes_through
+        PASS [   0.066s] (217/756) panproto-lens edit_lens::tests::backward_fan_label_ambiguity_uses_the_least_source_label
+        PASS [   0.142s] (218/756) panproto-lens edit_laws::functor_laws::functor_preserves_composition_identity
+        PASS [   0.036s] (219/756) panproto-lens edit_lens::tests::insert_fan_all_surviving_passes_through
+        PASS [   0.035s] (220/756) panproto-lens edit_lens::tests::lossy_value_transform_carried_as_a_term_assignment_also_demotes
+        PASS [   0.049s] (221/756) panproto-lens edit_lens::tests::identity_edit_lens_passes_through
+        PASS [   0.026s] (222/756) panproto-lens edit_lens::tests::optic_kind_identity_is_iso
+        PASS [   0.061s] (223/756) panproto-lens edit_lens::tests::insert_fan_with_dropped_participant_goes_to_complement
+        PASS [   0.039s] (224/756) panproto-lens edit_lens::tests::put_edit_keeps_the_complement_in_step
+        PASS [   0.044s] (225/756) panproto-lens edit_lens::tests::put_edit_passes_through_for_identity
+        PASS [   0.047s] (226/756) panproto-lens edit_lens::tests::sequence_edit_filters_identity
+        PASS [   0.050s] (227/756) panproto-lens edit_lens::tests::set_field_on_complement_node_is_absorbed
+        PASS [   0.062s] (228/756) panproto-lens edit_lens::tests::put_edit_set_field_reaches_a_complement_node
+        PASS [   0.098s] (229/756) panproto-lens edit_lens::tests::non_surviving_insert_goes_to_complement
+        PASS [   0.050s] (230/756) panproto-lens edit_lens::tests::structural_bijection_with_no_value_transforms_is_iso
+        PASS [   0.051s] (231/756) panproto-lens edit_pipeline::tests::pipeline_fan_with_dropped_participant
+        PASS [   0.054s] (232/756) panproto-lens edit_pipeline::tests::pipeline_identity_lens_passes_through
+        PASS [   0.052s] (233/756) panproto-lens edit_pipeline::tests::pipeline_matches_batch_restrict
+        PASS [   0.045s] (234/756) panproto-lens edit_pipeline::tests::pipeline_tracks_reachability_on_insert
+        PASS [   0.061s] (235/756) panproto-lens edit_pipeline::tests::pipeline_tracks_reachability_on_delete
+        PASS [   0.051s] (236/756) panproto-lens edit_provenance::tests::provenance_identity_is_total
+        PASS [   0.057s] (237/756) panproto-lens edit_provenance::tests::provenance_records_structural_remap
+        PASS [   0.053s] (238/756) panproto-lens edit_provenance::tests::provenance_serialization_round_trip
+        PASS [   0.051s] (239/756) panproto-lens error::tests::law_violations_project_to_stable_binding_details
+        PASS [   0.057s] (240/756) panproto-lens fibration::tests::cartesian_factorization_holds_for_identity_chain
+        PASS [   0.055s] (241/756) panproto-lens fibration::tests::cartesian_factorization_holds_for_projection_chain
+        PASS [   0.050s] (242/756) panproto-lens fibration::tests::identity_lens_cartesian_universal
+        PASS [   0.159s] (243/756) panproto-lens edit_lens::tests::structural_bijection_with_invertible_values_stays_iso
+        PASS [   0.161s] (244/756) panproto-lens edit_lens::tests::structural_bijection_with_lossy_values_is_not_iso
+        PASS [   0.039s] (245/756) panproto-lens graph_protolens::tests::empty_chain_is_applicable_and_binds_the_complement
+        PASS [   0.070s] (246/756) panproto-lens fibration::tests::projection_lens_cartesian_universal
+        PASS [   0.041s] (247/756) panproto-lens graph_protolens::tests::inapplicable_protolens_is_refused_before_instantiation
+        PASS [   0.042s] (248/756) panproto-lens hint::tests::an_excluded_source_is_answered_by_the_span
+        PASS [   0.056s] (249/756) panproto-lens graph_symmetric::tests::identity_graph_span_satisfies_both_sync_equations
+        PASS [   0.050s] (250/756) panproto-lens hint::tests::build_domain_constraints_exclusion
+        PASS [   0.051s] (251/756) panproto-lens hint::tests::build_domain_constraints_scope
+        PASS [   0.105s] (252/756) panproto-lens graph_protolens::tests::a_nonidentity_protolens_applies_and_binds_its_exact_graph_envelope
+        PASS [   0.051s] (253/756) panproto-lens hint::tests::derive_anchors_fixpoint_chain
+        PASS [   0.264s] (254/756) panproto-lens edit_lens::tests::optic_kind_projection_is_lens
+        PASS [   0.048s] (255/756) panproto-lens hint::tests::derive_anchors_propagates_unique_edges
+        PASS [   0.078s] (256/756) panproto-lens hint::tests::constrained_search_excludes_targets
+        PASS [   0.142s] (257/756) panproto-lens fibration::tests::wtype_fibration_opcartesian_then_cartesian
+        PASS [   0.057s] (258/756) panproto-lens hint::tests::derive_anchors_stops_at_ambiguity
+        PASS [   0.056s] (259/756) panproto-lens hint::tests::scope_constraints_intersect_on_same_vertex
+        PASS [   0.133s] (260/756) panproto-lens graph_symmetric::tests::graph_words_observe_the_same_stable_keyed_mutation
+        PASS [   0.045s] (261/756) panproto-lens laws::tests::exhaustive_checker_returns_one_report_per_enumerated_source
+        PASS [   0.057s] (262/756) panproto-lens laws::tests::different_arcs_are_not_equivalent
+        PASS [   0.071s] (263/756) panproto-lens laws::tests::absent_optional_table_cell_has_an_admitted_strict_value_edit
+        PASS [   0.078s] (264/756) panproto-lens laws::tests::a_cascading_lens_is_not_undoable
+        PASS [   0.070s] (265/756) panproto-lens laws::tests::complements_that_restore_differently_diverge
+        PASS [   0.054s] (266/756) panproto-lens laws::tests::exhaustive_graph_aliases_filter_the_fixed_alphabet_by_kind
+        PASS [   0.116s] (267/756) panproto-lens hint::tests::derive_anchors_rejects_incompatible_kinds
+        PASS [   0.062s] (268/756) panproto-lens laws::tests::exhaustive_graph_enumeration_has_loops_parallels_cycles_and_fixed_values
+        PASS [   0.066s] (269/756) panproto-lens laws::tests::exhaustive_graph_enumeration_reifies_canonical_fans
+        PASS [   0.044s] (270/756) panproto-lens laws::tests::exhaustive_tree_and_graph_enumerate_compatible_null_and_scalar_values
+        PASS [   0.056s] (271/756) panproto-lens laws::tests::identity_lens_satisfies_get_put
+        PASS [   0.051s] (272/756) panproto-lens laws::tests::law_report_serializes_with_contract_fields
+        PASS [   0.050s] (273/756) panproto-lens laws::tests::law_shape_default_exhaustive_values_reuses_the_value_edit_basis
+        PASS [   0.064s] (274/756) panproto-lens laws::tests::identity_lens_satisfies_put_get
+        PASS [   0.045s] (275/756) panproto-lens laws::tests::mixed_classification_uses_the_johnson_rosebrugh_intersection_square
+        PASS [   0.053s] (276/756) panproto-lens laws::tests::mock_oracles_detect_each_distinct_failure_class
+        PASS [   0.101s] (277/756) panproto-lens laws::tests::gating_returns_the_first_failure_in_the_declared_order
+        PASS [   0.049s] (278/756) panproto-lens laws::tests::mutation_variants_are_the_contract_list
+        PASS [   0.140s] (279/756) panproto-lens laws::tests::exhaustive_table_enumerates_absent_null_and_scalar_cells
+        PASS [   0.122s] (280/756) panproto-lens laws::tests::exhaustive_value_adapter_preserves_the_underlying_shape_contract
+        PASS [   0.057s] (281/756) panproto-lens laws::tests::negative_mutations_require_their_exact_typed_refusal
+        PASS [   0.049s] (282/756) panproto-lens laws::tests::property::identity_generator_materializes_each_sampled_leaf_kind
+        PASS [   0.127s] (283/756) panproto-lens laws::tests::property::field_apply_expr_satisfies_get_put
+        PASS [   0.208s] (284/756) panproto-lens laws::tests::identity_lens_satisfies_laws
+        PASS [   0.108s] (285/756) panproto-lens laws::tests::property::identity_lens_with_compute_field_satisfies_getput
+        PASS [   0.116s] (286/756) panproto-lens laws::tests::property::identity_lens_satisfies_put_put_proptest
+        PASS [   0.154s] (287/756) panproto-lens laws::tests::property::field_transform_satisfies_get_put
+        PASS [   0.170s] (288/756) panproto-lens laws::tests::null_value_edits_follow_each_coordinates_declared_scalar_kind
+        PASS [   0.158s] (289/756) panproto-lens laws::tests::property::identity_put_get_generated_mutation
+        PASS [   0.129s] (290/756) panproto-lens laws::tests::property::projection_lens_satisfies_get_put_proptest
+        PASS [   0.231s] (291/756) panproto-lens laws::tests::property::identity_put_put_generated_mutation
+        PASS [   0.225s] (292/756) panproto-lens laws::tests::property::nested_put_get_generated_mutation
+        PASS [   0.188s] (293/756) panproto-lens laws::tests::property::projection_lens_satisfies_put_put_proptest
+        PASS [   0.180s] (294/756) panproto-lens laws::tests::property::projection_put_get_generated_mutation
+        PASS [   0.194s] (295/756) panproto-lens laws::tests::property::projection_put_put_generated_mutation
+        PASS [   0.208s] (296/756) panproto-lens laws::tests::put_domain_mutation::the_mutation_keeps_every_perturbation_put_accepts
+        PASS [   0.184s] (297/756) panproto-lens laws::tests::put_get_is_strict_under_every_contraction_mode
+        PASS [   0.277s] (298/756) panproto-lens laws::tests::put_domain_mutation::the_mutation_perturbs_every_leaf_of_an_unconstrained_view
+        PASS [   0.123s] (299/756) panproto-lens laws::tests::put_put_rekeys_an_expansion_complement_to_the_second_view
+        PASS [   0.147s] (300/756) panproto-lens laws::tests::put_put_uses_strict_metadata_for_non_vacuity_and_source_equality
+        PASS [   0.106s] (301/756) panproto-lens laws::tests::reorder_candidates_never_move_synthesized_edges
+        PASS [   0.099s] (302/756) panproto-lens laws::tests::report_partitions_all_seventeen_families_in_contract_order
+        PASS [   0.106s] (303/756) panproto-lens laws::tests::shape_specific_skips_are_exact
+        PASS [   0.105s] (304/756) panproto-lens laws::tests::single_step_payload_alternates_cover_metadata_and_numeric_boundaries
+        PASS [   0.084s] (305/756) panproto-lens laws::tests::synthesized_tree_renaming_requires_and_accepts_a_coherent_complement
+        PASS [   0.036s] (306/756) panproto-lens laws::tests::table_exhaustive_wrapper_invokes_the_generic_checker
+        PASS [   0.037s] (307/756) panproto-lens laws::tests::table_locality_detects_an_unedited_same_row_cell_change
+        PASS [   0.036s] (308/756) panproto-lens laws::tests::table_locality_pulls_back_a_foreign_key_rename
+        PASS [   0.625s] (309/756) panproto-lens laws::tests::put_domain_mutation::put_get_holds_for_a_computed_field_over_a_child_scalar
+        PASS [   0.049s] (310/756) panproto-lens laws::tests::table_locality_does_not_hide_cell_drift_behind_a_row_relabel
+        PASS [   0.035s] (311/756) panproto-lens laws::tests::table_locality_pulls_back_a_transform_only_column_rename
+        PASS [   0.793s] (312/756) panproto-lens laws::tests::property::projection_lens_satisfies_put_get_proptest
+        PASS [   0.047s] (313/756) panproto-lens laws::tests::table_locality_pulls_back_table_and_column_renames
+        PASS [   0.052s] (314/756) panproto-lens laws::tests::table_locality_symbolically_reverses_only_operational_transform_writers
+        PASS [   0.683s] (315/756) panproto-lens laws::tests::put_domain_mutation::put_get_holds_for_a_transform_over_a_child_scalar
+        PASS [   0.062s] (316/756) panproto-lens laws::tests::the_labelled_graph_example_fails_put_put_and_satisfies_mixed_put_put
+        PASS [   0.070s] (317/756) panproto-lens laws::tests::tree_law_wrappers_preserve_an_operational_failure
+        PASS [   0.049s] (318/756) panproto-lens laws::tests::tree_locality_observes_arc_order_as_carrier_content
+        PASS [   0.042s] (319/756) panproto-lens laws::tests::tree_reconnect_reports_no_candidate_when_every_other_parent_is_invalid
+        PASS [   0.041s] (320/756) panproto-lens layout_complement::tests::constraints_round_trip_as_a_set
+        PASS [   0.035s] (321/756) panproto-lens layout_complement::tests::from_constraints_decodes_all_fibres
+        PASS [   0.043s] (322/756) panproto-lens layout_complement::tests::empty_constraints_decode_to_empty
+        PASS [   0.041s] (323/756) panproto-lens layout_complement::tests::malformed_slot_indices_and_byte_record_warnings
+        PASS [   0.043s] (324/756) panproto-lens layout_complement::tests::malformed_start_byte_records_warning
+        PASS [   0.042s] (325/756) panproto-lens layout_complement::tests::schema_level_from_and_write
+        PASS [   0.036s] (326/756) panproto-lens layout_complement::tests::trace_slot_encode_decode_round_trip
+        PASS [   0.052s] (327/756) panproto-lens layout_complement::tests::schema_level_has_decode_warnings
+        PASS [   0.036s] (328/756) panproto-lens layout_complement::tests::well_formed_constraints_have_no_warnings
+        PASS [   0.042s] (329/756) panproto-lens lens_graph::tests::cost_function_basic
+        PASS [   0.041s] (330/756) panproto-lens lens_graph::tests::graph_add_lens_auto_adds_schemas
+        PASS [   0.042s] (331/756) panproto-lens lens_graph::tests::graph_add_lens_does_not_replace_cheaper
+        PASS [   0.045s] (332/756) panproto-lens lens_graph::tests::graph_add_lens_keeps_cheaper
+        PASS [   0.044s] (333/756) panproto-lens lens_graph::tests::graph_direct_cheaper
+        PASS [   0.045s] (334/756) panproto-lens lens_graph::tests::graph_identity_distance_zero
+        PASS [   0.051s] (335/756) panproto-lens lens_graph::tests::graph_no_compute_returns_infinity
+        PASS [   0.050s] (336/756) panproto-lens lens_graph::tests::graph_no_path_disconnected
+        PASS [   0.048s] (337/756) panproto-lens lens_graph::tests::graph_schema_count
+        PASS [   0.045s] (338/756) panproto-lens lens_graph::tests::graph_single_edge
+        PASS [   0.046s] (339/756) panproto-lens lens_graph::tests::graph_triangle_indirect_cheaper
+        PASS [   0.038s] (340/756) panproto-lens lens_graph::tests::verify_metric_triangle_graph
+        PASS [   0.057s] (341/756) panproto-lens lens_graph::tests::verify_metric_single_node
+        PASS [   0.045s] (342/756) panproto-lens lens_path::tests::a_single_identity_lens_is_not_the_distinguished_identity
+        PASS [   0.049s] (343/756) panproto-lens lens_path::tests::a_tree_lens_path_round_trips
+        PASS [   0.056s] (344/756) panproto-lens lens_path::tests::into_single_refuses_a_path_of_two_groups
+        PASS [   0.064s] (345/756) panproto-lens lens_path::tests::lens_path_normal_form_is_a_function_of_the_atomic_stages
+        PASS [   0.059s] (346/756) panproto-lens lens_path::tests::lens_path_unit_laws
+        PASS [   0.051s] (347/756) panproto-lens lens_path::tests::path_check_put_domain_reports_the_first_failing_group_in_put_order
+        PASS [   0.048s] (348/756) panproto-lens lens_path::tests::path_put_checks_the_group_count_and_atomic_digests
+        PASS [   0.036s] (349/756) panproto-lens lens_shape::tests::graph_equivalence_rejects_mismatched_keys_at_the_same_raw_ids
+        PASS [   0.056s] (350/756) panproto-lens lens_shape::tests::graph_equivalence_observes_synthesized_edge_position
+        PASS [   0.033s] (351/756) panproto-lens lens_shape::tests::synthesized_indices_exclude_stale_complement_entries
+        PASS [   0.035s] (352/756) panproto-lens lens_shape::tests::tree_equivalence_rejects_mismatched_edge_keys_at_the_same_raw_ids
+        PASS [   0.047s] (353/756) panproto-lens lens_shape::tests::tree_equivalence_is_strict_on_full_node_metadata
+        PASS [   0.047s] (354/756) panproto-lens lens_shape::tests::tree_synth_index_names_expansion_arcs_from_the_view_embedding
+        PASS [   0.045s] (355/756) panproto-lens optic::tests::affine_stays_affine_with_lens_prism_affine
+        PASS [   0.052s] (356/756) panproto-lens optic::tests::an_exact_value_perturbs_to_a_distinct_well_formed_neighbour
+        PASS [   0.045s] (357/756) panproto-lens optic::tests::classify_add_sort_is_lens
+        PASS [   0.047s] (358/756) panproto-lens optic::tests::classify_compose_iso_and_lens_is_lens
+        PASS [   0.036s] (359/756) panproto-lens optic::tests::classify_compose_two_lenses_is_lens
+        PASS [   0.058s] (360/756) panproto-lens optic::tests::classify_compose_two_isos_is_iso
+        PASS [   0.055s] (361/756) panproto-lens optic::tests::classify_drop_op_is_lens
+        PASS [   0.047s] (362/756) panproto-lens optic::tests::classify_drop_sort_is_lens
+        PASS [   0.052s] (363/756) panproto-lens optic::tests::classify_rename_op_is_iso
+        PASS [   0.067s] (364/756) panproto-lens optic::tests::classify_identity_is_iso
+        PASS [   0.058s] (365/756) panproto-lens optic::tests::classify_rename_sort_is_iso
+        PASS [   0.045s] (366/756) panproto-lens optic::tests::composition_is_commutative
+        PASS [   0.060s] (367/756) panproto-lens optic::tests::identity_lens_satisfies_iso_laws
+        PASS [   0.073s] (368/756) panproto-lens optic::tests::composition_is_associative
+        PASS [   0.054s] (369/756) panproto-lens optic::tests::iso_is_identity_element
+        PASS [   0.066s] (370/756) panproto-lens optic::tests::lens_and_prism_yield_affine
+        PASS [   0.062s] (371/756) panproto-lens optic::tests::lens_compose_lens_is_lens
+        PASS [   0.054s] (372/756) panproto-lens optic::tests::optic_kind_serde_round_trip
+        PASS [   0.039s] (373/756) panproto-lens optic::tests::prism_compose_prism_is_prism
+        PASS [   0.044s] (374/756) panproto-lens optic::tests::projection_lens_satisfies_lens_laws
+        PASS [   0.044s] (375/756) panproto-lens optic::tests::traversal_absorbs_everything
+        PASS [   0.046s] (376/756) panproto-lens protolens::rewritten_schemas_are_seed_independent::renaming_an_edge_label_gives_the_same_bytes_in_every_rebuild
+        PASS [   0.047s] (377/756) panproto-lens protolens::step_laws::step_law_add_edge
+        PASS [   0.046s] (378/756) panproto-lens protolens::step_laws::step_law_add_field
+        PASS [   0.047s] (379/756) panproto-lens protolens::step_laws::step_law_add_op
+        PASS [   0.041s] (380/756) panproto-lens protolens::step_laws::step_law_add_sort
+        PASS [   0.069s] (381/756) panproto-lens protolens::step_laws::step_law_add_equation
+        PASS [   0.036s] (382/756) panproto-lens protolens::step_laws::step_law_coerce_sort
+        PASS [   0.033s] (383/756) panproto-lens protolens::step_laws::step_law_drop_directed_eq
+        PASS [   0.048s] (384/756) panproto-lens protolens::step_laws::step_law_directed_eq
+        PASS [   0.041s] (385/756) panproto-lens protolens::step_laws::step_law_drop_edge
+        PASS [   0.043s] (386/756) panproto-lens protolens::step_laws::step_law_drop_equation
+        PASS [   0.043s] (387/756) panproto-lens protolens::step_laws::step_law_drop_op
+        PASS [   0.041s] (388/756) panproto-lens protolens::step_laws::step_law_drop_sort
+        PASS [   0.044s] (389/756) panproto-lens protolens::step_laws::step_law_hoist_field
+        PASS [   0.040s] (390/756) panproto-lens protolens::step_laws::step_law_merge_sorts
+        PASS [   0.042s] (391/756) panproto-lens protolens::step_laws::step_law_nest_field
+        PASS [   0.052s] (392/756) panproto-lens protolens::step_laws::step_law_pullback
+        PASS [   0.051s] (393/756) panproto-lens protolens::step_laws::step_law_remove_field
+        PASS [   0.051s] (394/756) panproto-lens protolens::step_laws::step_law_rename_field
+        PASS [   0.056s] (395/756) panproto-lens protolens::step_laws::step_law_rename_op
+        PASS [   0.051s] (396/756) panproto-lens protolens::step_laws::step_law_scoped
+        PASS [   0.065s] (397/756) panproto-lens protolens::step_laws::step_law_rename_sort
+        PASS [   0.043s] (398/756) panproto-lens protolens::tests::add_sort_instantiate
+        PASS [   0.047s] (399/756) panproto-lens protolens::tests::chain_empty_is_identity
+        PASS [   0.031s] (400/756) panproto-lens protolens::tests::chain_len_and_is_empty
+        PASS [   0.056s] (401/756) panproto-lens protolens::tests::chain_instantiate_executes_retained_add_field_default
+        PASS [   0.041s] (402/756) panproto-lens protolens::tests::chain_single_step
+        PASS [   0.041s] (403/756) panproto-lens protolens::tests::check_applicability_chain_delegates
+        PASS [   0.046s] (404/756) panproto-lens protolens::tests::check_applicability_returns_reasons
+        PASS [   0.063s] (405/756) panproto-lens protolens::tests::coercion_checked_directed_eq_dishonest_fails
+        PASS [   0.061s] (406/756) panproto-lens protolens::tests::coercion_checked_sort_dishonest_iso_fails
+        PASS [   0.073s] (407/756) panproto-lens protolens::tests::coercion_checked_directed_eq_honest_passes
+        PASS [   0.081s] (408/756) panproto-lens protolens::tests::coercion_checked_sort_honest_iso_passes
+        PASS [   0.077s] (409/756) panproto-lens protolens::tests::complement_constructor_types
+        PASS [   0.076s] (410/756) panproto-lens protolens::tests::drop_edge_schema_apply_rebuilds_indices
+        PASS [   0.062s] (411/756) panproto-lens protolens::tests::drop_sort_and_drop_op_cascade_dependent_hyperedges
+        PASS [   0.056s] (412/756) panproto-lens protolens::tests::dropping_a_hyperedge_operation_records_its_reified_graph_residue
+        PASS [   0.069s] (413/756) panproto-lens protolens::tests::drop_sort_instantiate
+        PASS [   0.057s] (414/756) panproto-lens protolens::tests::elementary_add_sort_always_applicable
+        PASS [   0.065s] (415/756) panproto-lens protolens::tests::elementary_add_edge_separates_name_from_kind
+        PASS [   0.043s] (416/756) panproto-lens protolens::tests::elementary_drop_sort_applicable
+        PASS [   0.034s] (417/756) panproto-lens protolens::tests::elementary_rename_sort_applicable
+        PASS [   0.069s] (418/756) panproto-lens protolens::tests::elementary_drop_edge_targets_only_the_named_edge
+        PASS [   0.041s] (419/756) panproto-lens protolens::tests::elementary_rename_sort_instantiate
+        PASS [   0.034s] (420/756) panproto-lens protolens::tests::elementary_rename_sort_not_applicable
+        PASS [   0.032s] (421/756) panproto-lens protolens::tests::fleet_all_applicable
+        PASS [   0.035s] (422/756) panproto-lens protolens::tests::fleet_empty_chain
+        PASS [   0.038s] (423/756) panproto-lens protolens::tests::fleet_partial_applicable
+        PASS [   0.039s] (424/756) panproto-lens protolens::tests::from_theory_constraint_maps_has_sort
+        PASS [   0.035s] (425/756) panproto-lens protolens::tests::fuse_empty_chain_errors
+        PASS [   0.030s] (426/756) panproto-lens protolens::tests::fuse_two_steps
+        PASS [   0.045s] (427/756) panproto-lens protolens::tests::fuse_single_step
+        PASS [   0.034s] (428/756) panproto-lens protolens::tests::hoist_field_get_put_json_round_trip_restores_nested_record
+        PASS [   0.046s] (429/756) panproto-lens protolens::tests::fused_preserves_complement
+        PASS [   0.040s] (430/756) panproto-lens protolens::tests::hoist_field_put_then_json_does_not_listify_record
+        PASS [   0.040s] (431/756) panproto-lens protolens::tests::horizontal_compose_works
+        PASS [   0.042s] (432/756) panproto-lens protolens::tests::identity_lens_preserves_schema
+        PASS [   0.039s] (433/756) panproto-lens protolens::tests::identity_source_precondition_enforced
+        PASS [   0.038s] (434/756) panproto-lens protolens::tests::is_lossless
+        PASS [   0.043s] (435/756) panproto-lens protolens::tests::lift_chain_preserves_length
+        PASS [   0.047s] (436/756) panproto-lens protolens::tests::lift_preserves_complement
+        PASS [   0.046s] (437/756) panproto-lens protolens::tests::lift_protolens_identity_morphism
+        PASS [   0.058s] (438/756) panproto-lens protolens::tests::lift_protolens_name
+        PASS [   0.056s] (439/756) panproto-lens protolens::tests::lift_protolens_renames_precondition
+        PASS [   0.047s] (440/756) panproto-lens protolens::tests::nest_field_get_put_round_trip_recovers_source
+        PASS [   0.065s] (441/756) panproto-lens protolens::tests::nest_field_forward_eval_synthesizes_intermediate_node
+        PASS [   0.051s] (442/756) panproto-lens protolens::tests::nest_field_preserves_sibling_prop_edges
+        PASS [   0.057s] (443/756) panproto-lens protolens::tests::nest_field_handles_qualified_vertex_ids
+        PASS [   0.047s] (444/756) panproto-lens protolens::tests::protolens_chain_applicable
+        PASS [   0.048s] (445/756) panproto-lens protolens::tests::schema_constraint_all_conjunction
+        PASS [   0.048s] (446/756) panproto-lens protolens::tests::schema_constraint_has_edge_kind
+        PASS [   0.053s] (447/756) panproto-lens protolens::tests::schema_constraint_has_vertex
+        PASS [   0.051s] (448/756) panproto-lens protolens::tests::schema_to_implicit_theory_deterministic_sort_op_order
+        PASS [   0.055s] (449/756) panproto-lens protolens::tests::schema_constraint_has_vertex_kind
+        PASS [   0.045s] (450/756) panproto-lens protolens::tests::schema_to_theory_extracts_kinds
+        PASS [   0.039s] (451/756) panproto-lens protolens::tests::serde_round_trip_composite_complement
+        PASS [   0.052s] (452/756) panproto-lens protolens::tests::serde_round_trip_chain
+        PASS [   0.039s] (453/756) panproto-lens protolens::tests::serde_round_trip_protolens
+        PASS [   0.036s] (454/756) panproto-lens protolens::tests::serde_round_trip_pullback
+        PASS [   0.040s] (455/756) panproto-lens protolens::tests::target_schema_without_full_lens
+        PASS [   0.046s] (456/756) panproto-lens protolens::tests::vertical_compose_associative
+        PASS [   0.044s] (457/756) panproto-lens protolens::tests::vertical_compose_works
+        PASS [   0.052s] (458/756) panproto-lens protolens::tests::vertical_compose_associative_sampled
+        PASS [   0.042s] (459/756) panproto-lens protolens_nat::tests::add_sort_protolens_is_natural
+        PASS [   0.042s] (460/756) panproto-lens protolens_nat::tests::drop_op_protolens_is_natural
+        PASS [   0.042s] (461/756) panproto-lens protolens_nat::tests::drop_sort_protolens_is_natural
+        PASS [   0.040s] (462/756) panproto-lens protolens_nat::tests::rename_op_protolens_is_natural_via_equation
+        PASS [   0.035s] (463/756) panproto-lens protolens_nat::tests::rename_sort_protolens_is_natural
+        PASS [   0.039s] (464/756) panproto-lens protolens_nat::tests::schema_derived_base_theory_is_natural
+        PASS [   0.041s] (465/756) panproto-lens symbolic::tests::add_drop_cancellation_op
+        PASS [   0.043s] (466/756) panproto-lens symbolic::tests::add_drop_cancellation_sort
+        PASS [   0.042s] (467/756) panproto-lens symbolic::tests::add_sort_get_put_is_drop
+        PASS [   0.049s] (468/756) panproto-lens symbolic::tests::drop_sort_get_put_is_add
+        PASS [   0.047s] (469/756) panproto-lens symbolic::tests::every_elementary_combinator_satisfies_both_laws
+        PASS [   0.055s] (470/756) panproto-lens symbolic::tests::inverse_cancellation_ops
+        PASS [   0.066s] (471/756) panproto-lens symbolic::tests::inverse_cancellation_sorts
+        PASS [   0.065s] (472/756) panproto-lens symbolic::tests::inverse_is_involutive_on_elementary_steps
+        PASS [   0.045s] (473/756) panproto-lens symbolic::tests::nested_chain_and_its_reverse_cancel
+        PASS [   0.072s] (474/756) panproto-lens symbolic::tests::multi_step_fusion_chain
+        PASS [   0.063s] (475/756) panproto-lens symbolic::tests::non_adjacent_steps_not_cancelled
+        PASS [   0.058s] (476/756) panproto-lens symbolic::tests::opaque_step_has_no_inverse
+        PASS [   0.048s] (477/756) panproto-lens symbolic::tests::opaque_steps_preserved
+        PASS [   0.048s] (478/756) panproto-lens symbolic::tests::rename_fusion_sorts
+        PASS [   0.055s] (479/756) panproto-lens symbolic::tests::rename_fusion_ops
+        PASS [   0.051s] (480/756) panproto-lens symbolic::tests::rename_sort_laws_cancel
+        PASS [   0.046s] (481/756) panproto-lens symmetric::tests::a_one_sided_refusal_is_observationally_distinguishable
+        PASS [   0.046s] (482/756) panproto-lens symmetric::tests::auto_symmetric_finds_a_middle_when_only_the_names_differ
+        PASS [   0.042s] (483/756) panproto-lens symmetric::tests::auto_symmetric_honors_its_config_during_the_shared_search
+        PASS [   0.039s] (484/756) panproto-lens symmetric::tests::auto_symmetric_refuses_when_the_two_schemas_share_no_kind
+        PASS [   0.041s] (485/756) panproto-lens symmetric::tests::auto_symmetric_spans_a_schema_with_itself
+        PASS [   0.042s] (486/756) panproto-lens symmetric::tests::canonical_middle_equality_observes_formerly_omitted_coordinates
+        PASS [   0.043s] (487/756) panproto-lens symmetric::tests::coherence_reports_get_failures
+        PASS [   0.040s] (488/756) panproto-lens symmetric::tests::complement_comparison_is_not_a_count_only_check
+        PASS [   0.042s] (489/756) panproto-lens symmetric::tests::finite_words_include_the_right_left_right_word
+        PASS [   0.050s] (490/756) panproto-lens symmetric::tests::equal_typed_refusals_at_the_same_step_are_observationally_equal
+        PASS [   0.041s] (491/756) panproto-lens symmetric::tests::finite_words_include_the_right_left_word
+        PASS [   0.041s] (492/756) panproto-lens symmetric::tests::finite_words_use_length_first_binary_lexical_order
+        PASS [   0.041s] (493/756) panproto-lens symmetric::tests::from_protolens_empty_chains
+        PASS [   0.038s] (494/756) panproto-lens symmetric::tests::from_span_identical_schemas
+        PASS [   0.049s] (495/756) panproto-lens symmetric::tests::identity_lens_complement_coherent
+        PASS [   0.064s] (496/756) panproto-lens symmetric::tests::identity_symmetric_lens_satisfies_laws
+        PASS [   0.118s] (497/756) panproto-lens symmetric::tests::finite_words_observe_every_state
+        PASS [   0.076s] (498/756) panproto-lens symmetric::tests::unequal_typed_refusals_at_the_same_step_are_observationally_distinct
+        PASS [   0.092s] (499/756) panproto-lens symmetric::tests::legs_that_agree_only_on_vertex_names_do_not_share_a_middle
+        PASS [   0.084s] (500/756) panproto-lens table_lens::tests::table_get_compiles_its_plan_once
+        PASS [   0.080s] (501/756) panproto-lens table_protolens::tests::a_nonidentity_protolens_applies_and_binds_its_exact_table_envelope
+        PASS [   0.044s] (502/756) panproto-lens table_protolens::tests::inapplicable_protolens_is_refused_before_instantiation
+        PASS [   0.076s] (503/756) panproto-lens table_protolens::tests::empty_chain_is_applicable_and_binds_the_complement
+        PASS [   0.047s] (504/756) panproto-lens table_symmetric::tests::context_preserves_all_three_ordered_protocol_boundaries
+        PASS [   0.057s] (505/756) panproto-lens table_shape::tests::table_synth_index_names_a_synthesized_pair_in_its_view_embedding
+        PASS [   0.050s] (506/756) panproto-lens table_symmetric::tests::identity_table_span_satisfies_both_sync_equations
+        PASS [   0.048s] (507/756) panproto-lens tests::compose_rename_then_identity_preserves_laws
+        PASS [   0.040s] (508/756) panproto-lens tests::modified_view_propagates_changes
+        PASS [   0.036s] (509/756) panproto-lens tests::projection_get_then_put_restores_with_complement
+        PASS [   0.029s] (510/756) panproto-lens tests::round_trip_get_then_put_recovers_original
+        PASS [   0.049s] (511/756) panproto-lens tests::projection_lens_drops_field
+        PASS [   0.033s] (512/756) panproto-lens::an_identity_lens_over_fans_records_no_fan_edge an_identity_lens_over_fans_records_no_fan_edge
+        PASS [   0.106s] (513/756) panproto-lens table_symmetric::tests::table_words_observe_the_same_stable_keyed_mutation
+        PASS [   0.039s] (514/756) panproto-lens::autolens_corpus corpus_balanced_improvements
+        PASS [   0.041s] (515/756) panproto-lens::autolens_corpus corpus_exploratory_improvements
+        PASS [   0.030s] (516/756) panproto-lens::autolens_corpus corpus_lenient_improvements
+        PASS [   0.093s] (517/756) panproto-lens::autolens_corpus alignment_existence_is_monotone_across_tiers
+        PASS [   0.030s] (518/756) panproto-lens::autolens_corpus corpus_strict_baseline
+        PASS [   0.096s] (519/756) panproto-lens::autolens_corpus auto_generate_never_beats_the_optimal_span
+        PASS [   0.027s] (520/756) panproto-lens::autolens_corpus dump_all_qualities
+        PASS [   0.051s] (521/756) panproto-lens::autolens_corpus corpus_span_quality_is_monotone_across_tiers
+        PASS [   0.024s] (522/756) panproto-lens::autolens_corpus dump_selection_diff
+        PASS [   0.029s] (523/756) panproto-lens::autolens_corpus lenient_orphan_source_sort_emits_drop_sort
+        PASS [   0.037s] (524/756) panproto-lens::autolens_corpus lenient_orphan_target_sort_emits_add_sort
+        PASS [   0.039s] (525/756) panproto-lens::graph_lens_laws a_child_pruned_partial_fan_is_not_duplicated_by_put
+        PASS [   0.042s] (526/756) panproto-lens::graph_lens_laws a_contracted_graph_path_round_trips_and_refuses_a_new_contracted_edge
+        PASS [   0.028s] (527/756) panproto-lens::graph_lens_laws a_contracting_pair_composes_sequentially
+        PASS [   0.150s] (528/756) panproto-lens::autolens_corpus balanced_emits_alias_explanation_for_pure_rename
+        PASS [   0.025s] (529/756) panproto-lens::graph_lens_laws a_direct_graph_preimage_is_not_a_contracted_edge_negative
+        PASS [   0.030s] (530/756) panproto-lens::graph_lens_laws a_document_key_is_unique_over_the_document
+        PASS [   0.027s] (531/756) panproto-lens::graph_lens_laws a_fan_id_is_not_reversed_through_the_vertex_remap
+        PASS [   0.029s] (532/756) panproto-lens::graph_lens_laws a_graph_lens_path_round_trips
+        PASS [   0.040s] (533/756) panproto-lens::graph_lens_laws a_float_that_is_not_a_binary32_is_refused_by_get
+        PASS [   0.041s] (534/756) panproto-lens::graph_lens_laws a_hyper_resolver_composes_sequentially
+        PASS [   0.037s] (535/756) panproto-lens::graph_lens_laws a_lens_reports_its_contraction_mode
+        PASS [   0.038s] (536/756) panproto-lens::graph_lens_laws a_nested_path_transform_is_not_a_graph_isomorphism
+        PASS [   0.040s] (537/756) panproto-lens::graph_lens_laws a_non_boolean_survival_predicate_is_a_put_domain_refusal
+        PASS [   0.036s] (538/756) panproto-lens::graph_lens_laws a_non_injective_alignment_is_refused
+        PASS [   0.030s] (539/756) panproto-lens::graph_lens_laws a_parent_only_fan_prevents_global_graph_isomorphism
+        PASS [   0.032s] (540/756) panproto-lens::graph_lens_laws a_plan_that_does_not_compile_stays_sequential
+        PASS [   0.026s] (541/756) panproto-lens::graph_lens_laws a_put_that_breaks_a_fan_is_refused
+        PASS [   0.076s] (542/756) panproto-lens::graph_lens_laws a_new_resolved_fan_uses_the_least_exact_backward_entry
+        PASS [   0.025s] (543/756) panproto-lens::graph_lens_laws a_recorded_fan_is_not_restored_without_all_its_nodes
+        PASS [   0.029s] (544/756) panproto-lens::graph_lens_laws a_reinserted_id_does_not_recover_its_residue
+        PASS [   0.032s] (545/756) panproto-lens::graph_lens_laws a_relabelled_fan_edge_round_trips_through_its_recorded_source_label
+        PASS [   0.025s] (546/756) panproto-lens::graph_lens_laws a_restored_duplicate_is_refused_for_each_key_role
+        PASS [   0.031s] (547/756) panproto-lens::graph_lens_laws a_restored_node_failing_its_survival_predicate_is_refused
+        PASS [   0.202s] (548/756) panproto-lens::autolens_corpus span_selection_by_case
+        PASS [   0.041s] (549/756) panproto-lens::graph_lens_laws a_reused_view_id_is_an_edit_in_place
+        PASS [   0.035s] (550/756) panproto-lens::graph_lens_laws a_view_added_node_under_a_merged_anchor_is_ambiguous
+        PASS [   0.036s] (551/756) panproto-lens::graph_lens_laws a_view_id_below_the_floor_is_admitted
+        PASS [   0.040s] (552/756) panproto-lens::graph_lens_laws a_within_key_is_unique_under_its_ancestor
+        PASS [   0.032s] (553/756) panproto-lens::graph_lens_laws an_expanded_graph_edge_round_trips_and_rejects_a_synthesized_edit
+        PASS [   0.040s] (554/756) panproto-lens::graph_lens_laws an_expanding_plan_composes_sequentially
+        PASS [   0.043s] (555/756) panproto-lens::graph_lens_laws an_identity_lens_maps_back_a_view_added_edge
+        PASS [   0.039s] (556/756) panproto-lens::graph_lens_laws an_incomplete_self_alignment_is_refused
+        PASS [   0.045s] (557/756) panproto-lens::graph_lens_laws an_unchanged_fan_leaves_tree_residue_trivial
+        PASS [   0.041s] (558/756) panproto-lens::graph_lens_laws an_unnamed_fan_parent_edge_stays_unnamed_through_graph_get_and_put
+        PASS [   0.088s] (559/756) panproto-lens::graph_lens_laws an_exact_binary32_cell_is_restored_by_put
+        PASS [   0.042s] (560/756) panproto-lens::graph_lens_laws complement_divergence_ignores_derived_bookkeeping
+        PASS [   0.043s] (561/756) panproto-lens::graph_lens_laws congruence_witnesses_are_equivalent_but_not_identical
+        PASS [   0.044s] (562/756) panproto-lens::graph_lens_laws disagreeing_direct_edge_images_stay_sequential
+        PASS [   0.036s] (563/756) panproto-lens::graph_lens_laws editing_a_derived_cell_is_refused
+        PASS [   0.045s] (564/756) panproto-lens::graph_lens_laws editing_a_contracted_edge_is_rejected
+        PASS [   0.043s] (565/756) panproto-lens::graph_lens_laws editing_a_non_invertible_transform_output_is_refused
+        PASS [   0.043s] (566/756) panproto-lens::graph_lens_laws fresh_graph_ids_avoid_view_reserved_and_synthesized_ids
+        PASS [   0.046s] (567/756) panproto-lens::graph_lens_laws graph_complement_merge_detects_conflicts_and_has_empty_identity
+        PASS [   0.041s] (568/756) panproto-lens::graph_lens_laws graph_complement_synth_index_lists_every_synthesized_object
+        PASS [   0.027s] (569/756) panproto-lens::graph_lens_laws graph_equivalence_compares_source_edge_positions
+        PASS [   0.029s] (570/756) panproto-lens::graph_lens_laws graph_equivalence_matches_synthesized_objects_by_key
+        PASS [   0.027s] (571/756) panproto-lens::graph_lens_laws graph_get_put_restores_exactly_what_get_set_aside
+        PASS [   0.020s] (572/756) panproto-lens::graph_lens_laws graph_isomorphism_rejects_an_open_field_rename_collision
+        PASS [   0.038s] (573/756) panproto-lens::graph_lens_laws graph_isomorphism_is_classified_throughout_finite_scope
+        PASS [   0.098s] (574/756) panproto-lens::graph_lens_laws graph_complement_merge_is_a_partial_commutative_monoid
+        PASS [   0.023s] (575/756) panproto-lens::graph_lens_laws graph_law_wrappers_propagate_plan_errors
+        PASS [   0.025s] (576/756) panproto-lens::graph_lens_laws graph_obstructions_are_reported
+        PASS [   0.029s] (577/756) panproto-lens::graph_lens_laws graph_put_preserves_an_edit_to_a_kept_node
+        PASS [   0.038s] (578/756) panproto-lens::graph_lens_laws graph_put_domain_reports_duplicate_keys_and_missing_required_cells
+        PASS [   0.027s] (579/756) panproto-lens::graph_lens_laws graph_put_reports_an_id_collision_before_restoration
+        PASS [   0.169s] (580/756) panproto-lens::graph_lens_laws every_unchanged_view_edge_maps_back
+        PASS [   0.028s] (581/756) panproto-lens::graph_lens_laws graph_put_without_complement_agrees_with_the_shape_classifier
+        PASS [   0.027s] (582/756) panproto-lens::graph_lens_laws id_alignment_preserves_a_graph_and_obeys_the_self_law
+        PASS [   0.027s] (583/756) panproto-lens::graph_lens_laws lens_identity_and_put_domain_errors_share_detail_variants
+        PASS [   0.090s] (584/756) panproto-lens::graph_lens_laws migrations_that_do_not_compose_stay_sequential
+        PASS [   0.094s] (585/756) panproto-lens::graph_lens_laws put_domain_errors_are_sorted_by_the_report_key
+        PASS [   0.104s] (586/756) panproto-lens::graph_lens_laws removing_a_chain_endpoint_is_not_a_synthesized_edit
+        PASS [   0.106s] (587/756) panproto-lens::graph_lens_laws residue_classification_agrees_across_shapes
+        PASS [   0.049s] (588/756) panproto-lens::graph_lens_laws the_base_graph_get_remains_boundary_free
+        PASS [   0.307s] (589/756) panproto-lens::graph_lens_laws graph_lens_path_laws
+        PASS [   0.143s] (590/756) panproto-lens::graph_lens_laws two_value_layers_compose_sequentially
+        PASS [   0.105s] (591/756) panproto-lens::identity_policy_and_composition_follow_their_tables the_empty_unbound_complement_is_the_unit
+        PASS [   0.226s] (592/756) panproto-lens::identity_policy_and_composition_follow_their_tables composition_follows_the_identity_table
+        PASS [   0.023s] (593/756) panproto-lens::law_corpus corpus_does_not_accept_untyped_operational_failures_as_refusals
+        PASS [   0.182s] (594/756) panproto-lens::identity_policy_and_composition_follow_their_tables verification_follows_the_policy_table
+        PASS [   0.355s] (595/756) panproto-lens::graph_lens_laws the_cascade_is_the_largest_subinstance_on_every_small_instance
+        PASS [   0.021s] (596/756) panproto-lens::law_corpus small_scope_graph_count_matches_labelled_product_formula
+        PASS [   0.037s] (597/756) panproto-lens::law_corpus small_scope_table_count_matches_labelled_pair_formula
+        PASS [   0.065s] (598/756) panproto-lens::law_corpus graph_corpus_pins_noncanonical_and_u32_max_identifiers
+        PASS [   0.046s] (599/756) panproto-lens::law_corpus small_scope_tree_count_matches_labelled_rooted_formula
+        PASS [   0.598s] (600/756) panproto-lens::graph_lens_laws the_cascade_is_the_largest_subinstance_with_the_edited_view
+        PASS [   0.033s] (601/756) panproto-lens::law_corpus table_corpus_pins_noncanonical_and_u32_max_identifiers
+        PASS [   0.083s] (602/756) panproto-lens::law_corpus tree_corpus_executes_standalone_checks_and_report_classification
+        PASS [   0.062s] (603/756) panproto-lens::law_reference a_user_edited_view_is_compared_under_its_put_complement_index
+        PASS [   0.049s] (604/756) panproto-lens::law_reference put_twice_is_not_implied_by_get_put_and_weak_put_get
+        PASS [   0.827s] (605/756) panproto-lens::law_corpus symmetric_observation_runs_every_sync_word_up_to_the_bound
+        PASS [   0.040s] (606/756) panproto-lens::put_preserves_view_edits_under_rename_field put_preserves_view_edit_on_renamed_record_field
+        PASS [   0.037s] (607/756) panproto-lens::put_preserves_view_edits_with_child_vertices put_preserves_view_edit_via_json_reparse_and_remap
+        PASS [   0.024s] (608/756) panproto-lens::put_preserves_view_edits_with_child_vertices put_preserves_view_edit_with_handcrafted_compiled_migration
+        PASS [   0.020s] (609/756) panproto-lens::put_preserves_view_edits_with_child_vertices put_preserves_view_edit_with_per_field_child_vertices
+        PASS [   0.023s] (610/756) panproto-lens::shape_preservation a_dropped_edge_between_survivors_breaks_tree_shape
+        PASS [   0.025s] (611/756) panproto-lens::shape_preservation a_guarded_fk_has_exactly_one_lift_only_over_its_source_fibre
+        PASS [   1.456s] (612/756) panproto-lens::law_corpus exhaustive_value_edits_reach_every_other_alphabet_value
+        PASS [   2.226s] (613/756) panproto-lens::graph_lens_laws every_fusion_preserves_sequential_behaviour_on_graphs
+        PASS [   1.034s] (614/756) panproto-lens::shape_preservation a_non_opfibration_merge_does_not_preserve_table_shape
+        PASS [   0.827s] (615/756) panproto-lens::shape_preservation a_nonnullable_many_reference_does_not_guard_an_fk_lift
+        PASS [   0.700s] (616/756) panproto-lens::shape_preservation a_parallel_edge_merge_does_not_preserve_table_shape
+        PASS [   0.540s] (617/756) panproto-lens::shape_preservation an_explicit_self_remap_keeps_an_explicit_vertex_merge_table_shaped
+        PASS [   0.509s] (618/756) panproto-lens::shape_preservation an_explicit_vertex_merge_without_guarded_edges_preserves_table_shape
+        PASS [   2.221s] (619/756) panproto-lens::normal_form_around_synthesizing_stages normal_form_agrees_with_the_folds_around_synthesizing_stages
+        PASS [   0.422s] (620/756) panproto-lens::shape_preservation an_identity_lens_preserves_table_shape
+        PASS [   0.121s] (621/756) panproto-lens::shape_preservation an_implicit_vertex_collision_does_not_preserve_table_shape
+        PASS [   0.069s] (622/756) panproto-lens::shape_preservation contraction_alone_preserves_tree_shape
+        PASS [   0.077s] (623/756) panproto-lens::shape_preservation expanding_and_hyper_resolving_lenses_do_not_preserve_table_shape
+        PASS [   0.090s] (624/756) panproto-lens::strategy_anchors_are_a_seed a_strategy_anchor_never_costs_coverage_the_unpinned_search_would_have_had
+        PASS [   0.055s] (625/756) panproto-lens::table_lens_laws a_column_swap_writes_the_swapped_source
+        PASS [   0.065s] (626/756) panproto-lens::table_lens_laws a_dropped_column_is_restored_while_a_kept_cell_changes
+        PASS [   0.049s] (627/756) panproto-lens::table_lens_laws a_float_that_is_not_a_binary32_is_refused_by_table_get
+        PASS [   0.038s] (628/756) panproto-lens::table_lens_laws a_fresh_computed_column_does_not_obstruct_complement_free_put
+        PASS [   0.038s] (629/756) panproto-lens::table_lens_laws a_fresh_computed_isomorphism_preserves_a_retained_source_column
+        PASS [   0.024s] (630/756) panproto-lens::table_lens_laws a_many_to_one_rename_writes_the_last_source
+        PASS [   0.034s] (631/756) panproto-lens::table_lens_laws a_nested_path_transform_is_not_a_table_isomorphism
+        PASS [   0.037s] (632/756) panproto-lens::table_lens_laws a_new_pair_with_two_source_preimages_is_unrepresentable
+        PASS [   0.032s] (633/756) panproto-lens::table_lens_laws a_new_row_pulls_back_through_a_column_rename
+        PASS [   0.032s] (634/756) panproto-lens::table_lens_laws a_pair_with_no_source_preimage_is_unrepresentable
+        PASS [   0.036s] (635/756) panproto-lens::table_lens_laws a_primary_key_column_is_required
+        PASS [   0.034s] (636/756) panproto-lens::table_lens_laws a_reinserted_row_does_not_regain_its_cascaded_hidden_foreign_key
+        PASS [   0.032s] (637/756) panproto-lens::table_lens_laws a_rename_into_an_unfated_name_writes_that_name
+        PASS [   0.032s] (638/756) panproto-lens::table_lens_laws a_row_in_a_merged_table_is_an_ambiguous_reverse_anchor
+        PASS [   0.028s] (639/756) panproto-lens::table_lens_laws a_schema_without_references_treats_every_fk_as_a_relation
+        PASS [   0.026s] (640/756) panproto-lens::table_lens_laws a_table_path_round_trips_and_checks_context_count
+        PASS [   0.030s] (641/756) panproto-lens::table_lens_laws a_table_stage_whose_survival_rules_disagree_is_not_fused
+        PASS [   0.033s] (642/756) panproto-lens::table_lens_laws a_target_only_default_is_complement_free_for_tables
+        PASS [   0.040s] (643/756) panproto-lens::table_lens_laws a_transform_fixing_its_input_round_trips_or_refuses
+        PASS [   0.037s] (644/756) panproto-lens::table_lens_laws a_two_origin_pair_is_read_only_and_restores_its_direct_carrier
+        PASS [   0.035s] (645/756) panproto-lens::table_lens_laws a_view_inserted_row_gets_no_dropped_column
+        PASS [   0.028s] (646/756) panproto-lens::table_lens_laws a_view_moved_row_keeps_its_new_table
+        PASS [   0.029s] (647/756) panproto-lens::table_lens_laws a_view_row_cannot_reuse_a_hidden_row_id
+        PASS [   0.032s] (648/756) panproto-lens::table_lens_laws an_edit_through_a_structural_column_rename_pulls_back
+        PASS [   0.037s] (649/756) panproto-lens::table_lens_laws an_edit_through_an_invertible_table_transform_pulls_back
+        PASS [   0.038s] (650/756) panproto-lens::table_lens_laws an_edit_to_a_kept_cell_pulls_back
+        PASS [   0.031s] (651/756) panproto-lens::table_lens_laws an_encoded_carrier_must_reach_its_matching_inverse
+        PASS [   0.031s] (652/756) panproto-lens::table_lens_laws an_exact_binary32_table_cell_is_restored_by_put
+        PASS [   0.025s] (653/756) panproto-lens::table_lens_laws an_fk_is_functional_exactly_when_a_one_reference_declares_it
+        PASS [   0.067s] (654/756) panproto-lens::table_lens_laws an_in_place_computed_isomorphism_restores_its_source_cell
+        PASS [   0.085s] (655/756) panproto-lens::table_lens_laws an_optional_cell_may_be_removed
+        PASS [   0.085s] (656/756) panproto-lens::table_lens_laws an_optional_computed_replacement_is_not_a_table_isomorphism
+        PASS [   0.100s] (657/756) panproto-lens::table_lens_laws an_optional_renamed_cell_may_be_removed
+        PASS [   0.078s] (658/756) panproto-lens::table_lens_laws an_optional_transformed_cell_may_be_removed
+        PASS [   0.054s] (659/756) panproto-lens::table_lens_laws an_undeclared_optional_cell_may_remain_absent
+        PASS [   0.079s] (660/756) panproto-lens::table_lens_laws compiled_and_sequential_table_refusals_agree
+        PASS [   0.064s] (661/756) panproto-lens::table_lens_laws contracted_pairs_are_read_only_and_round_trip
+        PASS [   0.020s] (662/756) panproto-lens::table_lens_laws dropped_rows_and_tables_are_complement_residue
+        PASS [   0.018s] (663/756) panproto-lens::table_lens_laws duplicate_key_ties_break_on_column_and_canonical_value_bytes
+        PASS [   0.024s] (664/756) panproto-lens::table_lens_laws editing_a_derived_table_cell_is_refused
+        PASS [   0.105s] (665/756) panproto-lens::table_lens_laws complement_composition_is_associative_on_disjoint_cells
+        PASS [   0.020s] (666/756) panproto-lens::table_lens_laws editing_a_noninvertible_table_transform_is_refused
+        PASS [   0.025s] (667/756) panproto-lens::table_lens_laws every_get_path_stamps_its_complement
+        PASS [   0.022s] (668/756) panproto-lens::table_lens_laws foreign_key_pairs_round_trip_exactly
+        PASS [   0.019s] (669/756) panproto-lens::table_lens_laws fresh_row_ids_avoid_view_and_residue
+        PASS [   0.142s] (670/756) panproto-lens::table_lens_laws identity_round_trips_integer_cells
+        PASS [   0.057s] (671/756) panproto-lens::table_lens_laws inserting_a_contracted_pair_is_refused
+        PASS [   0.018s] (672/756) panproto-lens::table_lens_laws recorded_pairs_restore_every_original_carrier
+        PASS [   0.024s] (673/756) panproto-lens::table_lens_laws redundant_transform_and_structural_renames_remain_invertible
+        PASS [   0.171s] (674/756) panproto-lens::table_lens_laws renaming_a_source_column_over_a_derived_column_is_complement_free
+        PASS [   0.027s] (675/756) panproto-lens::table_lens_laws repeated_defaults_on_one_derived_column_are_complement_free
+        PASS [   0.110s] (676/756) panproto-lens::table_lens_laws requiredness_and_keys_are_the_only_cell_domain_constraints
+        PASS [   0.047s] (677/756) panproto-lens::table_lens_laws row_deletion_cascades_into_hidden_pairs
+        PASS [   0.032s] (678/756) panproto-lens::table_lens_laws structural_column_rename_chains_are_simultaneous
+        PASS [   0.034s] (679/756) panproto-lens::table_lens_laws table_classifier_ignores_validation_results_that_put_does_not_map
+        PASS [   0.029s] (680/756) panproto-lens::table_lens_laws table_complement_identity_verifies_and_composition_is_commutative
+        PASS [   0.025s] (681/756) panproto-lens::table_lens_laws table_complements_form_an_idempotent_partial_monoid
+        PASS [   0.029s] (682/756) panproto-lens::table_lens_laws table_compose_follows_the_graph_fusion_rule
+        PASS [   0.056s] (683/756) panproto-lens::table_lens_laws table_foreign_key_classifier_agrees_with_raw_complement_free_put
+        PASS [   0.988s] (684/756) panproto-lens::table_lens_laws compiled_and_sequential_table_composites_agree
+        PASS [   0.024s] (685/756) panproto-lens::table_lens_laws table_get_refuses_an_undeclared_row_key
+        PASS [   0.024s] (686/756) panproto-lens::table_lens_laws table_get_stamps_its_complement
+        PASS [   0.021s] (687/756) panproto-lens::table_lens_laws table_identity_get_put_round_trips
+        PASS [   0.893s] (688/756) panproto-lens::table_lens_laws graph_and_table_composition_follow_the_identity_table
+        PASS [   0.108s] (689/756) panproto-lens::table_lens_laws table_isomorphism_is_classified_throughout_finite_scope
+        PASS [   0.025s] (690/756) panproto-lens::table_lens_laws table_obstructions_are_reported
+        PASS [   0.021s] (691/756) panproto-lens::table_lens_laws table_put_reports_false_and_refused_survival_predicates
+        PASS [   0.018s] (692/756) panproto-lens::table_lens_laws table_put_without_complement_agrees_with_the_shape_classifier
+        PASS [   0.021s] (693/756) panproto-lens::table_lens_laws table_shape_executes_the_generic_law
+        PASS [   0.020s] (694/756) panproto-lens::table_lens_laws table_synth_keys_use_the_pair_embedding
+        PASS [   0.103s] (695/756) panproto-lens::table_lens_laws table_writer_matches_the_independent_finite_oracle
+        PASS [   0.020s] (696/756) panproto-lens::table_lens_laws the_functor_complement_decoder_accepts_table_complements
+        PASS [   0.038s] (697/756) panproto-lens::table_lens_laws the_table_lens_fixture_manifest_is_complete_and_replayable
+        PASS [   0.028s] (698/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine a_restored_predicate_reads_the_restored_children
+        PASS [   0.022s] (699/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_complement_field_order
+        PASS [   0.020s] (700/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_expand_keys_name_the_source_arc_through_the_embedding
+        PASS [   0.021s] (701/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_put_refuses_a_relabelled_expansion_arc
+        PASS [   0.024s] (702/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_put_refuses_a_removed_expansion_arc
+        PASS [   0.033s] (703/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_put_refuses_a_restored_node_whose_survival_predicate_fails
+        PASS [   0.523s] (704/756) panproto-lens::table_lens_laws table_lens_path_laws
+        PASS [   0.020s] (705/756) panproto-lens::tree_get_and_put_follow_the_restrict_engine tree_put_refuses_an_edited_expansion_node
+        PASS [   0.024s] (706/756) panproto-lens::tree_lenses_through_contraction composition::composed_lens_translates_resolver_keys_into_the_final_target
+        PASS [   0.023s] (707/756) panproto-lens::tree_lenses_through_contraction composition::composing_with_a_non_renaming_lens_keeps_every_contraction_key
+        PASS [   0.020s] (708/756) panproto-lens::tree_lenses_through_contraction composition_rule::a_fused_composite_keeps_the_second_lens_edge_renames
+        PASS [   0.022s] (709/756) panproto-lens::tree_lenses_through_contraction composition_rule::a_pair_dropping_a_renamed_edge_is_kept_in_sequence
+        PASS [   0.022s] (710/756) panproto-lens::tree_lenses_through_contraction composition_rule::a_predicate_on_a_merged_anchor_reaches_every_preimage
+        PASS [   0.024s] (711/756) panproto-lens::tree_lenses_through_contraction composition_rule::a_second_lens_truncating_an_expansion_is_kept_in_sequence
+        PASS [   0.025s] (712/756) panproto-lens::tree_lenses_through_contraction composition_rule::a_second_predicate_after_a_first_transform_is_kept_in_sequence
+        PASS [   0.087s] (713/756) panproto-lens::tree_lenses_through_contraction composition_rule::every_fan_and_merge_pair_follows_the_rule
+        PASS [   0.349s] (714/756) panproto-lens::tree_lenses_through_contraction composition_rule::compiled_and_sequential_tree_composites_agree
+        PASS [   0.026s] (715/756) panproto-lens::tree_lenses_through_contraction composition_rule::pairs_whose_fan_layers_retarget_are_kept_in_sequence
+        PASS [   0.021s] (716/756) panproto-lens::tree_lenses_through_contraction composition_rule::predicates_of_both_lenses_on_one_anchor_are_kept_in_sequence
+        PASS [   0.022s] (717/756) panproto-lens::tree_lenses_through_contraction composition_rule::the_law_comparisons_see_child_order_fields_and_fans
+        PASS [   0.113s] (718/756) panproto-lens::tree_lenses_through_contraction composition_rule::tree_compiled_composite_matches_sequential
+        PASS [   0.027s] (719/756) panproto-lens::tree_lenses_through_contraction composition_rule::tree_compose_follows_the_l6_rule
+        PASS [   2.090s] (720/756) panproto-lens::table_lens_laws every_fusion_preserves_sequential_behaviour_on_tables
+        PASS [   0.028s] (721/756) panproto-lens::tree_lenses_through_contraction edits::a_tree_edit_under_a_dropped_ancestor_translates_through_contraction
+        PASS [   0.194s] (722/756) panproto-lens::tree_lenses_through_contraction composition_rule::value_layers_fuse_only_where_they_do_not_meet
+        PASS [   0.366s] (723/756) panproto-lens::tree_lenses_through_contraction edits::tree_get_edit_consistency_through_a_recursive_wrapper
+        PASS [   0.452s] (724/756) panproto-lens::tree_lenses_through_contraction edits::tree_get_edit_consistency_with_a_conditionally_dropped_interior
+        PASS [   0.029s] (725/756) panproto-lens::tree_lenses_through_contraction fresh_ids::a_fresh_view_node_never_reuses_a_deleted_source_id
+        PASS [   0.256s] (726/756) panproto-lens::tree_lenses_through_contraction edits::tree_get_edit_consistency_with_dropped_interiors
+        PASS [   1.145s] (727/756) panproto-lens::tree_lenses_through_contraction composition_rule::generated_contraction_free_pairs_fuse_and_agree
+        PASS [   0.063s] (728/756) panproto-lens::tree_lenses_through_contraction fresh_ids::a_source_holding_the_largest_id_leaves_no_fresh_id
+        PASS [   0.055s] (729/756) panproto-lens::tree_lenses_through_contraction fresh_ids::fresh_ids_near_the_top_follow_the_graph_form
+        PASS [   0.056s] (730/756) panproto-lens::tree_lenses_through_contraction fresh_ids::tree_get_sets_the_id_floor
+        PASS [   0.066s] (731/756) panproto-lens::tree_lenses_through_contraction put_domain::a_view_arc_whose_label_no_source_edge_carries_is_rejected
+        PASS [   0.072s] (732/756) panproto-lens::tree_lenses_through_contraction put_domain::the_view_get_returns_is_in_the_put_domain
+        PASS [   0.085s] (733/756) panproto-lens::tree_lenses_through_contraction put_domain::a_view_leaf_added_across_a_contracted_pair_is_rejected
+        PASS [   0.023s] (734/756) panproto-lens::tree_lenses_through_contraction residue::tree_residue_classification_agrees_on_an_injective_rename
+        PASS [   0.039s] (735/756) panproto-lens::tree_lenses_through_contraction residue::an_arc_whose_label_the_view_determines_is_not_residue
+        PASS [   0.023s] (736/756) panproto-lens::tree_lenses_through_contraction residue::tree_residue_classification_agrees_on_contraction_bookkeeping
+        PASS [   0.028s] (737/756) panproto-lens::tree_lenses_through_contraction residue::tree_residue_classification_agrees_on_merged_parallel_edges
+        PASS [   0.042s] (738/756) panproto-lens::tree_lenses_through_contraction strict_put::check_put_domain_reports_a_failed_predicate_and_an_edited_derived_cell
+        PASS [   0.037s] (739/756) panproto-lens::tree_lenses_through_contraction strict_put::check_put_domain_reports_an_id_collision_and_an_edited_derived_cell
+        PASS [   0.033s] (740/756) panproto-lens::tree_lenses_through_contraction strict_put::check_put_domain_reports_structural_and_value_violations_together
+        PASS [   0.033s] (741/756) panproto-lens::tree_lenses_through_contraction strict_put::tree_put_accepts_an_edit_through_an_inverse
+        PASS [   0.052s] (742/756) panproto-lens::tree_lenses_through_contraction strict_put::tree_put_rejects_an_edited_computed_field
+        PASS [   0.072s] (743/756) panproto-lens::tree_lenses_through_contraction strict_put::tree_put_rejects_a_view_failing_a_survival_predicate
+        PASS [   0.049s] (744/756) panproto-lens::tree_lenses_through_contraction strict_put::tree_put_rejects_an_edited_non_invertible_field
+        PASS [   0.030s] (745/756) panproto-lens::tree_put_restores_exactly_what_get_set_aside a_node_added_under_a_merged_anchor_has_no_single_source_anchor
+        PASS [   0.025s] (746/756) panproto-lens::tree_put_restores_exactly_what_get_set_aside a_view_node_under_a_dropped_nodes_id_is_a_collision_not_an_overwrite
+        PASS [   0.020s] (747/756) panproto-lens::tree_put_restores_exactly_what_get_set_aside anchors_merged_by_the_remap_come_back_as_they_were
+        PASS [   0.028s] (748/756) panproto-lens::tree_put_restores_exactly_what_get_set_aside put_put_refuses_a_first_view_that_changes_nothing
+        PASS [   0.029s] (749/756) panproto-lens::tree_put_restores_exactly_what_get_set_aside put_put_preserves_a_restored_childs_slot_among_hidden_siblings
+        PASS [   2.258s] (750/756) panproto-lens::table_lens_laws table_normal_form_agrees_with_the_folds_around_synthesizing_stages
+        PASS [  10.040s] (751/756) panproto-lens laws::tests::property::projection_lens_satisfies_full_laws_proptest
+        PASS [  15.043s] (752/756) panproto-lens::law_corpus table_corpus_executes_every_frozen_mutation_expectation
+        PASS [  17.851s] (753/756) panproto-lens::law_corpus graph_corpus_executes_every_frozen_mutation_expectation
+        PASS [  31.457s] (754/756) panproto-lens laws::tests::property::identity_lens_satisfies_laws_proptest
+        SLOW [> 60.000s] (───────) panproto-lens laws::tests::property::nested_tree_satisfies_laws
+        SLOW [> 60.000s] (───────) panproto-lens laws::tests::property::remap_lens_satisfies_laws
+        PASS [  60.729s] (755/756) panproto-lens laws::tests::property::remap_lens_satisfies_laws
+        SLOW [>120.000s] (───────) panproto-lens laws::tests::property::nested_tree_satisfies_laws
+        SLOW [>180.000s] (───────) panproto-lens laws::tests::property::nested_tree_satisfies_laws
+        SLOW [>240.000s] (───────) panproto-lens laws::tests::property::nested_tree_satisfies_laws
+        PASS [ 278.141s] (756/756) panproto-lens laws::tests::property::nested_tree_satisfies_laws
+────────────
+     Summary [ 280.501s] 756 tests run: 756 passed (2 slow), 1 skipped

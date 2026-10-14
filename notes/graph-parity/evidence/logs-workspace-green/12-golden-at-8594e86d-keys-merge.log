@@ -1,0 +1,13 @@
+test distinct_content_has_distinct_digests ... FAILED
+test every_identity_matches_the_golden_file ... FAILED
+
+--
+thread 'distinct_content_has_distinct_digests' (86007642) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+/private/tmp/claude-503/-Users-awhite48-Projects-phrom/39ffc723-4893-418a-acd8-808fc996c319/scratchpad/wg-bisect/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+--
+thread 'every_identity_matches_the_golden_file' (86007643) panicked at tests/integration/tests/identity_corpus/mod.rs:126:52:
+/private/tmp/claude-503/-Users-awhite48-Projects-phrom/39ffc723-4893-418a-acd8-808fc996c319/scratchpad/wg-bisect/tests/fixtures/identity/golden.json: unsupported identity envelope version 1 (this build reads version 2) at line 146 column 20
+--
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+IDENTICAL: blessing at the keys merge equals blessing at HEAD

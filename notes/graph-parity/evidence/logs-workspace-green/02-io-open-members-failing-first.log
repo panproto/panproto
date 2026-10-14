@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s
+     Running unittests src/lib.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/panproto_io-ad761f5894a97dfb)
+
+running 2 tests
+test unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused ... FAILED
+test unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged ... FAILED
+
+failures:
+
+---- unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused stdout ----
+
+thread 'unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused' (85799042) panicked at crates/panproto-io/src/unified_codec.rs:628:58:
+called `Result::unwrap_err()` on an `Ok` value: [123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 108, 105, 99, 101, 34, 125]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged stdout ----
+
+thread 'unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged' (85799041) panicked at crates/panproto-io/src/unified_codec.rs:607:60:
+called `Result::unwrap()` on an `Err` value: Emit { protocol: "test", message: "JSON canonical emission refused: arc 0 -> 1 is not declared by the supplied schema" }
+
+
+failures:
+    unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged
+    unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 214 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p panproto-io --lib`

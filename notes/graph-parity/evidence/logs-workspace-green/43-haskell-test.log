@@ -1,0 +1,219 @@
+Warning: /Users/awhite48/.cabal/config: Unrecognized field auth-token on line
+18
+Warning: The package list for 'hackage.haskell.org' is 302 days old.
+Run 'cabal update' to get the latest list of available packages.
+Resolving dependencies...
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - panproto-0.74.4 (lib) (first run)
+ - panproto-0.74.4 (test:panproto-test) (first run)
+Configuring library for panproto-0.74.4...
+Preprocessing library for panproto-0.74.4...
+Building library for panproto-0.74.4...
+[ 1 of 38] Compiling Panproto.Canonical ( src/Panproto/Canonical.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Canonical.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Canonical.dyn_o )
+[ 2 of 38] Compiling Panproto.Effect  ( src/Panproto/Effect.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Effect.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Effect.dyn_o )
+[ 3 of 38] Compiling Panproto.Errors  ( src/Panproto/Errors.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Errors.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Errors.dyn_o )
+[ 4 of 38] Compiling Panproto.Json    ( src/Panproto/Json.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Json.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Json.dyn_o )
+[ 5 of 38] Compiling Panproto.Gat     ( src/Panproto/Gat.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Gat.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Gat.dyn_o )
+[ 6 of 38] Compiling Panproto.Protocol ( src/Panproto/Protocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Protocol.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Protocol.dyn_o )
+[ 7 of 38] Compiling Panproto.Rust.FFI ( dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/FFI.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/FFI.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/FFI.dyn_o )
+[ 8 of 38] Compiling Panproto.Rust.Handle ( src/Panproto/Rust/Handle.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Handle.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Handle.dyn_o )
+[ 9 of 38] Compiling Panproto.Schema  ( src/Panproto/Schema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Schema.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Schema.dyn_o )
+[10 of 38] Compiling Panproto.Class   ( src/Panproto/Class.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Class.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Class.dyn_o )
+[11 of 38] Compiling Panproto.Rust.Gat ( src/Panproto/Rust/Gat.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Gat.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Gat.dyn_o )
+[12 of 38] Compiling Panproto.Rust    ( src/Panproto/Rust.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust.dyn_o )
+[13 of 38] Compiling Panproto.Native.Schema ( src/Panproto/Native/Schema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Schema.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Schema.dyn_o )
+[14 of 38] Compiling Panproto.Native.Protocol ( src/Panproto/Native/Protocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Protocol.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Native/Protocol.dyn_o )
+[15 of 38] Compiling Panproto.Instance ( src/Panproto/Instance.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Instance.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Instance.dyn_o )
+[16 of 38] Compiling Panproto.Rust.Instance ( src/Panproto/Rust/Instance.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Instance.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Instance.dyn_o )
+[17 of 38] Compiling Panproto.Migration ( src/Panproto/Migration.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration.dyn_o )
+[18 of 38] Compiling Panproto.Rust.Migration ( src/Panproto/Rust/Migration.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Migration.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Migration.dyn_o )
+[19 of 38] Compiling Panproto.Migration.Combinators ( src/Panproto/Migration/Combinators.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration/Combinators.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Migration/Combinators.dyn_o )
+[20 of 38] Compiling Panproto.Lens    ( src/Panproto/Lens.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Lens.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Lens.dyn_o )
+[21 of 38] Compiling Panproto.Rust.Lens ( src/Panproto/Rust/Lens.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Lens.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Lens.dyn_o )
+[22 of 38] Compiling Panproto.Io      ( src/Panproto/Io.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Io.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Io.dyn_o )
+[23 of 38] Compiling Panproto.Rust.Io ( src/Panproto/Rust/Io.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Io.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Io.dyn_o )
+[24 of 38] Compiling Panproto.Hom     ( src/Panproto/Hom.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Hom.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Hom.dyn_o )
+[25 of 38] Compiling Panproto.Rust.Hom ( src/Panproto/Rust/Hom.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Hom.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Hom.dyn_o )
+[26 of 38] Compiling Panproto.Graph   ( src/Panproto/Graph.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Graph.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Graph.dyn_o )
+[27 of 38] Compiling Panproto.Rust.Graph ( src/Panproto/Rust/Graph.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Graph.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Graph.dyn_o )
+[28 of 38] Compiling Panproto.Expr    ( src/Panproto/Expr.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Expr.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Expr.dyn_o )
+[29 of 38] Compiling Panproto.Rust.Expr ( src/Panproto/Rust/Expr.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Expr.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Expr.dyn_o )
+[30 of 38] Compiling Panproto.Enriched ( src/Panproto/Enriched.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Enriched.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Enriched.dyn_o )
+[31 of 38] Compiling Panproto.Rust.Enriched ( src/Panproto/Rust/Enriched.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Enriched.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Enriched.dyn_o )
+[32 of 38] Compiling Panproto.Data    ( src/Panproto/Data.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Data.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Data.dyn_o )
+[33 of 38] Compiling Panproto.Rust.Data ( src/Panproto/Rust/Data.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Data.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Data.dyn_o )
+[34 of 38] Compiling Panproto.Check   ( src/Panproto/Check.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Check.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Check.dyn_o )
+[35 of 38] Compiling Panproto.Rust.Check ( src/Panproto/Rust/Check.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Check.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Check.dyn_o )
+[36 of 38] Compiling Panproto.Vcs     ( src/Panproto/Vcs.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Vcs.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Vcs.dyn_o )
+[37 of 38] Compiling Panproto.Rust.Vcs ( src/Panproto/Rust/Vcs.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Vcs.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto/Rust/Vcs.dyn_o )
+[38 of 38] Compiling Panproto         ( src/Panproto.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto.o, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/build/Panproto.dyn_o )
+Configuring test suite 'panproto-test' for panproto-0.74.4...
+Preprocessing test suite 'panproto-test' for panproto-0.74.4...
+Building test suite 'panproto-test' for panproto-0.74.4...
+[ 1 of 11] Compiling Spec.CanonicalRoundtrip ( test/Spec/CanonicalRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/CanonicalRoundtrip.o )
+[ 2 of 11] Compiling Spec.EngineRoundtrip ( test/Spec/EngineRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/EngineRoundtrip.o )
+test/Spec/EngineRoundtrip.hs:147:32: warning: [GHC-02256] [-Wambiguous-fields]
+    Ambiguous record update with parent type constructor ‘CanonicalProtocol’.
+    This type-directed disambiguation mechanism will not be supported by -XDuplicateRecordFields in future releases of GHC.
+    Consider disambiguating using module qualification instead.
+    |
+147 | geoProtocol = defaultProtocol {name = "geojson"}
+    |                                ^^^^^^^^^^^^^^^^
+
+[ 3 of 11] Compiling Spec.Errors      ( test/Spec/Errors.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/Errors.o )
+[ 4 of 11] Compiling Spec.InstanceRoundtrip ( test/Spec/InstanceRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/InstanceRoundtrip.o )
+[ 5 of 11] Compiling Spec.Laws        ( test/Spec/Laws.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/Laws.o )
+[ 6 of 11] Compiling Spec.NativeProtocol ( test/Spec/NativeProtocol.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/NativeProtocol.o )
+[ 7 of 11] Compiling Spec.RustRoundtrip ( test/Spec/RustRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/RustRoundtrip.o )
+[ 8 of 11] Compiling Spec.SchemaRoundtrip ( test/Spec/SchemaRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/SchemaRoundtrip.o )
+[ 9 of 11] Compiling Spec.StructuredSchema ( test/Spec/StructuredSchema.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/StructuredSchema.o )
+[10 of 11] Compiling Spec.WireRoundtrip ( test/Spec/WireRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/WireRoundtrip.o )
+[11 of 11] Compiling Main             ( test/Main.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Main.o )
+[12 of 12] Linking dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test
+Running 1 test suites...
+Test suite panproto-test: RUNNING...
+panproto
+  Spec.CanonicalRoundtrip
+    encode . decode = id (default):                                           OK
+    encode . decode = id (populated):                                         OK
+    encode . decode = id (with edge rules):                                   OK
+    encode . decode = id (all flags):                                         OK
+    decode tolerates unknown fields:                                          OK
+    decode tolerates indef-length map:                                        OK
+    decode rejects malformed input:                                           OK
+  Spec.Errors
+    statusFromInt . statusToInt = id:                                         OK
+    unknown status preserves the numeric code:                                OK
+    decode envelope with required fields:                                     OK
+    decode envelope ignores unknown fields:                                   OK
+    decode envelope rejects empty bytes:                                      OK
+    decode envelope rejects garbage:                                          OK
+    decode envelope tolerates indef-length map:                               OK
+    envelopeStatus translates the numeric code:                               OK
+  Spec.InstanceRoundtrip
+    instance encode . decode = id (empty):                                    OK
+    instance encode . decode = id (populated):                                OK
+    complement encode . decode = id (empty):                                  OK
+    complement encode . decode = id (populated):                              OK
+    complement list encode . decode = id:                                     OK
+    instance accessors:                                                       OK
+    complement accessors:                                                     OK
+  algebraic laws
+    Migration
+      (<>) is associative (incl. resolver remap):                             OK
+      identityMigrationOn is a left identity over its carriers:               OK
+      identityMigrationOn is a right identity over its carriers:              OK
+      pipeline folds (<>) and does not annihilate (regression):               OK
+    Migration codec (decode . encode = Right)
+      empty migration round-trips:                                            OK
+      every field round-trips (incl. tuple-keyed + hyper-resolver):           OK
+    Expr codec (decode . encode = Right)
+      every Expr/Pattern/Literal variant round-trips:                         OK
+      every BuiltinOp round-trips through encodeExpr:                         OK
+    Term codec (decode . encode = Right)
+      every Term variant round-trips:                                         OK
+    ProtolensChain
+      (<>) is associative:                                                    OK
+      mempty is a left identity:                                              OK
+      mempty is a right identity:                                             OK
+      mempty is identityChain:                                                OK
+      LensArr (.) is associative:                                             OK
+      LensArr id is a two-sided identity:                                     OK
+    Stringency
+      (<>) is associative (all triples):                                      OK
+      mempty is a left identity (all elements):                               OK
+      mempty is a right identity (all elements):                              OK
+    OpticKind
+      (<>) is associative (all triples):                                      OK
+      mempty is a left identity (all elements):                               OK
+      mempty is a right identity (all elements):                              OK
+    ByQuality (Eq/Ord agreement)
+      equal scores compare EQ and ==, even with different maps:               OK
+      different scores order by score and are /=:                             OK
+    Exception hierarchy
+      PanprotoError:                                                          OK
+      SchemaValidationError:                                                  OK
+      CheckError:                                                             OK
+      ExistenceCheckError:                                                    OK
+      ExprError:                                                              OK
+      GatError:                                                               OK
+      GitBridgeError:                                                         OK
+      IoError:                                                                OK
+      LensError:                                                              OK
+      MigrationError:                                                         OK
+      ParseError:                                                             OK
+      ProjectError:                                                           OK
+      VcsError:                                                               OK
+      distinct children do not alias each other:                              OK
+  Spec.NativeProtocol
+    round-trip default:                                                       OK
+    round-trip populated:                                                     OK
+    release is a no-op:                                                       OK
+  Spec.StructuredSchema
+    encode . decode = id (empty):                                             OK
+    encode . decode = id (populated):                                         OK
+    encode . decode = id (every field populated):                             OK
+    builder accessors:                                                        OK
+    derived adjacency:                                                        OK
+    field text accessor:                                                      OK
+  Spec.RustRoundtrip
+    Rust round-trip default:                                                  OK
+    Rust round-trip populated:                                                OK
+    Native ↔ Rust agree:                                                      OK
+    withRustProtocol releases on exception:                                   OK
+    invalid handle returns InvalidHandle status:                              OK
+    freed handle returns InvalidHandle status:                                OK
+  Spec.SchemaRoundtrip
+    Native bytewise round-trip:                                               OK
+    Rust round-trip preserves bytes:                                          OK
+    Native ↔ Rust agree on bytes:                                             OK
+    validateSchema on empty schema is empty:                                  OK
+    fromCanonicalSchema rejects garbage:                                      OK
+    canonicalSchemaBytes is the underlying bytes:                             OK
+    withRustSchema releases on exception:                                     OK
+    structured schema survives Rust round-trip:                               OK
+  Spec.EngineRoundtrip
+    schema: build, ingest, recover metadata:                                  OK
+    schema: validate empty against protocol:                                  OK
+    check: diff + classify an additive change:                                OK
+    migration: compile + lift a record (JSON):                                FAIL
+      Exception: PanprotoError {code = StatusOperation, envelope = Just (ErrorEnvelope {status = 7, tag = "operation", message = "operation error: lift_wtype: restrict failed: the input of the restrict did not validate: status Incomplete"})}
+      Use -p '/migration: compile + lift a record (JSON)/' to rerun this test only.
+    instance: json -> validate -> json:                                       FAIL
+      test/Spec/EngineRoundtrip.hs:273:
+      expected: []
+       but got: ["schema_well_formed: not decided: ill-formed declaration: vertex post has invalid kind: record","schema_well_formed: not decided: ill-formed declaration: invalid edge post -> text (prop): source kind 'record' not in permitted: [\"feature-type\"]"]
+      Use -p '/instance: json -> validate -> json/' to rerun this test only.
+    io: registry parse + emit round-trip:                                     OK
+    lens: auto-generate + get/put law:                                        OK
+    gat: ingest + reify + check_morphism:                                     OK
+    gat: typecheck a well-formed term:                                        OK
+    gat: eval a nullary constant term:                                        OK
+    expr: parse + eval arithmetic:                                            OK
+    vcs: init + add + commit + log:                                           OK (0.04s)
+    hom: find morphisms between equal schemas:                                OK
+    hom: a self-span is a total morphism:                                     OK
+    hom: an excluded source leaves the apex:                                  OK
+    hom: a span reads back as a pushout overlap:                              OK
+    hom: induced migration keeps its target schema:                           FAIL
+      Exception: PanprotoError {code = StatusOperation, envelope = Just (ErrorEnvelope {status = 7, tag = "operation", message = "operation error: lift_wtype: restrict failed: the input of the restrict did not validate: status Incomplete"})}
+      Use -p '/hom: induced migration keeps its target schema/' to rerun this test only.
+    graph: fiber over a compiled migration anchor:                            OK
+    data: store + get a JSON dataset:                                         OK
+  wire round-trips (cborg <-> ciborium)
+    schema survives Haskell -> Rust -> Haskell unchanged:                     OK
+    theory survives ingest -> reify unchanged (tagged terms, untagged sorts): OK
+    migration with a tuple-keyed resolver round-trips:                        OK
+    complement (tuple-keyed maps) round-trips through get/put:                OK
+    free model evaluates and exposes a non-empty sort interpretation:         OK
+    schema diff and classification decode the removed vertex:                 OK
+
+3 out of 107 tests failed (0.05s)
+Test suite panproto-test: FAIL
+Test suite logged to:
+/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/haskell/./dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/test/panproto-0.74.4-panproto-test.log
+0 of 1 test suites (0 of 1 test cases) passed.
+Error: [Cabal-7125]
+Tests failed for test:panproto-test from panproto-0.74.4.
+

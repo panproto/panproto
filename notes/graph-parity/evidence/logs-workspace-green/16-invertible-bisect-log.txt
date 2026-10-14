@@ -1,0 +1,14 @@
+# bad: [3590c6dc1db6cb4c1b66089acf1134dbf88580b2] Merge deterministic indexed row-operation checks
+# good: [8594e86d4e8d282018d2030d65195eb9467bc6d6] Merge lane/keys
+git bisect start '--first-parent' '3590c6dc' '8594e86d'
+# good: [a7299b02bff51e9f6480b77acbde238a59ba1d97] feat: merge asymmetric graph lenses
+git bisect good a7299b02bff51e9f6480b77acbde238a59ba1d97
+# bad: [96b6a52e236410a4b69f80717c4d0a91199b8e73] feat: merge reference resolution engine and law evidence
+git bisect bad 96b6a52e236410a4b69f80717c4d0a91199b8e73
+# bad: [5dd5b3db5a3deb203f64ac78f97dc444777efbd2] test(inst): declare fan fixtures in their schemas
+git bisect bad 5dd5b3db5a3deb203f64ac78f97dc444777efbd2
+# good: [5b0325fd863579f8f80bda06976dc242ca3eea4b] feat: merge instance extensions and shape bridges
+git bisect good 5b0325fd863579f8f80bda06976dc242ca3eea4b
+# bad: [5d3f7c84f9d8d4e8749fee3f057c28144ff036db] feat: merge exhaustive lens laws
+git bisect bad 5d3f7c84f9d8d4e8749fee3f057c28144ff036db
+# first bad commit: [5d3f7c84f9d8d4e8749fee3f057c28144ff036db] feat: merge exhaustive lens laws

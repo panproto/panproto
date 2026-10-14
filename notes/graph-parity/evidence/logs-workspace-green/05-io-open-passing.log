@@ -1,0 +1,4 @@
+test unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused ... ok
+test unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged ... ok
+test unified_codec::tests::open_xml_elements_emit_canonically_and_read_back_unchanged ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 214 filtered out; finished in 0.01s

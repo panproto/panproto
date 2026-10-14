@@ -1,0 +1,5 @@
+test the_schema_root_of_a_parsed_record_is_its_root_anchor ... ok
+test the_laws_hold_for_the_post_lexicons_lens_to_itself_on_a_record ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+

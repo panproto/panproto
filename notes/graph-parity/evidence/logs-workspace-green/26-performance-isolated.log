@@ -1,0 +1,6 @@
+        PASS [   0.022s] (1/5) panproto-integration-tests::genericity scanners_detect_synthetic_violations
+        PASS [   0.652s] (2/5) panproto-integration-tests::genericity no_programming_language_names_as_identifiers
+        PASS [   2.721s] (3/5) panproto-integration-tests::genericity no_protocol_names_in_generic_crates
+        PASS [  52.385s] (4/5) panproto-integration-tests::performance projection_with_drop_throughput
+        PASS [  56.923s] (5/5) panproto-integration-tests::performance simple_projection_throughput
+     Summary [ 112.030s] 5 tests run: 5 passed, 0 skipped

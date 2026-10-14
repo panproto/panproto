@@ -1,0 +1,11 @@
+test renaming_the_source_does_not_make_the_computation_independent ... ok
+test a_multi_source_computation_is_not_invertible ... ok
+test a_computed_field_beside_its_source_is_derived ... ok
+test an_edit_to_a_derived_fields_source_is_not_overwritten_by_the_inverse ... ok
+test put_does_not_reinstate_the_computed_key ... ok
+test an_edit_to_an_untransformed_field_reaches_the_source ... ok
+test a_computed_field_replacing_its_source_round_trips_edits ... ok
+test apply_expr_over_an_extra_field_still_inverts_in_place ... ok
+test apply_expr_over_a_child_scalar_leaves_no_shadow_field ... ok
+test invertible_compute_field_satisfies_both_laws ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

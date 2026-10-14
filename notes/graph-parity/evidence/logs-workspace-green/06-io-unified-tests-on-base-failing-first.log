@@ -1,0 +1,26 @@
+test unified_codec::tests::explicit_tsv_rejects_a_missing_configured_vertex_before_cst_parsing ... ok
+test unified_codec::tests::explicit_tsv_rejects_an_empty_schema_before_cst_parsing ... ok
+test unified_codec::tests::complement_free_xml_reads_as_the_canonical_reader_does ... FAILED
+test unified_codec::tests::complement_free_json_reads_as_the_canonical_reader_does ... FAILED
+test unified_codec::tests::unified_root_selection_is_deterministic ... ok
+test unified_codec::tests::yaml_open_mapping_fields_that_would_read_back_as_nodes_are_refused ... FAILED
+test unified_codec::tests::unified_json_parse_and_emit ... ok
+test unified_codec::tests::unified_json_preserves_formatting ... ok
+test unified_codec::tests::complement_free_yaml_open_members_read_back_unchanged ... FAILED
+
+--
+thread 'unified_codec::tests::complement_free_xml_reads_as_the_canonical_reader_does' (85878210) panicked at crates/panproto-io/src/unified_codec.rs:629:59:
+called `Result::unwrap()` on an `Err` value: Emit { protocol: "test", message: "XML canonical emission refused: arc 1 -> 2 is not declared by the supplied schema" }
+--
+thread 'unified_codec::tests::complement_free_json_reads_as_the_canonical_reader_does' (85878209) panicked at crates/panproto-io/src/unified_codec.rs:629:59:
+called `Result::unwrap()` on an `Err` value: Emit { protocol: "test", message: "JSON canonical emission refused: arc 0 -> 1 is not declared by the supplied schema" }
+--
+thread 'unified_codec::tests::yaml_open_mapping_fields_that_would_read_back_as_nodes_are_refused' (85878217) panicked at crates/panproto-io/src/unified_codec.rs:707:58:
+called `Result::unwrap_err()` on an `Ok` value: [123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 108, 105, 99, 101, 34, 125]
+--
+thread 'unified_codec::tests::complement_free_yaml_open_members_read_back_unchanged' (85878211) panicked at crates/panproto-io/src/unified_codec.rs:629:59:
+called `Result::unwrap()` on an `Err` value: Emit { protocol: "test", message: "JSON canonical emission refused: arc 0 -> 1 is not declared by the supplied schema" }
+--
+test result: FAILED. 5 passed; 4 failed; 0 ignored; 0 measured; 209 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p panproto-io --lib`

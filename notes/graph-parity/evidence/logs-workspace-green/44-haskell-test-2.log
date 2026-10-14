@@ -1,0 +1,156 @@
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - panproto-0.74.4 (test:panproto-test) (file test/Spec/EngineRoundtrip.hs changed)
+Preprocessing test suite 'panproto-test' for panproto-0.74.4...
+Building test suite 'panproto-test' for panproto-0.74.4...
+[ 2 of 11] Compiling Spec.EngineRoundtrip ( test/Spec/EngineRoundtrip.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Spec/EngineRoundtrip.o ) [Source file changed]
+test/Spec/EngineRoundtrip.hs:147:32: warning: [GHC-02256] [-Wambiguous-fields]
+    Ambiguous record update with parent type constructor ‘CanonicalProtocol’.
+    This type-directed disambiguation mechanism will not be supported by -XDuplicateRecordFields in future releases of GHC.
+    Consider disambiguating using module qualification instead.
+    |
+147 | geoProtocol = defaultProtocol {name = "geojson"}
+    |                                ^^^^^^^^^^^^^^^^
+
+[11 of 11] Compiling Main             ( test/Main.hs, dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test-tmp/Main.o ) [Spec.EngineRoundtrip changed]
+[12 of 12] Linking dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/build/panproto-test/panproto-test [Objects changed]
+Running 1 test suites...
+Test suite panproto-test: RUNNING...
+panproto
+  Spec.CanonicalRoundtrip
+    encode . decode = id (default):                                           OK
+    encode . decode = id (populated):                                         OK
+    encode . decode = id (with edge rules):                                   OK
+    encode . decode = id (all flags):                                         OK
+    decode tolerates unknown fields:                                          OK
+    decode tolerates indef-length map:                                        OK
+    decode rejects malformed input:                                           OK
+  Spec.Errors
+    statusFromInt . statusToInt = id:                                         OK
+    unknown status preserves the numeric code:                                OK
+    decode envelope with required fields:                                     OK
+    decode envelope ignores unknown fields:                                   OK
+    decode envelope rejects empty bytes:                                      OK
+    decode envelope rejects garbage:                                          OK
+    decode envelope tolerates indef-length map:                               OK
+    envelopeStatus translates the numeric code:                               OK
+  Spec.InstanceRoundtrip
+    instance encode . decode = id (empty):                                    OK
+    instance encode . decode = id (populated):                                OK
+    complement encode . decode = id (empty):                                  OK
+    complement encode . decode = id (populated):                              OK
+    complement list encode . decode = id:                                     OK
+    instance accessors:                                                       OK
+    complement accessors:                                                     OK
+  algebraic laws
+    Migration
+      (<>) is associative (incl. resolver remap):                             OK
+      identityMigrationOn is a left identity over its carriers:               OK
+      identityMigrationOn is a right identity over its carriers:              OK
+      pipeline folds (<>) and does not annihilate (regression):               OK
+    Migration codec (decode . encode = Right)
+      empty migration round-trips:                                            OK
+      every field round-trips (incl. tuple-keyed + hyper-resolver):           OK
+    Expr codec (decode . encode = Right)
+      every Expr/Pattern/Literal variant round-trips:                         OK
+      every BuiltinOp round-trips through encodeExpr:                         OK
+    Term codec (decode . encode = Right)
+      every Term variant round-trips:                                         OK
+    ProtolensChain
+      (<>) is associative:                                                    OK
+      mempty is a left identity:                                              OK
+      mempty is a right identity:                                             OK
+      mempty is identityChain:                                                OK
+      LensArr (.) is associative:                                             OK
+      LensArr id is a two-sided identity:                                     OK
+    Stringency
+      (<>) is associative (all triples):                                      OK
+      mempty is a left identity (all elements):                               OK
+      mempty is a right identity (all elements):                              OK
+    OpticKind
+      (<>) is associative (all triples):                                      OK
+      mempty is a left identity (all elements):                               OK
+      mempty is a right identity (all elements):                              OK
+    ByQuality (Eq/Ord agreement)
+      equal scores compare EQ and ==, even with different maps:               OK
+      different scores order by score and are /=:                             OK
+    Exception hierarchy
+      PanprotoError:                                                          OK
+      SchemaValidationError:                                                  OK
+      CheckError:                                                             OK
+      ExistenceCheckError:                                                    OK
+      ExprError:                                                              OK
+      GatError:                                                               OK
+      GitBridgeError:                                                         OK
+      IoError:                                                                OK
+      LensError:                                                              OK
+      MigrationError:                                                         OK
+      ParseError:                                                             OK
+      ProjectError:                                                           OK
+      VcsError:                                                               OK
+      distinct children do not alias each other:                              OK
+  Spec.NativeProtocol
+    round-trip default:                                                       OK
+    round-trip populated:                                                     OK
+    release is a no-op:                                                       OK
+  Spec.StructuredSchema
+    encode . decode = id (empty):                                             OK
+    encode . decode = id (populated):                                         OK
+    encode . decode = id (every field populated):                             OK
+    builder accessors:                                                        OK
+    derived adjacency:                                                        OK
+    field text accessor:                                                      OK
+  Spec.RustRoundtrip
+    Rust round-trip default:                                                  OK
+    Rust round-trip populated:                                                OK
+    Native ↔ Rust agree:                                                      OK
+    withRustProtocol releases on exception:                                   OK
+    invalid handle returns InvalidHandle status:                              OK
+    freed handle returns InvalidHandle status:                                OK
+  Spec.SchemaRoundtrip
+    Native bytewise round-trip:                                               OK
+    Rust round-trip preserves bytes:                                          OK
+    Native ↔ Rust agree on bytes:                                             OK
+    validateSchema on empty schema is empty:                                  OK
+    fromCanonicalSchema rejects garbage:                                      OK
+    canonicalSchemaBytes is the underlying bytes:                             OK
+    withRustSchema releases on exception:                                     OK
+    structured schema survives Rust round-trip:                               OK
+  Spec.EngineRoundtrip
+    schema: build, ingest, recover metadata:                                  OK
+    schema: validate empty against protocol:                                  OK
+    check: diff + classify an additive change:                                OK
+    migration: compile + lift a record (JSON):                                OK
+    instance: json -> validate -> json:                                       OK
+    io: registry parse + emit round-trip:                                     OK
+    lens: auto-generate + get/put law:                                        OK
+    gat: ingest + reify + check_morphism:                                     OK
+    gat: typecheck a well-formed term:                                        OK
+    gat: eval a nullary constant term:                                        OK
+    expr: parse + eval arithmetic:                                            OK
+    vcs: init + add + commit + log:                                           OK (0.04s)
+    hom: find morphisms between equal schemas:                                OK
+    hom: a self-span is a total morphism:                                     OK
+    hom: an excluded source leaves the apex:                                  OK
+    hom: a span reads back as a pushout overlap:                              OK
+    hom: induced migration keeps its target schema:                           FAIL
+      Exception: PanprotoError {code = StatusOperation, envelope = Just (ErrorEnvelope {status = 7, tag = "operation", message = "operation error: lift_wtype: restrict failed: the output of the restrict did not validate: status Incomplete"})}
+      Use -p '/hom: induced migration keeps its target schema/' to rerun this test only.
+    graph: fiber over a compiled migration anchor:                            OK
+    data: store + get a JSON dataset:                                         OK
+  wire round-trips (cborg <-> ciborium)
+    schema survives Haskell -> Rust -> Haskell unchanged:                     OK
+    theory survives ingest -> reify unchanged (tagged terms, untagged sorts): OK
+    migration with a tuple-keyed resolver round-trips:                        OK
+    complement (tuple-keyed maps) round-trips through get/put:                OK
+    free model evaluates and exposes a non-empty sort interpretation:         OK
+    schema diff and classification decode the removed vertex:                 OK
+
+1 out of 107 tests failed (0.05s)
+Test suite panproto-test: FAIL
+Test suite logged to:
+/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/haskell/./dist-newstyle/build/aarch64-osx/ghc-9.12.2/panproto-0.74.4/t/panproto-test/test/panproto-0.74.4-panproto-test.log
+0 of 1 test suites (0 of 1 test cases) passed.
+Error: [Cabal-7125]
+Tests failed for test:panproto-test from panproto-0.74.4.
+
