@@ -30,11 +30,12 @@ struct DataSetTests {
 
             let instances = try stored.instances()
             #expect(instances.count == 2)
-            // Each record is the object plus its two properties, anchored
-            // at the schema's entry vertex.
+            // Each record is the object plus its two properties. The entry
+            // vertex resolves to the object it names, and the schema root is
+            // the vertex the root node is anchored to.
             for instance in instances {
                 #expect(instance.nodes.count == 3)
-                #expect(instance.schemaRoot == PostSchemaPair.record)
+                #expect(instance.schemaRoot == PostSchemaPair.object)
             }
         }
     }

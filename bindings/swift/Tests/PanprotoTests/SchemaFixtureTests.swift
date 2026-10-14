@@ -157,8 +157,29 @@ struct ProtocolFixtureTests {
         #expect(spec.name == "atproto")
         #expect(spec.schemaTheory == "ThATProtoSchema")
         #expect(spec.instanceTheory == "ThATProtoInstance")
-        #expect(spec.schemaComposition == nil)
-        #expect(spec.instanceComposition == nil)
+        // Each theory carries the recipe that composed it: one diagram
+        // step, identifying exactly what its morphisms relate.
+        let schemaRecipe = try #require(spec.schemaComposition)
+        #expect(schemaRecipe.resultName == "ThATProtoSchema")
+        #expect(schemaRecipe.version == 1)
+        guard case .diagram(let nodes, _, let mode, let clash, _, _) = try #require(
+            schemaRecipe.steps.first
+        ) else {
+            Issue.record("the schema recipe does not start with a diagram step")
+            return
+        }
+        #expect(nodes == ["ThGraph", "ThConstraint", "ThMulti", "ThVertex", "ThVertexEdge"])
+        #expect(mode == .explicitIdentity)
+        #expect(clash == .reject)
+        let instanceRecipe = try #require(spec.instanceComposition)
+        #expect(instanceRecipe.resultName == "ThATProtoInstance")
+        guard case .diagram(let instanceNodes, _, _, _, _, _) = try #require(
+            instanceRecipe.steps.first
+        ) else {
+            Issue.record("the instance recipe does not start with a diagram step")
+            return
+        }
+        #expect(instanceNodes == ["ThWType", "ThMeta", "ThNode"])
         #expect(spec.edgeRules.count == 6)
         #expect(spec.constraintSorts.count == 12)
         #expect(spec.objKinds.contains("record"))
