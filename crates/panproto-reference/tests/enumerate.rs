@@ -894,6 +894,55 @@ fn report_edit_and_numeric_bounds() {
     );
 }
 
+/// Step `strings` at most `expected.len() + 1` times, checking the exact size
+/// hint before every step, and return what it yielded. The step bound keeps
+/// an enumerator that never ends from making the test run forever.
+fn bounded_byte_strings(
+    mut strings: en::ByteStrings,
+    expected: &[Vec<u8>],
+) -> (Vec<Vec<u8>>, en::ByteStrings) {
+    let mut got = Vec::new();
+    for _ in 0..=expected.len() {
+        let remaining = expected.len().saturating_sub(got.len());
+        assert_eq!(strings.size_hint(), (remaining, Some(remaining)));
+        match strings.next() {
+            Some(bytes) => got.push(bytes),
+            None => break,
+        }
+    }
+    (got, strings)
+}
+
+#[test]
+fn byte_strings_run_shortest_first_then_lexicographically() {
+    // Built here by nested loops over the byte values, not by the enumerator.
+    let mut expected: Vec<Vec<u8>> = vec![Vec::new()];
+    for a in 0..=255u8 {
+        expected.push(vec![a]);
+    }
+    for a in 0..=255u8 {
+        for b in 0..=255u8 {
+            expected.push(vec![a, b]);
+        }
+    }
+    for (max_len, count) in [(0u8, 1usize), (1, 257), (2, 65_793)] {
+        let (got, mut rest) =
+            bounded_byte_strings(en::byte_strings(max_len).unwrap(), &expected[..count]);
+        assert_eq!(
+            got,
+            expected[..count],
+            "byte strings of length at most {max_len}"
+        );
+        assert_eq!(rest.next(), None);
+        assert_eq!(rest.size_hint(), (0, Some(0)));
+    }
+    let mut three = en::byte_strings(3).unwrap();
+    assert_eq!(three.nth(65_793), Some(vec![0, 0, 0]));
+    assert_eq!(three.next(), Some(vec![0, 0, 1]));
+    assert_eq!(three.nth(255), Some(vec![0, 1, 1]));
+    assert_eq!(three.len(), 16_843_009 - 65_793 - 258);
+}
+
 fn report_temporal_bounds() {
     let temporal = en::temporal_lexemes();
     report(

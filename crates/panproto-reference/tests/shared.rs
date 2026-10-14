@@ -189,6 +189,22 @@ fn schema_v3_manifest_loading_retains_all_inventory_statuses() {
 }
 
 #[test]
+fn schema_v3_manifest_refuses_every_other_schema_version() {
+    let text = schema_v3_fixture();
+    assert!(manifest::load(text).is_ok());
+    for version in [
+        "2", "4", "30", "3.0", "3e0", "-3", "\"3\"", "true", "null", "[3]",
+    ] {
+        let other = text.replacen(
+            "\"schema_version\": 3",
+            &format!("\"schema_version\": {version}"),
+            1,
+        );
+        assert_manifest_shape(&other, "manifest.schema_version is not 3");
+    }
+}
+
+#[test]
 fn schema_v3_manifest_rejects_duplicate_semantic_law_ids() {
     let duplicate =
         schema_v3_fixture().replacen(r#""id":"edits.example""#, r#""id":"values.example""#, 1);
@@ -221,6 +237,26 @@ fn schema_v3_partial_inventory_requires_laws_and_scope() {
     assert_manifest_shape(
         &partial_without_scope,
         "manifest.pages.edits partial inventory must have laws and a contract_scope",
+    );
+
+    let partial_with_empty_scope = text.replacen(
+        "\"contract_scope\": [{\"section\": \"P.5\", \"clause\": \"E.1\"}]",
+        "\"contract_scope\": []",
+        1,
+    );
+    assert_manifest_shape(
+        &partial_with_empty_scope,
+        "manifest.pages.edits partial inventory must have laws and a contract_scope",
+    );
+
+    let pending_with_empty_scope = text.replacen(
+        "\"contract_scope\": [{\"section\": \"O11\", \"clause\": \"D20(d)\"}]",
+        "\"contract_scope\": []",
+        1,
+    );
+    assert_manifest_shape(
+        &pending_with_empty_scope,
+        "manifest.pages.parsing pending inventory must have no laws and a contract_scope",
     );
 }
 
