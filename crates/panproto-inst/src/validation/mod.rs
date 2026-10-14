@@ -1070,7 +1070,7 @@ mod subset_tests {
     }
 
     #[test]
-    fn subset_validation_trusts_the_selected_subject_schedule() {
+    fn subset_validation_relies_on_the_selected_subject_schedule() {
         let (plan, graph, selected) = fixture();
         let foreign_key = CheckKey::new(CheckKind::NodeAnchor, SchemaRef::Vertex("item".into()));
         let admitted = BTreeSet::from([
