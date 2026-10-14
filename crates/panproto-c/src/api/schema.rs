@@ -148,7 +148,8 @@ struct EdgeMeta {
 ///
 /// `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
 /// receives a CBOR-encoded metadata record mirroring the WASM
-/// `schema_metadata` payload (`{ protocol, vertices, edges }`).
+/// `schema_metadata` payload (`{ protocol, vertices, edges }`), with the
+/// vertices in id order and the edges in edge order.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -156,9 +157,16 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
         let bytes = handle::with_resource(schema_handle, |r| {
             let schema = r.as_schema()?;
 
-            let vertices: Vec<VertexMeta> = schema
-                .vertices
-                .values()
+            // Vertices by id and edges in edge order: the schema's tables
+            // are hash maps, and their own enumeration order is the hash
+            // keys', not the schema's.
+            let mut ordered_vertices: Vec<_> = schema.vertices.values().collect();
+            ordered_vertices.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+            let mut ordered_edges: Vec<_> = schema.edges.keys().collect();
+            ordered_edges.sort_unstable();
+
+            let vertices: Vec<VertexMeta> = ordered_vertices
+                .into_iter()
                 .map(|v| VertexMeta {
                     id: v.id.to_string(),
                     kind: v.kind.to_string(),
@@ -166,9 +174,8 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
                 })
                 .collect();
 
-            let edges: Vec<EdgeMeta> = schema
-                .edges
-                .keys()
+            let edges: Vec<EdgeMeta> = ordered_edges
+                .into_iter()
                 .map(|e| EdgeMeta {
                     src: e.src.to_string(),
                     tgt: e.tgt.to_string(),

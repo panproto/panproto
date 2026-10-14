@@ -690,56 +690,59 @@ pub struct KindChange {
 /// Compute a lightweight structural diff between two schemas.
 #[must_use]
 pub fn compute_diff(old: &Schema, new: &Schema) -> SchemaDiff {
-    let mut diff = SchemaDiff::default();
+    // The schemas' tables are hash maps, whose enumeration order their hash
+    // keys decide. Every list below is built from sorted keys, so the diff,
+    // and the bytes it encodes to, are a function of the two schemas alone.
+    let mut old_ids: Vec<_> = old.vertices.keys().collect();
+    let mut new_ids: Vec<_> = new.vertices.keys().collect();
+    old_ids.sort_unstable();
+    new_ids.sort_unstable();
+    let mut old_edges: Vec<_> = old.edges.keys().collect();
+    let mut new_edges: Vec<_> = new.edges.keys().collect();
+    old_edges.sort_unstable();
+    new_edges.sort_unstable();
 
-    for id in new.vertices.keys() {
-        if !old.vertices.contains_key(id) {
-            diff.added_vertices.push(id.to_string());
-        }
-    }
-    for id in old.vertices.keys() {
-        if !new.vertices.contains_key(id) {
-            diff.removed_vertices.push(id.to_string());
-        }
-    }
+    let edge_diff = |edge: &schema::Edge| EdgeDiff {
+        src: edge.src.to_string(),
+        tgt: edge.tgt.to_string(),
+        kind: edge.kind.to_string(),
+        name: edge.name.as_ref().map(ToString::to_string),
+    };
 
-    for (id, new_v) in &new.vertices {
-        if let Some(old_v) = old.vertices.get(id) {
-            if old_v.kind != new_v.kind {
-                diff.kind_changes.push(KindChange {
+    SchemaDiff {
+        added_vertices: new_ids
+            .iter()
+            .filter(|id| !old.vertices.contains_key(**id))
+            .map(ToString::to_string)
+            .collect(),
+        removed_vertices: old_ids
+            .iter()
+            .filter(|id| !new.vertices.contains_key(**id))
+            .map(ToString::to_string)
+            .collect(),
+        added_edges: new_edges
+            .iter()
+            .filter(|edge| !old.edges.contains_key(**edge))
+            .map(|edge| edge_diff(edge))
+            .collect(),
+        removed_edges: old_edges
+            .iter()
+            .filter(|edge| !new.edges.contains_key(**edge))
+            .map(|edge| edge_diff(edge))
+            .collect(),
+        kind_changes: new_ids
+            .iter()
+            .filter_map(|id| {
+                let old_v = old.vertices.get(*id)?;
+                let new_v = &new.vertices[*id];
+                (old_v.kind != new_v.kind).then(|| KindChange {
                     vertex: id.to_string(),
                     old_kind: old_v.kind.to_string(),
                     new_kind: new_v.kind.to_string(),
-                });
-            }
-        }
+                })
+            })
+            .collect(),
     }
-
-    for edge in new.edges.keys() {
-        if !old.edges.contains_key(edge) {
-            diff.added_edges.push(EdgeDiff {
-                src: edge.src.to_string(),
-                tgt: edge.tgt.to_string(),
-                kind: edge.kind.to_string(),
-                name: edge.name.as_ref().map(ToString::to_string),
-            });
-        }
-    }
-    for edge in old.edges.keys() {
-        if !new.edges.contains_key(edge) {
-            diff.removed_edges.push(EdgeDiff {
-                src: edge.src.to_string(),
-                tgt: edge.tgt.to_string(),
-                kind: edge.kind.to_string(),
-                name: edge.name.as_ref().map(ToString::to_string),
-            });
-        }
-    }
-
-    diff.added_vertices.sort();
-    diff.removed_vertices.sort();
-
-    diff
 }
 
 // ---------------------------------------------------------------------------
