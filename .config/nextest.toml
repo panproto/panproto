@@ -68,3 +68,14 @@ threads-required = 'num-cpus'
 filter = 'package(panproto-integration-tests) & binary(performance)'
 test-group = 'scaling'
 threads-required = 'num-cpus'
+
+# The table-lens agreement sweep of `panproto-lens/tests/law_reference.rs`
+# checks the production law gate against the reference gate on every one of
+# its 9,921 source and lens cases. It is CPU-bound on one thread: measured
+# alone in a debug build, 762 s of user time over 783 s of wall time, so it
+# cannot finish inside the ten-minute bound above whatever the load, and
+# inside full parallel runs it was observed at 813 s and 1,359 s. It gets a
+# thirty-minute bound of its own.
+[[profile.ci.overrides]]
+filter = 'package(panproto-lens) & binary(law_reference) & test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses)'
+slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
