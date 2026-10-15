@@ -101,21 +101,12 @@ fn resume(floor: u32) -> IdAllocator {
     IdAllocator::from_floor(IdRange::FULL, floor)
 }
 
-/// Draw one id and return it with the counter that follows it. The counter
-/// is a `u32`, so the id `u32::MAX`, after which no counter can be stored,
-/// is reported as exhaustion.
+/// Draw one id and return it with the counter that follows it. The id
+/// `u32::MAX`, after which no counter can be stored, is never drawn.
 fn draw(counter: u32, kind: IdKind) -> Result<(u32, u32), InstError> {
     let mut allocator = resume(counter);
     let id = allocator.allocate().map_err(|e| e.whole_state(kind))?;
-    let next = allocator.floor().ok_or_else(|| exhausted(kind))?;
-    Ok((id, next))
-}
-
-const fn exhausted(kind: IdKind) -> InstError {
-    match kind {
-        IdKind::Node => InstError::NodeIdsExhausted,
-        IdKind::Edge => InstError::EdgeIdsExhausted,
-    }
+    Ok((id, allocator.floor()))
 }
 
 impl TreeEmbedding {
@@ -161,16 +152,12 @@ impl TreeEmbedding {
     }
 
     /// Raise `next_node` past `id`, leaving it alone when it is already
-    /// above.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InstError::NodeIdsExhausted`] when `id` is `u32::MAX`.
-    pub fn observe_node(&mut self, id: u32) -> Result<(), InstError> {
+    /// above. The counter saturates at `u32::MAX`: observing that id
+    /// records the floor `u32::MAX`, against which allocation fails.
+    pub fn observe_node(&mut self, id: u32) {
         let mut allocator = resume(self.next_node);
         allocator.observe(id);
-        self.next_node = allocator.floor().ok_or(InstError::NodeIdsExhausted)?;
-        Ok(())
+        self.next_node = allocator.floor();
     }
 
     /// The ids of a new fan: the fan node from `next_node`, then the parent
@@ -230,7 +217,7 @@ impl TreeEmbedding {
         after: &WInstance,
     ) -> Result<(), InstError> {
         for &id in after.nodes.keys() {
-            self.observe_node(id)?;
+            self.observe_node(id);
         }
 
         let old_parent: HashMap<u32, u32> = before.arcs.iter().map(|&(p, c, _)| (c, p)).collect();

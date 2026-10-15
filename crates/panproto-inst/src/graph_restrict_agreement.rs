@@ -166,10 +166,7 @@ fn tree_leg(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
     }
     let (view, _) = crate::wtype::wtype_restrict_with_plan(&tree, plan).ok()?;
     let mut edge_ids = crate::segment::IdAllocator::from_floor(
-        crate::segment::IdRange {
-            lo: 0,
-            hi: u32::MAX - 1,
-        },
+        crate::segment::IdRange::FULL,
         floor_above(instance.max_edge_id().map(|e| e.0)),
     );
     let mut graph = GInstance::new();

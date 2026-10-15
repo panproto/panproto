@@ -537,12 +537,12 @@ impl FInstance {
     }
 
     /// The least row id above every row id in use: `max + 1`, and `0` for an
-    /// instance without rows.
+    /// instance without rows. The id `u32::MAX` is never handed out.
     ///
     /// # Errors
     ///
     /// Returns [`InstError::NodeIdsExhausted`] when the largest id in use is
-    /// `u32::MAX`.
+    /// `u32::MAX - 1` or `u32::MAX`.
     pub fn fresh_row_id(&self) -> Result<RowId, InstError> {
         allocate_row(&mut row_allocator(self.max_row_id()))
     }

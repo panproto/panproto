@@ -80,11 +80,13 @@ pub enum InstError {
         edges: Vec<EdgeId>,
     },
 
-    /// Every edge id up to `u32::MAX` is in use, so no fresh one exists.
+    /// Every edge id at or above the floor and below `u32::MAX` is in use,
+    /// so no fresh one exists; `u32::MAX` itself is never handed out.
     #[error("no edge id is free above the largest in use")]
     EdgeIdsExhausted,
 
-    /// Every node id up to `u32::MAX` is in use, so no fresh one exists.
+    /// Every node id at or above the floor and below `u32::MAX` is in use,
+    /// so no fresh one exists; `u32::MAX` itself is never handed out.
     #[error("no node id is free above the largest in use")]
     NodeIdsExhausted,
 

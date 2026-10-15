@@ -1061,10 +1061,10 @@ pub fn fresh_view_row_id(
         .into_iter()
         .map(|id| id.0)
         .chain(complement.dropped_rows.keys().map(|id| id.0));
-    match allocator.fresh(taken) {
-        Ok(u32::MAX) | Err(_) => Err(InstError::NodeIdsExhausted),
-        Ok(id) => Ok(RowId(id)),
-    }
+    allocator
+        .fresh(taken)
+        .map(RowId)
+        .map_err(|_| InstError::NodeIdsExhausted)
 }
 
 impl ComplementCompose for TableComplement {

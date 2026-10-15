@@ -530,10 +530,9 @@ pub fn fresh_view_node_id(
         .copied()
         .chain(complement.dropped_nodes.keys().copied())
         .chain(complement.synthesized_nodes.keys().copied());
-    match allocator.fresh(taken) {
-        Ok(u32::MAX) | Err(_) => Err(InstError::NodeIdsExhausted),
-        Ok(id) => Ok(id),
-    }
+    allocator
+        .fresh(taken)
+        .map_err(|_| InstError::NodeIdsExhausted)
 }
 
 /// A deterministic edge id for a single writer adding to a graph view.
@@ -555,10 +554,10 @@ pub fn fresh_view_edge_id(
         .map(|id| id.0)
         .chain(complement.dropped_edges.keys().map(|id| id.0))
         .chain(complement.synthesized_edges.keys().map(|id| id.0));
-    match allocator.fresh(taken) {
-        Ok(u32::MAX) | Err(_) => Err(InstError::EdgeIdsExhausted),
-        Ok(id) => Ok(EdgeId(id)),
-    }
+    allocator
+        .fresh(taken)
+        .map(EdgeId)
+        .map_err(|_| InstError::EdgeIdsExhausted)
 }
 
 impl ComplementCompose for GraphComplement {
