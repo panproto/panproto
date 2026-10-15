@@ -22,8 +22,9 @@
 
 use crate::schema::Schema;
 use crate::theory::{
-    ClashPolicy, ComposeOptions, CompositionMode, CompositionSpec, CompositionStep, Equation,
-    Implicit, Morphism, Op, OpImage, RecipeEdge, RecipeOpImage, Sort, SortExpr, Term, Theory,
+    CaseBranch, ClashPolicy, ComposeOptions, CompositionMode, CompositionSpec, CompositionStep,
+    Equation, Implicit, Morphism, Op, OpImage, RecipeEdge, RecipeOpImage, Sort, SortExpr, Term,
+    Theory, TheoryDiagram,
 };
 
 /// Every two-object schema with one kind, one edge name and at most one edge.
@@ -1078,4 +1079,341 @@ pub fn fibre_spans() -> Vec<crate::theory::TheoryDiagram> {
         .into_iter()
         .map(|renames| fibre_span("a", ["h", "f", "g"], renames))
         .collect()
+}
+
+/// Number of operations in [`class_operation_scope`].
+pub const CLASS_OPERATION_SCOPE_LEN: usize = 2_482;
+/// Number of sorts in [`class_sort_scope`].
+pub const CLASS_SORT_SCOPE_LEN: usize = 1_885;
+
+const CLASS_NAMES: [&str; 2] = ["x", "y"];
+
+fn class_name_lists(len: usize) -> Vec<Vec<String>> {
+    let mut out = vec![Vec::new()];
+    for _ in 0..len {
+        out = out
+            .into_iter()
+            .flat_map(|prefix| {
+                CLASS_NAMES.iter().map(move |name| {
+                    let mut next = prefix.clone();
+                    next.push((*name).to_owned());
+                    next
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+fn class_atoms() -> Vec<Term> {
+    vec![var("x"), var("y"), constant("a")]
+}
+
+/// Terms used in the class-signature scope that bind names locally. Both
+/// `u` and the enclosing signature name `x` occur as binders so that the
+/// scope distinguishes shadowing from the renaming of free variables.
+fn class_binder_terms() -> Vec<Term> {
+    let mut out = Vec::new();
+    for name in ["u", "x"] {
+        for bound in [var("x"), constant("a")] {
+            for body in ["u", "x", "y"] {
+                out.push(Term::Let(
+                    name.to_owned(),
+                    Box::new(bound.clone()),
+                    Box::new(var(body)),
+                ));
+            }
+        }
+        for body in [var("u"), var("x"), constant("a")] {
+            out.push(Term::Case(
+                Box::new(var("x")),
+                vec![CaseBranch {
+                    constructor: "s".to_owned(),
+                    binders: vec![name.to_owned()],
+                    body,
+                }],
+            ));
+        }
+    }
+    out
+}
+
+fn class_input_sorts() -> Vec<SortExpr> {
+    let mut out = vec![simple("X")];
+    out.extend(
+        class_atoms()
+            .into_iter()
+            .map(|term| sort_app("Y", vec![term])),
+    );
+    out
+}
+
+fn class_output_sorts() -> Vec<SortExpr> {
+    let mut out = vec![simple("X")];
+    let extra = [
+        constant("b"),
+        Term::Hole(None),
+        Term::Hole(Some("h".to_owned())),
+    ];
+    for term in class_atoms()
+        .into_iter()
+        .chain(class_binder_terms())
+        .chain(extra)
+    {
+        out.push(sort_app("Y", vec![term]));
+    }
+    for left in class_atoms() {
+        for right in class_atoms() {
+            out.push(sort_app("H", vec![left.clone(), right]));
+        }
+    }
+    out
+}
+
+/// The inherited exhaustive operation-class scope. It contains operations
+/// of arity at most two, binder lists over `x` and `y` (including repeated
+/// names), four input-sort choices per position and 34 output-sort choices.
+/// The outputs include free variables, holes, and `Let` and `Case` terms.
+///
+/// The closed count is `34 * (1 + 2*4 + 2^2*4^2) = 2,482`.
+#[must_use]
+pub fn class_operation_scope() -> Vec<Op> {
+    let mut out = Vec::new();
+    for arity in 0..=2 {
+        for names in class_name_lists(arity) {
+            let mut sort_lists: Vec<Vec<SortExpr>> = vec![Vec::new()];
+            for _ in 0..arity {
+                sort_lists = sort_lists
+                    .into_iter()
+                    .flat_map(|prefix| {
+                        class_input_sorts().into_iter().map(move |sort| {
+                            let mut next = prefix.clone();
+                            next.push(sort);
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            for sorts in &sort_lists {
+                for output in class_output_sorts() {
+                    out.push(Op {
+                        name: "member".to_owned(),
+                        inputs: names
+                            .iter()
+                            .zip(sorts)
+                            .map(|(name, sort)| (name.clone(), sort.clone(), Implicit::No))
+                            .collect(),
+                        output,
+                    });
+                }
+            }
+        }
+    }
+    assert_eq!(
+        out.len(),
+        34 * (1 + 2 * 4 + 2_usize.pow(2) * 4_usize.pow(2))
+    );
+    assert_eq!(out.len(), CLASS_OPERATION_SCOPE_LEN);
+    out
+}
+
+fn class_param_sorts() -> Vec<SortExpr> {
+    let mut out = class_input_sorts();
+    out.push(sort_app(
+        "Y",
+        vec![Term::Let(
+            "u".to_owned(),
+            Box::new(var("x")),
+            Box::new(var("u")),
+        )],
+    ));
+    out.push(sort_app(
+        "Y",
+        vec![Term::Let(
+            "x".to_owned(),
+            Box::new(constant("a")),
+            Box::new(var("x")),
+        )],
+    ));
+    out
+}
+
+/// The inherited exhaustive sort-class scope. It contains declarations of
+/// arity at most three, binder lists over `x` and `y` (including repeated
+/// names), and six parameter-sort choices per position, including locally
+/// bound terms.
+///
+/// The closed count is `1 + 2*6 + 2^2*6^2 + 2^3*6^3 = 1,885`.
+#[must_use]
+pub fn class_sort_scope() -> Vec<Sort> {
+    let mut out = Vec::new();
+    for arity in 0..=3 {
+        for names in class_name_lists(arity) {
+            let mut sort_lists: Vec<Vec<SortExpr>> = vec![Vec::new()];
+            for _ in 0..arity {
+                sort_lists = sort_lists
+                    .into_iter()
+                    .flat_map(|prefix| {
+                        class_param_sorts().into_iter().map(move |sort| {
+                            let mut next = prefix.clone();
+                            next.push(sort);
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            for sorts in sort_lists {
+                out.push(Sort {
+                    name: "W".to_owned(),
+                    params: names.iter().cloned().zip(sorts).collect(),
+                    kind: STRUCTURAL.to_owned(),
+                    constructors: None,
+                });
+            }
+        }
+    }
+    assert_eq!(
+        out.len(),
+        1 + 2 * 6 + 2_usize.pow(2) * 6_usize.pow(2) + 2_usize.pow(3) * 6_usize.pow(3)
+    );
+    assert_eq!(out.len(), CLASS_SORT_SCOPE_LEN);
+    out
+}
+
+fn class_ambient(name: &str, extra_op: Option<Op>, extra_sort: Option<Sort>) -> Theory {
+    let mut sorts = vec![
+        declare("X", Vec::new(), None),
+        declare("Y", vec![("x", simple("X"))], None),
+        declare(
+            "H",
+            vec![("p", simple("X")), ("q", simple("X"))],
+            None,
+        ),
+    ];
+    if let Some(sort) = extra_sort {
+        sorts.push(sort);
+    }
+    let mut ops = vec![
+        operation("a", Vec::new(), simple("X")),
+        operation("b", Vec::new(), simple("X")),
+        operation("s", vec![("u", simple("X"))], simple("X")),
+    ];
+    if let Some(op) = extra_op {
+        ops.push(op);
+    }
+    Theory {
+        name: name.to_owned(),
+        sorts,
+        ops,
+        ..Theory::default()
+    }
+}
+
+/// A two-node diagram whose same-name operation signatures are compared by
+/// public composition in amalgamation mode.
+#[must_use]
+pub fn operation_class_pair(left: &Op, right: &Op) -> TheoryDiagram {
+    TheoryDiagram::discrete(vec![
+        (
+            "L".to_owned(),
+            class_ambient("L", Some(left.clone()), None),
+        ),
+        (
+            "R".to_owned(),
+            class_ambient("R", Some(right.clone()), None),
+        ),
+    ])
+}
+
+/// A two-node diagram whose same-name sort declarations are compared by
+/// public composition in amalgamation mode.
+#[must_use]
+pub fn sort_class_pair(left: &Sort, right: &Sort) -> TheoryDiagram {
+    TheoryDiagram::discrete(vec![
+        (
+            "L".to_owned(),
+            class_ambient("L", None, Some(left.clone())),
+        ),
+        (
+            "R".to_owned(),
+            class_ambient("R", None, Some(right.clone())),
+        ),
+    ])
+}
+
+fn sort_mismatch_target(name: &str, sort: Sort) -> Theory {
+    let mut theory = class_ambient(name, None, Some(sort));
+    theory
+        .ops
+        .push(operation("witness", Vec::new(), simple("W")));
+    theory
+        .ops
+        .push(operation("k", Vec::new(), simple("W")));
+    theory
+}
+
+fn sort_mismatch_span(left: Sort, right: Sort) -> TheoryDiagram {
+    let source = Theory {
+        name: "S".to_owned(),
+        sorts: vec![declare("X", Vec::new(), None)],
+        ops: vec![operation("witness", Vec::new(), simple("W"))],
+        ..Theory::default()
+    };
+    let leg = |target: &str| Morphism {
+        name: format!("S_to_{target}"),
+        domain: "S".to_owned(),
+        codomain: target.to_owned(),
+        sorts: [("X", "X"), ("W", "W")]
+            .into_iter()
+            .map(|(from, to)| (from.to_owned(), to.to_owned()))
+            .collect(),
+        ops: [("witness".to_owned(), OpImage::Op("witness".to_owned()))]
+            .into_iter()
+            .collect(),
+    };
+    TheoryDiagram::span(
+        ("S".to_owned(), source),
+        ("L".to_owned(), sort_mismatch_target("L", left)),
+        ("R".to_owned(), sort_mismatch_target("R", right)),
+        leg("L"),
+        leg("R"),
+    )
+}
+
+/// Four connector spans that reach, through public [`crate::theory::compose`],
+/// each sort-class refusal detail: arity, parameter sort, kind and closure.
+#[must_use]
+pub fn sort_mismatch_spans() -> Vec<TheoryDiagram> {
+    let open = |params, kind| Sort {
+        name: "W".to_owned(),
+        params,
+        kind: kind.to_owned(),
+        constructors: None,
+    };
+    vec![
+        sort_mismatch_span(
+            open(Vec::new(), STRUCTURAL),
+            open(vec![("x".to_owned(), simple("X"))], STRUCTURAL),
+        ),
+        sort_mismatch_span(
+            open(vec![("x".to_owned(), simple("X"))], STRUCTURAL),
+            open(
+                vec![(
+                    "x".to_owned(),
+                    sort_app("Y", vec![constant("a")]),
+                )],
+                STRUCTURAL,
+            ),
+        ),
+        sort_mismatch_span(open(Vec::new(), STRUCTURAL), open(Vec::new(), VALUE)),
+        sort_mismatch_span(
+            open(Vec::new(), STRUCTURAL),
+            Sort {
+                name: "W".to_owned(),
+                params: Vec::new(),
+                kind: STRUCTURAL.to_owned(),
+                constructors: Some(vec!["k".to_owned()]),
+            },
+        ),
+    ]
 }

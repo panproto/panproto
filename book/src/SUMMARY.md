@@ -98,6 +98,7 @@
 # Correctness
 
 - [Correctness](./correctness/index.md)
+  - [Theories](./correctness/theories.md)
 
 ---
 

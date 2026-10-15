@@ -1560,6 +1560,95 @@ fn composition_agrees_with_the_reference_on_every_span() {
     });
     println!("compared {compared}");
     assert_eq!(compared as usize, diagrams.len() * options.len());
+
+    let fibres = scope::fibre_spans();
+    assert_eq!(fibres.len(), 4, "two binary leg-image choices");
+    let fibre_compared = parallel(&fibres, |diagram| {
+        let mut n = 0;
+        for option in &options {
+            compose_agrees(diagram, option)?;
+            n += 1;
+        }
+        Ok(n)
+    });
+    println!(
+        "fibre spans: {} x {} option sets = {fibre_compared} comparisons",
+        fibres.len(),
+        options.len()
+    );
+    assert_eq!(fibre_compared as usize, fibres.len() * options.len());
+}
+
+#[test]
+fn composition_agrees_on_every_class_signature_pair() {
+    let options = r::ComposeOptions {
+        mode: r::CompositionMode::Amalgamate,
+        result_name: "R".to_owned(),
+        clash: r::ClashPolicy::Freshen,
+        rewrite_budget: 512,
+    };
+
+    let operations = scope::class_operation_scope();
+    assert_eq!(operations.len(), scope::CLASS_OPERATION_SCOPE_LEN);
+    let operation_compared = parallel(&operations, |left| {
+        let mut n = 0;
+        for right in &operations {
+            compose_agrees(&scope::operation_class_pair(left, right), &options)?;
+            n += 1;
+        }
+        Ok(n)
+    });
+    let operation_formula = scope::CLASS_OPERATION_SCOPE_LEN.pow(2);
+    println!(
+        "operation-class scope: {} signatures, {operation_compared} ordered pairs; \
+         repeated binders and Let/Case/hole arguments included",
+        operations.len()
+    );
+    assert_eq!(operation_compared as usize, operation_formula);
+
+    let sorts = scope::class_sort_scope();
+    assert_eq!(sorts.len(), scope::CLASS_SORT_SCOPE_LEN);
+    let sort_compared = parallel(&sorts, |left| {
+        let mut n = 0;
+        for right in &sorts {
+            compose_agrees(&scope::sort_class_pair(left, right), &options)?;
+            n += 1;
+        }
+        Ok(n)
+    });
+    let sort_formula = scope::CLASS_SORT_SCOPE_LEN.pow(2);
+    println!(
+        "sort-class scope: {} declarations, {sort_compared} ordered pairs; \
+         repeated binders and locally bound arguments included",
+        sorts.len()
+    );
+    assert_eq!(sort_compared as usize, sort_formula);
+}
+
+#[test]
+fn composition_reports_every_sort_mismatch_detail_like_the_reference() {
+    let options = r::ComposeOptions {
+        mode: r::CompositionMode::ExplicitIdentity,
+        result_name: "R".to_owned(),
+        clash: r::ClashPolicy::Freshen,
+        rewrite_budget: 512,
+    };
+    let spans = scope::sort_mismatch_spans();
+    assert_eq!(spans.len(), 4);
+    for (expected, diagram) in spans.iter().enumerate() {
+        compose_agrees(diagram, &options).unwrap_or_else(|detail| panic!("{detail}"));
+        let detail = match r::compose(diagram, &options) {
+            Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => detail,
+            outcome => panic!("expected sort mismatch {expected}, observed {outcome:?}"),
+        };
+        let observed = match detail {
+            r::SortMismatch::Arity { .. } => 0,
+            r::SortMismatch::ParamSort { .. } => 1,
+            r::SortMismatch::Kind => 2,
+            r::SortMismatch::Closure => 3,
+        };
+        assert_eq!(observed, expected, "connector span {expected}");
+    }
 }
 
 /// Every discrete diagram of two nodes `L` and `R`, each a signature of
