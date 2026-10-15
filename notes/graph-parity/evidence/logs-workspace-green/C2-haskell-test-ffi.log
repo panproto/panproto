@@ -1,0 +1,174 @@
+$ cabal test
+Resolving dependencies...
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - OneTuple-0.4.3 (lib) (requires download & build)
+ - base-orphans-0.9.4 (lib) (requires download & build)
+ - colour-2.3.7 (lib) (requires download & build)
+ - contravariant-1.5.6 (lib) (requires download & build)
+ - hashable-1.5.1.0 (lib) (requires download & build)
+ - indexed-traversable-0.1.5 (lib) (requires download & build)
+ - integer-logarithms-1.0.5 (lib) (requires download & build)
+ - prettyprinter-1.7.2 (lib) (requires download & build)
+ - splitmix-0.1.3.2 (lib) (requires download & build)
+ - tagged-0.8.11 (lib) (requires download & build)
+ - th-abstraction-0.7.2.0 (lib) (requires download & build)
+ - th-compat-0.1.7 (lib) (requires download & build)
+ - transformers-compat-0.8 (lib) (requires download & build)
+ - ansi-terminal-types-1.1.3 (lib) (requires build)
+ - text-short-0.1.6.1 (lib) (requires download & build)
+ - time-compat-1.9.9 (lib) (requires download & build)
+ - these-1.2.1 (lib) (requires build)
+ - unordered-containers-0.2.21 (lib) (requires build)
+ - data-fix-0.3.4 (lib) (requires build)
+ - scientific-0.3.9.0 (lib) (requires download & build)
+ - random-1.3.1 (lib) (requires build)
+ - distributive-0.6.3 (lib) (requires download & build)
+ - network-uri-2.6.4.2 (lib) (requires build)
+ - ansi-terminal-1.1.5 (lib) (requires download & build)
+ - text-iso8601-0.1.1.2 (lib) (requires download & build)
+ - strict-0.5.1 (lib) (requires build)
+ - indexed-traversable-instances-0.1.2.1 (lib) (requires download & build)
+ - uuid-types-1.0.6.1 (lib) (requires download & build)
+ - QuickCheck-2.18.0.0 (lib) (requires download & build)
+ - comonad-5.0.10 (lib) (requires download & build)
+ - prettyprinter-ansi-terminal-1.1.4 (lib) (requires download & build)
+ - witherable-0.5 (lib) (requires build)
+ - bifunctors-5.6.3 (lib) (requires download & build)
+ - optparse-applicative-0.19.0.0 (lib) (requires build)
+ - semigroupoids-6.0.2 (lib) (requires download & build)
+ - tasty-1.5.4 (lib) (requires download & build)
+ - semialign-1.4 (lib) (requires download & build)
+ - tasty-hunit-0.10.2 (lib) (requires build)
+ - aeson-2.2.5.1 (lib) (requires download & build)
+ - panproto-0.74.4 (lib) (first run)
+ - panproto-0.74.4 (test:panproto-test) (first run)
+Downloading  base-orphans-0.9.4
+Downloaded   base-orphans-0.9.4
+Downloading  colour-2.3.7
+Starting     base-orphans-0.9.4 (lib)
+Downloaded   colour-2.3.7
+Downloading  ansi-terminal-1.1.5
+Starting     colour-2.3.7 (lib)
+Downloaded   ansi-terminal-1.1.5
+Downloading  splitmix-0.1.3.2
+Downloaded   splitmix-0.1.3.2
+Downloading  tagged-0.8.11
+Starting     splitmix-0.1.3.2 (lib)
+Downloaded   tagged-0.8.11
+Downloading  th-compat-0.1.7
+Starting     tagged-0.8.11 (lib)
+Downloaded   th-compat-0.1.7
+Downloading  distributive-0.6.3
+Downloaded   distributive-0.6.3
+Downloading  transformers-compat-0.8
+Downloaded   transformers-compat-0.8
+Downloading  th-abstraction-0.7.2.0
+Downloaded   th-abstraction-0.7.2.0
+Downloading  indexed-traversable-0.1.5
+Downloaded   indexed-traversable-0.1.5
+Downloading  comonad-5.0.10
+Starting     indexed-traversable-0.1.5 (lib)
+Downloaded   comonad-5.0.10
+Downloading  bifunctors-5.6.3
+Downloaded   bifunctors-5.6.3
+Downloading  integer-logarithms-1.0.5
+Downloaded   integer-logarithms-1.0.5
+Downloading  hashable-1.5.1.0
+Starting     integer-logarithms-1.0.5 (lib)
+Downloaded   hashable-1.5.1.0
+Downloading  uuid-types-1.0.6.1
+Starting     hashable-1.5.1.0 (lib)
+Building     tagged-0.8.11 (lib)
+Building     splitmix-0.1.3.2 (lib)
+Building     base-orphans-0.9.4 (lib)
+Building     colour-2.3.7 (lib)
+Downloaded   uuid-types-1.0.6.1
+Downloading  time-compat-1.9.9
+Downloaded   time-compat-1.9.9
+Downloading  prettyprinter-1.7.2
+Building     indexed-traversable-0.1.5 (lib)
+Downloaded   prettyprinter-1.7.2
+Downloading  prettyprinter-ansi-terminal-1.1.4
+Starting     prettyprinter-1.7.2 (lib)
+Downloaded   prettyprinter-ansi-terminal-1.1.4
+Downloading  tasty-1.5.4
+Building     integer-logarithms-1.0.5 (lib)
+Downloaded   tasty-1.5.4
+Downloading  scientific-0.3.9.0
+Installing   base-orphans-0.9.4 (lib)
+Downloaded   scientific-0.3.9.0
+Downloading  text-iso8601-0.1.1.2
+Building     hashable-1.5.1.0 (lib)
+Downloaded   text-iso8601-0.1.1.2
+Downloading  text-short-0.1.6.1
+Completed    base-orphans-0.9.4 (lib)
+Starting     th-abstraction-0.7.2.0 (lib)
+Installing   tagged-0.8.11 (lib)
+Downloaded   text-short-0.1.6.1
+Downloading  contravariant-1.5.6
+Installing   splitmix-0.1.3.2 (lib)
+Building     prettyprinter-1.7.2 (lib)
+Completed    tagged-0.8.11 (lib)
+Downloaded   contravariant-1.5.6
+Downloading  semigroupoids-6.0.2
+Starting     th-compat-0.1.7 (lib)
+Starting     contravariant-1.5.6 (lib)
+Completed    splitmix-0.1.3.2 (lib)
+Starting     transformers-compat-0.8 (lib)
+Downloaded   semigroupoids-6.0.2
+Downloading  QuickCheck-2.18.0.0
+Starting     distributive-0.6.3 (lib)
+Downloaded   QuickCheck-2.18.0.0
+Downloading  OneTuple-0.4.3
+Downloaded   OneTuple-0.4.3
+Downloading  indexed-traversable-instances-0.1.2.1
+Starting     OneTuple-0.4.3 (lib)
+Installing   integer-logarithms-1.0.5 (lib)
+Downloaded   indexed-traversable-instances-0.1.2.1
+Downloading  semialign-1.4
+Building     th-abstraction-0.7.2.0 (lib)
+Downloaded   semialign-1.4
+Downloading  aeson-2.2.5.1
+Completed    integer-logarithms-1.0.5 (lib)
+Building     th-compat-0.1.7 (lib)
+Downloaded   aeson-2.2.5.1
+Building     contravariant-1.5.6 (lib)
+Building     transformers-compat-0.8 (lib)
+Building     distributive-0.6.3 (lib)
+Building     OneTuple-0.4.3 (lib)
+Installing   th-compat-0.1.7 (lib)
+Installing   indexed-traversable-0.1.5 (lib)
+Completed    th-compat-0.1.7 (lib)
+Completed    indexed-traversable-0.1.5 (lib)
+Installing   colour-2.3.7 (lib)
+Installing   contravariant-1.5.6 (lib)
+Installing   OneTuple-0.4.3 (lib)
+Installing   distributive-0.6.3 (lib)
+Completed    colour-2.3.7 (lib)
+Completed    contravariant-1.5.6 (lib)
+Completed    OneTuple-0.4.3 (lib)
+Completed    distributive-0.6.3 (lib)
+Installing   transformers-compat-0.8 (lib)
+Completed    transformers-compat-0.8 (lib)
+Installing   th-abstraction-0.7.2.0 (lib)
+Completed    th-abstraction-0.7.2.0 (lib)
+Installing   prettyprinter-1.7.2 (lib)
+Completed    prettyprinter-1.7.2 (lib)
+
+Failed to build hashable-1.5.1.0.
+Build log ( /Users/awhite48/.cabal/logs/ghc-9.12.2/hshbl-1.5.1.0-738fcc67.log
+):
+Configuring library for hashable-1.5.1.0...
+Preprocessing library for hashable-1.5.1.0...
+Building library for hashable-1.5.1.0...
+[ 1 of 10] Compiling Data.Hashable.FFI ( src/Data/Hashable/FFI.hs, dist/build/Data/Hashable/FFI.o, dist/build/Data/Hashable/FFI.dyn_o )
+ld: file not found: @/var/folders/0q/s59s3kh51f9gkvj96vpx89bc0000gq/T/ghc76616_tmp_0/ghc_tmp_9_6.rsp
+<no location info>: error:
+    `ld' failed in phase `Merge objects'. (Exit code: 1)
+
+[ 2 of 10] Compiling Data.Hashable.Imports ( src/Data/Hashable/Imports.hs, dist/build/Data/Hashable/Imports.o, dist/build/Data/Hashable/Imports.dyn_o )
+[ 3 of 10] Compiling Data.Hashable.Mix ( src/Data/Hashable/Mix.hs, dist/build/Data/Hashable/Mix.o, dist/build/Data/Hashable/Mix.dyn_o )
+Error: [Cabal-7125]
+Failed to build hashable-1.5.1.0 (which is required by test:panproto-test from panproto-0.74.4). See the build log above for details.
+

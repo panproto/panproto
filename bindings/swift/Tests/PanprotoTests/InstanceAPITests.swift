@@ -40,7 +40,7 @@ struct InstanceAPITests {
         )
 
         #expect(parsed == captured)
-        #expect(parsed.schemaRoot == "app.bsky.feed.post")
+        #expect(parsed.schemaRoot == "app.bsky.feed.post:body")
         #expect(parsed.nodeCount == 5)
     }
 

@@ -1,0 +1,66 @@
+$ cabal test   (retry)
+Build profile: -w ghc-9.12.2 -O1
+In order, the following will be built (use -v for more details):
+ - comonad-5.0.10 (lib) (requires build)
+ - hashable-1.5.1.0 (lib) (requires build)
+ - ansi-terminal-types-1.1.3 (lib) (requires build)
+ - network-uri-2.6.4.2 (lib) (requires build)
+ - random-1.3.1 (lib) (requires build)
+ - bifunctors-5.6.3 (lib) (requires build)
+ - text-short-0.1.6.1 (lib) (requires build)
+ - time-compat-1.9.9 (lib) (requires build)
+ - these-1.2.1 (lib) (requires build)
+ - scientific-0.3.9.0 (lib) (requires build)
+ - unordered-containers-0.2.21 (lib) (requires build)
+ - data-fix-0.3.4 (lib) (requires build)
+ - ansi-terminal-1.1.5 (lib) (requires build)
+ - uuid-types-1.0.6.1 (lib) (requires build)
+ - QuickCheck-2.18.0.0 (lib) (requires build)
+ - text-iso8601-0.1.1.2 (lib) (requires build)
+ - strict-0.5.1 (lib) (requires build)
+ - semigroupoids-6.0.2 (lib) (requires build)
+ - indexed-traversable-instances-0.1.2.1 (lib) (requires build)
+ - prettyprinter-ansi-terminal-1.1.4 (lib) (requires build)
+ - witherable-0.5 (lib) (requires build)
+ - semialign-1.4 (lib) (requires build)
+ - optparse-applicative-0.19.0.0 (lib) (requires build)
+ - aeson-2.2.5.1 (lib) (requires build)
+ - tasty-1.5.4 (lib) (requires build)
+ - panproto-0.74.4 (lib) (first run)
+ - tasty-hunit-0.10.2 (lib) (requires build)
+ - panproto-0.74.4 (test:panproto-test) (first run)
+Starting     ansi-terminal-types-1.1.3 (lib)
+Starting     network-uri-2.6.4.2 (lib)
+Starting     comonad-5.0.10 (lib)
+Starting     hashable-1.5.1.0 (lib)
+Starting     random-1.3.1 (lib)
+Building     ansi-terminal-types-1.1.3 (lib)
+Building     comonad-5.0.10 (lib)
+Building     network-uri-2.6.4.2 (lib)
+Building     random-1.3.1 (lib)
+Building     hashable-1.5.1.0 (lib)
+Installing   ansi-terminal-types-1.1.3 (lib)
+Completed    ansi-terminal-types-1.1.3 (lib)
+Installing   comonad-5.0.10 (lib)
+Completed    comonad-5.0.10 (lib)
+Installing   network-uri-2.6.4.2 (lib)
+Completed    network-uri-2.6.4.2 (lib)
+Installing   random-1.3.1 (lib)
+Completed    random-1.3.1 (lib)
+
+Failed to build hashable-1.5.1.0.
+Build log ( /Users/awhite48/.cabal/logs/ghc-9.12.2/hshbl-1.5.1.0-738fcc67.log
+):
+Configuring library for hashable-1.5.1.0...
+Preprocessing library for hashable-1.5.1.0...
+Building library for hashable-1.5.1.0...
+[ 1 of 10] Compiling Data.Hashable.FFI ( src/Data/Hashable/FFI.hs, dist/build/Data/Hashable/FFI.o, dist/build/Data/Hashable/FFI.dyn_o )
+ld: file not found: @/var/folders/0q/s59s3kh51f9gkvj96vpx89bc0000gq/T/ghc83323_tmp_0/ghc_tmp_9_6.rsp
+<no location info>: error:
+    `ld' failed in phase `Merge objects'. (Exit code: 1)
+
+[ 2 of 10] Compiling Data.Hashable.Imports ( src/Data/Hashable/Imports.hs, dist/build/Data/Hashable/Imports.o, dist/build/Data/Hashable/Imports.dyn_o )
+[ 3 of 10] Compiling Data.Hashable.Mix ( src/Data/Hashable/Mix.hs, dist/build/Data/Hashable/Mix.o, dist/build/Data/Hashable/Mix.dyn_o )
+Error: [Cabal-7125]
+Failed to build hashable-1.5.1.0 (which is required by test:panproto-test from panproto-0.74.4). See the build log above for details.
+

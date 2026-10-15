@@ -1,0 +1,78 @@
+    Checking panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr)
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars)
+    Checking panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-dsl-eval)
+   Compiling panproto-gat-macros v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat-macros)
+    Checking panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat)
+    Checking panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr-parser)
+    Checking panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-schema)
+    Checking panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-inst)
+    Checking panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-mig)
+    Checking panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-protocols)
+    Checking panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-lens)
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/tests/integration)
+    Checking panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-check)
+    Checking panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-theory-dsl)
+    Checking panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-lens-dsl)
+    Checking panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-vcs)
+    Checking panproto-xrpc v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-xrpc)
+    Checking xtask v0.0.0 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/xtask)
+    Checking panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-parse)
+    Checking panproto-grammars-data v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-data)
+    Checking panproto-grammars-jvm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-jvm)
+    Checking panproto-grammars-scripting v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-scripting)
+    Checking panproto-grammars-web v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-web)
+    Checking panproto-grammars-devops v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-devops)
+    Checking panproto-grammars-mobile v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-mobile)
+    Checking panproto-grammars-functional v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-functional)
+    Checking panproto-grammars-music v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-music)
+    Checking panproto-grammars-all v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-all)
+    Checking panproto-grammars-systems v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-systems)
+    Checking panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-io)
+    Checking panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-project)
+    Checking panproto-git v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-git)
+    Checking panproto-git-remote v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-git-remote)
+error: large size difference between variants
+  --> crates/panproto-io/src/registry.rs:29:1
+   |
+29 | / pub enum PresentationComplement {
+30 | |     /// The exact layout of a delimiter-separated byte format: line endings,
+31 | |     /// comments and the final newline.
+32 | |     ByteTabular(crate::byte_tabular::ByteTabularComplement),
+   | |     ------------------------------------------------------- the second-largest variant contains at least 80 bytes
+...  |
+35 | |     Cst(crate::cst_extract::CstComplement),
+   | |     -------------------------------------- the largest variant contains at least 1192 bytes
+36 | | }
+   | |_^ the entire enum is at least 1192 bytes
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#large_enum_variant
+   = note: `-D clippy::large-enum-variant` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::large_enum_variant)]`
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+   |
+35 -     Cst(crate::cst_extract::CstComplement),
+35 +     Cst(Box<crate::cst_extract::CstComplement>),
+   |
+
+error: unnecessary structure name repetition
+   --> crates/panproto-io/src/registry.rs:220:9
+    |
+220 |         crate::unified_codec::UnifiedCodec::parse_functor_preserving(self, schema, input)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#use_self
+    = note: `-D clippy::use-self` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::use_self)]`
+
+error: unnecessary structure name repetition
+   --> crates/panproto-io/src/registry.rs:233:17
+    |
+233 |                 crate::unified_codec::UnifiedCodec::emit_functor_preserving(
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#use_self
+
+error: could not compile `panproto-io` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `panproto-io` (lib test) due to 3 previous errors
+clippy=101

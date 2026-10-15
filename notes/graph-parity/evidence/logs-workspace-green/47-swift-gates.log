@@ -1,0 +1,27 @@
+== lint
+Sources/PanprotoStructural/Wire/ProtocolSpec.swift:298:87: error: [AddLines] add 1 line break
+Tests/PanprotoTests/SchemaFixtureTests.swift:165:14: error: [AddLines] add 1 line break
+Tests/PanprotoTests/SchemaFixtureTests.swift:166:1: error: [Indentation] indent by 4 spaces
+Tests/PanprotoTests/SchemaFixtureTests.swift:167:1: error: [Indentation] indent by 4 spaces
+Tests/PanprotoTests/SchemaFixtureTests.swift:167:10: error: [AddLines] add 1 line break
+Tests/PanprotoTests/SchemaFixtureTests.swift:176:14: error: [AddLines] add 1 line break
+Tests/PanprotoTests/SchemaFixtureTests.swift:177:1: error: [Indentation] indent by 4 spaces
+Tests/PanprotoTests/SchemaFixtureTests.swift:178:1: error: [Indentation] indent by 4 spaces
+Tests/PanprotoTests/SchemaFixtureTests.swift:178:10: error: [AddLines] add 1 line break
+lint exit 1
+== build
+Build complete! (2.81s)
+== traits
+Build of target: 'PanprotoParse' complete! (3.10s)
+Build of target: 'PanprotoProject' complete! (3.08s)
+Build of target: 'PanprotoGit' complete! (3.39s)
+== test
+✘ Test run with 788 tests in 112 suites failed after 3.387 seconds with 29 issues.
+== parity
+bound in the raw layer:      122
+
+parity holds
+== tutorial
+tutorial listings type-checked: 8
+
+every listing compiles

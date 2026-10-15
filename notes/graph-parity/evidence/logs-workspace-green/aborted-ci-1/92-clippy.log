@@ -1,0 +1,162 @@
+$ cargo clippy --workspace --all-targets -- -D warnings
+   Compiling proc-macro2 v1.0.107
+   Compiling libc v0.2.189
+   Compiling quote v1.0.47
+    Checking aho-corasick v1.1.4
+    Checking regex-automata v0.4.14
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling zerocopy-derive v0.8.42
+    Checking zerocopy v0.8.42
+   Compiling serde_derive v1.0.229
+   Compiling jobserver v0.1.34
+   Compiling cc v1.4.5
+    Checking errno v0.3.14
+    Checking rustix v1.1.4
+   Compiling thiserror-impl v2.0.20
+    Checking terminal_size v0.4.3
+   Compiling miette-derive v7.6.0
+    Checking serde v1.0.229
+    Checking thiserror v2.0.20
+    Checking regex v1.12.3
+    Checking backtrace v0.3.76
+    Checking panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr)
+    Checking getrandom v0.3.4
+    Checking tempfile v3.27.0
+    Checking backtrace-ext v0.2.1
+    Checking miette v7.6.0
+   Compiling blake3 v1.8.7
+    Checking rmp-serde v1.3.1
+    Checking half v2.7.1
+    Checking ciborium-ll v0.2.2
+    Checking wait-timeout v0.2.1
+    Checking panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+    Checking ciborium v0.2.2
+    Checking rand_core v0.9.5
+    Checking ppv-lite86 v0.2.21
+    Checking rusty-fork v0.3.1
+    Checking rand_chacha v0.9.0
+    Checking rand v0.9.2
+    Checking rand_xorshift v0.4.0
+   Compiling heck v0.5.0
+    Checking utf8parse v0.2.2
+    Checking anstyle-parse v1.0.0
+    Checking proptest v1.11.0
+    Checking anstyle-query v1.1.5
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstream v1.0.0
+    Checking clap_builder v4.6.0
+   Compiling clap_derive v4.6.1
+   Compiling divan-macros v0.1.21
+   Compiling serde_core v1.0.229
+    Checking clap v4.6.1
+   Compiling zmij v1.0.21
+    Checking panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling itoa v1.0.17
+    Checking divan v0.1.21
+   Compiling winnow v1.0.1
+   Compiling serde_json v1.0.151
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_parser v1.1.1+spec-1.1.0
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling tree-sitter v0.26.13
+    Checking panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+    Checking tree-sitter-language v0.1.7
+    Checking streaming-iterator v0.1.9
+    Checking yaml_serde v0.10.7
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+    Checking smallvec v1.15.1
+   Compiling logos-codegen v0.16.1
+   Compiling parking_lot_core v0.9.12
+   Compiling cpufeatures v0.2.17
+   Compiling keccak v0.1.6
+   Compiling psm v0.1.30
+   Compiling logos-derive v0.16.1
+    Checking tree-sitter-tags v0.26.13
+   Compiling parking_lot v0.12.5
+    Checking logos v0.16.1
+   Compiling bit-vec v0.8.0
+   Compiling string_cache v0.8.9
+   Compiling bit-set v0.8.0
+   Compiling sha3 v0.10.8
+   Compiling stacker v0.1.23
+   Compiling lalrpop v0.22.2
+    Checking malachite-nz v0.9.2
+    Checking panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+    Checking panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling proc-macro2-diagnostics v0.10.1
+    Checking chumsky v1.0.0-alpha.8
+    Checking panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+    Checking malachite-q v0.9.2
+   Compiling ouroboros_macro v0.18.5
+    Checking malachite-float v0.9.2
+   Compiling nickel-lang-parser v0.3.0
+    Checking codespan-reporting v0.13.1
+    Checking ouroboros v0.18.5
+    Checking codespan v0.13.1
+    Checking malachite v0.9.2
+    Checking nickel-lang-vector v0.2.0
+    Checking panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling nickel-lang-core v0.18.0
+    Checking panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+    Checking lalrpop-util v0.22.2
+    Checking serde_yaml v0.9.34+deprecated
+    Checking panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+    Checking sha2 v0.10.9
+    Checking sha-1 v0.10.1
+    Checking log v0.4.29
+    Checking bstr v1.12.1
+    Checking console v0.16.3
+    Checking similar v2.7.0
+    Checking globset v0.4.19
+    Checking insta v1.48.0
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/integration)
+   Compiling target-lexicon v0.13.5
+   Compiling synstructure v0.13.2
+    Checking pin-project-lite v0.2.17
+   Compiling zerofrom-derive v0.1.6
+   Compiling pyo3-build-config v0.29.2
+    Checking zerofrom v0.1.6
+   Compiling yoke-derive v0.8.1
+   Compiling pyo3-ffi v0.29.2
+    Checking futures-core v0.3.32
+    Checking stable_deref_trait v1.2.1
+    Checking bytes v1.11.1
+error: failed to run custom build command for `pyo3-ffi v0.29.2`
+
+Caused by:
+  process didn't exit successfully: `/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/build/pyo3-ffi-383097092c964600/build-script-build` (exit status: 1)
+  --- stdout
+  cargo:rustc-check-cfg=cfg(Py_LIMITED_API)
+  cargo:rustc-check-cfg=cfg(Py_GIL_DISABLED)
+  cargo:rustc-check-cfg=cfg(PyPy)
+  cargo:rustc-check-cfg=cfg(GraalPy)
+  cargo:rustc-check-cfg=cfg(RustPython)
+  cargo:rustc-check-cfg=cfg(py_sys_config, values("Py_DEBUG", "Py_REF_DEBUG", "Py_TRACE_REFS", "COUNT_ALLOCS"))
+  cargo:rustc-check-cfg=cfg(Py_3_8)
+  cargo:rustc-check-cfg=cfg(Py_3_9)
+  cargo:rustc-check-cfg=cfg(Py_3_10)
+  cargo:rustc-check-cfg=cfg(Py_3_11)
+  cargo:rustc-check-cfg=cfg(Py_3_12)
+  cargo:rustc-check-cfg=cfg(Py_3_13)
+  cargo:rustc-check-cfg=cfg(Py_3_14)
+  cargo:rustc-check-cfg=cfg(Py_3_15)
+  cargo:rustc-check-cfg=cfg(Py_3_16)
+  cargo:rerun-if-env-changed=PYO3_CONFIG_FILE
+  cargo:rerun-if-env-changed=PYO3_CROSS
+  cargo:rerun-if-env-changed=PYO3_CROSS_LIB_DIR
+  cargo:rerun-if-env-changed=PYO3_CROSS_PYTHON_VERSION
+  cargo:rerun-if-env-changed=PYO3_CROSS_PYTHON_IMPLEMENTATION
+  cargo:rerun-if-env-changed=PYO3_BUILD_EXTENSION_MODULE
+  cargo:rerun-if-env-changed=PYO3_NO_PYTHON
+  cargo:rerun-if-env-changed=PYO3_ENVIRONMENT_SIGNATURE
+  cargo:rerun-if-env-changed=PYO3_PYTHON
+  cargo:rerun-if-env-changed=VIRTUAL_ENV
+  cargo:rerun-if-env-changed=CONDA_PREFIX
+  cargo:rerun-if-env-changed=PATH
+
+  --- stderr
+  error: cannot set a minimum Python version 3.13 higher than the interpreter version 3.9 (the minimum Python version is implied by the abi3-py313 feature)
+warning: build failed, waiting for other jobs to finish...

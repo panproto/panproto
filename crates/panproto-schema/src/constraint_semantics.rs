@@ -48,13 +48,20 @@ pub enum ConstraintSemantics {
     Const,
     /// A regular expression a value matches.
     Pattern,
-    /// A value format of the named format family (such as `json-schema` or
-    /// `uima`). The family is descriptive: no check reads it.
+    /// A value format of the named format family (the schema language whose
+    /// vocabulary the format name comes from). The family is descriptive: no
+    /// check reads it.
     ///
     /// The constraint's value names the format
-    /// ([`ConstraintValue::Format`]'s `format`), from a fixed set of eight
+    /// ([`ConstraintValue::Format`]'s `format`), from a fixed set of sixteen
     /// names: `date-time` (also read as `datetime`), `date`, `time`, `uri`,
-    /// `uuid`, `ipv4`, `ipv6` and `did`. Validation compiles a constraint
+    /// `uuid`, `ipv4`, `ipv6`, `did`, and the AT Protocol Lexicon string
+    /// formats (<https://atproto.com/specs/lexicon>, "String Formats")
+    /// `at-identifier`, `at-uri`, `cid`, `handle`, `nsid`, `tid`,
+    /// `record-key` and `language` (a well-formed BCP 47 language tag).
+    /// Each is checked as the specification it points to defines its
+    /// syntax, and a value that fails is a failed check.
+    /// Validation compiles a constraint
     /// whose value names any other format to an unsupported declaration
     /// (`UnsupportedDeclaration`), never to a pass, whatever the family. The
     /// evaluator is `panproto_inst::validation::ValueFormat`, whose rustdoc
@@ -386,7 +393,7 @@ mod tests {
             ConstraintSemantics::Enum,
             ConstraintSemantics::Const,
             ConstraintSemantics::Pattern,
-            ConstraintSemantics::Format(Name::from("json-schema")),
+            ConstraintSemantics::Format(Name::from("family")),
             ConstraintSemantics::MinOutDegree,
             ConstraintSemantics::MaxOutDegree,
             ConstraintSemantics::RequiredValue,
@@ -446,8 +453,8 @@ mod tests {
             r#"{"max_length":"utf8_bytes"}"#
         );
         assert_eq!(
-            serde_json::to_string(&ConstraintSemantics::Format(Name::from("atproto")))?,
-            r#"{"format":"atproto"}"#
+            serde_json::to_string(&ConstraintSemantics::Format(Name::from("family")))?,
+            r#"{"format":"family"}"#
         );
         assert_eq!(
             serde_json::to_string(&ConstraintSemantics::RequiredValue)?,
@@ -522,12 +529,12 @@ mod tests {
                 ConstraintValue::Required(true),
             ),
             (
-                ConstraintSemantics::Format(Name::from("atproto")),
+                ConstraintSemantics::Format(Name::from("family")),
                 "format",
-                "at-uri",
+                "record-uri",
                 ConstraintValue::Format {
-                    family: Name::from("atproto"),
-                    format: Name::from("at-uri"),
+                    family: Name::from("family"),
+                    format: Name::from("record-uri"),
                 },
             ),
             (

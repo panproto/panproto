@@ -167,6 +167,7 @@ fn every_listed_protocol_is_reachable_through_its_dispatch() {
                 .err()
                 .map(|e| e.to_string()),
             Parser::Source(_) => parse_schema_source(d.name, "").err().map(|e| e.to_string()),
+            Parser::Programmatic => continue,
         };
         if let Some(message) = refusal {
             assert!(
@@ -221,4 +222,31 @@ fn an_unregistered_protocol_is_refused_by_both_dispatches() {
             .to_string()
             .contains("no source parser registered"),
     );
+}
+
+/// A protocol that reads no schema documents is refused by both
+/// dispatches with an error that says so, not as an unregistered name, and
+/// neither listing offers it.
+#[test]
+fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
+    let programmatic: Vec<&str> = descriptors()
+        .iter()
+        .filter(|d| matches!(d.parser, Parser::Programmatic))
+        .map(|d| d.name)
+        .collect();
+    assert_eq!(programmatic, ["csv", "toml", "yaml"]);
+    for name in programmatic {
+        for refusal in [
+            parse_schema_document(name, &serde_json::json!({})).err(),
+            parse_schema_source(name, "").err(),
+        ] {
+            let message = refusal.map(|e| e.to_string()).unwrap_or_default();
+            assert!(
+                message.contains("reads no schema documents"),
+                "{name}: {message:?}"
+            );
+        }
+        assert!(!document_parser_protocols().contains(&name));
+        assert!(!source_parser_protocols().contains(&name));
+    }
 }

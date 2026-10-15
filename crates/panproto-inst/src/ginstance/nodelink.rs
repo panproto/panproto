@@ -60,7 +60,13 @@ struct NodeLinkEdge {
     position: Option<u32>,
 }
 
-/// The node-link JSON form of a graph instance, arrays in ascending id order.
+/// The node-link JSON form of a graph instance, arrays in ascending id order
+/// and the keys of every object in ascending order.
+///
+/// The keys are ordered because a `serde_json::Value` lists them in insertion
+/// order when the build includes `serde_json`'s `preserve_order` feature and
+/// in ascending order otherwise; inserting them in ascending order makes the
+/// form, and every text written from it, the same in both builds.
 ///
 /// Values are written as serde writes [`Value`], except that a float JSON
 /// cannot represent is written as `{"Float": "NaN"}`, `{"Float": "Infinity"}`
@@ -84,10 +90,30 @@ pub fn to_node_link_json(graph: &GInstance) -> serde_json::Value {
         .collect();
     let nodes = nodes.into_iter().map(MarkedNode::new).collect();
     match serde_json::to_value(NodeLinkRef { nodes, edges }) {
-        Ok(value) => value,
+        Ok(value) => with_ascending_keys(value),
         // Every map in a graph is keyed by `String` and every other field is
         // a plain datum, which is exactly what `serde_json::Value` can hold.
         Err(err) => unreachable!("a graph instance always has a JSON form: {err}"),
+    }
+}
+
+/// `json` with the keys of every object inserted in ascending order.
+fn with_ascending_keys(json: serde_json::Value) -> serde_json::Value {
+    match json {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<(String, serde_json::Value)> = map.into_iter().collect();
+            entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+            serde_json::Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, with_ascending_keys(value)))
+                    .collect(),
+            )
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(with_ascending_keys).collect())
+        }
+        other => other,
     }
 }
 

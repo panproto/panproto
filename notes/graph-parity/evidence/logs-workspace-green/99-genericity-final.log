@@ -1,0 +1,43 @@
+# genericity on 9656ab69ba5424c327f529d90d9078749edff775 (tree = CI tree + baseline entries), 2026-10-14T16:28:41Z
+   Compiling regex-automata v0.4.14
+   Compiling lalrpop v0.22.2
+   Compiling logos-codegen v0.16.1
+   Compiling serde_json v1.0.151
+   Compiling tree-sitter v0.26.13
+   Compiling logos-derive v0.16.1
+   Compiling regex v1.12.3
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling logos v0.16.1
+   Compiling lalrpop-util v0.22.2
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling serde v1.0.229
+   Compiling panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling nickel-lang-parser v0.3.0
+   Compiling nickel-lang-core v0.18.0
+   Compiling tree-sitter-tags v0.26.13
+   Compiling bstr v1.12.1
+   Compiling globset v0.4.19
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-project)
+   Compiling panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/integration)
+   Compiling nickel-lang v2.2.0
+   Compiling panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-dsl-eval)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+────────────
+ Nextest run ID feaaa0ec-a3f1-46fb-9a59-23045faf8ebd with nextest profile: ci
+    Starting 3 tests across 1 binary
+        PASS [   0.016s] (1/3) panproto-integration-tests::genericity scanners_detect_synthetic_violations
+        PASS [   0.724s] (2/3) panproto-integration-tests::genericity no_programming_language_names_as_identifiers
+        PASS [   2.739s] (3/3) panproto-integration-tests::genericity no_protocol_names_in_generic_crates
+────────────
+     Summary [   2.741s] 3 tests run: 3 passed, 0 skipped

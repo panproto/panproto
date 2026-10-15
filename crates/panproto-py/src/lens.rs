@@ -150,6 +150,12 @@ impl PyLens {
     }
 
     /// Compose this lens with another: ``self ; other``.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If the boundary schemas differ, or the composite has more than
+    ///     one normal-form group, which no single ``Lens`` can hold.
     fn compose(&self, other: &Self) -> PyResult<Self> {
         let composed = lens::compose(&self.inner, &other.inner)
             .and_then(LensPath::into_single)
@@ -465,6 +471,16 @@ impl PyProtolensChain {
     }
 
     /// Instantiate against a concrete schema to produce a ``Lens``.
+    ///
+    /// The stages are instantiated in order, each against the target
+    /// schema of the one before, and the resulting path is returned as one
+    /// lens.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If a stage does not instantiate, or the path has more than one
+    ///     normal-form group, which no single ``Lens`` can hold.
     fn instantiate(&self, schema: &PySchema, protocol: &PyProtocol) -> PyResult<PyLens> {
         let mut lens_path: Option<LensPath> = None;
         for stage in self.stages.iter() {

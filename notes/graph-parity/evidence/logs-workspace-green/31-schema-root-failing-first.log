@@ -1,0 +1,16 @@
+test the_schema_root_of_a_parsed_record_is_its_root_anchor ... FAILED
+test the_laws_hold_for_the_post_lexicons_lens_to_itself_on_a_record ... FAILED
+
+failures:
+--
+thread 'the_schema_root_of_a_parsed_record_is_its_root_anchor' (86494853) panicked at tests/integration/tests/a_parsed_record_is_rooted_where_its_root_is_anchored.rs:35:5:
+assertion `left == right` failed
+  left: Name("app.bsky.feed.post")
+--
+thread 'the_laws_hold_for_the_post_lexicons_lens_to_itself_on_a_record' (86494852) panicked at tests/integration/tests/a_parsed_record_is_rooted_where_its_root_is_anchored.rs:61:5:
+GetPut: Err(GetPut { detail: "restored source differs from the original presentation" })
+
+--
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p panproto-integration-tests --test a_parsed_record_is_rooted_where_its_root_is_anchored`

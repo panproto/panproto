@@ -147,9 +147,11 @@ geoProtocol :: CanonicalProtocol
 geoProtocol = defaultProtocol {name = "geojson"}
 
 -- | A @post@ record with a string @text@ property: the shared fixture.
+-- Under @geojson@ a vertex with properties is a @feature-type@, the one
+-- kind its @prop@ edges may leave.
 postSchema :: Schema
 postSchema = S.buildSchema "geojson" $ do
-    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "post", S.kind = "feature-type", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
 
@@ -157,18 +159,28 @@ postSchema = S.buildSchema "geojson" $ do
 -- change relative to 'postSchema'.
 postSchemaPlus :: Schema
 postSchemaPlus = S.buildSchema "geojson" $ do
-    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "post", S.kind = "feature-type", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "title", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
     S.edge S.Edge {S.src = "post", S.tgt = "title", S.kind = "prop", S.name = Just "title"}
     S.constraint "title" S.Constraint {S.sort = "maxLength", S.value = "120"}
 
--- | The shared fixture with its edge kind renamed. This distinguishes the
+-- | The source of the theory-to-data cascade: a @post@ record with a
+-- @text@ property, under a protocol name no built-in declares, so the
+-- engine reads it under its default protocol, which admits any edge kind.
+-- @geojson@ admits only @prop@ edges, and the cascade renames @prop@.
+homSourceSchema :: Schema
+homSourceSchema = S.buildSchema "hom-fixture" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
+
+-- | 'homSourceSchema' with its edge kind renamed. This distinguishes the
 -- target schema from the source when the theory-to-data cascade returns a
 -- compiled migration.
 postSchemaRenamedEdge :: Schema
-postSchemaRenamedEdge = S.buildSchema "geojson" $ do
+postSchemaRenamedEdge = S.buildSchema "hom-fixture" $ do
     S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "field", S.name = Just "text"}
@@ -526,7 +538,7 @@ homSpanToOverlap =
 -- distinction and fails before the record can be carried forward.
 homInducedMigration :: IO ()
 homInducedMigration =
-    withSchema postSchema $ \src ->
+    withSchema homSourceSchema $ \src ->
         withSchema postSchemaRenamedEdge $ \tgt -> do
             let theoryMorph =
                     (emptyMorphism "rename-prop" "Source" "Target")

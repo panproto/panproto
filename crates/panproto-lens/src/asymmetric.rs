@@ -2042,6 +2042,17 @@ pub(crate) fn propagate_view_edits_through_inverse(
 ) {
     use panproto_inst::FieldTransform;
 
+    // A field the source carries and no transform writes, removes or
+    // rewrites reaches the view unchanged under its own name, so the view's
+    // value of it is an independent coordinate: an edit to it is the
+    // user's, and the snapshot's copy is only its value before the edit.
+    let untouched = untouched_by(transforms);
+    for (key, value) in view_fields {
+        if node.extra_fields.contains_key(key) && untouched(key) {
+            node.extra_fields.insert(key.clone(), value.clone());
+        }
+    }
+
     // Mutable working copy so ApplyExpr lookups see prior rewrites.
     let mut working: std::collections::HashMap<String, panproto_inst::value::Value> =
         view_fields.clone();
@@ -2090,9 +2101,14 @@ pub(crate) fn propagate_view_edits_through_inverse(
                 // expression read. The snapshot remains authoritative for
                 // every other source coordinate, including an existing
                 // coordinate overwritten by the computed key.
+                // While the source coordinate is still in the view the
+                // computed key is derived from it (`collect_derived_fields`):
+                // the view's own value of the source is authoritative and
+                // the inverse has no say.
                 if let Some(inv_expr) = inverse
                     && working.contains_key(target_key)
                     && let Some(source_key) = crate::derived::sole_source_var(expr)
+                    && !working.contains_key(&source_key)
                     // Only an `extra_fields` source can be written here. A
                     // child scalar lives on another node, and inserting it
                     // on this one would invent a field the source lacked;
@@ -2128,6 +2144,35 @@ pub(crate) fn propagate_view_edits_through_inverse(
             _ => {}
         }
     }
+}
+
+/// Whether a top-level `extra_fields` key passes through `transforms`
+/// unchanged: no transform writes it (as a rename, added, computed or
+/// rewritten key, including inside a `Case` branch or under a path), drops
+/// it, or leaves it outside a `KeepFields` retain set.
+fn untouched_by(transforms: &[panproto_inst::FieldTransform]) -> impl Fn(&str) -> bool + '_ {
+    use panproto_inst::FieldTransform;
+
+    fn touches(transform: &FieldTransform, key: &str) -> bool {
+        match transform {
+            FieldTransform::RenameField { old_key, new_key } => old_key == key || new_key == key,
+            FieldTransform::DropField { key: k }
+            | FieldTransform::AddField { key: k, .. }
+            | FieldTransform::ApplyExpr { key: k, .. }
+            | FieldTransform::ComputeField { target_key: k, .. }
+            | FieldTransform::MapReferences { field: k, .. } => k == key,
+            FieldTransform::KeepFields { keys } => !keys.iter().any(|k| k == key),
+            FieldTransform::PathTransform { path, inner } => path
+                .first()
+                .map_or_else(|| touches(inner, key), |first| first == key),
+            FieldTransform::Case { branches } => branches
+                .iter()
+                .flat_map(|branch| branch.transforms.iter())
+                .any(|t| touches(t, key)),
+        }
+    }
+
+    move |key| !transforms.iter().any(|t| touches(t, key))
 }
 
 /// Apply inverse field transforms to a node, undoing the forward coercion.

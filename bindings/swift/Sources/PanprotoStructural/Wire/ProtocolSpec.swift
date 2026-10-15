@@ -13,17 +13,190 @@ public struct CompositionSpec: Codable, Hashable, Sendable {
     public var resultName: String
     /// The steps, in the order they are replayed.
     public var steps: [CompositionStep]
+    /// The recipe format: 0 for a recipe of base steps and amalgamating
+    /// colimits, 1 for one that holds a ``CompositionStep/diagram(nodes:edges:mode:clash:rewriteBudget:inline:)``
+    /// step or a colimit in another mode.
+    public var version: UInt16
 
-    /// Record a recipe that produces `resultName` by running `steps`.
+    /// Record a recipe that produces `resultName` by running `steps`,
+    /// in the least format that expresses them.
     public init(resultName: String, steps: [CompositionStep]) {
         self.resultName = resultName
         self.steps = steps
+        self.version = steps.contains(where: \.needsRecipeFormatOne) ? 1 : 0
     }
 
     /// The wire spelling of each field.
     private enum CodingKeys: String, CodingKey {
         case resultName = "result_name"
         case steps
+        case version
+    }
+
+    /// Read a recipe; an absent format is format 0.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        resultName = try container.decode(String.self, forKey: .resultName)
+        steps = try container.decode([CompositionStep].self, forKey: .steps)
+        version = try container.decodeIfPresent(UInt16.self, forKey: .version) ?? 0
+    }
+
+    /// Write a recipe, leaving format 0 implicit as the engine reads it.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(resultName, forKey: .resultName)
+        try container.encode(steps, forKey: .steps)
+        if version != 0 {
+            try container.encode(version, forKey: .version)
+        }
+    }
+}
+
+/// How a colimit identifies the symbols of the theories it joins.
+public enum CompositionMode: String, Codable, Hashable, Sendable, CaseIterable {
+    /// Identify what the morphisms relate and, in addition, every two
+    /// same-kind symbols with the same name.
+    case amalgamate
+    /// Identify exactly what the morphisms relate; same-name symbols they
+    /// do not relate stay distinct and are named by the ``ClashPolicy``.
+    case explicitIdentity = "explicit_identity"
+}
+
+/// What a composition does when two classes of one kind would share a
+/// name.
+public enum ClashPolicy: String, Codable, Hashable, Sendable, CaseIterable {
+    /// Rename each clashing class after its least member's label.
+    case freshen
+    /// Refuse the composition.
+    case reject
+}
+
+/// The image of an operation under a ``RecipeEdge``.
+///
+/// The engine tags this externally in `snake_case`, so an image is a
+/// one-entry map keyed `op` or `term`.
+public enum RecipeOpImage: Codable, Hashable, Sendable {
+    /// A rename to a codomain operation.
+    case op(String)
+    /// A derived term over the codomain's operations.
+    case term(Term)
+
+    /// The variant names the wire tags an image with.
+    private enum Tag: String, CodingKey {
+        case op
+        case term
+    }
+
+    /// Read the one-entry map that tags the image.
+    ///
+    /// - Throws: `DecodingError.dataCorrupted` when the map does not
+    ///   hold exactly one recognized variant name.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: Tag.self)
+        guard container.allKeys.count == 1, let tag = container.allKeys.first else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription:
+                        "an operation image is a map holding one variant name, found \(container.allKeys.count)"
+                )
+            )
+        }
+        switch tag {
+        case .op: self = .op(try container.decode(String.self, forKey: .op))
+        case .term: self = .term(try container.decode(Term.self, forKey: .term))
+        }
+    }
+
+    /// Write the one-entry map that tags the image.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: Tag.self)
+        switch self {
+        case .op(let name): try container.encode(name, forKey: .op)
+        case .term(let term): try container.encode(term, forKey: .term)
+        }
+    }
+}
+
+/// One pair of a ``RecipeEdge``'s sort map: a domain sort and its image.
+///
+/// The engine writes the pair as a two-element array.
+public struct RecipeSortPair: Codable, Hashable, Sendable {
+    /// The domain sort.
+    public var domain: String
+    /// The codomain sort it maps to.
+    public var image: String
+
+    /// Pair `domain` with `image`.
+    public init(domain: String, image: String) {
+        self.domain = domain
+        self.image = image
+    }
+
+    /// Read the two-element array.
+    public init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        domain = try container.decode(String.self)
+        image = try container.decode(String.self)
+    }
+
+    /// Write the two-element array.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(domain)
+        try container.encode(image)
+    }
+}
+
+/// One pair of a ``RecipeEdge``'s operation map: a domain operation and
+/// its image.
+///
+/// The engine writes the pair as a two-element array.
+public struct RecipeOpPair: Codable, Hashable, Sendable {
+    /// The domain operation.
+    public var domain: String
+    /// What it maps to.
+    public var image: RecipeOpImage
+
+    /// Pair `domain` with `image`.
+    public init(domain: String, image: RecipeOpImage) {
+        self.domain = domain
+        self.image = image
+    }
+
+    /// Read the two-element array.
+    public init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        domain = try container.decode(String.self)
+        image = try container.decode(RecipeOpImage.self)
+    }
+
+    /// Write the two-element array.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(domain)
+        try container.encode(image)
+    }
+}
+
+/// One edge of a diagram step: a theory morphism between two of its
+/// nodes, by name.
+public struct RecipeEdge: Codable, Hashable, Sendable {
+    /// The domain node's name.
+    public var src: String
+    /// The codomain node's name.
+    public var tgt: String
+    /// The sort map.
+    public var sorts: [RecipeSortPair]
+    /// The operation map.
+    public var ops: [RecipeOpPair]
+
+    /// State the morphism from `src` to `tgt`.
+    public init(src: String, tgt: String, sorts: [RecipeSortPair] = [], ops: [RecipeOpPair] = []) {
+        self.src = src
+        self.tgt = tgt
+        self.sorts = sorts
+        self.ops = ops
     }
 }
 
@@ -39,13 +212,42 @@ public enum CompositionStep: Codable, Hashable, Sendable {
     case base(String)
     /// The colimit of two theories, identifying the listed sorts and
     /// operations. An operation listed in `sharedOps` must exist in
-    /// both theories with compatible signatures.
-    case colimit(left: String, right: String, sharedSorts: [String], sharedOps: [String])
+    /// both theories with compatible signatures. `mode` says whether
+    /// same-name symbols are identified as well.
+    case colimit(
+        left: String,
+        right: String,
+        sharedSorts: [String],
+        sharedOps: [String],
+        mode: CompositionMode = .amalgamate
+    )
+    /// The colimit of a whole diagram: its nodes by name (each resolved
+    /// against `inline`, then the registry and earlier steps), the
+    /// morphisms between them, the composition mode and clash policy,
+    /// the rewrite budget, and the theories the diagram builds itself.
+    case diagram(
+        nodes: [String],
+        edges: [RecipeEdge],
+        mode: CompositionMode,
+        clash: ClashPolicy,
+        rewriteBudget: UInt32,
+        inline: [Theory]
+    )
+
+    /// Whether the step needs recipe format 1.
+    var needsRecipeFormatOne: Bool {
+        switch self {
+        case .base: false
+        case .colimit(_, _, _, _, let mode): mode != .amalgamate
+        case .diagram: true
+        }
+    }
 
     /// The variant names the wire tags a step with.
     private enum Tag: String, CodingKey {
         case base = "Base"
         case colimit = "Colimit"
+        case diagram = "Diagram"
     }
 
     /// The field names inside a `Colimit` payload.
@@ -54,6 +256,17 @@ public enum CompositionStep: Codable, Hashable, Sendable {
         case right
         case sharedSorts = "shared_sorts"
         case sharedOps = "shared_ops"
+        case mode
+    }
+
+    /// The field names inside a `Diagram` payload.
+    private enum DiagramKey: String, CodingKey {
+        case nodes
+        case edges
+        case mode
+        case clash
+        case rewriteBudget = "rewrite_budget"
+        case inline
     }
 
     /// Read the one-entry map that tags the step.
@@ -81,23 +294,47 @@ public enum CompositionStep: Codable, Hashable, Sendable {
                 left: try payload.decode(String.self, forKey: .left),
                 right: try payload.decode(String.self, forKey: .right),
                 sharedSorts: try payload.decode([String].self, forKey: .sharedSorts),
-                sharedOps: try payload.decodeIfPresent([String].self, forKey: .sharedOps) ?? []
+                sharedOps: try payload.decodeIfPresent([String].self, forKey: .sharedOps) ?? [],
+                mode: try payload.decodeIfPresent(CompositionMode.self, forKey: .mode)
+                    ?? .amalgamate
+            )
+        case .diagram:
+            let payload = try container.nestedContainer(keyedBy: DiagramKey.self, forKey: .diagram)
+            self = .diagram(
+                nodes: try payload.decode([String].self, forKey: .nodes),
+                edges: try payload.decode([RecipeEdge].self, forKey: .edges),
+                mode: try payload.decode(CompositionMode.self, forKey: .mode),
+                clash: try payload.decode(ClashPolicy.self, forKey: .clash),
+                rewriteBudget: try payload.decode(UInt32.self, forKey: .rewriteBudget),
+                inline: try payload.decode([Theory].self, forKey: .inline)
             )
         }
     }
 
-    /// Write the one-entry map that tags the step.
+    /// Write the one-entry map that tags the step. A colimit in the
+    /// amalgamating mode leaves the mode implicit, as the engine reads it.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: Tag.self)
         switch self {
         case .base(let theory):
             try container.encode(theory, forKey: .base)
-        case .colimit(let left, let right, let sharedSorts, let sharedOps):
+        case .colimit(let left, let right, let sharedSorts, let sharedOps, let mode):
             var payload = container.nestedContainer(keyedBy: ColimitKey.self, forKey: .colimit)
             try payload.encode(left, forKey: .left)
             try payload.encode(right, forKey: .right)
             try payload.encode(sharedSorts, forKey: .sharedSorts)
             try payload.encode(sharedOps, forKey: .sharedOps)
+            if mode != .amalgamate {
+                try payload.encode(mode, forKey: .mode)
+            }
+        case .diagram(let nodes, let edges, let mode, let clash, let rewriteBudget, let inline):
+            var payload = container.nestedContainer(keyedBy: DiagramKey.self, forKey: .diagram)
+            try payload.encode(nodes, forKey: .nodes)
+            try payload.encode(edges, forKey: .edges)
+            try payload.encode(mode, forKey: .mode)
+            try payload.encode(clash, forKey: .clash)
+            try payload.encode(rewriteBudget, forKey: .rewriteBudget)
+            try payload.encode(inline, forKey: .inline)
         }
     }
 }

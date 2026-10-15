@@ -1,0 +1,30 @@
+21:14  up 6 days, 21:44, 4 users, load averages: 12.03 14.85 32.96
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/law_reference.rs (/Users/awhite48/Projects/phrom/target-lanes/workspace-green/debug/deps/law_reference-5309d44e7f55a185)
+
+running 1 test
+test check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses has been running for over 60 seconds
+small table-lens bound: rows<=2 columns<=2 six-value alphabet plus absence; lenses=7 source/lens cases=9921
+test check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 782.39s
+
+      783.18 real       762.39 user         0.81 sys
+            76038144  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                8025  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   2  voluntary context switches
+               90365  involuntary context switches
+          1383630402  instructions retired
+           434364633  cycles elapsed
+            56264064  peak memory footprint
+21:27  up 6 days, 21:58, 4 users, load averages: 45.33 18.83 22.10

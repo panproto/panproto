@@ -498,7 +498,13 @@ pub fn emit_xml_bytes(
     instance: &WInstance,
     protocol: &str,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    crate::json_pathway::validate_canonical_tree_structure(schema, instance, protocol, "XML")?;
+    crate::json_pathway::validate_canonical_tree_structure(
+        schema,
+        instance,
+        protocol,
+        "XML",
+        crate::json_pathway::TreeReader::Canonical,
+    )?;
     let mut writer = quick_xml::Writer::new(Vec::new());
     let protocol_definition = protocol_definition(protocol);
     let context = XmlEmitContext {

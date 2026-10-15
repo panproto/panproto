@@ -30,9 +30,10 @@ pub enum PresentationComplement {
     /// The exact layout of a delimiter-separated byte format: line endings,
     /// comments and the final newline.
     ByteTabular(crate::byte_tabular::ByteTabularComplement),
-    /// The concrete syntax tree of a grammar-backed format.
+    /// The concrete syntax tree of a grammar-backed format, boxed because
+    /// a tree is far larger than the other arms.
     #[cfg(feature = "tree-sitter")]
-    Cst(crate::cst_extract::CstComplement),
+    Cst(Box<crate::cst_extract::CstComplement>),
 }
 
 /// The state of a preserving resolved route: the presentation state of the
@@ -186,9 +187,10 @@ impl ProtocolCodec for crate::annotation::conllu::ConlluCodec {}
 impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
     fn parse_functor_preserving(
         &self,
-        _schema: &Schema,
+        schema: &Schema,
         input: &[u8],
     ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
+        self.check_parse_entry(schema)?;
         self.parse(input)
             .map(|(table, layout)| (table, Some(PresentationComplement::ByteTabular(layout))))
     }
@@ -199,6 +201,7 @@ impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
         instance: &FInstance,
         complement: Option<&PresentationComplement>,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        self.check_emit_entry(schema)?;
         match complement {
             None => self.emit_functor(schema, instance),
             Some(PresentationComplement::ByteTabular(layout)) => self.emit(instance, layout),
@@ -217,8 +220,10 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
-        crate::unified_codec::UnifiedCodec::parse_functor_preserving(self, schema, input)
-            .map(|(table, cst)| (table, Some(PresentationComplement::Cst(cst))))
+        // `Self::` names the inherent method: inherent associated functions
+        // take precedence over trait ones in path resolution.
+        Self::parse_functor_preserving(self, schema, input)
+            .map(|(table, cst)| (table, Some(PresentationComplement::Cst(Box::new(cst)))))
     }
 
     fn emit_functor_preserving(
@@ -230,9 +235,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         match complement {
             None => self.emit_functor(schema, instance),
             Some(PresentationComplement::Cst(cst)) => {
-                crate::unified_codec::UnifiedCodec::emit_functor_preserving(
-                    self, schema, instance, cst,
-                )
+                Self::emit_functor_preserving(self, schema, instance, cst)
             }
             Some(PresentationComplement::ByteTabular(_)) => {
                 Err(unreplayable(InstanceParser::protocol_name(self)))
@@ -245,12 +248,10 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(WInstance, Option<crate::cst_extract::CstComplement>), ParseInstanceError> {
-        // Disambiguate from the trait method of the same name to
-        // call the inherent method on UnifiedCodec; `Self::…` would
-        // recurse into the trait method we are implementing.
-        #[allow(clippy::use_self)]
-        let (instance, complement) =
-            crate::unified_codec::UnifiedCodec::parse_wtype_preserving(self, schema, input)?;
+        // `Self::` names the inherent method of the same name, not this
+        // trait method: inherent associated functions take precedence over
+        // trait ones in path resolution.
+        let (instance, complement) = Self::parse_wtype_preserving(self, schema, input)?;
         Ok((instance, Some(complement)))
     }
 
@@ -261,10 +262,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         complement: Option<&crate::cst_extract::CstComplement>,
     ) -> Result<Vec<u8>, EmitInstanceError> {
         if let Some(comp) = complement {
-            #[allow(clippy::use_self)]
-            return crate::unified_codec::UnifiedCodec::emit_wtype_preserving(
-                self, schema, instance, comp,
-            );
+            return Self::emit_wtype_preserving(self, schema, instance, comp);
         }
         self.emit_wtype(schema, instance)
     }
@@ -1303,7 +1301,7 @@ impl ProtocolRegistry {
                     .map(|(tree, cst)| {
                         (
                             AnyInstance::Tree(tree),
-                            cst.map(PresentationComplement::Cst),
+                            cst.map(|cst| PresentationComplement::Cst(Box::new(cst))),
                         )
                     })
             }

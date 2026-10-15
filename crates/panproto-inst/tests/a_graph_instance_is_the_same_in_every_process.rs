@@ -269,3 +269,24 @@ fn a_non_finite_float_leaves_a_nodes_field_order_alone() {
         )
     );
 }
+
+/// Whether every object in `json` lists its keys in ascending order.
+fn keys_ascend_everywhere(json: &serde_json::Value) -> bool {
+    match json {
+        serde_json::Value::Object(map) => {
+            map.keys().zip(map.keys().skip(1)).all(|(a, b)| a < b)
+                && map.values().all(keys_ascend_everywhere)
+        }
+        serde_json::Value::Array(items) => items.iter().all(keys_ascend_everywhere),
+        _ => true,
+    }
+}
+
+/// A `serde_json::Value` keeps its objects sorted by key, unless the build
+/// includes `serde_json`'s `preserve_order` feature, which keeps them in
+/// insertion order. The node-link form is such a value, so it must insert
+/// every key in ascending order for its text to be the same in both builds.
+#[test]
+fn the_node_link_form_lists_object_keys_in_ascending_order_in_every_build() {
+    assert!(keys_ascend_everywhere(&to_node_link_json(&wide_graph())));
+}

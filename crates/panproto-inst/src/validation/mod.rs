@@ -23,8 +23,10 @@
 //!
 //! A [`ConstraintSemantics::Format`](panproto_schema::ConstraintSemantics::Format)
 //! constraint is evaluated for the fixed set of [`ValueFormat`]s: `date-time`
-//! (also `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`, `ipv6` and
-//! `did`. Any other format is an unsupported declaration.
+//! (also `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`, `ipv6`, `did`,
+//! and the AT Protocol Lexicon string formats `at-identifier`, `at-uri`,
+//! `cid`, `handle`, `nsid`, `tid`, `record-key` and `language`. Any other
+//! format is an unsupported declaration.
 //!
 //! ```
 //! use panproto_inst::validation::validate_graph;
@@ -50,6 +52,7 @@
 
 mod checks;
 mod footprint;
+mod lexicon_formats;
 mod plan;
 mod report;
 mod schedule;
@@ -1070,7 +1073,7 @@ mod subset_tests {
     }
 
     #[test]
-    fn subset_validation_trusts_the_selected_subject_schedule() {
+    fn subset_validation_relies_on_the_selected_subject_schedule() {
         let (plan, graph, selected) = fixture();
         let foreign_key = CheckKey::new(CheckKind::NodeAnchor, SchemaRef::Vertex("item".into()));
         let admitted = BTreeSet::from([

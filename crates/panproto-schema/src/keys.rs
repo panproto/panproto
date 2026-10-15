@@ -53,8 +53,8 @@ pub enum KeyRole {
     Primary,
     /// A uniqueness constraint that is not the primary key.
     Unique,
-    /// An identifier other elements refer to (`xml:id`, `@id`, a GraphQL
-    /// `ID`, a variable binder).
+    /// An identifier other elements refer to (`xml:id`, `@id`, a field of
+    /// an `ID` scalar type, a variable binder).
     Identifier,
 }
 

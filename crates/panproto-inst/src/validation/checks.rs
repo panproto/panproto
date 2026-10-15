@@ -2113,6 +2113,14 @@ fn format_matches(format: ValueFormat, value: &Value) -> Result<bool, String> {
                     && !id.chars().any(char::is_whitespace)
             })
         }),
+        ValueFormat::AtIdentifier => super::lexicon_formats::is_at_identifier(text),
+        ValueFormat::AtUri => super::lexicon_formats::is_at_uri(text),
+        ValueFormat::Cid => super::lexicon_formats::is_cid(text),
+        ValueFormat::Handle => super::lexicon_formats::is_handle(text),
+        ValueFormat::Nsid => super::lexicon_formats::is_nsid(text),
+        ValueFormat::Tid => super::lexicon_formats::is_tid(text),
+        ValueFormat::RecordKey => super::lexicon_formats::is_record_key(text),
+        ValueFormat::Language => super::lexicon_formats::is_language(text),
     })
 }
 

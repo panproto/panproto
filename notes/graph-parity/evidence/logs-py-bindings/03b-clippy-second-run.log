@@ -1,0 +1,80 @@
+    Checking panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-io)
+    Checking panproto-grammars-data v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-grammars-data)
+    Checking panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-parse)
+    Checking panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-core)
+    Checking panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-c)
+    Checking panproto-wasm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-wasm)
+    Checking book-doctest-stub v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/book-doctest-stub)
+    Checking panproto-cli v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-cli)
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/tests/integration)
+    Checking panproto-py v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-py)
+error: this function has too many lines (112/100)
+   --> tests/integration/tests/atproto_recursive.rs:370:1
+    |
+370 | fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error>> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+    = note: `-D clippy::too-many-lines` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_lines)]`
+
+error: this function has too many lines (112/100)
+   --> tests/integration/tests/atproto_recursive.rs:504:1
+    |
+504 | fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Error>> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+
+error: could not compile `panproto-integration-tests` (test "atproto_recursive") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: pub(crate) function inside private module
+  --> crates/panproto-py/src/inst.rs:35:1
+   |
+35 | pub(crate) fn required_messages(report: &ValidationReport) -> Vec<String> {
+   | ----------^^^^^^^^^^^^^^^^^^^^^
+   | |
+   | help: consider using: `pub`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_pub_crate
+   = note: `-D clippy::redundant-pub-crate` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::redundant_pub_crate)]`
+
+error: could not compile `panproto-py` (lib) due to 1 previous error
+error: could not compile `panproto-py` (lib test) due to 1 previous error
+error: this function has too many lines (112/100)
+    --> crates/panproto-io/tests/value_fidelity_corpus.rs:1431:5
+     |
+1431 |     fn public_tabular_codecs_preserve_exact_value_variants() {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+     = note: `-D clippy::too-many-lines` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_lines)]`
+
+error: this function has too many lines (248/100)
+    --> crates/panproto-io/tests/value_fidelity_corpus.rs:1988:5
+     |
+1988 |     fn json_cst_yaml_cst_and_toml_cst_exact_routes_force_a_rerender() {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+
+error: this function has too many lines (115/100)
+    --> crates/panproto-io/tests/value_fidelity_corpus.rs:2573:5
+     |
+2573 |     fn xml_cst_exact_values_and_nil_semantics_survive_forced_rerenders() {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+
+error: this function has too many lines (193/100)
+    --> crates/panproto-io/tests/value_fidelity_corpus.rs:3136:5
+     |
+3136 |     fn delimited_cst_routes_force_exact_cell_rerenders() {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_lines
+
+error: could not compile `panproto-io` (test "value_fidelity_corpus") due to 4 previous errors
+clippy=101

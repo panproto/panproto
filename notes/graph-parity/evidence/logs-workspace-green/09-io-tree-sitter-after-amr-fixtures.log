@@ -1,0 +1,712 @@
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s
+────────────
+ Nextest run ID c5520f03-d229-44a1-a89a-455dc67046c1 with nextest profile: ci
+    Starting 666 tests across 19 binaries
+        PASS [   0.018s] (  1/666) panproto-io arena::tests::arena_str_roundtrip
+        PASS [   0.025s] (  2/666) panproto-io byte_tabular::tests::a_non_utf8_cell_can_be_replaced_with_text
+        PASS [   0.030s] (  3/666) panproto-io byte_tabular::tests::a_file_without_data_lines_round_trips
+        PASS [   0.035s] (  4/666) panproto-io byte_tabular::tests::a_literal_underscore_is_not_absence
+        PASS [   0.044s] (  5/666) panproto-io byte_tabular::tests::a_comment_prefix_outside_the_first_field_round_trips_as_data
+        PASS [   0.050s] (  6/666) panproto-io arena::tests::parsing_arena_nonzero
+        PASS [   0.039s] (  7/666) panproto-io byte_tabular::tests::canonical_emission_refuses_a_gap_in_positional_columns
+        PASS [   0.063s] (  8/666) panproto-io byte_tabular::tests::a_line_delimiter_cannot_also_split_fields
+        PASS [   0.069s] (  9/666) panproto-io byte_tabular::tests::a_complement_cannot_be_replayed_through_another_codec_configuration
+        PASS [   0.076s] ( 10/666) panproto-io byte_tabular::tests::byte_tabular_labelled_null_refusal_uses_row_then_column_order
+        PASS [   0.046s] ( 11/666) panproto-io byte_tabular::tests::edits_cannot_turn_a_data_row_into_a_comment_or_blank_line
+        PASS [   0.029s] ( 12/666) panproto-io byte_tabular::tests::non_utf8_cells_round_trip_byte_identically
+        PASS [   0.049s] ( 13/666) panproto-io byte_tabular::tests::empty_fields_preserved
+        PASS [   0.068s] ( 14/666) panproto-io byte_tabular::tests::edit_rewrites_one_cell
+        PASS [   0.054s] ( 15/666) panproto-io byte_tabular::tests::no_trailing_newline_preserved
+        PASS [   0.085s] ( 16/666) panproto-io byte_tabular::tests::crlf_preserved
+        PASS [   0.053s] ( 17/666) panproto-io byte_tabular::tests::round_trip_is_byte_identical
+        PASS [   0.045s] ( 18/666) panproto-io byte_tabular::tests::the_byte_tabular_codec_refuses_a_labelled_null
+        PASS [   0.129s] ( 19/666) panproto-io byte_tabular::tests::blank_and_comment_lines_preserved
+        PASS [   0.053s] ( 20/666) panproto-io cst_extract::tests::a_legacy_msgpack_complement_decodes_without_provenance
+        PASS [   0.041s] ( 21/666) panproto-io cst_extract::tests::childless_xml_elements_may_gain_a_value_slot
+        PASS [   0.058s] ( 22/666) panproto-io cst_extract::tests::a_lone_surrogate_keeps_its_escape_text
+        PASS [   0.047s] ( 23/666) panproto-io cst_extract::tests::codecs_write_exact_values_in_native_form
+        PASS [   0.045s] ( 24/666) panproto-io cst_extract::tests::cst_json_zero_numerals_keep_their_sign_whatever_their_exponent
+        PASS [   0.045s] ( 25/666) panproto-io cst_extract::tests::emit_returns_typed_value_errors_instead_of_debug_text
+        PASS [   0.045s] ( 26/666) panproto-io cst_extract::tests::fixed_tree_csts_accept_value_edits_but_refuse_structural_edits
+        PASS [   0.028s] ( 27/666) panproto-io cst_extract::tests::json_string_token_errors_name_document_offsets
+        PASS [   0.027s] ( 28/666) panproto-io cst_extract::tests::simple_escapes_and_bmp_escapes_decode
+        PASS [   0.114s] ( 29/666) panproto-io byte_tabular::tests::structural_row_and_column_edits_are_refused_instead_of_replayed
+        PASS [   0.027s] ( 30/666) panproto-io cst_extract::tests::surrogate_pairs_decode_to_the_astral_character
+        PASS [   0.038s] ( 31/666) panproto-io cst_extract::tests::source_compatible_errors_keep_structured_codec_errors
+        PASS [   0.060s] ( 32/666) panproto-io cst_extract::tests::json_bigint_exponent_forms_are_schema_directed
+        PASS [   0.071s] ( 33/666) panproto-io cst_extract::tests::format_kind_grammar_names
+        PASS [   0.082s] ( 34/666) panproto-io cst_extract::tests::fixed_tree_csts_refuse_unaddressed_metadata_edits
+        PASS [   0.050s] ( 35/666) panproto-io cst_extract::tests::toml_exact_number_tokens_are_schema_directed_and_reparsed
+        PASS [   0.044s] ( 36/666) panproto-io cst_extract::tests::trailing_empty_tabular_rows_count_cr_line_endings
+        PASS [   0.044s] ( 37/666) panproto-io cst_extract::tests::unchanged_nan_uses_its_ieee_representation
+        PASS [   0.047s] ( 38/666) panproto-io cst_extract::tests::unrecognised_escapes_survive_verbatim
+        PASS [   0.053s] ( 39/666) panproto-io cst_extract::tests::undeclared_generic_values_obey_the_extraction_depth_bound
+        PASS [   0.047s] ( 40/666) panproto-io cst_extract::tests::xml_text_decodes_safe_references_without_dropping_unknown_entities
+        PASS [   0.048s] ( 41/666) panproto-io cst_extract::tests::yaml_canonical_nan_spellings_retain_their_sign
+        PASS [   0.030s] ( 42/666) panproto-io error::unified_codec_error_tests::missing_grammar_message_names_format_and_feature
+        PASS [   0.047s] ( 43/666) panproto-io cst_extract::tests::yaml_quoted_block_and_tagged_scalars_decode_semantically
+        PASS [   0.176s] ( 44/666) panproto-io cst_extract::tests::a_structural_node_at_the_last_id_is_not_provenance
+        PASS [   0.102s] ( 45/666) panproto-io cst_extract::tests::toml_multiline_basic_string_continuations_trim_layout
+        PASS [   0.069s] ( 46/666) panproto-io cst_extract::tests::yaml_exact_number_lexemes_bypass_the_yaml_number_carrier
+        PASS [   0.063s] ( 47/666) panproto-io error::emit_value_error_tests::output_byte_limit_has_a_stable_diagnostic
+        PASS [   0.050s] ( 48/666) panproto-io json_codec::tests::a_declared_entry_outside_the_schema_is_refused
+        PASS [   0.038s] ( 49/666) panproto-io json_codec::tests::json_codec_empty_schema_is_a_typed_mismatch
+        PASS [   0.038s] ( 50/666) panproto-io json_codec::tests::json_codec_fallback_is_independent_of_vertex_insertion_order
+        PASS [   0.023s] ( 51/666) panproto-io json_pathway::tests::a_bigint_is_written_within_the_output_allowance
+        PASS [   0.044s] ( 52/666) panproto-io json_codec::tests::json_codec_functor_unsupported
+        PASS [   0.072s] ( 53/666) panproto-io json_codec::tests::explicit_entry_resolution_requires_a_schema_vertex
+        PASS [   0.028s] ( 54/666) panproto-io json_pathway::tests::a_negative_nan_lexeme_keeps_its_sign_on_every_route
+        PASS [   0.056s] ( 55/666) panproto-io json_codec::tests::json_codec_prefers_the_declared_entry
+        PASS [   0.056s] ( 56/666) panproto-io json_codec::tests::json_codec_roundtrip
+        PASS [   0.023s] ( 57/666) panproto-io json_pathway::tests::canonical_json_anchor_checks_follow_the_emitted_syntax
+        PASS [   0.040s] ( 58/666) panproto-io json_pathway::tests::anonymous_schema_edges_do_not_hide_record_fields
+        PASS [   0.028s] ( 59/666) panproto-io json_pathway::tests::canonical_json_refuses_schema_claimed_and_ambiguous_object_keys
+        PASS [   0.120s] ( 60/666) panproto-io error::unified_codec_error_tests::parser_init_carries_source_chain
+        PASS [   0.066s] ( 61/666) panproto-io json_pathway::tests::a_non_string_type_member_remains_ordinary_data
+        PASS [   0.036s] ( 62/666) panproto-io json_pathway::tests::canonical_json_uses_exactly_the_parser_selected_list_carrier
+        PASS [   0.126s] ( 63/666) panproto-io json_codec::tests::json_codec_cyclic_schema_uses_deterministic_primary_fallback
+        PASS [   0.023s] ( 64/666) panproto-io json_pathway::tests::integral_float_keeps_its_json_number_class
+        PASS [   0.043s] ( 65/666) panproto-io json_pathway::tests::every_float_writer_uses_the_shared_printer
+        PASS [   0.065s] ( 66/666) panproto-io json_pathway::tests::canonical_json_rejects_incoherent_schema_edge_indices
+        PASS [   0.060s] ( 67/666) panproto-io json_pathway::tests::duplicate_object_keys_are_rejected_at_every_depth
+        PASS [   0.034s] ( 68/666) panproto-io json_pathway::tests::json_codec_rejects_yaml_input
+        PASS [   0.059s] ( 69/666) panproto-io json_pathway::tests::extra_field_errors_follow_key_order
+        PASS [   0.049s] ( 70/666) panproto-io json_pathway::tests::invalid_json_returns_error
+        PASS [   0.039s] ( 71/666) panproto-io json_pathway::tests::json_numerals_beyond_the_decimal_exponent_range_are_typed_refusals
+        PASS [   0.115s] ( 72/666) panproto-io json_pathway::tests::base64_encoders_emit_canonical_padding
+        PASS [   0.033s] ( 73/666) panproto-io json_pathway::tests::json_refuses_absent_children_with_retained_structure
+        PASS [   0.065s] ( 74/666) panproto-io json_pathway::tests::json_nesting_bound_counts_every_value_including_empty_containers
+        PASS [   0.055s] ( 75/666) panproto-io json_pathway::tests::json_parse_errors_name_input_bytes_and_document_offsets
+        PASS [   0.028s] ( 76/666) panproto-io json_pathway::tests::json_refuses_scalar_nodes_with_unrepresentable_structure
+        PASS [   0.039s] ( 77/666) panproto-io json_pathway::tests::json_refuses_presence_states_and_shapes_its_scalar_syntax_collapses
+        PASS [   0.049s] ( 78/666) panproto-io json_pathway::tests::json_refuses_object_key_collisions
+        PASS [   0.071s] ( 79/666) panproto-io json_pathway::tests::json_pathway_reads_long_decimals_exactly
+        PASS [   0.045s] ( 80/666) panproto-io json_pathway::tests::json_refuses_values_that_change_type_when_reparsed
+        PASS [   0.188s] ( 81/666) panproto-io json_pathway::tests::a_decimal_zero_beyond_i32_keeps_its_scale_on_every_route
+        PASS [   0.028s] ( 82/666) panproto-io json_pathway::tests::open_schema_arrays_keep_every_item
+        PASS [   0.039s] ( 83/666) panproto-io json_pathway::tests::non_finite_json_emit_is_a_typed_value_error
+        PASS [   0.054s] ( 84/666) panproto-io json_pathway::tests::json_zero_numerals_keep_their_sign_whatever_their_exponent
+        PASS [   0.034s] ( 85/666) panproto-io json_pathway::tests::plain_text_preflight_checks_the_complete_value_spec
+        PASS [   0.063s] ( 86/666) panproto-io json_pathway::tests::large_numerals_parse_without_loss_or_rejection
+        PASS [   0.056s] ( 87/666) panproto-io json_pathway::tests::plain_text_float_spellings_preserve_supported_nonfinite_values
+        PASS [   0.054s] ( 88/666) panproto-io json_pathway::tests::repeated_property_arcs_are_not_reinterpreted_as_a_list
+        PASS [   0.060s] ( 89/666) panproto-io json_pathway::tests::roundtrip_json_bytes
+        PASS [   0.058s] ( 90/666) panproto-io registry::shape_table_tests::a_registered_table_codec_parses_and_emits_through_the_registry
+        PASS [   0.058s] ( 91/666) panproto-io registry::try_register_tests::register_optional_missing_grammar_silently_skips
+        PASS [   0.069s] ( 92/666) panproto-io registry::shape_table_tests::a_tree_protocol_without_a_graph_codec_reports_the_missing_shape
+        PASS [   0.096s] ( 93/666) panproto-io json_pathway::tests::untyped_exact_string_variants_are_refused
+        PASS [   0.177s] ( 94/666) panproto-io json_pathway::tests::json_refuses_declared_type_children_that_cannot_round_trip_as_data
+        PASS [   0.085s] ( 95/666) panproto-io registry::shape_table_tests::a_table_native_main_codec_answers_the_table_entries
+        PASS [   0.061s] ( 96/666) panproto-io registry::try_register_tests::register_optional_ok_inserts_codec
+        PASS [   0.105s] ( 97/666) panproto-io registry::shape_table_tests::a_registered_graph_codec_parses_and_emits_through_the_registry
+        PASS [   0.044s] ( 98/666) panproto-io registry::try_register_tests::try_register_err_skips_and_propagates
+        PASS [   0.067s] ( 99/666) panproto-io registry::try_register_tests::register_optional_parser_init_skips_with_stderr_log
+        PASS [   0.037s] (100/666) panproto-io registry::try_register_tests::try_register_ok_inserts_codec
+        PASS [   0.043s] (101/666) panproto-io registry::try_register_tests::try_register_multiple_mixed_outcomes
+        PASS [   0.044s] (102/666) panproto-io resolution::build::tests::a_retained_fan_past_the_last_slot_puts_the_retained_fans_first
+        PASS [   0.045s] (103/666) panproto-io resolution::build::tests::retained_fans_out_of_order_come_first
+        PASS [   0.055s] (104/666) panproto-io resolution::build::tests::fans_fill_their_slots_and_fragments_fill_the_rest
+        PASS [   0.053s] (105/666) panproto-io resolution::cases::tests::table_families_match_the_lens_checker_under_an_identity_lens
+        PASS [   0.060s] (106/666) panproto-io resolution::cases::tests::shape_only_families_match_the_lens_checker_under_an_identity_lens
+        PASS [   0.048s] (107/666) panproto-io resolution::compile::tests::only_an_empty_key_value_source_may_omit_its_target_key
+        PASS [   0.049s] (108/666) panproto-io resolution::compile::tests::variable_self_binding_needs_both_the_same_vertex_and_the_binder_path
+        PASS [   0.047s] (109/666) panproto-io resolution::get::tests::allocation_is_checked_at_the_top_of_the_id_space
+        PASS [   0.073s] (110/666) panproto-io resolution::cases::tests::tree_value_families_match_the_lens_checker_on_every_kind_and_value
+        PASS [   0.028s] (111/666) panproto-io resolution::laws::tests::a_graph_producing_index_extends_the_edited_views_presentation
+        PASS [   0.100s] (112/666) panproto-io resolution::cases::tests::graph_value_families_match_the_lens_checker_on_every_kind_and_value
+        PASS [   0.076s] (113/666) panproto-io resolution::compile::tests::a_keyed_standoff_reference_needs_exactly_two_key_parts
+        PASS [   0.056s] (114/666) panproto-io resolution::get::tests::every_other_instance_error_projects_onto_its_shape
+        PASS [   0.046s] (115/666) panproto-io resolution::get::tests::instance_errors_project_onto_their_carrier_or_shape
+        PASS [   0.038s] (116/666) panproto-io resolution::laws::tests::an_edited_graph_index_compacts_occurrences_but_keeps_span_keys
+        PASS [   0.036s] (117/666) panproto-io resolution::laws::tests::candidate_accounting_distinguishes_both_domains_and_both_verdicts
+        PASS [   0.038s] (118/666) panproto-io resolution::laws::tests::complement_equality_reads_every_nonidentity_field
+        PASS [   0.043s] (119/666) panproto-io resolution::laws::tests::each_synthesized_carrier_is_renamed_alone_and_all_at_once
+        PASS [   0.038s] (120/666) panproto-io resolution::put::tests::an_occurrence_edge_is_coherent_only_when_each_structural_part_agrees
+        PASS [   0.046s] (121/666) panproto-io resolution::laws::tests::one_synthesized_carrier_has_one_congruence_witness
+        PASS [   0.038s] (122/666) panproto-io resolution::put::tests::writer_selection_distinguishes_the_declared_zero_one_and_many_cases
+        PASS [   0.061s] (123/666) panproto-io resolution::laws::tests::negative_families_and_their_intended_refusals_are_exact
+        PASS [   0.056s] (124/666) panproto-io resolution::put::tests::removing_named_carriers_reports_progress_and_preserves_the_rest
+        PASS [   0.039s] (125/666) panproto-io resolution::standoff::tests::token_boundaries_start_at_zero_increase_and_end_at_the_length
+        PASS [   0.055s] (126/666) panproto-io resolution::rekey::tests::a_renaming_is_the_identity_off_its_domain
+        PASS [   0.056s] (127/666) panproto-io resolution::rekey::tests::span_congruence_rekeys_the_nested_text_site
+        PASS [   0.044s] (128/666) panproto-io resolution::verify::tests::an_edge_into_an_unmatched_node_differs_whatever_the_raw_ids
+        PASS [   0.038s] (129/666) panproto-io resolution::verify::tests::same_tree_compares_every_part_of_a_presentation
+        PASS [   0.040s] (130/666) panproto-io tabular_codec::tests::canonical_tsv_preserves_hashes_and_one_column_empty_rows
+        PASS [   0.047s] (131/666) panproto-io resolution::verify::tests::values_are_equal_up_to_nan_and_signed_zero_at_every_depth
+        PASS [   0.046s] (132/666) panproto-io tabular_codec::tests::canonical_tsv_refuses_lines_that_reparse_as_comments_or_blanks
+        PASS [   0.040s] (133/666) panproto-io tabular_pathway::tests::bytes_need_a_schema_declared_text_encoding
+        PASS [   0.052s] (134/666) panproto-io tabular_pathway::tests::an_absent_table_emits_no_rows
+        PASS [   0.039s] (135/666) panproto-io tabular_pathway::tests::conllu_refuses_token_ids_that_reparse_as_comments
+        PASS [   0.050s] (136/666) panproto-io tabular_pathway::tests::canonical_delimited_parse_refuses_short_rows_quotes_and_line_delimiters
+        PASS [   0.038s] (137/666) panproto-io tabular_pathway::tests::conllu_roundtrip
+        PASS [   0.040s] (138/666) panproto-io tabular_pathway::tests::direct_tsv_emitters_refuse_unselected_tables_pairs_and_row_renumbering
+        PASS [   0.036s] (139/666) panproto-io tabular_pathway::tests::duplicate_headers_are_refused_before_cells_can_collapse
+        PASS [   0.035s] (140/666) panproto-io tabular_pathway::tests::explicit_comment_mode_keeps_only_noncomment_data_lines
+        PASS [   0.036s] (141/666) panproto-io tabular_pathway::tests::labelled_null_refusal_uses_row_then_column_order
+        PASS [   0.038s] (142/666) panproto-io tabular_pathway::tests::nested_labelled_nulls_are_also_refused
+        PASS [   0.039s] (143/666) panproto-io tabular_pathway::tests::parse_conllu_basic
+        PASS [   0.032s] (144/666) panproto-io tabular_pathway::tests::row_delimiters_are_not_emitted_as_strings
+        PASS [   0.042s] (145/666) panproto-io tabular_pathway::tests::reserved_delimiters_are_not_emitted_in_headers
+        PASS [   0.038s] (146/666) panproto-io tabular_pathway::tests::rows_wider_than_the_header_are_refused_before_cells_can_collapse
+        PASS [   0.032s] (147/666) panproto-io tabular_pathway::tests::split_fields_tab
+        PASS [   0.044s] (148/666) panproto-io tabular_pathway::tests::schema_less_tabular_emit_refuses_typed_non_string_values
+        PASS [   0.039s] (149/666) panproto-io tabular_pathway::tests::split_lines_basic
+        PASS [   0.033s] (150/666) panproto-io tabular_pathway::tests::the_conllu_pathway_refuses_a_labelled_null
+        PASS [   0.166s] (151/666) panproto-io resolution::verify::tests::an_empty_view_diff_implies_no_graph_divergence
+        PASS [   0.042s] (152/666) panproto-io tabular_pathway::tests::split_lines_crlf
+        PASS [   0.036s] (153/666) panproto-io tabular_pathway::tests::tsv_cells_are_coerced_by_the_column_value_spec
+        PASS [   0.192s] (154/666) panproto-io resolution::verify::tests::a_rekeyed_occurrence_edge_differs_even_when_its_id_is_kept
+        PASS [   0.039s] (155/666) panproto-io toml_pathway::tests::a_declared_token_has_a_reversible_toml_form
+        PASS [   0.056s] (156/666) panproto-io tests::default_registry_has_expected_protocols
+        PASS [   0.065s] (157/666) panproto-io tabular_pathway::tests::the_tsv_pathway_refuses_a_labelled_null
+        PASS [   0.044s] (158/666) panproto-io toml_pathway::tests::canonical_toml_refuses_extra_fields_in_open_tables
+        PASS [   0.058s] (159/666) panproto-io tests::unknown_protocol_returns_error
+        PASS [   0.037s] (160/666) panproto-io toml_pathway::tests::canonical_toml_refuses_schema_claimed_and_ambiguous_table_keys
+        PASS [   0.059s] (161/666) panproto-io toml_pathway::tests::canonical_toml_accepts_exact_nested_open_parser_carriers
+        PASS [   0.058s] (162/666) panproto-io toml_pathway::tests::canonical_toml_refuses_negative_nan_sign_loss
+        PASS [   0.051s] (163/666) panproto-io toml_pathway::tests::exact_scalar_markers_avoid_every_user_string_carrier
+        PASS [   0.040s] (164/666) panproto-io toml_pathway::tests::nested_toml_lists_observe_the_depth_limit
+        PASS [   0.040s] (165/666) panproto-io toml_pathway::tests::toml_bigint_exponent_forms_are_schema_directed
+        PASS [   0.038s] (166/666) panproto-io toml_pathway::tests::toml_lists_use_the_exact_synthetic_carrier_when_no_item_is_declared
+        PASS [   0.040s] (167/666) panproto-io toml_pathway::tests::toml_null_is_a_typed_error
+        PASS [   0.057s] (168/666) panproto-io toml_pathway::tests::toml_absent_child_is_omitted
+        PASS [   0.042s] (169/666) panproto-io toml_pathway::tests::toml_number_reparse_observes_value_and_float_bits
+        PASS [   0.038s] (170/666) panproto-io toml_pathway::tests::toml_refuses_nan_bits_its_text_cannot_preserve
+        PASS [   0.050s] (171/666) panproto-io toml_pathway::tests::toml_refuses_container_values_in_scalar_node_slots
+        PASS [   0.045s] (172/666) panproto-io toml_pathway::tests::toml_refuses_scalar_nodes_with_unrepresentable_structure
+        PASS [   0.028s] (173/666) panproto-io traits::tests::native_repr_converts_to_the_same_named_shape_kind
+        PASS [   0.051s] (174/666) panproto-io toml_pathway::tests::toml_refuses_table_key_collisions
+        PASS [   0.090s] (175/666) panproto-io toml_pathway::tests::toml_list_shape_refuses_property_edge_carriers
+        PASS [   0.036s] (176/666) panproto-io unified_codec::tests::complement_free_json_reads_as_the_canonical_reader_does
+        PASS [   0.046s] (177/666) panproto-io traits::tests::native_repr_variants_follow_instance_shape_kind_order
+        PASS [   0.031s] (178/666) panproto-io unified_codec::tests::explicit_tsv_rejects_a_missing_configured_vertex_before_cst_parsing
+        PASS [   0.077s] (179/666) panproto-io toml_pathway::tests::toml_synthetic_list_items_use_open_value_semantics
+        PASS [   0.077s] (180/666) panproto-io toml_pathway::tests::untyped_string_like_variants_are_refused
+        PASS [   0.058s] (181/666) panproto-io unified_codec::tests::complement_free_yaml_open_members_read_back_unchanged
+        PASS [   0.051s] (182/666) panproto-io unified_codec::tests::explicit_tsv_rejects_an_empty_schema_before_cst_parsing
+        PASS [   0.074s] (183/666) panproto-io unified_codec::tests::complement_free_xml_reads_as_the_canonical_reader_does
+        PASS [   0.052s] (184/666) panproto-io unified_codec::tests::unified_json_preserves_formatting
+        PASS [   0.051s] (185/666) panproto-io unified_codec::tests::unified_root_selection_is_deterministic
+        PASS [   0.050s] (186/666) panproto-io unified_codec::tests::yaml_open_mapping_fields_that_would_read_back_as_nodes_are_refused
+        PASS [   0.047s] (187/666) panproto-io xml_pathway::tests::canonical_xml_open_children_cannot_shadow_declared_routes
+        PASS [   0.048s] (188/666) panproto-io xml_pathway::tests::canonical_xml_open_route_ignores_isolated_vertex_name_collisions
+        PASS [   0.085s] (189/666) panproto-io unified_codec::tests::unified_json_parse_and_emit
+        PASS [   0.050s] (190/666) panproto-io xml_pathway::tests::canonical_xml_refuses_children_under_a_null_parent
+        PASS [   0.051s] (191/666) panproto-io xml_pathway::tests::canonical_xml_refuses_conflicting_nil_markers_and_namespace_rebinding
+        PASS [   0.053s] (192/666) panproto-io xml_pathway::tests::canonical_xml_refuses_illegal_characters_and_qnames
+        PASS [   0.051s] (193/666) panproto-io xml_pathway::tests::canonical_xml_refuses_scalar_values_with_child_elements
+        PASS [   0.047s] (194/666) panproto-io xml_pathway::tests::canonical_xml_requires_element_shapes
+        PASS [   0.049s] (195/666) panproto-io xml_pathway::tests::canonical_xml_root_and_child_route_edits_follow_parser_selection
+        PASS [   0.050s] (196/666) panproto-io xml_pathway::tests::canonical_xml_text_segments_refuse_element_structure
+        PASS [   0.049s] (197/666) panproto-io xml_pathway::tests::document_boundary_refuses_character_data_and_multiple_roots
+        PASS [   0.049s] (198/666) panproto-io xml_pathway::tests::emit_error_carries_protocol_name
+        PASS [   0.050s] (199/666) panproto-io xml_pathway::tests::empty_xml_returns_error
+        PASS [   0.048s] (200/666) panproto-io xml_pathway::tests::leaf_character_data_keeps_significant_whitespace
+        PASS [   0.044s] (201/666) panproto-io xml_pathway::tests::mixed_character_data_keeps_every_ordered_text_run
+        PASS [   0.046s] (202/666) panproto-io xml_pathway::tests::mixed_content_preserves_between_child_and_trailing_whitespace
+        PASS [   0.110s] (203/666) panproto-io xml_pathway::tests::canonical_xml_refuses_text_segments_that_would_collapse
+        PASS [   0.070s] (204/666) panproto-io xml_pathway::tests::malformed_or_duplicate_attributes_are_not_dropped
+        PASS [   0.050s] (205/666) panproto-io xml_pathway::tests::parse_simple_xml
+        PASS [   0.049s] (206/666) panproto-io xml_pathway::tests::roundtrip_uses_the_parsed_edge_name_as_the_element_tag
+        PASS [   0.062s] (207/666) panproto-io xml_pathway::tests::roundtrip_xml
+        PASS [   0.057s] (208/666) panproto-io xml_pathway::tests::whitespace_only_leaf_is_a_value_not_layout
+        PASS [   0.053s] (209/666) panproto-io xml_pathway::tests::xml_emit_preserves_null_and_omits_absent_children
+        PASS [   0.074s] (210/666) panproto-io xml_pathway::tests::xml_attributes_are_unescaped_once
+        PASS [   0.060s] (211/666) panproto-io xml_pathway::tests::xml_roots_never_anchor_outside_the_schema
+        PASS [   0.063s] (212/666) panproto-io xml_pathway::tests::xsi_nil_is_null_and_empty_differs_from_absent
+        PASS [   0.087s] (213/666) panproto-io xml_pathway::tests::xml_refuses_absent_children_with_retained_structure
+        PASS [   0.141s] (214/666) panproto-io xml_pathway::tests::open_xml_roots_use_the_schema_primary_entry
+        PASS [   0.077s] (215/666) panproto-io xml_pathway::tests::xsi_nil_uses_the_namespace_uri_not_a_literal_prefix
+        PASS [   0.065s] (216/666) panproto-io::data_format_corpus amr_edit_rewrites_one_cell
+        PASS [   0.062s] (217/666) panproto-io::data_format_corpus conllu_edit_rewrites_one_cell
+        PASS [   0.091s] (218/666) panproto-io xml_pathway::tests::xsi_nil_rejects_character_data_and_child_elements
+        PASS [   0.118s] (219/666) panproto-io xml_pathway::tests::xsi_nil_reads_the_xsd_boolean_lexical_space
+        PASS [   0.065s] (220/666) panproto-io::data_format_corpus fixture_routes_are_selected_by_protocol_not_suffix
+        PASS [   0.053s] (221/666) panproto-io::data_format_corpus xml_entity_text_canonical_emit_is_node_count_idempotent
+        PASS [   0.068s] (222/666) panproto-io::data_format_corpus xml_mixed_content_round_trips_byte_faithfully
+        PASS [   0.102s] (223/666) panproto-io::data_format_corpus redis_edit_rewrites_one_cell
+        PASS [   0.073s] (224/666) panproto-io::deep_nesting_is_bounded extraction_at_the_limit_succeeds
+        PASS [   0.076s] (225/666) panproto-io::deep_nesting_is_bounded extraction_bounds_its_own_descent
+        PASS [   0.161s] (226/666) panproto-io::data_format_corpus edi_x12_edit_rewrites_one_cell
+        PASS [   0.056s] (227/666) panproto-io::deep_nesting_is_bounded moderate_nesting_still_round_trips
+        PASS [   0.123s] (228/666) panproto-io::data_format_corpus swift_mt_edit_rewrites_one_cell
+        FAIL [   0.055s] (229/666) panproto-io::every_codec_name_is_a_protocol_name every_codec_name_is_a_protocol_name
+  stdout ───
+
+    running 1 test
+    test every_codec_name_is_a_protocol_name ... FAILED
+
+    failures:
+
+    failures:
+        every_codec_name_is_a_protocol_name
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
+  stderr ───
+
+    thread 'every_codec_name_is_a_protocol_name' (85921644) panicked at crates/panproto-io/tests/every_codec_name_is_a_protocol_name.rs:34:32:
+    codec "csv" names no protocol in the registry
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.062s] (230/666) panproto-io::every_codec_name_is_a_protocol_name the_canonical_names_of_the_underscore_registrations_resolve
+        FAIL [   0.086s] (231/666) panproto-io::every_codec_name_is_a_protocol_name every_codec_resolves_by_each_spelling_of_its_protocol
+  stdout ───
+
+    running 1 test
+    test every_codec_resolves_by_each_spelling_of_its_protocol ... FAILED
+
+    failures:
+
+    failures:
+        every_codec_resolves_by_each_spelling_of_its_protocol
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.03s
+
+  stderr ───
+
+    thread 'every_codec_resolves_by_each_spelling_of_its_protocol' (85921652) panicked at crates/panproto-io/tests/every_codec_name_is_a_protocol_name.rs:18:30:
+    a codec name resolves to a protocol
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.061s] (232/666) panproto-io::every_codec_parses_to_its_declared_shape every_protocol_with_a_declared_shape_has_a_codec
+        PASS [   0.056s] (233/666) panproto-io::format_preserving_corpus byte_eq_atproto
+        PASS [   0.101s] (234/666) panproto-io::every_codec_name_is_a_protocol_name the_uima_codec_answers_to_its_alias
+        PASS [   0.108s] (235/666) panproto-io::every_codec_parses_to_its_declared_shape every_codec_not_yet_replaced_disagrees_with_its_declared_shape
+        PASS [   0.101s] (236/666) panproto-io::every_codec_parses_to_its_declared_shape every_declared_shape_with_a_codec_is_checked
+        PASS [   0.072s] (237/666) panproto-io::format_preserving_corpus byte_eq_brat
+        PASS [   0.055s] (238/666) panproto-io::format_preserving_corpus byte_eq_csv_no_trailing_newline_and_empty_cells
+        PASS [   0.055s] (239/666) panproto-io::format_preserving_corpus byte_eq_csv_quoted_embedded_delimiter
+        PASS [   0.072s] (240/666) panproto-io::format_preserving_corpus byte_eq_csv_simple
+        PASS [   0.282s] (241/666) panproto-io::deep_nesting_is_bounded a_deeply_nested_document_is_an_error_and_not_a_crash
+        PASS [   0.052s] (242/666) panproto-io::format_preserving_corpus byte_eq_json_minimal_object
+        PASS [   0.054s] (243/666) panproto-io::format_preserving_corpus byte_eq_json_nested_array
+        PASS [   0.080s] (244/666) panproto-io::format_preserving_corpus byte_eq_geojson
+        PASS [   0.085s] (245/666) panproto-io::format_preserving_corpus byte_eq_fhir
+        PASS [   0.042s] (246/666) panproto-io::format_preserving_corpus byte_eq_json_pretty_printed
+        PASS [   0.029s] (247/666) panproto-io::format_preserving_corpus byte_eq_json_with_trailing_newline
+        PASS [   0.050s] (248/666) panproto-io::format_preserving_corpus byte_eq_naf
+        PASS [   0.050s] (249/666) panproto-io::format_preserving_corpus byte_eq_openapi
+        PASS [   0.037s] (250/666) panproto-io::format_preserving_corpus byte_eq_toml_key_value
+        PASS [   0.050s] (251/666) panproto-io::format_preserving_corpus byte_eq_toml_comments_and_whitespace
+        PASS [   0.043s] (252/666) panproto-io::format_preserving_corpus byte_eq_toml_table
+        PASS [   0.056s] (253/666) panproto-io::format_preserving_corpus byte_eq_rss
+        PASS [   0.029s] (254/666) panproto-io::format_preserving_corpus byte_eq_tsv_simple
+        PASS [   0.071s] (255/666) panproto-io::format_preserving_corpus byte_eq_tei
+        PASS [   0.030s] (256/666) panproto-io::format_preserving_corpus byte_eq_yaml_block_sequence
+        PASS [   0.036s] (257/666) panproto-io::format_preserving_corpus byte_eq_yaml_comments_and_indentation
+        PASS [   0.033s] (258/666) panproto-io::format_preserving_corpus byte_eq_yaml_mapping
+        PASS [   0.035s] (259/666) panproto-io::format_preserving_corpus tabular_edit_rewrites_one_cell
+        PASS [   0.041s] (260/666) panproto-io::mutation_corpus mutate_csv_simple
+        PASS [   0.034s] (261/666) panproto-io::mutation_corpus mutate_json_escaped_string
+        PASS [   0.035s] (262/666) panproto-io::mutation_corpus mutate_json_minimal_object
+        PASS [   0.029s] (263/666) panproto-io::mutation_corpus mutate_json_surrogate_pair
+        PASS [   0.046s] (264/666) panproto-io::mutation_corpus mutate_json_nested_array
+        PASS [   0.042s] (265/666) panproto-io::mutation_corpus mutate_json_pretty_printed
+        PASS [   0.024s] (266/666) panproto-io::mutation_corpus mutate_toml_comments_and_layout
+        PASS [   0.049s] (267/666) panproto-io::mutation_corpus mutate_json_unicode_escape
+        PASS [   0.045s] (268/666) panproto-io::mutation_corpus mutate_toml_arrays
+        PASS [   0.032s] (269/666) panproto-io::mutation_corpus mutate_toml_inline_tables
+        PASS [   0.033s] (270/666) panproto-io::mutation_corpus mutate_toml_numeric_spellings
+        PASS [   0.031s] (271/666) panproto-io::mutation_corpus mutate_toml_string_forms
+        PASS [   0.029s] (272/666) panproto-io::mutation_corpus mutate_toml_table_array
+        PASS [   0.035s] (273/666) panproto-io::mutation_corpus mutate_toml_tables
+        PASS [   0.030s] (274/666) panproto-io::mutation_corpus mutate_toml_top_level_pairs
+        PASS [   0.030s] (275/666) panproto-io::mutation_corpus mutate_tsv_simple
+        PASS [   0.026s] (276/666) panproto-io::mutation_corpus mutate_xml_elements
+        PASS [   0.038s] (277/666) panproto-io::mutation_corpus mutate_yaml_block_sequence
+        PASS [   0.035s] (278/666) panproto-io::mutation_corpus mutate_yaml_comments_and_blank_lines
+        PASS [   0.060s] (279/666) panproto-io::mutation_corpus mutate_yaml_flow_collections
+        PASS [   0.059s] (280/666) panproto-io::mutation_corpus mutate_yaml_mapping
+        PASS [   0.065s] (281/666) panproto-io::mutation_corpus mutate_yaml_nested_mapping
+        PASS [   0.064s] (282/666) panproto-io::mutation_corpus mutate_yaml_root_sequence
+        PASS [   0.040s] (283/666) panproto-io::no_debug_emit debug_spec_detection_covers_every_debug_format_spec
+        PASS [   0.066s] (284/666) panproto-io::no_debug_emit codec_library_code_has_no_panicking_macros
+        PASS [   0.043s] (285/666) panproto-io::no_debug_emit json_pathway_docs_and_manifests_name_no_simd_json_parser
+        PASS [   0.254s] (286/666) panproto-io::mutation_corpus mutate_json_openapi_fixture
+        PASS [   0.067s] (287/666) panproto-io::no_debug_emit no_debug_formatting_reaches_emitted_output
+        PASS [   0.048s] (288/666) panproto-io::registry_preserving registry_preserving_round_trip_is_byte_equal
+        PASS [   0.064s] (289/666) panproto-io::registry_preserving default_registry_registers_csv_as_functor
+        PASS [   0.072s] (290/666) panproto-io::registry_preserving default_registry_wires_preserving_text_format_codecs
+        PASS [   0.025s] (291/666) panproto-io::resolution_corpus a_byte_span_ending_mid_scalar_is_outside_a_scalar_declaration
+        PASS [   0.024s] (292/666) panproto-io::resolution_corpus a_codec_without_presentation_state_preserves_by_parsing_canonically
+        PASS [   0.030s] (293/666) panproto-io::resolution_corpus a_captured_reference_is_unrepresentable
+        PASS [   0.021s] (294/666) panproto-io::resolution_corpus a_holder_without_a_within_ancestor_does_not_resolve
+        PASS [   0.026s] (295/666) panproto-io::resolution_corpus a_kept_reference_is_never_respelled
+        PASS [   0.027s] (296/666) panproto-io::resolution_corpus a_missing_context_requirement_is_refused_at_compilation
+        PASS [   0.035s] (297/666) panproto-io::resolution_corpus a_new_redirect_from_a_fan_node_is_unrepresentable
+        PASS [   0.026s] (298/666) panproto-io::resolution_corpus a_new_redirect_whose_key_path_has_two_hops_is_unrepresentable
+        PASS [   0.025s] (299/666) panproto-io::resolution_corpus a_node_of_another_vertex_under_a_span_edge_is_not_a_span
+        PASS [   0.120s] (300/666) panproto-io::resolution_corpus a_byte_and_a_scalar_declaration_share_a_span_exactly_when_their_byte_intervals_agree
+        PASS [   0.027s] (301/666) panproto-io::resolution_corpus a_non_leaf_string_range_is_not_standoff
+        PASS [   0.020s] (302/666) panproto-io::resolution_corpus a_normalizing_offset_convention_is_unsupported
+        PASS [   0.023s] (303/666) panproto-io::resolution_corpus a_protocol_with_neither_a_codec_nor_a_route_has_no_provider
+        PASS [   0.036s] (304/666) panproto-io::resolution_corpus a_protocol_with_neither_a_table_codec_nor_a_table_route_reads_no_table
+        PASS [   0.035s] (305/666) panproto-io::resolution_corpus a_reconnect_after_a_removal_is_written_at_its_shifted_index
+        PASS [   0.048s] (306/666) panproto-io::resolution_corpus a_provider_without_overrides_lists_no_qualified_form_and_admits_no_assembly
+        PASS [   0.039s] (307/666) panproto-io::resolution_corpus a_reconnected_reference_to_an_earlier_definition_is_written
+        PASS [   0.029s] (308/666) panproto-io::resolution_corpus a_reconnected_spanning_arc_is_not_structural
+        PASS [   0.028s] (309/666) panproto-io::resolution_corpus a_recorded_occurrence_preserves_its_label_source_and_absent_position
+        PASS [   0.024s] (310/666) panproto-io::resolution_corpus a_reference_whose_canonical_form_re_resolves_is_written_unchanged
+        PASS [   0.021s] (311/666) panproto-io::resolution_corpus a_reference_with_no_re_resolving_form_is_unrepresentable
+        PASS [   0.023s] (312/666) panproto-io::resolution_corpus a_reference_without_an_edge_is_refused_for_a_graph_target
+        PASS [   0.022s] (313/666) panproto-io::resolution_corpus a_registry_with_only_a_route_or_a_graph_codec_is_not_empty
+        PASS [   0.025s] (314/666) panproto-io::resolution_corpus a_resolution_and_its_context_show_what_they_hold
+        PASS [   0.021s] (315/666) panproto-io::resolution_corpus a_resolution_get_and_canonical_put_stamp_the_resolution_envelope
+        PASS [   0.019s] (316/666) panproto-io::resolution_corpus a_route_is_keyed_by_its_provider_protocol_and_checked_when_compiled
+        PASS [   0.024s] (317/666) panproto-io::resolution_corpus a_supplied_resolution_complement_forces_the_resolved_route
+        PASS [   0.022s] (318/666) panproto-io::resolution_corpus a_table_edge_into_a_span_has_no_placement
+        PASS [   0.025s] (319/666) panproto-io::resolution_corpus a_table_route_serves_the_table_entry_points
+        PASS [   0.026s] (320/666) panproto-io::resolution_corpus a_table_view_node_that_is_more_than_a_row_has_no_placement
+        PASS [   0.023s] (321/666) panproto-io::resolution_corpus a_utf16_offset_inside_a_surrogate_pair_fails_get
+        PASS [   0.021s] (322/666) panproto-io::resolution_corpus a_violation_sorts_by_carrier_then_name_then_variant
+        PASS [   0.019s] (323/666) panproto-io::resolution_corpus adding_an_alias_creates_a_holder
+        PASS [   0.022s] (324/666) panproto-io::resolution_corpus an_alias_of_an_unanchored_node_is_unrepresentable_at_its_edge
+        PASS [   0.017s] (325/666) panproto-io::resolution_corpus an_assembly_kind_needs_its_plan_and_its_provider
+        PASS [   0.020s] (326/666) panproto-io::resolution_corpus an_assembly_provider_puts_through_its_residue
+        PASS [   0.564s] (327/666) panproto-io::mutation_corpus mutate_json_geojson_fixture
+        PASS [   0.022s] (328/666) panproto-io::resolution_corpus an_empty_span_is_outside_an_inclusive_declaration
+        PASS [   0.018s] (329/666) panproto-io::resolution_corpus an_idref_matching_no_id_is_recorded_not_rejected
+        PASS [   0.021s] (330/666) panproto-io::resolution_corpus an_overlay_equal_to_the_schema_reference_is_not_a_conflict
+        PASS [   0.021s] (331/666) panproto-io::resolution_corpus canonical_placement_is_depth_first_so_embeddings_precede_references
+        PASS [   0.022s] (332/666) panproto-io::resolution_corpus canonical_put_keeps_a_span_node_and_refuses_a_stray_node
+        PASS [   0.023s] (333/666) panproto-io::resolution_corpus canonical_put_of_a_table_view_reads_its_rows_and_pairs
+        PASS [   0.023s] (334/666) panproto-io::resolution_corpus canonical_put_stamps_its_complement
+        PASS [   0.021s] (335/666) panproto-io::resolution_corpus changed_external_key_or_bytes_is_a_context_mismatch
+        PASS [   0.023s] (336/666) panproto-io::resolution_corpus check_put_domain_reports_an_unreadable_occurrence_beside_other_violations
+        PASS [   0.165s] (337/666) panproto-io::resolution_corpus an_idref_to_another_type_is_recorded_not_rejected
+        PASS [   0.481s] (338/666) panproto-io::resolution_corpus a_fan_naming_two_redirected_holders_is_kept_once
+        PASS [   0.022s] (339/666) panproto-io::resolution_corpus check_put_domain_reports_every_violation_in_order
+        PASS [   0.021s] (340/666) panproto-io::resolution_corpus check_put_domain_reports_the_violations_of_independent_edits_together
+        PASS [   0.434s] (341/666) panproto-io::resolution_corpus a_position_key_is_the_index_among_the_ordered_edge_targets
+        PASS [   0.017s] (342/666) panproto-io::resolution_corpus compilation_refuses_each_inconsistent_plan
+        PASS [   0.019s] (343/666) panproto-io::resolution_corpus complement_free_semantic_io_prefers_the_native_semantic_codec
+        PASS [   0.273s] (344/666) panproto-io::resolution_corpus an_alias_redirects_its_incoming_arc_to_the_anchor
+        PASS [   0.310s] (345/666) panproto-io::resolution_corpus a_written_reference_takes_the_first_form_that_re_resolves
+        PASS [   0.082s] (346/666) panproto-io::resolution_corpus duplicate_references_preserve_multiplicity
+        PASS [   0.089s] (347/666) panproto-io::resolution_corpus embedding::tree_to_graph_restricted_to_the_tree_is_the_embedding
+        PASS [   0.018s] (348/666) panproto-io::resolution_corpus every_resolution_feature_reason_and_instance_error_has_its_wire_form
+        PASS [   0.097s] (349/666) panproto-io::resolution_corpus every_advertised_graph_semantic_protocol_has_a_working_route
+        PASS [   0.019s] (350/666) panproto-io::resolution_corpus every_resolve_domain_error_variant_has_its_wire_form
+        PASS [   0.017s] (351/666) panproto-io::resolution_corpus every_resolve_error_variant_has_its_wire_form
+        PASS [   0.125s] (352/666) panproto-io::resolution_corpus each_law_gate_rejects_its_exact_negative
+        PASS [   1.178s] (353/666) panproto-io::every_codec_parses_to_its_declared_shape every_codec_parses_to_its_declared_shape
+        PASS [   0.022s] (354/666) panproto-io::resolution_corpus from_wtype_stays_structural_and_resolves_nothing
+        PASS [   0.018s] (355/666) panproto-io::resolution_corpus get_and_put_reject_the_wrong_shape
+        PASS [   0.159s] (356/666) panproto-io::resolution_corpus equal_values_at_distinct_text_sites_do_not_alias
+        PASS [   0.316s] (357/666) panproto-io::resolution_corpus composite_many_keys_zip_their_parts
+        PASS [   0.674s] (358/666) panproto-io::resolution_corpus a_tree_resolves_each_key_reference_to_one_edge
+        PASS [   1.720s] (359/666) panproto-io::data_format_corpus fixture_corpus_is_byte_faithful
+        PASS [   0.041s] (360/666) panproto-io::resolution_corpus local_text_edit_byte_admitted
+        PASS [   0.048s] (361/666) panproto-io::resolution_corpus local_text_edit_byte_off_boundary
+        PASS [   0.516s] (362/666) panproto-io::resolution_corpus fans_of_redirected_posts_return_to_their_slots
+        PASS [   0.022s] (363/666) panproto-io::resolution_corpus local_text_edit_byte_out_of_range
+        PASS [   0.019s] (364/666) panproto-io::resolution_corpus local_text_edit_token_admitted
+        PASS [   0.018s] (365/666) panproto-io::resolution_corpus local_text_edit_token_off_boundary
+        PASS [   0.017s] (366/666) panproto-io::resolution_corpus local_text_edit_token_out_of_range
+        PASS [   0.016s] (367/666) panproto-io::resolution_corpus local_text_edit_utf16_admitted
+        PASS [   0.016s] (368/666) panproto-io::resolution_corpus local_text_edit_utf16_off_boundary
+        PASS [   0.580s] (369/666) panproto-io::resolution_corpus fragment_fans_out_of_root_order_round_trip_up_to_fan_order
+        PASS [   0.021s] (370/666) panproto-io::resolution_corpus local_text_edit_utf16_out_of_range
+        PASS [   0.021s] (371/666) panproto-io::resolution_corpus local_text_edit_utf8char_admitted
+        PASS [   0.018s] (372/666) panproto-io::resolution_corpus local_text_edit_utf8char_off_boundary
+        PASS [   0.021s] (373/666) panproto-io::resolution_corpus local_text_edit_utf8char_out_of_range
+        PASS [   0.017s] (374/666) panproto-io::resolution_corpus native_and_resolved_routes_coexist
+        PASS [   0.018s] (375/666) panproto-io::resolution_corpus native_repr_ignores_a_dedicated_resolution_codec
+        PASS [   0.027s] (376/666) panproto-io::resolution_corpus offsets_are_refused_never_clamped
+        PASS [   0.019s] (377/666) panproto-io::resolution_corpus put_domain_assembly_refusal
+        PASS [   0.019s] (378/666) panproto-io::resolution_corpus put_domain_changed_text_site
+        PASS [   0.017s] (379/666) panproto-io::resolution_corpus put_domain_missing_text_site
+        PASS [   0.020s] (380/666) panproto-io::resolution_corpus put_domain_simultaneous_unplaceable_nodes
+        PASS [   0.668s] (381/666) panproto-io::resolution_corpus law_properties::the_laws_hold_on_random_spans
+        PASS [   0.021s] (382/666) panproto-io::resolution_corpus put_refuses_a_token_context_mismatch
+        PASS [   0.926s] (383/666) panproto-io::resolution_corpus law_properties::the_laws_hold_on_random_picks_tables
+        PASS [   0.345s] (384/666) panproto-io::resolution_corpus put_keeps_duplicate_add_and_remove
+        PASS [   1.196s] (385/666) panproto-io::resolution_corpus fans_survive_get_and_put_of_added_references
+        PASS [   0.590s] (386/666) panproto-io::resolution_corpus on_unresolved_takes_precedence_over_lenient
+        PASS [   0.290s] (387/666) panproto-io::resolution_corpus put_rejects_changed_external_context
+        PASS [   0.212s] (388/666) panproto-io::resolution_corpus put_writes_a_reconnected_variable_reference
+        PASS [   0.318s] (389/666) panproto-io::resolution_corpus put_twice_is_checked_where_put_get_holds_up_to_presentation
+        PASS [   0.098s] (390/666) panproto-io::resolution_corpus removing_the_last_alias_removes_its_fragment
+        PASS [   0.065s] (391/666) panproto-io::resolution_corpus rendered_paths_resolve_to_their_target
+        PASS [   0.018s] (392/666) panproto-io::resolution_corpus resolution_composite_cardinality_mismatch
+        PASS [   0.024s] (393/666) panproto-io::resolution_corpus resolution_compiles_a_valid_provider_spec
+        PASS [   0.020s] (394/666) panproto-io::resolution_corpus resolution_get_stamps_its_complement
+        PASS [   0.294s] (395/666) panproto-io::resolution_corpus put_writes_each_reference_form
+        PASS [   0.027s] (396/666) panproto-io::resolution_corpus resolution_put_rejects_the_wrong_spec
+        PASS [   0.225s] (397/666) panproto-io::resolution_corpus resolution_ambiguity_is_recorded
+        PASS [   0.023s] (398/666) panproto-io::resolution_corpus resolution_state_without_a_resolution_route_is_rejected
+        PASS [   0.025s] (399/666) panproto-io::resolution_corpus resolve_failures_follow_the_stated_precedence
+        PASS [   0.020s] (400/666) panproto-io::resolution_corpus resolved_route_checks_its_codec_source_shape
+        PASS [   0.022s] (401/666) panproto-io::resolution_corpus same_shape_default_does_not_hide_a_registered_resolution_route
+        PASS [   0.019s] (402/666) panproto-io::resolution_corpus semantic_schema_contains_each_resolved_edge
+        PASS [   0.289s] (403/666) panproto-io::resolution_corpus resolution_scope_leak_is_refused
+        PASS [   0.610s] (404/666) panproto-io::resolution_corpus removing_a_later_occurrence_takes_it_from_its_own_site
+        PASS [   0.030s] (405/666) panproto-io::resolution_corpus standoff_text_path_requires_exactly_one_value_site
+        PASS [   0.030s] (406/666) panproto-io::resolution_corpus supports_semantic_for_rejects_an_invalid_dedicated_route
+        PASS [   0.026s] (407/666) panproto-io::resolution_corpus table_to_tree_is_reachable_through_the_semantic_entry_points
+        PASS [   0.054s] (408/666) panproto-io::resolution_corpus table_to_graph_adds_one_edge_per_occurrence
+        PASS [   0.612s] (409/666) panproto-io::resolution_corpus resolution_laws_agree_with_the_model_on_three_targets
+        PASS [   0.688s] (410/666) panproto-io::resolution_corpus resolution_duplicates_are_kept
+        PASS [   1.488s] (411/666) panproto-io::resolution_corpus negative_families_are_refused_for_their_intended_reason
+        PASS [   0.230s] (412/666) panproto-io::resolution_corpus the_laws_hold_on_every_orders_table_up_to_two_customers_and_two_orders
+        PASS [   0.655s] (413/666) panproto-io::resolution_corpus standoff_reconnect_writes_text_start_and_end
+        PASS [   0.030s] (414/666) panproto-io::resolution_corpus the_least_new_arc_into_a_parentless_node_is_promoted
+        PASS [   0.470s] (415/666) panproto-io::resolution_corpus the_law_report_counts_each_family_by_its_contract_class
+        PASS [   0.509s] (416/666) panproto-io::resolution_corpus the_first_binding_defines_and_later_ones_refer
+        PASS [   0.085s] (417/666) panproto-io::resolution_corpus the_same_text_site_and_interval_deduplicate_across_references
+        PASS [   0.076s] (418/666) panproto-io::resolution_corpus token_boundary_provider_receives_the_exact_resolution_text_id
+        PASS [   0.031s] (419/666) panproto-io::resolution_corpus unordered_or_foreign_path_candidates_are_a_provider_failure
+        PASS [   0.100s] (420/666) panproto-io::resolution_corpus two_external_key_fields_at_one_tree_holder_have_distinct_span_keys
+        PASS [   0.019s] (421/666) panproto-io::resolution_corpus unrepresentable_cross_text_reconnect_is_in_the_put_domain_vector
+        PASS [   0.028s] (422/666) panproto-io::resolution_corpus without_a_native_codec_semantic_io_uses_the_route_and_canonical_put
+        PASS [   0.046s] (423/666) panproto-io::roundtrip all_protocols_have_roundtrip_tests
+        PASS [   0.134s] (424/666) panproto-io::resolution_corpus two_table_text_fields_at_one_row_have_distinct_span_keys
+        PASS [   0.037s] (425/666) panproto-io::roundtrip all_protocols_report_correct_native_repr
+        PASS [   0.037s] (426/666) panproto-io::roundtrip json_array_of_objects_survives_round_trip
+        PASS [   0.035s] (427/666) panproto-io::roundtrip json_array_with_many_elements_survives_round_trip
+        PASS [   0.034s] (428/666) panproto-io::roundtrip json_empty_array_survives_round_trip
+        PASS [   0.046s] (429/666) panproto-io::roundtrip json_nested_arrays_survive_round_trip
+        PASS [   0.042s] (430/666) panproto-io::roundtrip json_singleton_array_survives_round_trip
+        PASS [   0.045s] (431/666) panproto-io::roundtrip roundtrip_amr
+        PASS [   0.040s] (432/666) panproto-io::roundtrip roundtrip_ansible
+        PASS [   0.041s] (433/666) panproto-io::roundtrip roundtrip_arrow
+        PASS [   0.039s] (434/666) panproto-io::roundtrip roundtrip_asn1
+        PASS [   0.036s] (435/666) panproto-io::roundtrip roundtrip_asyncapi
+        PASS [   0.038s] (436/666) panproto-io::roundtrip roundtrip_atproto
+        PASS [   0.034s] (437/666) panproto-io::roundtrip roundtrip_avro
+        PASS [   0.041s] (438/666) panproto-io::roundtrip roundtrip_bead
+        PASS [   0.038s] (439/666) panproto-io::roundtrip roundtrip_bond
+        PASS [   0.047s] (440/666) panproto-io::roundtrip roundtrip_brat
+        PASS [   0.037s] (441/666) panproto-io::roundtrip roundtrip_bson
+        PASS [   0.038s] (442/666) panproto-io::roundtrip roundtrip_cassandra
+        PASS [   0.040s] (443/666) panproto-io::roundtrip roundtrip_cddl
+        PASS [   0.021s] (444/666) panproto-io::roundtrip roundtrip_conllu
+        PASS [   0.037s] (445/666) panproto-io::roundtrip roundtrip_concrete
+        PASS [   0.044s] (446/666) panproto-io::roundtrip roundtrip_cloudformation
+        PASS [   0.044s] (447/666) panproto-io::roundtrip roundtrip_csv
+        PASS [   0.047s] (448/666) panproto-io::roundtrip roundtrip_dataframe
+        PASS [   0.050s] (449/666) panproto-io::roundtrip roundtrip_decomp
+        PASS [   0.035s] (450/666) panproto-io::roundtrip roundtrip_docx
+        PASS [   0.034s] (451/666) panproto-io::roundtrip roundtrip_edi_x12
+        PASS [   0.045s] (452/666) panproto-io::roundtrip roundtrip_dynamodb
+        PASS [   0.038s] (453/666) panproto-io::roundtrip roundtrip_fhir
+        PASS [   0.048s] (454/666) panproto-io::roundtrip roundtrip_elan
+        PASS [   0.046s] (455/666) panproto-io::roundtrip roundtrip_flatbuffers
+        PASS [   0.043s] (456/666) panproto-io::roundtrip roundtrip_fovea
+        PASS [   0.047s] (457/666) panproto-io::roundtrip roundtrip_folia
+        PASS [   0.055s] (458/666) panproto-io::roundtrip roundtrip_geojson
+        PASS [   0.034s] (459/666) panproto-io::roundtrip roundtrip_iso_space
+        PASS [   0.039s] (460/666) panproto-io::roundtrip roundtrip_jsonapi
+        PASS [   0.036s] (461/666) panproto-io::roundtrip roundtrip_k8s_crd
+        PASS [   0.043s] (462/666) panproto-io::roundtrip roundtrip_laf_graf
+        PASS [   0.039s] (463/666) panproto-io::roundtrip roundtrip_mongodb
+        PASS [   0.032s] (464/666) panproto-io::roundtrip roundtrip_msgpack_schema
+        PASS [   0.036s] (465/666) panproto-io::roundtrip roundtrip_naf
+        PASS [   0.042s] (466/666) panproto-io::roundtrip roundtrip_neo4j
+        PASS [   0.036s] (467/666) panproto-io::roundtrip roundtrip_nif
+        PASS [   0.046s] (468/666) panproto-io::roundtrip roundtrip_odf
+        PASS [   0.042s] (469/666) panproto-io::roundtrip roundtrip_openapi
+        PASS [   0.039s] (470/666) panproto-io::roundtrip roundtrip_parquet
+        PASS [   0.038s] (471/666) panproto-io::roundtrip roundtrip_raml
+        PASS [   0.050s] (472/666) panproto-io::roundtrip roundtrip_paula
+        PASS [   0.043s] (473/666) panproto-io::roundtrip roundtrip_redis
+        PASS [   0.033s] (474/666) panproto-io::roundtrip roundtrip_swift_mt
+        PASS [   0.042s] (475/666) panproto-io::roundtrip roundtrip_rss_atom
+        PASS [   0.042s] (476/666) panproto-io::roundtrip roundtrip_tei
+        PASS [   0.172s] (477/666) panproto-io::roundtrip roundtrip_timeml
+        PASS [   0.177s] (478/666) panproto-io::roundtrip roundtrip_toml
+        PASS [   0.187s] (479/666) panproto-io::roundtrip roundtrip_ucca
+        PASS [   0.063s] (480/666) panproto-io::roundtrip roundtrip_vcard_ical
+        PASS [   0.074s] (481/666) panproto-io::roundtrip roundtrip_uima
+        PASS [   0.052s] (482/666) panproto-io::roundtrip roundtrip_web_annotation
+        PASS [   0.040s] (483/666) panproto-io::roundtrip roundtrip_yaml
+        PASS [   0.036s] (484/666) panproto-io::roundtrip tsv_header_and_rows_survive_round_trip
+        PASS [   0.049s] (485/666) panproto-io::structural_roundtrip pres_ansible
+        PASS [   0.039s] (486/666) panproto-io::structural_roundtrip pres_asn1
+        PASS [   0.052s] (487/666) panproto-io::structural_roundtrip pres_arrow
+        PASS [   0.046s] (488/666) panproto-io::structural_roundtrip pres_asyncapi
+        PASS [   0.046s] (489/666) panproto-io::structural_roundtrip pres_atproto
+        PASS [   0.051s] (490/666) panproto-io::structural_roundtrip pres_avro
+        PASS [   0.047s] (491/666) panproto-io::structural_roundtrip pres_bead
+        PASS [   0.044s] (492/666) panproto-io::structural_roundtrip pres_bond
+        PASS [   0.046s] (493/666) panproto-io::structural_roundtrip pres_brat
+        PASS [   0.046s] (494/666) panproto-io::structural_roundtrip pres_bson
+        PASS [   0.046s] (495/666) panproto-io::structural_roundtrip pres_cassandra
+        PASS [   0.045s] (496/666) panproto-io::structural_roundtrip pres_cddl
+        PASS [   0.052s] (497/666) panproto-io::structural_roundtrip pres_concrete
+        PASS [   0.051s] (498/666) panproto-io::structural_roundtrip pres_dataframe
+        PASS [   0.064s] (499/666) panproto-io::structural_roundtrip pres_decomp
+        PASS [   0.048s] (500/666) panproto-io::structural_roundtrip pres_docx
+        PASS [   0.046s] (501/666) panproto-io::structural_roundtrip pres_dynamodb
+        PASS [   0.056s] (502/666) panproto-io::structural_roundtrip pres_elan
+        PASS [   0.206s] (503/666) panproto-io::structural_roundtrip pres_cloudformation
+        PASS [   0.042s] (504/666) panproto-io::structural_roundtrip pres_flatbuffers
+        PASS [   0.061s] (505/666) panproto-io::structural_roundtrip pres_fhir
+        PASS [   0.047s] (506/666) panproto-io::structural_roundtrip pres_folia
+        PASS [   6.072s] (507/666) panproto-io json_pathway::tests::json_string_faults_match_serde_json_and_name_the_first_uncompletable_byte
+        PASS [   0.058s] (508/666) panproto-io::structural_roundtrip pres_fovea
+        PASS [   0.055s] (509/666) panproto-io::structural_roundtrip pres_geojson
+        PASS [   0.054s] (510/666) panproto-io::structural_roundtrip pres_iso_space
+        PASS [   0.054s] (511/666) panproto-io::structural_roundtrip pres_jsonapi
+        PASS [   0.044s] (512/666) panproto-io::structural_roundtrip pres_k8s
+        PASS [   0.041s] (513/666) panproto-io::structural_roundtrip pres_laf_graf
+        PASS [   0.043s] (514/666) panproto-io::structural_roundtrip pres_mongodb
+        PASS [   0.038s] (515/666) panproto-io::structural_roundtrip pres_msgpack
+        PASS [   0.044s] (516/666) panproto-io::structural_roundtrip pres_neo4j
+        PASS [   0.043s] (517/666) panproto-io::structural_roundtrip pres_nif
+        PASS [   0.052s] (518/666) panproto-io::structural_roundtrip pres_naf
+        PASS [   0.051s] (519/666) panproto-io::structural_roundtrip pres_odf
+        PASS [   0.047s] (520/666) panproto-io::structural_roundtrip pres_openapi
+        PASS [   0.042s] (521/666) panproto-io::structural_roundtrip pres_paula
+        PASS [   0.043s] (522/666) panproto-io::structural_roundtrip pres_raml
+        PASS [   0.057s] (523/666) panproto-io::structural_roundtrip pres_parquet
+        PASS [   0.049s] (524/666) panproto-io::structural_roundtrip pres_tei
+        PASS [   0.055s] (525/666) panproto-io::structural_roundtrip pres_rss_atom
+        PASS [   0.050s] (526/666) panproto-io::structural_roundtrip pres_timeml
+        PASS [   0.059s] (527/666) panproto-io::structural_roundtrip pres_ucca
+        PASS [   0.041s] (528/666) panproto-io::structural_roundtrip pres_uima
+        PASS [   0.049s] (529/666) panproto-io::structural_roundtrip pres_vcard
+        PASS [   0.035s] (530/666) panproto-io::structural_roundtrip struct_amr_tsv
+        PASS [   0.053s] (531/666) panproto-io::structural_roundtrip pres_web_annotation
+        PASS [   0.046s] (532/666) panproto-io::structural_roundtrip struct_ansible
+        PASS [   0.039s] (533/666) panproto-io::structural_roundtrip struct_arrow
+        PASS [   0.038s] (534/666) panproto-io::structural_roundtrip struct_asn1
+        PASS [   0.036s] (535/666) panproto-io::structural_roundtrip struct_asyncapi
+        PASS [   0.034s] (536/666) panproto-io::structural_roundtrip struct_atproto
+        PASS [   0.037s] (537/666) panproto-io::structural_roundtrip struct_avro
+        PASS [   0.034s] (538/666) panproto-io::structural_roundtrip struct_bead
+        PASS [   0.039s] (539/666) panproto-io::structural_roundtrip struct_bond
+        PASS [   0.046s] (540/666) panproto-io::structural_roundtrip struct_brat
+        PASS [   0.038s] (541/666) panproto-io::structural_roundtrip struct_cassandra
+        PASS [   0.042s] (542/666) panproto-io::structural_roundtrip struct_bson
+        PASS [   0.039s] (543/666) panproto-io::structural_roundtrip struct_cddl
+        PASS [   0.045s] (544/666) panproto-io::structural_roundtrip struct_concrete
+        PASS [   0.047s] (545/666) panproto-io::structural_roundtrip struct_dataframe
+        PASS [   0.041s] (546/666) panproto-io::structural_roundtrip struct_decomp
+        PASS [   0.055s] (547/666) panproto-io::structural_roundtrip struct_cloudformation
+        PASS [   0.057s] (548/666) panproto-io::structural_roundtrip struct_docx
+        PASS [   4.388s] (549/666) panproto-io::resolution_corpus law_properties::the_laws_hold_on_random_alias_maps
+        PASS [   0.092s] (550/666) panproto-io::structural_roundtrip struct_dynamodb
+        PASS [   0.093s] (551/666) panproto-io::structural_roundtrip struct_fhir
+        PASS [   0.100s] (552/666) panproto-io::structural_roundtrip struct_elan
+        PASS [   0.083s] (553/666) panproto-io::structural_roundtrip struct_flatbuffers
+        PASS [   0.081s] (554/666) panproto-io::structural_roundtrip struct_folia
+        PASS [   0.065s] (555/666) panproto-io::structural_roundtrip struct_fovea
+        PASS [   0.074s] (556/666) panproto-io::structural_roundtrip struct_geojson
+        PASS [   0.036s] (557/666) panproto-io::structural_roundtrip struct_jsonapi
+        PASS [   0.077s] (558/666) panproto-io::structural_roundtrip struct_iso_space
+        PASS [   0.046s] (559/666) panproto-io::structural_roundtrip struct_k8s
+        PASS [   0.039s] (560/666) panproto-io::structural_roundtrip struct_laf_graf
+        PASS [   0.035s] (561/666) panproto-io::structural_roundtrip struct_mongodb
+        PASS [   0.038s] (562/666) panproto-io::structural_roundtrip struct_msgpack
+        PASS [   0.033s] (563/666) panproto-io::structural_roundtrip struct_naf
+        PASS [   0.046s] (564/666) panproto-io::structural_roundtrip struct_neo4j
+        PASS [   0.038s] (565/666) panproto-io::structural_roundtrip struct_nif
+        PASS [   0.037s] (566/666) panproto-io::structural_roundtrip struct_openapi
+        PASS [   0.043s] (567/666) panproto-io::structural_roundtrip struct_odf
+        PASS [   0.036s] (568/666) panproto-io::structural_roundtrip struct_parquet
+        PASS [   0.038s] (569/666) panproto-io::structural_roundtrip struct_paula
+        PASS [   0.042s] (570/666) panproto-io::structural_roundtrip struct_raml
+        PASS [   0.040s] (571/666) panproto-io::structural_roundtrip struct_rss_atom
+        PASS [   0.044s] (572/666) panproto-io::structural_roundtrip struct_timeml
+        PASS [   0.049s] (573/666) panproto-io::structural_roundtrip struct_tei
+        PASS [   0.036s] (574/666) panproto-io::structural_roundtrip struct_ucca
+        PASS [   0.037s] (575/666) panproto-io::structural_roundtrip struct_uima
+        PASS [   0.022s] (576/666) panproto-io::tabular_wide_and_tall the_cell_key_is_injective_where_the_packed_one_collided
+        PASS [   0.041s] (577/666) panproto-io::structural_roundtrip struct_vcard
+        PASS [   0.040s] (578/666) panproto-io::structural_roundtrip struct_web_annotation
+        PASS [   0.023s] (579/666) panproto-io::text_route_repairs absent_fixture_uses_a_real_row_id
+        PASS [   0.023s] (580/666) panproto-io::text_route_repairs an_underscore_cell_is_text
+        PASS [   0.024s] (581/666) panproto-io::text_route_repairs bigint_text_routes_observe_the_output_allowance
+        PASS [   0.025s] (582/666) panproto-io::text_route_repairs canonical_routes_keep_extreme_decimal_zero_scale_and_sign
+        PASS [   0.031s] (583/666) panproto-io::text_route_repairs delimited_cst_cells_are_text
+        PASS [   0.028s] (584/666) panproto-io::text_route_repairs one_column_empty_rows_and_tsv_quotes_round_trip
+        PASS [   0.041s] (585/666) panproto-io::text_route_repairs preserving_routes_keep_extreme_decimal_zero_scale_and_sign
+        PASS [   0.034s] (586/666) panproto-io::text_route_repairs toml_cst_writes_exact_decimals_and_big_integers
+        PASS [   0.030s] (587/666) panproto-io::text_route_repairs toml_writes_exact_decimals_and_big_integers
+        PASS [   0.034s] (588/666) panproto-io::text_route_repairs tsv_has_no_comment_lines_by_default
+        PASS [   0.026s] (589/666) panproto-io::value_fidelity_corpus byte_tabular_values_survive_a_forced_rerender
+        PASS [   0.034s] (590/666) panproto-io::value_fidelity_corpus canonical_tree_emitters_refuse_a_disconnected_cycle
+        PASS [   0.026s] (591/666) panproto-io::value_fidelity_corpus canonical_tree_emitters_refuse_unreachable_nodes_and_hyper_edges
+        PASS [   0.020s] (592/666) panproto-io::value_fidelity_corpus canonical_value_emitters_bound_adversarial_container_depth
+        PASS [   0.049s] (593/666) panproto-io::value_fidelity_corpus canonical_tree_emitters_accept_128_nodes_and_refuse_129
+        PASS [   0.023s] (594/666) panproto-io::value_fidelity_corpus canonical_xml_normalizes_literal_eols_and_preserves_semantic_carriage_returns
+        PASS [   0.021s] (595/666) panproto-io::value_fidelity_corpus corpus_contains_every_required_text_family_and_literal
+        PASS [   0.020s] (596/666) panproto-io::value_fidelity_corpus json_exact_values_survive_a_forced_rerender
+        PASS [   0.026s] (597/666) panproto-io::value_fidelity_corpus delimited_exact_values_survive_forced_rerenders
+        PASS [   0.025s] (598/666) panproto-io::value_fidelity_corpus json_open_numbers_are_exact_and_nonfinite_emit_is_typed
+        PASS [   0.025s] (599/666) panproto-io::value_fidelity_corpus preserving::cst_extractors_refuse_parser_recovery_markers
+        PASS [   0.026s] (600/666) panproto-io::value_fidelity_corpus preserving::csv_quotes_are_syntax_while_tsv_quotes_are_ordinary_text
+        PASS [   0.023s] (601/666) panproto-io::value_fidelity_corpus preserving::json_and_toml_csts_refuse_invalid_unicode_scalar_escapes
+        PASS [   0.029s] (602/666) panproto-io::value_fidelity_corpus preserving::json_cst_edits_replace_complete_tokens_across_scalar_classes
+        PASS [   0.048s] (603/666) panproto-io::value_fidelity_corpus preserving::delimited_cst_routes_force_exact_cell_rerenders
+        PASS [   0.025s] (604/666) panproto-io::value_fidelity_corpus preserving::json_cst_rejects_duplicate_keys_and_preserves_non_string_type_data
+        PASS [   0.025s] (605/666) panproto-io::value_fidelity_corpus preserving::json_empty_object_keys_remain_addressable
+        PASS [   0.028s] (606/666) panproto-io::value_fidelity_corpus preserving::preserving_tabular_emitters_refuse_row_and_column_structure_edits
+        PASS [   0.045s] (607/666) panproto-io::value_fidelity_corpus preserving::json_cst_yaml_cst_and_toml_cst_exact_routes_force_a_rerender
+        PASS [   0.037s] (608/666) panproto-io::value_fidelity_corpus preserving::preserving_tree_emitters_refuse_added_removed_reordered_and_reparented_nodes
+        PASS [   0.023s] (609/666) panproto-io::value_fidelity_corpus preserving::public_tabular_codecs_preserve_exact_value_variants
+        PASS [   0.026s] (610/666) panproto-io::value_fidelity_corpus preserving::toml_and_yaml_cst_decode_format_local_radix_integers_exactly
+        PASS [   0.023s] (611/666) panproto-io::value_fidelity_corpus preserving::toml_cst_rejects_duplicate_non_array_keys
+        PASS [   0.027s] (612/666) panproto-io::value_fidelity_corpus preserving::toml_dotted_keys_and_headers_are_refused_instead_of_flattened
+        PASS [   0.021s] (613/666) panproto-io::value_fidelity_corpus preserving::unified_json_rejects_yaml_input
+        PASS [   0.025s] (614/666) panproto-io::value_fidelity_corpus preserving::unified_tabular_complements_are_bound_to_the_selected_table
+        PASS [   0.030s] (615/666) panproto-io::value_fidelity_corpus preserving::xml_cst_attributes_decode_references_and_accept_edits
+        PASS [   0.034s] (616/666) panproto-io::value_fidelity_corpus preserving::xml_cst_exposes_and_edits_cdata_as_character_data
+        PASS [   0.043s] (617/666) panproto-io::value_fidelity_corpus preserving::xml_cst_exact_values_and_nil_semantics_survive_forced_rerenders
+        PASS [   0.029s] (618/666) panproto-io::value_fidelity_corpus preserving::xml_cst_mixed_children_use_declared_edge_targets_and_value_specs
+        PASS [   0.027s] (619/666) panproto-io::value_fidelity_corpus preserving::xml_cst_partial_schema_keeps_declared_and_undeclared_children_once
+        PASS [   0.022s] (620/666) panproto-io::value_fidelity_corpus preserving::xml_cst_preserves_whitespace_only_leaf_values
+        PASS [   0.026s] (621/666) panproto-io::value_fidelity_corpus preserving::xml_cst_preserves_whitespace_runs_between_and_after_children
+        PASS [   0.033s] (622/666) panproto-io::value_fidelity_corpus preserving::xml_cst_reads_xsi_nil_as_an_xsd_boolean
+        PASS [   0.028s] (623/666) panproto-io::value_fidelity_corpus preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding
+        PASS [   0.029s] (624/666) panproto-io::value_fidelity_corpus preserving::xml_cst_refuses_illegal_text_and_attribute_characters
+        PASS [   0.037s] (625/666) panproto-io::value_fidelity_corpus preserving::xml_cst_rejects_content_inside_xsi_nil_elements
+        PASS [   0.050s] (626/666) panproto-io::value_fidelity_corpus preserving::xml_csv_and_tsv_csts_render_nonfinite_edits_from_finite_sources
+        PASS [   0.070s] (627/666) panproto-io::value_fidelity_corpus preserving::xml_opaque_nodes_cannot_be_rewritten_as_elements
+        PASS [   0.069s] (628/666) panproto-io::value_fidelity_corpus preserving::yaml_aliases_are_refused_until_anchor_resolution_is_available
+        PASS [   0.066s] (629/666) panproto-io::value_fidelity_corpus preserving::yaml_cst_decodes_escaped_mapping_keys_before_routing_them
+        PASS [   0.086s] (630/666) panproto-io::value_fidelity_corpus preserving::yaml_cst_and_toml_cst_preserve_nonfinite_spellings
+        PASS [   0.050s] (631/666) panproto-io::value_fidelity_corpus preserving::yaml_cst_decodes_quoted_block_and_tagged_scalars_before_an_edit
+        PASS [   0.048s] (632/666) panproto-io::value_fidelity_corpus preserving::yaml_cst_refuses_multi_document_streams
+        PASS [   0.039s] (633/666) panproto-io::value_fidelity_corpus preserving::yaml_empty_sequence_items_are_null_and_keep_the_dash_carrier
+        PASS [   0.046s] (634/666) panproto-io::value_fidelity_corpus preserving::yaml_empty_mapping_values_are_null_and_editable
+        PASS [   0.044s] (635/666) panproto-io::value_fidelity_corpus preserving::yaml_open_schema_reports_invalid_explicit_tags
+        PASS [   0.044s] (636/666) panproto-io::value_fidelity_corpus preserving::yaml_partial_schema_keeps_undeclared_sequences_as_lists
+        PASS [   0.026s] (637/666) panproto-io::value_fidelity_corpus preserving::yaml_partial_schema_preserves_nested_empty_mapping_and_sequence_values
+        PASS [   0.026s] (638/666) panproto-io::value_fidelity_corpus preserving::yaml_payload_nan_is_not_silently_rewritten
+        PASS [   0.025s] (639/666) panproto-io::value_fidelity_corpus preserving::yaml_tagged_containers_receive_a_named_typed_refusal
+        PASS [   0.022s] (640/666) panproto-io::value_fidelity_corpus toml_native_values_rerender_or_return_a_typed_refusal
+        PASS [   0.026s] (641/666) panproto-io::value_fidelity_corpus xml_distinguishes_null_empty_and_absent_then_rerenders
+        PASS [   0.026s] (642/666) panproto-io::value_fidelity_open_lexemes open_json_lexemes_choose_the_exact_contract_carriers
+        PASS [   0.026s] (643/666) panproto-io::xml_character_data a_decimal_character_reference_resolves
+        PASS [   0.031s] (644/666) panproto-io::value_io_round_trip_totality every_parsed_value_emits_on_the_value_io_routes
+        PASS [   0.025s] (645/666) panproto-io::xml_character_data a_document_with_many_duplicate_attributes_terminates
+        PASS [   0.021s] (646/666) panproto-io::xml_character_data a_hexadecimal_character_reference_resolves
+        PASS [   0.027s] (647/666) panproto-io::xml_character_data an_unknown_entity_is_preserved_literally_rather_than_dropped
+        PASS [   0.026s] (648/666) panproto-io::xml_character_data cdata_is_character_data
+        PASS [   0.036s] (649/666) panproto-io::xml_character_data cdata_content_is_not_unescaped
+        PASS [   0.023s] (650/666) panproto-io::xml_character_data every_predefined_entity_resolves
+        PASS [   0.022s] (651/666) panproto-io::xml_character_data plain_text_is_the_element_value
+        PASS [   0.067s] (652/666) panproto-io::xml_character_data a_namespace_heavy_document_terminates
+        PASS [   0.025s] (653/666) panproto-io::xml_character_data text_and_cdata_in_one_element_concatenate
+        PASS [   0.024s] (654/666) panproto-io::xml_character_data text_does_not_leak_between_siblings
+        PASS [   0.024s] (655/666) panproto-io::xml_character_data text_interrupted_by_an_entity_is_reassembled
+        PASS [   0.023s] (656/666) panproto-io::xml_character_data whitespace_only_leaf_content_is_a_value
+        PASS [   0.035s] (657/666) panproto-io::yaml_open_schema a_nested_sequence_of_mappings_keeps_its_depth
+        PASS [   0.031s] (658/666) panproto-io::yaml_open_schema a_root_mapping_extracts_every_pair_as_a_child
+        PASS [   0.026s] (659/666) panproto-io::yaml_open_schema a_root_sequence_extracts_every_item
+        PASS [   0.027s] (660/666) panproto-io::yaml_open_schema flow_collections_extract_like_their_block_forms
+        PASS [   4.827s] (661/666) panproto-io::resolution_corpus the_laws_hold_on_every_alias_map_up_to_two_nodes_and_two_aliases
+        PASS [   9.482s] (662/666) panproto-io::resolution_corpus law_properties::the_laws_hold_on_random_posts_trees
+        PASS [   8.418s] (663/666) panproto-io::resolution_corpus the_laws_hold_on_every_short_byte_and_scalar_span
+        PASS [   6.550s] (664/666) panproto-io::tabular_wide_and_tall a_row_wider_than_the_old_stride_edits_the_right_cell
+        PASS [  13.036s] (665/666) panproto-io::resolution_corpus law_properties::the_laws_hold_on_random_catalogs
+        PASS [  33.869s] (666/666) panproto-io::resolution_corpus the_laws_hold_on_every_posts_tree_up_to_two_users_and_two_posts
+────────────
+     Summary [  38.546s] 666 tests run: 664 passed, 2 failed, 0 skipped
+        FAIL [   0.055s] (229/666) panproto-io::every_codec_name_is_a_protocol_name every_codec_name_is_a_protocol_name
+        FAIL [   0.086s] (231/666) panproto-io::every_codec_name_is_a_protocol_name every_codec_resolves_by_each_spelling_of_its_protocol
+error: test run failed

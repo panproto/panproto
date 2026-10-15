@@ -3,7 +3,10 @@
 //! Provides dry-run capability: check which records can be migrated
 //! and which will fail, before modifying any data.
 
-use panproto_inst::{BoundaryProtocols, CompiledMigration, EdgeId, GInstance, WInstance};
+use panproto_inst::{
+    BoundaryProtocols, BoundarySide, CompiledMigration, EdgeId, GInstance, ValidationReport,
+    WInstance,
+};
 use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +60,15 @@ pub enum PartialReason {
         expr_name: String,
         /// The error message.
         error: String,
+    },
+    /// A boundary of the restrict did not validate: the record against the
+    /// source schema (`Input`), or its image against the target schema
+    /// (`Output`).
+    BoundaryValidation {
+        /// The side whose report did not pass.
+        side: BoundarySide,
+        /// The report.
+        report: Box<ValidationReport>,
     },
 }
 
@@ -250,6 +262,10 @@ fn restrict_error_to_reason(err: &panproto_inst::RestrictError) -> PartialReason
         } => PartialReason::ConstraintViolation {
             constraint: format!("fan reconstruction for {hyper_edge_id}"),
             value: detail.clone(),
+        },
+        RestrictError::Validation { side, report } => PartialReason::BoundaryValidation {
+            side: *side,
+            report: report.clone(),
         },
         // Handle any future RestrictError variants.
         other => PartialReason::ExprEvalFailed {
@@ -483,6 +499,21 @@ mod tests {
         assert_eq!(report.successful, 1);
         assert_eq!(report.failed.len(), 1);
         assert_eq!(report.failed[0].record_id, 20);
+        // The record is anchored outside the source schema, so the input
+        // boundary refuses it before the restrict runs, and the reason
+        // carries that report.
+        match &report.failed[0].reason {
+            PartialReason::BoundaryValidation { side, report } => {
+                assert_eq!(*side, BoundarySide::Input);
+                assert_eq!(report.status, panproto_gat::CheckStatus::Failed);
+                assert!(!report.diagnostics.is_empty());
+            }
+            other => panic!("expected a boundary validation failure, got {other:?}"),
+        }
+        // The reason round-trips with its report intact.
+        let json = serde_json::to_string(&report.failed[0].reason).unwrap();
+        let back: PartialReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), json);
         assert!(report.coverage_ratio < 1.0);
         assert!(report.coverage_ratio > 0.0);
     }

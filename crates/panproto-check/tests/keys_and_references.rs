@@ -340,15 +340,22 @@ fn declaration_changes_render_in_text_and_json_reports() {
     let text = panproto_check::report::report_text(&report);
     assert!(text.contains("Key added: film pk"), "{text}");
     assert!(text.contains("Reference added: store_film"), "{text}");
+    // Compared as values, not as text: the order a JSON object renders its
+    // keys in depends on whether serde_json's `preserve_order` feature is
+    // unified into the build, which nothing in this crate controls.
     let json = panproto_check::report::report_json(&report);
-    let rendered = json.to_string();
+    let breaking = json["breaking"].as_array().expect("breaking array");
     assert!(
-        rendered.contains(r#"{"key_id":"pk","type":"key_added","vertex_id":"film"}"#),
-        "{rendered}"
+        breaking.contains(&serde_json::json!(
+            {"type": "key_added", "vertex_id": "film", "key_id": "pk"}
+        )),
+        "{json}"
     );
     assert!(
-        rendered.contains(r#"{"reference_id":"store_film","type":"reference_added"}"#),
-        "{rendered}"
+        breaking.contains(&serde_json::json!(
+            {"type": "reference_added", "reference_id": "store_film"}
+        )),
+        "{json}"
     );
 
     let back = classify(&diff(&keyed, &bare), &protocol());

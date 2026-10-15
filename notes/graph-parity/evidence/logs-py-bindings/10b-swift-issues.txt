@@ -1,0 +1,48 @@
+✘ Test "the composite carries records, anchored to no schemas of its own" recorded an issue at MigrationAPITests.swift:446:6: Caught error: migration: MigrationHandle.lift(_:): operation error: lift_w
+✘ Test "a partial mapping prunes the nodes it leaves out" recorded an issue at MigrationAPITests.swift:280:6: Caught error: migration: CompiledMigrationHandle.lift(_:): operation error: lift_wtype: re
+✘ Test "the self-map carries a post record through unchanged" recorded an issue at MigrationAPITests.swift:263:6: Caught error: migration: CompiledMigrationHandle.lift(_:): operation error: lift_wtype
+✘ Test "a record survives the move to the smaller schema and back" recorded an issue at DataSetTests.swift:205:13: Expectation failed: try restored.instances() == original
+✘ Test "an unnamed root falls through to the schema's declared entry" recorded an issue at MigrationAPITests.swift:314:6: Caught error: migration: CompiledMigrationHandle.lift(json:): operation error:
+✘ Test "get reproduces the captured view and complement" recorded an issue at LensTests.swift:363:9: Expectation failed: (projection.view → Instance(nodes: [4: PanprotoStructural.Node(id: 4, anchor: "
+✘ Test "get reproduces the captured view and complement" recorded an issue at LensTests.swift:364:9: Expectation failed: (projection.complement → Complement(droppedNodes: [:], droppedArcs: [], dropped
+✘ Test "both laws hold on the record the lens was generated for" recorded an issue at LensTests.swift:423:9: Expectation failed: (laws → LawCheckResult(holds: false, violation: Optional("GetPut law vi
+✘ Test "both laws hold on the record the lens was generated for" recorded an issue at LensTests.swift:424:9: Expectation failed: (getPut → LawCheckResult(holds: false, violation: Optional("GetPut law 
+✘ Test "both laws hold on the record the lens was generated for" recorded an issue at LensTests.swift:425:9: Expectation failed: (putGet → LawCheckResult(holds: false, violation: Optional("PutGet law 
+✘ Test "coverage over a batch the migration carries reports every record" recorded an issue at MigrationAPITests.swift:348:9: Expectation failed: (report.succeeded → 0) == 3
+✘ Test "coverage over a batch the migration carries reports every record" recorded an issue at MigrationAPITests.swift:349:9: Expectation failed: (report.failed → 3) == 0
+✘ Test "coverage over a batch the migration carries reports every record" recorded an issue at MigrationAPITests.swift:350:9: Expectation failed: (report.coveragePercent → 0.0) == (100 → 100.0)
+✘ Test "coverage over a batch the migration carries reports every record" recorded an issue at MigrationAPITests.swift:351:9: Expectation failed: (report.errors → ["record 0: restrict failed: the inpu
+✘ Test "a JSON record named at its root comes back as JSON" recorded an issue at MigrationAPITests.swift:296:6: Caught error: migration: CompiledMigrationHandle.lift(json:): operation error: lift_wtyp
+✘ Test "a protocol amended in Swift is the protocol the engine registers" recorded an issue at ProtocolAPITests.swift:87:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's Protocol
+✘ Test "a built-in handle and its specification describe one protocol" recorded an issue at ProtocolAPITests.swift:53:6: Caught error: io: ProtocolHandle.specification: the engine's ProtocolSpec paylo
+✘ Test "a theory the builder assembles is the colimit base the engine expects" recorded an issue at ExprGatDomainTests.swift:80:9: Expectation failed: (amalgamated → Theory(name: "ThGraph_ThLabelled_c
+✘ Test "a theory the builder assembles is the colimit base the engine expects" recorded an issue at ExprGatDomainTests.swift:83:9: Expectation failed: (amalgamated.sorts.map(\.name) → ["Edge", "Label"
+✘ Test "a theory the builder assembles is the colimit base the engine expects" recorded an issue at ExprGatDomainTests.swift:84:9: Expectation failed: (amalgamated.ops.map(\.name) → ["label", "src", "
+✘ Test "the record the example prints is the record it read" recorded an issue at AtprotoPostMigrationTests.swift:156:6: Caught error: migration: CompiledMigrationHandle.lift(_:): operation error: lif
+✘ Test "a record carried through the identity comes back unchanged" recorded an issue with 1 argument name → "post-0" at AtprotoPostMigrationTests.swift:127:6: Caught error: migration: CompiledMigrati
+✘ Test "a record carried through the identity comes back unchanged" recorded an issue with 1 argument name → "post-1" at AtprotoPostMigrationTests.swift:127:6: Caught error: migration: CompiledMigrati
+✘ Test "a record carried through the identity comes back unchanged" recorded an issue with 1 argument name → "post-2" at AtprotoPostMigrationTests.swift:127:6: Caught error: migration: CompiledMigrati
+✘ Test "every captured protocol is the one the catalogue answers with today" recorded an issue at ProtocolAPITests.swift:24:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's Proto
+✘ Test "the identity leaves the schema where it stands" recorded an issue at AtprotoPostMigrationTests.swift:109:6: Caught error: migration: CompiledMigrationHandle.lift(_:): operation error: lift_wty
+✘ Test "An isolated function carries a batch of records through one lens" recorded an issue at CatalogSampleTests.swift:192:6: Caught error: migration: CompiledMigrationHandle.lift(json:): operation e
+✘ Test "A name the walk never reaches is a name it never resolves" recorded an issue at BuiltinProtocolCatalogueTests.swift:73:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's Pr
+✘ Test "The documented searches run as they are written" recorded an issue at BuiltinProtocolCatalogueTests.swift:128:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's ProtocolSpe
+✘ Test "A chosen listing resolves in the order it was given" recorded an issue at BuiltinProtocolCatalogueTests.swift:56:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's Protocol
+✘ Test "The page size changes how the walk is read, not what it reads" recorded an issue at BuiltinProtocolCatalogueTests.swift:38:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine'
+✘ Test "A page is resolved when it is needed, not when the walk starts" recorded an issue at BuiltinProtocolCatalogueTests.swift:104:6: Caught error: io: ProtocolHandle.builtinSpecification: the engin
+✘ Test "every name the catalogue lists resolves to a protocol" recorded an issue at ProtocolAPITests.swift:40:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's ProtocolSpec payloa
+✘ Test "The per-record loop observes cancellation between calls" recorded an issue at CatalogSampleTests.swift:212:6: Caught error: migration: CompiledMigrationHandle.lift(json:): operation error: lif
+✘ Test "The stream resolves the names the catalogue lists, in order" recorded an issue at BuiltinProtocolCatalogueTests.swift:14:6: Caught error: io: ProtocolHandle.builtinSpecification: the engine's 
+✘ Test "a well-formed instance validates with nothing to report" recorded an issue at InstanceAPITests.swift:117:9: Expectation failed: (violations → ["declaration_interpretable: not decided: constrai
+✘ Test "every committed post record parses, validates, and renders" recorded an issue with 1 argument name → "post-0" at InstanceAPITests.swift:86:9: Expectation failed: (violations → ["declaration_in
+✘ Test "every committed post record parses, validates, and renders" recorded an issue with 1 argument name → "post-2" at InstanceAPITests.swift:86:9: Expectation failed: (violations → ["declaration_in
+✘ Test "every committed post record parses, validates, and renders" recorded an issue with 1 argument name → "post-1" at InstanceAPITests.swift:86:9: Expectation failed: (violations → ["declaration_in
+✘ Test "every committed post record parses, validates, and renders" recorded an issue with 1 argument name → "post-3" at InstanceAPITests.swift:86:9: Expectation failed: (violations → ["declaration_in
+✘ Test "every committed post record parses, validates, and renders" recorded an issue with 1 argument name → "post-4" at InstanceAPITests.swift:86:9: Expectation failed: (violations → ["declaration_in
+✘ Test "a record parsed through the codec is the record the schema parses" recorded an issue at IoRegistryAPITests.swift:57:9: Expectation failed: (throughCodec → Instance(nodes: [0: PanprotoStructura
+✘ Test "a post lexicon ingests a post record and writes it back" recorded an issue at AtprotoIngestionTests.swift:81:9: Expectation failed: (outcome.violations → ["declaration_interpretable: not decid
+✘ Test "every committed post record ingests cleanly" recorded an issue with 1 argument name → "post-1" at AtprotoIngestionTests.swift:127:9: Expectation failed: (outcome.violations → ["declaration_int
+✘ Test "every committed post record ingests cleanly" recorded an issue with 1 argument name → "post-2" at AtprotoIngestionTests.swift:127:9: Expectation failed: (outcome.violations → ["declaration_int
+✘ Test "every committed post record ingests cleanly" recorded an issue with 1 argument name → "post-4" at AtprotoIngestionTests.swift:127:9: Expectation failed: (outcome.violations → ["declaration_int
+✘ Test "every committed post record ingests cleanly" recorded an issue with 1 argument name → "post-0" at AtprotoIngestionTests.swift:127:9: Expectation failed: (outcome.violations → ["declaration_int
+✘ Test "every committed post record ingests cleanly" recorded an issue with 1 argument name → "post-3" at AtprotoIngestionTests.swift:127:9: Expectation failed: (outcome.violations → ["declaration_int

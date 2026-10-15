@@ -18,7 +18,7 @@ Public names are re-exported from `panproto`. There is no umbrella engine class.
 | Morphism search | `find_span`, `find_morphisms`, `find_best_morphism`, `SchemaSpan`, `FoundMorphism` |
 | Checking | `diff_schemas`, `diff_and_classify`, `check_existence`, `check_coverage` |
 | Lenses | `Lens`, `ProtolensChain`, `auto_generate_lens`, `auto_generate_lens_candidates` |
-| Instances and I/O | `Instance`, `IoRegistry` |
+| Instances and I/O | `Instance`, `ValidationReport`, `IoRegistry` |
 | GATs | `Theory`, `TheoryBuilder`, `TheoryMorphism`, `Model`, `colimit_theories` |
 | Expressions | `Expr`, `parse_expr`, `pretty_print_expr` |
 | Version control | `Repository`, `VcsRepository`, `BisectState` |

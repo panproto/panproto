@@ -1,0 +1,419 @@
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-all`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-data`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-devops`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-functional`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-jvm`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-mobile`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-music`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-scripting`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-systems`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-grammars-web`
+warning: doc tests are not supported for crate type(s) `cdylib` in package `panproto-py`
+   Compiling proc-macro2 v1.0.107
+   Compiling target-triple v1.0.0
+   Compiling glob v0.3.3
+   Compiling quote v1.0.47
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling syn v1.0.109
+   Compiling prettyplease v0.1.25
+   Compiling logos-codegen v0.16.1
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling synstructure v0.13.2
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling zerocopy-derive v0.8.42
+   Compiling miette-derive v7.6.0
+   Compiling miette v7.6.0
+   Compiling thiserror v2.0.20
+   Compiling zerocopy v0.8.42
+   Compiling logos-derive v0.16.1
+   Compiling clap_derive v4.6.1
+   Compiling serde v1.0.229
+   Compiling panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr)
+   Compiling rmp-serde v1.3.1
+   Compiling malachite-nz v0.9.2
+   Compiling clap v4.6.1
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+   Compiling logos v0.16.1
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling divan-macros v0.1.21
+   Compiling divan v0.1.21
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling codespan-reporting v0.13.1
+   Compiling ouroboros_macro v0.18.5
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling malachite-q v0.9.2
+   Compiling malachite-float v0.9.2
+   Compiling ouroboros v0.18.5
+   Compiling codespan v0.13.1
+   Compiling rand_chacha v0.9.0
+   Compiling nickel-lang-vector v0.2.0
+   Compiling zerofrom-derive v0.1.6
+   Compiling zerofrom v0.1.6
+   Compiling malachite v0.9.2
+   Compiling nickel-lang-parser v0.3.0
+   Compiling proptest v1.11.0
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling yaml_serde v0.10.7
+   Compiling tree-sitter-tags v0.26.13
+   Compiling yoke-derive v0.8.1
+   Compiling yoke v0.8.1
+   Compiling zerovec-derive v0.11.2
+   Compiling zerovec v0.11.5
+   Compiling panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling nickel-lang-core v0.18.0
+   Compiling displaydoc v0.2.5
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling tokio-macros v2.7.2
+   Compiling nickel-lang v2.2.0
+   Compiling tokio v1.53.1
+   Compiling panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-dsl-eval)
+   Compiling tinystr v0.8.2
+   Compiling futures-macro v0.3.32
+   Compiling futures-util v0.3.32
+   Compiling icu_locale_core v2.1.1
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling zerotrie v0.2.3
+   Compiling potential_utf v0.1.4
+   Compiling icu_provider v2.1.1
+   Compiling icu_collections v2.1.1
+   Compiling tokio-util v0.7.18
+   Compiling ext-trait-proc_macros v1.0.1
+   Compiling icu_properties v2.1.2
+   Compiling icu_normalizer v2.1.1
+   Compiling h2 v0.4.16
+   Compiling ext-trait v1.0.1
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling extension-traits v1.0.1
+   Compiling tower v0.5.3
+   Compiling url v2.5.8
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper v1.8.1
+   Compiling with_builtin_macros-proc_macros v0.0.3
+   Compiling wasm-bindgen-macro-support v0.2.114
+   Compiling with_builtin_macros v0.0.3
+   Compiling tower-http v0.6.8
+   Compiling uninit v0.5.1
+   Compiling futures-executor v0.3.32
+   Compiling hyper-util v0.1.20
+   Compiling serde_urlencoded v0.7.1
+   Compiling insta v1.48.0
+   Compiling hyper-rustls v0.27.7
+   Compiling safer_ffi-proc_macros v0.1.13
+   Compiling wasm-bindgen-macro v0.2.114
+   Compiling wasm-bindgen v0.2.114
+   Compiling reqwest v0.12.28
+   Compiling safer-ffi v0.1.13
+   Compiling futures v0.3.32
+   Compiling deadpool v0.12.3
+   Compiling assert-json-diff v2.0.2
+   Compiling wiremock v0.6.5
+   Compiling panproto-xrpc v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-xrpc)
+   Compiling panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/integration)
+   Compiling trybuild v1.0.119
+   Compiling panproto-gat-macros v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat-macros)
+   Compiling panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-project)
+   Compiling panproto-git v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-git)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+   Compiling book-doctest-stub v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/book-doctest-stub)
+   Compiling panproto-wasm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-wasm)
+   Compiling panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-c)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11m 09s
+   Doc-tests book_doctest_stub
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_c
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_check
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_dsl_eval
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_expr
+
+running 10 tests
+test crates/panproto-expr/src/exact/decimal.rs - exact::decimal::DecimalValue::from_f64_shortest (line 254) ... ok
+test crates/panproto-expr/src/exact.rs - exact::CANONICAL_NAN (line 49) ... ok
+test crates/panproto-expr/src/exact/decimal.rs - exact::decimal::DecimalValue (line 41) ... ok
+test crates/panproto-expr/src/exact/integer.rs - exact::integer::BigIntValue (line 318) ... ok
+test crates/panproto-expr/src/exact/integer.rs - exact::integer::WideInt (line 24) ... ok
+test crates/panproto-expr/src/exact.rs - exact::NEGATIVE_CANONICAL_NAN (line 64) ... ok
+test crates/panproto-expr/src/exact/decimal.rs - exact::decimal::DecimalValue::from_f32_shortest (line 289) ... ok
+test crates/panproto-expr/src/exact/temporal.rs - exact::temporal::Temporal (line 21) ... ok
+test crates/panproto-expr/src/exact.rs - exact::binary32_bits (line 91) ... ok
+test crates/panproto-expr/src/exact/temporal.rs - exact::temporal::Fraction (line 157) ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+all doctests ran in 16.69s; merged doctests compilation took 14.71s
+   Doc-tests panproto_expr_parser
+
+running 1 test
+test crates/panproto-expr-parser/src/pretty.rs - pretty::pretty_print (line 57) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+all doctests ran in 5.19s; merged doctests compilation took 0.68s
+   Doc-tests panproto_gat
+
+running 4 tests
+test crates/panproto-gat/src/check_status.rs - check_status::CheckStatus::and (line 56) ... ok
+test crates/panproto-gat/src/compose.rs - compose::Composition (line 648) ... ok
+test crates/panproto-gat/src/check_status.rs - check_status (line 9) ... ok
+test crates/panproto-gat/src/check_status.rs - check_status::CheckStatus::all (line 79) ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 1 test
+test crates/panproto-gat/src/compose.rs - compose::ComposeOptions (line 622) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+all doctests ran in 1.74s; merged doctests compilation took 0.86s
+   Doc-tests panproto_gat_macros
+
+running 4 tests
+test crates/panproto-gat-macros/src/lib.rs - instance (line 409) - compile ... ok
+test crates/panproto-gat-macros/src/lib.rs - derive_theory (line 578) ... ok
+test crates/panproto-gat-macros/src/lib.rs - inductive (line 794) ... ok
+test crates/panproto-gat-macros/src/lib.rs - class (line 239) ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+all doctests ran in 1.40s; merged doctests compilation took 0.69s
+   Doc-tests panproto_git
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_grammars
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_inst
+
+running 60 tests
+test crates/panproto-inst/src/contraction_keys.rs - contraction_keys::compose_contraction_keys (line 78) ... ok
+test crates/panproto-inst/src/error_detail.rs - error_detail::RestrictError::detail (line 393) ... ok
+test crates/panproto-inst/src/error_detail.rs - error_detail::PutDomainError (line 35) ... ok
+test crates/panproto-inst/src/functor.rs - functor::FInstance::digest (line 1092) ... ok
+test crates/panproto-inst/src/error_detail.rs - error_detail::PutDomainError::SurvivalPredicateRefused (line 141) ... ok
+test crates/panproto-inst/src/ginstance/embedding.rs - ginstance::embedding::TreeEmbedding (line 62) ... ok
+test crates/panproto-inst/src/ginstance/reify.rs - ginstance::reify::FanDomain (line 77) ... ok
+test crates/panproto-inst/src/ginstance/table_embed.rs - ginstance::table_embed::TableEmbedding (line 45) ... ok
+test crates/panproto-inst/src/graph_edit/canonical.rs - graph_edit::canonical::GraphDelta::digest (line 213) ... ok
+test crates/panproto-inst/src/ginstance/reify.rs - ginstance::reify::FanDomain::violations_at (line 171) ... ok
+test crates/panproto-inst/src/graph_edit/canonical.rs - graph_edit::canonical::canonical_graph_delta_bytes (line 168) ... ok
+test crates/panproto-inst/src/graph_edit/delta.rs - graph_edit::delta::GraphDelta (line 245) ... ok
+test crates/panproto-inst/src/graph_edit/diff.rs - graph_edit::diff::GraphDelta::diff (line 53) ... ok
+test crates/panproto-inst/src/graph_edit/independence.rs - graph_edit::independence::EditConflict::is_benign (line 101) ... ok
+test crates/panproto-inst/src/identity.rs - identity::Digest::hasher (line 271) ... ok
+test crates/panproto-inst/src/identity.rs - identity::CanonicalSink (line 420) ... ok
+test crates/panproto-inst/src/edit_error.rs - edit_error::EditError::detail (line 271) ... ok
+test crates/panproto-inst/src/identity.rs - identity::InstanceShapeKind (line 1417) ... ok
+test crates/panproto-inst/src/functor.rs - functor::FInstance (line 300) ... ok
+test crates/panproto-inst/src/locality.rs - locality (line 21) ... ok
+test crates/panproto-inst/src/reachability.rs - reachability::reachable_from (line 321) ... ok
+test crates/panproto-inst/src/migration_functor.rs - migration_functor::MigrationFunctor::inner_edges (line 522) ... ok
+test crates/panproto-inst/src/reachability.rs - reachability::strongly_connected_components (line 233) ... ok
+test crates/panproto-inst/src/migration_functor.rs - migration_functor::MigrationFunctor (line 87) ... ok
+test crates/panproto-inst/src/restrict_boundary.rs - restrict_boundary::BoundaryProtocols (line 24) ... ok
+test crates/panproto-inst/src/restrict_boundary.rs - restrict_boundary::BoundarySide (line 44) ... ok
+test crates/panproto-inst/src/segment/builder.rs - segment::builder::SegmentBuilder (line 119) ... ok
+test crates/panproto-inst/src/segment/error.rs - segment::error::ErrorKey (line 43) ... ok
+test crates/panproto-inst/src/segment/ids.rs - segment::ids (line 30) ... ok
+test crates/panproto-inst/src/segment/ids.rs - segment::ids::IdAllocator (line 177) ... ok
+test crates/panproto-inst/src/segment/ids.rs - segment::ids::IdRange (line 78) ... ok
+test crates/panproto-inst/src/segment/manifest.rs - segment::manifest::verify_audit_path (line 330) ... ok
+test crates/panproto-inst/src/segment/partition.rs - segment::partition::Partition::by_node_ranges (line 331) ... ok
+test crates/panproto-inst/src/segment/partition.rs - segment::partition::Partition::single (line 407) ... ok
+test crates/panproto-inst/src/segment/store.rs - segment::store::TaskRecord::inputs_digest (line 117) ... ok
+test crates/panproto-inst/src/segment/tree_bytes.rs - segment::tree_bytes::winstance_digest (line 138) ... ok
+test crates/panproto-inst/src/table_delta.rs - table_delta::TableDelta (line 172) ... ok
+test crates/panproto-inst/src/rel_schema.rs - rel_schema::RelSchema (line 125) ... ok
+test crates/panproto-inst/src/fan_violation.rs - fan_violation::FanViolation (line 26) ... ok
+test crates/panproto-inst/src/error_detail.rs - error_detail::ErrorDetail (line 239) ... ok
+test crates/panproto-inst/src/tree_edit.rs - tree_edit::TreeEdit::digest (line 629) ... ok
+test crates/panproto-inst/src/tree_edit.rs - tree_edit::canonical_tree_edit_bytes (line 671) ... ok
+test crates/panproto-inst/src/validation/mod.rs - validation (line 29) ... ok
+test crates/panproto-inst/src/validation/report.rs - validation::report::FanRecord (line 390) ... ok
+test crates/panproto-inst/src/validation/witness.rs - validation::witness (line 29) ... ok
+test crates/panproto-inst/src/validation/report.rs - validation::report::IncompleteCheck (line 926) ... ok
+test crates/panproto-inst/src/validation/witness.rs - validation::witness (line 59) ... ok
+test crates/panproto-inst/src/value/coerce.rs - value::coerce::coerce (line 186) ... ok
+test crates/panproto-inst/src/value/coerce.rs - value::coerce::coerce_value (line 789) ... ok
+test crates/panproto-inst/src/table_delta.rs - table_delta::TableDelta::digest (line 1382) ... ok
+test crates/panproto-inst/src/ginstance/canonical.rs - ginstance::canonical::GInstance::digest (line 126) ... ok
+test crates/panproto-inst/src/identity.rs - identity::ComplementShape::instance_shape (line 1395) ... ok
+test crates/panproto-inst/src/wtype.rs - wtype::expr_literal_to_value (line 3293) ... ok
+test crates/panproto-inst/src/view_ref.rs - view_ref (line 22) ... ok
+test crates/panproto-inst/src/table_delta.rs - table_delta::canonical_table_delta_bytes (line 1328) ... ok
+test crates/panproto-inst/src/wtype_check.rs - wtype_check::reserved_vocabulary (line 42) ... ok
+test crates/panproto-inst/src/wtype_check.rs - wtype_check::WInstance::try_new (line 97) ... ok
+test crates/panproto-inst/src/view_ref.rs - view_ref::ViewRef (line 58) ... ok
+test crates/panproto-inst/src/table_edit.rs - table_edit::TableEdit (line 40) ... ok
+test crates/panproto-inst/src/wtype.rs - wtype::value_to_expr_literal (line 3217) ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+all doctests ran in 3.90s; merged doctests compilation took 2.03s
+   Doc-tests panproto_integration
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_io
+
+running 1 test
+test crates/panproto-io/src/traits.rs - traits::NativeRepr (line 37) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 0.95s; merged doctests compilation took 0.62s
+   Doc-tests panproto_lens
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_lens_dsl
+
+running 1 test
+test crates/panproto-lens-dsl/src/lib.rs - (line 17) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 3.63s; merged doctests compilation took 0.77s
+   Doc-tests panproto_mig
+
+running 18 tests
+test crates/panproto-mig/src/align/evidence.rs - align::evidence::effective (line 325) ... ok
+test crates/panproto-mig/src/hom_search.rs - hom_search::find_span (line 258) ... ok
+test crates/panproto-mig/src/solve/dispatch.rs - solve::dispatch::solve (line 101) ... ok
+test crates/panproto-mig/src/solve/dispatch.rs - solve::dispatch::solve_monic (line 539) ... ok
+test crates/panproto-mig/src/solve/build.rs - solve::build::build_cfn (line 419) ... ok
+test crates/panproto-mig/src/align/evidence.rs - align::evidence::aggregate (line 406) ... ok
+test crates/panproto-mig/src/solve/elim.rs - solve::elim::eliminate (line 851) ... ok
+test crates/panproto-mig/src/solve/hbfs.rs - solve::hbfs::solve_hbfs (line 184) ... ok
+test crates/panproto-mig/src/align/evidence.rs - align::evidence::EvidenceTable::select (line 559) ... ok
+test crates/panproto-mig/src/solve/order.rs - solve::order::choose_order (line 854) ... ok
+test crates/panproto-mig/src/solve/order.rs - solve::order::elimination_cost (line 774) ... ok
+test crates/panproto-mig/src/solve/elim.rs - solve::elim::detect_product (line 1218) ... ok
+test crates/panproto-mig/src/overlap.rs - overlap::discover_overlap (line 49) ... ok
+test crates/panproto-mig/src/span.rs - span::SpanSearch (line 548) ... ok
+test crates/panproto-mig/src/hom_search.rs - hom_search::without_bottom (line 633) ... ok
+test crates/panproto-mig/src/solve/order.rs - solve::order::primal_graph (line 355) ... ok
+test crates/panproto-mig/src/solve/dfbb.rs - solve::dfbb::solve_dfbb (line 1288) ... ok
+test crates/panproto-mig/src/solve/mcsplit.rs - solve::mcsplit::solve_iso (line 2156) ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+
+all doctests ran in 4.54s; merged doctests compilation took 2.47s
+   Doc-tests panproto_parse
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_project
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_protocols
+
+running 1 test
+test crates/panproto-protocols/src/graph_instance_model.rs - graph_instance_model (line 62) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+
+all doctests ran in 15.60s; merged doctests compilation took 11.45s
+   Doc-tests panproto_schema
+
+running 15 tests
+test crates/panproto-schema/src/canonical_theory.rs - canonical_theory::canonical_theory_bytes (line 65) ... ok
+test crates/panproto-schema/src/canonical.rs - canonical::canonical_bytes (line 99) ... ok
+test crates/panproto-schema/src/canonical.rs - canonical::CanonicalWriter::raw (line 636) ... ok
+test crates/panproto-schema/src/induce.rs - induce::induce (line 138) ... ok
+test crates/panproto-schema/src/constraint_semantics.rs - constraint_semantics::ValueParameter::parse (line 257) ... ok
+test crates/panproto-schema/src/keys.rs - keys::SchemaDeclarations::insert_key (line 251) ... ok
+test crates/panproto-schema/src/serde_helpers.rs - serde_helpers::btree_map_as_vec (line 247) ... ok
+test crates/panproto-schema/src/shape_kind.rs - shape_kind (line 12) ... ok
+test crates/panproto-schema/src/induce.rs - induce::induce_on_vertices (line 375) ... ok
+test crates/panproto-schema/src/canonical.rs - canonical::CanonicalWriter (line 597) ... ok
+test crates/panproto-schema/src/value_kinds.rs - value_kinds::ValueSpec::for_vertex (line 114) ... ok
+test crates/panproto-schema/src/constraint_semantics.rs - constraint_semantics (line 15) ... ok
+test crates/panproto-schema/src/canonical.rs - canonical::canonical_digest (line 140) ... ok
+test crates/panproto-schema/src/induce.rs - induce::induce_with_report (line 194) ... ok
+test crates/panproto-schema/src/shape_kind.rs - shape_kind::InstanceShapeKind (line 26) ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+all doctests ran in 5.42s; merged doctests compilation took 4.90s
+   Doc-tests panproto_theory_dsl
+
+running 1 test
+test crates/panproto-theory-dsl/src/lib.rs - (line 18) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.99s; merged doctests compilation took 0.60s
+   Doc-tests panproto_vcs
+
+running 1 test
+test crates/panproto-vcs/src/lib.rs - (line 20) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 1.01s; merged doctests compilation took 0.71s
+   Doc-tests panproto_wasm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests panproto_xrpc
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

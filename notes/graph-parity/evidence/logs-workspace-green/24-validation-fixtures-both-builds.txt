@@ -1,0 +1,5 @@
+default vs preserve_order:
+identical
+default vs committed:
+identical
+     Summary [   2.267s] 23 tests run: 23 passed, 0 skipped

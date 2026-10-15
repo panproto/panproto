@@ -1,0 +1,102 @@
+fmt=0
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+    Checking cfg-if v1.0.4
+   Compiling rustix v1.1.4
+    Checking bitflags v2.11.0
+   Compiling serde_core v1.0.229
+    Checking memchr v2.8.3
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling serde v1.0.229
+   Compiling zerocopy v0.8.42
+   Compiling serde_derive v1.0.229
+   Compiling object v0.37.3
+   Compiling zerocopy-derive v0.8.42
+   Compiling autocfg v1.5.0
+    Checking adler2 v2.0.1
+    Checking gimli v0.32.3
+    Checking miniz_oxide v0.8.9
+    Checking addr2line v0.25.1
+   Compiling num-traits v0.2.19
+   Compiling owo-colors v4.3.0
+    Checking errno v0.3.14
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.12
+   Compiling getrandom v0.3.4
+   Compiling thiserror v2.0.20
+    Checking terminal_size v0.4.3
+    Checking rustc-demangle v0.1.27
+   Compiling cc v1.4.5
+   Compiling thiserror-impl v2.0.20
+    Checking backtrace v0.3.76
+    Checking unicode-linebreak v0.1.5
+    Checking unicode-width v0.2.2
+    Checking is_ci v1.2.0
+    Checking supports-color v3.0.2
+    Checking textwrap v0.16.2
+    Checking backtrace-ext v0.2.1
+   Compiling blake3 v1.8.7
+   Compiling miette-derive v7.6.0
+    Checking unicode-width v0.1.14
+    Checking supports-unicode v3.0.0
+    Checking regex-syntax v0.8.10
+    Checking supports-hyperlinks v3.2.0
+   Compiling zmij v1.0.21
+    Checking rustc-hash v2.1.3
+    Checking panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-expr)
+    Checking miette v7.6.0
+    Checking half v2.7.1
+    Checking aho-corasick v1.1.4
+    Checking ciborium-io v0.2.2
+   Compiling serde_json v1.0.151
+    Checking arrayvec v0.7.6
+    Checking constant_time_eq v0.4.2
+    Checking ciborium-ll v0.2.2
+    Checking panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-gat)
+    Checking regex-automata v0.4.14
+    Checking rmp v0.8.15
+    Checking smallvec v2.0.0-alpha.12
+    Checking itoa v1.0.17
+    Checking rmp-serde v1.3.1
+    Checking ciborium v0.2.2
+    Checking unicode-segmentation v1.12.0
+    Checking bumpalo v3.20.3
+    Checking rand_core v0.9.5
+    Checking regex v1.12.3
+    Checking once_cell v1.21.4
+    Checking fastrand v2.3.0
+    Checking clap_lex v1.0.0
+    Checking anstyle v1.0.13
+    Checking tempfile v3.27.0
+    Checking ppv-lite86 v0.2.21
+    Checking clap_builder v4.6.0
+    Checking wait-timeout v0.2.1
+    Checking bit-vec v0.8.0
+    Checking quick-error v1.2.3
+    Checking fnv v1.0.7
+    Checking rusty-fork v0.3.1
+    Checking bit-set v0.8.0
+    Checking rand_chacha v0.9.0
+    Checking rand_xorshift v0.4.0
+    Checking rand v0.9.2
+    Checking console v0.16.3
+   Compiling divan-macros v0.1.21
+    Checking unarray v0.1.4
+    Checking condtype v1.3.0
+    Checking similar v2.7.0
+    Checking clap v4.6.1
+    Checking regex-lite v0.1.9
+    Checking insta v1.48.0
+    Checking proptest v1.11.0
+    Checking divan v0.1.21
+    Checking panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-schema)
+    Checking panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-inst)
+    Checking panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-mig)
+    Checking panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-protocols)
+    Checking panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-lens)
+    Checking panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-check)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.44s
+clippy_check=0

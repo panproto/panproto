@@ -1,0 +1,5 @@
+    Checking panproto-py v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-py)
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/tests/integration)
+    Checking panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/crates/panproto-io)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.53s
+clippy=0

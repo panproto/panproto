@@ -62,12 +62,18 @@ pub fn parse_json(
 
     walk_json(schema, root_vertex, json_val, root_id, &mut state, "$")?;
 
+    // The root may resolve through a transparent indirection to another
+    // vertex; the schema root is the vertex the root node is anchored to.
+    let schema_root = state.nodes.get(&root_id).map_or_else(
+        || panproto_gat::Name::from(root_vertex),
+        |node| node.anchor.clone(),
+    );
     Ok(WInstance::new(
         state.nodes,
         state.arcs,
         Vec::new(),
         root_id,
-        panproto_gat::Name::from(root_vertex),
+        schema_root,
     ))
 }
 
@@ -213,7 +219,9 @@ fn parse_array(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    let node = Node::new(node_id, vertex_id);
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
     state.nodes.insert(node_id, node);
 
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();

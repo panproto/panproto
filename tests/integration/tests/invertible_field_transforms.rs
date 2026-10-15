@@ -165,6 +165,76 @@ fn put_does_not_reinstate_the_computed_key() {
     }
 }
 
+/// A field no transform writes is an independent coordinate the view
+/// carries under its own name, so an edit to it reaches the source even
+/// when the complement holds a snapshot of the source's fields.
+#[test]
+fn an_edit_to_an_untransformed_field_reaches_the_source() {
+    let schema = schema_without_child();
+    let instance = instance_of(&schema);
+    let lens = lens_with(
+        &schema,
+        vec![FieldTransform::AddField {
+            key: "k".into(),
+            value: Value::Int(1),
+        }],
+    );
+
+    let (mut view, complement) = get(&lens, &instance).expect("get");
+    let root = view.root;
+    view.nodes
+        .get_mut(&root)
+        .expect("the view has its root")
+        .extra_fields
+        .insert("a".into(), Value::Str("edited".into()));
+
+    let restored = put(&lens, &view, &complement).expect("put");
+    assert_eq!(
+        root_fields(&restored).get("a"),
+        Some(&Value::Str("edited".into())),
+        "the edit to `a` must reach the source"
+    );
+    assert!(
+        !root_fields(&restored).contains_key("k"),
+        "`k` is added by the lens, not carried by the source"
+    );
+    let put_get = panproto_lens::laws::check_put_get(&lens, &instance);
+    assert!(put_get.is_ok(), "PutGet must hold: {put_get:?}");
+}
+
+/// Editing the source of a computed field that stays beside it is an edit
+/// to the independent coordinate. The inverse of the stale computed value
+/// must not overwrite it, so the edited view, whose computed field no
+/// longer matches its source, is refused as outside the put domain rather
+/// than put with the edit silently undone.
+#[test]
+fn an_edit_to_a_derived_fields_source_is_not_overwritten_by_the_inverse() {
+    let schema = schema_without_child();
+    let instance = instance_of(&schema);
+    let lens = lens_with(&schema, vec![compute_upper()]);
+
+    let (mut view, complement) = get(&lens, &instance).expect("get");
+    let root = view.root;
+    view.nodes
+        .get_mut(&root)
+        .expect("the view has its root")
+        .extra_fields
+        .insert("a".into(), Value::Str("edited".into()));
+
+    let domain = panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement);
+    assert!(
+        matches!(
+            domain.as_ref().map_err(Vec::as_slice),
+            Err([panproto_inst::PutDomainError::DerivedCellEdited { field, .. }]) if field == "up"
+        ),
+        "a view whose computed field is stale is outside the put domain: {domain:?}"
+    );
+    assert!(
+        put(&lens, &view, &complement).is_err(),
+        "put refuses the view instead of undoing the edit to `a`"
+    );
+}
+
 /// Both laws hold for an invertible `ComputeField` whichever side its
 /// source sits on.
 #[test]

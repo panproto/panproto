@@ -1,0 +1,387 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+    Checking memchr v2.8.3
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+    Checking cfg-if v1.0.4
+   Compiling zmij v1.0.21
+   Compiling find-msvc-tools v0.1.12
+   Compiling jobserver v0.1.34
+   Compiling serde_derive v1.0.229
+   Compiling shlex v2.0.1
+   Compiling cc v1.4.5
+    Checking regex-syntax v0.8.10
+   Compiling serde v1.0.229
+    Checking bitflags v2.11.0
+   Compiling rustix v1.1.4
+    Checking itoa v1.0.17
+    Checking errno v0.3.14
+    Checking once_cell v1.21.4
+   Compiling thiserror v2.0.20
+   Compiling thiserror-impl v2.0.20
+    Checking rustc-hash v2.1.3
+   Compiling serde_json v1.0.151
+    Checking terminal_size v0.4.3
+    Checking unicode-width v0.2.2
+   Compiling autocfg v1.5.0
+   Compiling zerocopy v0.8.42
+   Compiling num-traits v0.2.19
+    Checking panproto-expr v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr)
+   Compiling zerocopy-derive v0.8.42
+    Checking adler2 v2.0.1
+    Checking gimli v0.32.3
+    Checking miniz_oxide v0.8.9
+    Checking aho-corasick v1.1.4
+    Checking rustc-demangle v0.1.27
+   Compiling owo-colors v4.3.0
+    Checking regex-automata v0.4.14
+    Checking is_ci v1.2.0
+    Checking unicode-linebreak v0.1.5
+    Checking addr2line v0.25.1
+   Compiling object v0.37.3
+    Checking textwrap v0.16.2
+    Checking supports-color v3.0.2
+   Compiling miette-derive v7.6.0
+    Checking supports-unicode v3.0.0
+    Checking unicode-width v0.1.14
+    Checking supports-hyperlinks v3.2.0
+    Checking regex v1.12.3
+   Compiling getrandom v0.3.4
+    Checking colorchoice v1.0.4
+    Checking fastrand v2.3.0
+    Checking strsim v0.11.1
+    Checking unicode-segmentation v1.12.0
+    Checking tempfile v3.27.0
+   Compiling blake3 v1.8.7
+    Checking constant_time_eq v0.4.2
+    Checking arrayvec v0.7.6
+    Checking rmp v0.8.15
+    Checking smallvec v2.0.0-alpha.12
+    Checking bumpalo v3.20.3
+    Checking rmp-serde v1.3.1
+    Checking half v2.7.1
+    Checking ciborium-io v0.2.2
+    Checking fnv v1.0.7
+    Checking ciborium-ll v0.2.2
+    Checking wait-timeout v0.2.1
+    Checking ciborium v0.2.2
+    Checking rand_core v0.9.5
+    Checking ppv-lite86 v0.2.21
+    Checking bit-vec v0.8.0
+    Checking backtrace v0.3.76
+    Checking quick-error v1.2.3
+    Checking rusty-fork v0.3.1
+    Checking bit-set v0.8.0
+    Checking rand_chacha v0.9.0
+    Checking rand v0.9.2
+    Checking backtrace-ext v0.2.1
+    Checking miette v7.6.0
+    Checking rand_xorshift v0.4.0
+    Checking unarray v0.1.4
+   Compiling heck v0.5.0
+    Checking proptest v1.11.0
+    Checking utf8parse v0.2.2
+    Checking anstyle v1.0.13
+    Checking anstyle-parse v1.0.0
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle-query v1.1.5
+    Checking clap_lex v1.0.0
+    Checking anstream v1.0.0
+    Checking panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling clap_derive v4.6.1
+    Checking clap_builder v4.6.0
+   Compiling divan-macros v0.1.21
+    Checking regex-lite v0.1.9
+    Checking clap v4.6.1
+    Checking condtype v1.3.0
+   Compiling equivalent v1.0.2
+    Checking divan v0.1.21
+   Compiling hashbrown v0.16.1
+   Compiling indexmap v2.13.0
+   Compiling tree-sitter-language v0.1.7
+   Compiling winnow v1.0.1
+   Compiling toml_parser v1.1.1+spec-1.1.0
+    Checking panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.1+spec-1.1.0
+    Checking streaming-iterator v0.1.9
+   Compiling tree-sitter v0.26.13
+    Checking panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-grammars v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars)
+    Checking foldhash v0.2.0
+    Checking ryu v1.0.23
+   Compiling version_check v0.9.5
+    Checking libyaml-rs v0.3.0
+    Checking tree-sitter-tags v0.26.13
+    Checking yaml_serde v0.10.7
+   Compiling typenum v1.19.0
+   Compiling generic-array v0.14.7
+    Checking smallvec v1.15.1
+    Checking termcolor v1.4.1
+   Compiling rustversion v1.0.22
+    Checking allocator-api2 v0.2.21
+    Checking foldhash v0.1.5
+    Checking hashbrown v0.15.5
+    Checking base64 v0.22.1
+   Compiling logos-codegen v0.16.1
+   Compiling parking_lot_core v0.9.12
+   Compiling logos-derive v0.16.1
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+    Checking logos v0.16.1
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling cpufeatures v0.2.17
+   Compiling libm v0.2.16
+   Compiling siphasher v1.0.2
+   Compiling phf_shared v0.11.3
+   Compiling ar_archive_writer v0.5.1
+    Checking panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+    Checking panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling psm v0.1.30
+   Compiling keccak v0.1.6
+   Compiling digest v0.10.7
+   Compiling parking_lot v0.12.5
+    Checking panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling log v0.4.29
+   Compiling new_debug_unreachable v1.0.6
+   Compiling precomputed-hash v0.1.1
+   Compiling term v1.2.1
+    Checking either v1.15.0
+   Compiling fixedbitset v0.5.7
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling itertools v0.14.0
+   Compiling petgraph v0.7.1
+   Compiling ascii-canvas v4.0.0
+   Compiling string_cache v0.8.9
+   Compiling ena v0.14.4
+   Compiling sha3 v0.10.8
+    Checking panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling lalrpop-util v0.22.2
+   Compiling stacker v0.1.23
+   Compiling unicode-xid v0.2.6
+    Checking bytemuck v1.25.0
+   Compiling malachite-nz v0.9.2
+   Compiling paste v1.0.15
+   Compiling pico-args v0.5.0
+   Compiling lalrpop v0.22.2
+    Checking wide v1.7.0
+    Checking malachite-base v0.9.2
+   Compiling proc-macro2-diagnostics v0.10.1
+   Compiling chumsky v1.0.0-alpha.8
+   Compiling yansi v1.0.1
+    Checking toml_datetime v0.7.5+spec-1.1.0
+   Compiling heck v0.4.1
+    Checking bitmaps v3.2.1
+    Checking winnow v0.7.15
+    Checking imbl-sized-chunks v0.1.3
+   Compiling ouroboros_macro v0.18.5
+   Compiling nickel-lang-parser v0.3.0
+    Checking panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+    Checking hashlink v0.10.0
+    Checking codespan-reporting v0.13.1
+    Checking quick-xml v0.41.0
+    Checking malachite-q v0.9.2
+    Checking arraydeque v0.5.1
+    Checking arrayvec v0.5.2
+    Checking aliasable v0.1.3
+    Checking typed-arena v2.0.2
+    Checking malachite-float v0.9.2
+    Checking static_assertions v1.1.0
+    Checking ouroboros v0.18.5
+    Checking pretty v0.12.5
+    Checking saphyr-parser v0.0.6
+    Checking codespan v0.13.1
+    Checking toml_edit v0.24.1+spec-1.1.0
+    Checking nickel-lang-vector v0.2.0
+    Checking panproto-expr-parser v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-expr-parser)
+   Compiling nickel-lang-core v0.18.0
+    Checking malachite v0.9.2
+    Checking vte v0.14.1
+    Checking simple-counter v0.1.0
+    Checking unsafe-libyaml v0.2.11
+    Checking strip-ansi-escapes v0.2.1
+    Checking serde_yaml v0.9.34+deprecated
+    Checking sha2 v0.10.9
+    Checking sha-1 v0.10.1
+    Checking toml v0.9.12+spec-1.1.0
+    Checking md-5 v0.10.6
+    Checking json_scanner v0.1.0
+   Compiling indoc v2.0.7
+    Checking bstr v1.12.1
+    Checking console v0.16.3
+    Checking globset v0.4.19
+    Checking similar v2.7.0
+    Checking panproto-integration-tests v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/tests/integration)
+    Checking insta v1.48.0
+   Compiling target-lexicon v0.13.5
+   Compiling synstructure v0.13.2
+   Compiling pyo3-build-config v0.29.2
+    Checking pin-project-lite v0.2.17
+   Compiling zerofrom-derive v0.1.6
+   Compiling pyo3-ffi v0.29.2
+    Checking zerofrom v0.1.6
+   Compiling yoke-derive v0.8.1
+    Checking bytes v1.11.1
+    Checking futures-core v0.3.32
+    Checking stable_deref_trait v1.2.1
+   Compiling pyo3 v0.29.2
+   Compiling pyo3-macros-backend v0.29.2
+    Checking yoke v0.8.1
+   Compiling zerovec-derive v0.11.2
+    Checking futures-sink v0.3.32
+    Checking zerovec v0.11.5
+    Checking socket2 v0.6.3
+    Checking mio v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling displaydoc v0.2.5
+   Compiling pyo3-macros v0.29.2
+    Checking tokio v1.53.1
+    Checking slab v0.4.12
+    Checking futures-channel v0.3.32
+    Checking tinystr v0.8.2
+    Checking http v1.4.0
+   Compiling futures-macro v0.3.32
+    Checking litemap v0.8.1
+    Checking futures-task v0.3.32
+    Checking futures-io v0.3.32
+    Checking writeable v0.6.2
+   Compiling pkg-config v0.3.32
+    Checking icu_locale_core v2.1.1
+    Checking futures-util v0.3.32
+    Checking zerotrie v0.2.3
+    Checking potential_utf v0.1.4
+   Compiling ring v0.17.14
+   Compiling icu_properties_data v2.1.2
+   Compiling icu_normalizer_data v2.1.1
+   Compiling vcpkg v0.2.15
+    Checking icu_collections v2.1.1
+    Checking icu_provider v2.1.1
+    Checking http-body v1.0.1
+    Checking tracing-core v0.1.36
+    Checking zeroize v1.8.2
+   Compiling syn v1.0.109
+    Checking percent-encoding v2.3.2
+   Compiling httparse v1.10.1
+    Checking rustls-pki-types v1.14.0
+    Checking tracing v0.1.44
+    Checking tokio-util v0.7.18
+    Checking getrandom v0.2.17
+    Checking untrusted v0.9.0
+    Checking try-lock v0.2.5
+    Checking tower-service v0.3.3
+    Checking atomic-waker v1.1.2
+    Checking h2 v0.4.16
+    Checking want v0.3.1
+    Checking icu_normalizer v2.1.1
+    Checking icu_properties v2.1.2
+   Compiling openssl-src v300.5.0+3.5.0
+   Compiling rustls v0.23.45
+    Checking httpdate v1.0.3
+    Checking pin-utils v0.1.0
+    Checking hyper v1.8.1
+   Compiling openssl-sys v0.9.112
+    Checking rustls-webpki v0.103.15
+    Checking idna_adapter v1.2.1
+    Checking form_urlencoded v1.2.2
+   Compiling libz-sys v1.1.25
+    Checking ipnet v2.12.0
+    Checking utf8_iter v1.0.4
+    Checking subtle v2.6.1
+    Checking idna v1.1.0
+    Checking hyper-util v0.1.20
+    Checking nickel-lang v2.2.0
+    Checking sync_wrapper v1.0.2
+    Checking tower-layer v0.3.3
+    Checking panproto-dsl-eval v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-dsl-eval)
+    Checking tower v0.5.3
+    Checking panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+    Checking panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+    Checking tokio-rustls v0.26.4
+    Checking url v2.5.8
+    Checking webpki-roots v1.0.6
+    Checking http-body-util v0.1.3
+   Compiling libgit2-sys v0.18.5+1.9.4
+    Checking iri-string v0.7.11
+   Compiling target-triple v1.0.0
+    Checking hyper-rustls v0.27.7
+    Checking serde_urlencoded v0.7.1
+    Checking tower-http v0.6.8
+    Checking reqwest v0.12.28
+   Compiling ext-trait-proc_macros v1.0.1
+   Compiling wasm-bindgen-shared v0.2.114
+    Checking hex v0.4.3
+   Compiling macro_rules_attribute-proc_macro v0.1.3
+   Compiling prettyplease v0.1.25
+    Checking glob v0.3.3
+    Checking ext-trait v1.0.1
+    Checking extension-traits v1.0.1
+   Compiling macro_rules_attribute v0.1.3
+    Checking panproto-xrpc v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-xrpc)
+   Compiling with_builtin_macros-proc_macros v0.0.3
+   Compiling safer-ffi v0.1.13
+    Checking with_builtin_macros v0.0.3
+   Compiling safer_ffi-proc_macros v0.1.13
+    Checking uninit v0.5.1
+    Checking trybuild v1.0.119
+   Compiling panproto-gat-macros v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat-macros)
+    Checking extern-c v0.1.0
+   Compiling cfg_aliases v0.2.1
+    Checking unwind_safe v0.1.0
+   Compiling nix v0.31.3
+   Compiling wasm-bindgen-macro-support v0.2.114
+    Checking futures-executor v0.3.32
+   Compiling wasm-bindgen v0.2.114
+    Checking nibble_vec v0.1.0
+    Checking num_cpus v1.17.0
+    Checking endian-type v0.2.0
+    Checking predicates-core v1.0.10
+    Checking deadpool-runtime v0.1.4
+    Checking lazy_static v1.5.0
+    Checking deadpool v0.12.3
+    Checking radix_trie v0.3.0
+    Checking futures v0.3.32
+   Compiling wasm-bindgen-macro v0.2.114
+    Checking float-cmp v0.10.0
+    Checking assert-json-diff v2.0.2
+    Checking termtree v0.5.1
+    Checking normalize-line-endings v0.3.0
+    Checking difflib v0.4.0
+   Compiling assert_cmd v2.2.2
+    Checking home v0.5.12
+    Checking rustyline v18.0.1
+    Checking predicates v3.1.4
+    Checking predicates-tree v1.0.13
+    Checking wiremock v0.6.5
+   Compiling anyhow v1.0.104
+    Checking pythonize v0.29.0
+    Checking xtask v0.0.0 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/xtask)
+    Checking git2 v0.21.0
+    Checking panproto-parse v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-parse)
+    Checking panproto-grammars-mobile v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-mobile)
+    Checking panproto-grammars-devops v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-devops)
+    Checking panproto-grammars-systems v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-systems)
+    Checking panproto-grammars-data v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-data)
+    Checking panproto-grammars-functional v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-functional)
+    Checking panproto-grammars-music v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-music)
+    Checking panproto-grammars-all v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-all)
+    Checking panproto-grammars-web v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-web)
+    Checking panproto-grammars-jvm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-jvm)
+    Checking panproto-grammars-scripting v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-grammars-scripting)
+    Checking panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+    Checking panproto-project v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-project)
+    Checking panproto-git v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-git)
+    Checking panproto-git-remote v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-git-remote)
+    Checking panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+    Checking panproto-c v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-c)
+    Checking panproto-wasm v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-wasm)
+    Checking panproto-cli v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-cli)
+    Checking panproto-py v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-py)
+    Checking book-doctest-stub v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/book-doctest-stub)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 26s

@@ -1,0 +1,4 @@
+$ python3.13 -I Scripts/tutorial-gate.py
+tutorial listings type-checked: 8
+
+every listing compiles

@@ -1,0 +1,6 @@
+test unified_codec::tests::open_object_fields_that_would_read_back_as_nodes_are_refused ... ok
+test unified_codec::tests::open_xml_elements_emit_canonically_and_read_back_unchanged ... FAILED
+test unified_codec::tests::open_members_emit_canonically_and_read_back_unchanged ... ok
+thread 'unified_codec::tests::open_xml_elements_emit_canonically_and_read_back_unchanged' (85847804) panicked at crates/panproto-io/src/unified_codec.rs:642:59:
+called `Result::unwrap()` on an `Err` value: Emit { protocol: "test", message: "XML canonical emission refused: arc 1 -> 2 is not declared by the supplied schema" }
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 214 filtered out; finished in 0.01s

@@ -31,6 +31,7 @@
 //! - **Data Science**: Parquet, Arrow, `DataFrame`
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
+//! - **Text**: YAML, TOML, CSV
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -59,6 +60,9 @@ pub mod registry;
 
 /// Per-protocol semantic declarations attached by every `protocol()`.
 pub mod semantics;
+
+/// Generic text format protocols (YAML, TOML, CSV).
+pub mod text;
 
 /// A parsed document's size, for charging against an input allowance.
 ///
@@ -266,6 +270,7 @@ pub fn parse_schema_document_within(
                 "protocol {protocol:?} is read from source text, not a JSON document; \
                  use parse_schema_source"
             ))),
+            registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
             "no document parser registered for protocol {protocol:?}; supported: {:?}",
@@ -312,12 +317,21 @@ pub fn parse_schema_source_within(
                 "protocol {protocol:?} is read from a JSON document, not source text; \
                  use parse_schema_document"
             ))),
+            registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
             "no source parser registered for protocol {protocol:?}; supported: {:?}",
             source_parser_protocols()
         ))),
     }
+}
+
+/// The refusal of a protocol that reads no schema documents.
+fn no_schema_documents(protocol: &str) -> ProtocolError {
+    ProtocolError::Parse(format!(
+        "protocol {protocol:?} reads no schema documents; build its schema in code \
+         with SchemaBuilder"
+    ))
 }
 
 /// The protocol names [`parse_schema_document`] accepts (canonical,

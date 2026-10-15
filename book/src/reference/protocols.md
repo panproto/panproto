@@ -4,7 +4,7 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The generic dispatch functions accept 54 semantic protocols. Names in this table are the canonical hyphenated strings accepted by [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). Underscore spellings are normalized before dispatch.
+The protocol registry lists 57 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The three generic text formats, `csv`, `toml` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`.
 
 | Category module | Protocol names |
 |---|---|
@@ -16,6 +16,7 @@ The generic dispatch functions accept 54 semantic protocols. Names in this table
 | `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `sql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |
+| `text` | `csv`, `toml`, `yaml` |
 | `web_document` | `atproto`, `docx`, `odf` |
 
 The `raw_file` module is the text-or-binary fallback used during project assembly. It is a protocol implementation, but is not listed by either generic schema-dispatch function.
@@ -31,7 +32,7 @@ The `raw_file` module is the text-or-binary fallback used during project assembl
 
 The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` arrays are the lookup sources for these sets.
 
-Protocol availability also depends on the surface. The current `schema` CLI resolves protocol theories only for `atproto`. The C and WebAssembly theory-registry helpers recognize `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`, while their protocol lookup tables expose the 54 names above.
+Protocol availability also depends on the surface. The current `schema` CLI resolves protocol theories only for `atproto`. The C and WebAssembly theory-registry helpers recognize `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`, while their protocol lookup tables expose the 54 names that read schema documents.
 
 ## Registration behavior
 

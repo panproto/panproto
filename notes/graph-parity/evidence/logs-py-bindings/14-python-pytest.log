@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/awhite48/Projects/phrom/.claude/worktrees/lane-py-bindings/bindings/python
+configfile: pyproject.toml
+collected 202 items
+
+tests/test_native.py ................................................... [ 25%]
+........................................................................ [ 60%]
+........................................................                 [ 88%]
+tests/test_public_surface.py ...........                                 [ 94%]
+tests/test_smoke.py ......                                               [ 97%]
+tests/test_stub_parity.py ......                                         [100%]
+
+============================= 202 passed in 8.91s ==============================
+pytest=0

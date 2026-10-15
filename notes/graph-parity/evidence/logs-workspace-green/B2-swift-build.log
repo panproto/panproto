@@ -1,0 +1,151 @@
+$ swift build --build-tests
+Building for debugging...
+[0/27] /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/swift/.build/arm64-apple-macosx/debug/panprotoPackageTests.derived/runner.swift
+[1/27] Write sources
+[1/27] Write generate-fixtures-entitlement.plist
+[1/27] Write sources
+[8/27] Write atproto-post-migration-entitlement.plist
+[8/27] Write sources
+[17/27] Copying Fixtures
+[18/27] Write swift-version--58304C5D6DBC2206.txt
+[20/54] Compiling PanprotoStructural Theory.swift
+[21/54] Compiling PanprotoStructural Value.swift
+[22/54] Compiling PanprotoStructural ProtocolSpec.swift
+[23/54] Compiling PanprotoStructural Protolens.swift
+[24/54] Compiling PanprotoStructural Query.swift
+[25/56] Compiling PanprotoStructural CBORDecoder.swift
+[26/56] Compiling PanprotoStructural CBOREncoder.swift
+[27/56] Compiling PanprotoStructural CBORError.swift
+[28/56] Compiling PanprotoStructural Complement.swift
+[29/56] Compiling PanprotoStructural Diff.swift
+[30/56] Compiling PanprotoStructural ErrorEnvelope.swift
+[31/56] Compiling PanprotoStructural CBORValue.swift
+[32/56] Compiling PanprotoStructural CBORValueBridges.swift
+[33/56] Compiling PanprotoStructural BuildOp.swift
+[34/56] Compiling PanprotoStructural RawStatus.swift
+[35/56] Compiling PanprotoStructural Schema.swift
+[36/56] Compiling PanprotoStructural SchemaEquivalence.swift
+[37/56] Compiling PanprotoStructural MigrationAlgebra.swift
+[38/56] Compiling PanprotoStructural Name.swift
+[39/56] Compiling PanprotoStructural ProjectAndParse.swift
+[40/56] Compiling PanprotoStructural Expr.swift
+[41/56] Compiling PanprotoStructural ExprPretty.swift
+[42/56] Compiling PanprotoStructural Graph.swift
+[43/56] Emitting module PanprotoStructural
+[44/56] Compiling PanprotoStructural Hom.swift
+[45/56] Compiling PanprotoStructural Instance.swift
+[46/56] Compiling PanprotoStructural Migration.swift
+[47/56] Compiling PanprotoStructural Vcs.swift
+[48/56] Compiling PanprotoStructural WireSupport.swift
+[49/74] Compiling PanprotoFFI Raw+Theory.swift
+[50/74] Compiling PanprotoFFI Raw+Vcs.swift
+[51/74] Compiling PanprotoFFI Raw+Gated.swift
+[52/74] Compiling PanprotoFFI Raw+Core.swift
+[53/74] Compiling PanprotoFFI Primitives.swift
+[54/74] Emitting module PanprotoFFI
+[55/74] Compiling PanprotoFFI Raw+Transform.swift
+[56/97] Emitting module generate_fixtures
+[57/97] Compiling Panproto Instance.swift
+[58/97] Compiling Panproto IoRegistry.swift
+[59/97] Compiling Panproto BuiltinProtocolCatalogue.swift
+[60/97] Compiling Panproto Check.swift
+[61/97] Compiling Panproto DataSet.swift
+[62/99] Compiling Panproto Handles.swift
+[63/99] Compiling Panproto Homomorphism.swift
+[64/99] Compiling Panproto Migration.swift
+[65/99] Compiling Panproto Payload.swift
+[66/99] Compiling Panproto Schema+Statements.swift
+[67/99] Compiling Panproto Schema.swift
+[68/99] Emitting module Panproto
+[69/99] Compiling Panproto Protocol.swift
+[70/99] Compiling Panproto ProtolensChain.swift
+[71/99] Compiling Panproto Expression.swift
+[72/99] Compiling Panproto Graph.swift
+[73/99] Compiling Panproto Lens.swift
+[74/99] Compiling Panproto Migration+Statements.swift
+[75/99] Compiling generate_fixtures main.swift
+[75/99] Write Objects.LinkFileList
+[77/99] Compiling Panproto Engine.swift
+[78/99] Compiling Panproto Enriched.swift
+[79/99] Compiling Panproto Errors.swift
+[80/99] Compiling Panproto Theory+Statements.swift
+[81/99] Compiling Panproto Theory.swift
+[82/142] Emitting module PanprotoProject
+[83/142] Compiling PanprotoProject ProjectBuilder.swift
+[84/142] Compiling PanprotoProject ProjectSchema.swift
+[85/142] Compiling PanprotoParse AstRegistry+RoundTrip.swift
+[86/142] Emitting module PanprotoVcs
+[87/142] Compiling PanprotoVcs Repository+History.swift
+[88/142] Emitting module atproto_post_migration
+[89/142] Compiling atproto_post_migration AtprotoPostMigration.swift
+[89/142] Write Objects.LinkFileList
+[91/142] Compiling PanprotoVcs Repository.swift
+[92/142] Compiling PanprotoVcs Repository+Staging.swift
+[92/142] Linking generate-fixtures
+[93/142] Applying generate-fixtures
+[95/142] Compiling PanprotoVcs Repository+Refs.swift
+[96/142] Compiling PanprotoVcs Repository+Stash.swift
+[97/142] Compiling PanprotoParse AstRegistry.swift
+[98/142] Emitting module PanprotoParse
+[99/142] Compiling PanprotoVcs CommitHistory.swift
+[99/144] Linking atproto-post-migration
+[100/150] Applying atproto-post-migration
+[102/150] Emitting module PanprotoGit
+[103/150] Compiling PanprotoGit GitImport.swift
+[104/155] Compiling PanprotoFeatureTests FeatureTestSupport.swift
+[105/155] Emitting module PanprotoFeatureTests
+[106/155] Compiling PanprotoFeatureTests ProjectTests.swift
+[107/155] Compiling PanprotoFeatureTests ParseTests.swift
+[108/155] Compiling PanprotoFeatureTests GitImportTests.swift
+[109/155] Compiling PanprotoVcsTests VcsTestSupport.swift
+[110/155] Compiling PanprotoVcsTests RepositoryTests.swift
+[111/155] Compiling PanprotoVcsTests RepositoryTutorialTests.swift
+[112/155] Emitting module PanprotoVcsTests
+[113/155] Compiling PanprotoVcsTests CatalogSampleTests.swift
+[114/155] Compiling PanprotoVcsTests CommitHistoryTests.swift
+[115/155] Compiling PanprotoStructuralTests VcsWireTests.swift
+[116/156] Compiling PanprotoStructuralTests WireTestSupport.swift
+[117/156] Emitting module PanprotoTests
+[118/159] Compiling PanprotoTests ProtocolAPITests.swift
+[119/159] Compiling PanprotoTests RawLayerTests.swift
+[120/159] Compiling PanprotoTests RecursionPointWireTests.swift
+[121/159] Compiling PanprotoTests AtprotoIngestionTests.swift
+[122/159] Compiling PanprotoTests AtprotoInputs.swift
+[123/159] Compiling PanprotoTests AtprotoPostMigrationTests.swift
+[124/159] Compiling PanprotoTests DataSetTests.swift
+[125/159] Compiling PanprotoTests EngineRoundTripTests.swift
+[126/159] Compiling PanprotoTests EngineTests.swift
+[127/159] Compiling PanprotoTests InstanceAPITests.swift
+[128/159] Compiling PanprotoTests InstanceFixtureTests.swift
+[129/159] Compiling PanprotoTests IoRegistryAPITests.swift
+[130/159] Compiling PanprotoStructuralTests InstanceWireTests.swift
+[131/159] Compiling PanprotoTests TransformFixtureTests.swift
+[132/159] Compiling PanprotoTests VcsFixtureTests.swift
+[133/159] Compiling PanprotoTests resource_bundle_accessor.swift
+[134/159] Compiling PanprotoStructuralTests GatExprWireTests.swift
+[135/159] Compiling PanprotoTests EnrichedAPITests.swift
+[136/159] Compiling PanprotoTests ExprGatDomainTests.swift
+[137/159] Compiling PanprotoTests FixtureSupport.swift
+[138/159] Compiling PanprotoTests BuiltinProtocolCatalogueTests.swift
+[139/159] Compiling PanprotoTests CatalogSampleTests.swift
+[140/159] Compiling PanprotoTests CheckDomainTests.swift
+[141/159] Compiling PanprotoTests GatExprFixtureTests.swift
+[142/159] Compiling PanprotoTests GraphDomainTests.swift
+[143/159] Compiling PanprotoTests HomomorphismTests.swift
+[144/159] Compiling PanprotoTests SchemaAPITests.swift
+[145/159] Compiling PanprotoTests SchemaFixtureTests.swift
+[146/159] Compiling PanprotoTests StatementDSLTests.swift
+[147/159] Compiling PanprotoStructuralTests SchemaWireTests.swift
+[148/159] Compiling PanprotoStructuralTests SchemaEquivalenceTests.swift
+[149/159] Compiling PanprotoStructuralTests MigrationAlgebraTests.swift
+[150/159] Compiling PanprotoStructuralTests TransformWireTests.swift
+[151/159] Compiling PanprotoTests LensTests.swift
+[152/159] Compiling PanprotoTests MigrationAPITests.swift
+[153/159] Compiling PanprotoTests PostSchemaPair.swift
+[154/159] Compiling PanprotoStructuralTests ExprPrettyTests.swift
+[155/159] Emitting module PanprotoStructuralTests
+[158/161] Compiling panprotoPackageTests runner.swift
+[159/161] Emitting module panprotoPackageTests
+[159/161] Write Objects.LinkFileList
+[160/161] Linking panprotoPackageTests
+Build complete! (20.72s)

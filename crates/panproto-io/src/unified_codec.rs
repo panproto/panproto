@@ -440,9 +440,31 @@ impl InstanceParser for UnifiedCodec {
         self.native_repr
     }
 
+    /// Read `input` through the format's complement-free route.
+    ///
+    /// JSON and XML read through their canonical pathway readers, the
+    /// inverses of the canonical emitters [`emit_wtype`] writes with, so
+    /// these protocols read the same instance whether or not the
+    /// `tree-sitter` feature replaces their direct codecs with this one.
+    /// YAML and TOML, which have no direct codec, read through the CST.
+    ///
+    /// [`emit_wtype`]: InstanceEmitter::emit_wtype
     fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
-        let (instance, _complement) = self.parse_wtype_preserving(schema, input)?;
-        Ok(instance)
+        match self.format {
+            FormatKind::Json => {
+                let root = resolve_entry_vertex(None, schema).ok_or_else(|| {
+                    ParseInstanceError::SchemaMismatch {
+                        protocol: self.protocol.clone(),
+                        message: missing_entry_message(None, schema),
+                    }
+                })?;
+                crate::json_pathway::parse_json_bytes(schema, root, input, &self.protocol)
+            }
+            FormatKind::Xml => crate::xml_pathway::parse_xml_bytes(schema, input, &self.protocol),
+            _ => self
+                .parse_wtype_preserving(schema, input)
+                .map(|(instance, _complement)| instance),
+        }
     }
 
     fn parse_functor(
@@ -475,9 +497,15 @@ impl InstanceEmitter for UnifiedCodec {
         // For format-preserving emission, use `ProtocolCodec::emit_wtype_preserving`
         // which takes an explicit complement argument.
         match self.format {
-            FormatKind::Json | FormatKind::Yaml => {
+            FormatKind::Json => {
                 crate::json_pathway::emit_json_bytes(schema, instance, &self.protocol)
             }
+            FormatKind::Yaml => crate::json_pathway::emit_json_bytes_read_back_by(
+                schema,
+                instance,
+                &self.protocol,
+                crate::json_pathway::TreeReader::Cst,
+            ),
             FormatKind::Toml => {
                 crate::toml_pathway::emit_toml_bytes(schema, instance, &self.protocol)
             }
@@ -581,6 +609,133 @@ mod tests {
             std::str::from_utf8(input).unwrap(),
             std::str::from_utf8(&emitted).unwrap(),
             "format-preserving round-trip should produce identical bytes"
+        );
+    }
+
+    fn open_schema() -> Schema {
+        SchemaBuilder::new(&test_protocol())
+            .vertex("root", "object", None)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    /// A tree's nodes and arcs as sorted renderings of their anchors, values
+    /// and edges, which is the tree up to the numbering of its nodes.
+    fn labelled_tree(tree: &WInstance) -> (Vec<String>, Vec<String>) {
+        let mut nodes = tree
+            .nodes
+            .values()
+            .map(|node| serde_json::to_string(&(&node.anchor, &node.value, &node.shape)).unwrap())
+            .collect::<Vec<_>>();
+        nodes.sort_unstable();
+        let mut arcs = tree
+            .arcs
+            .iter()
+            .map(|(parent, child, edge)| {
+                serde_json::to_string(&(
+                    &tree.nodes[parent].anchor,
+                    edge,
+                    &tree.nodes[child].anchor,
+                    &tree.nodes[child].value,
+                ))
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        arcs.sort_unstable();
+        (nodes, arcs)
+    }
+
+    /// Canonical emission of what `codec` reads under `schema` reads back
+    /// to the same tree, and emitting that again gives the same bytes.
+    fn assert_canonical_emission_reads_back(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        input: &[u8],
+    ) -> WInstance {
+        let instance = codec.parse_wtype(schema, input).unwrap();
+        let emitted = codec.emit_wtype(schema, &instance).unwrap();
+        let reread = codec.parse_wtype(schema, &emitted).unwrap();
+        assert_eq!(
+            labelled_tree(&reread),
+            labelled_tree(&instance),
+            "canonical emission of what this codec reads must read back to the same labelled tree"
+        );
+        assert_eq!(
+            codec.emit_wtype(schema, &reread).unwrap(),
+            emitted,
+            "canonical emission is a fixed point of reading back"
+        );
+        instance
+    }
+
+    #[test]
+    fn complement_free_json_reads_as_the_canonical_reader_does() {
+        let schema = open_schema();
+        let input = br#"{"name": "Alice", "tags": ["a", "b"], "nested": {"n": 1}}"#;
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::json("test").unwrap(),
+            &schema,
+            input,
+        );
+        let canonical =
+            crate::json_pathway::parse_json_bytes(&schema, "root", input, "test").unwrap();
+        assert_eq!(labelled_tree(&instance), labelled_tree(&canonical));
+        assert_eq!(
+            instance.nodes[&instance.root].extra_fields,
+            canonical.nodes[&canonical.root].extra_fields
+        );
+    }
+
+    #[test]
+    fn complement_free_xml_reads_as_the_canonical_reader_does() {
+        let schema = open_schema();
+        let input = br#"<doc lang="en"><text><w id="w1">Hi</w>tail</text><empty/></doc>"#;
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::xml("test").unwrap(),
+            &schema,
+            input,
+        );
+        let canonical = crate::xml_pathway::parse_xml_bytes(&schema, input, "test").unwrap();
+        assert_eq!(labelled_tree(&instance), labelled_tree(&canonical));
+    }
+
+    #[test]
+    fn complement_free_yaml_open_members_read_back_unchanged() {
+        let schema = open_schema();
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::yaml("test").unwrap(),
+            &schema,
+            b"name: Alice\ntags:\n  - a\n  - b\nnested:\n  n: 1\n",
+        );
+        assert!(
+            instance
+                .arcs
+                .iter()
+                .any(|(_, _, edge)| !schema.edges.contains_key(edge)),
+            "the YAML reader makes an open mapping's members child nodes"
+        );
+    }
+
+    #[test]
+    fn yaml_open_mapping_fields_that_would_read_back_as_nodes_are_refused() {
+        let codec = UnifiedCodec::yaml("test").unwrap();
+        let schema = open_schema();
+        let mut instance = codec.parse_wtype(&schema, b"{}\n").unwrap();
+        instance
+            .nodes
+            .get_mut(&instance.root)
+            .unwrap()
+            .extra_fields
+            .insert(
+                "name".into(),
+                panproto_inst::value::Value::Str("Alice".into()),
+            );
+
+        let error = codec.emit_wtype(&schema, &instance).unwrap_err();
+        assert!(
+            error.to_string().contains("would reparse as child nodes"),
+            "unexpected error: {error}"
         );
     }
 

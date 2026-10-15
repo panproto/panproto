@@ -1,0 +1,21 @@
+== features: []
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.01s
+== features: [serde_json/preserve_order]
+thread 'the_node_link_form_lists_object_keys_in_ascending_order_in_every_build' (86357305) panicked at crates/panproto-inst/tests/a_graph_instance_is_the_same_in_every_process.rs:291:5:
+assertion failed: keys_ascend_everywhere(&to_node_link_json(&wide_graph()))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.01s
+== after fix, features: []
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+== after fix, features: [serde_json/preserve_order]
+test one_process_answer ... ok
+test a_non_finite_float_leaves_a_nodes_field_order_alone ... ok
+test a_node_in_a_graphs_json_is_written_as_the_node_writes_itself ... ok
+test the_fixture_still_round_trips ... ok
+test the_node_link_form_lists_object_keys_in_ascending_order_in_every_build ... ok
+test a_graph_encodes_to_json_the_same_whatever_the_hash_seed ... ok
+test a_graph_encodes_to_positional_msgpack_the_same_whatever_the_hash_seed ... ok
+test a_graph_digest_is_the_same_whatever_the_hash_seed ... ok
+test canonical_graph_bytes_are_the_same_whatever_the_hash_seed ... ok
+test a_graph_encodes_to_named_msgpack_the_same_whatever_the_hash_seed ... ok
+test a_graph_encodes_to_node_link_json_the_same_whatever_the_hash_seed ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
