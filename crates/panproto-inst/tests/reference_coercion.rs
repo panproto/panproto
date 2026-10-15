@@ -85,10 +85,10 @@ use std::fmt::Write as _;
 use std::time::Instant;
 
 use panproto_inst::Value;
-use panproto_inst::value::coerce::{LexClass, Lexeme, coerce, coerce_value};
+use panproto_inst::value::coerce::{LexClass, Lexeme, coerce, coerce_discriminated, coerce_value};
 use panproto_inst::value::{
-    BigIntValue, CivilDate, CivilTime, DateTimeSeparator, DecimalValue, FidelityReason, Fraction,
-    Offset, Temporal, ValueSite, WideInt, ZuluCase,
+    BigIntValue, CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue,
+    FidelityReason, Fraction, Offset, Temporal, ValueSite, WideInt, ZuluCase,
 };
 use panproto_reference::bytes::{encode_base64, latin1_decode};
 use panproto_reference::coerce as r;
@@ -98,6 +98,7 @@ use panproto_reference::float::{Format, widen_bits};
 use panproto_reference::num::{Int, Nat};
 use panproto_reference::temporal as rt;
 use panproto_reference::value::Value as RValue;
+use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 // ---------------------------------------------------------------------------
@@ -122,7 +123,7 @@ fn wide_of(i: &Int) -> WideInt {
 
 /// The number of digits of `|year|`, at least four: the width production's
 /// date display writes.
-fn year_width(year: i32) -> usize {
+fn year_width(year: i64) -> usize {
     year.unsigned_abs().to_string().len().max(4)
 }
 
@@ -166,7 +167,7 @@ const fn separator_from_ref(s: rt::Separator) -> DateTimeSeparator {
 fn date_to_ref(d: CivilDate) -> rt::DateFields {
     rt::DateFields {
         year: Some(rt::Year {
-            value: i64::from(d.year),
+            value: d.year,
             negative_zero: false,
             width: year_width(d.year),
         }),
@@ -189,7 +190,7 @@ fn date_from_ref(d: &rt::DateFields) -> Option<CivilDate> {
     if year.negative_zero {
         return None;
     }
-    CivilDate::new(i32::try_from(year.value).ok()?, d.month?, d.day?).ok()
+    CivilDate::new(year.value, d.month?, d.day?).ok()
 }
 
 fn time_from_ref(t: &rt::TimeFields) -> Option<CivilTime> {
@@ -240,6 +241,30 @@ fn temporal_from_ref(t: &rt::Temporal) -> Option<Temporal> {
     })
 }
 
+/// The reference decimal of a production decimal: a finite value field for
+/// field (a negative zero included), an infinity or a NaN with its sign,
+/// flag and payload.
+fn decimal_to_ref(d: &DecimalValue) -> rx::Decimal {
+    match &d.class {
+        DecimalClass::Finite => rx::Decimal::Finite(rx::DecimalValue {
+            negative: d.negative,
+            digits: nat(&d.digits),
+            exponent: int_of(&d.exponent),
+        }),
+        DecimalClass::Infinite => rx::Decimal::Infinite {
+            negative: d.negative,
+        },
+        DecimalClass::NaN {
+            signalling,
+            payload,
+        } => rx::Decimal::NaN {
+            negative: d.negative,
+            signalling: *signalling,
+            payload: nat(payload),
+        },
+    }
+}
+
 /// The conversion of a production value into the reference model.
 fn to_ref(v: &Value) -> RValue {
     let fields = |m: &HashMap<String, Value>| -> BTreeMap<String, RValue> {
@@ -266,11 +291,7 @@ fn to_ref(v: &Value) -> RValue {
         Value::Unknown(f) => RValue::Unknown(fields(f)),
         Value::List(items) => RValue::List(items.iter().map(to_ref).collect()),
         Value::LabeledNull(n) => RValue::LabeledNull(*n),
-        Value::Decimal(d) => RValue::Decimal(rx::Decimal::Finite(rx::DecimalValue {
-            negative: d.negative,
-            digits: nat(&d.digits),
-            exponent: int_of(&d.exponent),
-        })),
+        Value::Decimal(d) => RValue::Decimal(decimal_to_ref(d)),
         Value::BigInt(b) => RValue::BigInt(rx::BigIntValue {
             negative: b.negative,
             significand: nat(&b.significand),
@@ -314,7 +335,14 @@ fn from_ref(x: &RValue) -> Option<Value> {
         RValue::Decimal(rx::Decimal::Finite(d)) => Value::Decimal(
             DecimalValue::new(d.negative, d.digits.to_string(), wide_of(&d.exponent)).ok()?,
         ),
-        RValue::Decimal(_) => return None,
+        RValue::Decimal(rx::Decimal::Infinite { negative }) => {
+            Value::Decimal(DecimalValue::infinity(*negative))
+        }
+        RValue::Decimal(rx::Decimal::NaN {
+            negative,
+            signalling,
+            payload,
+        }) => Value::Decimal(DecimalValue::nan(*negative, *signalling, payload.to_string())),
         RValue::BigInt(b) => Value::BigInt(BigIntValue {
             negative: b.negative,
             significand: b.significand.to_string(),
@@ -414,9 +442,50 @@ const fn kind_from_ref(k: r::ScalarKind) -> Option<ScalarKind> {
     })
 }
 
-/// The conversion of a production spec (with no `max_length`).
+const fn reading_to_ref(reading: FloatReading) -> r::FloatReading {
+    match reading {
+        FloatReading::Exact => r::FloatReading::Exact,
+        FloatReading::NearestKeepingLexeme => r::FloatReading::NearestKeepingLexeme,
+    }
+}
+
+const fn dialect_to_ref(dialect: NumeralDialect) -> r::NumeralDialect {
+    match dialect {
+        NumeralDialect::Json => r::NumeralDialect::Json,
+        NumeralDialect::Toml => r::NumeralDialect::Toml,
+        NumeralDialect::Yaml12 => r::NumeralDialect::Yaml12,
+        NumeralDialect::Yaml11 => r::NumeralDialect::Yaml11,
+        NumeralDialect::Xsd => r::NumeralDialect::Xsd,
+        NumeralDialect::Java => r::NumeralDialect::Java,
+        NumeralDialect::ProtoJson => r::NumeralDialect::ProtoJson,
+        NumeralDialect::Sql => r::NumeralDialect::Sql,
+    }
+}
+
+const DIALECTS: [NumeralDialect; 8] = [
+    NumeralDialect::Json,
+    NumeralDialect::Toml,
+    NumeralDialect::Yaml12,
+    NumeralDialect::Yaml11,
+    NumeralDialect::Xsd,
+    NumeralDialect::Java,
+    NumeralDialect::ProtoJson,
+    NumeralDialect::Sql,
+];
+
+/// The conversion of a production spec. Its domain is the specs with no
+/// `max_length`, discriminator table, time unit or time zone, the only
+/// specs the scope holds: neither coercion reads a length bound, the
+/// reference's spec has no table (the discriminated reading is compared
+/// separately) and no coercion reads a time unit or zone.
 fn spec_to_ref(s: &ValueSpec) -> r::ValueSpec {
-    assert_eq!(s.max_length, None, "the conversion's domain");
+    assert!(
+        s.max_length.is_none()
+            && s.discriminators.is_none()
+            && s.time_unit.is_none()
+            && s.time_zone.is_none(),
+        "the conversion's domain"
+    );
     r::ValueSpec {
         kind: kind_to_ref(&s.kind),
         precision: s.precision,
@@ -424,21 +493,31 @@ fn spec_to_ref(s: &ValueSpec) -> r::ValueSpec {
         with_time_zone: s.with_time_zone,
         int_bits: s.int_bits,
         unsigned: s.unsigned,
-        float_reading: r::FloatReading::Exact,
-        numeral: None,
+        float_reading: reading_to_ref(s.float_reading),
+        numeral: s.numeral.map(dialect_to_ref),
     }
 }
 
 /// The production spec whose image is exactly `s`, if there is one.
 fn spec_into_production(s: &r::ValueSpec) -> Option<ValueSpec> {
+    let reading = match s.float_reading {
+        r::FloatReading::Exact => FloatReading::Exact,
+        r::FloatReading::NearestKeepingLexeme => FloatReading::NearestKeepingLexeme,
+    };
+    let numeral = match s.numeral {
+        None => None,
+        Some(d) => Some(*DIALECTS.iter().find(|p| dialect_to_ref(**p) == d)?),
+    };
     let p = ValueSpec {
         kind: kind_from_ref(s.kind)?,
         precision: s.precision,
         scale: s.scale,
-        max_length: None,
         with_time_zone: s.with_time_zone,
         int_bits: s.int_bits,
         unsigned: s.unsigned,
+        float_reading: reading,
+        numeral,
+        ..ValueSpec::new(ScalarKind::Any)
     };
     (spec_to_ref(&p) == *s).then_some(p)
 }
@@ -1136,4 +1215,299 @@ fn coerce_agrees_with_the_reference_over_the_values_scope() {
         }
     });
     tally.print("coerce", total, started);
+}
+
+// ---------------------------------------------------------------------------
+// Binary16.
+// ---------------------------------------------------------------------------
+
+/// The outcome of production `coerce` in the reference model.
+fn coerce_to_ref(text: &str, class: &LexClass, spec: &ValueSpec) -> Result<RValue, r::FidelityReason> {
+    coerce(&Lexeme::new(text, class.clone()), spec)
+        .map(|v| to_ref(&v))
+        .map_err(|e| reason_to_ref(&e.reason))
+}
+
+/// The outcome of production `coerce_value` in the reference model.
+fn coerce_value_to_ref(value: &Value, spec: &ValueSpec) -> Result<RValue, r::FidelityReason> {
+    coerce_value(value, spec, ValueSite::unknown())
+        .map(|v| to_ref(&v))
+        .map_err(|e| reason_to_ref(&e.reason))
+}
+
+/// Under `Float { bits: 16 }`, with each reading: every binary16 pattern,
+/// widened, and its two binary64 neighbours are coerced as values; and the
+/// closest-shortest text of every finite pattern, that text with its last
+/// digit moved one either way, and every numeral of the values page are read
+/// as lexemes. Every outcome agrees with the reference's.
+#[test]
+fn float16_coercion_agrees_with_the_reference() {
+    let mut values = 0_u64;
+    let mut texts = Vec::new();
+    for h in scope::binary16_patterns() {
+        let widened = widen_bits(Format::B16, h);
+        for bits in [widened, widened.wrapping_add(1), widened.wrapping_sub(1)] {
+            let x = RValue::Float(bits);
+            let p = from_ref(&x).unwrap();
+            for reading in [FloatReading::Exact, FloatReading::NearestKeepingLexeme] {
+                let spec = ValueSpec {
+                    float_reading: reading,
+                    ..ValueSpec::new(ScalarKind::Float { bits: 16 })
+                };
+                let Some(reference) = r::coerce_value(&x, &spec_to_ref(&spec)) else {
+                    continue;
+                };
+                assert_eq!(coerce_value_to_ref(&p, &spec), reference, "{bits:#x} {reading:?}");
+                values += 1;
+            }
+        }
+        if let Some(shortest) = panproto_reference::float::shortest(Format::B16, h) {
+            let text = shortest.to_scientific();
+            let (mantissa, exponent) = text.split_once('e').unwrap();
+            let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+            let n: u64 = digits.parse().unwrap();
+            let point = i64::try_from(digits.len()).unwrap() - 1;
+            let exponent: i64 = exponent.parse::<i64>().unwrap() - point;
+            let sign = if shortest.negative { "-" } else { "" };
+            texts.push(text.clone());
+            texts.push(format!("{sign}{}e{exponent}", n + 1));
+            if n > 0 {
+                texts.push(format!("{sign}{}e{exponent}", n - 1));
+            }
+        }
+    }
+    texts.extend(scope::numerals());
+    texts.extend(EDGE_NUMERALS.iter().map(|t| (*t).to_owned()));
+    let texts = dedupe(texts);
+    let mut lexemes = 0_u64;
+    for text in &texts {
+        for reading in [FloatReading::Exact, FloatReading::NearestKeepingLexeme] {
+            let spec = ValueSpec {
+                float_reading: reading,
+                ..ValueSpec::new(ScalarKind::Float { bits: 16 })
+            };
+            let reference = r::coerce(text, &r::LexClass::Number, &spec_to_ref(&spec)).unwrap();
+            assert_eq!(
+                coerce_to_ref(text, &LexClass::Number, &spec),
+                reference,
+                "{text} {reading:?}"
+            );
+            lexemes += 1;
+        }
+    }
+    println!(
+        "binary16: bound 65536 patterns with 2 neighbours each under 2 readings: {values} value cases; \
+         {} lexemes under 2 readings: {lexemes} lexeme cases",
+        texts.len()
+    );
+    assert_eq!(lexemes, 2 * texts.len() as u64);
+}
+
+// ---------------------------------------------------------------------------
+// Numeral dialects and discriminators.
+// ---------------------------------------------------------------------------
+
+/// The dialect probes: every example of the dialect table, the listed
+/// malformed spellings, and further forms at each grammar's edges.
+const DIALECT_PROBES: &[&str] = &[
+    "1_000", "0x1F", "0x1f", "0X1F", "+inf", "-inf", "inf", "nan", "+nan", "-nan", "1__0", "_1",
+    "1_", "017", "0o17", "0o", "0b101", "0b2", "22:30", "190:20:30", "1:60", "0:30", "1e3", "1e+3",
+    "1.0e3", "1.e+3", ".5", "0.", "5.", "+12e03", "-2E+05", "INF", "+INF", "-INF", "NaN", "-NaN",
+    "+NaN", "Infinity", "-Infinity", "+Infinity", "infinity", ".inf", "-.inf", "+.inf", ".Inf",
+    ".INF", ".nan", ".NaN", ".NAN", "-.nan", "+.nan", "+1", "-1", "-0", "00", "01", "1", "1.5",
+    "0x", "+0x1", "-0x1F", "0x_1F", "0x1_F", "685.230_15e+03", "685_230.15", "190:20:30.15",
+    "9.0e+999", "-9.0e+999", "0.1000000000000000055", "12345678901234567170.0", "1e2", "1.5e1",
+    "0b1010_0111", "02472256", "08", "0_", "-0b11", "+0o17", "1_000.5", "1_000e1", "1.5_5", "12e",
+    "", "-", "+", ".", "abc", "sNaN", "Inf", "inf5",
+];
+
+/// Each dialect, and none, over every probe of [`DIALECT_PROBES`] as a
+/// number and as a string, under the numeric kinds, `Any` and `Str`, agrees
+/// with the reference.
+#[test]
+fn dialect_coercion_agrees_with_the_reference() {
+    let kinds = [
+        ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+        ScalarKind::Int {
+            bits: 8,
+            signed: false,
+        },
+        ScalarKind::BigInt,
+        ScalarKind::Float { bits: 64 },
+        ScalarKind::Float { bits: 32 },
+        ScalarKind::Decimal,
+        ScalarKind::Any,
+        ScalarKind::Str,
+    ];
+    let mut cases = 0_u64;
+    for dialect in std::iter::once(None).chain(DIALECTS.iter().copied().map(Some)) {
+        for kind in &kinds {
+            let spec = ValueSpec {
+                numeral: dialect,
+                ..ValueSpec::new(kind.clone())
+            };
+            for class in [LexClass::Number, LexClass::String] {
+                for probe in DIALECT_PROBES {
+                    let reference =
+                        r::coerce(probe, &class_to_ref(&class), &spec_to_ref(&spec)).unwrap();
+                    assert_eq!(
+                        coerce_to_ref(probe, &class, &spec),
+                        reference,
+                        "{probe:?} {class:?} under {dialect:?} {kind:?}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+    }
+    println!(
+        "dialects: bound 9 dialects (8 and none) by {} kinds by 2 classes by {} probes: {cases} cases",
+        kinds.len(),
+        DIALECT_PROBES.len()
+    );
+    assert_eq!(cases, 9 * kinds.len() as u64 * 2 * DIALECT_PROBES.len() as u64);
+}
+
+/// Under the discriminator table {integer, float, text}, every tag of the
+/// table, two unknown tags and no tag, crossed with every class and a set
+/// of lexemes, under specs of several own kinds, agrees with the
+/// reference's discriminated coercion.
+#[test]
+fn discriminated_coercion_agrees_with_the_reference() {
+    let table: BTreeMap<String, ScalarKind> = BTreeMap::from([
+        (
+            "integer".to_owned(),
+            ScalarKind::Int {
+                bits: 32,
+                signed: true,
+            },
+        ),
+        ("float".to_owned(), ScalarKind::Float { bits: 64 }),
+        ("text".to_owned(), ScalarKind::Str),
+    ]);
+    let reference_table: BTreeMap<String, r::ScalarKind> = table
+        .iter()
+        .map(|(tag, kind)| (tag.clone(), kind_to_ref(kind)))
+        .collect();
+    let tags = [None, Some("integer"), Some("float"), Some("text"), Some("x-custom"), Some("")];
+    let lexemes = ["42", "1e2", "0.5", "abc", "true", "", "2024-01-02", "AQI="];
+    let mut classes = vec![
+        LexClass::Number,
+        LexClass::String,
+        LexClass::Bool,
+        LexClass::Null,
+        LexClass::DateTime,
+        LexClass::Bytes,
+    ];
+    classes.extend(["int", "custom"].map(|t| LexClass::Tagged(t.into())));
+    let mut cases = 0_u64;
+    for own in [ScalarKind::Any, ScalarKind::Str, ScalarKind::Decimal] {
+        let spec = ValueSpec {
+            discriminators: Some(table.clone()),
+            ..ValueSpec::new(own.clone())
+        };
+        let plain = ValueSpec::new(own.clone());
+        for tag in tags {
+            for class in &classes {
+                for text in lexemes {
+                    let production = coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
+                        .map(|v| to_ref(&v))
+                        .map_err(|e| reason_to_ref(&e.reason));
+                    let reference = r::coerce_discriminated(
+                        text,
+                        &class_to_ref(class),
+                        tag,
+                        &reference_table,
+                        &spec_to_ref(&plain),
+                    )
+                    .unwrap();
+                    assert_eq!(production, reference, "{text:?} {class:?} tagged {tag:?} under {own:?}");
+                    cases += 1;
+                }
+            }
+        }
+    }
+    println!(
+        "discriminators: 3 own kinds by {} tags by {} classes by {} lexemes: {cases} cases",
+        tags.len(),
+        classes.len(),
+        lexemes.len()
+    );
+    assert_eq!(cases, 3 * (tags.len() * classes.len() * lexemes.len()) as u64);
+}
+
+// ---------------------------------------------------------------------------
+// Generated cases.
+// ---------------------------------------------------------------------------
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config {
+        failure_persistence: None,
+        ..proptest::test_runner::Config::default()
+    })]
+
+    /// Generated lexemes over the numeral, temporal and byte-text alphabets,
+    /// of every class, under every spec of the scope that production holds,
+    /// and generated values under the same specs: production and reference
+    /// agree on every case they both hold.
+    #[test]
+    fn randomized_coercion_differential(
+        text in "[-+0-9.eE_xobINFAanfiyst:TZz /=]{0,14}",
+        class_index in 0_usize..8,
+        spec_index in 0_usize..1000,
+        value_index in 0_usize..100_000,
+    ) {
+        let specs: Vec<(r::ValueSpec, ValueSpec)> = specs()
+            .into_iter()
+            .filter_map(|s| spec_into_production(&s).map(|p| (s, p)))
+            .collect();
+        let (rspec, spec) = &specs[spec_index % specs.len()];
+        let mut classes = vec![
+            LexClass::Number,
+            LexClass::String,
+            LexClass::Bool,
+            LexClass::Null,
+            LexClass::DateTime,
+            LexClass::Bytes,
+        ];
+        classes.extend(["int", "custom"].map(|t| LexClass::Tagged(t.into())));
+        let class = &classes[class_index % classes.len()];
+        if let Some(reference) = r::coerce(&text, &class_to_ref(class), rspec) {
+            proptest::prop_assert_eq!(coerce_to_ref(&text, class, spec), reference, "{:?} {:?} {:?}", text, class, spec);
+        }
+        let values = randomized_values();
+        let x = &values[value_index % values.len()];
+        if let (Some(p), Some(reference)) = (into_production(x), r::coerce_value(x, rspec)) {
+            proptest::prop_assert_eq!(coerce_value_to_ref(&p, spec), reference, "{:?} {:?}", x, spec);
+        }
+    }
+}
+
+/// The values the generated cases draw from: the reference reading of every
+/// lexeme of the values page under each numeric and temporal kind, the
+/// decimal special values, and the boundary floats of binary16.
+fn randomized_values() -> &'static [RValue] {
+    static VALUES: std::sync::OnceLock<Vec<RValue>> = std::sync::OnceLock::new();
+    VALUES.get_or_init(|| {
+        use r::ScalarKind as K;
+        let mut out = Vec::new();
+        for t in lexemes(0) {
+            for kind in [K::Any, K::BigInt, K::Decimal, K::Float { bits: 16 }, K::Float { bits: 32 }, K::Float { bits: 64 }] {
+                if let Some(Ok(v)) = r::coerce(&t, &r::LexClass::Number, &r::ValueSpec::of(kind)) {
+                    out.push(v);
+                }
+            }
+            for kind in [K::Date, K::Time, K::DateTime] {
+                if let Some(Ok(v)) = r::coerce(&t, &r::LexClass::DateTime, &r::ValueSpec::of(kind)) {
+                    out.push(v);
+                }
+            }
+            out.push(RValue::Str(t));
+        }
+        out.extend(scope::binary16_patterns().into_iter().map(|h| RValue::Float(widen_bits(Format::B16, h))));
+        dedupe(out)
+    })
 }

@@ -73,12 +73,14 @@
 //! order, into one [`ParseError::Fidelity`].
 
 use panproto_gat::Name;
+use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 use super::{
-    BigIntValue, CANONICAL_NAN, DecimalValue, ExactInteger, FidelityReason, NEGATIVE_CANONICAL_NAN,
+    BigIntValue, CANONICAL_NAN, DecimalClass, DecimalValue, ExactInteger, FidelityReason, NEGATIVE_CANONICAL_NAN,
     Offset, Temporal, Value, ValueFidelityError, ValueSite, WideInt, binary32_bits,
 };
+use panproto_expr::exact::{BINARY16_OVERFLOW, binary16_bits, binary16_nearest};
 use crate::error::ParseError;
 
 /// A scalar as a source wrote it.
@@ -214,6 +216,17 @@ pub fn coerce(lexeme: &Lexeme<'_>, spec: &ValueSpec) -> Result<Value, ValueFidel
     if let LexClass::Tagged(tag) = &lexeme.class {
         return coerce_tagged(lexeme, tag, spec);
     }
+    if let Some(dialect) = spec.numeral {
+        let numeric_kind = matches!(
+            spec.kind,
+            ScalarKind::Int { .. } | ScalarKind::BigInt | ScalarKind::Float { .. } | ScalarKind::Decimal
+        );
+        let numeral_class = lexeme.class == LexClass::Number
+            || (lexeme.class == LexClass::String && numeric_kind);
+        if numeral_class {
+            return coerce_in_dialect(lexeme, dialect, spec);
+        }
+    }
     let kind = &spec.kind;
     let fail = |reason| fail(lexeme, kind, reason);
     match kind {
@@ -237,7 +250,7 @@ pub fn coerce(lexeme: &Lexeme<'_>, spec: &ValueSpec) -> Result<Value, ValueFidel
         }
         ScalarKind::Float { bits } => {
             numeric_class(lexeme, kind)?;
-            coerce_float(lexeme.text, *bits).map_err(fail)
+            coerce_float(lexeme.text, *bits, spec.float_reading).map_err(fail)
         }
         ScalarKind::Decimal => {
             numeric_class(lexeme, kind)?;
@@ -262,6 +275,460 @@ pub fn coerce(lexeme: &Lexeme<'_>, spec: &ValueSpec) -> Result<Value, ValueFidel
             _ => coerce_temporal(lexeme.text, kind, spec.with_time_zone).map_err(fail),
         },
     }
+}
+
+/// Read a numeral lexeme in the numeral `dialect` its route declares: the
+/// dialect decides whether the lexeme is a numeral and which number it
+/// denotes ([`dialect_numeral`]), and the number, written in the default
+/// grammar, is then read under the spec as any numeral is. A lexeme the
+/// dialect does not admit is refused with [`FidelityReason::NotANumber`].
+/// An error names the lexeme as the route wrote it.
+fn coerce_in_dialect(
+    lexeme: &Lexeme<'_>,
+    dialect: NumeralDialect,
+    spec: &ValueSpec,
+) -> Result<Value, ValueFidelityError> {
+    let Some(numeral) = dialect_numeral(lexeme.text, &lexeme.class, &spec.kind, dialect) else {
+        return Err(fail(lexeme, &spec.kind, FidelityReason::NotANumber));
+    };
+    let plain = ValueSpec {
+        numeral: None,
+        ..spec.clone()
+    };
+    coerce(&Lexeme::new(&numeral, lexeme.class.clone()), &plain).map_err(|error| {
+        ValueFidelityError {
+            lexeme: lexeme.text.to_owned(),
+            ..error
+        }
+    })
+}
+
+/// The number the numeral `text` denotes in `dialect`, written in the
+/// default numeral grammar (a decimal numeral, or `NaN`, `-NaN`,
+/// `Infinity` or `-Infinity`), or `None` when the dialect does not admit
+/// `text` as a numeral of `kind`.
+///
+/// The grammars:
+///
+/// - `Json`: RFC 8259 Sec 6's number, `-? int frac? exp?` with `int` a `0`
+///   or digits without a leading zero; no `+`, no `_`, no radix prefix, no
+///   non-finite spelling (Bray 2017, RFC 8259, Sec 6, stated).
+/// - `Toml`: `inf` and `nan` with an optional sign; `0x`, `0o` and `0b`
+///   integers without a sign; and decimal numerals with an optional sign,
+///   `_` only between two digits, digits on both sides of a point and no
+///   leading zero (TOML 1.0.0 and 1.1.0, Integer and Float, stated).
+/// - `Yaml12`: the YAML 1.2.2 core schema (Sec 10.3.2, stated): `.inf`,
+///   `.Inf`, `.INF` with an optional sign, `.nan`, `.NaN`, `.NAN`; `0o` and
+///   `0x` integers; and decimal numerals with an optional sign, leading
+///   zeros allowed and either side of the point optional, with no `_`.
+/// - `Yaml11`: the YAML 1.1 type pages (stated): the special floats of
+///   `Yaml12`; `0x`, `0o` and `0b` integers and decimal numerals with `_`
+///   between digits; base 60 integers (`190:20:30`); a leading `0` for
+///   octal; and a float exponent only with a point, so `1e3` is no numeral.
+/// - `Xsd`: XML Schema 1.1's decimal (`(\+|-)?([0-9]+(\.[0-9]*)?|\.[0-9]+)`,
+///   Sec 3.3.3) and, under a float kind, double (Sec 3.3.5) with `INF`,
+///   `+INF`, `-INF` and `NaN`, case-sensitive (W3C 2012, XML Schema 1.1
+///   Part 2: Datatypes, stated); `-NaN` is admitted too and reads as the
+///   NaN with its sign set.
+/// - `Java`: decimal numerals, and under a float kind `NaN`, `Infinity`
+///   and `-Infinity` as `Double.toString` writes them (Oracle, Java SE 21
+///   API, `Double.toString`, stated).
+/// - `ProtoJson`: JSON's numbers, and for a string lexeme under a float
+///   kind the strings `NaN`, `Infinity` and `-Infinity` (Protocol Buffers,
+///   `ProtoJSON` format, stated).
+/// - `Sql`: decimal numerals, and under a float or decimal kind
+///   PostgreSQL's `NaN`, `Infinity`, `-Infinity`, `inf` and `-inf`, in any
+///   case (PostgreSQL 16, Sec 8.1.3 and 8.1.2, stated).
+fn dialect_numeral(
+    text: &str,
+    class: &LexClass,
+    kind: &ScalarKind,
+    dialect: NumeralDialect,
+) -> Option<String> {
+    let float_kind = matches!(kind, ScalarKind::Float { .. });
+    match dialect {
+        NumeralDialect::Json => json_number(text).then(|| text.to_owned()),
+        NumeralDialect::Toml => toml_numeral(text),
+        NumeralDialect::Yaml12 => yaml12_numeral(text),
+        NumeralDialect::Yaml11 => yaml11_numeral(text),
+        NumeralDialect::Xsd => xsd_numeral(text, float_kind),
+        NumeralDialect::Java => {
+            if float_kind && matches!(text, "NaN" | "Infinity" | "-Infinity") {
+                return Some(text.to_owned());
+            }
+            decimal_numeral(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
+        }
+        NumeralDialect::ProtoJson => {
+            if *class == LexClass::String
+                && float_kind
+                && matches!(text, "NaN" | "Infinity" | "-Infinity")
+            {
+                return Some(text.to_owned());
+            }
+            json_number(text).then(|| text.to_owned())
+        }
+        NumeralDialect::Sql => {
+            if float_kind || matches!(kind, ScalarKind::Decimal) {
+                let special = match text.to_ascii_lowercase().as_str() {
+                    "nan" => Some("NaN"),
+                    "-nan" => Some("-NaN"),
+                    "infinity" | "+infinity" | "inf" | "+inf" => Some("Infinity"),
+                    "-infinity" | "-inf" => Some("-Infinity"),
+                    _ => None,
+                };
+                if let Some(special) = special {
+                    return Some(special.to_owned());
+                }
+            }
+            decimal_numeral(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
+        }
+    }
+}
+
+/// Which features a decimal numeral grammar admits beyond an optional
+/// minus sign and digits, as a set of the flags below.
+#[derive(Clone, Copy)]
+struct DecimalGrammar(u8);
+
+impl DecimalGrammar {
+    /// A leading `+`.
+    const PLUS: u8 = 1;
+    /// A leading zero before further integer digits.
+    const LEADING_ZERO: u8 = 2;
+    /// A decimal point.
+    const POINT: u8 = 4;
+    /// An exponent.
+    const EXPONENT: u8 = 8;
+
+    const JSON: Self = Self(Self::POINT | Self::EXPONENT);
+    const TOML: Self = Self(Self::PLUS | Self::POINT | Self::EXPONENT);
+    const PERMISSIVE: Self = Self(Self::PLUS | Self::LEADING_ZERO | Self::POINT | Self::EXPONENT);
+    const XSD_DECIMAL: Self = Self(Self::PLUS | Self::LEADING_ZERO | Self::POINT);
+
+    const fn admits(self, feature: u8) -> bool {
+        self.0 & feature != 0
+    }
+}
+
+/// Whether `text` is a decimal numeral of `grammar`: a sign, digits with an
+/// optional point (one side may be empty, not both), and an optional
+/// exponent `e`/`E` with an optional sign and at least one digit, each as
+/// the grammar admits.
+fn decimal_numeral(text: &str, grammar: DecimalGrammar) -> bool {
+    let bytes = text.as_bytes();
+    let mut at = match bytes.first() {
+        Some(b'+') if grammar.admits(DecimalGrammar::PLUS) => 1,
+        Some(b'+') => return false,
+        Some(b'-') => 1,
+        _ => 0,
+    };
+    if at == bytes.len() {
+        return false;
+    }
+    let start = at;
+    while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+        at += 1;
+    }
+    let integer = &text[start..at];
+    let fraction = if grammar.admits(DecimalGrammar::POINT) && bytes.get(at) == Some(&b'.') {
+        at += 1;
+        let from = at;
+        while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        at - from
+    } else {
+        0
+    };
+    if integer.is_empty() && fraction == 0 {
+        return false;
+    }
+    if !grammar.admits(DecimalGrammar::LEADING_ZERO) && integer.len() > 1 && integer.starts_with('0')
+    {
+        return false;
+    }
+    if grammar.admits(DecimalGrammar::EXPONENT) && matches!(bytes.get(at), Some(b'e' | b'E')) {
+        at += 1;
+        if matches!(bytes.get(at), Some(b'+' | b'-')) {
+            at += 1;
+        }
+        let from = at;
+        while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        if from == at {
+            return false;
+        }
+    }
+    at == bytes.len()
+}
+
+/// The mantissa of a numeral without its sign: the text before any
+/// exponent.
+fn unsigned_mantissa(text: &str) -> &str {
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    unsigned.split(['e', 'E']).next().unwrap_or(unsigned)
+}
+
+/// RFC 8259's number: the JSON decimal grammar with digits on both sides of
+/// any point.
+fn json_number(text: &str) -> bool {
+    let mantissa = text.split(['e', 'E']).next().unwrap_or(text);
+    decimal_numeral(text, DecimalGrammar::JSON)
+        && !mantissa.ends_with('.')
+        && !mantissa.starts_with('.')
+        && !mantissa.starts_with("-.")
+}
+
+/// `text` with its `_` digit separators removed, when every `_` stands
+/// between two characters that `digit` accepts.
+fn without_separators(text: &str, digit: impl Fn(u8) -> bool) -> Option<String> {
+    let bytes = text.as_bytes();
+    let separated = |i: usize| {
+        i.checked_sub(1)
+            .and_then(|before| bytes.get(before))
+            .is_some_and(|b| digit(*b))
+            && bytes.get(i + 1).is_some_and(|b| digit(*b))
+    };
+    bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b != b'_' || separated(i))
+        .then(|| text.replace('_', ""))
+}
+
+/// The decimal digits of the non-negative integer the digits `digits`
+/// write in base `radix` (2 to 16, either case), or `None` when `digits` is
+/// empty or holds a digit the radix lacks.
+fn radix_to_decimal(digits: &str, radix: u32) -> Option<String> {
+    if digits.is_empty() {
+        return None;
+    }
+    // Little-endian decimal digits of the value read so far.
+    let mut value: Vec<u32> = vec![0];
+    for c in digits.chars() {
+        let mut carry = c.to_digit(radix)?;
+        for digit in &mut value {
+            let next = *digit * radix + carry;
+            *digit = next % 10;
+            carry = next / 10;
+        }
+        while carry > 0 {
+            value.push(carry % 10);
+            carry /= 10;
+        }
+    }
+    while value.len() > 1 && value.last() == Some(&0) {
+        value.pop();
+    }
+    Some(value.iter().rev().filter_map(|d| char::from_digit(*d, 10)).collect())
+}
+
+/// The decimal digits of a `0x`, `0o` or `0b` integer (no sign), with `_`
+/// separators between its digits.
+fn prefixed_integer(text: &str) -> Option<String> {
+    let (digits, radix) = [("0x", 16), ("0o", 8), ("0b", 2)]
+        .into_iter()
+        .find_map(|(prefix, radix)| text.strip_prefix(prefix).map(|d| (d, radix)))?;
+    radix_to_decimal(&without_separators(digits, |b| b.is_ascii_hexdigit())?, radix)
+}
+
+/// A TOML numeral (see [`dialect_numeral`]).
+fn toml_numeral(text: &str) -> Option<String> {
+    let special = match text {
+        "inf" | "+inf" => Some("Infinity"),
+        "-inf" => Some("-Infinity"),
+        "nan" | "+nan" => Some("NaN"),
+        "-nan" => Some("-NaN"),
+        _ => None,
+    };
+    if let Some(special) = special {
+        return Some(special.to_owned());
+    }
+    if !text.starts_with(['+', '-'])
+        && let Some(value) = prefixed_integer(text)
+    {
+        return Some(value);
+    }
+    let plain = without_separators(text, |b| b.is_ascii_digit())?;
+    let mantissa = unsigned_mantissa(&plain);
+    (decimal_numeral(&plain, DecimalGrammar::TOML)
+        && !mantissa.starts_with('.')
+        && !mantissa.ends_with('.'))
+    .then_some(plain)
+}
+
+/// The special float a YAML lexeme spells, as `NaN`, `-NaN`, `Infinity` or
+/// `-Infinity`: `.inf`, `.Inf` or `.INF` with an optional sign, or `.nan`,
+/// `.NaN` or `.NAN` with no sign or a minus sign (the NaN with its sign
+/// set; the YAML schemas write a NaN without a sign).
+fn yaml_special(text: &str) -> Option<&'static str> {
+    let (sign, body) = match text.as_bytes().first() {
+        Some(b'-') => (Some(true), &text[1..]),
+        Some(b'+') => (Some(false), &text[1..]),
+        _ => (None, text),
+    };
+    match (body, sign) {
+        (".inf" | ".Inf" | ".INF", None | Some(false)) => Some("Infinity"),
+        (".inf" | ".Inf" | ".INF", Some(true)) => Some("-Infinity"),
+        (".nan" | ".NaN" | ".NAN", None) => Some("NaN"),
+        (".nan" | ".NaN" | ".NAN", Some(true)) => Some("-NaN"),
+        _ => None,
+    }
+}
+
+/// A YAML 1.2 core-schema numeral (see [`dialect_numeral`]).
+fn yaml12_numeral(text: &str) -> Option<String> {
+    if let Some(special) = yaml_special(text) {
+        return Some(special.to_owned());
+    }
+    if let Some(digits) = text.strip_prefix("0o") {
+        return radix_to_decimal(digits, 8);
+    }
+    if let Some(digits) = text.strip_prefix("0x") {
+        return radix_to_decimal(digits, 16);
+    }
+    decimal_numeral(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
+}
+
+/// The decimal digits of `value × 60 + field` for decimal digits `value`.
+fn times_sixty_plus(value: &str, field: u32) -> String {
+    let mut digits: Vec<u32> = value.chars().rev().filter_map(|c| c.to_digit(10)).collect();
+    let mut carry = field;
+    for digit in &mut digits {
+        let next = *digit * 60 + carry;
+        *digit = next % 10;
+        carry = next / 10;
+    }
+    while carry > 0 {
+        digits.push(carry % 10);
+        carry /= 10;
+    }
+    while digits.len() > 1 && digits.last() == Some(&0) {
+        digits.pop();
+    }
+    digits.iter().rev().filter_map(|d| char::from_digit(*d, 10)).collect()
+}
+
+/// The decimal digits of the base 60 numeral `first(:field)+`: `first`
+/// decimal digits with `_` separators (its first digit 1 to 9 when
+/// `nonzero_lead`), each field one or two digits of value below 60.
+fn sexagesimal(text: &str, nonzero_lead: bool) -> Option<String> {
+    let mut fields = text.split(':');
+    let first = fields.next()?;
+    let lead_ok = first
+        .bytes()
+        .next()
+        .is_some_and(|b| if nonzero_lead { matches!(b, b'1'..=b'9') } else { b.is_ascii_digit() });
+    if !lead_ok || !first.bytes().all(|b| b.is_ascii_digit() || b == b'_') {
+        return None;
+    }
+    let mut value = radix_to_decimal(&first.replace('_', ""), 10)?;
+    let mut any = false;
+    for field in fields {
+        let well_formed = (1..=2).contains(&field.len()) && field.bytes().all(|b| b.is_ascii_digit());
+        let field_value: u32 = field.parse().ok().filter(|v| well_formed && *v < 60)?;
+        value = times_sixty_plus(&value, field_value);
+        any = true;
+    }
+    any.then_some(value)
+}
+
+/// A YAML 1.1 numeral (see [`dialect_numeral`]): the `int` and `float`
+/// type pages' expressions, with every `_` ignored.
+///
+/// Integers: `[-+]?0b[0-1_]+`, `[-+]?0[0-7_]+`, `[-+]?(0|[1-9][0-9_]*)`,
+/// `[-+]?0x[0-9a-fA-F_]+` and `[-+]?[1-9][0-9_]*(:[0-5]?[0-9])+`. Floats:
+/// `[-+]?([0-9][0-9_]*)?\.[0-9_]*([eE][-+][0-9]+)?` (a point required, an
+/// exponent's sign required, and at least one digit), the base 60 form
+/// `[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\.[0-9_]*`, and the special floats.
+/// The float page prints the base 10 fraction class as `[0-9.]`; its own
+/// example `685.230_15e+03` shows that `[0-9_]` is meant, which is what is
+/// read here. A prefixed form with no digit (`0b_`, `0x_`) is no numeral.
+fn yaml11_numeral(text: &str) -> Option<String> {
+    if let Some(special) = yaml_special(text) {
+        return Some(special.to_owned());
+    }
+    let (sign, body) = match text.as_bytes().first() {
+        Some(b'-') => ("-", &text[1..]),
+        Some(b'+') => ("", &text[1..]),
+        _ => ("", text),
+    };
+    let signed = |digits: String| format!("{sign}{digits}");
+    let digits_of = |part: &str, accept: fn(u8) -> bool| {
+        (part.bytes().all(|b| accept(b) || b == b'_') && part.bytes().any(accept))
+            .then(|| part.replace('_', ""))
+    };
+    if let Some(part) = body.strip_prefix("0b") {
+        return radix_to_decimal(&digits_of(part, |b| matches!(b, b'0' | b'1'))?, 2).map(signed);
+    }
+    if let Some(part) = body.strip_prefix("0x") {
+        return radix_to_decimal(&digits_of(part, |b| b.is_ascii_hexdigit())?, 16).map(signed);
+    }
+    if body.contains(':') {
+        return match body.split_once('.') {
+            None => sexagesimal(body, true).map(signed),
+            Some((whole, fraction)) => {
+                let whole = sexagesimal(whole, false)?;
+                fraction
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || b == b'_')
+                    .then(|| signed(format!("{whole}.{}", fraction.replace('_', ""))))
+            }
+        };
+    }
+    if body.len() > 1
+        && body.starts_with('0')
+        && body[1..].bytes().all(|b| matches!(b, b'0'..=b'7' | b'_'))
+    {
+        let digits = body[1..].replace('_', "");
+        return Some(signed(if digits.is_empty() {
+            "0".to_owned()
+        } else {
+            radix_to_decimal(&digits, 8)?
+        }));
+    }
+    if body == "0" || (body.bytes().next().is_some_and(|b| matches!(b, b'1'..=b'9'))
+        && body.bytes().all(|b| b.is_ascii_digit() || b == b'_'))
+    {
+        return Some(signed(body.replace('_', "")));
+    }
+    // A float: digits, a point, digits, and an exponent with a sign.
+    let (mantissa, exponent) = body
+        .find(['e', 'E'])
+        .map_or((body, None), |at| (&body[..at], Some(&body[at + 1..])));
+    let (whole, fraction) = mantissa.split_once('.')?;
+    let whole_ok = whole.is_empty()
+        || (whole.as_bytes()[0].is_ascii_digit() && whole.bytes().all(|b| b.is_ascii_digit() || b == b'_'));
+    let fraction_ok = fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_');
+    let exponent_ok = exponent.is_none_or(|e| {
+        e.len() > 1 && matches!(e.as_bytes()[0], b'+' | b'-') && e[1..].bytes().all(|b| b.is_ascii_digit())
+    });
+    let has_digit = mantissa.bytes().any(|b| b.is_ascii_digit());
+    if !(whole_ok && fraction_ok && exponent_ok && has_digit) {
+        return None;
+    }
+    let whole = whole.replace('_', "");
+    let fraction = fraction.replace('_', "");
+    let exponent = exponent.map(|e| format!("e{e}")).unwrap_or_default();
+    Some(signed(format!(
+        "{}.{}{exponent}",
+        if whole.is_empty() { "0" } else { &whole },
+        if fraction.is_empty() { "0" } else { &fraction }
+    )))
+}
+
+/// An XML Schema numeral (see [`dialect_numeral`]).
+fn xsd_numeral(text: &str, float_kind: bool) -> Option<String> {
+    if float_kind {
+        return match text {
+            "INF" | "+INF" => Some("Infinity".to_owned()),
+            "-INF" => Some("-Infinity".to_owned()),
+            "NaN" | "-NaN" => Some(text.to_owned()),
+            _ => decimal_numeral(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned()),
+        };
+    }
+    decimal_numeral(text, DecimalGrammar::XSD_DECIMAL).then(|| text.to_owned())
 }
 
 /// Reject a lexeme whose class cannot write a number: booleans, and bytes.
@@ -335,8 +802,11 @@ fn coerce_any(lexeme: &Lexeme<'_>) -> Result<Value, ValueFidelityError> {
             if is_integer_numeral(lexeme.text) {
                 return Value::parse_integer(lexeme.text).map_err(|e| fail(e.reason));
             }
-            let decimal = DecimalValue::parse(lexeme.text).map_err(|e| fail(e.reason))?;
-            let x = nearest_float(&decimal, lexeme.text, 64);
+            let decimal = DecimalValue::parse(lexeme.text)
+                .ok()
+                .filter(DecimalValue::is_finite)
+                .ok_or_else(|| fail(FidelityReason::NotANumber))?;
+            let x = nearest_float(&decimal, 64);
             Ok(float_if_shortest(&decimal, x).map_or(Value::Decimal(decimal), Value::Float))
         }
         LexClass::Bool => coerce_bool(lexeme).ok_or_else(|| fail(FidelityReason::InvalidEncoding)),
@@ -359,33 +829,40 @@ fn float_if_shortest(decimal: &DecimalValue, x: f64) -> Option<f64> {
     back.cmp_numeric(decimal).is_eq().then_some(x)
 }
 
-/// The float of `bits` bits nearest the numeral `text`, which reads as
-/// `decimal`, widened to `f64`: IEEE 754 round-to-nearest-even at the
-/// width (32, or 64 for any other width), by Rust's correctly rounded
-/// parsers, which give an infinity or a zero outside the width's range,
-/// whatever the size of the exponent. A zero numeral written with a `-` is
-/// the negative zero, which `decimal` cannot carry.
-fn nearest_float(decimal: &DecimalValue, text: &str, bits: u8) -> f64 {
-    let x = if bits == 32 {
-        f64::from(decimal.to_f32())
-    } else {
-        decimal.to_f64()
-    };
-    if decimal.is_zero() && text.starts_with('-') {
-        -x
-    } else {
-        x
+/// The float of `bits` bits nearest the finite `decimal`, widened to
+/// `f64`: `L_b`, IEEE 754 round to nearest, ties to even, at the width (16,
+/// 32, or 64 for any other width), an infinity when the decimal rounds
+/// beyond the width's largest finite value and a zero when it rounds below
+/// its least, whatever the size of the exponent. A zero keeps the decimal's
+/// sign, so `-0` and `-0e5` give the negative zero. At 32 and 64 bits Rust's
+/// correctly rounded parsers round; at 16 bits [`binary16_nearest`] does,
+/// exactly.
+fn nearest_float(decimal: &DecimalValue, bits: u8) -> f64 {
+    match bits {
+        16 => binary16_nearest(decimal),
+        32 => f64::from(decimal.to_f32()),
+        _ => decimal.to_f64(),
     }
 }
 
-/// The shortest text that reads back as `x` at `bits` bits (32, or 64 for
-/// any other width), for a finite `x` that the width holds: its
+/// The shortest text that reads back as `x` at `bits` bits (16, 32, or 64
+/// for any other width), for a finite `x` that the width holds: `C_b`, its
 /// closest-shortest decimal, ties to even.
 fn shortest_text(x: f64, bits: u8) -> Option<DecimalValue> {
-    if bits == 32 {
-        DecimalValue::from_f32_shortest(f32::from_bits(binary32_bits(x)?))
-    } else {
-        DecimalValue::from_f64_shortest(x)
+    match bits {
+        16 => DecimalValue::from_f16_shortest(x),
+        32 => DecimalValue::from_f32_shortest(f32::from_bits(binary32_bits(x)?)),
+        _ => DecimalValue::from_f64_shortest(x),
+    }
+}
+
+/// The significant digits within which every value of a float width is
+/// written by its shortest text: 5 at 16 bits, 9 at 32, 17 at 64.
+const fn max_float_digits(bits: u8) -> u32 {
+    match bits {
+        16 => 5,
+        32 => 9,
+        _ => 17,
     }
 }
 
@@ -462,16 +939,27 @@ fn coerce_int(text: &str, bits: u8, signed: bool) -> Result<Value, FidelityReaso
     }
 }
 
-/// A float of `bits` bits (32 or 64; any other width reads as 64): the
-/// value nearest the numeral, accepted when it equals the numeral or its
-/// shortest text at the width is numerically the numeral (see the module
-/// documentation).
-fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
+/// A float of `bits` bits (16, 32 or 64; any other width reads as 64)
+/// read under `reading`: the value `L_b(t)` nearest the numeral t. Under
+/// [`FloatReading::Exact`] it is accepted when it is finite and equals t or
+/// its shortest text at the width is numerically t, refused with
+/// [`FidelityReason::Overflow`] when it is infinite and with
+/// [`FidelityReason::PrecisionExceeded`] otherwise (see the module
+/// documentation). Under [`FloatReading::NearestKeepingLexeme`] every
+/// finite numeral gives `L_b(t)`, an overflow the infinity of t's sign, and
+/// no numeral is refused; the route keeps the lexeme.
+fn coerce_float(text: &str, bits: u8, reading: FloatReading) -> Result<Value, FidelityReason> {
     if let Some(f) = non_finite(text) {
         return Ok(Value::Float(f));
     }
-    let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
-    let x = nearest_float(&decimal, text, bits);
+    let decimal = DecimalValue::parse(text)
+        .ok()
+        .filter(DecimalValue::is_finite)
+        .ok_or(FidelityReason::NotANumber)?;
+    let x = nearest_float(&decimal, bits);
+    if reading == FloatReading::NearestKeepingLexeme {
+        return Ok(Value::Float(x));
+    }
     if !x.is_finite() {
         return Err(FidelityReason::Overflow);
     }
@@ -480,12 +968,13 @@ fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
         Ok(Value::Float(x))
     } else {
         Err(FidelityReason::PrecisionExceeded {
-            max: if bits == 32 { 9 } else { 17 },
+            max: max_float_digits(bits),
         })
     }
 }
 
-/// A decimal within the spec's precision and scale.
+/// A decimal within the spec's precision and scale, or a special decimal
+/// (an infinity or a NaN, which no precision or scale bounds).
 ///
 /// With a scale `s`, the number may need at most `s` digits after the
 /// point (trailing zeros beyond it are no loss); with a precision `p` as
@@ -493,6 +982,9 @@ fn coerce_float(text: &str, bits: u8) -> Result<Value, FidelityReason> {
 /// digits in all.
 fn coerce_decimal(text: &str, spec: &ValueSpec) -> Result<Value, FidelityReason> {
     let decimal = DecimalValue::parse(text).map_err(|e| e.reason)?;
+    if !decimal.is_finite() {
+        return Ok(Value::Decimal(decimal));
+    }
     if let Some(scale) = spec.scale
         && decimal.minimal_scale() > WideInt::from(scale)
     {
@@ -650,6 +1142,75 @@ fn coerce_tagged(
                 _ => LexClass::Number,
             };
             coerce(&Lexeme::new(lexeme.text, class), &ValueSpec::new(kind))
+        },
+    )
+}
+
+/// Read a lexeme whose kind a sibling discriminator names, under `spec`.
+///
+/// A value position whose kind is named by a sibling (jCal's and jCard's
+/// value-type element, FHIR's `resourceType`, atproto's `$type`) is read
+/// through the discriminator table of its spec ([`ValueSpec::discriminators`]):
+/// a lexeme whose `tag` the table holds is read by [`coerce`] under the
+/// spec with that kind, its class unchanged, so a number tagged as text is
+/// refused under `Str` as an untagged one is; a lexeme whose tag the table
+/// lacks is kept, never refused and never typed by guess, as
+/// `Value::Opaque { type_: tag, fields: { "value": Str(lexeme) } }` with
+/// the lexeme byte for byte. A lexeme with no tag, and every lexeme under a
+/// spec with no table, is read by [`coerce`] under the spec as it is.
+///
+/// ```
+/// use std::collections::BTreeMap;
+///
+/// use panproto_inst::Value;
+/// use panproto_inst::value::coerce::{LexClass, Lexeme, coerce_discriminated};
+/// use panproto_schema::{ScalarKind, ValueSpec};
+///
+/// let spec = ValueSpec {
+///     discriminators: Some(BTreeMap::from([
+///         ("integer".to_owned(), ScalarKind::Int { bits: 32, signed: true }),
+///         ("text".to_owned(), ScalarKind::Str),
+///     ])),
+///     ..ValueSpec::new(ScalarKind::Any)
+/// };
+/// let string = Lexeme::new("42", LexClass::String);
+/// assert_eq!(coerce_discriminated(&string, Some("integer"), &spec)?, Value::Int(42));
+/// let custom = coerce_discriminated(&Lexeme::new("abc", LexClass::String), Some("x-custom"), &spec)?;
+/// assert!(matches!(custom, Value::Opaque { type_, .. } if type_ == "x-custom"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Errors
+///
+/// The [`ValueFidelityError`] [`coerce`] gives under the kind the tag
+/// names, or under the spec's own kind.
+pub fn coerce_discriminated(
+    lexeme: &Lexeme<'_>,
+    tag: Option<&str>,
+    spec: &ValueSpec,
+) -> Result<Value, ValueFidelityError> {
+    let (Some(tag), Some(table)) = (tag, &spec.discriminators) else {
+        return coerce(lexeme, spec);
+    };
+    table.get(tag).map_or_else(
+        || {
+            Ok(Value::Opaque {
+                type_: tag.to_owned(),
+                fields: std::iter::once((
+                    "value".to_owned(),
+                    Value::Str(lexeme.text.to_owned()),
+                ))
+                .collect(),
+            })
+        },
+        |kind| {
+            coerce(
+                lexeme,
+                &ValueSpec {
+                    kind: kind.clone(),
+                    ..spec.clone()
+                },
+            )
         },
     )
 }
@@ -844,12 +1405,30 @@ pub fn coerce_value(
                 ))
             };
         }
+        (Value::Float(x), ScalarKind::Float { bits: 16 }) => {
+            return if binary16_bits(*x).is_some() {
+                Ok(value.clone())
+            } else if !x.is_finite() {
+                Err(refuse(site, x.to_string(), FidelityReason::NonFinite))
+            } else if x.abs() >= BINARY16_OVERFLOW {
+                Err(refuse(site, x.to_string(), FidelityReason::Overflow))
+            } else {
+                Err(refuse(
+                    site,
+                    x.to_string(),
+                    FidelityReason::PrecisionExceeded { max: 5 },
+                ))
+            };
+        }
         (Value::Float(x), kind) if !x.is_finite() => {
             return if matches!(kind, ScalarKind::Float { .. }) {
                 Ok(value.clone())
             } else {
                 Err(refuse(site, x.to_string(), FidelityReason::NonFinite))
             };
+        }
+        (Value::Decimal(d), ScalarKind::Float { .. } | ScalarKind::BigInt) if !d.is_finite() => {
+            return Err(refuse(site, d.to_string(), FidelityReason::NonFinite));
         }
         (Value::Int(_) | Value::BigInt(_) | Value::Decimal(_), ScalarKind::Float { bits }) => {
             let (decimal, lexeme) = match value {
@@ -859,6 +1438,7 @@ pub fn coerce_value(
                         negative: n.negative,
                         digits: n.significand.clone(),
                         exponent: n.zeros.clone(),
+                        class: DecimalClass::Finite,
                     },
                     n.exponent_form(),
                 ),
@@ -892,71 +1472,30 @@ pub fn coerce_value(
 }
 
 /// The float of `bits` bits (16, 32, or 64 for any other width) equal to
-/// `decimal`, widened to `f64`, when the width holds that number exactly; a
-/// zero gives the positive zero. Otherwise [`FidelityReason::Overflow`]
+/// the finite `decimal`, widened to `f64`, when the width holds that number
+/// exactly; a zero gives the zero of its sign. Otherwise [`FidelityReason::Overflow`]
 /// when the number rounds to an infinity at the width under
 /// round-to-nearest-even, and [`FidelityReason::PrecisionExceeded`] with
 /// the width's `max` (5, 9 or 17) else.
 ///
-/// The number is held exactly iff the binary64 nearest it (at 32 bits the
-/// binary32 nearest it) equals it and, at 16 bits, that binary64 is a
-/// binary16 value, since every binary16 value is a binary64 value. At 32
-/// and 64 bits Rust's correctly rounded parsers give an infinity exactly
-/// when the number rounds to one; at 16 bits it does exactly when its
-/// magnitude is at least 65520, the largest binary16 (65504) plus half its
-/// gap (16), a tie that goes to the even neighbour 2^16 and so overflows.
+/// The number is held exactly iff the float of the width nearest it, `L_b`
+/// ([`nearest_float`]), equals it; `L_b` is infinite exactly when the number
+/// rounds to an infinity (at 16 bits, when its magnitude is at least 65520,
+/// the largest binary16, 65504, plus half its gap, a tie that goes to the
+/// even neighbour 2^16 and so overflows).
 fn held_exactly(decimal: &DecimalValue, bits: u8) -> Result<f64, FidelityReason> {
     if decimal.is_zero() {
-        return Ok(0.0);
+        return Ok(if decimal.negative { -0.0 } else { 0.0 });
     }
-    let (x, max) = match bits {
-        16 => (decimal.to_f64(), 5),
-        32 => (f64::from(decimal.to_f32()), 9),
-        _ => (decimal.to_f64(), 17),
-    };
-    let overflows = if bits == 16 {
-        let magnitude = DecimalValue {
-            negative: false,
-            ..decimal.clone()
-        };
-        magnitude.cmp_numeric(&DecimalValue::from_i64(BINARY16_OVERFLOW))
-            != std::cmp::Ordering::Less
-    } else {
-        !x.is_finite()
-    };
-    if overflows {
-        return Err(FidelityReason::Overflow);
-    }
-    if denotes_exactly(decimal, x) && (bits != 16 || holds_binary16(x)) {
+    let x = nearest_float(decimal, bits);
+    if !x.is_finite() {
+        Err(FidelityReason::Overflow)
+    } else if denotes_exactly(decimal, x) {
         Ok(x)
     } else {
-        Err(FidelityReason::PrecisionExceeded { max })
-    }
-}
-
-/// The least magnitude that rounds to an infinity at binary16 under
-/// round-to-nearest-even: the largest binary16, 65504, plus half its gap.
-const BINARY16_OVERFLOW: i64 = 65_520;
-
-/// Whether the finite binary64 value `x` is a binary16 value: a zero, or a
-/// value `(1 + f / 2^52) * 2^e` that eleven significant bits and binary16's
-/// exponent range hold, which needs `e` in `-24..=15` and, for `e >= -14`
-/// (binary16's normal range), the low 42 fraction bits zero, and for
-/// `e < -14` (its subnormal range, multiples of 2^-24) the low `28 - e`
-/// bits.
-fn holds_binary16(x: f64) -> bool {
-    let bits = x.to_bits();
-    let fraction = bits & ((1 << 52) - 1);
-    let biased = (bits >> 52) & 0x7ff;
-    let zero_low = |n: u32| fraction & ((1_u64 << n) - 1) == 0;
-    if biased == 0 {
-        return fraction == 0;
-    }
-    let exponent = i64::try_from(biased).map_or(i64::MAX, |b| b - 1023);
-    match exponent {
-        -14..=15 => zero_low(42),
-        -24..=-15 => u32::try_from(28 - exponent).is_ok_and(zero_low),
-        _ => false,
+        Err(FidelityReason::PrecisionExceeded {
+            max: max_float_digits(bits),
+        })
     }
 }
 
@@ -1024,7 +1563,7 @@ mod tests {
             2.0_f64.powi(-14),
             65_504.0,
         ] {
-            assert!(holds_binary16(x), "{x:e}");
+            assert!(binary16_bits(x).is_some(), "{x:e}");
         }
         for x in [
             f64::from_bits(1),
@@ -1033,7 +1572,7 @@ mod tests {
             2.0_f64.powi(-25),
             2.0_f64.powi(16),
         ] {
-            assert!(!holds_binary16(x), "{x:e}");
+            assert!(binary16_bits(x).is_none(), "{x:e}");
         }
     }
 

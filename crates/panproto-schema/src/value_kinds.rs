@@ -7,6 +7,9 @@
 //! Enums serialize externally tagged in `snake_case`; structs serialize with
 //! named fields in declaration order.
 
+use std::collections::BTreeMap;
+
+use panproto_expr::exact::TimeUnit;
 use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
@@ -65,7 +68,69 @@ pub enum BytesText {
     Raw,
 }
 
+/// How a float column reads a finite numeral.
+///
+/// Serialized as `"exact"` or `"nearest_keeping_lexeme"`; a spec with the
+/// default reading omits the field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FloatReading {
+    /// A numeral is accepted when it is exactly the float it rounds to or
+    /// that float's shortest text, and refused otherwise.
+    #[default]
+    Exact,
+    /// Every finite numeral reads as the float nearest it, an overflow as
+    /// the infinity of its sign, and the route keeps the lexeme: the
+    /// reading of a column whose source stores binary floats and writes
+    /// them as decimal text that need not be shortest (an SQL dump).
+    NearestKeepingLexeme,
+}
+
+impl FloatReading {
+    /// Whether this is [`FloatReading::Exact`].
+    #[must_use]
+    pub const fn is_exact(&self) -> bool {
+        matches!(self, Self::Exact)
+    }
+}
+
+/// The numeral grammar of the route a lexeme was read from.
+///
+/// A declared dialect decides which lexemes are numerals and which number
+/// each denotes; with none declared a lexeme is read by the default
+/// numeral grammar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NumeralDialect {
+    /// RFC 8259 JSON numbers: no `+`, leading zero, `_`, radix prefix or
+    /// non-finite spelling.
+    Json,
+    /// TOML 1.0 and 1.1 integers and floats: `_` between digits, `0x`,
+    /// `0o` and `0b` integers, a leading `+`, and `inf` and `nan` with an
+    /// optional sign.
+    Toml,
+    /// The YAML 1.2.2 core schema's integer and float forms.
+    Yaml12,
+    /// The YAML 1.1 type pages' integer and float forms, sexagesimal and
+    /// octal with a leading `0` included.
+    Yaml11,
+    /// XML Schema 1.1's decimal and double lexical forms.
+    Xsd,
+    /// Java's decimal floating-point literals and its case-sensitive
+    /// `NaN`, `Infinity` and `-Infinity`.
+    Java,
+    /// `ProtoJSON` numbers, with the quoted `NaN`, `Infinity` and
+    /// `-Infinity` of floats.
+    ProtoJson,
+    /// SQL numerals and PostgreSQL's special float and numeric values.
+    Sql,
+}
+
 /// A scalar kind together with the value parameters of one vertex.
+///
+/// The fields after `unsigned` default to their absent forms and are left
+/// out of the serialized spec when absent, so a spec without them reads and
+/// writes as it did before they existed.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ValueSpec {
     /// The scalar kind.
@@ -82,6 +147,24 @@ pub struct ValueSpec {
     pub int_bits: Option<u8>,
     /// Whether an integer is unsigned.
     pub unsigned: bool,
+    /// How a float column reads a finite numeral.
+    #[serde(default, skip_serializing_if = "FloatReading::is_exact")]
+    pub float_reading: FloatReading,
+    /// The numeral grammar of the route, when it declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numeral: Option<NumeralDialect>,
+    /// The kinds a sibling's discriminator names: a lexeme tagged with a
+    /// key of the table is read under the spec with that kind, and one
+    /// tagged with any other tag is kept as an opaque value of the tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discriminators: Option<BTreeMap<String, ScalarKind>>,
+    /// The unit of an epoch count, if declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_unit: Option<TimeUnit>,
+    /// The time zone of a temporal column, as declared (an Olson name or a
+    /// numeric offset, kept byte for byte), if declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
 }
 
 impl ValueSpec {
@@ -96,6 +179,11 @@ impl ValueSpec {
             with_time_zone: None,
             int_bits: None,
             unsigned: false,
+            float_reading: FloatReading::Exact,
+            numeral: None,
+            discriminators: None,
+            time_unit: None,
+            time_zone: None,
         }
     }
 
@@ -164,7 +252,7 @@ impl ValueSpec {
     }
 
     /// Sets the field `parameter` names.
-    pub const fn apply(&mut self, parameter: ValueParameter) {
+    pub fn apply(&mut self, parameter: ValueParameter) {
         match parameter {
             ValueParameter::Precision(n) => self.precision = Some(n),
             ValueParameter::Scale(n) => self.scale = Some(n),
@@ -172,6 +260,8 @@ impl ValueSpec {
             ValueParameter::WithTimeZone(b) => self.with_time_zone = Some(b),
             ValueParameter::IntBits(n) => self.int_bits = Some(n),
             ValueParameter::Unsigned(b) => self.unsigned = b,
+            ValueParameter::TimeUnit(unit) => self.time_unit = Some(unit),
+            ValueParameter::TimeZone(zone) => self.time_zone = Some(zone),
         }
     }
 }
@@ -259,6 +349,7 @@ mod tests {
                 with_time_zone: None,
                 int_bits: Some(32),
                 unsigned: true,
+                ..ValueSpec::new(ScalarKind::Any)
             }
         );
         assert_eq!(

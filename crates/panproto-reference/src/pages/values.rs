@@ -1677,94 +1677,170 @@ pub mod coerce {
         .then_some(clean)
     }
 
-    fn normalize_yaml12(text: &str) -> Option<String> {
-        let (negative, body) = text.strip_prefix('-').map_or_else(
-            || (false, text.strip_prefix('+').unwrap_or(text)),
-            |body| (true, body),
-        );
-        let special = match body {
-            ".inf" | ".Inf" | ".INF" => Some(false),
-            ".nan" | ".NaN" | ".NAN" => Some(true),
-            _ => None,
+    /// The YAML special floats: `.inf`, `.Inf`, `.INF` after an optional
+    /// sign; `.nan`, `.NaN`, `.NAN` unsigned or, by the recorded departure,
+    /// after a minus sign.
+    fn yaml_special(text: &str) -> Option<&'static str> {
+        let (sign, body) = match text.as_bytes().first() {
+            Some(b'-') => ('-', &text[1..]),
+            Some(b'+') => ('+', &text[1..]),
+            _ => (' ', text),
         };
-        if let Some(nan) = special {
-            return Some(
-                match (negative, nan) {
-                    (true, false) => "-Infinity",
-                    (false, false) => "Infinity",
-                    (true, true) => "-NaN",
-                    (false, true) => "NaN",
-                }
-                .to_owned(),
-            );
+        let infinity = matches!(body, ".inf" | ".Inf" | ".INF");
+        let nan = matches!(body, ".nan" | ".NaN" | ".NAN");
+        match sign {
+            '-' if infinity => Some("-Infinity"),
+            '-' if nan => Some("-NaN"),
+            '+' | ' ' if infinity => Some("Infinity"),
+            ' ' if nan => Some("NaN"),
+            _ => None,
         }
-        if !negative
-            && !text.starts_with('+')
-            && let Some(value) = prefixed_integer(text, false)
-        {
-            return Some(value);
+    }
+
+    /// YAML 1.2.2 Sec 10.3.2 core schema: `[-+]? [0-9]+`, `0o [0-7]+`,
+    /// `0x [0-9a-fA-F]+`, the decimal float form and the special floats.
+    fn normalize_yaml12(text: &str) -> Option<String> {
+        if let Some(special) = yaml_special(text) {
+            return Some(special.to_owned());
+        }
+        if let Some(digits) = text.strip_prefix("0o") {
+            return radix_decimal(digits, 8);
+        }
+        if let Some(digits) = text.strip_prefix("0x") {
+            return radix_decimal(digits, 16);
         }
         decimal_number(text, DecimalGrammar::PERMISSIVE).then(|| text.to_owned())
     }
 
-    fn sexagesimal_decimal(text: &str) -> Option<String> {
-        let mut parts = text.split(':');
-        let first = parts.next()?;
-        if first.is_empty() || !first.bytes().all(|byte| byte.is_ascii_digit()) {
-            return None;
-        }
-        let mut value = first.trim_start_matches('0').to_owned();
-        if value.is_empty() {
-            value.push('0');
-        }
-        for part in parts {
-            if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            let part_value: u8 = part.parse().ok()?;
-            if part_value >= 60 {
-                return None;
-            }
-            let mut decimal: Vec<u8> = value.bytes().map(|byte| byte - b'0').collect();
-            let mut carry = u16::from(part_value);
-            for digit in decimal.iter_mut().rev() {
-                let next = u16::from(*digit) * 60 + carry;
-                *digit = u8::try_from(next % 10).ok()?;
-                carry = next / 10;
-            }
-            while carry != 0 {
-                decimal.insert(0, u8::try_from(carry % 10).ok()?);
-                carry /= 10;
-            }
-            value = decimal
-                .into_iter()
-                .map(|digit| char::from(b'0' + digit))
-                .collect();
-        }
-        Some(value)
+    /// Whether `s` is `first(_|digit)*` with `first` accepted by `lead` and
+    /// every later character a digit or `_`.
+    fn underscored(s: &str, lead: impl Fn(u8) -> bool) -> bool {
+        s.as_bytes().first().is_some_and(|b| lead(*b))
+            && s.bytes().all(|b| b.is_ascii_digit() || b == b'_')
     }
 
-    fn normalize_yaml11(text: &str) -> Option<String> {
-        if let Some(value) = normalize_yaml12(text).filter(|_| {
-            let body = text.strip_prefix(['+', '-']).unwrap_or(text);
-            matches!(body, ".inf" | ".Inf" | ".INF" | ".nan" | ".NaN" | ".NAN")
-        }) {
-            return Some(value);
-        }
-        if let Some(value) = prefixed_integer(text, true) {
-            return Some(value);
-        }
-        let clean = strip_separators(text, |byte| byte.is_ascii_digit())?;
-        if clean.contains(':') {
-            return sexagesimal_decimal(&clean);
-        }
-        if clean.len() > 1 && clean.starts_with('0') && clean.bytes().all(|b| b.is_ascii_digit()) {
-            return radix_decimal(&clean[1..], 8);
-        }
-        if clean.contains(['e', 'E']) && !clean.contains('.') {
+    /// `[1-9][0-9_]*(:[0-5]?[0-9])+` (or `[0-9]` first when `zero_lead`):
+    /// the base 60 value of its fields as decimal digits.
+    fn base60(s: &str, zero_lead: bool) -> Option<String> {
+        let mut parts = s.split(':');
+        let first = parts.next()?;
+        let lead = |b: u8| {
+            if zero_lead {
+                b.is_ascii_digit()
+            } else {
+                (b'1'..=b'9').contains(&b)
+            }
+        };
+        if !underscored(first, lead) {
             return None;
         }
-        decimal_number(&clean, DecimalGrammar::PERMISSIVE).then_some(clean)
+        // Most significant decimal digit first.
+        let mut value: Vec<u32> = first
+            .bytes()
+            .filter(u8::is_ascii_digit)
+            .map(|b| u32::from(b - b'0'))
+            .collect();
+        let mut fields = 0;
+        for part in parts {
+            let short = matches!(part.len(), 1 | 2) && part.bytes().all(|b| b.is_ascii_digit());
+            let field: u32 = part.parse().ok().filter(|f| short && *f < 60)?;
+            let mut carry = field;
+            for digit in value.iter_mut().rev() {
+                let next = *digit * 60 + carry;
+                *digit = next % 10;
+                carry = next / 10;
+            }
+            while carry > 0 {
+                value.insert(0, carry % 10);
+                carry /= 10;
+            }
+            fields += 1;
+        }
+        let text: String = value
+            .iter()
+            .map(|d| char::from(b'0' + u8::try_from(*d).unwrap_or(0)))
+            .collect();
+        let trimmed = text.trim_start_matches('0');
+        (fields > 0).then(|| if trimmed.is_empty() { "0" } else { trimmed }.to_owned())
+    }
+
+    /// YAML 1.1 `int` and `float` type pages, with every `_` ignored: the
+    /// integers `[-+]?0b[0-1_]+`, `[-+]?0[0-7_]+`, `[-+]?(0|[1-9][0-9_]*)`,
+    /// `[-+]?0x[0-9a-fA-F_]+`, `[-+]?[1-9][0-9_]*(:[0-5]?[0-9])+`; the floats
+    /// `[-+]?([0-9][0-9_]*)?\.[0-9_]*([eE][-+][0-9]+)?` (with a digit) and
+    /// `[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\.[0-9_]*`; and the special floats.
+    fn normalize_yaml11(text: &str) -> Option<String> {
+        if let Some(special) = yaml_special(text) {
+            return Some(special.to_owned());
+        }
+        let (sign, body) = match text.as_bytes().first() {
+            Some(b'-') => ("-", &text[1..]),
+            Some(b'+') => ("", &text[1..]),
+            _ => ("", text),
+        };
+        let with_sign = |v: String| format!("{sign}{v}");
+        let prefixed = |rest: &str, radix: u8| {
+            let digit = |b: u8| char::from(b).is_digit(u32::from(radix));
+            (rest.bytes().all(|b| digit(b) || b == b'_') && rest.bytes().any(digit))
+                .then(|| radix_decimal(&rest.replace('_', ""), radix))
+                .flatten()
+        };
+        if let Some(rest) = body.strip_prefix("0b") {
+            return prefixed(rest, 2).map(with_sign);
+        }
+        if let Some(rest) = body.strip_prefix("0x") {
+            return prefixed(rest, 16).map(with_sign);
+        }
+        if body.contains(':') {
+            return match body.split_once('.') {
+                None => base60(body, false).map(with_sign),
+                Some((whole, fraction)) => {
+                    let whole = base60(whole, true)?;
+                    fraction
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || b == b'_')
+                        .then(|| with_sign(format!("{whole}.{}", fraction.replace('_', ""))))
+                }
+            };
+        }
+        if let Some(rest) = body.strip_prefix('0')
+            && !rest.is_empty()
+            && rest.bytes().all(|b| (b'0'..=b'7').contains(&b) || b == b'_')
+        {
+            let digits = rest.replace('_', "");
+            return if digits.is_empty() {
+                Some(with_sign("0".to_owned()))
+            } else {
+                radix_decimal(&digits, 8).map(with_sign)
+            };
+        }
+        if body == "0" || underscored(body, |b| (b'1'..=b'9').contains(&b)) {
+            return Some(with_sign(body.replace('_', "")));
+        }
+        let (mantissa, exponent) = body
+            .find(['e', 'E'])
+            .map_or((body, None), |at| (&body[..at], Some(&body[at + 1..])));
+        let (whole, fraction) = mantissa.split_once('.')?;
+        let exponent_ok = exponent.is_none_or(|e| {
+            matches!(e.as_bytes().first(), Some(b'+' | b'-'))
+                && e.len() > 1
+                && e[1..].bytes().all(|b| b.is_ascii_digit())
+        });
+        let ok = (whole.is_empty() || underscored(whole, |b| b.is_ascii_digit()))
+            && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_')
+            && mantissa.bytes().any(|b| b.is_ascii_digit())
+            && exponent_ok;
+        if !ok {
+            return None;
+        }
+        let whole = whole.replace('_', "");
+        let fraction = fraction.replace('_', "");
+        Some(with_sign(format!(
+            "{}.{}{}",
+            if whole.is_empty() { "0" } else { &whole },
+            if fraction.is_empty() { "0" } else { &fraction },
+            exponent.map(|e| format!("e{e}")).unwrap_or_default()
+        )))
     }
 
     fn normalize_xsd(text: &str, float_kind: bool) -> Option<String> {

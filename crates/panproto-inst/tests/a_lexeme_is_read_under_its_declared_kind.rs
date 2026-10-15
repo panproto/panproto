@@ -8,7 +8,9 @@
 use panproto_gat::Name;
 use panproto_inst::error::ParseError;
 use panproto_inst::value::coerce::{FidelityLog, LexClass, Lexeme, coerce};
-use panproto_inst::value::{BigIntValue, DecimalValue, ExactInteger, Offset, Temporal, WideInt};
+use panproto_inst::value::{
+    BigIntValue, DecimalClass, DecimalValue, ExactInteger, Offset, Temporal, WideInt,
+};
 use panproto_inst::{FidelityReason, Value, ValueFidelityError, ValueSite};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
@@ -316,10 +318,9 @@ mod coerce_rejects_a_lexeme_its_kind_cannot_hold {
         let any_decimal = spec(ScalarKind::Decimal);
         assert_eq!(number("7", &any_decimal).unwrap(), dec("7"));
         assert_eq!(string("0.10", &any_decimal).unwrap(), dec("0.10"));
-        assert_eq!(
-            reason(number("Infinity", &any_decimal)),
-            FidelityReason::NonFinite
-        );
+        // The special values of the General Decimal Arithmetic are decimals.
+        assert_eq!(number("Infinity", &any_decimal).unwrap(), dec("Infinity"));
+        assert_eq!(number("sNaN4", &any_decimal).unwrap(), dec("sNaN4"));
         assert_eq!(
             reason(number("x", &any_decimal)),
             FidelityReason::NotANumber
@@ -614,11 +615,11 @@ fn a_negative_zero_lexeme_keeps_its_sign_under_every_float_kind() {
     assert_eq!(float_bits(number("-0.0", &any)), negative_zero);
     assert_eq!(float_bits(number("-0e0", &any)), negative_zero);
     assert_eq!(number("-0", &any).unwrap(), Value::Int(0));
-    // A decimal zero is never negative.
+    // A decimal zero keeps its written sign.
     let Value::Decimal(zero) = number("-0.0", &spec(ScalarKind::Decimal)).unwrap() else {
         panic!("a decimal")
     };
-    assert!(!zero.negative);
+    assert!(zero.negative && zero.is_zero());
 }
 
 #[test]
@@ -956,7 +957,7 @@ fn a_zero_numeral_beyond_i32_is_zero_where_its_kind_keeps_no_scale() {
             let Value::Decimal(d) = number(text, kind).unwrap() else {
                 panic!("{text}: a decimal")
             };
-            assert!(d.is_zero() && !d.negative, "{text}");
+            assert!(d.is_zero() && d.negative == text.starts_with('-'), "{text}");
             assert_eq!(d.exponent.to_string(), exponent, "{text}");
         }
     }
@@ -1174,6 +1175,7 @@ fn decimal_of(negative: bool, digits: &str, exponent: i64) -> Value {
         negative,
         digits: digits.to_owned(),
         exponent: WideInt::from(exponent),
+        class: DecimalClass::Finite,
     })
 }
 
@@ -1407,7 +1409,7 @@ fn expected_far(negative: bool, digits: &str, stored: i128, kind: &ValueSpec) ->
     let trailing = i128::try_from(digits.len() - sig.len()).unwrap();
     let decimal = || {
         Far::Decimal(
-            negative && !zero,
+            negative,
             if zero {
                 "0".to_owned()
             } else {

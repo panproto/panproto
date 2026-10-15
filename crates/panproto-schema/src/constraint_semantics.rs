@@ -223,10 +223,10 @@ pub enum ConstraintValue {
 /// A parameter of value coercion, the argument of a constraint whose
 /// meaning is [`ConstraintSemantics::ValueParameter`].
 ///
-/// The constraint's sort names the parameter; the six sorts are
-/// `precision`, `scale`, `max_length`, `with_time_zone`, `int_bits` and
-/// `unsigned`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The constraint's sort names the parameter; the eight sorts are
+/// `precision`, `scale`, `max_length`, `with_time_zone`, `int_bits`,
+/// `unsigned`, `time_unit` and `time_zone`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueParameter {
     /// The total number of significant digits (sort `precision`).
@@ -242,23 +242,34 @@ pub enum ValueParameter {
     IntBits(u8),
     /// Whether an integer is unsigned (sort `unsigned`).
     Unsigned(bool),
+    /// The unit of an epoch count (sort `time_unit`), read from `s`, `ms`,
+    /// `us` or `ns`.
+    TimeUnit(panproto_expr::exact::TimeUnit),
+    /// The time zone of a temporal column (sort `time_zone`): the declared
+    /// text, non-empty, kept byte for byte. No zone database is consulted,
+    /// so the text is neither checked against a list of zones nor used to
+    /// convert a value.
+    TimeZone(String),
 }
 
 impl ValueParameter {
     /// The constraint sorts that name a parameter, in declaration order.
-    pub const SORTS: [&'static str; 6] = [
+    pub const SORTS: [&'static str; 8] = [
         "precision",
         "scale",
         "max_length",
         "with_time_zone",
         "int_bits",
         "unsigned",
+        "time_unit",
+        "time_zone",
     ];
 
     /// Reads the parameter that `sort` names from its text `value`.
     ///
     /// Counts are non-negative decimal integers of ASCII digits; flags are
-    /// `true` or `false`.
+    /// `true` or `false`; a time unit is `s`, `ms`, `us` or `ns`; a time
+    /// zone is any non-empty text, kept as written.
     ///
     /// ```
     /// use panproto_schema::ValueParameter;
@@ -294,6 +305,13 @@ impl ValueParameter {
             "with_time_zone" => Ok(Self::WithTimeZone(flag()?)),
             "int_bits" => Ok(Self::IntBits(parse_bounded(value, u8::MAX).map_err(fail)?)),
             "unsigned" => Ok(Self::Unsigned(flag()?)),
+            "time_unit" => panproto_expr::exact::TimeUnit::parse(value)
+                .map(Self::TimeUnit)
+                .ok_or_else(|| fail(ConstraintValueReason::NotATimeUnit)),
+            "time_zone" => {
+                non_empty(value).map_err(fail)?;
+                Ok(Self::TimeZone(value.to_owned()))
+            }
             _ => Err(fail(ConstraintValueReason::UnknownParameter)),
         }
     }
@@ -332,9 +350,12 @@ pub enum ConstraintValueReason {
     Empty,
     /// The sort of a value-parameter constraint names no parameter.
     #[error(
-        "not a value parameter (expected one of precision, scale, max_length, with_time_zone, int_bits, unsigned)"
+        "not a value parameter (expected one of precision, scale, max_length, with_time_zone, int_bits, unsigned, time_unit, time_zone)"
     )]
     UnknownParameter,
+    /// A time unit was expected: `s`, `ms`, `us` or `ns`.
+    #[error("not a time unit (expected one of s, ms, us, ns)")]
+    NotATimeUnit,
 }
 
 /// Reads a non-negative decimal integer of ASCII digits.

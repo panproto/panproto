@@ -120,7 +120,7 @@ impl ZuluCase {
 #[serde(try_from = "DateParts")]
 pub struct CivilDate {
     /// The year; year 0 is 1 BCE.
-    pub year: i32,
+    pub year: i64,
     /// The month, 1 to 12.
     pub month: u8,
     /// The day of the month, 1 to the month's length.
@@ -261,7 +261,7 @@ pub enum Offset {
 
 #[derive(Deserialize)]
 struct DateParts {
-    year: i32,
+    year: i64,
     month: u8,
     day: u8,
 }
@@ -313,11 +313,11 @@ const fn invalid() -> ExactParseError {
     ExactParseError::new(ExactKind::Temporal, FidelityReason::InvalidTemporal)
 }
 
-const fn is_leap(year: i32) -> bool {
+const fn is_leap(year: i64) -> bool {
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
-const fn days_in_month(year: i32, month: u8) -> u8 {
+const fn days_in_month(year: i64, month: u8) -> u8 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -334,7 +334,7 @@ impl CivilDate {
     ///
     /// [`FidelityReason::InvalidTemporal`] when the month or day is out of
     /// range.
-    pub const fn new(year: i32, month: u8, day: u8) -> Result<Self, ExactParseError> {
+    pub const fn new(year: i64, month: u8, day: u8) -> Result<Self, ExactParseError> {
         if month == 0 || month > 12 || day == 0 || day > days_in_month(year, month) {
             return Err(ExactParseError::new(
                 ExactKind::Temporal,
@@ -344,19 +344,45 @@ impl CivilDate {
         Ok(Self { year, month, day })
     }
 
-    /// Days since 1970-01-01 (negative before it).
+    /// Days since 1970-01-01 (negative before it), exact for every year.
     #[must_use]
-    pub fn days_since_epoch(self) -> i64 {
+    pub fn days_since_epoch(self) -> i128 {
         // Howard Hinnant's `days_from_civil`, over the proleptic Gregorian
-        // calendar.
-        let month = i64::from(self.month);
-        let year = i64::from(self.year) - i64::from(month <= 2);
+        // calendar, in `i128` so that no year overflows it.
+        let month = i128::from(self.month);
+        let year = i128::from(self.year) - i128::from(month <= 2);
         let era = year.div_euclid(400);
         let year_of_era = year - era * 400;
         let shifted_month = (month + 9) % 12;
-        let day_of_year = (153 * shifted_month + 2) / 5 + i64::from(self.day) - 1;
+        let day_of_year = (153 * shifted_month + 2) / 5 + i128::from(self.day) - 1;
         let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
         era * 146_097 + day_of_era - 719_468
+    }
+
+    /// The date `days` days after 1970-01-01 (before it when negative), or
+    /// `None` when its year leaves `i64`.
+    #[must_use]
+    pub fn from_days_since_epoch(days: i128) -> Option<Self> {
+        // Howard Hinnant's `civil_from_days`, in `i128`.
+        let shifted = days.checked_add(719_468)?;
+        let era = shifted.div_euclid(146_097);
+        let day_of_era = shifted.rem_euclid(146_097);
+        let year_of_era =
+            (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+        let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        let shifted_month = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+        let month = if shifted_month < 10 {
+            shifted_month + 3
+        } else {
+            shifted_month - 9
+        };
+        let year = era.checked_mul(400)?.checked_add(year_of_era)? + i128::from(month <= 2);
+        Some(Self {
+            year: i64::try_from(year).ok()?,
+            month: u8::try_from(month).ok()?,
+            day: u8::try_from(day).ok()?,
+        })
     }
 }
 
@@ -444,9 +470,10 @@ fn narrow(v: u32) -> Result<u8, ExactParseError> {
     u8::try_from(v).map_err(|_| invalid())
 }
 
-/// Read `[sign]YYYY-MM-DD` (four or more year digits) at the start of `s`.
-/// A plus sign is read as no sign, and a minus sign before the year zero
-/// (`-0000`) as no sign (known losses, stated at [`Temporal::parse`]).
+/// Read `[sign]YYYY-MM-DD` (four or more year digits, the year within
+/// `i64`) at the start of `s`. A plus sign is read as no sign, and a minus
+/// sign before the year zero (`-0000`) as no sign (known losses, stated at
+/// [`Temporal::parse`]).
 fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
     let (negative, s) = match s.as_bytes().first() {
         Some(b'-') => (true, &s[1..]),
@@ -455,12 +482,13 @@ fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
     };
     let year_len = s.bytes().take_while(u8::is_ascii_digit).count();
     // Four digits, or more without a leading zero (XML Schema years).
-    if year_len < 4 || (year_len > 4 && s.starts_with('0')) || year_len > 9 {
+    if year_len < 4 || (year_len > 4 && s.starts_with('0')) {
         return Err(invalid());
     }
-    let (year, s) = take_digits(s, year_len)?;
-    let year = i32::try_from(year).map_err(|_| invalid())?;
-    let year = if negative { -year } else { year };
+    let magnitude = i128::from(s[..year_len].parse::<u64>().map_err(|_| invalid())?);
+    let year = i64::try_from(if negative { -magnitude } else { magnitude })
+        .map_err(|_| invalid())?;
+    let s = &s[year_len..];
     let s = take_byte(s, b'-')?;
     let (month, s) = take_digits(s, 2)?;
     let s = take_byte(s, b'-')?;
@@ -613,10 +641,10 @@ impl Temporal {
         // odd point after second 59 of its minute, less twice the offset.
         let key = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {
             let days = date.map_or(0, |d| d.days_since_epoch());
-            let minute = i64::from(time.hour) * 60 + i64::from(time.minute);
-            let ordinary = i64::from(time.second.min(59));
-            (days * 1440 + minute) * 120 + ordinary * 2 + i64::from(time.second == 60)
-                - i64::from(offset.minutes()) * 120
+            let minute = i128::from(time.hour) * 60 + i128::from(time.minute);
+            let ordinary = i128::from(time.second.min(59));
+            (days * 1440 + minute) * 120 + ordinary * 2 + i128::from(time.second == 60)
+                - i128::from(offset.minutes()) * 120
         };
         let instant = |date, ta: &CivilTime, oa, db, tb: &CivilTime, ob| {
             key(date, ta, oa)
@@ -637,6 +665,97 @@ impl Temporal {
         }
     }
 
+    /// The date-time `count` units of `unit` after 1970-01-01T00:00:00,
+    /// before it when `count` is negative, as an epoch-count column holds
+    /// it: the date-time with exactly as many fractional-second digits as
+    /// the unit fixes (none, 3, 6 or 9), the separator `T`, and the offset
+    /// `Z` for an instant column or none for a wall-clock column (`instant`
+    /// false).
+    ///
+    /// [`to_epoch_count`](Self::to_epoch_count) is its inverse on its image.
+    ///
+    /// ```
+    /// use panproto_expr::exact::{Temporal, TimeUnit};
+    ///
+    /// let t = Temporal::from_epoch_count(-1, TimeUnit::Millis, true)?;
+    /// assert_eq!(t.to_string(), "1969-12-31T23:59:59.999Z");
+    /// assert_eq!(t.to_epoch_count(TimeUnit::Millis, true), Some(-1));
+    /// # Ok::<(), panproto_expr::ExactParseError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`FidelityReason::Overflow`] when the date-time's year leaves the
+    /// range of [`CivilDate`]'s year, `i64`.
+    pub fn from_epoch_count(
+        count: i128,
+        unit: TimeUnit,
+        instant: bool,
+    ) -> Result<Self, ExactParseError> {
+        let overflow = || ExactParseError::new(ExactKind::Temporal, FidelityReason::Overflow);
+        let digits = unit.fraction_digits();
+        let ticks = 10_i128.pow(digits);
+        let seconds = count.div_euclid(ticks);
+        let within = count.rem_euclid(ticks);
+        let date = CivilDate::from_days_since_epoch(seconds.div_euclid(86_400)).ok_or_else(overflow)?;
+        let of_day = seconds.rem_euclid(86_400);
+        let field = |n: i128| u8::try_from(n).map_err(|_| overflow());
+        let fraction = if digits == 0 {
+            Fraction::default()
+        } else {
+            let width = usize::try_from(digits).map_err(|_| overflow())?;
+            Fraction::new(&format!("{within:0width$}"))?
+        };
+        let time = CivilTime::new(
+            field(of_day / 3600)?,
+            field(of_day % 3600 / 60)?,
+            field(of_day % 60)?,
+            fraction,
+        )?;
+        let offset = if instant {
+            Offset::Zulu(ZuluCase::Upper)
+        } else {
+            Offset::Local
+        };
+        Ok(Self::DateTime(date, time, offset, DateTimeSeparator::Upper))
+    }
+
+    /// The epoch count of `unit` that
+    /// [`from_epoch_count`](Self::from_epoch_count) gives this value from,
+    /// or `None` when the value is outside that function's image: not a
+    /// date-time; another separator than `T`; another offset than `Z` for an
+    /// instant column or none for a wall-clock one; second 60; or another
+    /// number of fractional digits than the unit fixes. `None` also when the
+    /// count leaves `i128`.
+    #[must_use]
+    pub fn to_epoch_count(&self, unit: TimeUnit, instant: bool) -> Option<i128> {
+        let expected = if instant {
+            Offset::Zulu(ZuluCase::Upper)
+        } else {
+            Offset::Local
+        };
+        let Self::DateTime(date, time, offset, DateTimeSeparator::Upper) = self else {
+            return None;
+        };
+        let digits = usize::try_from(unit.fraction_digits()).ok()?;
+        if *offset != expected || time.second > 59 || time.fraction.as_str().len() != digits {
+            return None;
+        }
+        let within = if digits == 0 {
+            0
+        } else {
+            time.fraction.as_str().parse::<i128>().ok()?
+        };
+        let seconds = date
+            .days_since_epoch()
+            .checked_mul(86_400)?
+            .checked_add(i128::from(time.hour) * 3600 + i128::from(time.minute) * 60)?
+            .checked_add(i128::from(time.second))?;
+        seconds
+            .checked_mul(10_i128.pow(unit.fraction_digits()))?
+            .checked_add(within)
+    }
+
     /// The canonical payload bytes: a form byte (`0` date, `1` time, `2`
     /// date-time), then the date as a little-endian `i64` year and one byte
     /// each for month and day, for a date-time the separator's ASCII byte
@@ -651,7 +770,7 @@ impl Temporal {
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
         fn date(out: &mut Vec<u8>, d: CivilDate) {
-            out.extend_from_slice(&i64::from(d.year).to_le_bytes());
+            out.extend_from_slice(&d.year.to_le_bytes());
             out.extend_from_slice(&[d.month, d.day]);
         }
         fn time(out: &mut Vec<u8>, t: &CivilTime) {
@@ -689,6 +808,61 @@ impl Temporal {
             }
         }
         out
+    }
+}
+
+/// The unit of an integral epoch count: seconds, milliseconds,
+/// microseconds or nanoseconds since 1970-01-01T00:00:00.
+///
+/// Read from `s`, `ms`, `us` and `ns`, and serialized as `"seconds"`,
+/// `"millis"`, `"micros"` and `"nanos"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeUnit {
+    /// Seconds (`s`).
+    Seconds,
+    /// Milliseconds (`ms`).
+    Millis,
+    /// Microseconds (`us`).
+    Micros,
+    /// Nanoseconds (`ns`).
+    Nanos,
+}
+
+impl TimeUnit {
+    /// The unit `text` names: `s`, `ms`, `us` or `ns`.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "s" => Some(Self::Seconds),
+            "ms" => Some(Self::Millis),
+            "us" => Some(Self::Micros),
+            "ns" => Some(Self::Nanos),
+            _ => None,
+        }
+    }
+
+    /// The unit's name: `s`, `ms`, `us` or `ns`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Seconds => "s",
+            Self::Millis => "ms",
+            Self::Micros => "us",
+            Self::Nanos => "ns",
+        }
+    }
+
+    /// The number of fractional-second digits a count of this unit fixes:
+    /// 0, 3, 6 or 9.
+    #[must_use]
+    pub const fn fraction_digits(self) -> u32 {
+        match self {
+            Self::Seconds => 0,
+            Self::Millis => 3,
+            Self::Micros => 6,
+            Self::Nanos => 9,
+        }
     }
 }
 

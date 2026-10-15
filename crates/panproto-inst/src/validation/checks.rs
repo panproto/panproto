@@ -2000,13 +2000,15 @@ fn value_length(value: &Value, unit: &panproto_schema::LengthUnit) -> Option<u64
     u64::try_from(n).ok()
 }
 
-/// A value as an exact number: an integer, a big integer, a decimal, or a
-/// finite float read at its shortest round-tripping decimal.
+/// A value as an exact number: an integer, a big integer, a finite
+/// decimal, or a finite float read at its shortest round-tripping decimal.
+/// A special decimal (an infinity or a NaN) is not ordered against a
+/// numeric bound or literal and gives `None`, as a non-finite float does.
 fn as_decimal(value: &Value) -> Option<crate::value::DecimalValue> {
     match value {
         Value::Int(i) => Some(crate::value::DecimalValue::from_i64(*i)),
         Value::BigInt(b) => crate::value::DecimalValue::parse(&b.to_string()).ok(),
-        Value::Decimal(d) => Some(d.clone()),
+        Value::Decimal(d) => d.is_finite().then(|| d.clone()),
         Value::Float(x) => crate::value::DecimalValue::from_f64_shortest(*x),
         _ => None,
     }

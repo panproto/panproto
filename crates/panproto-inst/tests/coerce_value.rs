@@ -646,7 +646,7 @@ fn expected_exact_float(text: &str, bits: u8) -> Result<f64, FidelityReason> {
     let format = format_of(bits);
     let dyadic = dyadic_of_numeral(text);
     if dyadic.as_ref().is_some_and(|(_, m, _)| m.is_zero()) {
-        return Ok(0.0);
+        return Ok(if text.starts_with('-') { -0.0 } else { 0.0 });
     }
     let (negative, int, frac) = normalize(text);
     let threshold = Dyadic {
@@ -784,7 +784,7 @@ fn written_decimal(text: &str) -> Want {
     let digits = if digits.is_empty() { "0" } else { digits };
     let exponent = written - i128::try_from(frac.len()).unwrap();
     Want::Decimal(
-        negative && digits != "0",
+        negative,
         digits.to_owned(),
         exponent.to_string(),
     )
@@ -1462,7 +1462,7 @@ fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
         ),
         (Value::Int(65520), 16, Err(FidelityReason::Overflow)),
         (Value::Int(-65520), 16, Err(FidelityReason::Overflow)),
-        (dec("-0.00"), 32, Ok(0.0)),
+        (dec("-0.00"), 32, Ok(-0.0)),
     ];
     for (input, bits, want) in cases {
         let got = coerce_value(&input, &float(bits), site());

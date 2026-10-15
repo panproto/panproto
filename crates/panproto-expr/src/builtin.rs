@@ -626,14 +626,17 @@ const fn is_exact(lit: &Literal) -> bool {
     )
 }
 
-/// `lit` as an exact decimal, when it is an integer or a decimal.
+/// `lit` as an exact finite decimal, when it is an integer or a finite
+/// decimal. A special decimal (an infinity or a NaN) is not ordered against
+/// a number, so it gives `None`, and a comparison that needs it as a number
+/// is refused with a typed error.
 fn as_decimal(lit: &Literal) -> Option<DecimalValue> {
     match lit {
         Literal::Int(n) => Some(DecimalValue::from_i64(*n)),
         Literal::BigInt(b) => {
             DecimalValue::new(b.negative, b.significand.clone(), b.zeros.clone()).ok()
         }
-        Literal::Decimal(d) => Some(d.clone()),
+        Literal::Decimal(d) => d.is_finite().then(|| d.clone()),
         _ => None,
     }
 }
@@ -690,7 +693,8 @@ fn apply_exact(op: BuiltinOp, arg: &Literal) -> Result<Literal, ExprError> {
                         target_type: "decimal".into(),
                     }
                 }),
-                Literal::Int(_) | Literal::BigInt(_) | Literal::Decimal(_) => as_decimal(arg)
+                Literal::Decimal(d) => Ok(Literal::Decimal(d.clone())),
+                Literal::Int(_) | Literal::BigInt(_) => as_decimal(arg)
                     .map(Literal::Decimal)
                     .ok_or_else(|| type_err("string|int|bigint|decimal", arg)),
                 other => Err(type_err("string|int|bigint|decimal", other)),

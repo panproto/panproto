@@ -29,7 +29,7 @@ mod exact {
     fn decimal_lexemes_of_json_sql_and_xsd_read_exactly() {
         let cases = [
             ("0", false, "0", 0),
-            ("-0.00", false, "0", -2),
+            ("-0.00", true, "0", -2),
             ("1.50", false, "150", -2),
             ("1.5", false, "15", -1),
             ("+007.25", false, "725", -2),
@@ -72,12 +72,14 @@ mod exact {
                 "{bad:?}"
             );
         }
-        for non_finite in ["NaN", "-inf", "Infinity", "+INF"] {
-            assert_eq!(
-                DecimalValue::parse(non_finite),
-                Err(err(ExactKind::Decimal, FidelityReason::NonFinite)),
-                "{non_finite}"
-            );
+        // The special values read as decimals of their class.
+        for (special, shown) in [
+            ("NaN", "NaN"),
+            ("-inf", "-Infinity"),
+            ("Infinity", "Infinity"),
+            ("+INF", "Infinity"),
+        ] {
+            assert_eq!(dec(special).to_string(), shown, "{special}");
         }
         // An exponent of any size is read exactly.
         assert_eq!(dec("1e99999999999").exponent.to_string(), "99999999999");
@@ -99,9 +101,28 @@ mod exact {
         let ok: DecimalValue =
             serde_json::from_str(r#"{"negative":true,"digits":"150","exponent":"-2"}"#).unwrap();
         assert_eq!(ok, dec("-1.50"));
+        // A negative zero is a value of its own, and the special values
+        // read from their class field.
+        let negative_zero: DecimalValue =
+            serde_json::from_str(r#"{"negative":true,"digits":"0","exponent":"0"}"#).unwrap();
+        assert_eq!(negative_zero, dec("-0"));
+        let nan: DecimalValue = serde_json::from_str(
+            r#"{"negative":true,"digits":"0","exponent":"0","class":{"na_n":{"signalling":true,"payload":"12"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(nan, dec("-sNaN12"));
+        assert_eq!(serde_json::to_value(&nan).unwrap(), serde_json::json!({
+            "negative": true, "digits": "0", "exponent": "0",
+            "class": {"na_n": {"signalling": true, "payload": "12"}}
+        }));
+        assert_eq!(
+            serde_json::to_string(&dec("1.5")).unwrap(),
+            r#"{"negative":false,"digits":"15","exponent":"-1"}"#
+        );
         for bad in [
             r#"{"negative":false,"digits":"015","exponent":"0"}"#,
-            r#"{"negative":true,"digits":"0","exponent":"0"}"#,
+            r#"{"negative":false,"digits":"1","exponent":"0","class":"infinite"}"#,
+            r#"{"negative":false,"digits":"0","exponent":"0","class":{"na_n":{"signalling":false,"payload":"01"}}}"#,
             r#"{"negative":false,"digits":"15","exponent":"-0"}"#,
             r#"{"negative":false,"digits":"15","exponent":"+1"}"#,
             r#"{"negative":false,"digits":"15","exponent":"01"}"#,
@@ -1587,7 +1608,7 @@ mod exact {
         );
         for (text, negative, digits, exponent_negative, exponent) in [
             ("0.0e-3000000000", false, "0", true, "3000000001"),
-            ("-0e3000000000", false, "0", false, "3000000000"),
+            ("-0e3000000000", true, "0", false, "3000000000"),
             ("-1.50", true, "150", true, "2"),
             ("0", false, "0", false, "0"),
             ("-1e-2147483649", true, "1", true, "2147483649"),

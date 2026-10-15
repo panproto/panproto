@@ -6,42 +6,56 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ExactKind, ExactParseError, FidelityReason, WideInt, is_canonical_digits, put_str,
-    strip_leading_zeros,
+    CANONICAL_NAN, ExactKind, ExactParseError, FidelityReason, NEGATIVE_CANONICAL_NAN, WideInt,
+    cmp_digit_strings, is_canonical_digits, put_str, strip_leading_zeros,
 };
 
-/// An exact decimal number: `(-1)^negative × digits × 10^exponent`.
+/// An exact decimal number: `(-1)^negative × digits × 10^exponent`, or one
+/// of the special values of the General Decimal Arithmetic: an infinity or
+/// a NaN.
 ///
-/// `digits` is a non-empty string of ASCII digits with no leading zero
-/// (except the single digit `"0"`), zero is never negative, and `exponent`
-/// is an integer of any size ([`WideInt`]), so every decimal numeral is
-/// held, whatever its exponent: `0.0e-3000000000` is the zero of scale
-/// 3000000001 and `1e3000000000` is 1 × 10^3000000000. The representation
-/// keeps the scale the number was written with, so `1.50` (`digits`
-/// `"150"`, `exponent` `-2`) and `1.5` (`"15"`, `-1`) are different values
-/// under `==`; [`cmp_numeric`](Self::cmp_numeric) compares them as numbers.
+/// A finite value ([`DecimalClass::Finite`]) has `digits`, a non-empty
+/// string of ASCII digits with no leading zero (except the single digit
+/// `"0"`), and `exponent`, an integer of any size ([`WideInt`]), so every
+/// decimal numeral is held, whatever its exponent: `0.0e-3000000000` is the
+/// zero of scale 3000000001 and `1e3000000000` is 1 × 10^3000000000. The
+/// representation keeps the scale the number was written with, so `1.50`
+/// (`digits` `"150"`, `exponent` `-2`) and `1.5` (`"15"`, `-1`) are
+/// different values under `==`; [`cmp_numeric`](Self::cmp_numeric)
+/// compares them as numbers. A zero keeps a written minus sign: `-0` and
+/// `-0E+3` are negative zeros, distinct from `0` and `0E+3` and from each
+/// other, and every zero compares `Equal` to every other under
+/// [`cmp_numeric`](Self::cmp_numeric).
+///
+/// An infinity ([`DecimalClass::Infinite`]) has its sign; a NaN
+/// ([`DecimalClass::NaN`]) has its sign, whether it is signalling, and its
+/// diagnostic payload, so `NaN`, `-NaN`, `sNaN` and `NaN12` are four values
+/// and `NaN` and `NaN0` are one. A special value has `digits` `"0"` and
+/// `exponent` zero.
 ///
 /// This is the abstract representation of the General Decimal Arithmetic
-/// specification (Cowlishaw 2009), of XSD's precisionDecimal (Peterson and
-/// Sperberg-McQueen 2011, Secs 3.1 to 3.2) and of Java's `BigDecimal`
-/// (Oracle 2023, Java SE 21 API), restricted to finite values without a
-/// negative zero: a coefficient (`digits`) and an exponent, so a number has
-/// one representation per scale. Representation equality (`==`) is GDA's
-/// compare-total identity and `BigDecimal.equals` (`2.0` differs from
-/// `2.00`); [`cmp_numeric`](Self::cmp_numeric) is GDA's compare,
-/// precisionDecimal's equality and order, and `BigDecimal.compareTo`
-/// (`2.0` equals `2.00`), and is also the equality of XSD's `xs:decimal`,
-/// whose value space does not keep the scale (W3C 2012, XML Schema 1.1
-/// Part 2: Datatypes, Sec 3.3.3, stated). [`scale`](Self::scale) is the
-/// number of fractional digits written, clamped at zero, while `exponent`
-/// keeps a positive power of ten (`1e3` has exponent 3, where `BigDecimal`
-/// would record the scale -3). Unlike GDA's and `BigDecimal`'s, whose
-/// exponents have bounds, the exponent here has none.
+/// specification (Cowlishaw 2009, "Abstract representation" and "Numeric
+/// string syntax"), of XSD's precisionDecimal (Peterson and Sperberg-McQueen
+/// 2011, Secs 3.1 to 3.2) and of Java's `BigDecimal` (Oracle 2023, Java SE
+/// 21 API) for its finite values: a coefficient (`digits`) and an exponent,
+/// so a number has one representation per scale. Representation equality
+/// (`==`) is GDA's compare-total identity and `BigDecimal.equals` (`2.0`
+/// differs from `2.00`); [`cmp_numeric`](Self::cmp_numeric) is GDA's
+/// compare on finite values, precisionDecimal's equality and order, and
+/// `BigDecimal.compareTo` (`2.0` equals `2.00`), and is also the equality
+/// of XSD's `xs:decimal`, whose value space does not keep the scale (W3C
+/// 2012, XML Schema 1.1 Part 2: Datatypes, Sec 3.3.3, stated);
+/// [`compare_total`](Self::compare_total) is GDA's compare-total.
+/// [`scale`](Self::scale) is the number of fractional digits written,
+/// clamped at zero, while `exponent` keeps a positive power of ten (`1e3`
+/// has exponent 3, where `BigDecimal` would record the scale -3). Unlike
+/// GDA's and `BigDecimal`'s, whose exponents have bounds, the exponent here
+/// has none.
 ///
 /// ```
 /// use std::cmp::Ordering;
 ///
-/// use panproto_expr::exact::{DecimalValue, WideInt};
+/// use panproto_expr::exact::{DecimalClass, DecimalValue, WideInt};
 ///
 /// let a = DecimalValue::parse("1.50")?;
 /// let b = DecimalValue::parse("1.5")?;
@@ -51,17 +65,59 @@ use super::{
 /// assert_eq!(a.to_string(), "1.50");
 /// let far = DecimalValue::parse("0.0e-3000000000")?;
 /// assert_eq!(far.scale().to_string(), "3000000001");
+/// let negative_zero = DecimalValue::parse("-0")?;
+/// assert!(negative_zero.negative && negative_zero.is_zero());
+/// assert_eq!(negative_zero.cmp_numeric(&DecimalValue::parse("0")?), Ordering::Equal);
+/// let nan = DecimalValue::parse("sNaN12")?;
+/// assert_eq!(nan.class, DecimalClass::NaN { signalling: true, payload: "12".into() });
+/// assert_eq!(nan.to_string(), "sNaN12");
 /// # Ok::<(), panproto_expr::ExactParseError>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "DecimalParts")]
 pub struct DecimalValue {
-    /// Whether the number is negative; never set for zero.
+    /// Whether the value is negative: a negative number, a negative zero, a
+    /// negative infinity or a NaN with its sign set.
     pub negative: bool,
-    /// The significant digits, without leading zeros.
+    /// The significant digits, without leading zeros; `"0"` for a special
+    /// value.
     pub digits: String,
-    /// The power of ten the digits are scaled by.
+    /// The power of ten the digits are scaled by; zero for a special value.
     pub exponent: WideInt,
+    /// Whether the value is finite, an infinity or a NaN.
+    #[serde(default, skip_serializing_if = "DecimalClass::is_finite")]
+    pub class: DecimalClass,
+}
+
+/// Which of the General Decimal Arithmetic's classes a [`DecimalValue`]
+/// is in.
+///
+/// Serialized as `"finite"`, `"infinite"` or `{"na_n": {"signalling":
+/// bool, "payload": digits}}`; a finite value omits the field.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecimalClass {
+    /// A finite number.
+    #[default]
+    Finite,
+    /// An infinity, of the value's sign.
+    Infinite,
+    /// A NaN, of the value's sign.
+    NaN {
+        /// Whether the NaN is signalling (`sNaN`).
+        signalling: bool,
+        /// The diagnostic payload, as canonical digits (no leading zero;
+        /// `"0"` when none was written, so `NaN` and `NaN0` are one value).
+        payload: String,
+    },
+}
+
+impl DecimalClass {
+    /// Whether this is [`DecimalClass::Finite`].
+    #[must_use]
+    pub const fn is_finite(&self) -> bool {
+        matches!(self, Self::Finite)
+    }
 }
 
 /// The unchecked fields of a [`DecimalValue`], as they are deserialized.
@@ -71,32 +127,32 @@ struct DecimalParts {
     negative: bool,
     digits: String,
     exponent: WideInt,
+    #[serde(default)]
+    class: DecimalClass,
 }
 
 impl TryFrom<DecimalParts> for DecimalValue {
     type Error = ExactParseError;
 
     fn try_from(parts: DecimalParts) -> Result<Self, Self::Error> {
-        let value = Self::new(parts.negative, parts.digits, parts.exponent)?;
-        if value.negative == parts.negative {
-            Ok(value)
-        } else {
-            // A negative zero is not the one representation of zero.
-            Err(not_a_number())
+        match parts.class {
+            DecimalClass::Finite => Self::new(parts.negative, parts.digits, parts.exponent),
+            DecimalClass::Infinite if parts.digits == "0" && parts.exponent.is_zero() => {
+                Ok(Self::infinity(parts.negative))
+            }
+            DecimalClass::NaN {
+                signalling,
+                payload,
+            } if parts.digits == "0" && parts.exponent.is_zero() && is_canonical_digits(&payload) => {
+                Ok(Self::nan(parts.negative, signalling, payload))
+            }
+            DecimalClass::Infinite | DecimalClass::NaN { .. } => Err(not_a_number()),
         }
     }
 }
 
 const fn not_a_number() -> ExactParseError {
     ExactParseError::new(ExactKind::Decimal, FidelityReason::NotANumber)
-}
-
-/// Whether `text` (sign and case ignored) names a NaN or an infinity.
-fn names_non_finite(text: &str) -> bool {
-    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
-    ["nan", "inf", "infinity"]
-        .iter()
-        .any(|name| unsigned.eq_ignore_ascii_case(name))
 }
 
 /// A number of fractional digits at which Rust's `{:.p$e}` formatting of
@@ -137,9 +193,9 @@ fn exact_f32_precision(x: f32) -> usize {
 }
 
 impl DecimalValue {
-    /// The decimal `(-1)^negative × digits × 10^exponent`.
+    /// The finite decimal `(-1)^negative × digits × 10^exponent`.
     ///
-    /// A negative zero is read as zero.
+    /// A zero keeps its sign: `new(true, "0", 0)` is the negative zero.
     ///
     /// # Errors
     ///
@@ -154,12 +210,45 @@ impl DecimalValue {
         if !is_canonical_digits(&digits) {
             return Err(not_a_number());
         }
-        let negative = negative && digits != "0";
         Ok(Self {
             negative,
             digits,
             exponent: exponent.into(),
+            class: DecimalClass::Finite,
         })
+    }
+
+    /// The infinity of the sign `negative`.
+    #[must_use]
+    pub fn infinity(negative: bool) -> Self {
+        Self {
+            negative,
+            digits: "0".to_owned(),
+            exponent: WideInt::zero(),
+            class: DecimalClass::Infinite,
+        }
+    }
+
+    /// The NaN of the sign `negative`, signalling or quiet, with the
+    /// diagnostic `payload` (canonical digits, `"0"` for none).
+    #[must_use]
+    pub fn nan(negative: bool, signalling: bool, payload: impl Into<String>) -> Self {
+        Self {
+            negative,
+            digits: "0".to_owned(),
+            exponent: WideInt::zero(),
+            class: DecimalClass::NaN {
+                signalling,
+                payload: payload.into(),
+            },
+        }
+    }
+
+    /// Whether the value is finite (a number, possibly a zero of either
+    /// sign).
+    #[must_use]
+    pub const fn is_finite(&self) -> bool {
+        self.class.is_finite()
     }
 
     /// Read a decimal lexeme.
@@ -169,27 +258,32 @@ impl DecimalValue {
     /// (either side of the point may be empty, not both), and an optional
     /// exponent `e`/`E` with its own optional sign and any number of
     /// digits. Leading zeros are dropped; trailing fractional zeros are
-    /// kept as scale. The stored exponent (the written exponent, 0 when
-    /// absent, less the number of fractional digits) is computed exactly,
-    /// whatever its size.
+    /// kept as scale, and a minus sign on a zero is kept (`-0.00` is a
+    /// negative zero of scale 2). The stored exponent (the written exponent,
+    /// 0 when absent, less the number of fractional digits) is computed
+    /// exactly, whatever its size.
+    ///
+    /// Beside the finite forms it reads the special values of the General
+    /// Decimal Arithmetic's numeric string syntax (Cowlishaw 2009, "Numeric
+    /// string syntax", stated): `Infinity` or `Inf`, and `NaN` or `sNaN`
+    /// followed by optional payload digits, in any case and with an optional
+    /// sign. A NaN without digits has payload zero ("A plain 'NaN' is
+    /// usually the same as `NaN0`"), so `NaN` and `NaN0` read as one value;
+    /// leading zeros of a payload are dropped.
     ///
     /// # Errors
     ///
-    /// [`FidelityReason::NonFinite`] for a NaN or infinity spelling, and
-    /// [`FidelityReason::NotANumber`] for anything else that is not a
-    /// decimal lexeme.
+    /// [`FidelityReason::NotANumber`] for anything that is not a decimal
+    /// lexeme.
     pub fn parse(text: &str) -> Result<Self, ExactParseError> {
-        if names_non_finite(text) {
-            return Err(ExactParseError::new(
-                ExactKind::Decimal,
-                FidelityReason::NonFinite,
-            ));
-        }
         let (negative, rest) = match text.as_bytes().first() {
             Some(b'-') => (true, &text[1..]),
             Some(b'+') => (false, &text[1..]),
             _ => (false, text),
         };
+        if let Some(special) = Self::parse_special(negative, rest) {
+            return Ok(special);
+        }
         let (mantissa, exponent_text) = rest
             .find(['e', 'E'])
             .map_or((rest, None), |at| (&rest[..at], Some(&rest[at + 1..])));
@@ -222,6 +316,28 @@ impl DecimalValue {
         Self::new(negative, digits, exponent)
     }
 
+    /// The special value `unsigned` spells (sign already removed), if it
+    /// spells one: `inf`, `infinity`, or `nan` or `snan` followed by
+    /// payload digits, in any case.
+    fn parse_special(negative: bool, unsigned: &str) -> Option<Self> {
+        if unsigned.eq_ignore_ascii_case("inf") || unsigned.eq_ignore_ascii_case("infinity") {
+            return Some(Self::infinity(negative));
+        }
+        let lower = unsigned.to_ascii_lowercase();
+        let (signalling, payload) = match lower.strip_prefix("snan") {
+            Some(payload) => (true, payload),
+            None => (false, lower.strip_prefix("nan")?),
+        };
+        if !payload.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(Self::nan(
+            negative,
+            signalling,
+            strip_leading_zeros(payload).to_owned(),
+        ))
+    }
+
     /// The decimal equal to `value`.
     #[must_use]
     pub fn from_i64(value: i64) -> Self {
@@ -229,6 +345,7 @@ impl DecimalValue {
             negative: value < 0,
             digits: value.unsigned_abs().to_string(),
             exponent: WideInt::zero(),
+            class: DecimalClass::Finite,
         }
     }
 
@@ -326,27 +443,49 @@ impl DecimalValue {
     }
 
     /// The nearest `f64`, which may be infinite or zero when the decimal is
-    /// outside the range of `f64`. Lossy in general.
+    /// outside the range of `f64`; lossy in general. A zero keeps its sign
+    /// (`-0` gives `-0.0`), an infinity gives the infinity of its sign, and
+    /// a NaN the quiet NaN of its sign ([`CANONICAL_NAN`] or
+    /// [`NEGATIVE_CANONICAL_NAN`]), carrying neither its signalling flag
+    /// nor its payload.
     #[must_use]
     pub fn to_f64(&self) -> f64 {
-        self.leading_form().parse::<f64>().unwrap_or(f64::NAN)
+        match self.class {
+            DecimalClass::Finite => self.leading_form().parse::<f64>().unwrap_or(CANONICAL_NAN),
+            DecimalClass::Infinite if self.negative => f64::NEG_INFINITY,
+            DecimalClass::Infinite => f64::INFINITY,
+            DecimalClass::NaN { .. } if self.negative => NEGATIVE_CANONICAL_NAN,
+            DecimalClass::NaN { .. } => CANONICAL_NAN,
+        }
     }
 
     /// The nearest `f32`, which may be infinite or zero when the decimal is
-    /// outside the range of `f32`. Lossy in general.
+    /// outside the range of `f32`; lossy in general. The special values map
+    /// as under [`to_f64`](Self::to_f64), a NaN to the quiet binary32 NaN of
+    /// its sign (bits `0x7fc00000` or `0xffc00000`).
     #[must_use]
     pub fn to_f32(&self) -> f32 {
-        self.leading_form().parse::<f32>().unwrap_or(f32::NAN)
+        match self.class {
+            DecimalClass::Finite => self
+                .leading_form()
+                .parse::<f32>()
+                .unwrap_or(f32::from_bits(0x7fc0_0000)),
+            DecimalClass::Infinite if self.negative => f32::NEG_INFINITY,
+            DecimalClass::Infinite => f32::INFINITY,
+            DecimalClass::NaN { .. } if self.negative => f32::from_bits(0xffc0_0000),
+            DecimalClass::NaN { .. } => f32::from_bits(0x7fc0_0000),
+        }
     }
 
-    /// Whether the decimal is zero, at any scale.
+    /// Whether the decimal is a zero, of either sign and at any scale; a
+    /// special value is not.
     #[must_use]
     pub fn is_zero(&self) -> bool {
-        self.digits == "0"
+        self.class.is_finite() && self.digits == "0"
     }
 
     /// The number of digits written after the decimal point:
-    /// `max(0, -exponent)`.
+    /// `max(0, -exponent)`; zero for a special value.
     #[must_use]
     pub fn scale(&self) -> WideInt {
         if self.exponent.is_negative() {
@@ -357,10 +496,11 @@ impl DecimalValue {
     }
 
     /// The smallest scale that writes the same number: the scale with every
-    /// trailing fractional zero dropped (zero for zero).
+    /// trailing fractional zero dropped (zero for a zero and for a special
+    /// value).
     #[must_use]
     pub fn minimal_scale(&self) -> WideInt {
-        if self.is_zero() {
+        if self.digits == "0" {
             return WideInt::zero();
         }
         let trailing = self.digits.len() - self.digits.trim_end_matches('0').len();
@@ -373,10 +513,11 @@ impl DecimalValue {
     }
 
     /// The number of digits before the decimal point once leading zeros are
-    /// dropped (zero for a number whose magnitude is below one).
+    /// dropped (zero for a number whose magnitude is below one, and for a
+    /// special value).
     #[must_use]
     pub fn integer_digits(&self) -> WideInt {
-        if self.is_zero() {
+        if self.digits == "0" {
             return WideInt::zero();
         }
         let position = self.exponent.plus(&WideInt::from(self.digits.len()));
@@ -395,9 +536,38 @@ impl DecimalValue {
         self.minimal_scale().plus(&self.integer_digits())
     }
 
-    /// Compare two decimals as numbers, ignoring scale.
+    /// The rank of the value's class in the numeric preorder: negative quiet
+    /// NaNs, negative signalling NaNs, minus infinity, the finite values,
+    /// plus infinity, positive signalling NaNs, positive quiet NaNs.
+    const fn class_rank(&self) -> u8 {
+        match (&self.class, self.negative) {
+            (DecimalClass::NaN { signalling: false, .. }, true) => 0,
+            (DecimalClass::NaN { signalling: true, .. }, true) => 1,
+            (DecimalClass::Infinite, true) => 2,
+            (DecimalClass::Finite, _) => 3,
+            (DecimalClass::Infinite, false) => 4,
+            (DecimalClass::NaN { signalling: true, .. }, false) => 5,
+            (DecimalClass::NaN { signalling: false, .. }, false) => 6,
+        }
+    }
+
+    /// Compare two decimals as numbers, ignoring scale: a total preorder.
+    ///
+    /// Finite values compare as the numbers they denote, every zero of
+    /// either sign and any exponent `Equal` to every other (the General
+    /// Decimal Arithmetic's compare treats "zero or negative zero" alike;
+    /// Cowlishaw 2009, "compare", stated). Minus infinity is below every
+    /// finite value and plus infinity above. The NaNs take compare-total's
+    /// places: the negative quiet NaNs lowest, then the negative signalling
+    /// NaNs, and above plus infinity the positive signalling NaNs, then the
+    /// positive quiet NaNs; NaNs of one sign and flag compare `Equal`
+    /// whatever their payloads. So [`compare_total`](Self::compare_total)
+    /// refines this order: `Less` here implies `Less` there.
     #[must_use]
     pub fn cmp_numeric(&self, other: &Self) -> Ordering {
+        if !(self.class.is_finite() && other.class.is_finite()) {
+            return self.class_rank().cmp(&other.class_rank());
+        }
         let sign = |d: &Self| match (d.is_zero(), d.negative) {
             (true, _) => 0_i8,
             (false, true) => -1,
@@ -415,17 +585,92 @@ impl DecimalValue {
         }
     }
 
-    /// The canonical payload bytes: the sign as one byte (`0` or `1`), the
-    /// digits behind a little-endian `u64` length, then the exponent as its
-    /// sign byte (`0` non-negative, `1` negative, written as the value's
-    /// sign byte is) and the decimal digits of its magnitude, with no
-    /// leading zero, behind a little-endian `u64` length.
+    /// The General Decimal Arithmetic's compare-total, a total order whose
+    /// equality is representation equality (Cowlishaw 2009, "compare-total",
+    /// stated: `-NaN -sNaN -Infinity -127 -1.00 -1 -0.000 -0 0 1.2300 1.23
+    /// 1E+9 Infinity sNaN NaN NaN456`, lowest to highest).
+    ///
+    /// Every value with its sign set is below every value without. Of two
+    /// values of one sign: two finite values compare as numbers and, when
+    /// equal as numbers, by exponent, the smaller exponent lower, for either
+    /// sign; otherwise, for the positive sign, finite values are below the
+    /// infinity, which is below the signalling NaNs, which are below the
+    /// quiet NaNs, and two NaNs of one flag compare by payload; for the
+    /// negative sign that order of the non-finite classes and payloads is
+    /// reversed.
+    #[must_use]
+    pub fn compare_total(&self, other: &Self) -> Ordering {
+        if self.negative != other.negative {
+            return if self.negative {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
+        if self.class.is_finite() && other.class.is_finite() {
+            return self
+                .cmp_numeric(other)
+                .then_with(|| self.exponent.cmp(&other.exponent));
+        }
+        let rank = |d: &Self| match d.class {
+            DecimalClass::Finite => 0_u8,
+            DecimalClass::Infinite => 1,
+            DecimalClass::NaN {
+                signalling: true, ..
+            } => 2,
+            DecimalClass::NaN {
+                signalling: false, ..
+            } => 3,
+        };
+        let positive = match (&self.class, &other.class) {
+            (
+                DecimalClass::NaN {
+                    signalling: left_flag,
+                    payload: left,
+                },
+                DecimalClass::NaN {
+                    signalling: right_flag,
+                    payload: right,
+                },
+            ) if left_flag == right_flag => cmp_digit_strings(left, right),
+            _ => rank(self).cmp(&rank(other)),
+        };
+        if self.negative {
+            positive.reverse()
+        } else {
+            positive
+        }
+    }
+
+    /// The canonical payload bytes.
+    ///
+    /// A finite value: its sign as one byte (`0`, or `1` for a negative
+    /// number or a negative zero), the digits behind a little-endian `u64`
+    /// length, then the exponent as its sign byte (`0` non-negative, `1`
+    /// negative) and the decimal digits of its magnitude, with no leading
+    /// zero, behind a little-endian `u64` length. An infinity: the byte `2`
+    /// and its sign byte. A NaN: the byte `3`, its sign byte, its signalling
+    /// byte (`0` quiet, `1` signalling) and its payload's digits behind a
+    /// little-endian `u64` length. No finite layout starts with `2` or `3`,
+    /// so the bytes of distinct values differ.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(18 + self.digits.len() + self.exponent.magnitude().len());
-        out.push(u8::from(self.negative));
-        put_str(&mut out, &self.digits);
-        self.exponent.write_canonical(&mut out);
+        match &self.class {
+            DecimalClass::Finite => {
+                out.push(u8::from(self.negative));
+                put_str(&mut out, &self.digits);
+                self.exponent.write_canonical(&mut out);
+            }
+            DecimalClass::Infinite => out.extend_from_slice(&[2, u8::from(self.negative)]),
+            DecimalClass::NaN {
+                signalling,
+                payload,
+            } => {
+                out.extend_from_slice(&[3, u8::from(self.negative), u8::from(*signalling)]);
+                put_str(&mut out, payload);
+            }
+        }
         out
     }
 }
@@ -453,7 +698,7 @@ impl DecimalValue {
 /// so when no candidate of `hint - 1` digits reads back, none of fewer
 /// digits does and the search starts at `hint`; otherwise it starts at one.
 /// The result is the same either way.
-fn closest_shortest(
+pub(super) fn closest_shortest(
     negative: bool,
     expansion: &str,
     hint: usize,
@@ -513,6 +758,7 @@ fn closest_shortest(
         negative,
         digits: kept.to_owned(),
         exponent: WideInt::from(exponent),
+        class: DecimalClass::Finite,
     }
 }
 
@@ -560,10 +806,30 @@ impl std::fmt::Display for DecimalValue {
     /// The lexeme [`DecimalValue::parse`] reads back into the same
     /// representation: plain positional notation, or `digits e exponent`
     /// when the exponent is positive or the number would need more than six
-    /// leading zeros.
+    /// leading zeros, with a minus sign on a negative number or zero; and
+    /// `Infinity`, `NaN` or `sNaN` (payload digits after a NaN unless the
+    /// payload is zero), with a minus sign when the sign is set.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.negative {
             f.write_str("-")?;
+        }
+        match &self.class {
+            DecimalClass::Finite => {}
+            DecimalClass::Infinite => return f.write_str("Infinity"),
+            DecimalClass::NaN {
+                signalling,
+                payload,
+            } => {
+                if *signalling {
+                    f.write_str("s")?;
+                }
+                f.write_str("NaN")?;
+                return if payload == "0" {
+                    Ok(())
+                } else {
+                    f.write_str(payload)
+                };
+            }
         }
         let len = WideInt::from(self.digits.len());
         let floor = len.plus(&WideInt::from(6_i64)).negated();

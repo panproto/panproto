@@ -258,17 +258,7 @@ impl<'a> Reader<'a> {
                 Value::List(items)
             }
             12 => Value::LabeledNull(self.u64()?),
-            13 => {
-                let negative = self.bool()?;
-                let digits = self.string()?;
-                let exponent = self.wide_int("a decimal exponent")?;
-                let decimal = DecimalValue::new(negative, digits, exponent)
-                    .map_err(|e| self.error(e.to_string()))?;
-                if decimal.negative != negative {
-                    return Err(self.error("a decimal zero is negative"));
-                }
-                Value::Decimal(decimal)
-            }
+            13 => Value::Decimal(self.decimal()?),
             14 => {
                 let negative = self.bool()?;
                 let significand = self.string()?;
@@ -286,6 +276,30 @@ impl<'a> Reader<'a> {
             15 => Value::Temporal(self.temporal()?),
             other => return Err(self.error(format!("value tag {other}"))),
         })
+    }
+
+    /// A decimal, as [`DecimalValue::canonical_bytes`] writes it: a lead
+    /// byte `0` or `1` (the sign of a finite value, a zero included) followed
+    /// by its digits and exponent; `2` and the sign of an infinity; or `3`,
+    /// the sign and signalling byte of a NaN and its payload digits. Any
+    /// other lead byte, non-canonical digits or a negative zero exponent is
+    /// refused.
+    fn decimal(&mut self) -> Result<DecimalValue, SegmentError> {
+        match self.u8()? {
+            lead @ (0 | 1) => {
+                let digits = self.string()?;
+                let exponent = self.wide_int("a decimal exponent")?;
+                DecimalValue::new(lead == 1, digits, exponent).map_err(|e| self.error(e.to_string()))
+            }
+            2 => Ok(DecimalValue::infinity(self.bool()?)),
+            3 => {
+                let negative = self.bool()?;
+                let signalling = self.bool()?;
+                let payload = self.decimal_digits("a decimal NaN's payload")?;
+                Ok(DecimalValue::nan(negative, signalling, payload))
+            }
+            other => Err(self.error(format!("a decimal has lead byte {other}"))),
+        }
     }
 
     /// A string of ASCII digits with no leading zero (`"0"` alone for
@@ -323,7 +337,7 @@ impl<'a> Reader<'a> {
     }
 
     fn civil_date(&mut self) -> Result<CivilDate, SegmentError> {
-        let year = i32::try_from(self.i64()?).map_err(|_| self.error("a year leaves i32"))?;
+        let year = self.i64()?;
         let (month, day) = (self.u8()?, self.u8()?);
         CivilDate::new(year, month, day).map_err(|e| self.error(e.to_string()))
     }
@@ -578,18 +592,52 @@ mod tests {
         out
     }
 
-    /// The canonical bytes of the decimal `(negative, digits, exponent)`
-    /// under tag 13, written field by field.
-    fn decimal_bytes(negative: bool, digits: &str, exponent: &[u8]) -> Vec<u8> {
-        let mut out = vec![13, u8::from(negative)];
-        out.extend_from_slice(&u64::try_from(digits.len()).unwrap_or(0).to_le_bytes());
-        out.extend_from_slice(digits.as_bytes());
-        out.extend_from_slice(exponent);
-        out
+    /// The reference model's value of a decimal or big integer.
+    fn reference_value(value: &Value) -> panproto_reference::value::Value {
+        use panproto_reference::exact as rx;
+        use panproto_reference::num::{Int, Nat};
+        let nat = |digits: &str| Nat::parse(digits).unwrap_or_default();
+        match value {
+            Value::Decimal(d) => panproto_reference::value::Value::Decimal(match &d.class {
+                crate::value::DecimalClass::Finite => rx::Decimal::Finite(rx::DecimalValue {
+                    negative: d.negative,
+                    digits: nat(&d.digits),
+                    exponent: Int::new(d.exponent.is_negative(), nat(d.exponent.magnitude())),
+                }),
+                crate::value::DecimalClass::Infinite => rx::Decimal::Infinite {
+                    negative: d.negative,
+                },
+                crate::value::DecimalClass::NaN {
+                    signalling,
+                    payload,
+                } => rx::Decimal::NaN {
+                    negative: d.negative,
+                    signalling: *signalling,
+                    payload: nat(payload),
+                },
+            }),
+            Value::BigInt(b) => panproto_reference::value::Value::BigInt(rx::BigIntValue {
+                negative: b.negative,
+                significand: nat(&b.significand),
+                zeros: nat(b.zeros.magnitude()),
+            }),
+            other => panic!("not a decimal or big integer: {other:?}"),
+        }
     }
 
+    /// The canonical bytes the reference semantics gives `value`.
+    fn reference_bytes(value: &Value) -> Vec<u8> {
+        panproto_reference::canonical::value_bytes(&reference_value(value))
+            .unwrap_or_else(|| panic!("{value:?} has reference bytes"))
+    }
+
+    /// Every decimal layout decodes: finite values of either sign (zeros
+    /// included) over exponents at and beyond the `i32` bounds, the two
+    /// infinities, and NaNs of each sign and flag with payloads 0 and 12.
+    /// Each is written as the reference semantics writes it and read back.
     #[test]
     fn segment_reader_decodes_every_decimal_layout() {
+        let mut values = Vec::new();
         for exponent in [
             "-2147483649",
             "2147483648",
@@ -600,51 +648,68 @@ mod tests {
             "0",
             "-2",
         ] {
-            for (negative, digits) in [(false, "1"), (true, "150"), (false, "0")] {
-                let value = Value::Decimal(ok(DecimalValue::new(
+            for (negative, digits) in [(false, "1"), (true, "150"), (false, "0"), (true, "0")] {
+                values.push(ok(DecimalValue::new(
                     negative,
                     digits,
                     WideInt::parse_canonical(exponent).unwrap_or_default(),
                 )));
-                let bytes = written(&value);
-                let magnitude = exponent.trim_start_matches('-');
-                assert_eq!(
-                    bytes,
-                    decimal_bytes(
-                        negative,
-                        digits,
-                        &wide(exponent.starts_with('-'), magnitude)
-                    )
-                );
-                assert_eq!(ok(read(&bytes)), value, "{exponent}");
             }
         }
+        for negative in [false, true] {
+            values.push(DecimalValue::infinity(negative));
+            for signalling in [false, true] {
+                for payload in ["0", "12"] {
+                    values.push(DecimalValue::nan(negative, signalling, payload));
+                }
+            }
+        }
+        for decimal in values {
+            let value = Value::Decimal(decimal);
+            let bytes = written(&value);
+            assert_eq!(bytes, reference_bytes(&value), "{value:?}");
+            assert_eq!(ok(read(&bytes)), value, "{value:?}");
+        }
+        let one = written(&Value::Decimal(ok(DecimalValue::new(false, "1", 0_i64))));
+        // tag 13, lead byte, the digits behind their length, then the
+        // exponent's sign byte and digits behind their length.
+        let exponent_at = 1 + 1 + 8 + 1;
         // An exponent magnitude with a leading zero, a negative zero
         // exponent, a sign byte other than 0 or 1, and digits that are not
         // decimal digits are refused.
         for (exponent, what) in [
-            (
-                wide(false, "012"),
-                "not decimal digits without a leading zero",
-            ),
+            (wide(false, "012"), "not decimal digits without a leading zero"),
             (wide(true, "0"), "is a negative zero"),
             (wide(false, ""), "not decimal digits without a leading zero"),
-            (
-                wide(false, "1a"),
-                "not decimal digits without a leading zero",
-            ),
+            (wide(false, "1a"), "not decimal digits without a leading zero"),
             (
                 [vec![2], wide(false, "1")[1..].to_vec()].concat(),
                 "has sign byte 2",
             ),
         ] {
-            let error = message(read(&decimal_bytes(false, "1", &exponent)));
+            let bytes = [&one[..exponent_at], &exponent].concat();
+            let error = message(read(&bytes));
+            assert!(error.contains(what), "{error}");
+        }
+        // A lead byte no layout starts with, a flag byte other than 0 or 1,
+        // and a payload with a leading zero are refused.
+        for (bytes, what) in [
+            (vec![13, 4], "a decimal has lead byte 4"),
+            (vec![13, 2, 2], "boolean byte 2"),
+            (vec![13, 3, 0, 7], "boolean byte 7"),
+            (
+                [vec![13, 3, 1, 0], 2_u64.to_le_bytes().to_vec(), b"07".to_vec()].concat(),
+                "payload is not decimal digits without a leading zero",
+            ),
+        ] {
+            let error = message(read(&bytes));
             assert!(error.contains(what), "{error}");
         }
     }
 
-    /// The canonical bytes of the big integer `(negative, significand,
-    /// zeros)` under tag 14, written field by field.
+    /// Bytes under tag 14 laid out as a big integer `(negative,
+    /// significand, zeros)`, for the refusal pins: the fields are written
+    /// whether or not they are canonical.
     fn bigint_bytes(negative: bool, significand: &str, zeros: &str) -> Vec<u8> {
         let mut out = vec![14, u8::from(negative)];
         for part in [significand, zeros] {
@@ -670,7 +735,7 @@ mod tests {
                 };
                 let value = Value::BigInt(big);
                 let bytes = written(&value);
-                assert_eq!(bytes, bigint_bytes(negative, significand, zeros));
+                assert_eq!(bytes, reference_bytes(&value));
                 assert_eq!(ok(read(&bytes)), value, "{significand}e{zeros}");
             }
         }

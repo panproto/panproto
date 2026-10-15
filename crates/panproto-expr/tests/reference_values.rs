@@ -9,8 +9,13 @@
 
 use std::cmp::Ordering;
 
-use panproto_expr::exact::{CivilDate, CivilTime, DateTimeSeparator, Offset, Temporal, ZuluCase};
+use panproto_expr::exact::{
+    CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue, Offset, Temporal,
+    WideInt, ZuluCase,
+};
 use panproto_expr::{BuiltinOp, ExprError, Literal, apply_builtin};
+use panproto_reference::exact as rx;
+use panproto_reference::num::{Int, Nat};
 use panproto_reference::temporal as rt;
 use panproto_reference::value::{self as rv, EvalError, Value as RValue};
 
@@ -28,6 +33,7 @@ fn literal_to_ref(literal: &Literal) -> RValue {
         Literal::Bytes(b) => RValue::Bytes(b.clone()),
         Literal::Null => RValue::Null,
         Literal::Temporal(t) => RValue::Temporal(temporal_to_ref(t)),
+        Literal::Decimal(d) => RValue::Decimal(decimal_to_ref(d)),
         other => panic!("no scalar reference value for {other:?}"),
     }
 }
@@ -58,7 +64,40 @@ const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
     }
 }
 
-fn year_width(year: i32) -> usize {
+/// The reference natural of a canonical digit string.
+fn nat(digits: &str) -> Nat {
+    Nat::parse(digits).expect("canonical digits")
+}
+
+/// The reference integer of a `WideInt`.
+fn int_of(w: &WideInt) -> Int {
+    Int::new(w.is_negative(), nat(w.magnitude()))
+}
+
+/// The reference decimal of a production decimal: a finite value field
+/// for field, an infinity or a NaN with its sign, flag and payload.
+fn decimal_to_ref(d: &DecimalValue) -> rx::Decimal {
+    match &d.class {
+        DecimalClass::Finite => rx::Decimal::Finite(rx::DecimalValue {
+            negative: d.negative,
+            digits: nat(&d.digits),
+            exponent: int_of(&d.exponent),
+        }),
+        DecimalClass::Infinite => rx::Decimal::Infinite {
+            negative: d.negative,
+        },
+        DecimalClass::NaN {
+            signalling,
+            payload,
+        } => rx::Decimal::NaN {
+            negative: d.negative,
+            signalling: *signalling,
+            payload: nat(payload),
+        },
+    }
+}
+
+fn year_width(year: i64) -> usize {
     year.unsigned_abs().to_string().len().max(4)
 }
 
@@ -75,7 +114,7 @@ const fn offset_to_ref(o: Offset) -> rt::Offset {
 fn date_to_ref(d: CivilDate) -> rt::DateFields {
     rt::DateFields {
         year: Some(rt::Year {
-            value: i64::from(d.year),
+            value: d.year,
             negative_zero: false,
             width: year_width(d.year),
         }),
@@ -127,7 +166,7 @@ fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
 // ---------------------------------------------------------------------------
 
 /// `x` moved by `steps` binary64 patterns.
-fn near(x: f64, steps: i64) -> f64 {
+const fn near(x: f64, steps: i64) -> f64 {
     let bits = x.to_bits();
     f64::from_bits(if steps >= 0 {
         bits + steps.unsigned_abs()
@@ -152,7 +191,7 @@ fn round_breaks_an_exact_tie_to_even() {
         let production = apply_builtin(BuiltinOp::Round, &[Literal::Float(x)]);
         let reference = rv::apply_builtin(rv::BuiltinOp::Round, &[RValue::Float(x.to_bits())]);
         assert_eq!(outcome_to_ref(&production), reference, "round({x:e})");
-        if x.fract().abs() == 0.5 {
+        if x.fract().abs().to_bits() == 0.5_f64.to_bits() {
             ties += 1;
         }
     }
@@ -264,4 +303,134 @@ fn a_leap_second_precedes_the_next_minute() {
         values.len()
     );
     assert_eq!(compared, (values.len() * values.len()) as u64);
+}
+
+// ---------------------------------------------------------------------------
+// Decimals.
+// ---------------------------------------------------------------------------
+
+/// The decimal scope of the special-value laws: every decimal of at most
+/// two significant digits (significands 1 to 99) with exponent -2 to 2 and
+/// either sign, the zeros and negative zeros of those exponents, both
+/// infinities, and the NaNs of each sign and flag with payloads 0 and 1.
+fn decimal_scope() -> Vec<DecimalValue> {
+    let mut out = Vec::new();
+    for exponent in -2_i64..=2 {
+        for negative in [false, true] {
+            out.push(DecimalValue::new(negative, "0", exponent).unwrap());
+            for significand in 1..=99 {
+                out.push(DecimalValue::new(negative, significand.to_string(), exponent).unwrap());
+            }
+        }
+    }
+    for negative in [false, true] {
+        out.push(DecimalValue::infinity(negative));
+        for signalling in [false, true] {
+            for payload in ["0", "1"] {
+                out.push(DecimalValue::nan(negative, signalling, payload));
+            }
+        }
+    }
+    out
+}
+
+/// The scope's size, counted independently: 5 exponents by 2 signs by 100
+/// significands (zero and 1 to 99), 2 infinities and 2 x 2 x 2 NaNs.
+const DECIMAL_SCOPE: usize = 5 * 2 * 100 + 2 + 2 * 2 * 2;
+
+/// The production order and compare-total agree with the reference's on
+/// every pair of the scope; the order is a total preorder on every triple,
+/// compare-total refines it on every pair, and the canonical bytes are the
+/// reference's bytes and differ for every two distinct values.
+#[test]
+fn decimal_orders_agree_with_the_reference() {
+    let scope = decimal_scope();
+    assert_eq!(scope.len(), DECIMAL_SCOPE);
+    let reference: Vec<rx::Decimal> = scope.iter().map(decimal_to_ref).collect();
+    let n = scope.len();
+    // The production numeric order as a matrix, checked pair by pair.
+    let mut order = vec![Ordering::Equal; n * n];
+    let mut bytes = std::collections::HashSet::new();
+    for (i, a) in scope.iter().enumerate() {
+        let a_bytes = a.canonical_bytes();
+        assert_eq!(
+            Some(a_bytes.clone()),
+            panproto_reference::canonical::decimal_bytes(&reference[i]),
+            "{a}"
+        );
+        assert!(bytes.insert(a_bytes), "two values with one encoding: {a}");
+        for (j, b) in scope.iter().enumerate() {
+            let numeric = a.cmp_numeric(b);
+            assert_eq!(numeric, reference[i].cmp_numeric(&reference[j]), "{a} against {b}");
+            let total = a.compare_total(b);
+            assert_eq!(total, reference[i].compare_total(&reference[j]), "{a} total {b}");
+            assert_eq!(total.is_eq(), a == b, "{a} total {b}");
+            if numeric.is_lt() {
+                assert!(total.is_lt(), "compare-total refines the order: {a} {b}");
+            }
+            assert_eq!(numeric, b.cmp_numeric(a).reverse(), "{a} against {b}");
+            order[i * n + j] = numeric;
+        }
+    }
+    // Transitivity on every triple.
+    let mut triples = 0_u64;
+    for i in 0..n {
+        for j in 0..n {
+            let ij = order[i * n + j];
+            for k in 0..n {
+                let jk = order[j * n + k];
+                let ik = order[i * n + k];
+                if ij.is_le() && jk.is_le() {
+                    assert!(ik.is_le(), "{} {} {}", scope[i], scope[j], scope[k]);
+                    if ij.is_lt() || jk.is_lt() {
+                        assert!(ik.is_lt(), "{} {} {}", scope[i], scope[j], scope[k]);
+                    }
+                }
+                triples += 1;
+            }
+        }
+    }
+    println!(
+        "decimal orders: bound {n} decimals (significands 0 to 99, exponents -2 to 2, both signs, \
+         2 infinities, 8 NaNs); {} pairs, {triples} triples",
+        n * n
+    );
+    assert_eq!(triples, (n * n * n) as u64);
+}
+
+/// Every special spelling of the numeric string syntax, every finite
+/// numeral of the values page's scope and a set of non-numerals read as
+/// the reference reads them, and display back as the reference writes them.
+#[test]
+fn decimal_lexemes_read_as_the_reference_reads_them() {
+    let mut lexemes: Vec<String> = panproto_reference::enumerate::values::numerals();
+    for sign in ["", "+", "-"] {
+        for body in [
+            "NaN", "nan", "NAN", "sNaN", "snan", "SNAN", "NaN0", "NaN1", "NaN007", "sNaN12",
+            "Inf", "inf", "INF", "Infinity", "infinity", "INFINITY", "0", "0.00", "0e5", "0E+3",
+            "1.50", ".5", "5.", "Infinit", "NaN.5", "sNaN-1", "nanx", ".nan", "in", "",
+        ] {
+            lexemes.push(format!("{sign}{body}"));
+        }
+    }
+    let mut read = 0;
+    for text in &lexemes {
+        let production = DecimalValue::parse(text).ok();
+        let reference = rx::parse_decimal(text);
+        assert_eq!(production.as_ref().map(decimal_to_ref), reference, "{text:?}");
+        if let Some(value) = production {
+            let shown = value.to_string();
+            assert_eq!(DecimalValue::parse(&shown).ok().as_ref(), Some(&value), "{text:?}");
+            assert_eq!(
+                apply_builtin(BuiltinOp::ToString, &[Literal::Decimal(value.clone())])
+                    .ok()
+                    .map(|l| literal_to_ref(&l)),
+                rv::apply_builtin(rv::BuiltinOp::ToString, &[RValue::Decimal(decimal_to_ref(&value))])
+                    .ok(),
+                "{text:?}"
+            );
+            read += 1;
+        }
+    }
+    println!("decimal lexemes: {} lexemes, {read} read", lexemes.len());
 }

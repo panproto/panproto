@@ -25,15 +25,19 @@
 //! canonical writers of expression literals and instance values append it
 //! after their own tag.
 
+mod binary16;
 mod decimal;
 mod integer;
 mod temporal;
 
 use serde::{Deserialize, Serialize};
 
-pub use decimal::DecimalValue;
+pub use binary16::{BINARY16_OVERFLOW, binary16_bits, binary16_nearest, binary16_widen};
+pub use decimal::{DecimalClass, DecimalValue};
 pub use integer::{BigIntValue, ExactInteger, WideInt};
-pub use temporal::{CivilDate, CivilTime, DateTimeSeparator, Fraction, Offset, Temporal, ZuluCase};
+pub use temporal::{
+    CivilDate, CivilTime, DateTimeSeparator, Fraction, Offset, Temporal, TimeUnit, ZuluCase,
+};
 
 /// The canonical quiet NaN, bits `0x7ff8000000000000`.
 ///
