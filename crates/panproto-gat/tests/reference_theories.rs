@@ -1113,13 +1113,21 @@ fn assignment_count(domain: &r::Theory, codomain: &r::Theory) -> u64 {
     count
 }
 
-/// Run `check` over `items` on every available thread, each thread taking
-/// the next unchecked item, and return the total it reports; the first
-/// failure stops every thread.
+/// Run `check` over `items` on at most four threads, further bounded by
+/// `NEXTEST_TEST_THREADS` when it is set. Each thread takes the next unchecked
+/// item; the first failure stops every thread.
 fn parallel<T: Sync>(items: &[T], check: impl Fn(&T) -> Result<u64, String> + Sync) -> u64 {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let configured = std::env::var("NEXTEST_TEST_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|threads| *threads > 0)
+        .unwrap_or(4)
+        .min(4);
+    let threads = std::thread::available_parallelism()
+        .map_or(configured, std::num::NonZero::get)
+        .min(configured);
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
     let failure: Mutex<Option<String>> = Mutex::new(None);
@@ -1497,6 +1505,124 @@ fn compose_agrees(diagram: &r::TheoryDiagram, options: &r::ComposeOptions) -> Re
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OperationClassVerdict {
+    Agree,
+    NeedsSortEquation,
+    Signature,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SortClassVerdict {
+    Agree,
+    Arity,
+    ParamSort,
+    Kind,
+    Closure,
+}
+
+/// Compare one operation-class pair through both public composition engines
+/// and return the exact class-check verdict they exposed.
+fn operation_class_verdict(
+    diagram: &r::TheoryDiagram,
+    options: &r::ComposeOptions,
+) -> Result<OperationClassVerdict, String> {
+    let production = panproto_gat::compose(&convert::diagram(diagram), &convert::options(options));
+    let production_verdict = match &production {
+        Ok(_) => OperationClassVerdict::Agree,
+        Err(panproto_gat::CompositionError::QuotientNotRepresentable {
+            reason: panproto_gat::NotRepresentableReason::NeedsSortEquation,
+            ..
+        }) => OperationClassVerdict::NeedsSortEquation,
+        Err(panproto_gat::CompositionError::OpSignatureMismatch { .. }) => {
+            OperationClassVerdict::Signature
+        }
+        outcome => {
+            return Err(format!(
+                "unexpected production operation verdict: {outcome:?}"
+            ));
+        }
+    };
+    let reference = r::compose(diagram, options);
+    let reference_verdict = match &reference {
+        Ok(_) => OperationClassVerdict::Agree,
+        Err(r::ComposeError::QuotientNotRepresentable {
+            reason: r::NotRepresentableReason::NeedsSortEquation,
+            ..
+        }) => OperationClassVerdict::NeedsSortEquation,
+        Err(r::ComposeError::OpSignatureMismatch(_, _)) => OperationClassVerdict::Signature,
+        outcome => {
+            return Err(format!(
+                "unexpected reference operation verdict: {outcome:?}"
+            ));
+        }
+    };
+    let production = production
+        .map(|composition| {
+            let labels = diagram
+                .nodes
+                .iter()
+                .map(|node| node.label.clone())
+                .collect::<Vec<_>>();
+            convert::back_composition(&composition, &labels)
+        })
+        .map_err(|error| production_refusal(diagram, &error));
+    let reference = reference.map_err(|error| reference_refusal(&error));
+    if production != reference || production_verdict != reference_verdict {
+        return Err(format!(
+            "operation-class disagreement\n  diagram: {diagram:?}\n  options: {options:?}\n  production: {production:?}\n  reference: {reference:?}"
+        ));
+    }
+    Ok(reference_verdict)
+}
+
+/// Compare one sort-class pair through both public composition engines and
+/// return the exact class-check verdict they exposed.
+fn sort_class_verdict(
+    diagram: &r::TheoryDiagram,
+    options: &r::ComposeOptions,
+) -> Result<SortClassVerdict, String> {
+    let production = panproto_gat::compose(&convert::diagram(diagram), &convert::options(options));
+    let production_verdict = match &production {
+        Ok(_) => SortClassVerdict::Agree,
+        Err(panproto_gat::CompositionError::SortSignatureMismatch { detail, .. }) => match detail {
+            panproto_gat::SortMismatch::Arity { .. } => SortClassVerdict::Arity,
+            panproto_gat::SortMismatch::ParamSort { .. } => SortClassVerdict::ParamSort,
+            panproto_gat::SortMismatch::Kind => SortClassVerdict::Kind,
+            panproto_gat::SortMismatch::Closure => SortClassVerdict::Closure,
+        },
+        outcome => return Err(format!("unexpected production sort verdict: {outcome:?}")),
+    };
+    let reference = r::compose(diagram, options);
+    let reference_verdict = match &reference {
+        Ok(_) => SortClassVerdict::Agree,
+        Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => match detail {
+            r::SortMismatch::Arity { .. } => SortClassVerdict::Arity,
+            r::SortMismatch::ParamSort { .. } => SortClassVerdict::ParamSort,
+            r::SortMismatch::Kind => SortClassVerdict::Kind,
+            r::SortMismatch::Closure => SortClassVerdict::Closure,
+        },
+        outcome => return Err(format!("unexpected reference sort verdict: {outcome:?}")),
+    };
+    let production = production
+        .map(|composition| {
+            let labels = diagram
+                .nodes
+                .iter()
+                .map(|node| node.label.clone())
+                .collect::<Vec<_>>();
+            convert::back_composition(&composition, &labels)
+        })
+        .map_err(|error| production_refusal(diagram, &error));
+    let reference = reference.map_err(|error| reference_refusal(&error));
+    if production != reference || production_verdict != reference_verdict {
+        return Err(format!(
+            "sort-class disagreement\n  diagram: {diagram:?}\n  options: {options:?}\n  production: {production:?}\n  reference: {reference:?}"
+        ));
+    }
+    Ok(reference_verdict)
+}
+
 /// The spans of the span scope: apex, feet and both legs, each leg a
 /// morphism by the reference check.
 fn spans(apexes: &[r::Theory], feet: &[r::Theory]) -> Vec<r::TheoryDiagram> {
@@ -1581,6 +1707,8 @@ fn composition_agrees_with_the_reference_on_every_span() {
 
 #[test]
 fn composition_agrees_on_every_class_signature_pair() {
+    use std::sync::Mutex;
+
     let options = r::ComposeOptions {
         mode: r::CompositionMode::Amalgamate,
         result_name: "R".to_owned(),
@@ -1590,39 +1718,119 @@ fn composition_agrees_on_every_class_signature_pair() {
 
     let operations = scope::class_operation_scope();
     assert_eq!(operations.len(), scope::CLASS_OPERATION_SCOPE_LEN);
+    for operation in &operations {
+        let diagram = scope::operation_class_pair(operation, operation);
+        for node in &diagram.nodes {
+            assert_eq!(
+                r::typecheck_signature(&node.theory),
+                Ok(()),
+                "reference operation fixture is not well formed: {operation:?}"
+            );
+            assert_eq!(
+                panproto_gat::typecheck_signature(&convert::theory(&node.theory)),
+                Ok(()),
+                "production operation fixture is not well formed: {operation:?}"
+            );
+        }
+    }
+    let operation_verdicts = Mutex::new([0_u64; 3]);
     let operation_compared = parallel(&operations, |left| {
         let mut n = 0;
+        let mut counts = [0_u64; 3];
         for right in &operations {
-            compose_agrees(&scope::operation_class_pair(left, right), &options)?;
+            let verdict =
+                operation_class_verdict(&scope::operation_class_pair(left, right), &options)?;
+            counts[match verdict {
+                OperationClassVerdict::Agree => 0,
+                OperationClassVerdict::NeedsSortEquation => 1,
+                OperationClassVerdict::Signature => 2,
+            }] += 1;
             n += 1;
+        }
+        let mut totals = operation_verdicts.lock().expect("operation verdict counts");
+        for (total, count) in totals.iter_mut().zip(counts) {
+            *total += count;
         }
         Ok(n)
     });
     let operation_formula = scope::CLASS_OPERATION_SCOPE_LEN.pow(2);
+    let operation_verdicts = operation_verdicts
+        .into_inner()
+        .expect("operation verdict counts");
     println!(
-        "operation-class scope: {} signatures, {operation_compared} ordered pairs; \
-         repeated binders and Let/Case/hole arguments included",
-        operations.len()
+        "operation-class scope: {} well-formed signatures, {operation_compared} ordered pairs; \
+         both implicit flags and X spellings, applications, repeated local binders, and \
+         Let/Case/hole arguments included; agree {}, sort equation {}, signature {}",
+        operations.len(),
+        operation_verdicts[0],
+        operation_verdicts[1],
+        operation_verdicts[2]
     );
     assert_eq!(operation_compared as usize, operation_formula);
+    assert_eq!(operation_verdicts.iter().sum::<u64>(), operation_compared);
+    assert!(
+        operation_verdicts.iter().all(|count| *count > 0),
+        "every operation-class verdict must be observed through compose"
+    );
 
     let sorts = scope::class_sort_scope();
     assert_eq!(sorts.len(), scope::CLASS_SORT_SCOPE_LEN);
+    for sort in &sorts {
+        let diagram = scope::sort_class_pair(sort, sort);
+        for node in &diagram.nodes {
+            assert_eq!(
+                r::typecheck_signature(&node.theory),
+                Ok(()),
+                "reference sort fixture is not well formed: {sort:?}"
+            );
+            assert_eq!(
+                panproto_gat::typecheck_signature(&convert::theory(&node.theory)),
+                Ok(()),
+                "production sort fixture is not well formed: {sort:?}"
+            );
+        }
+    }
+    let sort_verdicts = Mutex::new([0_u64; 5]);
     let sort_compared = parallel(&sorts, |left| {
         let mut n = 0;
+        let mut counts = [0_u64; 5];
         for right in &sorts {
-            compose_agrees(&scope::sort_class_pair(left, right), &options)?;
+            let verdict = sort_class_verdict(&scope::sort_class_pair(left, right), &options)?;
+            counts[match verdict {
+                SortClassVerdict::Agree => 0,
+                SortClassVerdict::Arity => 1,
+                SortClassVerdict::ParamSort => 2,
+                SortClassVerdict::Kind => 3,
+                SortClassVerdict::Closure => 4,
+            }] += 1;
             n += 1;
+        }
+        let mut totals = sort_verdicts.lock().expect("sort verdict counts");
+        for (total, count) in totals.iter_mut().zip(counts) {
+            *total += count;
         }
         Ok(n)
     });
     let sort_formula = scope::CLASS_SORT_SCOPE_LEN.pow(2);
+    let sort_verdicts = sort_verdicts.into_inner().expect("sort verdict counts");
     println!(
-        "sort-class scope: {} declarations, {sort_compared} ordered pairs; \
-         repeated binders and locally bound arguments included",
-        sorts.len()
+        "sort-class scope: {} well-formed declarations, {sort_compared} ordered pairs; \
+         structural/value kind, open/closed closure, both X spellings, arity three, \
+         repeated local binders and locally bound arguments included; agree {}, arity {}, \
+         parameter sort {}, kind {}, closure {}",
+        sorts.len(),
+        sort_verdicts[0],
+        sort_verdicts[1],
+        sort_verdicts[2],
+        sort_verdicts[3],
+        sort_verdicts[4]
     );
     assert_eq!(sort_compared as usize, sort_formula);
+    assert_eq!(sort_verdicts.iter().sum::<u64>(), sort_compared);
+    assert!(
+        sort_verdicts.iter().all(|count| *count > 0),
+        "every sort-class verdict must be observed through compose"
+    );
 }
 
 #[test]
