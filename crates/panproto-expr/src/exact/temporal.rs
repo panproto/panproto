@@ -18,6 +18,11 @@ use super::{ExactKind, ExactParseError, FidelityReason};
 /// ([`ZuluCase`]), the zero-offset form ([`Offset`]) and every fractional
 /// digit, so `Display` writes back the lexeme it was read from.
 ///
+/// The variants and their fields are public, so manual construction can
+/// produce a value outside the admitted carrier. [`Temporal::well_formed`]
+/// tests admission; parsing and deserialization produce only admitted
+/// values.
+///
 /// ```
 /// use panproto_expr::exact::{DateTimeSeparator, Offset, Temporal};
 ///
@@ -62,16 +67,16 @@ impl TryFrom<TemporalRepr> for Temporal {
     fn try_from(value: TemporalRepr) -> Result<Self, Self::Error> {
         let temporal = match value {
             TemporalRepr::Date(date) => Self::Date(date),
-            TemporalRepr::Time(time, offset) if legacy_offset(offset) => Self::Time(time, offset),
-            TemporalRepr::DateTime(date, time, offset, separator) if legacy_offset(offset) => {
+            TemporalRepr::Time(time, offset) => Self::Time(time, offset),
+            TemporalRepr::DateTime(date, time, offset, separator) => {
                 Self::DateTime(date, time, offset, separator)
             }
-            TemporalRepr::Extended(value) if value.well_formed() => Self::Extended(value),
-            TemporalRepr::Time(..) | TemporalRepr::DateTime(..) | TemporalRepr::Extended(_) => {
-                return Err("a noncanonical temporal representation");
-            }
+            TemporalRepr::Extended(value) => Self::Extended(value),
         };
-        Ok(temporal)
+        temporal
+            .well_formed()
+            .then_some(temporal)
+            .ok_or("a noncanonical temporal representation")
     }
 }
 
@@ -1199,6 +1204,10 @@ fn time_fields_as_civil(time: &TimeFields) -> Option<CivilTime> {
     .ok()
 }
 
+fn civil_time_well_formed(time: &CivilTime) -> bool {
+    CivilTime::new(time.hour, time.minute, time.second, time.fraction.clone()).is_ok()
+}
+
 fn complete_date_fields(date: &DateFields) -> bool {
     date_fields_as_civil(*date).is_some()
 }
@@ -1487,8 +1496,18 @@ impl Temporal {
     #[must_use]
     pub fn well_formed(&self) -> bool {
         match self {
-            Self::Date(_) => true,
-            Self::Time(_, offset) | Self::DateTime(_, _, offset, _) => legacy_offset(*offset),
+            Self::Date(date) => CivilDate::new(date.year, date.month, date.day).is_ok(),
+            Self::Time(time, offset) => {
+                civil_time_well_formed(time)
+                    && legacy_offset(*offset)
+                    && offset_well_formed(*offset)
+            }
+            Self::DateTime(date, time, offset, _) => {
+                CivilDate::new(date.year, date.month, date.day).is_ok()
+                    && civil_time_well_formed(time)
+                    && legacy_offset(*offset)
+                    && offset_well_formed(*offset)
+            }
             Self::Extended(value) => value.well_formed(),
         }
     }
@@ -1761,24 +1780,16 @@ impl Temporal {
                 date(&mut out, *d);
             }
             Self::Time(t, o) => {
-                if legacy_offset(*o) {
-                    out.push(1);
-                    time(&mut out, t);
-                    legacy_offset_bytes(&mut out, *o);
-                } else {
-                    extended(&mut out, &extended_from_legacy(self));
-                }
+                out.push(1);
+                time(&mut out, t);
+                legacy_offset_bytes(&mut out, *o);
             }
             Self::DateTime(d, t, o, separator) => {
-                if legacy_offset(*o) {
-                    out.push(2);
-                    date(&mut out, *d);
-                    out.push(separator.byte());
-                    time(&mut out, t);
-                    legacy_offset_bytes(&mut out, *o);
-                } else {
-                    extended(&mut out, &extended_from_legacy(self));
-                }
+                out.push(2);
+                date(&mut out, *d);
+                out.push(separator.byte());
+                time(&mut out, t);
+                legacy_offset_bytes(&mut out, *o);
             }
             Self::Extended(value) => extended(&mut out, value),
         }

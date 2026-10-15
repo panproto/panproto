@@ -721,6 +721,51 @@ mod tests {
     }
 
     #[test]
+    fn segment_reader_refuses_nonadmitted_historical_temporals() {
+        let valid_date = ok(CivilDate::new(2000, 1, 2));
+        let valid_time = ok(CivilTime::new(3, 4, 5, Fraction::default()));
+        let invalid = [
+            Temporal::Date(CivilDate {
+                year: 2000,
+                month: 13,
+                day: 1,
+            }),
+            Temporal::Time(
+                CivilTime {
+                    hour: 24,
+                    minute: 0,
+                    second: 0,
+                    fraction: Fraction::default(),
+                },
+                Offset::Local,
+            ),
+            Temporal::DateTime(
+                CivilDate {
+                    year: 2001,
+                    month: 2,
+                    day: 29,
+                },
+                valid_time.clone(),
+                Offset::Zulu(ZuluCase::Upper),
+                DateTimeSeparator::Upper,
+            ),
+            Temporal::Time(valid_time.clone(), Offset::Fixed(24 * 60)),
+            Temporal::Time(valid_time.clone(), Offset::Zulu(ZuluCase::Unwritten)),
+            Temporal::DateTime(
+                valid_date,
+                valid_time,
+                Offset::FixedForm(0, OffsetForm::Basic),
+                DateTimeSeparator::Upper,
+            ),
+        ];
+        for temporal in invalid {
+            assert!(!temporal.well_formed(), "{temporal:?}");
+            let value = Value::Temporal(temporal);
+            assert!(read(&written(&value)).is_err(), "{value:?}");
+        }
+    }
+
+    #[test]
     fn segment_reader_refuses_a_malformed_fraction() {
         let value = Value::Temporal(ok(Temporal::parse("12:00:00.25Z")));
         let bytes = written(&value);

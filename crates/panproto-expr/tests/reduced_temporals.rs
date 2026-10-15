@@ -263,6 +263,63 @@ fn complete_extended_aliases_are_not_admitted_by_public_or_serde_carriers() {
     }
 }
 
+#[test]
+fn historical_variant_admission_checks_manual_fields_and_offsets() {
+    let valid_date = CivilDate::new(2000, 1, 2).unwrap();
+    let valid_time = CivilTime::new(3, 4, 5, Fraction::default()).unwrap();
+    let invalid = [
+        Temporal::Date(CivilDate {
+            year: 2000,
+            month: 13,
+            day: 1,
+        }),
+        Temporal::Time(
+            CivilTime {
+                hour: 24,
+                minute: 0,
+                second: 0,
+                fraction: Fraction::default(),
+            },
+            Offset::Local,
+        ),
+        Temporal::DateTime(
+            CivilDate {
+                year: 2001,
+                month: 2,
+                day: 29,
+            },
+            valid_time.clone(),
+            Offset::Zulu(ZuluCase::Upper),
+            DateTimeSeparator::Upper,
+        ),
+        Temporal::Time(valid_time.clone(), Offset::Fixed(24 * 60)),
+        Temporal::Time(valid_time.clone(), Offset::Zulu(ZuluCase::Unwritten)),
+        Temporal::DateTime(
+            valid_date,
+            valid_time,
+            Offset::FixedForm(0, OffsetForm::Basic),
+            DateTimeSeparator::Upper,
+        ),
+    ];
+    for value in invalid {
+        assert!(!value.well_formed(), "{value:?}");
+        assert_eq!(value.lexical_form(), None, "{value:?}");
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(serde_json::from_str::<Temporal>(&json).is_err(), "{json}");
+    }
+
+    for value in [
+        Temporal::Date(valid_date),
+        Temporal::Time(
+            CivilTime::new(3, 4, 5, Fraction::default()).unwrap(),
+            Offset::Fixed(0),
+        ),
+    ] {
+        assert!(value.well_formed(), "{value:?}");
+        assert!(value.lexical_form().is_some(), "{value:?}");
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ComparabilityClass {
     kind: TemporalForm,
@@ -273,9 +330,16 @@ struct ComparabilityClass {
 }
 
 struct ScopedTemporal {
-    text: String,
     value: Temporal,
     class: ComparabilityClass,
+}
+
+struct ScopedInfinity {
+    value: Temporal,
+    kind: TemporalForm,
+    zoned: bool,
+    offset_minutes: i16,
+    sign: TemporalInfinity,
 }
 
 fn scoped_value(
@@ -301,7 +365,6 @@ fn scoped_value(
     let truncated = date_shape.is_some_and(|(year, _, _)| !year)
         || (date_shape.is_none() && time_shape.is_some_and(|(hour, _, _)| !hour));
     ScopedTemporal {
-        text,
         value,
         class: ComparabilityClass {
             kind,
@@ -313,8 +376,45 @@ fn scoped_value(
     }
 }
 
+fn scoped_infinity(kind: TemporalForm, offset: Offset, sign: TemporalInfinity) -> ScopedInfinity {
+    let form = TemporalLexicalForm {
+        kind,
+        date_shape: None,
+        time_shape: None,
+        separator: None,
+        offset,
+        infinity: Some(sign),
+    };
+    let text = match sign {
+        TemporalInfinity::Negative => "-infinity",
+        TemporalInfinity::Positive => "infinity",
+    };
+    let value = Temporal::parse_as(form, text)
+        .unwrap_or_else(|| panic!("infinity must parse under its descriptor: {form:?}"));
+    assert_eq!(value.to_string(), text);
+    assert_eq!(value.lexical_form(), Some(form));
+    let json = serde_json::to_string(&value).unwrap();
+    assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), value);
+    ScopedInfinity {
+        value,
+        kind,
+        zoned: offset.is_zoned(),
+        offset_minutes: offset.minutes(),
+        sign,
+    }
+}
+
+fn infinity_applies(class: ComparabilityClass, infinity: &ScopedInfinity) -> bool {
+    class.kind != TemporalForm::Time
+        && class.kind == infinity.kind
+        && class.zoned == infinity.zoned
+        && class
+            .truncated_offset_minutes
+            .is_none_or(|minutes| minutes == infinity.offset_minutes)
+}
+
 #[test]
-fn finite_reduced_scope_exhausts_comparisons_and_canonical_injectivity() {
+fn sql_temporal_forms() {
     const DATE_BODIES: [(&str, (bool, bool, bool)); 12] = [
         ("0000", (true, false, false)),
         ("-0000", (true, false, false)),
@@ -441,6 +541,26 @@ fn finite_reduced_scope_exhausts_comparisons_and_canonical_injectivity() {
     }
     assert_eq!(classes.len(), 54);
 
+    let infinity_offsets = [
+        Offset::Local,
+        Offset::Zulu(ZuluCase::Upper),
+        Offset::Zulu(ZuluCase::Unwritten),
+        Offset::FixedForm(330, OffsetForm::Unwritten),
+        Offset::fixed_seconds(-17_762).unwrap(),
+    ];
+    let mut infinities = Vec::new();
+    for kind in [TemporalForm::Date, TemporalForm::DateTime] {
+        for offset in infinity_offsets {
+            for sign in [TemporalInfinity::Negative, TemporalInfinity::Positive] {
+                infinities.push(scoped_infinity(kind, offset, sign));
+            }
+        }
+    }
+    assert_eq!(infinity_offsets.len(), 5);
+    assert_eq!(2 * infinity_offsets.len() * 2, 20);
+    assert_eq!(infinities.len(), 20);
+    assert_eq!(scope.len() + infinities.len(), 658);
+
     let mut all_pairs = 0_usize;
     let mut comparable_pairs = 0_usize;
     for left in &scope {
@@ -462,50 +582,116 @@ fn finite_reduced_scope_exhausts_comparisons_and_canonical_injectivity() {
         19_932
     );
 
-    let mut comparable_triples = 0_usize;
-    for (_, members) in &classes {
-        for &a in members {
-            for &b in members {
-                for &c in members {
-                    comparable_triples += 1;
-                    let ab = scope[a].value.cmp_chronological(&scope[b].value).unwrap();
-                    let bc = scope[b].value.cmp_chronological(&scope[c].value).unwrap();
-                    let ac = scope[a].value.cmp_chronological(&scope[c].value).unwrap();
+    let class_sizes: Vec<usize> = classes
+        .iter()
+        .map(|(class, members)| {
+            members.len()
+                + infinities
+                    .iter()
+                    .filter(|infinity| infinity_applies(*class, infinity))
+                    .count()
+        })
+        .collect();
+    assert_eq!(class_sizes.len(), 54);
+    assert_eq!(
+        class_sizes.iter().map(|size| size.pow(2)).sum::<usize>(),
+        25_700
+    );
+    assert_eq!(
+        class_sizes.iter().map(|size| size.pow(3)).sum::<usize>(),
+        1_369_448
+    );
+
+    let mut class_pairs = 0_usize;
+    let mut class_triples = 0_usize;
+    for (class, members) in &classes {
+        let applicable_infinities: Vec<_> = infinities
+            .iter()
+            .filter(|infinity| infinity_applies(*class, infinity))
+            .collect();
+        if class.kind == TemporalForm::Time {
+            assert!(applicable_infinities.is_empty());
+        } else {
+            assert!(
+                applicable_infinities
+                    .iter()
+                    .any(|infinity| infinity.sign == TemporalInfinity::Negative)
+            );
+            assert!(
+                applicable_infinities
+                    .iter()
+                    .any(|infinity| infinity.sign == TemporalInfinity::Positive)
+            );
+        }
+        for infinity in &applicable_infinities {
+            let expected = match infinity.sign {
+                TemporalInfinity::Negative => Ordering::Less,
+                TemporalInfinity::Positive => Ordering::Greater,
+            };
+            for &finite in members {
+                assert_eq!(
+                    infinity.value.cmp_chronological(&scope[finite].value),
+                    Some(expected)
+                );
+                assert_eq!(
+                    scope[finite].value.cmp_chronological(&infinity.value),
+                    Some(expected.reverse())
+                );
+            }
+        }
+
+        let values: Vec<&Temporal> = members
+            .iter()
+            .map(|&index| &scope[index].value)
+            .chain(applicable_infinities.iter().map(|infinity| &infinity.value))
+            .collect();
+        for left in &values {
+            for right in &values {
+                class_pairs += 1;
+                let forward = left.cmp_chronological(right).unwrap();
+                let backward = right.cmp_chronological(left).unwrap();
+                assert_eq!(forward.reverse(), backward);
+            }
+        }
+        for a in &values {
+            for b in &values {
+                for c in &values {
+                    class_triples += 1;
+                    let ab = a.cmp_chronological(b).unwrap();
+                    let bc = b.cmp_chronological(c).unwrap();
+                    let ac = a.cmp_chronological(c).unwrap();
                     if ab != Ordering::Greater && bc != Ordering::Greater {
-                        assert_ne!(
-                            ac,
-                            Ordering::Greater,
-                            "{} <= {} <= {}",
-                            scope[a].text,
-                            scope[b].text,
-                            scope[c].text
-                        );
+                        assert_ne!(ac, Ordering::Greater, "{a:?} <= {b:?} <= {c:?}");
                     }
                 }
             }
         }
     }
-    assert_eq!(comparable_triples, 987_608);
-    assert_eq!(
-        classes.iter().map(|(_, xs)| xs.len().pow(3)).sum::<usize>(),
-        987_608
-    );
+    assert_eq!(class_pairs, 25_700);
+    assert_eq!(class_triples, 1_369_448);
 
-    let canonical: Vec<Vec<u8>> = scope
+    let all_values: Vec<&Temporal> = scope
         .iter()
-        .map(|item| item.value.canonical_bytes())
+        .map(|item| &item.value)
+        .chain(infinities.iter().map(|infinity| &infinity.value))
         .collect();
-    assert_eq!(canonical.iter().cloned().collect::<HashSet<_>>().len(), 638);
-    for left in 0..scope.len() {
-        for right in 0..scope.len() {
+    let canonical: Vec<Vec<u8>> = all_values
+        .iter()
+        .map(|value| value.canonical_bytes())
+        .collect();
+    assert_eq!(all_values.len(), 658);
+    assert_eq!(all_values.len() * all_values.len(), 432_964);
+    assert_eq!(canonical.iter().cloned().collect::<HashSet<_>>().len(), 658);
+    for left in 0..all_values.len() {
+        for right in 0..all_values.len() {
             assert_eq!(
-                scope[left].value == scope[right].value,
+                all_values[left] == all_values[right],
                 canonical[left] == canonical[right]
             );
         }
     }
 
     println!(
-        "reduced temporal finite scope: 638 values (132 dates, 154 times, 352 date-times) over 11 offsets, 54 comparability classes, 407044 ordered pairs, 19932 comparable ordered pairs, 987608 comparable ordered triples"
+        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 25700 class-local pairs with infinities, 1369448 class-local triples, 432964 representation pairs"
     );
 }
