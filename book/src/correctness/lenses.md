@@ -141,7 +141,7 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 3. When the domain predicate returns a non-empty sorted list, put returns its first element as `PutDomain`; otherwise put returns the restoration (step 2).
 4. Totality on the domain: restoration is a total function of the view and complement once the predicate holds, because every clause that could fail during restoration (an unrepresentable edge, an ambiguous anchor, a refused survival predicate, an edited derived field, a duplicate key, a malformed fan) is one of the predicate's clauses, checked before restoration ([L-lenses-4](#L-lenses-4), steps 1 to 3). So a view in $D_\ell(c)$ never reaches a refusal.
 5. Complement-free put: when the isomorphism classifier reports an obstruction the operation refuses with `NotAnIsomorphism`; otherwise it stamps an empty complement with $\iota(\ell, \text{graph})$ and runs step 2, whose verification accepts it (definition).
-6. Fresh ids: the fresh node (edge) id is the least id at or above the floor of the view, reserved and synthesized ids, taken from the allocator whose range ends before the reserved top id, so the top id is never returned (definition of the fresh-id rule).
+6. Fresh ids: the fresh node (edge) id is $\max(f, 1 + k)$ for the complement's node (edge) floor $f$ and the largest view, reserved or synthesized id $k$ (the floor when there is none), and the allocator refuses with `NodeIdsExhausted` (`EdgeIdsExhausted`) when that id would be the reserved top id, so the top id is never returned (definition of the fresh-id rule).
 
 ### Executable counterpart
 
@@ -286,11 +286,11 @@ None.
 
 ### Statement
 
-For the complements of one lens, `ComplementCompose` is a partial commutative monoid: the empty complement is a two-sided unit, merge is commutative and associative where defined, and merge is defined exactly when the two complements agree on every shared key (synthesized maps by id and by synthesis key), with the id floor merged by maximum. Merge is not cancellative and is not lens composition. Composing two lenses yields the lens path of the two stages ([L-lenses-15](#L-lenses-15)); its behaviour is the sequential fold, and fusion is applied only where it preserves that behaviour ([L-lenses-16](#L-lenses-16)).
+For the complements of one lens, `ComplementCompose` is a partial commutative monoid: the empty complement is a two-sided unit, and merge is commutative and associative where defined, with merged values compared under the value equivalence (equality with NaN reflexive) and the left operand's representative kept. Merge is defined exactly when the two identity envelopes combine and the two complements agree, under that equivalence, on every shared key of every keyed map (synthesized maps by id and by synthesis key); the id floor is merged by maximum. Merge is not cancellative and is not lens composition. Composing two lenses yields the lens path of the two stages ([L-lenses-15](#L-lenses-15)); its behaviour is the sequential fold, and fusion is applied only where it preserves that behaviour ([L-lenses-16](#L-lenses-16)).
 
 ### Outside the domain
 
-Two complements that disagree on a shared key: merge refuses with `ComplementConflict` naming the map and the key. Two lenses whose shared boundary differs: composition refuses with `CompositionMismatch`.
+Two complements that disagree on a shared key: merge refuses with `ComplementConflict` naming the map and the key. Two complements whose envelopes do not combine (complements of different lenses, or a complement carrying data with no envelope): merge refuses with `Identity`. Two lenses whose shared boundary differs: composition refuses with `CompositionMismatch`.
 
 ### Definitions used
 
@@ -298,10 +298,10 @@ Complement is defined at the head of this page. Agreement on a shared key means 
 
 ### Proof
 
-1. Merge is the keywise union of the two complements' maps, with the floor the maximum of the two floors, and it refuses at the first shared key with different values (definition of merge).
-2. Unit: the empty complement has no keys and floor zero, so the union is the other complement and the maximum is its floor.
-3. Commutativity: keywise union of maps that agree on shared keys is symmetric, and maximum is commutative; the refusal condition is symmetric.
-4. Associativity: where both bracketings are defined, each key of the union of three agreeing maps takes the common value, and maximum is associative; if one bracketing refuses at a key, the other meets the same pair of disagreeing values at that key and refuses.
+1. Merge first combines the two envelopes (refusing with `Identity` when they do not combine), then takes the keywise union of each keyed map, keeping the left operand's value on a shared key and refusing at the first shared key whose values are not equivalent, and sets the floor to the maximum of the two floors (definition of merge).
+2. Unit: the empty complement has no keys, floor zero and no envelope, which combines with any envelope; so the union is the other complement and the maximum is its floor.
+3. Commutativity: keywise union of maps whose shared values are equivalent is symmetric up to the representative kept on a shared key, which is equivalent to the other one; maximum is commutative; the refusal condition is symmetric because the equivalence is.
+4. Associativity: where both bracketings are defined, each key of the union of three pairwise agreeing maps takes a value equivalent to every operand's value at that key (the equivalence is transitive), and maximum is associative; if one bracketing refuses at a key, the other meets an inequivalent pair of values at that key and refuses.
 5. Not cancellative: merging a complement with floor 5 into floors 3 and 5 gives equal results from unequal arguments.
 6. Composition builds the two-stage path; its get and put are the folds of [L-lenses-16](#L-lenses-16), whose proof gives the behaviour.
 
@@ -493,7 +493,7 @@ None.
 
 ### Statement
 
-Wherever the tree lens has a construction, the graph and table lenses have its counterpart over the same lens value: symmetric lenses are spans of two asymmetric lenses out of one middle schema, built only when the two middle schemas have equal canonical bytes; protolens application to an instance checks applicability first and returns the instantiated lens with its view and bound complement; and the isomorphism classifier reports an obstruction exactly when complement-free put cannot recover every source, so complement-free put succeeds on a classified isomorphism and refuses otherwise.
+Wherever the tree lens has a construction, the graph and table lenses have its counterpart over the same lens value: symmetric lenses are spans of two asymmetric lenses out of one middle schema, built only when the two middle schemas have equal canonical bytes; protolens application to an instance checks applicability first and returns the instantiated lens with its view and bound complement; and the graph isomorphism classifier reports no obstruction only for lenses whose get records no residue on any source, so that complement-free put inverts get on every source where get succeeds, and it reports an obstruction for a coordinate that some source records in its complement or on which put can refuse; complement-free put refuses exactly on a reported obstruction.
 
 ### Outside the domain
 
@@ -507,7 +507,9 @@ Lens, complement and identity envelope are defined at the head of this page; pro
 
 1. A span is built from two asymmetric lenses whose sources are the middle schema, and construction compares the canonical bytes of the two middle schemas and refuses with `NoSharedMiddle` when they differ (definition).
 2. Protolens application checks the precondition, instantiates, and runs get of the instantiated lens, which stamps its own envelope ([L-lenses-20](#L-lenses-20)).
-3. The classifier reports no obstruction exactly when every vertex and edge survives as itself or by an injective rename, no edge is dropped, contracted or expanded, no fan is retargeted and no value layer is present (definition). Under those conditions get records nothing in the residue maps ([L-lenses-2](#L-lenses-2) steps 1 to 3), so the empty complement is the complement of every source and put on it is the inverse of get ([L-lenses-8](#L-lenses-8), GetPut). If any condition fails, some source has non-empty residue, which no complement-free put can recover, and the operation refuses ([L-lenses-3](#L-lenses-3) step 5).
+3. The classifier reports no obstruction exactly when the plan compiles, every source vertex survives unconditionally with an injective image and no term assignment or non-invertible transform, every edge fate keeps the edge as one edge with a unique preimage, the source schema has no hyper-edge, and the schema declares no required field without a default and no key (definition of the classifier).
+4. Under those conditions get on any source keeps every node and edge, records no anchor (the vertex map is injective, so the reverse map returns every source anchor), no label (every image has one preimage), no field or value (no transform changes one), and synthesizes nothing ([L-lenses-2](#L-lenses-2) steps 1 to 3); the complement's residue is empty, so the empty complement stamped with the envelope is the complement of every source and put on it returns the source ([L-lenses-8](#L-lenses-8), GetPut), with no domain clause able to fail (no keys, no required fields).
+5. Conversely each reported obstruction names a coordinate some finite source records or put can refuse on: a non-surviving or conditional vertex drops a node, a shared image records an anchor, a term assignment or transform records fields, an edge not kept as one edge drops it, a shared preimage records a label, a hyper-edge admits a parent-only fan that restriction drops, and a required field or key admits a source that put refuses. Complement-free put refuses with `NotAnIsomorphism` on every reported obstruction ([L-lenses-3](#L-lenses-3) step 5).
 
 ### Executable counterpart
 

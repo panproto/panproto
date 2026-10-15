@@ -2547,11 +2547,12 @@ pub struct C11Edit {
     pub view: Graph,
 }
 
-fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>) -> u32 {
-    let taken: std::collections::BTreeSet<u32> = taken.copied().collect();
-    (0..u32::MAX)
-        .find(|id| !taken.contains(id))
-        .unwrap_or(u32::MAX)
+/// The fresh-id rule: `max(floor, 1 + max(taken))`, the floor when nothing
+/// is taken, saturating at `u32::MAX` (which the caller then cannot use).
+fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>, floor: u32) -> u32 {
+    taken
+        .max()
+        .map_or(floor, |largest| floor.max(largest.saturating_add(1)))
 }
 
 /// Every one-step edit of a C11 graph view.
@@ -2564,8 +2565,8 @@ fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>) -> u32 {
 /// negative families (synthesized removals and value edits, a node and an
 /// edge at each reserved id, and for fan states each fan edge removed).
 ///
-/// A fresh node or edge takes the least id that is neither in the view,
-/// nor reserved, nor synthesized in the complement.
+/// A fresh node or edge takes the fresh-id rule's id over the view,
+/// reserved and synthesized ids and the complement's floor.
 #[must_use]
 pub fn c11_graph_edits(
     view: &Graph,
@@ -2626,6 +2627,7 @@ fn c11_node_edits(
             .keys()
             .chain(complement.dropped_nodes.keys())
             .chain(complement.synthesized_nodes.keys()),
+        complement.floor.0,
     );
     for anchor in &anchors {
         let mut edited = view.clone();
@@ -2681,6 +2683,7 @@ fn c11_edge_edits(
             .keys()
             .chain(complement.dropped_edges.keys())
             .chain(complement.synthesized_edges.keys()),
+        complement.floor.1,
     );
     let typed = |src: u32, tgt: u32| -> Vec<SEdge> {
         let (Some(s), Some(t)) = (view.nodes.get(&src), view.nodes.get(&tgt)) else {
