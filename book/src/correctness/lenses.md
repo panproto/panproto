@@ -12,11 +12,13 @@ The **Single-Step Basis** of a view is the finite set of one-step edits a law ch
 
 Every finite claim below is checked by an exhaustive differential test over a stated scope and by a property-based test over the same constructor families. Such a test reports that no counterexample was found through its printed bound; it does not prove the law, which the proof does.
 
+The twenty laws proceed in five groups: L1–L4 fix lens identity, graph complements, graph operations and the graph put domain; L5–L12 extend these results to trees, tables, complement merging and the five law gates; L13–L16 establish the lens path category and fusion; L17–L18 state the graph/tree and graph/table commuting squares; and L19–L20 cover protolens instantiation and application.
+
 ## One lens value drives every shape {#L-lenses-1}
 
 ### Statement
 
-A lens is exactly the triple $(m, S, T)$, with no further field and no options argument to its operations. For every shape, get and put are functions of the lens, of the shape's context (the two boundary protocols for tables, nothing for graphs and trees) and of their arguments. Two lenses with equal compiled migrations and equal schemas therefore have equal get, equal put, equal put domains and equal identity envelopes at every shape.
+A lens is exactly the triple $(m, S, T)$, with no further field and no options argument to its operations. For every shape, get and put are functions of the lens, of the shape's context (the two boundary protocols for tables, nothing for graphs and trees) and of their arguments. Two lenses with equal compiled migrations and equal schemas thus have equal get, equal put, equal put domains and equal identity envelopes at every shape.
 
 ### Outside the domain
 
@@ -357,7 +359,7 @@ Complement and synthesis key are defined at the head of this page and in [L-lens
 1. Equivalence first compares the two indices' node key sets and edge key sets and returns inequivalent when either differs (definition).
 2. With equal key sets, each key names exactly one id on each side (keys are unique within a coherent index, [L-lenses-2](#L-lenses-2) step 2), so the renaming is a bijection on synthesized ids and the identity elsewhere.
 3. After renaming, the comparison is equality of the two graphs' node and edge maps, which compares every listed coordinate (definition).
-4. Equivalence is therefore an equivalence relation: reflexive (equal key sets, identity renaming), symmetric (the inverse bijection), transitive (composition of bijections preserves key sets).
+4. Equivalence is thus an equivalence relation: reflexive (equal key sets, identity renaming), symmetric (the inverse bijection), transitive (composition of bijections preserves key sets).
 5. The complement comparison lists the fields put reads and omits the derived ones (definition), so two complements it accepts give equal put results on every view ([L-lenses-4](#L-lenses-4), restoration reads only the compared fields).
 
 ### Executable counterpart
@@ -802,7 +804,6 @@ Lens path and composition are defined in [L-lenses-13](#L-lenses-13). The normal
 3. No stage synthesizes an object (no contraction or expansion), so puts restore from the residue alone, and the fused residue is the union of the two stage residues keyed by the same ids; restoring through $\ell$ equals restoring through $\ell_2$ then $\ell_1$, and a domain violation occurs in one exactly when it occurs in the other.
 4. A plan that refuses refuses every source; condition 7 excludes such stages, so no refusal is hidden by fusion.
 5. By induction on the number of fusions in the leftmost strategy, each fusion replaces an adjacent pair by a lens with the same behaviour (steps 1 to 4), so the normal form's fold equals the atomic fold.
-6. The bounded predicate census also checks every refusal branch. In particular, `DropF;ReadF` reaches condition 2: composing the migrations returns `ComposeUnboundField` because the second stage reads `f` after the first drops it, so normalization retains the two atomic stages. The separate `Op` stage exercises op-term execution rather than treating that route as another field transform.
 
 ### Executable counterpart
 
@@ -816,6 +817,8 @@ Lens path and composition are defined in [L-lenses-13](#L-lenses-13). The normal
 - File: `crates/panproto-lens/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+The bounded predicate census includes `DropF;ReadF`, which reaches condition 2: composing the migrations returns `ComposeUnboundField` because the second stage reads `f` after the first drops it, so normalization retains the two atomic stages. It also includes a separate `Op` stage, which exercises op-term execution rather than treating that route as another field transform. Thus, the bounded predicate census checks every refusal branch.
 
 ### Mutation equivalences
 
@@ -926,7 +929,7 @@ For a protolens and a schema $S$, schema instantiation first checks the protolen
 
 ### Outside the domain
 
-A schema that fails the precondition: refused before instantiation (`FalsePrecondition` in the reference, the stringly inapplicability refusal in production). The differential compares this inapplicability category, not exact error-variant parity. A plan that does not compile: the plan error.
+A schema that fails the precondition is refused before instantiation: the reference returns `FalsePrecondition`, whereas production returns `LensError::ProtolensError(String)`. The differential compares this inapplicability category rather than exact error-variant parity. A plan that does not compile returns the plan error.
 
 ### Definitions used
 
@@ -972,7 +975,7 @@ For a protolens, a schema $S$ and an instance $s$ of $S$, instance application c
 
 ### Outside the domain
 
-A schema that fails the precondition: refused before instantiation, compared only as the inapplicability category described in [L-lenses-19](#L-lenses-19). A plan that does not compile or a get that refuses: that refusal.
+A schema that fails the precondition is refused before instantiation and is compared only as the inapplicability category described in [L-lenses-19](#L-lenses-19). A plan that does not compile, or a get that refuses, returns that refusal.
 
 ### Definitions used
 
