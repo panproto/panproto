@@ -27,7 +27,10 @@ use panproto_reference::model::{
 };
 use panproto_reference::restrict::{
     Complement as RefComplement, EngineError, NoValueLayer, Plan, PlanError,
-    RestrictError as RefRestrictError, SynthKey as RefSynthKey,
+    RestrictError as RefRestrictError, SynthKey as RefSynthKey, ValueLayer,
+};
+use panproto_reference::enumerate::lenses::{
+    C11_FIELD, C11_VALUE, C11AddField, C11Layer, C11Stage, C11SurvivalFalse,
 };
 use panproto_reference::schema::Schema as RefSchema;
 use panproto_reference::value::{Presence as RefPresence, Value as RefValue};
@@ -273,6 +276,11 @@ fn without_identity(complement: &RefComplement) -> RefComplement {
 }
 
 fn prod_schema(schema: &RefSchema) -> Schema {
+    if *schema == RefSchema::default() {
+        // The builder refuses a schema with no vertex; the empty schema is
+        // the default value.
+        return Schema::default();
+    }
     let protocol = Protocol::default();
     let mut builder = SchemaBuilder::new(&protocol);
     for (vertex, kind) in &schema.vertices {
@@ -341,7 +349,59 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
                 )
             })
             .collect(),
+        hyper_resolver: migration
+            .hyper_resolver
+            .iter()
+            .map(|((hyper, labels), (target, remap))| {
+                (
+                    (hyper.clone().into(), labels.iter().cloned().map(Into::into).collect()),
+                    (
+                        target.clone().into(),
+                        remap
+                            .iter()
+                            .map(|(from, to)| (from.clone().into(), to.clone().into()))
+                            .collect(),
+                    ),
+                )
+            })
+            .collect(),
         ..CompiledMigration::default()
+    }
+}
+
+/// The production lens of a C11 stage: the structural migration, plus the
+/// production value layer its tag names.
+fn production_stage(stage: &C11Stage) -> Lens {
+    let mut structural = stage.migration.clone();
+    structural.conditional.clear();
+    structural.transformed.clear();
+    let mut compiled = prod_migration(&structural);
+    match stage.layer {
+        C11Layer::None => {}
+        C11Layer::SurvivalFalse => {
+            for vertex in &stage.migration.conditional {
+                compiled.conditional_survival.insert(
+                    vertex.clone().into(),
+                    panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(false)),
+                );
+            }
+        }
+        C11Layer::AddField => {
+            for vertex in &stage.migration.transformed {
+                compiled.field_transforms.insert(
+                    vertex.clone().into(),
+                    vec![panproto_inst::FieldTransform::AddField {
+                        key: C11_FIELD.to_owned(),
+                        value: prod_value(&C11_VALUE),
+                    }],
+                );
+            }
+        }
+    }
+    Lens {
+        compiled,
+        src_schema: prod_schema(&stage.source),
+        tgt_schema: prod_schema(&stage.target),
     }
 }
 
@@ -502,24 +562,54 @@ struct Pair {
     tgt: RefSchema,
     migration: RefMigration,
     plan: Result<Plan, PlanError>,
+    layer: &'static dyn ValueLayer,
     production: Lens,
 }
 
 impl Pair {
     fn new(src: RefSchema, tgt: RefSchema, migration: RefMigration) -> Self {
-        let plan = panproto_reference::restrict::compile(&src, &tgt, &migration);
         let production = Lens {
             compiled: prod_migration(&migration),
             src_schema: prod_schema(&src),
             tgt_schema: prod_schema(&tgt),
         };
+        Self::with_production(src, tgt, migration, &NoValueLayer, production)
+    }
+
+    fn with_production(
+        src: RefSchema,
+        tgt: RefSchema,
+        migration: RefMigration,
+        layer: &'static dyn ValueLayer,
+        production: Lens,
+    ) -> Self {
+        let plan = panproto_reference::restrict::compile(&src, &tgt, &migration);
         Self {
             src,
             tgt,
             migration,
             plan,
+            layer,
             production,
         }
+    }
+
+    /// A C11 stage on both sides. The value layer is built on each side
+    /// from the stage's layer tag: the production expression or transform,
+    /// and the reference's caller-supplied layer.
+    fn from_stage(stage: &C11Stage) -> Self {
+        let layer: &'static dyn ValueLayer = match stage.layer {
+            C11Layer::None => &NoValueLayer,
+            C11Layer::SurvivalFalse => &C11SurvivalFalse,
+            C11Layer::AddField => &C11AddField,
+        };
+        Self::with_production(
+            stage.source.clone(),
+            stage.target.clone(),
+            stage.migration.clone(),
+            layer,
+            production_stage(stage),
+        )
     }
 
     fn with_reference<T>(&self, run: impl FnOnce(Result<&RefGraphLens<'_>, String>) -> T) -> T {
@@ -531,7 +621,7 @@ impl Pair {
                     &self.migration,
                     plan,
                     &BTreeMap::new(),
-                    &NoValueLayer,
+                    self.layer,
                 )
                 .expect("plan compiled for these schemas");
                 run(Ok(&lens))
@@ -762,4 +852,1548 @@ proptest! {
         let pair = &pairs[usize::from(fixture == Gf5Fixture::VisibleThenHidden)];
         prop_assert_eq!(production_put(pair, &source, &edited), reference_put(pair, &source, &edited));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tables (T.4): get, strict put and refusals on the L.8 fixture scope, and
+// the last-writer rule on the writer carrier
+// ---------------------------------------------------------------------------
+
+use panproto_inst::{BoundaryProtocols, FInstance, RowId, TableComplement};
+use panproto_lens::table_lens;
+use panproto_reference::enumerate::lenses::{
+    TABLE_FIXTURE_TABLE_KIND, TABLE_FIXTURE_VALUE_KIND, TableFixture, WRITER_EDITS,
+    WRITER_VALUE_KIND, WriterFixture, for_each_table_fixture, for_each_writer_fixture,
+    table_fixture_count_certificate, table_view_edits, table_view_edits_count,
+    writer_count_certificate,
+};
+use panproto_reference::model::Table as RefTable;
+use panproto_reference::rel::RelSchema;
+use panproto_reference::table::{
+    DroppedRow as RefDroppedRow, TableCheckError, TableComplement as RefTableComplement,
+    TableLens as RefTableLens, TablePlan, TablePlanError, TablePutError,
+};
+use panproto_schema::ScalarKind;
+
+fn table_protocol(value_kind: &str, scalar: ScalarKind) -> Protocol {
+    Protocol {
+        value_kinds: BTreeMap::from([(value_kind.to_owned(), scalar)]),
+        non_value_kinds: std::collections::BTreeSet::from([TABLE_FIXTURE_TABLE_KIND.to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+fn ref_table(table: &FInstance) -> RefTable {
+    let mut out = RefTable::default();
+    for (name, _) in table.tables() {
+        for (id, row) in table.rows(name) {
+            out.rows.insert(id.0, (name.to_string(), ref_fields(row)));
+        }
+    }
+    for (edge, pairs) in table.foreign_keys() {
+        for (src, tgt) in pairs {
+            out.pairs.insert((ref_edge(edge), src.0, tgt.0));
+        }
+    }
+    out
+}
+
+fn prod_table(table: &RefTable) -> FInstance {
+    let mut out = FInstance::new();
+    for (id, (name, cells)) in &table.rows {
+        out.insert_row(
+            name.as_str(),
+            RowId(*id),
+            cells
+                .iter()
+                .map(|(key, value)| (key.clone(), prod_value(value)))
+                .collect(),
+        )
+        .expect("distinct reference row id");
+    }
+    for (edge, src, tgt) in &table.pairs {
+        out.insert_foreign_key(prod_edge(edge), RowId(*src), RowId(*tgt))
+            .expect("reference pair between reference rows");
+    }
+    out
+}
+
+fn ref_table_complement(complement: &TableComplement) -> RefTableComplement {
+    RefTableComplement {
+        dropped_rows: complement
+            .dropped_rows
+            .iter()
+            .map(|(id, dropped)| {
+                (
+                    id.0,
+                    RefDroppedRow {
+                        table: dropped.table.to_string(),
+                        row: ref_fields(&dropped.row),
+                    },
+                )
+            })
+            .collect(),
+        dropped_cells: complement
+            .dropped_cells
+            .iter()
+            .map(|((id, column), value)| ((id.0, column.clone()), ref_value(value)))
+            .collect(),
+        dropped_fk_pairs: complement
+            .dropped_fk_pairs
+            .iter()
+            .map(|(edge, pairs)| {
+                (
+                    ref_edge(edge),
+                    pairs.iter().map(|(s, t)| (s.0, t.0)).collect(),
+                )
+            })
+            .collect(),
+        original_fk_edges: complement
+            .original_fk_edges
+            .iter()
+            .map(|((edge, s, t), sources)| {
+                (
+                    (ref_edge(edge), s.0, t.0),
+                    sources.iter().map(ref_edge).collect(),
+                )
+            })
+            .collect(),
+        original_tables: complement
+            .original_tables
+            .iter()
+            .map(|(id, table)| (id.0, table.to_string()))
+            .collect(),
+        original_cells: complement
+            .original_cells
+            .iter()
+            .map(|((id, column), value)| ((id.0, column.clone()), ref_value(value)))
+            .collect(),
+        synthesized_fk_pairs: complement
+            .synthesized_fk_pairs
+            .iter()
+            .map(|(edge, s, t)| (ref_edge(edge), s.0, t.0))
+            .collect(),
+        id_floor: complement.id_floor,
+        identity: None,
+    }
+}
+
+fn ref_table_put_reason(error: &TablePutError) -> Reason {
+    match error {
+        TablePutError::Domain(found) => Reason::PutDomain(ref_put_domain_reason(found)),
+        TablePutError::Identity(found) => Reason::Identity(format!("{found:?}")),
+        other => Reason::Restrict(format!("reference table refusal {other:?}")),
+    }
+}
+
+/// One table lens given as reference schemas and migration, on both sides.
+struct TablePair {
+    src: RefSchema,
+    tgt: RefSchema,
+    migration: RefMigration,
+    boundaries: (RelSchema, RelSchema),
+    plan: Result<TablePlan, TablePlanError>,
+    production: Lens,
+    protocol: Protocol,
+}
+
+impl TablePair {
+    fn new(
+        src: RefSchema,
+        tgt: RefSchema,
+        migration: RefMigration,
+        value_kind: &str,
+        scalar: ScalarKind,
+    ) -> Self {
+        let kinds = |kind: &str| std::collections::BTreeSet::from([kind.to_owned()]);
+        let classify = |schema: &RefSchema| {
+            panproto_reference::rel::classify(
+                schema,
+                &kinds(value_kind),
+                &kinds(TABLE_FIXTURE_TABLE_KIND),
+            )
+            .expect("fixture schemas are relational")
+        };
+        let boundaries = (classify(&src), classify(&tgt));
+        let plan = panproto_reference::table::compile_for_tables(
+            &src,
+            &tgt,
+            &boundaries.0,
+            &boundaries.1,
+            &migration,
+        );
+        let production = Lens {
+            compiled: prod_migration(&migration),
+            src_schema: prod_schema(&src),
+            tgt_schema: prod_schema(&tgt),
+        };
+        Self {
+            src,
+            tgt,
+            migration,
+            boundaries,
+            plan,
+            production,
+            protocol: table_protocol(value_kind, scalar),
+        }
+    }
+
+    fn protocols(&self) -> BoundaryProtocols<'_> {
+        BoundaryProtocols {
+            src: &self.protocol,
+            tgt: &self.protocol,
+        }
+    }
+
+    fn with_reference<T>(&self, run: impl FnOnce(&RefTableLens<'_>, &TablePlan) -> T) -> T {
+        let plan = self.plan.as_ref().expect("fixture table plans compile");
+        let lens = RefTableLens::new(
+            &self.src,
+            &self.tgt,
+            panproto_reference::table::TableBoundaries::new(&self.boundaries.0, &self.boundaries.1),
+            &self.migration,
+            plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("plan compiled for these boundaries");
+        run(&lens, plan)
+    }
+}
+
+type TableGetOutcome = Result<(RefTable, RefTableComplement), Reason>;
+
+fn production_table_get(pair: &TablePair, source: &RefTable) -> TableGetOutcome {
+    table_lens::get(&pair.production, &prod_table(source), pair.protocols())
+        .map(|(view, complement)| (ref_table(&view), ref_table_complement(&complement)))
+        .map_err(|error| lens_reason(&error))
+}
+
+fn reference_table_get(pair: &TablePair, source: &RefTable) -> TableGetOutcome {
+    pair.with_reference(|lens, plan| {
+        panproto_reference::table::get(
+            &pair.src,
+            &pair.tgt,
+            &pair.migration,
+            plan,
+            &NoValueLayer,
+            source,
+        )
+        .map(|(view, complement)| {
+            assert_eq!(
+                lens.get(source).map(|(bound, _)| bound),
+                Ok(view.clone()),
+                "the bound and free reference table gets agree"
+            );
+            (
+                view,
+                RefTableComplement {
+                    identity: None,
+                    ..complement
+                },
+            )
+        })
+        .map_err(|error| Reason::Restrict(ref_restrict_reason(&error)))
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct TablePutOutcome {
+    put: Result<RefTable, Reason>,
+    domain: Result<(), Vec<String>>,
+}
+
+fn production_table_put(pair: &TablePair, source: &RefTable, edited: &RefTable) -> TablePutOutcome {
+    let (_, complement) = table_lens::get(&pair.production, &prod_table(source), pair.protocols())
+        .expect("fixture gets are total");
+    let view = prod_table(edited);
+    TablePutOutcome {
+        put: table_lens::put(&pair.production, &view, &complement, pair.protocols())
+            .map(|restored| ref_table(&restored))
+            .map_err(|error| lens_reason(&error)),
+        domain: table_lens::check_put_domain(&pair.production, &view, &complement, pair.protocols())
+            .map_err(|errors| errors.iter().map(put_domain_reason).collect()),
+    }
+}
+
+fn reference_table_put(pair: &TablePair, source: &RefTable, edited: &RefTable) -> TablePutOutcome {
+    pair.with_reference(|lens, _| {
+        let (_, complement) = lens.get(source).expect("fixture gets are total");
+        TablePutOutcome {
+            put: RefTableLens::put(lens, edited, &complement).map_err(|error| ref_table_put_reason(&error)),
+            domain: match panproto_reference::table::check_put_domain(lens, edited, &complement) {
+                Ok(()) => Ok(()),
+                Err(TableCheckError::Domain { violations, .. }) => {
+                    Err(violations.iter().map(ref_put_domain_reason).collect())
+                }
+                Err(other) => Err(vec![format!("reference table check {other:?}")]),
+            },
+        }
+    })
+}
+
+fn fixture_pair(fixture: &TableFixture) -> TablePair {
+    TablePair::new(
+        fixture.source_schema(),
+        fixture.target_schema(),
+        fixture.migration(),
+        TABLE_FIXTURE_VALUE_KIND,
+        ScalarKind::Any,
+    )
+}
+
+#[test]
+fn table_get_and_put_agree_with_the_reference_on_the_fixture_scope() {
+    let certificate = table_fixture_count_certificate();
+    let mut fixtures = Vec::new();
+    for_each_table_fixture(|fixture| fixtures.push(fixture));
+    assert_eq!(fixtures.len(), certificate.total);
+    let pairs: Vec<Vec<TablePair>> = (0..=2_usize)
+        .map(|columns| {
+            (0..(1_usize << columns))
+                .map(|retained| {
+                    fixture_pair(&TableFixture {
+                        columns,
+                        retained,
+                        source: RefTable::default(),
+                    })
+                })
+                .collect()
+        })
+        .collect();
+    let pair_of = |fixture: &TableFixture| &pairs[fixture.columns][fixture.retained];
+    let bound = format!(
+        "table fixtures: rows<=2, columns<=2, cell alphabet=7 (absence included), lenses=7, source/lens cases={}",
+        certificate.total
+    );
+    println!("{bound}");
+    let gets = assert_agree(agree(
+        &bound,
+        fixtures.iter(),
+        |fixture| production_table_get(pair_of(fixture), &fixture.source),
+        |fixture| reference_table_get(pair_of(fixture), &fixture.source),
+        |production, reference| production == reference,
+    ));
+    assert_eq!(gets, u64::try_from(certificate.total).unwrap());
+
+    let mut cases = Vec::new();
+    let mut expected_edits = 0_usize;
+    for fixture in &fixtures {
+        let (view, complement) =
+            reference_table_get(pair_of(fixture), &fixture.source).expect("fixture gets are total");
+        let columns: Vec<String> = (0..fixture.columns)
+            .filter(|column| fixture.retained & (1 << column) != 0)
+            .map(|column| format!("c{column}"))
+            .collect();
+        let reserved: Vec<u32> = complement.dropped_rows.keys().copied().collect();
+        let edits = table_view_edits(&view, &columns, &reserved);
+        expected_edits += table_view_edits_count(view.rows.len(), columns.len(), reserved.len());
+        cases.push((fixture, view));
+        for edited in edits {
+            cases.push((fixture, edited));
+        }
+    }
+    assert_eq!(cases.len(), certificate.total + expected_edits);
+    let bound = format!(
+        "{bound}; unedited views={}, one-step view edits={expected_edits}",
+        certificate.total
+    );
+    println!("{bound}");
+    let puts = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(fixture, edited)| production_table_put(pair_of(fixture), &fixture.source, edited),
+        |(fixture, edited)| reference_table_put(pair_of(fixture), &fixture.source, edited),
+        |production, reference| production == reference,
+    ));
+    assert_eq!(puts, u64::try_from(cases.len()).unwrap());
+}
+
+fn writer_pair(fixture: &WriterFixture) -> TablePair {
+    TablePair::new(
+        fixture.source_schema(),
+        fixture.target_schema(),
+        fixture.migration(),
+        WRITER_VALUE_KIND,
+        ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+    )
+}
+
+#[test]
+fn table_writers_agree_with_the_reference_on_the_writer_carrier() {
+    let (mappings, rows, edits) = writer_count_certificate();
+    let mut fixtures = Vec::new();
+    for_each_writer_fixture(|fixture| fixtures.push(fixture));
+    assert_eq!(fixtures.len(), rows);
+    let mut cases = Vec::new();
+    for fixture in &fixtures {
+        for target in fixture.target_columns() {
+            for edit in WRITER_EDITS {
+                cases.push((fixture, target, edit));
+            }
+        }
+    }
+    assert_eq!(cases.len(), edits);
+    let bound = format!(
+        "table writer: source_columns=2, image_choices=3, mappings={mappings}, value_alphabet=3, source_rows={rows}, edit_alphabet=2, edited_views={edits}"
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(fixture, target, edit)| {
+            let pair = writer_pair(fixture);
+            let source = fixture.source();
+            let (mut view, _) = production_table_get(&pair, &source).expect("writer get");
+            view.rows.get_mut(&0).unwrap().1.insert((*target).to_owned(), RefValue::Int(*edit));
+            production_table_put(&pair, &source, &view).put
+        },
+        |(fixture, target, edit)| {
+            let pair = writer_pair(fixture);
+            let source = fixture.source();
+            pair.with_reference(|lens, plan| {
+                let (mut view, complement) = lens.get(&source).expect("writer get");
+                view.rows.get_mut(&0).unwrap().1.insert((*target).to_owned(), RefValue::Int(*edit));
+                let restored = RefTableLens::put(lens, &view, &complement)
+                    .map_err(|error| ref_table_put_reason(&error));
+                // The last writer of the edited column is the column put writes.
+                let writer = plan.writer("t", target).expect("an image column has a writer");
+                let mut expected = source.clone();
+                expected.rows.get_mut(&0).unwrap().1.insert(writer, RefValue::Int(*edit));
+                assert_eq!(restored.as_ref(), Ok(&expected), "reference put writes the last writer");
+                restored
+            })
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(edits).unwrap());
+}
+
+// ---------------------------------------------------------------------------
+// The five law gates (L.8): production checker against the reference checker
+// ---------------------------------------------------------------------------
+
+use panproto_lens::LawViolation;
+use panproto_reference::lens::{LawGateStatus, LawReport as RefLawReport};
+
+/// The comparable part of a five-gate report: the first gate that does not
+/// pass, or `None` when every gate passes. The two checkers draw their
+/// Single-Step Bases independently (L.8 fixes the families, not one
+/// alternate payload per coordinate), so basis sizes are not compared.
+#[derive(Debug, PartialEq, Eq)]
+struct LawOutcome {
+    first_failure: Option<String>,
+}
+
+fn production_law_outcome(report: &Result<panproto_lens::LawReport, LawViolation>) -> LawOutcome {
+    LawOutcome {
+        first_failure: report.as_ref().err().map(|violation| {
+            match violation {
+                LawViolation::GetPut { .. } => "GetPut",
+                LawViolation::PutGet { .. } | LawViolation::WeakPutGet { .. } => "PutGet",
+                LawViolation::Totality { .. } => "Totality",
+                LawViolation::PutTwice { .. } => "PutTwice",
+                LawViolation::Congruence { .. } => "Congruence",
+                LawViolation::Error(_) => "Refusal",
+                other => panic!("non-gating violation from the five gates: {other:?}"),
+            }
+            .to_owned()
+        }),
+    }
+}
+
+fn reference_law_outcome<R: std::fmt::Debug>(report: &RefLawReport<R>) -> LawOutcome {
+    LawOutcome {
+        first_failure: report
+            .gates
+            .iter()
+            .find(|gate| !matches!(gate.status, LawGateStatus::Passed { .. }))
+            .map(|gate| match (&gate.status, gate.gate) {
+                // Production reports an operation refused inside a gate as
+                // `LawViolation::Error` without naming the gate, except
+                // inside Totality, where the refusal is the violation.
+                (
+                    LawGateStatus::Failed(panproto_reference::lens::LawFailure::Refusal { .. }),
+                    gate,
+                ) if gate != panproto_reference::lens::LawGate::Totality => "Refusal".to_owned(),
+                (_, gate) => format!("{gate:?}"),
+            }),
+    }
+}
+
+#[test]
+fn graph_laws_agree_with_the_reference_on_the_gf5_sources() {
+    let pairs = [
+        gf5_pair(Gf5Fixture::DropTarget),
+        gf5_pair(Gf5Fixture::VisibleThenHidden),
+    ];
+    let mut cases = Vec::new();
+    for_each_gf5_source(|fixture, source| cases.push((fixture, source.clone())));
+    let bound = format!("GF5 law reports: sources={}", cases.len());
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(fixture, source)| {
+            let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
+            production_law_outcome(&graph_lens::check_laws(&pair.production, &prod_graph(source)))
+        },
+        |(fixture, source)| {
+            let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
+            pair.with_reference(|lens| {
+                reference_law_outcome(&panproto_reference::lens::check_graph_laws(
+                    lens.expect("GF5 plans compile"),
+                    source,
+                ))
+            })
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, 133);
+}
+
+// ---------------------------------------------------------------------------
+// The finite partial-lens carrier: the production five-gate checker against
+// the reference checker on every lens and source
+// ---------------------------------------------------------------------------
+
+use panproto_inst::{SynthIndex};
+use panproto_lens::laws::{LawShape, Mutation, MutationCases, SmallScope};
+use panproto_lens::{DerivedMap, LensShape, SkipReason};
+use panproto_reference::enumerate::lenses::{
+    PARTIAL_LENS_VIEWS, PartialLens, for_each_partial_lens, partial_lens_count_certificate,
+    partial_lens_law_report,
+};
+
+/// The production law shape of one finite partial lens, which the context
+/// carries. States, views and complements are the carrier's small numbers;
+/// an undefined put is an operational refusal, never a domain refusal, so
+/// the production Totality gate sees it.
+struct PartialShape;
+
+fn undefined_put(view: u8, complement: u8) -> LensError {
+    LensError::ComplementMismatch {
+        detail: format!("partial put undefined at view {view}, complement {complement}"),
+    }
+}
+
+impl LensShape for PartialShape {
+    type Instance = u8;
+    type Complement = u8;
+    type Context = PartialLens;
+
+    fn get(
+        _lens: &Lens,
+        source: &u8,
+        ctx: &PartialLens,
+    ) -> Result<(u8, u8), LensError> {
+        let (view, complement) = ctx.get_table()[usize::from(*source)];
+        Ok((u8::try_from(view).unwrap(), u8::try_from(complement).unwrap()))
+    }
+
+    fn put(_lens: &Lens, view: &u8, complement: &u8, ctx: &PartialLens) -> Result<u8, LensError> {
+        ctx.put(usize::from(*view), usize::from(*complement))
+            .map(|source| u8::try_from(source).unwrap())
+            .ok_or_else(|| undefined_put(*view, *complement))
+    }
+
+    fn check_put_domain(
+        _lens: &Lens,
+        _view: &u8,
+        _complement: &u8,
+        _ctx: &PartialLens,
+    ) -> Result<(), Vec<PutDomainError>> {
+        Ok(())
+    }
+
+    fn synth_index(_instance: &u8, _complement: &u8) -> SynthIndex {
+        SynthIndex::default()
+    }
+
+    fn equivalent(a: &u8, _ia: &SynthIndex, b: &u8, _ib: &SynthIndex) -> bool {
+        a == b
+    }
+
+    fn divergence(a: &u8, _ia: &SynthIndex, b: &u8, _ib: &SynthIndex) -> Option<String> {
+        (a != b).then(|| format!("{a} != {b}"))
+    }
+
+    fn divergence_modulo_derived(
+        a: &u8,
+        ia: &SynthIndex,
+        b: &u8,
+        ib: &SynthIndex,
+        _derived: &DerivedMap,
+    ) -> Option<String> {
+        Self::divergence(a, ia, b, ib)
+    }
+
+    fn complement_divergence(a: &u8, b: &u8) -> Option<String> {
+        (a != b).then(|| format!("{a} != {b}"))
+    }
+
+    fn congruence_witnesses(_instance: &u8, _index: &SynthIndex) -> Vec<(u8, SynthIndex)> {
+        Vec::new()
+    }
+}
+
+impl LawShape for PartialShape {
+    fn mutation_cases(
+        _lens: &Lens,
+        _source: &u8,
+        view: &u8,
+        _complement: &u8,
+        _ctx: &PartialLens,
+        mutation: Mutation,
+    ) -> MutationCases<u8> {
+        if mutation == Mutation::ValueEdit {
+            MutationCases::Cases(vec![u8::try_from(PARTIAL_LENS_VIEWS - 1).unwrap() - view])
+        } else {
+            MutationCases::Skip(SkipReason::ShapeCannotExpress)
+        }
+    }
+
+    fn identical(a: &u8, b: &u8) -> bool {
+        a == b
+    }
+
+    fn congruent_states(_view: &u8, _complement: &u8) -> Vec<(u8, u8)> {
+        Vec::new()
+    }
+
+    fn rekey_complement(complement: &u8, _from: &SynthIndex, _to: &SynthIndex) -> u8 {
+        *complement
+    }
+
+    fn locality_divergence(
+        _lens: &Lens,
+        _source: &u8,
+        _original_view: &u8,
+        _edited_view: &u8,
+        _restored: &u8,
+        _complement: &u8,
+        _ctx: &PartialLens,
+    ) -> Option<String> {
+        None
+    }
+
+    fn carrier_intersection(a: &u8, b: &u8) -> u8 {
+        (*a).min(*b)
+    }
+
+    fn undo_view(original: &u8, edited: &u8) -> Option<u8> {
+        (original != edited).then_some(*original)
+    }
+
+    fn enumerate_small(_schema: &Schema, _scope: SmallScope, _ctx: &PartialLens) -> Vec<u8> {
+        Vec::new()
+    }
+}
+
+fn empty_lens() -> Lens {
+    let schema = prod_schema(&RefSchema::default().vertex("a", "obj"));
+    Lens {
+        compiled: CompiledMigration::default(),
+        src_schema: schema.clone(),
+        tgt_schema: schema,
+    }
+}
+
+#[test]
+fn partial_lens_laws_agree_with_the_reference_on_every_lens_and_source() {
+    let mut cases = Vec::new();
+    for_each_partial_lens(|lens| {
+        for source in 0..2_u8 {
+            cases.push((lens, source));
+        }
+    });
+    let lenses = partial_lens_count_certificate();
+    assert_eq!(cases.len(), 2 * lenses);
+    let bound = format!(
+        "partial lenses: sources=2, views=2, complements=3, injective total gets=30, put tables=729, lenses={lenses}, lens/source cases={}",
+        cases.len()
+    );
+    println!("{bound}");
+    let carrier = empty_lens();
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(lens, source)| {
+            production_law_outcome(&panproto_lens::laws::check_laws_report::<PartialShape>(
+                &carrier, source, lens,
+            ))
+        },
+        |(lens, source)| reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source))),
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, 43_740);
+}
+
+// ---------------------------------------------------------------------------
+// The C11 state scope: every stage, every state over its source schema and
+// every one-step edit of its view
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    c11_fan_schema, c11_fan_state_count, c11_fan_states, c11_graph_edit_count, c11_graph_edits,
+    c11_graph_state_count, c11_graph_states, c11_stages, sigma2_count, sigma2_schemas,
+};
+
+/// The states a stage reads: the fan states for a stage over the fan
+/// schema, otherwise the graph states over its source schema.
+fn c11_sources(stage: &C11Stage) -> Vec<RefGraph> {
+    if stage.source == c11_fan_schema() {
+        c11_fan_states()
+    } else {
+        c11_graph_states(&stage.source)
+    }
+}
+
+/// One stage, one state and one edited view (the unedited view when
+/// `edit` is `None`), compared on both sides: get, then put and the domain
+/// report of the view.
+fn c11_case(pair: &Pair, source: &RefGraph, edited: Option<&RefGraph>) -> (GetOutcome, GetOutcome, Option<(Option<PutOutcome>, Option<PutOutcome>)>) {
+    let production = production_get(pair, source);
+    let reference = reference_get(pair, source);
+    let puts = edited.map(|view| (production_put(pair, source, view), reference_put(pair, source, view)));
+    (production, reference, puts)
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn graph_lens_agrees_with_the_reference_exhaustively() {
+    let schemas = sigma2_schemas();
+    assert_eq!(schemas.len(), sigma2_count());
+    let stages = c11_stages();
+    let mut states = 0_usize;
+    let mut edits = 0_usize;
+    let mut counted_edits = 0_usize;
+    let mut cases = 0_u64;
+    for stage in &stages {
+        let pair = Pair::from_stage(stage);
+        let sources = c11_sources(stage);
+        let certified = if stage.source == c11_fan_schema() {
+            c11_fan_state_count()
+        } else {
+            c11_graph_state_count(&stage.source)
+        };
+        assert_eq!(sources.len(), certified, "stage {}", stage.name);
+        for source in &sources {
+            states += 1;
+            let (production, reference, _) = c11_case(&pair, source, None);
+            assert_eq!(production, reference, "stage {} get on {source:?}", stage.name);
+            cases += 1;
+            let Ok((view, complement)) = reference else {
+                continue;
+            };
+            let mut views = vec![view.clone()];
+            let family = c11_graph_edits(&view, &stage.target, &complement);
+            counted_edits += c11_graph_edit_count(&view, &stage.target, &complement);
+            edits += family.len();
+            views.extend(family.into_iter().map(|edit| edit.view));
+            for edited in &views {
+                let (_, _, puts) = c11_case(&pair, source, Some(edited));
+                let (production, reference) = puts.expect("an edit was supplied");
+                assert_eq!(
+                    production, reference,
+                    "stage {} put of {edited:?} against get of {source:?}",
+                    stage.name
+                );
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(edits, counted_edits);
+    println!(
+        "C11 graph scope: schemas={}, stages={}, states={states}, one-step edits={edits}, compared cases={cases}",
+        schemas.len(),
+        stages.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trees: get, GetPut and the five-gate reports on the C11 tree states
+// ---------------------------------------------------------------------------
+
+use panproto_inst::{Fan, WInstance};
+use panproto_reference::enumerate::lenses::{c11_tree_state_count, c11_tree_states};
+use panproto_reference::model::{Fan as RefFan, Tree as RefTree};
+
+fn ref_tree(tree: &WInstance) -> RefTree {
+    RefTree {
+        nodes: tree
+            .nodes
+            .iter()
+            .map(|(id, node)| (*id, ref_node(node)))
+            .collect(),
+        arcs: tree
+            .arcs
+            .iter()
+            .map(|(parent, child, edge)| (*parent, *child, ref_edge(edge)))
+            .collect(),
+        fans: tree
+            .fans
+            .iter()
+            .map(|fan| RefFan {
+                parent: fan.parent,
+                hyper_edge: fan.hyper_edge_id.clone(),
+                children: fan
+                    .children
+                    .iter()
+                    .map(|(label, child)| (label.clone(), *child))
+                    .collect(),
+            })
+            .collect(),
+        root: tree.root,
+    }
+}
+
+fn prod_tree(tree: &RefTree) -> WInstance {
+    let root_anchor = tree
+        .nodes
+        .get(&tree.root)
+        .map(|node| node.anchor.clone())
+        .unwrap_or_default();
+    WInstance::new(
+        tree.nodes
+            .iter()
+            .map(|(id, node)| (*id, prod_node(node)))
+            .collect(),
+        tree.arcs
+            .iter()
+            .map(|(parent, child, edge)| (*parent, *child, prod_edge(edge)))
+            .collect(),
+        tree.fans
+            .iter()
+            .map(|fan| Fan {
+                hyper_edge_id: fan.hyper_edge.clone(),
+                parent: fan.parent,
+                children: fan
+                    .children
+                    .iter()
+                    .map(|(label, child)| (label.clone(), *child))
+                    .collect(),
+            })
+            .collect(),
+        tree.root,
+        root_anchor.into(),
+    )
+}
+
+/// The tree complement coordinates that F.B (3) maps field for field
+/// between a tree complement and the graph complement of the tree's graph
+/// form: dropped non-fan nodes, dropped non-fan arcs as `(src, tgt, label)`
+/// (ascending), recorded anchors, fields and values, synthesized keys and
+/// the node floor.
+#[derive(Debug, PartialEq, Eq)]
+struct TreeResidue {
+    dropped_nodes: BTreeMap<u32, RefNode>,
+    dropped_arcs: Vec<(u32, u32, RefSEdge)>,
+    original_anchors: BTreeMap<u32, String>,
+    original_fields: BTreeMap<u32, BTreeMap<String, RefValue>>,
+    original_values: BTreeMap<u32, Option<RefPresence>>,
+    synthesized: BTreeMap<u32, RefSynthKey>,
+    floor: u32,
+}
+
+fn production_tree_residue(complement: &panproto_lens::Complement) -> TreeResidue {
+    let mut dropped_arcs: Vec<(u32, u32, RefSEdge)> = complement
+        .dropped_arcs
+        .iter()
+        .map(|(src, tgt, edge)| (*src, *tgt, ref_edge(edge)))
+        .collect();
+    dropped_arcs.sort();
+    TreeResidue {
+        dropped_nodes: complement
+            .dropped_nodes
+            .iter()
+            .map(|(id, node)| (*id, ref_node(node)))
+            .collect(),
+        dropped_arcs,
+        original_anchors: complement
+            .original_anchors
+            .iter()
+            .map(|(id, anchor)| (*id, anchor.to_string()))
+            .collect(),
+        original_fields: complement
+            .original_extra_fields
+            .iter()
+            .map(|(id, fields)| (*id, ref_fields(fields)))
+            .collect(),
+        original_values: complement
+            .original_values
+            .iter()
+            .map(|(id, value)| (*id, value.as_ref().map(ref_presence)))
+            .collect(),
+        synthesized: complement
+            .synthesized_keys
+            .iter()
+            .map(|(id, key)| (*id, ref_synth_key(key)))
+            .collect(),
+        floor: complement.id_floor,
+    }
+}
+
+fn reference_tree_residue(complement: &RefComplement) -> TreeResidue {
+    let is_fan = |kind: &str| panproto_reference::restrict::is_fan_kind(kind);
+    let mut dropped_arcs: Vec<(u32, u32, RefSEdge)> = complement
+        .dropped_edges
+        .values()
+        .filter(|edge| !is_fan(&edge.label.kind))
+        .map(|edge| (edge.src, edge.tgt, edge.label.clone()))
+        .collect();
+    dropped_arcs.sort();
+    TreeResidue {
+        dropped_nodes: complement
+            .dropped_nodes
+            .iter()
+            .filter(|(_, node)| node.shape != RefNodeShape::HyperEdge)
+            .map(|(id, node)| (*id, node.clone()))
+            .collect(),
+        dropped_arcs,
+        original_anchors: complement.original_anchors.clone(),
+        original_fields: complement.original_fields.clone(),
+        original_values: complement.original_values.clone(),
+        synthesized: complement.synthesized_nodes.clone(),
+        floor: complement.floor.0,
+    }
+}
+
+/// Tree get on both sides, with GetPut: the view, the mapped residue and
+/// the put of the unedited view. `None` outside the reference tree lens's
+/// domain (a stage dropping an edge between surviving vertices).
+type TreeOutcome = Option<Result<(RefTree, TreeResidue, Result<RefTree, Reason>), Reason>>;
+
+fn production_tree_case(pair: &Pair, source: &RefTree, inside: bool) -> TreeOutcome {
+    if !inside {
+        return None;
+    }
+    let tree = prod_tree(source);
+    Some(
+        panproto_lens::get(&pair.production, &tree)
+            .map(|(view, complement)| {
+                let restored = panproto_lens::put(&pair.production, &view, &complement)
+                    .map(|restored| ref_tree(&restored))
+                    .map_err(|error| lens_reason(&error));
+                (ref_tree(&view), production_tree_residue(&complement), restored)
+            })
+            .map_err(|error| lens_reason(&error)),
+    )
+}
+
+fn reference_tree_case(pair: &Pair, source: &RefTree) -> TreeOutcome {
+    pair.with_reference(|lens| {
+        let lens = lens.ok()?;
+        Some(
+            panproto_reference::lens::tree_get(lens, source)?
+                .map(|(view, complement, embedding)| {
+                    let restored =
+                        panproto_reference::lens::tree_put(lens, &view, &embedding, &complement)
+                            .map_err(|error| ref_lens_reason(&error));
+                    (view, reference_tree_residue(&complement), restored)
+                })
+                .map_err(|error| Reason::Restrict(ref_restrict_reason(&error))),
+        )
+    })
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn tree_lens_agrees_with_the_reference_exhaustively() {
+    let stages = c11_stages();
+    let mut cases = Vec::new();
+    let mut certified = 0_usize;
+    for (index, stage) in stages.iter().enumerate() {
+        if stage.source == c11_fan_schema() {
+            continue;
+        }
+        let trees = c11_tree_states(&stage.source);
+        certified += c11_tree_state_count(&stage.source);
+        cases.extend(trees.into_iter().map(|tree| (index, tree)));
+    }
+    assert_eq!(cases.len(), certified);
+    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+    let bound = format!(
+        "C11 tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
+        stages.len() - 1,
+        cases.len()
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(stage, tree)| {
+            let inside = reference_tree_case(&pairs[*stage], tree).is_some();
+            (
+                production_tree_case(&pairs[*stage], tree, inside),
+                inside.then(|| {
+                    production_law_outcome(&panproto_lens::check_laws_report::<
+                        panproto_lens::TreeShape,
+                    >(&pairs[*stage].production, &prod_tree(tree), &()))
+                }),
+            )
+        },
+        |(stage, tree)| {
+            let outcome = reference_tree_case(&pairs[*stage], tree);
+            let laws = outcome.as_ref().map(|_| {
+                pairs[*stage].with_reference(|lens| {
+                    reference_law_outcome(&panproto_reference::lens::check_tree_laws(
+                        lens.expect("inside the reference domain the plan compiles"),
+                        tree,
+                    ))
+                })
+            });
+            (outcome, laws)
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+// ---------------------------------------------------------------------------
+// Lens paths: the free category on the stages, and fusion soundness (the
+// production fused fold against the reference's unfused fold)
+// ---------------------------------------------------------------------------
+
+use panproto_lens::LensPath;
+use panproto_reference::path::{
+    LensPath as RefLensPath, PathError, PathStage,
+    PathStageError,
+};
+
+fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
+    PathStage::new(
+        index,
+        &stage.source,
+        &stage.target,
+        stage.name.as_bytes().to_vec(),
+        stage.name.as_bytes().to_vec(),
+    )
+}
+
+/// The reference path of a word of stage indices; `Err` when two adjacent
+/// boundaries differ.
+fn reference_word(stages: &[C11Stage], word: &[usize]) -> Result<RefLensPath<usize>, String> {
+    let mut path: Option<RefLensPath<usize>> = None;
+    for index in word {
+        let next = RefLensPath::single(ref_path_stage(*index, &stages[*index]));
+        path = Some(match path {
+            None => next,
+            Some(path) => path.then(&next).map_err(|error| format!("{error:?}"))?,
+        });
+    }
+    path.ok_or_else(|| "empty word".to_owned())
+}
+
+/// The production path of a word, built by `then` from single stages.
+fn production_word(stages: &[C11Stage], word: &[usize]) -> Result<LensPath, String> {
+    let mut path: Option<LensPath> = None;
+    for index in word {
+        let next = LensPath::single(production_stage(&stages[*index]));
+        path = Some(match path {
+            None => next,
+            Some(path) => path.then(&next).map_err(|error| format!("{error:?}"))?,
+        });
+    }
+    path.ok_or_else(|| "empty word".to_owned())
+}
+
+/// A located path refusal: the reason and the atomic stages of the group
+/// that refused.
+type PathRefusal = (Reason, std::ops::Range<usize>);
+
+fn production_path_refusal(error: &LensError) -> PathRefusal {
+    match error {
+        LensError::AtStage { at, error } => (lens_reason(error), at.stages.clone()),
+        other => (lens_reason(other), 0..0),
+    }
+}
+
+fn reference_path_refusal(error: &PathError<Reason>) -> PathRefusal {
+    match error {
+        PathError::AtStage { at, error } => match error.as_ref() {
+            PathStageError::Operation(reason) => (reason.clone(), at.stages.clone()),
+            other => (Reason::Identity(format!("{other:?}")), at.stages.clone()),
+        },
+        other => (Reason::Identity(format!("{other:?}")), 0..0),
+    }
+}
+
+/// Two located refusals agree when their reasons agree and the reference's
+/// atomic stage lies in the production's (possibly fused) group.
+fn refusals_agree(production: &PathRefusal, reference: &PathRefusal) -> bool {
+    production.0 == reference.0
+        && production.1.start <= reference.1.start
+        && reference.1.end <= production.1.end
+}
+
+#[derive(Debug)]
+struct PathOutcome {
+    get: Result<RefGraph, PathRefusal>,
+    puts: Vec<Result<RefGraph, PathRefusal>>,
+}
+
+fn path_outcomes_agree(production: &PathOutcome, reference: &PathOutcome) -> bool {
+    let same = |a: &Result<RefGraph, PathRefusal>, b: &Result<RefGraph, PathRefusal>| match (a, b) {
+        (Ok(a), Ok(b)) => a == b,
+        (Err(a), Err(b)) => refusals_agree(a, b),
+        _ => false,
+    };
+    same(&production.get, &reference.get)
+        && production.puts.len() == reference.puts.len()
+        && production
+            .puts
+            .iter()
+            .zip(&reference.puts)
+            .all(|(a, b)| same(a, b))
+}
+
+/// The reference fold of a word on one source: get left to right through
+/// [`panproto_reference::path::get_path`], then put right to left through
+/// [`panproto_reference::path::put_path`] of the unedited view and of every
+/// edited view in `views`.
+fn reference_path_outcome(
+    pairs: &[Pair],
+    path: &RefLensPath<usize>,
+    source: &RefGraph,
+    views: &[RefGraph],
+) -> PathOutcome {
+    let get = panproto_reference::path::get_path(
+        path,
+        |_, index: &usize, input: &RefGraph| reference_get(&pairs[*index], input),
+        source,
+    );
+    let Ok((view, complement)) = get else {
+        let error = get.err().map(|error| reference_path_refusal(&error));
+        return PathOutcome {
+            get: Err(error.unwrap_or_else(|| (Reason::Identity("unreachable".into()), 0..0))),
+            puts: Vec::new(),
+        };
+    };
+    let put = |_: usize, index: &usize, input: &RefGraph, entry: &RefComplement| {
+        pairs[*index].with_reference(|lens| {
+            let lens = lens.map_err(Reason::Restrict)?;
+            let mut stamped = entry.clone();
+            stamped.identity = Some(*lens.identity());
+            panproto_reference::lens::put(lens, input, &stamped).map_err(|error| ref_lens_reason(&error))
+        })
+    };
+    let puts = std::iter::once(&view)
+        .chain(views)
+        .map(|edited| {
+            panproto_reference::path::put_path(path, &put, edited, &complement)
+                .map_err(|error| reference_path_refusal(&error))
+        })
+        .collect();
+    PathOutcome {
+        get: Ok(view),
+        puts,
+    }
+}
+
+fn production_path_outcome(path: &LensPath, source: &RefGraph, views: &[RefGraph]) -> PathOutcome {
+    match path.get_graph(&prod_graph(source)) {
+        Err(error) => PathOutcome {
+            get: Err(production_path_refusal(&error)),
+            puts: Vec::new(),
+        },
+        Ok((view, complement)) => {
+            let unedited = ref_graph(&view);
+            let puts = std::iter::once(&unedited)
+                .chain(views)
+                .map(|edited| {
+                    path.put_graph(&prod_graph(edited), &complement)
+                        .map(|restored| ref_graph(&restored))
+                        .map_err(|error| production_path_refusal(&error))
+                })
+                .collect();
+            PathOutcome {
+                get: Ok(unedited),
+                puts,
+            }
+        }
+    }
+}
+
+/// Every word of length 1 to 3 over the stage alphabet, by ascending length
+/// and then lexicographic index order.
+fn words(stages: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut layer: Vec<Vec<usize>> = vec![Vec::new()];
+    for _ in 0..3 {
+        layer = layer
+            .iter()
+            .flat_map(|prefix| {
+                (0..stages).map(move |index| {
+                    let mut word = prefix.clone();
+                    word.push(index);
+                    word
+                })
+            })
+            .collect();
+        out.extend(layer.iter().cloned());
+    }
+    out
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn lens_paths_agree_with_the_reference_exhaustively() {
+    let stages = c11_stages();
+    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+    let all = words(stages.len());
+    assert_eq!(all.len(), 28 + 28 * 28 + 28 * 28 * 28);
+    let mut composable = Vec::new();
+    for word in &all {
+        let production = production_word(&stages, word);
+        let reference = reference_word(&stages, word);
+        assert_eq!(
+            production.is_ok(),
+            reference.is_ok(),
+            "composition refusal of {word:?}: {production:?} against {reference:?}"
+        );
+        if let (Ok(production), Ok(reference)) = (production, reference) {
+            assert_eq!(production.len(), reference.len());
+            composable.push((word.clone(), production, reference));
+        }
+    }
+    let mut cases = Vec::new();
+    for (index, (word, _, _)) in composable.iter().enumerate() {
+        for source in c11_sources(&stages[word[0]]) {
+            cases.push((index, source));
+        }
+    }
+    let bound = format!(
+        "C11 paths: stages=28, words of length at most 3={}, composable={}, (word, state) cases={}",
+        all.len(),
+        composable.len(),
+        cases.len()
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(index, source)| {
+            let (word, path, reference) = &composable[*index];
+            let edits = edits_of_reference_view(&pairs, &stages, word, reference, source);
+            production_path_outcome(path, source, &edits)
+        },
+        |(index, source)| {
+            let (word, _, reference) = &composable[*index];
+            let edits = edits_of_reference_view(&pairs, &stages, word, reference, source);
+            reference_path_outcome(&pairs, reference, source, &edits)
+        },
+        path_outcomes_agree,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+/// The one-step edits of a path's final view: the C11 edits of the last
+/// stage's view against the last stage's complement, from the reference fold.
+fn edits_of_reference_view(
+    pairs: &[Pair],
+    stages: &[C11Stage],
+    word: &[usize],
+    path: &RefLensPath<usize>,
+    source: &RefGraph,
+) -> Vec<RefGraph> {
+    let get = panproto_reference::path::get_path(
+        path,
+        |_, index: &usize, input: &RefGraph| reference_get(&pairs[*index], input),
+        source,
+    );
+    let Ok((view, complement)) = get else {
+        return Vec::new();
+    };
+    let Some(last) = complement.entries().last() else {
+        return Vec::new();
+    };
+    let target = &stages[word[word.len() - 1]].target;
+    c11_graph_edits(&view, target, &last.complement)
+        .into_iter()
+        .map(|edit| edit.view)
+        .collect()
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
+    let stages = c11_stages();
+    let schemas: Vec<RefSchema> = sigma2_schemas().into_iter().chain([c11_fan_schema()]).collect();
+    let mut identities = 0_usize;
+    let mut triples = 0_usize;
+    let envelopes = |path: &LensPath| path.identity_envelope(panproto_inst::ComplementShape::Graph);
+    for (index, stage) in stages.iter().enumerate() {
+        let reference = RefLensPath::single(ref_path_stage(index, stage));
+        let left = RefLensPath::identity(&stage.source).then(&reference);
+        let right = reference.then(&RefLensPath::identity(&stage.target));
+        assert_eq!(left.as_ref(), Ok(&reference), "reference left identity at {}", stage.name);
+        assert_eq!(right.as_ref(), Ok(&reference), "reference right identity at {}", stage.name);
+        let production = LensPath::single(production_stage(stage));
+        let left = LensPath::identity(&prod_schema(&stage.source)).then(&production).unwrap();
+        let right = production.then(&LensPath::identity(&prod_schema(&stage.target))).unwrap();
+        assert_eq!(envelopes(&left), envelopes(&production), "production left identity at {}", stage.name);
+        assert_eq!(envelopes(&right), envelopes(&production), "production right identity at {}", stage.name);
+        identities += 1;
+    }
+    for schema in &schemas {
+        let reference = RefLensPath::<usize>::identity(schema);
+        assert_eq!(reference.then(&reference).as_ref(), Ok(&reference));
+        let production = LensPath::identity(&prod_schema(schema));
+        let twice = production.then(&production).unwrap();
+        assert!(twice.is_identity());
+        assert_eq!(envelopes(&twice), envelopes(&production));
+    }
+    for p in 0..stages.len() {
+        for q in 0..stages.len() {
+            for r in 0..stages.len() {
+                let single = |index: usize| RefLensPath::single(ref_path_stage(index, &stages[index]));
+                let left = single(p).then(&single(q)).and_then(|pq| pq.then(&single(r)));
+                let right = single(q).then(&single(r)).and_then(|qr| single(p).then(&qr));
+                assert_eq!(left, right, "reference associativity at {p} {q} {r}");
+                let prod = |index: usize| LensPath::single(production_stage(&stages[index]));
+                let left = prod(p).then(&prod(q)).and_then(|pq| pq.then(&prod(r)));
+                let right = prod(q).then(&prod(r)).and_then(|qr| prod(p).then(&qr));
+                match (left, right) {
+                    (Ok(left), Ok(right)) => assert_eq!(envelopes(&left), envelopes(&right)),
+                    (Err(left), Err(right)) => assert_eq!(format!("{left:?}"), format!("{right:?}")),
+                    (left, right) => panic!("production associativity at {p} {q} {r}: {left:?} against {right:?}"),
+                }
+                triples += 1;
+            }
+        }
+    }
+    println!(
+        "C11 path category: stages={}, identity schemas={}, unit checks={identities}, triples={triples}",
+        stages.len(),
+        schemas.len()
+    );
+    assert_eq!(triples, 28 * 28 * 28);
+}
+
+// ---------------------------------------------------------------------------
+// F.B squares: the production graph route and fast route against the
+// reference's two routes
+// ---------------------------------------------------------------------------
+
+use panproto_reference::lens::{SquareResult, SquareRouteObservation};
+
+/// One leg of a square in reference coordinates: get (view and complement
+/// without identity) and the put of the unedited view.
+#[derive(Debug, PartialEq, Eq)]
+struct Leg {
+    get: Result<(RefGraph, RefComplement), String>,
+    put: Option<Result<RefGraph, String>>,
+}
+
+/// A square in reference coordinates: both legs, and whether they commute.
+#[derive(Debug, PartialEq, Eq)]
+struct SquareOutcome {
+    graph: Leg,
+    fast: Option<Leg>,
+    commutes: bool,
+}
+
+fn reference_leg(route: &SquareRouteObservation) -> Leg {
+    Leg {
+        get: route
+            .get
+            .as_ref()
+            .map(|(view, complement)| (view.clone(), without_identity(complement)))
+            .map_err(|error| format!("{error:?}")),
+        put: route
+            .put
+            .as_ref()
+            .map(|put| put.clone().map_err(|error| format!("{error:?}"))),
+    }
+}
+
+/// The refusals of the two legs are compared through their presence only:
+/// the reference names a route refusal by its square error, the production
+/// by its lens error, and both routes' reasons are compared exactly by the
+/// get and put differentials above.
+fn legs_agree(production: &Leg, reference: &Leg) -> bool {
+    let get = match (&production.get, &reference.get) {
+        (Ok(a), Ok(b)) => a == b,
+        (Err(_), Err(_)) => true,
+        _ => false,
+    };
+    let put = match (&production.put, &reference.put) {
+        (Some(Ok(a)), Some(Ok(b))) => a == b,
+        (Some(Err(_)), Some(Err(_))) | (None, None) => true,
+        _ => false,
+    };
+    get && put
+}
+
+fn squares_agree(production: &SquareOutcome, reference: &SquareOutcome) -> bool {
+    legs_agree(&production.graph, &reference.graph)
+        && match (&production.fast, &reference.fast) {
+            (Some(a), Some(b)) => legs_agree(a, b),
+            (None, _) => !reference.commutes,
+            (Some(_), None) => false,
+        }
+        && production.commutes == reference.commutes
+}
+
+fn production_graph_leg(lens: &Lens, graph: &GInstance) -> Leg {
+    match graph_lens::get(lens, graph) {
+        Err(error) => Leg {
+            get: Err(format!("{error:?}")),
+            put: None,
+        },
+        Ok((view, complement)) => Leg {
+            get: Ok((ref_graph(&view), ref_complement(&complement))),
+            put: Some(
+                graph_lens::put(lens, &view, &complement)
+                    .map(|restored| ref_graph(&restored))
+                    .map_err(|error| format!("{error:?}")),
+            ),
+        },
+    }
+}
+
+fn reference_square<O>(result: &SquareResult<O>, legs: impl Fn(&O) -> (Leg, Leg)) -> SquareOutcome {
+    let (graph, fast) = legs(result.observation());
+    SquareOutcome {
+        graph,
+        fast: Some(fast),
+        commutes: result.commutes(),
+    }
+}
+
+fn table_square_pair_graph(pair: &TablePair) -> Pair {
+    Pair::new(pair.src.clone(), pair.tgt.clone(), pair.migration.clone())
+}
+
+#[test]
+fn table_square_agrees_with_the_reference_on_the_fixture_scope() {
+    let certificate = table_fixture_count_certificate();
+    let mut fixtures = Vec::new();
+    for_each_table_fixture(|fixture| fixtures.push(fixture));
+    assert_eq!(fixtures.len(), certificate.total);
+    let bound = format!(
+        "table square: rows<=2, columns<=2, cell alphabet=7, lenses=7, source/lens cases={}",
+        certificate.total
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        fixtures.iter(),
+        |fixture| {
+            let pair = fixture_pair(fixture);
+            let (graph, _) = GInstance::from_finstance(&prod_table(&fixture.source)).unwrap();
+            let graph_leg = production_graph_leg(&pair.production, &graph);
+            let fast = graph_lens_via_table(&pair, &graph);
+            let commutes = fast.as_ref().is_some_and(|fast| legs_agree(fast, &graph_leg));
+            SquareOutcome {
+                graph: graph_leg,
+                fast,
+                commutes,
+            }
+        },
+        |fixture| {
+            let pair = fixture_pair(fixture);
+            let graph_pair = table_square_pair_graph(&pair);
+            graph_pair.with_reference(|graph_lens| {
+                let graph_lens = graph_lens.expect("fixture plans compile");
+                pair.with_reference(|table_lens, _| {
+                    let result =
+                        panproto_reference::lens::table_square(graph_lens, table_lens, &fixture.source);
+                    reference_square(&result, |observation| {
+                        (reference_leg(&observation.graph), reference_leg(&observation.fast))
+                    })
+                })
+            })
+        },
+        squares_agree,
+    ));
+    assert_eq!(compared, u64::try_from(certificate.total).unwrap());
+}
+
+/// The production table route of the square: get through the table lens
+/// and back to graph coordinates, and the put of the unedited view.
+fn graph_lens_via_table(pair: &TablePair, graph: &GInstance) -> Option<Leg> {
+    let lens = &pair.production;
+    match panproto_lens::graph_get_via_table(lens, graph, pair.protocols()) {
+        Ok(None) => None,
+        Err(error) => Some(Leg {
+            get: Err(format!("{error:?}")),
+            put: None,
+        }),
+        Ok(Some((view, complement))) => Some(Leg {
+            get: Ok((ref_graph(&view), ref_complement(&complement))),
+            put: match panproto_lens::graph_put_via_table(lens, &view, &complement, pair.protocols()) {
+                Ok(None) => None,
+                Ok(Some(restored)) => Some(Ok(ref_graph(&restored))),
+                Err(error) => Some(Err(format!("{error:?}"))),
+            },
+        }),
+    }
+}
+
+fn graph_lens_via_tree(lens: &Lens, graph: &GInstance) -> Option<Leg> {
+    match panproto_lens::graph_get_via_tree(lens, graph) {
+        Ok(None) => None,
+        Err(error) => Some(Leg {
+            get: Err(format!("{error:?}")),
+            put: None,
+        }),
+        Ok(Some((view, complement))) => Some(Leg {
+            get: Ok((ref_graph(&view), ref_complement(&complement))),
+            put: match panproto_lens::graph_put_via_tree(lens, &view, &complement) {
+                Ok(None) => None,
+                Ok(Some(restored)) => Some(Ok(ref_graph(&restored))),
+                Err(error) => Some(Err(format!("{error:?}"))),
+            },
+        }),
+    }
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn graph_square_agrees_with_the_reference_exhaustively() {
+    let stages = c11_stages();
+    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+    let mut cases = Vec::new();
+    for (index, stage) in stages.iter().enumerate() {
+        if stage.source == c11_fan_schema() {
+            continue;
+        }
+        for tree in c11_tree_states(&stage.source) {
+            cases.push((index, tree));
+        }
+    }
+    let bound = format!("C11 graph square: (stage, tree) cases={}", cases.len());
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(stage, tree)| {
+            let lens = &pairs[*stage].production;
+            let graph = GInstance::from_wtype(&prod_tree(tree)).unwrap();
+            let graph_leg = production_graph_leg(lens, &graph);
+            let fast = graph_lens_via_tree(lens, &graph);
+            let commutes = fast.as_ref().is_some_and(|fast| legs_agree(fast, &graph_leg));
+            SquareOutcome {
+                graph: graph_leg,
+                fast,
+                commutes,
+            }
+        },
+        |(stage, tree)| {
+            pairs[*stage].with_reference(|lens| {
+                let lens = lens.expect("stage plans compile");
+                let result = panproto_reference::lens::graph_square(lens, tree);
+                reference_square(&result, |observation| {
+                    (reference_leg(&observation.graph), reference_leg(&observation.fast))
+                })
+            })
+        },
+        squares_agree,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
 }

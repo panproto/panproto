@@ -304,6 +304,152 @@ pub fn partial_lens_histogram() -> PartialLensHistogram {
     histogram
 }
 
+/// The one refusal of a finite partial lens: put is undefined on a
+/// view/complement pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartialPutUndefined {
+    /// The view.
+    pub view: usize,
+    /// The complement.
+    pub complement: usize,
+}
+
+/// The finite partial-lens law shape: states are the sources and views of a
+/// [`PartialLens`], complements its complements, and the Single-Step Basis
+/// of a view is the other view (one value edit), always admitted, so an
+/// undefined put on it fails Totality.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PartialLensShape;
+
+impl crate::lens::LensShape for PartialLensShape {
+    type Instance = usize;
+    type Complement = usize;
+
+    fn identical(left: &usize, right: &usize) -> bool {
+        left == right
+    }
+
+    fn complements_identical(left: &usize, right: &usize) -> bool {
+        left == right
+    }
+
+    fn synth_index(_: &usize, _: &usize) -> crate::lens::SynthIndex {
+        crate::lens::SynthIndex::default()
+    }
+
+    fn equivalent(
+        left: &usize,
+        _: &crate::lens::SynthIndex,
+        right: &usize,
+        _: &crate::lens::SynthIndex,
+    ) -> bool {
+        left == right
+    }
+
+    fn divergence(
+        left: &usize,
+        _: &crate::lens::SynthIndex,
+        right: &usize,
+        _: &crate::lens::SynthIndex,
+    ) -> Option<crate::lens::Divergence> {
+        (left != right).then_some(crate::lens::Divergence {
+            kind: crate::lens::DivergenceKind::Instance,
+            detail: "partial-lens states differ",
+        })
+    }
+
+    fn complement_divergence(left: &usize, right: &usize) -> Option<crate::lens::Divergence> {
+        (left != right).then_some(crate::lens::Divergence {
+            kind: crate::lens::DivergenceKind::Complement,
+            detail: "partial-lens complements differ",
+        })
+    }
+}
+
+impl crate::lens::LawShape<PartialLens> for PartialLensShape {
+    type Refusal = PartialPutUndefined;
+    type Context = ();
+
+    fn get(lens: &PartialLens, source: &usize, (): &()) -> Result<(usize, usize), PartialPutUndefined> {
+        Ok(lens.get[*source])
+    }
+
+    fn put(
+        lens: &PartialLens,
+        view: &usize,
+        complement: &usize,
+        (): &(),
+    ) -> Result<usize, PartialPutUndefined> {
+        lens.put(*view, *complement).ok_or(PartialPutUndefined {
+            view: *view,
+            complement: *complement,
+        })
+    }
+
+    fn check_put_domain(
+        _: &PartialLens,
+        _: &usize,
+        _: &usize,
+        (): &(),
+    ) -> Result<(), PartialPutUndefined> {
+        Ok(())
+    }
+
+    fn single_step_basis(
+        _: &PartialLens,
+        _: &usize,
+        view: &usize,
+        _: &usize,
+        (): &(),
+    ) -> Vec<crate::lens::BasisCase<usize, PartialPutUndefined>> {
+        vec![crate::lens::BasisCase {
+            ordinal: 0,
+            mutation: crate::lens::Mutation::ValueEdit,
+            view: PARTIAL_LENS_VIEWS - 1 - view,
+            domain: crate::lens::DomainExpectation::Admitted,
+        }]
+    }
+
+    fn put_get_mode() -> crate::lens::PutGetMode {
+        crate::lens::PutGetMode::Strict
+    }
+
+    fn rekey_complement(complement: &usize, _: &usize, _: &usize, _: &usize) -> usize {
+        *complement
+    }
+
+    fn congruence_cases(
+        _: &PartialLens,
+        _: &usize,
+        _: &usize,
+        (): &(),
+    ) -> Vec<crate::lens::CongruenceCase<usize, usize>> {
+        Vec::new()
+    }
+
+    fn locality_divergence(
+        _: &PartialLens,
+        _: &usize,
+        _: &usize,
+        _: &usize,
+        _: &usize,
+        _: &usize,
+        (): &(),
+    ) -> Option<crate::lens::Divergence> {
+        None
+    }
+}
+
+/// The five-gate report of one finite partial lens at one source, by the
+/// generic reference checker over [`PartialLensShape`].
+#[must_use]
+pub fn partial_lens_law_report(
+    lens: &PartialLens,
+    source: usize,
+) -> crate::lens::LawReport<PartialPutUndefined> {
+    crate::lens::check_laws_report::<PartialLensShape, PartialLens>(lens, &source, &())
+}
+
 /// Largest column and canonical-row cardinalities of the C11 table carrier.
 pub const TABLE_FIXTURE_BOUND: usize = 2;
 
@@ -331,6 +477,245 @@ pub struct TableFixture {
     pub retained: usize,
     /// Canonical rows `0..rows`, all anchored at `row`.
     pub source: Table,
+}
+
+/// Value kind of every fixture column vertex.
+pub const TABLE_FIXTURE_VALUE_KIND: &str = "any";
+/// Kind of the one fixture table vertex.
+pub const TABLE_FIXTURE_TABLE_KIND: &str = "record";
+
+fn table_fixture_schema(columns: usize, retained: usize) -> Schema {
+    let mut schema = Schema::default().vertex("row", TABLE_FIXTURE_TABLE_KIND);
+    for column in 0..columns {
+        if retained & (1 << column) == 0 {
+            continue;
+        }
+        let name = format!("c{column}");
+        let vertex = format!("row.{name}");
+        schema = schema
+            .vertex(&vertex, TABLE_FIXTURE_VALUE_KIND)
+            .edge("row", &vertex, "prop", Some(&name));
+    }
+    schema
+}
+
+impl TableFixture {
+    /// The source schema: table `row` with columns `c0..c{columns-1}`, each
+    /// a value vertex `row.c<i>` of kind `any` reached by the `prop` edge
+    /// named `c<i>`.
+    #[must_use]
+    pub fn source_schema(&self) -> Schema {
+        table_fixture_schema(self.columns, power(2, self.columns) - 1)
+    }
+
+    /// The target schema: the table and its retained columns.
+    #[must_use]
+    pub fn target_schema(&self) -> Schema {
+        table_fixture_schema(self.columns, self.retained)
+    }
+
+    /// The projection migration: every target vertex and edge survives as
+    /// itself.
+    #[must_use]
+    pub fn migration(&self) -> Migration {
+        let target = self.target_schema();
+        Migration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges,
+            ..Migration::default()
+        }
+    }
+}
+
+/// Every one-step edit of a table-fixture view: each cell of each view row
+/// set to each other member of [`table_cell_alphabet`] (absence included),
+/// each row removed, one fresh empty row at the least id not in the view and
+/// not reserved, and one empty row at each reserved id. Rows are taken in
+/// ascending id, columns in ascending name.
+#[must_use]
+pub fn table_view_edits(view: &Table, columns: &[String], reserved: &[u32]) -> Vec<Table> {
+    let mut out = Vec::new();
+    for (id, (table, cells)) in &view.rows {
+        for column in columns {
+            for value in table_cell_alphabet() {
+                if cells.get(column) == value.as_ref() {
+                    continue;
+                }
+                let mut edited = view.clone();
+                let mut row = cells.clone();
+                match value {
+                    Some(value) => {
+                        row.insert(column.clone(), value);
+                    }
+                    None => {
+                        row.remove(column);
+                    }
+                }
+                edited.rows.insert(*id, (table.clone(), row));
+                out.push(edited);
+            }
+        }
+    }
+    for id in view.rows.keys() {
+        let mut edited = view.clone();
+        edited.rows.remove(id);
+        edited.pairs.retain(|(_, s, t)| s != id && t != id);
+        out.push(edited);
+    }
+    let fresh = (0..u32::MAX)
+        .find(|id| !view.rows.contains_key(id) && !reserved.contains(id))
+        .unwrap_or(u32::MAX);
+    for id in std::iter::once(fresh).chain(reserved.iter().copied()) {
+        let mut edited = view.clone();
+        edited.rows.insert(id, ("row".to_owned(), BTreeMap::new()));
+        out.push(edited);
+    }
+    out
+}
+
+/// The count of [`table_view_edits`] for a view of `rows` rows with
+/// `filled` present cells in total over `columns` columns and `reserved`
+/// reserved ids: every cell has `6` alternatives, each row one removal,
+/// and `1 + reserved` row insertions.
+#[must_use]
+pub fn table_view_edits_count(rows: usize, columns: usize, reserved: usize) -> usize {
+    rows * columns * (table_cell_alphabet().len() - 1) + rows + 1 + reserved
+}
+
+/// Source column names of the table-writer carrier.
+pub const WRITER_SOURCES: [&str; 2] = ["x", "y"];
+/// Image choices of one writer source column: dropped, `a` or `b`.
+pub const WRITER_IMAGES: [Option<&str>; 3] = [None, Some("a"), Some("b")];
+/// Source cell values of the writer carrier.
+pub const WRITER_VALUES: [i64; 3] = [-1, 0, 1];
+/// Edited view cell values of the writer carrier.
+pub const WRITER_EDITS: [i64; 2] = [-2, 2];
+
+/// One writer case: a column mapping, a one-row source and, when present,
+/// one edited view cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WriterFixture {
+    /// Image of `x` and of `y`.
+    pub images: [Option<&'static str>; 2],
+    /// Source values of `x` and `y`.
+    pub values: [i64; 2],
+}
+
+impl WriterFixture {
+    /// The source schema: table `t` with int columns `t.x`, `t.y`.
+    #[must_use]
+    pub fn source_schema(&self) -> Schema {
+        writer_schema(&WRITER_SOURCES)
+    }
+
+    /// The target columns, ascending and without repetition.
+    #[must_use]
+    pub fn target_columns(&self) -> Vec<&'static str> {
+        let set: std::collections::BTreeSet<&'static str> =
+            self.images.iter().flatten().copied().collect();
+        set.into_iter().collect()
+    }
+
+    /// The target schema: table `t` with the image columns.
+    #[must_use]
+    pub fn target_schema(&self) -> Schema {
+        writer_schema(&self.target_columns())
+    }
+
+    /// The column mapping: `t.<s>` to `t.<image>` and the column edge to the
+    /// image column edge; a source column with no image is dropped.
+    #[must_use]
+    pub fn migration(&self) -> Migration {
+        let target = self.target_schema();
+        let mut migration = Migration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges,
+            ..Migration::default()
+        };
+        for (source, image) in WRITER_SOURCES.iter().zip(self.images) {
+            if let Some(image) = image
+                && image != *source
+            {
+                migration
+                    .vertex_remap
+                    .insert(format!("t.{source}"), format!("t.{image}"));
+                migration
+                    .edge_remap
+                    .insert(writer_edge(source), writer_edge(image));
+            }
+        }
+        migration
+    }
+
+    /// The one-row source: row 0 of `t` with `x` and `y`.
+    #[must_use]
+    pub fn source(&self) -> Table {
+        let mut table = Table::default();
+        table.rows.insert(
+            0,
+            (
+                "t".to_owned(),
+                BTreeMap::from([
+                    ("x".to_owned(), Value::Int(self.values[0])),
+                    ("y".to_owned(), Value::Int(self.values[1])),
+                ]),
+            ),
+        );
+        table
+    }
+}
+
+/// Kind of the writer carrier's column vertices.
+pub const WRITER_VALUE_KIND: &str = "int";
+
+fn writer_edge(column: &str) -> SEdge {
+    SEdge::new("t", &format!("t.{column}"), "prop", Some(column))
+}
+
+fn writer_schema(columns: &[&str]) -> Schema {
+    let mut schema = Schema::default().vertex("t", TABLE_FIXTURE_TABLE_KIND);
+    for column in columns {
+        schema = schema
+            .vertex(&format!("t.{column}"), WRITER_VALUE_KIND)
+            .edge("t", &format!("t.{column}"), "prop", Some(column));
+    }
+    schema
+}
+
+/// Stream every writer mapping and source row.
+pub fn for_each_writer_fixture(mut visit: impl FnMut(WriterFixture)) {
+    for x in WRITER_IMAGES {
+        for y in WRITER_IMAGES {
+            for x_value in WRITER_VALUES {
+                for y_value in WRITER_VALUES {
+                    visit(WriterFixture {
+                        images: [x, y],
+                        values: [x_value, y_value],
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Independent writer counts `(mappings, source rows, edited views)`: `3^2`
+/// mappings, `3^2` value pairs per mapping, and per mapping and source the
+/// number of distinct image columns times `|WRITER_EDITS|`. Over the nine
+/// mappings the distinct image columns number `0 + 4 + 2 + 2 * 2 = 10`, so
+/// the edited views number `9 * 10 * 2 = 180`.
+#[must_use]
+pub const fn writer_count_certificate() -> (usize, usize, usize) {
+    let mappings = WRITER_IMAGES.len() * WRITER_IMAGES.len();
+    let values = WRITER_VALUES.len() * WRITER_VALUES.len();
+    // Distinct image columns over the nine mappings: (None, None) has 0;
+    // the four with exactly one `None` have 1; (a, a) and (b, b) have 1;
+    // (a, b) and (b, a) have 2.
+    let distinct_images = 4 + 2 + 2 * 2;
+    (
+        mappings,
+        mappings * values,
+        values * distinct_images * WRITER_EDITS.len(),
+    )
 }
 
 /// Stream every expressible table fixture in the exact C11 alphabet.
@@ -1335,3 +1720,1101 @@ pub const C11_SCOPE_STATUS: C11ScopeStatus = C11ScopeStatus {
         C11MissingDimension::LensPathStageAndFusionAlphabet,
     ],
 };
+
+/// Vertex names of the C11 schema alphabet.
+pub const C11_VERTICES: [&str; 2] = ["a", "b"];
+/// Kind of every C11 schema vertex.
+pub const C11_VERTEX_KIND: &str = "obj";
+/// Kind of every C11 schema edge.
+pub const C11_EDGE_KIND: &str = "prop";
+/// Name of every C11 schema edge.
+pub const C11_EDGE_NAME: &str = "e";
+/// Most edges of a C11 schema.
+pub const C11_MAX_SCHEMA_EDGES: usize = 2;
+/// Most nodes of a C11 state.
+pub const C11_MAX_NODES: usize = 3;
+/// Most edges of a C11 graph state.
+pub const C11_MAX_EDGES: usize = 3;
+/// Most edges of a C11 fan state.
+pub const C11_MAX_FAN_EDGES: usize = 2;
+/// The one value a C11 node may hold (or hold none).
+pub const C11_VALUE: Value = Value::Int(0);
+/// The one field key of the C11 edit alphabet.
+pub const C11_FIELD: &str = "f";
+
+/// The C11 schema edge from `src` to `tgt`.
+#[must_use]
+pub fn c11_edge(src: &str, tgt: &str) -> SEdge {
+    SEdge::new(src, tgt, C11_EDGE_KIND, Some(C11_EDGE_NAME))
+}
+
+/// The C11 schema on `vertices` with `edges` given as vertex pairs.
+#[must_use]
+pub fn c11_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
+    let mut schema = Schema::default();
+    for vertex in vertices {
+        schema = schema.vertex(vertex, C11_VERTEX_KIND);
+    }
+    for (src, tgt) in edges {
+        schema.edges.insert(c11_edge(src, tgt));
+    }
+    schema
+}
+
+/// Every schema of the C11 alphabet: each subset of `{a, b}` as vertices,
+/// with each set of at most two of its ordered vertex pairs as edges, in
+/// ascending vertex-subset mask and then edge-subset order.
+#[must_use]
+pub fn sigma2_schemas() -> Vec<Schema> {
+    let mut out = Vec::new();
+    for mask in 0..power(2, C11_VERTICES.len()) {
+        let vertices: Vec<&str> = C11_VERTICES
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, vertex)| *vertex)
+            .collect();
+        let pairs: Vec<(&str, &str)> = vertices
+            .iter()
+            .flat_map(|src| vertices.iter().map(move |tgt| (*src, *tgt)))
+            .collect();
+        for edges in super::subsets(&pairs, C11_MAX_SCHEMA_EDGES) {
+            out.push(c11_schema(&vertices, &edges));
+        }
+    }
+    out
+}
+
+/// Independent count of [`sigma2_schemas`]:
+/// `sum_{V subset of {a,b}} sum_{j <= 2} C(|V|^2, j)`.
+#[must_use]
+pub fn sigma2_count() -> usize {
+    let mut total = 0;
+    for size in 0..=C11_VERTICES.len() {
+        let subsets = usize::try_from(super::choose(2, u64::try_from(size).unwrap_or(0)))
+            .unwrap_or(0);
+        let pairs = u64::try_from(size * size).unwrap_or(0);
+        let edge_sets: u64 = (0..=2).map(|j| super::choose(pairs, j)).sum();
+        total += subsets * usize::try_from(edge_sets).unwrap_or(0);
+    }
+    total
+}
+
+fn c11_node(id: usize, anchor: &str, valued: bool) -> Node {
+    let node = Node::new(bounded_id(id), anchor);
+    if valued {
+        node.with_value(C11_VALUE)
+    } else {
+        node
+    }
+}
+
+/// The typed edge candidates over nodes anchored at `anchors`: each
+/// `(src, tgt, label)` whose label is a schema edge from the source node's
+/// anchor to the target node's, in ascending source, target and label.
+fn typed_candidates(schema: &Schema, anchors: &[&str]) -> Vec<(usize, usize, SEdge)> {
+    let mut out = Vec::new();
+    for (src, src_anchor) in anchors.iter().enumerate() {
+        for (tgt, tgt_anchor) in anchors.iter().enumerate() {
+            for label in &schema.edges {
+                if label.src == *src_anchor && label.tgt == *tgt_anchor {
+                    out.push((src, tgt, label.clone()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every C11 graph state over `schema`: nodes `0..n-1` (`n <= 3`) anchored
+/// at the schema's vertices, each with no value or [`C11_VALUE`], and edges
+/// `0..m-1` (`m <= 3`), each one of the typed candidates (parallel edges,
+/// self-loops and two-cycles included). Labelled and unpruned.
+#[must_use]
+pub fn c11_graph_states(schema: &Schema) -> Vec<Graph> {
+    let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for nodes in 0..=C11_MAX_NODES {
+        for mut anchor_code in 0..power(vertices.len(), nodes) {
+            let anchors: Vec<&str> = (0..nodes)
+                .map(|_| {
+                    let anchor = vertices[anchor_code % vertices.len()];
+                    anchor_code /= vertices.len();
+                    anchor
+                })
+                .collect();
+            let candidates = typed_candidates(schema, &anchors);
+            for values in 0..power(2, nodes) {
+                let mut base = Graph::default();
+                for (id, anchor) in anchors.iter().enumerate() {
+                    base.nodes
+                        .insert(bounded_id(id), c11_node(id, anchor, values & (1 << id) != 0));
+                }
+                for edges in 0..=C11_MAX_EDGES {
+                    for mut code in 0..power(candidates.len(), edges) {
+                        let mut graph = base.clone();
+                        for id in 0..edges {
+                            let (src, tgt, label) = &candidates[code % candidates.len()];
+                            code /= candidates.len();
+                            graph.edges.insert(
+                                bounded_id(id),
+                                GEdge {
+                                    src: bounded_id(*src),
+                                    tgt: bounded_id(*tgt),
+                                    label: label.clone(),
+                                    position: None,
+                                },
+                            );
+                        }
+                        out.push(graph);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`c11_graph_states`] by anchor multiplicities:
+/// `sum_n sum_{k_a + k_b = n} n! / (k_a! k_b!) * 2^n * sum_{m <= 3} c^m`
+/// with `c = sum_{(x, y) in E} k_x k_y`.
+#[must_use]
+pub fn c11_graph_state_count(schema: &Schema) -> usize {
+    let vertices: Vec<&String> = schema.vertices.keys().collect();
+    let mut total = 0;
+    for nodes in 0..=C11_MAX_NODES {
+        for split in multiplicities(vertices.len(), nodes) {
+            let arrangements = multinomial(nodes, &split);
+            let typed: usize = schema
+                .edges
+                .iter()
+                .map(|edge| {
+                    let index = |v: &str| vertices.iter().position(|x| x.as_str() == v);
+                    match (index(&edge.src), index(&edge.tgt)) {
+                        (Some(s), Some(t)) => split[s] * split[t],
+                        _ => 0,
+                    }
+                })
+                .sum();
+            let edge_sets: usize = (0..=C11_MAX_EDGES).map(|m| power(typed, m)).sum();
+            total += arrangements * power(2, nodes) * edge_sets;
+        }
+    }
+    total
+}
+
+/// Every vector of `parts` naturals summing to `total`.
+fn multiplicities(parts: usize, total: usize) -> Vec<Vec<usize>> {
+    if parts == 0 {
+        return if total == 0 { vec![Vec::new()] } else { Vec::new() };
+    }
+    let mut out = Vec::new();
+    for first in 0..=total {
+        for mut rest in multiplicities(parts - 1, total - first) {
+            rest.insert(0, first);
+            out.push(rest);
+        }
+    }
+    out
+}
+
+const fn factorial(n: usize) -> usize {
+    let mut result = 1;
+    let mut k = 2;
+    while k <= n {
+        result *= k;
+        k += 1;
+    }
+    result
+}
+
+fn multinomial(total: usize, split: &[usize]) -> usize {
+    split
+        .iter()
+        .fold(factorial(total), |acc, part| acc / factorial(*part))
+}
+
+/// Every C11 tree state over `schema`: ordered rooted trees on nodes
+/// `0..n-1` (`1 <= n <= 3`) with every root, every sibling order, every
+/// anchoring in the schema's vertices, every value choice and, for each arc,
+/// every schema edge from the parent's anchor to the child's. Arcs are listed
+/// by ascending parent and, within one parent, in sibling order. No fans.
+#[must_use]
+pub fn c11_tree_states(schema: &Schema) -> Vec<Tree> {
+    let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for nodes in 1..=C11_MAX_NODES {
+        for shape in plane_trees(nodes) {
+            for mut anchor_code in 0..power(vertices.len(), nodes) {
+                let anchors: Vec<&str> = (0..nodes)
+                    .map(|_| {
+                        let anchor = vertices[anchor_code % vertices.len()];
+                        anchor_code /= vertices.len();
+                        anchor
+                    })
+                    .collect();
+                let labels: Vec<Vec<SEdge>> = shape
+                    .arcs
+                    .iter()
+                    .map(|(parent, child)| {
+                        schema
+                            .edges
+                            .iter()
+                            .filter(|edge| edge.src == anchors[*parent] && edge.tgt == anchors[*child])
+                            .cloned()
+                            .collect()
+                    })
+                    .collect();
+                let label_choices: usize = labels.iter().map(Vec::len).product();
+                for mut label_code in 0..label_choices {
+                    let mut arcs = Vec::new();
+                    for ((parent, child), choices) in shape.arcs.iter().zip(&labels) {
+                        arcs.push((
+                            bounded_id(*parent),
+                            bounded_id(*child),
+                            choices[label_code % choices.len()].clone(),
+                        ));
+                        label_code /= choices.len();
+                    }
+                    for values in 0..power(2, nodes) {
+                        let mut tree = Tree {
+                            nodes: BTreeMap::new(),
+                            arcs: arcs.clone(),
+                            fans: Vec::new(),
+                            root: bounded_id(shape.root),
+                        };
+                        for (id, anchor) in anchors.iter().enumerate() {
+                            tree.nodes.insert(
+                                bounded_id(id),
+                                c11_node(id, anchor, values & (1 << id) != 0),
+                            );
+                        }
+                        out.push(tree);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A labelled plane rooted tree: a root and its arcs, listed by ascending
+/// parent and, within one parent, in sibling order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlaneTree {
+    root: usize,
+    arcs: Vec<(usize, usize)>,
+}
+
+/// Every labelled plane rooted tree on `0..n-1`.
+fn plane_trees(nodes: usize) -> Vec<PlaneTree> {
+    let mut out = Vec::new();
+    for root in 0..nodes {
+        let others: Vec<usize> = (0..nodes).filter(|node| *node != root).collect();
+        for mut code in 0..power(nodes, others.len()) {
+            let parent: BTreeMap<usize, usize> = others
+                .iter()
+                .map(|child| {
+                    let p = code % nodes;
+                    code /= nodes;
+                    (*child, p)
+                })
+                .collect();
+            let reaches_root = |start: usize| {
+                let mut at = start;
+                for _ in 0..nodes {
+                    if at == root {
+                        return true;
+                    }
+                    at = parent[&at];
+                }
+                at == root
+            };
+            if others.iter().any(|child| parent[child] == *child || !reaches_root(*child)) {
+                continue;
+            }
+            let children: Vec<Vec<usize>> = (0..nodes)
+                .map(|p| others.iter().copied().filter(|c| parent[c] == p).collect())
+                .collect();
+            for orders in sibling_orders(&children) {
+                let arcs = orders
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(p, kids)| kids.iter().map(move |c| (p, *c)))
+                    .collect();
+                out.push(PlaneTree { root, arcs });
+            }
+        }
+    }
+    out
+}
+
+/// Every choice of a permutation of each parent's children.
+fn sibling_orders(children: &[Vec<usize>]) -> Vec<Vec<Vec<usize>>> {
+    let mut out = vec![Vec::new()];
+    for kids in children {
+        let mut next = Vec::new();
+        for prefix in &out {
+            for order in permutations(kids) {
+                let mut extended: Vec<Vec<usize>> = prefix.clone();
+                extended.push(order);
+                next.push(extended);
+            }
+        }
+        out = next;
+    }
+    out
+}
+
+fn permutations(items: &[usize]) -> Vec<Vec<usize>> {
+    if items.is_empty() {
+        return vec![Vec::new()];
+    }
+    let mut out = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let mut rest = items.to_vec();
+        rest.remove(index);
+        for mut tail in permutations(&rest) {
+            tail.insert(0, *item);
+            out.push(tail);
+        }
+    }
+    out
+}
+
+/// Independent count of [`c11_tree_states`] by tree shape, with `w(x, y)`
+/// the number of schema edges from `x` to `y`:
+/// `2 |V| + 2 * 4 sum w(x,y) + 8 (6 sum w(x,y) w(y,z) + 6 sum w(x,y) w(x,z))`
+/// (one node; root and child; a path; a root with two ordered children,
+/// over every labelling of the nodes).
+#[must_use]
+pub fn c11_tree_state_count(schema: &Schema) -> usize {
+    let vertices: Vec<&String> = schema.vertices.keys().collect();
+    let w = |x: &str, y: &str| {
+        schema
+            .edges
+            .iter()
+            .filter(|edge| edge.src == x && edge.tgt == y)
+            .count()
+    };
+    let mut pairs = 0;
+    let mut paths = 0;
+    let mut cherries = 0;
+    for x in &vertices {
+        for y in &vertices {
+            pairs += w(x, y);
+            for z in &vertices {
+                paths += w(x, y) * w(y, z);
+                cherries += w(x, y) * w(x, z);
+            }
+        }
+    }
+    2 * vertices.len() + 2 * 4 * pairs + 8 * (6 * paths + 6 * cherries)
+}
+
+/// The fan schema: vertices `a`, `b` and the hyper-edge `h` of kind `fan`
+/// with signature `{p -> a, l -> b}` and parent label `p`.
+#[must_use]
+pub fn c11_fan_schema() -> Schema {
+    let mut schema = c11_schema(&["a", "b"], &[]);
+    schema.hyper_edges.insert(
+        "h".to_owned(),
+        crate::schema::HyperEdge {
+            kind: "fan".to_owned(),
+            signature: BTreeMap::from([
+                ("l".to_owned(), "b".to_owned()),
+                ("p".to_owned(), "a".to_owned()),
+            ]),
+            parent_label: "p".to_owned(),
+        },
+    );
+    schema
+}
+
+/// The two reserved fan labels of the fan states: the parent edge of `h`
+/// into `a`, and the child edge `l` of `h` into `b`.
+#[must_use]
+pub fn c11_fan_labels() -> [SEdge; 2] {
+    [
+        SEdge::new("h", "a", crate::restrict::HYPER_PARENT, Some("p")),
+        SEdge::new("h", "b", crate::restrict::HYPER_LABEL, Some("l")),
+    ]
+}
+
+/// Every C11 fan state: nodes `0..n-1` (`n <= 3`) anchored at `a`, `b` or
+/// `h` (an `h` node has the hyper-edge shape), no values, and edges
+/// `0..m-1` (`m <= 2`) with any endpoints and either fan label: every
+/// well-formed one-child fan and every malformed fan of the bound.
+#[must_use]
+pub fn c11_fan_states() -> Vec<Graph> {
+    let anchors = ["a", "b", "h"];
+    let labels = c11_fan_labels();
+    let mut out = Vec::new();
+    for nodes in 0..=C11_MAX_NODES {
+        for mut code in 0..power(anchors.len(), nodes) {
+            let mut base = Graph::default();
+            for id in 0..nodes {
+                let anchor = anchors[code % anchors.len()];
+                code /= anchors.len();
+                let mut node = Node::new(bounded_id(id), anchor);
+                if anchor == "h" {
+                    node.shape = NodeShape::HyperEdge;
+                }
+                base.nodes.insert(bounded_id(id), node);
+            }
+            let choices = nodes * nodes * labels.len();
+            for edges in 0..=C11_MAX_FAN_EDGES {
+                for mut edge_code in 0..power(choices, edges) {
+                    let mut graph = base.clone();
+                    for id in 0..edges {
+                        let choice = edge_code % choices;
+                        edge_code /= choices;
+                        graph.edges.insert(
+                            bounded_id(id),
+                            GEdge {
+                                src: bounded_id(choice / (nodes * labels.len())),
+                                tgt: bounded_id((choice / labels.len()) % nodes),
+                                label: labels[choice % labels.len()].clone(),
+                                position: None,
+                            },
+                        );
+                    }
+                    out.push(graph);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`c11_fan_states`]:
+/// `sum_{n <= 3} 3^n sum_{m <= 2} (2 n^2)^m`.
+#[must_use]
+pub const fn c11_fan_state_count() -> usize {
+    let mut total = 0;
+    let mut n = 0;
+    while n <= C11_MAX_NODES {
+        let mut edge_sets = 0;
+        let mut m = 0;
+        while m <= C11_MAX_FAN_EDGES {
+            edge_sets += power(2 * n * n, m);
+            m += 1;
+        }
+        total += power(3, n) * edge_sets;
+        n += 1;
+    }
+    total
+}
+
+/// The value layer of a C11 stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum C11Layer {
+    /// No survival predicate and no transform.
+    None,
+    /// The survival predicate `false` on vertex `a`.
+    SurvivalFalse,
+    /// The transform adding field [`C11_FIELD`] with [`C11_VALUE`] on `a`.
+    AddField,
+}
+
+/// One atomic stage of the C11 stage alphabet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct C11Stage {
+    /// Stable stage name.
+    pub name: String,
+    /// Source schema.
+    pub source: Schema,
+    /// Target schema.
+    pub target: Schema,
+    /// Migration.
+    pub migration: Migration,
+    /// Value layer.
+    pub layer: C11Layer,
+}
+
+fn identity_migration(schema: &Schema) -> Migration {
+    Migration {
+        surviving_verts: schema.vertices.keys().cloned().collect(),
+        surviving_edges: schema.edges.clone(),
+        ..Migration::default()
+    }
+}
+
+fn stage(name: &str, source: Schema, target: Schema, migration: Migration, layer: C11Layer) -> C11Stage {
+    C11Stage {
+        name: name.to_owned(),
+        source,
+        target,
+        migration,
+        layer,
+    }
+}
+
+/// The 28 atomic stages of the C11 stage alphabet: the identity on every
+/// schema of [`sigma2_schemas`] (16) and on [`c11_fan_schema`], then `P`,
+/// `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`, `Ext` and `B`.
+#[must_use]
+pub fn c11_stages() -> Vec<C11Stage> {
+    let mut out: Vec<C11Stage> = sigma2_schemas()
+        .into_iter()
+        .enumerate()
+        .map(|(index, schema)| {
+            let migration = identity_migration(&schema);
+            stage(&format!("Id{index}"), schema.clone(), schema, migration, C11Layer::None)
+        })
+        .collect();
+    let fan = c11_fan_schema();
+    out.push(stage("Id_h", fan.clone(), fan.clone(), identity_migration(&fan), C11Layer::None));
+    let ab = c11_schema(&["a", "b"], &[("a", "b")]);
+    let a = c11_schema(&["a"], &[]);
+    out.push(stage(
+        "P",
+        ab.clone(),
+        a.clone(),
+        Migration {
+            surviving_verts: ["a".to_owned()].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    let bare = c11_schema(&["a", "b"], &[]);
+    out.push(stage(
+        "D",
+        ab.clone(),
+        bare.clone(),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    out.push(stage(
+        "R",
+        a.clone(),
+        c11_schema(&["b"], &[]),
+        Migration {
+            surviving_verts: ["b".to_owned()].into(),
+            vertex_remap: [("a".to_owned(), "b".to_owned())].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    out.push(stage(
+        "W",
+        ab.clone(),
+        c11_schema(&["a", "b"], &[("b", "a")]),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            surviving_edges: [c11_edge("b", "a")].into(),
+            vertex_remap: [
+                ("a".to_owned(), "b".to_owned()),
+                ("b".to_owned(), "a".to_owned()),
+            ]
+            .into(),
+            edge_remap: [(c11_edge("a", "b"), c11_edge("b", "a"))].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    out.push(stage(
+        "C",
+        c11_schema(&["a", "b"], &[("a", "b"), ("b", "a")]),
+        c11_schema(&["a"], &[("a", "a")]),
+        Migration {
+            surviving_verts: ["a".to_owned()].into(),
+            resolver: [(("a".to_owned(), "a".to_owned()), c11_edge("a", "a"))].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    out.push(stage(
+        "X",
+        ab.clone(),
+        c11_schema(&["a", "b"], &[("a", "b"), ("b", "b")]),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            surviving_edges: [c11_edge("a", "b")].into(),
+            expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["b".to_owned()])].into(),
+            ..Migration::default()
+        },
+        C11Layer::None,
+    ));
+    let mut retarget = identity_migration(&fan);
+    retarget.hyper_resolver.insert(
+        ("h".to_owned(), ["l".to_owned()].into()),
+        ("h".to_owned(), [("l".to_owned(), "l".to_owned())].into()),
+    );
+    out.push(stage("H", fan.clone(), fan, retarget, C11Layer::None));
+    let mut predicate = identity_migration(&a);
+    predicate.conditional.insert("a".to_owned());
+    out.push(stage("Q", a.clone(), a.clone(), predicate, C11Layer::SurvivalFalse));
+    let mut transform = identity_migration(&a);
+    transform.transformed.insert("a".to_owned());
+    out.push(stage("T", a.clone(), a, transform, C11Layer::AddField));
+    out.push(stage(
+        "Ext",
+        bare.clone(),
+        ab.clone(),
+        identity_migration(&bare),
+        C11Layer::None,
+    ));
+    let mut incoherent = identity_migration(&ab);
+    incoherent
+        .edge_remap
+        .insert(c11_edge("a", "b"), c11_edge("b", "a"));
+    out.push(stage("B", ab.clone(), ab, incoherent, C11Layer::None));
+    out
+}
+
+/// The survival-predicate value layer of stage `Q`: every node anchored at
+/// a vertex with a predicate fails it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct C11SurvivalFalse;
+
+impl crate::restrict::ValueLayer for C11SurvivalFalse {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/c11-survival-false",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(
+        &self,
+        _: &Graph,
+        _: &Node,
+    ) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(false)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        Ok((node.fields.clone(), node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        Ok((
+            original_fields.cloned().unwrap_or_else(|| view.fields.clone()),
+            original_value.cloned().unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+/// The transform value layer of stage `T`: get adds field [`C11_FIELD`]
+/// with [`C11_VALUE`]; put requires that field unedited and removes it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct C11AddField;
+
+impl crate::restrict::ValueLayer for C11AddField {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/c11-add-field",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(
+        &self,
+        _: &Graph,
+        _: &Node,
+    ) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        if view.fields.get(C11_FIELD) != Some(&C11_VALUE) {
+            return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
+                field: C11_FIELD.to_owned(),
+            });
+        }
+        let mut restored = view.fields.clone();
+        restored.remove(C11_FIELD);
+        Ok((
+            original_fields.cloned().unwrap_or(restored),
+            original_value.cloned().unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+/// One one-step edit of a C11 view: its family and the edited view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct C11Edit {
+    /// The Single-Step Basis family.
+    pub mutation: crate::lens::Mutation,
+    /// The edited view.
+    pub view: Graph,
+}
+
+fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>) -> u32 {
+    let taken: std::collections::BTreeSet<u32> = taken.copied().collect();
+    (0..u32::MAX).find(|id| !taken.contains(id)).unwrap_or(u32::MAX)
+}
+
+/// Every one-step edit of a C11 graph view `view` over `target`, against
+/// the complement `complement`, in Single-Step Basis family order: value
+/// toggles, field toggles, a fresh node at each target vertex, node
+/// removals (with incident edges), node relabels, a fresh edge for each
+/// typed candidate, edge removals, reconnections, edge relabels, then the
+/// negative families (synthesized removals and value edits, a node and an
+/// edge at each reserved id, and for fan states each fan edge removed).
+///
+/// A fresh node or edge takes the least id that is neither in the view,
+/// nor reserved, nor synthesized in the complement.
+#[must_use]
+pub fn c11_graph_edits(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> Vec<C11Edit> {
+    use crate::lens::Mutation as M;
+    let mut out = Vec::new();
+    let mut push = |mutation: M, view: Graph| out.push(C11Edit { mutation, view });
+    let anchors: Vec<&str> = target.vertices.keys().map(String::as_str).collect();
+    let synthesized = |id: &u32| complement.synthesized_nodes.contains_key(id);
+    for (id, node) in &view.nodes {
+        if synthesized(id) {
+            continue;
+        }
+        let mut edited = view.clone();
+        let target_node = edited.nodes.get_mut(id).unwrap_or_else(|| unreachable!());
+        target_node.value = if node.value.is_some() {
+            None
+        } else {
+            Some(crate::value::Presence::Present(C11_VALUE))
+        };
+        push(M::ValueEdit, edited);
+    }
+    for (id, node) in &view.nodes {
+        if synthesized(id) {
+            continue;
+        }
+        let mut edited = view.clone();
+        let fields = &mut edited.nodes.get_mut(id).unwrap_or_else(|| unreachable!()).fields;
+        if node.fields.contains_key(C11_FIELD) {
+            fields.remove(C11_FIELD);
+        } else {
+            fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+        }
+        push(M::FieldEdit, edited);
+    }
+    let fresh_node = fresh_id(
+        view.nodes
+            .keys()
+            .chain(complement.dropped_nodes.keys())
+            .chain(complement.synthesized_nodes.keys()),
+    );
+    for anchor in &anchors {
+        let mut edited = view.clone();
+        edited.nodes.insert(fresh_node, Node::new(fresh_node, anchor));
+        push(M::AddNode, edited);
+    }
+    for id in view.nodes.keys() {
+        if synthesized(id) {
+            continue;
+        }
+        let mut edited = view.clone();
+        edited.nodes.remove(id);
+        edited.edges.retain(|_, edge| edge.src != *id && edge.tgt != *id);
+        push(M::RemoveNode, edited);
+    }
+    for (id, node) in &view.nodes {
+        if synthesized(id) {
+            continue;
+        }
+        for anchor in &anchors {
+            if *anchor == node.anchor {
+                continue;
+            }
+            let mut edited = view.clone();
+            edited.nodes.get_mut(id).unwrap_or_else(|| unreachable!()).anchor = (*anchor).to_owned();
+            push(M::RelabelNode, edited);
+        }
+    }
+    let fresh_edge = fresh_id(
+        view.edges
+            .keys()
+            .chain(complement.dropped_edges.keys())
+            .chain(complement.synthesized_edges.keys()),
+    );
+    let typed = |src: u32, tgt: u32| -> Vec<SEdge> {
+        let (Some(s), Some(t)) = (view.nodes.get(&src), view.nodes.get(&tgt)) else {
+            return Vec::new();
+        };
+        target
+            .edges
+            .iter()
+            .filter(|edge| edge.src == s.anchor && edge.tgt == t.anchor)
+            .cloned()
+            .collect()
+    };
+    for src in view.nodes.keys() {
+        for tgt in view.nodes.keys() {
+            for label in typed(*src, *tgt) {
+                let mut edited = view.clone();
+                edited.edges.insert(
+                    fresh_edge,
+                    GEdge {
+                        src: *src,
+                        tgt: *tgt,
+                        label,
+                        position: None,
+                    },
+                );
+                push(M::AddEdge, edited);
+            }
+        }
+    }
+    let synthesized_edge = |id: &u32| complement.synthesized_edges.contains_key(id);
+    for id in view.edges.keys() {
+        if synthesized_edge(id) {
+            continue;
+        }
+        let mut edited = view.clone();
+        edited.edges.remove(id);
+        push(M::RemoveEdge, edited);
+    }
+    for (id, edge) in &view.edges {
+        if synthesized_edge(id) {
+            continue;
+        }
+        for src in view.nodes.keys() {
+            for tgt in view.nodes.keys() {
+                if (*src, *tgt) == (edge.src, edge.tgt) || !typed(*src, *tgt).contains(&edge.label) {
+                    continue;
+                }
+                let mut edited = view.clone();
+                let moved = edited.edges.get_mut(id).unwrap_or_else(|| unreachable!());
+                moved.src = *src;
+                moved.tgt = *tgt;
+                push(M::Reconnect, edited);
+            }
+        }
+    }
+    for (id, edge) in &view.edges {
+        if synthesized_edge(id) {
+            continue;
+        }
+        for label in typed(edge.src, edge.tgt) {
+            if label == edge.label {
+                continue;
+            }
+            let mut edited = view.clone();
+            edited.edges.get_mut(id).unwrap_or_else(|| unreachable!()).label = label;
+            push(M::RelabelEdge, edited);
+        }
+    }
+    for id in complement.synthesized_nodes.keys() {
+        if view.nodes.contains_key(id) {
+            let mut removed = view.clone();
+            removed.nodes.remove(id);
+            removed.edges.retain(|_, edge| edge.src != *id && edge.tgt != *id);
+            push(M::RemoveSynthesized, removed);
+        }
+    }
+    for id in complement.synthesized_edges.keys() {
+        if view.edges.contains_key(id) {
+            let mut removed = view.clone();
+            removed.edges.remove(id);
+            push(M::RemoveSynthesized, removed);
+        }
+    }
+    for id in complement.synthesized_nodes.keys() {
+        if let Some(node) = view.nodes.get(id) {
+            let mut edited = view.clone();
+            edited.nodes.get_mut(id).unwrap_or_else(|| unreachable!()).value = if node.value.is_some() {
+                None
+            } else {
+                Some(crate::value::Presence::Present(C11_VALUE))
+            };
+            push(M::EditSynthesized, edited);
+        }
+    }
+    for (id, dropped) in &complement.dropped_nodes {
+        let mut edited = view.clone();
+        edited.nodes.insert(*id, Node::new(*id, &dropped.anchor));
+        push(M::ReservedIdReuse, edited);
+    }
+    for (id, dropped) in &complement.dropped_edges {
+        if view.nodes.contains_key(&dropped.src) && view.nodes.contains_key(&dropped.tgt) {
+            let mut edited = view.clone();
+            edited.edges.insert(*id, dropped.clone());
+            push(M::ReservedIdReuse, edited);
+        }
+    }
+    for (id, edge) in &view.edges {
+        if crate::restrict::is_fan_kind(&edge.label.kind) {
+            let mut edited = view.clone();
+            edited.edges.remove(id);
+            push(M::MalformedFan, edited);
+        }
+    }
+    out
+}
+
+/// Independent per-view count of [`c11_graph_edits`], from the sizes of the
+/// view and complement: for `n` non-synthesized nodes, `t` target vertices,
+/// typed candidate count `c`, and so on, the sum of the family sizes.
+#[must_use]
+pub fn c11_graph_edit_count(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> usize {
+    let plain_nodes: Vec<&Node> = view
+        .nodes
+        .iter()
+        .filter(|(id, _)| !complement.synthesized_nodes.contains_key(id))
+        .map(|(_, node)| node)
+        .collect();
+    let n = plain_nodes.len();
+    let t = target.vertices.len();
+    let typed_count = |src: &Node, tgt: &Node| {
+        target
+            .edges
+            .iter()
+            .filter(|edge| edge.src == src.anchor && edge.tgt == tgt.anchor)
+            .count()
+    };
+    let all_nodes: Vec<&Node> = view.nodes.values().collect();
+    let candidates: usize = all_nodes
+        .iter()
+        .map(|s| all_nodes.iter().map(|t| typed_count(s, t)).sum::<usize>())
+        .sum();
+    let plain_edges: Vec<&GEdge> = view
+        .edges
+        .iter()
+        .filter(|(id, _)| !complement.synthesized_edges.contains_key(id))
+        .map(|(_, edge)| edge)
+        .collect();
+    let mut reconnects = 0;
+    let mut relabels = 0;
+    for edge in &plain_edges {
+        let pairs = all_nodes
+            .iter()
+            .flat_map(|s| all_nodes.iter().map(move |t| (*s, *t)))
+            .filter(|(s, t)| s.anchor == edge.label.src && t.anchor == edge.label.tgt && target.edges.contains(&edge.label))
+            .count();
+        reconnects += pairs.saturating_sub(1);
+        let (Some(s), Some(t)) = (view.nodes.get(&edge.src), view.nodes.get(&edge.tgt)) else {
+            continue;
+        };
+        relabels += typed_count(s, t).saturating_sub(usize::from(target.edges.contains(&edge.label)));
+    }
+    let relabel_nodes: usize = plain_nodes
+        .iter()
+        .map(|node| t - usize::from(target.vertices.contains_key(&node.anchor)))
+        .sum();
+    let synth_nodes = complement
+        .synthesized_nodes
+        .keys()
+        .filter(|id| view.nodes.contains_key(id))
+        .count();
+    let synth_edges = complement
+        .synthesized_edges
+        .keys()
+        .filter(|id| view.edges.contains_key(id))
+        .count();
+    let reserved_edges = complement
+        .dropped_edges
+        .values()
+        .filter(|edge| view.nodes.contains_key(&edge.src) && view.nodes.contains_key(&edge.tgt))
+        .count();
+    let fan_edges = view
+        .edges
+        .values()
+        .filter(|edge| crate::restrict::is_fan_kind(&edge.label.kind))
+        .count();
+    2 * n
+        + t
+        + n
+        + relabel_nodes
+        + candidates
+        + plain_edges.len()
+        + reconnects
+        + relabels
+        + 2 * synth_nodes
+        + synth_edges
+        + complement.dropped_nodes.len()
+        + reserved_edges
+        + fan_edges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        PartialLens, partial_lens_count_certificate, partial_lens_histogram,
+        writer_count_certificate,
+    };
+
+    /// `GetPut` and `WeakPutGet` do not imply `PutTwice`: put `(1, 2)` gives
+    /// source 0, whose complement is 0, and put `(1, 0)` is undefined.
+    #[test]
+    fn put_twice_is_not_implied_by_get_put_and_weak_put_get() {
+        let counterexample = PartialLens {
+            get: [(0, 0), (0, 1)],
+            put: [Some(0), Some(1), Some(0), None, Some(1), Some(0)],
+        };
+        assert!(counterexample.get_put());
+        assert!(counterexample.weak_put_get());
+        assert!(!counterexample.put_twice());
+        assert_eq!(counterexample.put(1, 2), Some(0));
+        assert_eq!(counterexample.get_table()[0], (0, 0));
+        assert_eq!(counterexample.put(1, 0), None);
+    }
+
+    #[test]
+    fn the_partial_lens_histogram_is_exact() {
+        let histogram = partial_lens_histogram();
+        assert_eq!(histogram.total, partial_lens_count_certificate());
+        assert_eq!(histogram.total, 21_870);
+        assert_eq!(histogram.get_put, 2_430);
+        assert_eq!(histogram.weak_put_get, 5_388);
+        assert_eq!(histogram.exact_put_get, 1_476);
+        assert_eq!(histogram.put_twice, 3_942);
+        assert_eq!(histogram.get_put_and_weak_put_get, 1_104);
+        assert_eq!(histogram.get_put_and_weak_put_get_without_put_twice, 312);
+        assert_eq!(histogram.get_put_and_exact_put_get_without_put_twice, 0);
+    }
+
+    #[test]
+    fn the_writer_carrier_has_its_certified_counts() {
+        assert_eq!(writer_count_certificate(), (9, 81, 180));
+    }
+}

@@ -2755,18 +2755,13 @@ where
         if !matches!(candidate.domain, DomainExpectation::Admitted) {
             continue;
         }
-        cases += 1;
-        let restored = match S::put(lens, &candidate.view, complement, context) {
-            Ok(restored) => restored,
-            Err(refusal) => {
-                return failed_refusal(
-                    LawGate::PutGet,
-                    candidate.ordinal,
-                    LawOperation::Put,
-                    refusal,
-                );
-            }
+        // A put refused on an admitted candidate is a Totality failure, which
+        // the later dedicated gate reports; PutGet compares only views that
+        // put accepts.
+        let Ok(restored) = S::put(lens, &candidate.view, complement, context) else {
+            continue;
         };
+        cases += 1;
         let (observed, observed_complement) = match S::get(lens, &restored, context) {
             Ok(observed) => observed,
             Err(refusal) => {
