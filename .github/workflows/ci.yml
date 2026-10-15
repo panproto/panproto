@@ -112,9 +112,10 @@ jobs:
         with:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
-      # The `ci` nextest profile skips the two multi-minute full-corpus emit
-      # gates; they run in the scheduled `corpus-gate` workflow (and locally by
-      # default). See `.config/nextest.toml`.
+      # The `ci` nextest profile skips the whole-corpus gates and the exact O14
+      # certificates. The former run in the scheduled `corpus-gate` workflow;
+      # the latter run as persisted graph-parity acceptance gates. Every test
+      # still runs locally by default. See `.config/nextest.toml`.
       #
       # Full DWARF is the bulk of what a debug build writes, and 250
       # vendored grammars make that enormous. `line-tables-only` keeps
