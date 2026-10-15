@@ -1585,3 +1585,1800 @@ pub fn carrier_graphs() -> Vec<Graph> {
 pub fn carrier_graphs_count() -> u64 {
     super::graphs_count(2, 3, 1, 2, 2, 2, 2)
 }
+
+// ---------------------------------------------------------------------------
+// O7's graph-Kan scopes: hand-written relational specs, their labelled
+// graphs, the adjunction family with the relation-merge cases, the hom
+// families and the encoding refusals.
+// ---------------------------------------------------------------------------
+
+/// A relational spec written out by hand.
+///
+/// Its tables in order, each with its
+/// columns `(column, kind of the column's value vertex)`, its relations, and
+/// its inner value edges `(source vertex, target vertex, name, target kind)`,
+/// an empty name standing for an unnamed edge. The value vertex of column
+/// `c` of table `t` is `t.c`; attribute arrows, relations and inner edges
+/// have kind `prop`, tables kind `record`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GraphSpec {
+    /// Tables with their `(column, value kind)` columns.
+    pub tables: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+    /// Relation arrows.
+    pub relations: Vec<SEdge>,
+    /// Inner value edges `(source vertex, target vertex, name, target kind)`.
+    pub inner: Vec<(&'static str, &'static str, &'static str, &'static str)>,
+}
+
+/// The value kinds of the graph specs, all classified as values.
+pub const GRAPH_SPEC_VALUE_KINDS: [&str; 3] = ["int", "str", "value"];
+
+/// The table kind of the graph specs.
+pub const GRAPH_SPEC_TABLE_KIND: &str = "record";
+
+/// A relation or attribute arrow of kind `prop` named `name`.
+#[must_use]
+pub fn prop_edge(src: &str, tgt: &str, name: &str) -> SEdge {
+    SEdge::new(src, tgt, "prop", Some(name))
+}
+
+/// An inner value edge of kind `prop`; the empty name stands for an unnamed
+/// edge.
+#[must_use]
+pub fn inner_prop_edge(src: &str, tgt: &str, name: &str) -> SEdge {
+    SEdge::new(src, tgt, "prop", (!name.is_empty()).then_some(name))
+}
+
+impl GraphSpec {
+    /// The attribute arrow of column `column` of `table`.
+    #[must_use]
+    pub fn column_edge(table: &str, column: &str) -> SEdge {
+        prop_edge(table, &format!("{table}.{column}"), column)
+    }
+
+    /// The inner value edges as schema edges.
+    #[must_use]
+    pub fn inner_edges(&self) -> Vec<SEdge> {
+        self.inner
+            .iter()
+            .map(|(src, tgt, name, _)| inner_prop_edge(src, tgt, name))
+            .collect()
+    }
+
+    /// The graph schema of the spec.
+    #[must_use]
+    pub fn schema(&self) -> Schema {
+        let mut schema = Schema::default();
+        for (table, columns) in &self.tables {
+            schema
+                .vertices
+                .insert((*table).to_owned(), GRAPH_SPEC_TABLE_KIND.to_owned());
+            for (column, kind) in columns {
+                schema
+                    .vertices
+                    .insert(format!("{table}.{column}"), (*kind).to_owned());
+                schema.edges.insert(Self::column_edge(table, column));
+            }
+        }
+        for (_, tgt, _, kind) in &self.inner {
+            schema
+                .vertices
+                .entry((*tgt).to_owned())
+                .or_insert_with(|| (*kind).to_owned());
+        }
+        schema.edges.extend(self.relations.iter().cloned());
+        schema.edges.extend(self.inner_edges());
+        schema
+    }
+
+    /// The tables of the spec.
+    #[must_use]
+    pub fn table_names(&self) -> BTreeSet<String> {
+        self.tables
+            .iter()
+            .map(|(table, _)| (*table).to_owned())
+            .collect()
+    }
+
+    /// The relations of the spec.
+    #[must_use]
+    pub fn relation_set(&self) -> BTreeSet<SEdge> {
+        self.relations.iter().cloned().collect()
+    }
+
+    fn table_index(&self, name: &str) -> Option<usize> {
+        self.tables.iter().position(|(table, _)| *table == name)
+    }
+}
+
+/// Every vector of per-table node counts with sum at most `max`, the first
+/// table varying slowest.
+fn compositions(tables: usize, max: usize) -> Vec<Vec<usize>> {
+    product(&vec![(0..=max).collect::<Vec<_>>(); tables])
+        .into_iter()
+        .filter(|counts| counts.iter().sum::<usize>() <= max)
+        .collect()
+}
+
+/// The cell slots `(owner, table, column)` of a graph of `spec` with
+/// `counts[i]` nodes at its `i`th table, each table's nodes, and the number
+/// of table nodes. Table nodes take the ids `0..n` in table order.
+type SpecLayout = (
+    Vec<(u32, &'static str, &'static str)>,
+    BTreeMap<&'static str, Vec<u32>>,
+    u32,
+);
+
+fn spec_layout(spec: &GraphSpec, counts: &[usize]) -> SpecLayout {
+    let mut slots = Vec::new();
+    let mut owners: BTreeMap<&'static str, Vec<u32>> = BTreeMap::new();
+    let mut id = 0u32;
+    for ((table, columns), count) in spec.tables.iter().zip(counts) {
+        for _ in 0..*count {
+            owners.entry(table).or_default().push(id);
+            for (column, _) in columns {
+                slots.push((id, *table, *column));
+            }
+            id += 1;
+        }
+    }
+    (slots, owners, id)
+}
+
+/// Every pair between the nodes of `relation`'s endpoint tables, the source
+/// node varying slowest.
+fn spec_possible_pairs(relation: &SEdge, owners: &BTreeMap<&str, Vec<u32>>) -> Vec<(u32, u32)> {
+    let none = Vec::new();
+    let sources = owners.get(relation.src.as_str()).unwrap_or(&none);
+    let targets = owners.get(relation.tgt.as_str()).unwrap_or(&none);
+    sources
+        .iter()
+        .flat_map(|source| targets.iter().map(move |target| (*source, *target)))
+        .collect()
+}
+
+fn spec_add_cell(
+    graph: &mut Graph,
+    next: &mut (u32, u32),
+    owner: u32,
+    arrow: &SEdge,
+    form: &CellForm,
+) {
+    let root = next.0;
+    next.0 += 1;
+    let (presence, children, positioned) = match form {
+        CellForm::Leaf(presence) => (Some(presence.clone()), &[][..], false),
+        CellForm::Record(children) => (None, &children[..], false),
+        CellForm::List(children) => (None, &children[..], true),
+    };
+    let mut node = Node::new(root, &arrow.tgt);
+    node.value = presence;
+    graph.nodes.insert(root, node);
+    graph.edges.insert(
+        next.1,
+        GEdge {
+            src: owner,
+            tgt: root,
+            label: arrow.clone(),
+            position: None,
+        },
+    );
+    next.1 += 1;
+    for (position, (name, vertex, value)) in children.iter().enumerate() {
+        let child = next.0;
+        next.0 += 1;
+        graph
+            .nodes
+            .insert(child, Node::new(child, vertex).with_value(value.clone()));
+        graph.edges.insert(
+            next.1,
+            GEdge {
+                src: root,
+                tgt: child,
+                label: inner_prop_edge(&arrow.tgt, vertex, name),
+                position: positioned.then(|| u32::try_from(position).unwrap_or(u32::MAX)),
+            },
+        );
+        next.1 += 1;
+    }
+}
+
+/// The graph of `spec` with the table nodes of `layout`, the cell of each
+/// slot in the form `cells` gives it, and the pairs `pairs` gives each
+/// relation. Value nodes and edges take ids in order after the table nodes.
+fn spec_assemble(
+    spec: &GraphSpec,
+    layout: &SpecLayout,
+    cells: &[CellForm],
+    pairs: &[Vec<(u32, u32)>],
+) -> Graph {
+    let (slots, owners, nodes) = layout;
+    let mut graph = Graph::default();
+    for (table, _) in &spec.tables {
+        for node in owners.get(table).into_iter().flatten() {
+            graph.nodes.insert(*node, Node::new(*node, table));
+        }
+    }
+    let mut next = (*nodes, 0u32);
+    for ((owner, table, column), form) in slots.iter().zip(cells) {
+        spec_add_cell(
+            &mut graph,
+            &mut next,
+            *owner,
+            &GraphSpec::column_edge(table, column),
+            form,
+        );
+    }
+    for (relation, chosen) in spec.relations.iter().zip(pairs) {
+        for (src, tgt) in chosen {
+            graph.edges.insert(
+                next.1,
+                GEdge {
+                    src: *src,
+                    tgt: *tgt,
+                    label: relation.clone(),
+                    position: None,
+                },
+            );
+            next.1 += 1;
+        }
+    }
+    graph
+}
+
+/// Every labelled graph of `spec` with at most `max` table nodes.
+///
+/// The table nodes carry the ids `0..n` in table order, every cell takes
+/// every form `forms(table, column)` lists, and every relation takes every
+/// subset of the pairs between its tables' nodes (by ascending bit mask over
+/// [`spec_possible_pairs`] order). Value nodes and edges take ids in order
+/// after them. Two graphs that differ only in their ids are distinct
+/// labelled objects.
+#[must_use]
+pub fn spec_graphs(
+    spec: &GraphSpec,
+    forms: &dyn Fn(&str, &str) -> Vec<CellForm>,
+    max: usize,
+) -> Vec<Graph> {
+    let mut out = Vec::new();
+    for counts in compositions(spec.tables.len(), max) {
+        let layout = spec_layout(spec, &counts);
+        let (slots, owners, _) = &layout;
+        let cell_choices: Vec<Vec<CellForm>> = slots.iter().map(|(_, t, c)| forms(t, c)).collect();
+        let pair_choices: Vec<Vec<Vec<(u32, u32)>>> = spec
+            .relations
+            .iter()
+            .map(|relation| {
+                let possible = spec_possible_pairs(relation, owners);
+                (0u64..(1u64 << possible.len()))
+                    .map(|mask| {
+                        possible
+                            .iter()
+                            .enumerate()
+                            .filter(|(k, _)| mask & (1u64 << k) != 0)
+                            .map(|(_, pair)| *pair)
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect();
+        for cells in product(&cell_choices) {
+            for pairs in product(&pair_choices) {
+                out.push(spec_assemble(spec, &layout, &cells, &pairs));
+            }
+        }
+    }
+    out
+}
+
+/// The labelled count of [`spec_graphs`] by its closed formula.
+///
+/// Computed without the enumerator: the sum, over every vector `k` of per-table node
+/// counts with `|k| <= max`, of `prod_t (prod_c forms(t, c))^(k_t)` times
+/// `2^(sum over relations e: s -> t of k_s k_t)`.
+#[must_use]
+pub fn spec_graphs_count(spec: &GraphSpec, forms: &dyn Fn(&str, &str) -> u64, max: usize) -> u64 {
+    fn visit(
+        spec: &GraphSpec,
+        forms: &dyn Fn(&str, &str) -> u64,
+        max: usize,
+        table: usize,
+        counts: &mut Vec<usize>,
+    ) -> u64 {
+        if table < spec.tables.len() {
+            let used: usize = counts.iter().sum();
+            return (0..=max - used)
+                .map(|k| {
+                    counts.push(k);
+                    let total = visit(spec, forms, max, table + 1, counts);
+                    counts.pop();
+                    total
+                })
+                .sum();
+        }
+        let mut weight = 1u64;
+        for ((name, columns), k) in spec.tables.iter().zip(counts.iter()) {
+            let per_node: u64 = columns
+                .iter()
+                .map(|(column, _)| forms(name, column))
+                .product();
+            weight *= per_node.pow(u32::try_from(*k).unwrap_or(u32::MAX));
+        }
+        let pair_slots: usize = spec
+            .relations
+            .iter()
+            .map(|relation| {
+                let at = |vertex: &str| spec.table_index(vertex).map_or(0, |i| counts[i]);
+                at(&relation.src) * at(&relation.tgt)
+            })
+            .sum();
+        weight << pair_slots
+    }
+    visit(spec, forms, max, 0, &mut Vec::new())
+}
+
+/// One leaf form per value.
+#[must_use]
+pub fn leaf_forms(cells: &[Value]) -> Vec<CellForm> {
+    cells
+        .iter()
+        .map(|value| CellForm::Leaf(Presence::Present(value.clone())))
+        .collect()
+}
+
+/// `graph` with every node id `n` renamed to `node(n)` and every edge id `e`
+/// to `edge(e)`.
+#[must_use]
+pub fn relabel_spec_graph(
+    graph: &Graph,
+    node: &dyn Fn(u32) -> u32,
+    edge: &dyn Fn(u32) -> u32,
+) -> Graph {
+    relabel_graph(graph, node, edge)
+}
+
+/// `graph` with a decoration on every node (discriminator, position,
+/// annotation and an extra field that names no column) and a position on
+/// every edge that is not one of `spec`'s inner edges.
+#[must_use]
+pub fn decorate_spec_graph(graph: &Graph, spec: &GraphSpec) -> Graph {
+    let inner: BTreeSet<SEdge> = spec.inner_edges().into_iter().collect();
+    let mut out = graph.clone();
+    for node in out.nodes.values_mut() {
+        node.discriminator = Some(node.anchor.clone());
+        node.position = Some(node.id % 5);
+        node.annotations
+            .insert("seen".to_owned(), Value::Int(i64::from(node.id)));
+        node.fields
+            .insert("note".to_owned(), Value::Str(format!("n{}", node.id)));
+    }
+    for (id, edge) in &mut out.edges {
+        if !inner.contains(&edge.label) {
+            edge.position = id.checked_add(2);
+        }
+    }
+    out
+}
+
+/// O7's encoding spec: a table `a` with one structured column `x` (kind
+/// `value`), a table `b` without columns and a relation `f: a -> b`, with
+/// inner edges `x -k-> a.x.k` and `x -item-> a.x.item`.
+#[must_use]
+pub fn o7_encoding_spec() -> GraphSpec {
+    GraphSpec {
+        tables: vec![("a", vec![("x", "value")]), ("b", vec![])],
+        relations: vec![prop_edge("a", "b", "f")],
+        inner: vec![
+            ("a.x", "a.x.k", "k", "str"),
+            ("a.x", "a.x.item", "item", "int"),
+        ],
+    }
+}
+
+/// The seven forms of the encoding spec's cell: a constant leaf, both null
+/// forms, a record subtree, a list subtree, a leaf holding the list that
+/// subtree folds to, and a top-level labelled null.
+#[must_use]
+pub fn o7_encoding_forms() -> Vec<CellForm> {
+    vec![
+        CellForm::Leaf(Presence::Present(Value::Int(0))),
+        CellForm::Leaf(Presence::Null),
+        CellForm::Leaf(Presence::Present(Value::Null)),
+        CellForm::Record(vec![("k", "a.x.k", Value::Str("s".to_owned()))]),
+        CellForm::List(vec![
+            ("item", "a.x.item", Value::Int(0)),
+            ("item", "a.x.item", Value::Int(1)),
+        ]),
+        CellForm::Leaf(Presence::Present(Value::List(vec![
+            Value::Int(0),
+            Value::Int(1),
+        ]))),
+        CellForm::Leaf(Presence::Present(Value::LabeledNull(0))),
+    ]
+}
+
+/// Every graph of the encoding spec with at most `max` table nodes.
+///
+/// Four presentations each: decorated, decorated with node and edge ids reversed
+/// and spread out (value nodes then precede table nodes), as enumerated, and
+/// spread.
+#[must_use]
+pub fn o7_encoding_presentations(max: usize) -> Vec<Graph> {
+    let spec = o7_encoding_spec();
+    let plain = spec_graphs(&spec, &|_, _| o7_encoding_forms(), max);
+    let mut out = Vec::with_capacity(plain.len() * 4);
+    for graph in plain {
+        let top_node = graph.nodes.keys().next_back().copied().unwrap_or(0);
+        let top_edge = graph.edges.keys().next_back().copied().unwrap_or(0);
+        let spread = relabel_graph(&graph, &|node| 3 * (top_node - node) + 1, &|edge| {
+            5 * (top_edge - edge) + 2
+        });
+        out.push(decorate_spec_graph(&graph, &spec));
+        out.push(decorate_spec_graph(&spread, &spec));
+        out.push(graph);
+        out.push(spread);
+    }
+    out
+}
+
+/// Independent count of [`o7_encoding_presentations`]: four times the sum,
+/// over `a + b <= max`, of `7^a 2^(a b)`.
+#[must_use]
+pub fn o7_encoding_presentations_count(max: u32) -> u64 {
+    4 * (0..=max)
+        .flat_map(|a| (0..=max - a).map(move |b| (a, b)))
+        .map(|(a, b)| 7u64.pow(a) * 2u64.pow(a * b))
+        .sum::<u64>()
+}
+
+/// The five leaf forms of the encoding spec's conforming tables: a
+/// constant, `Null`, a record, a list and a labelled null.
+#[must_use]
+pub fn o7_table_cells() -> Vec<CellForm> {
+    vec![
+        CellForm::Leaf(Presence::Present(Value::Int(0))),
+        CellForm::Leaf(Presence::Null),
+        CellForm::Leaf(Presence::Present(Value::Unknown(BTreeMap::from([(
+            "k".to_owned(),
+            Value::Str("s".to_owned()),
+        )])))),
+        CellForm::Leaf(Presence::Present(Value::List(vec![
+            Value::Int(0),
+            Value::Int(1),
+        ]))),
+        CellForm::Leaf(Presence::Present(Value::LabeledNull(0))),
+    ]
+}
+
+/// The first `count` cells of the small alphabet: `0`, `1`, then the
+/// labelled null `0`.
+#[must_use]
+pub fn small_cells(count: usize) -> Vec<Value> {
+    [Value::Int(0), Value::Int(1), Value::LabeledNull(0)]
+        .into_iter()
+        .take(count)
+        .collect()
+}
+
+/// Two tables without columns and one relation between them.
+#[must_use]
+pub fn relation_spec() -> GraphSpec {
+    GraphSpec {
+        tables: vec![("a", vec![]), ("b", vec![])],
+        relations: vec![prop_edge("a", "b", "f")],
+        inner: vec![],
+    }
+}
+
+/// Two tables with one integer column each.
+#[must_use]
+pub fn shared_column_spec() -> GraphSpec {
+    GraphSpec {
+        tables: vec![("a", vec![("x", "int")]), ("b", vec![("x", "int")])],
+        relations: vec![],
+        inner: vec![],
+    }
+}
+
+/// A table `p` with one structured column `x` holding a record `{k}`.
+#[must_use]
+pub fn record_spec() -> GraphSpec {
+    GraphSpec {
+        tables: vec![("p", vec![("x", "value")])],
+        relations: vec![],
+        inner: vec![("p.x", "p.x.k", "k", "str")],
+    }
+}
+
+/// The record value `{k: "s"}`.
+#[must_use]
+pub fn record_value() -> Value {
+    Value::Unknown(BTreeMap::from([(
+        "k".to_owned(),
+        Value::Str("s".to_owned()),
+    )]))
+}
+
+/// The hom families, each over at most four table nodes.
+///
+/// The record table
+/// over two of its cell forms at a time (a constant and a labelled null, two
+/// labelled nulls, a constant and a record subtree, a record subtree and a
+/// leaf holding the record it folds to), and the relation spec.
+#[must_use]
+pub fn hom_families() -> Vec<(&'static str, GraphSpec, Vec<CellForm>)> {
+    let constant = CellForm::Leaf(Presence::Present(Value::Int(0)));
+    let null = |n| CellForm::Leaf(Presence::Present(Value::LabeledNull(n)));
+    let subtree = CellForm::Record(vec![("k", "p.x.k", Value::Str("s".to_owned()))]);
+    let leaf = CellForm::Leaf(Presence::Present(record_value()));
+    vec![
+        (
+            "constant and null",
+            record_spec(),
+            vec![constant.clone(), null(0)],
+        ),
+        ("two nulls", record_spec(), vec![null(0), null(1)]),
+        (
+            "constant and record subtree",
+            record_spec(),
+            vec![constant, subtree.clone()],
+        ),
+        (
+            "record subtree and record leaf",
+            record_spec(),
+            vec![subtree, leaf],
+        ),
+        ("relation", relation_spec(), vec![]),
+    ]
+}
+
+/// The unnamed-edge spec: a table `a` with one structured column `x` whose
+/// inner edges to `a.x.k` and `a.x.item` carry no name.
+#[must_use]
+pub fn unnamed_inner_spec() -> GraphSpec {
+    GraphSpec {
+        tables: vec![("a", vec![("x", "value")])],
+        relations: vec![],
+        inner: vec![("a.x", "a.x.k", "", "str"), ("a.x", "a.x.item", "", "int")],
+    }
+}
+
+/// The four forms of the unnamed-edge spec: a record over both targets, a
+/// record repeating one target, a list, and a leaf.
+#[must_use]
+pub fn unnamed_inner_forms() -> Vec<CellForm> {
+    vec![
+        CellForm::Record(vec![
+            ("", "a.x.k", Value::Str("s".to_owned())),
+            ("", "a.x.item", Value::Int(1)),
+        ]),
+        CellForm::Record(vec![
+            ("", "a.x.k", Value::Str("s".to_owned())),
+            ("", "a.x.k", Value::Str("t".to_owned())),
+        ]),
+        CellForm::List(vec![
+            ("", "a.x.item", Value::Int(0)),
+            ("", "a.x.item", Value::Int(1)),
+        ]),
+        CellForm::Leaf(Presence::Present(Value::Int(0))),
+    ]
+}
+
+/// One migration of O7's adjunction family.
+///
+/// The whole source `S`, its kept
+/// part `S'` and the target `T`, the maps of `F: S' -> T` on tables,
+/// columns `(table, column, image)` and relations, the cell alphabet,
+/// whether `F` is surjective on attributes (so Pi exists), and the largest
+/// number of table nodes its graphs carry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphKanCase {
+    /// Stable descriptive name.
+    pub name: &'static str,
+    /// The whole source.
+    pub source: GraphSpec,
+    /// The kept part.
+    pub kept: GraphSpec,
+    /// The target.
+    pub target: GraphSpec,
+    /// Kept table to target table.
+    pub tables: Vec<(&'static str, &'static str)>,
+    /// Kept `(table, column)` to target column.
+    pub columns: Vec<(&'static str, &'static str, &'static str)>,
+    /// Kept relation to target relation.
+    pub relations: Vec<(SEdge, SEdge)>,
+    /// The cell alphabet.
+    pub cells: Vec<Value>,
+    /// Whether Pi exists (every target column is an image).
+    pub pi: bool,
+    /// The largest number of table nodes of an enumerated graph.
+    pub bound: usize,
+}
+
+impl GraphKanCase {
+    fn new(
+        name: &'static str,
+        (source, kept, target): (GraphSpec, GraphSpec, GraphSpec),
+        tables: &[(&'static str, &'static str)],
+        columns: &[(&'static str, &'static str, &'static str)],
+        relations: &[(SEdge, SEdge)],
+    ) -> Self {
+        Self {
+            name,
+            source,
+            kept,
+            target,
+            tables: tables.to_vec(),
+            columns: columns.to_vec(),
+            relations: relations.to_vec(),
+            cells: small_cells(2),
+            pi: true,
+            bound: 4,
+        }
+    }
+
+    fn with_cells(mut self, cells: Vec<Value>) -> Self {
+        self.cells = cells;
+        self
+    }
+
+    const fn without_pi(mut self) -> Self {
+        self.pi = false;
+        self
+    }
+
+    const fn with_bound(mut self, bound: usize) -> Self {
+        self.bound = bound;
+        self
+    }
+
+    /// The migration stating `F`: each kept table and column vertex to its
+    /// image, each kept column arrow and relation to its image; nothing else
+    /// survives.
+    #[must_use]
+    pub fn migration(&self) -> Migration {
+        let mut migration = Migration::default();
+        for (source, target) in &self.tables {
+            migration
+                .vertex_remap
+                .insert((*source).to_owned(), (*target).to_owned());
+        }
+        for (table, column, image) in &self.columns {
+            let Some((_, target)) = self.tables.iter().find(|(source, _)| source == table) else {
+                continue;
+            };
+            migration
+                .vertex_remap
+                .insert(format!("{table}.{column}"), format!("{target}.{image}"));
+            migration.edge_remap.insert(
+                GraphSpec::column_edge(table, column),
+                GraphSpec::column_edge(target, image),
+            );
+        }
+        for (source, target) in &self.relations {
+            migration.edge_remap.insert(source.clone(), target.clone());
+        }
+        migration
+    }
+
+    /// Every labelled graph of `spec` (one of this case's three specs) with
+    /// at most [`GraphKanCase::bound`] table nodes, every cell a leaf of the
+    /// case's alphabet.
+    #[must_use]
+    pub fn graphs(&self, spec: &GraphSpec) -> Vec<Graph> {
+        let forms = leaf_forms(&self.cells);
+        spec_graphs(spec, &|_, _| forms.clone(), self.bound)
+    }
+
+    /// Independent count of [`GraphKanCase::graphs`].
+    #[must_use]
+    pub fn graphs_count(&self, spec: &GraphSpec) -> u64 {
+        let cells = self.cells.len() as u64;
+        spec_graphs_count(spec, &|_, _| cells, self.bound)
+    }
+}
+
+const fn graph_spec(
+    tables: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+    relations: Vec<SEdge>,
+) -> GraphSpec {
+    GraphSpec {
+        tables,
+        relations,
+        inner: Vec::new(),
+    }
+}
+
+/// O7's adjunction family.
+///
+/// Four merges (a shared column over constants and
+/// over a constant and a labelled null, tables carrying two relations to
+/// one, two parallel relations merged) and three column cases (a target
+/// column outside the image, two columns sent to one, a source table and
+/// column outside the kept part), each over at most four table nodes.
+#[must_use]
+pub fn o7_adjunction_family() -> Vec<GraphKanCase> {
+    let mut cases = o7_merge_cases();
+    cases.extend(o7_column_cases());
+    cases
+}
+
+/// The four merges of [`o7_adjunction_family`].
+fn o7_merge_cases() -> Vec<GraphKanCase> {
+    let merge = || {
+        (
+            shared_column_spec(),
+            shared_column_spec(),
+            graph_spec(vec![("t", vec![("x", "int")])], vec![]),
+        )
+    };
+    let (f, h) = (prop_edge("a", "c", "f"), prop_edge("b", "c", "h"));
+    let relations = graph_spec(
+        vec![("a", vec![]), ("b", vec![]), ("c", vec![])],
+        vec![f.clone(), h.clone()],
+    );
+    let g = prop_edge("A", "C", "g");
+    let (f2, h2, g2) = (
+        prop_edge("a", "b", "f"),
+        prop_edge("a", "b", "h"),
+        prop_edge("a", "b", "g"),
+    );
+    let parallel = graph_spec(
+        vec![("a", vec![]), ("b", vec![])],
+        vec![f2.clone(), h2.clone()],
+    );
+    vec![
+        GraphKanCase::new(
+            "a merge with a shared column",
+            merge(),
+            &[("a", "t"), ("b", "t")],
+            &[("a", "x", "x"), ("b", "x", "x")],
+            &[],
+        ),
+        GraphKanCase::new(
+            "a merge with a shared column over a null",
+            merge(),
+            &[("a", "t"), ("b", "t")],
+            &[("a", "x", "x"), ("b", "x", "x")],
+            &[],
+        )
+        .with_cells(vec![Value::Int(0), Value::LabeledNull(0)]),
+        GraphKanCase::new(
+            "a merge of tables carrying two relations to one",
+            (
+                relations.clone(),
+                relations,
+                graph_spec(vec![("A", vec![]), ("C", vec![])], vec![g.clone()]),
+            ),
+            &[("a", "A"), ("b", "A"), ("c", "C")],
+            &[],
+            &[(f, g.clone()), (h, g)],
+        ),
+        GraphKanCase::new(
+            "two parallel relations merged",
+            (
+                parallel.clone(),
+                parallel,
+                graph_spec(vec![("a", vec![]), ("b", vec![])], vec![g2.clone()]),
+            ),
+            &[("a", "a"), ("b", "b")],
+            &[],
+            &[(f2, g2.clone()), (h2, g2)],
+        ),
+    ]
+}
+
+/// The three column cases of [`o7_adjunction_family`].
+fn o7_column_cases() -> Vec<GraphKanCase> {
+    let one_column = || graph_spec(vec![("a", vec![("x", "int")])], vec![]);
+    let two_columns = graph_spec(vec![("t", vec![("x", "int"), ("y", "int")])], vec![]);
+    let dropped = graph_spec(
+        vec![("a", vec![("x", "int"), ("w", "int")]), ("q", vec![])],
+        vec![],
+    );
+    vec![
+        GraphKanCase::new(
+            "a target column outside the image",
+            (
+                one_column(),
+                one_column(),
+                graph_spec(vec![("a", vec![("x", "int"), ("y", "int")])], vec![]),
+            ),
+            &[("a", "a")],
+            &[("a", "x", "x")],
+            &[],
+        )
+        .without_pi(),
+        GraphKanCase::new(
+            "two columns sent to one",
+            (
+                two_columns.clone(),
+                two_columns,
+                graph_spec(vec![("t", vec![("z", "int")])], vec![]),
+            ),
+            &[("t", "t")],
+            &[("t", "x", "z"), ("t", "y", "z")],
+            &[],
+        ),
+        GraphKanCase::new(
+            "a source table and column outside the kept part",
+            (
+                dropped,
+                one_column(),
+                graph_spec(vec![("A", vec![("x", "int")])], vec![]),
+            ),
+            &[("a", "A")],
+            &[("a", "x", "x")],
+            &[],
+        ),
+    ]
+}
+
+/// The relation-merge cases of the separated reflection.
+///
+/// Two parallel
+/// relations and a third merged into one across a merge of tables (four
+/// table nodes), two parallel loops merged into one loop (two table nodes),
+/// and a merge of tables with a shared column whose relations merge (four
+/// table nodes, over a constant and a labelled null).
+#[must_use]
+pub fn relation_merge_cases() -> Vec<GraphKanCase> {
+    let (f, h, k) = (
+        prop_edge("a", "b", "f"),
+        prop_edge("a", "b", "h"),
+        prop_edge("c", "b", "k"),
+    );
+    let three = graph_spec(
+        vec![("a", vec![]), ("b", vec![]), ("c", vec![])],
+        vec![f.clone(), h.clone(), k.clone()],
+    );
+    let g = prop_edge("A", "B", "g");
+    let (lf, lh) = (prop_edge("a", "a", "f"), prop_edge("a", "a", "h"));
+    let loops = graph_spec(vec![("a", vec![])], vec![lf.clone(), lh.clone()]);
+    let lg = prop_edge("t", "t", "g");
+    let (cf, ch) = (prop_edge("a", "c", "f"), prop_edge("b", "c", "h"));
+    let shared = graph_spec(
+        vec![
+            ("a", vec![("x", "int")]),
+            ("b", vec![("x", "int")]),
+            ("c", vec![]),
+        ],
+        vec![cf.clone(), ch.clone()],
+    );
+    let cg = prop_edge("t", "C", "g");
+    vec![
+        GraphKanCase::new(
+            "two parallel relations and a third merged across a merge of tables",
+            (
+                three.clone(),
+                three,
+                graph_spec(vec![("A", vec![]), ("B", vec![])], vec![g.clone()]),
+            ),
+            &[("a", "A"), ("b", "B"), ("c", "A")],
+            &[],
+            &[(f, g.clone()), (h, g.clone()), (k, g)],
+        ),
+        GraphKanCase::new(
+            "two parallel loops merged",
+            (
+                loops.clone(),
+                loops,
+                graph_spec(vec![("t", vec![])], vec![lg.clone()]),
+            ),
+            &[("a", "t")],
+            &[],
+            &[(lf, lg.clone()), (lh, lg)],
+        )
+        .with_bound(2),
+        GraphKanCase::new(
+            "a merge with a shared column whose relations merge",
+            (
+                shared.clone(),
+                shared,
+                graph_spec(
+                    vec![("t", vec![("x", "int")]), ("C", vec![])],
+                    vec![cg.clone()],
+                ),
+            ),
+            &[("a", "t"), ("b", "t"), ("c", "C")],
+            &[("a", "x", "x"), ("b", "x", "x")],
+            &[(cf, cg.clone()), (ch, cg)],
+        )
+        .with_cells(vec![Value::Int(0), Value::LabeledNull(0)]),
+    ]
+}
+
+/// The separated-reflection family: [`o7_adjunction_family`] followed by
+/// [`relation_merge_cases`].
+#[must_use]
+pub fn reflection_family() -> Vec<GraphKanCase> {
+    let mut cases = o7_adjunction_family();
+    cases.extend(relation_merge_cases());
+    cases
+}
+
+/// The number of mutation kinds [`encoding_mutation`] knows.
+pub const ENCODING_MUTATIONS: u8 = 18;
+
+/// The reserved fan-parent edge kind.
+const HYPER_PARENT_KIND: &str = "hyper_parent";
+
+/// The ids a mutation reads: the node and edge `pick` selects (modulo their
+/// counts), the node after that node, and a fresh node and edge id.
+struct Picks {
+    node: Option<u32>,
+    other: Option<u32>,
+    edge: Option<u32>,
+    fresh_node: u32,
+    fresh_edge: u32,
+}
+
+impl Picks {
+    fn of(graph: &Graph, pick: usize) -> Self {
+        let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+        let edges: Vec<u32> = graph.edges.keys().copied().collect();
+        Self {
+            node: nodes.get(pick % nodes.len().max(1)).copied(),
+            other: nodes.get((pick + 1) % nodes.len().max(1)).copied(),
+            edge: edges.get(pick % edges.len().max(1)).copied(),
+            fresh_node: graph.nodes.keys().next_back().map_or(0, |id| id + 1),
+            fresh_edge: graph.edges.keys().next_back().map_or(0, |id| id + 1),
+        }
+    }
+}
+
+fn anchor_of(graph: &Graph, id: u32) -> String {
+    graph
+        .nodes
+        .get(&id)
+        .map(|node| node.anchor.clone())
+        .unwrap_or_default()
+}
+
+/// The mutations that add nodes or edges.
+fn mutate_by_adding(out: &mut Graph, graph: &Graph, kind: u8, at: &Picks) {
+    let add = |out: &mut Graph, src: u32, tgt: u32, label: SEdge| {
+        out.edges.insert(
+            at.fresh_edge,
+            GEdge {
+                src,
+                tgt,
+                label,
+                position: None,
+            },
+        );
+    };
+    let leaf = |anchor: &str, value: Value| Node::new(at.fresh_node, anchor).with_value(value);
+    match (kind, at.node) {
+        (1, Some(n)) => {
+            out.nodes
+                .insert(at.fresh_node, Node::new(at.fresh_node, "a"));
+            let label = SEdge::new(&anchor_of(graph, n), "a", HYPER_PARENT_KIND, None);
+            add(out, n, at.fresh_node, label);
+        }
+        (2, _) => {
+            out.nodes
+                .insert(at.fresh_node, Node::new(at.fresh_node, "outside"));
+        }
+        (3, Some(n)) => {
+            let m = at.other.unwrap_or(n);
+            add(
+                out,
+                n,
+                m,
+                prop_edge(&anchor_of(graph, n), &anchor_of(graph, m), "nowhere"),
+            );
+        }
+        (4, Some(n)) => add(out, at.other.unwrap_or(n), n, prop_edge("a", "b", "f")),
+        (5, _) => {
+            if let Some(edge) = at.edge.and_then(|e| graph.edges.get(&e)) {
+                out.edges.insert(at.fresh_edge, edge.clone());
+            }
+        }
+        (8, Some(n)) if anchor_of(graph, n) == "a" => {
+            out.nodes.insert(at.fresh_node, leaf("a.x", Value::Int(5)));
+            add(out, n, at.fresh_node, prop_edge("a", "a.x", "x"));
+        }
+        (10, _) => {
+            out.nodes.insert(at.fresh_node, leaf("a.x", Value::Int(5)));
+        }
+        (17, Some(n)) if anchor_of(graph, n) == "a.x" => {
+            out.nodes
+                .insert(at.fresh_node, leaf("a.x.k", Value::Str("t".to_owned())));
+            add(out, n, at.fresh_node, prop_edge("a.x", "a.x.k", "k"));
+        }
+        _ => {}
+    }
+}
+
+/// The mutations that change what is there.
+fn mutate_in_place(out: &mut Graph, graph: &Graph, kind: u8, at: &Picks) {
+    let set_value = |out: &mut Graph, n: u32, value: Option<Presence>| {
+        if let Some(node) = out.nodes.get_mut(&n) {
+            node.value = value;
+        }
+    };
+    match (kind, at.node, at.edge) {
+        (0, Some(n), _) => {
+            if let Some(node) = out.nodes.get_mut(&n) {
+                node.shape = NodeShape::HyperEdge;
+            }
+        }
+        (6, _, Some(e)) => {
+            out.edges.remove(&e);
+        }
+        (7, _, Some(e)) => {
+            if let Some(removed) = out.edges.remove(&e) {
+                let name = removed.label.name.clone().unwrap_or_default();
+                if let Some(node) = out.nodes.get_mut(&removed.src) {
+                    node.fields.insert(name, Value::Int(9));
+                }
+            }
+        }
+        (9, _, Some(e)) => {
+            if let Some(moved) = graph.edges.get(&e) {
+                let shared = graph
+                    .edges
+                    .values()
+                    .find(|other| other.label == moved.label && other.tgt != moved.tgt)
+                    .map(|other| other.tgt);
+                if let (Some(target), Some(edge)) = (shared, out.edges.get_mut(&e)) {
+                    edge.tgt = target;
+                }
+            }
+        }
+        (11, Some(n), _) => set_value(out, n, None),
+        (12, Some(n), _) => set_value(out, n, Some(Presence::Absent)),
+        (13, Some(n), _) => set_value(out, n, Some(Presence::Present(Value::Int(0)))),
+        (14, _, Some(e)) => {
+            if let Some(edge) = out.edges.get_mut(&e) {
+                edge.position = if edge.position.is_some() {
+                    None
+                } else {
+                    Some(7)
+                };
+            }
+        }
+        (15, Some(n), _) => set_value(
+            out,
+            n,
+            Some(Presence::Present(Value::List(vec![Value::LabeledNull(3)]))),
+        ),
+        (16, Some(n), _) => set_value(out, n, Some(Presence::Present(Value::LabeledNull(3)))),
+        _ => {}
+    }
+}
+
+/// `graph` changed by mutation `kind` at the node or edge `pick` selects.
+///
+/// Kinds: 0 a fan shape, 1 a fan edge, 2 a node outside the side, 3 an edge
+/// outside the side, 4 an edge with swapped endpoints, 5 a duplicated edge,
+/// 6 a removed edge, 7 a removed edge with an extra field of its name, 8 a
+/// second cell, 9 an edge moved onto another edge's value node of the same
+/// label, 10 an orphan value node, 11 a cleared value, 12 an absent value,
+/// 13 a value on an inner node, 14 a toggled position, 15 a nested labelled
+/// null, 16 a top-level labelled null, 17 a second record field of one
+/// name. Most kinds move the graph out of the encoding domain; some keep it
+/// inside.
+#[must_use]
+pub fn encoding_mutation(graph: &Graph, kind: u8, pick: usize) -> Graph {
+    let at = Picks::of(graph, pick);
+    let mut out = graph.clone();
+    mutate_by_adding(&mut out, graph, kind, &at);
+    mutate_in_place(&mut out, graph, kind, &at);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Generated table cases: a deterministic generator of functors and
+// instances, so that a property-test seed names one whole case.
+// ---------------------------------------------------------------------------
+
+/// A small deterministic generator (splitmix64).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SplitMix(pub u64);
+
+impl SplitMix {
+    /// The next 64 bits.
+    pub const fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A number below `n` (`0` when `n` is `0`).
+    pub fn below(&mut self, n: usize) -> usize {
+        if n == 0 {
+            return 0;
+        }
+        usize::try_from(self.next_u64() % u64::try_from(n).unwrap_or(u64::MAX)).unwrap_or(0)
+    }
+
+    /// True with probability `percent / 100`.
+    pub fn chance(&mut self, percent: usize) -> bool {
+        self.below(100) < percent
+    }
+
+    /// One of `items`, `None` when there is none.
+    pub fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+        if items.is_empty() {
+            None
+        } else {
+            items.get(self.below(items.len()))
+        }
+    }
+}
+
+/// One side of a generated functor: tables with their column names, and
+/// relations.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableSide {
+    /// Each table with its column names.
+    pub tables: BTreeMap<String, BTreeSet<String>>,
+    /// The relations.
+    pub relations: BTreeSet<SEdge>,
+}
+
+/// The table kind of the generated specs.
+pub const TABLE_SPEC_TABLE_KIND: &str = "table";
+
+/// The value kind of the generated specs.
+pub const TABLE_SPEC_VALUE_KIND: &str = "integer";
+
+impl TableSide {
+    /// Its graph schema: tables of kind `table`, value vertices `t.c` of
+    /// kind `integer`, attribute arrows of kind `prop` named by the column,
+    /// and the relations as they are.
+    #[must_use]
+    pub fn schema(&self) -> Schema {
+        let mut schema = Schema::default();
+        for (table, columns) in &self.tables {
+            schema
+                .vertices
+                .insert(table.clone(), TABLE_SPEC_TABLE_KIND.to_owned());
+            for column in columns {
+                let value = format!("{table}.{column}");
+                schema
+                    .vertices
+                    .insert(value.clone(), TABLE_SPEC_VALUE_KIND.to_owned());
+                schema
+                    .edges
+                    .insert(SEdge::new(table, &value, "prop", Some(column)));
+            }
+        }
+        schema.edges.extend(self.relations.iter().cloned());
+        schema
+    }
+}
+
+/// A relation `src -> tgt` of kind `fk` named `name`.
+#[must_use]
+pub fn fk_edge(src: &str, tgt: &str, name: &str) -> SEdge {
+    SEdge::new(src, tgt, "fk", Some(name))
+}
+
+/// A functor between two table sides by its maps.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableSpec {
+    /// The whole source.
+    pub src: TableSide,
+    /// The target.
+    pub tgt: TableSide,
+    /// Kept table to image.
+    pub tables: BTreeMap<String, String>,
+    /// Kept relation to image.
+    pub relations: BTreeMap<SEdge, SEdge>,
+    /// Kept `(table, column)` to image column.
+    pub columns: BTreeMap<(String, String), String>,
+}
+
+impl TableSpec {
+    /// The migration stating the spec's functor: each kept table and column
+    /// vertex to its image, each kept attribute arrow and relation to its
+    /// image.
+    #[must_use]
+    pub fn migration(&self) -> Migration {
+        let mut migration = Migration::default();
+        for (source, target) in &self.tables {
+            migration
+                .vertex_remap
+                .insert(source.clone(), target.clone());
+        }
+        for ((table, column), image) in &self.columns {
+            let Some(target) = self.tables.get(table) else {
+                continue;
+            };
+            migration
+                .vertex_remap
+                .insert(format!("{table}.{column}"), format!("{target}.{image}"));
+            migration.edge_remap.insert(
+                SEdge::new(table, &format!("{table}.{column}"), "prop", Some(column)),
+                SEdge::new(target, &format!("{target}.{image}"), "prop", Some(image)),
+            );
+        }
+        for (source, target) in &self.relations {
+            migration.edge_remap.insert(source.clone(), target.clone());
+        }
+        migration
+    }
+
+    /// The least target `(table, column)` no kept column of the table's
+    /// fibre reaches, when there is one.
+    #[must_use]
+    pub fn missing_column(&self) -> Option<(String, String)> {
+        for (table, columns) in &self.tgt.tables {
+            for column in columns {
+                let hit = self.columns.iter().any(|((source, _), image)| {
+                    self.tables.get(source) == Some(table) && image == column
+                });
+                if !hit {
+                    return Some((table.clone(), column.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    /// The kept part of the source.
+    #[must_use]
+    pub fn kept(&self) -> TableSide {
+        TableSide {
+            tables: self
+                .tables
+                .keys()
+                .map(|table| {
+                    (
+                        table.clone(),
+                        self.columns
+                            .keys()
+                            .filter(|(owner, _)| owner == table)
+                            .map(|(_, column)| column.clone())
+                            .collect(),
+                    )
+                })
+                .collect(),
+            relations: self.relations.keys().cloned().collect(),
+        }
+    }
+}
+
+/// The cells of the generated instances: integers, labelled nulls, both
+/// zeros and both quiet NaNs, floats by their bits.
+#[must_use]
+pub fn generated_cells() -> Vec<Value> {
+    vec![
+        Value::Int(0),
+        Value::Int(1),
+        Value::LabeledNull(0),
+        Value::LabeledNull(1),
+        Value::LabeledNull(2),
+        Value::Float(0),
+        Value::Float(1u64 << 63),
+        Value::Float(0x7ff8_0000_0000_0000),
+        Value::Float(0xfff8_0000_0000_0000),
+    ]
+}
+
+/// A generated side: at most 4 tables with at most 3 columns each, and at
+/// most 4 relations (self-references included).
+fn generated_side(rng: &mut SplitMix, prefix: &str) -> TableSide {
+    let tables: BTreeMap<String, BTreeSet<String>> = (0..=rng.below(4))
+        .map(|k| {
+            let columns = (0..rng.below(4)).map(|c| format!("c{c}")).collect();
+            (format!("{prefix}{k}"), columns)
+        })
+        .collect();
+    let names: Vec<String> = tables.keys().cloned().collect();
+    let mut relations = BTreeSet::new();
+    for k in 0..rng.below(5) {
+        if let (Some(a), Some(b)) = (rng.pick(&names).cloned(), rng.pick(&names).cloned()) {
+            relations.insert(fk_edge(&a, &b, &format!("{prefix}e{k}")));
+        }
+    }
+    TableSide { tables, relations }
+}
+
+/// A generated spec.
+///
+/// A table map that may merge tables and drop some,
+/// relations carried to target relations between the images of their
+/// endpoints (some added to the target for it, up to 4) or dropped, and
+/// columns sent to columns of the image table or dropped, so column maps
+/// may be non-injective and non-surjective and the target may have objects
+/// outside the image; half the specs are made surjective on attributes.
+#[must_use]
+pub fn generated_spec(rng: &mut SplitMix) -> TableSpec {
+    let src = generated_side(rng, "s");
+    let mut tgt = generated_side(rng, "d");
+    let targets: Vec<String> = tgt.tables.keys().cloned().collect();
+    let mut tables = BTreeMap::new();
+    for source in src.tables.keys() {
+        if rng.chance(85) {
+            if let Some(target) = rng.pick(&targets) {
+                tables.insert(source.clone(), target.clone());
+            }
+        }
+    }
+    let mut relations = BTreeMap::new();
+    for (k, edge) in src.relations.iter().enumerate() {
+        let (Some(a), Some(b)) = (tables.get(&edge.src), tables.get(&edge.tgt)) else {
+            continue;
+        };
+        if tgt.relations.len() < 4 && rng.chance(50) {
+            tgt.relations.insert(fk_edge(a, b, &format!("dk{k}")));
+        }
+        let candidates: Vec<SEdge> = tgt
+            .relations
+            .iter()
+            .filter(|relation| relation.src == *a && relation.tgt == *b)
+            .cloned()
+            .collect();
+        if rng.chance(80) {
+            if let Some(image) = rng.pick(&candidates) {
+                relations.insert(edge.clone(), image.clone());
+            }
+        }
+    }
+    let mut columns = BTreeMap::new();
+    for (source, target) in &tables {
+        let image_columns: Vec<String> = tgt.tables[target].iter().cloned().collect();
+        for column in &src.tables[source] {
+            if rng.chance(80) {
+                if let Some(image) = rng.pick(&image_columns) {
+                    columns.insert((source.clone(), column.clone()), image.clone());
+                }
+            }
+        }
+    }
+    if rng.chance(50) {
+        let hit: BTreeSet<(String, String)> = columns
+            .iter()
+            .map(|((source, _), image)| (tables[source].clone(), image.clone()))
+            .collect();
+        for (target, target_columns) in &mut tgt.tables {
+            target_columns.retain(|column| hit.contains(&(target.clone(), column.clone())));
+        }
+    }
+    TableSpec {
+        src,
+        tgt,
+        tables,
+        relations,
+        columns,
+    }
+}
+
+/// A generated instance of a side: at most 3 rows per table and 6 in all,
+/// cells from [`generated_cells`], and a random set of pairs per relation
+/// (partial and many-valued). Row ids start at `first`.
+#[must_use]
+pub fn generated_instance(rng: &mut SplitMix, side: &TableSide, first: u32) -> Table {
+    let cells = generated_cells();
+    let mut next = first;
+    let mut total = 0usize;
+    let mut ids: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+    let mut out = Table::default();
+    for (table, columns) in &side.tables {
+        let n = rng.below(4).min(6 - total);
+        total += n;
+        for _ in 0..n {
+            let row: BTreeMap<String, Value> = columns
+                .iter()
+                .map(|column| {
+                    (
+                        column.clone(),
+                        rng.pick(&cells).cloned().unwrap_or(Value::Int(0)),
+                    )
+                })
+                .collect();
+            out.rows.insert(next, (table.clone(), row));
+            ids.entry(table.clone()).or_default().push(next);
+            next += 1;
+        }
+    }
+    let empty = Vec::new();
+    for edge in &side.relations {
+        let from = ids.get(&edge.src).unwrap_or(&empty);
+        let to = ids.get(&edge.tgt).unwrap_or(&empty);
+        for a in from {
+            for b in to {
+                if rng.chance(35) {
+                    out.pairs.insert((edge.clone(), *a, *b));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `small` with up to two more rows (within 3 per table and 6 in all) and
+/// some more pairs: an instance it is within.
+#[must_use]
+pub fn generated_growth(rng: &mut SplitMix, side: &TableSide, small: &Table) -> Table {
+    let first = small.rows.keys().next_back().map_or(0, |row| row + 1);
+    let extra = generated_instance(rng, side, first);
+    let mut big = small.clone();
+    let mut added = 0;
+    for (id, (table, row)) in &extra.rows {
+        let in_table = big
+            .rows
+            .values()
+            .filter(|(owner, _)| owner == table)
+            .count();
+        let room = in_table < 3 && big.rows.len() < 6;
+        if room && added < 2 && rng.chance(60) {
+            big.rows.insert(*id, (table.clone(), row.clone()));
+            added += 1;
+        }
+    }
+    for edge in &side.relations {
+        let rows_at = |table: &str| -> Vec<u32> {
+            big.rows
+                .iter()
+                .filter(|(_, (owner, _))| owner == table)
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        let (from, to) = (rows_at(&edge.src), rows_at(&edge.tgt));
+        for a in &from {
+            for b in &to {
+                let pair = (edge.clone(), *a, *b);
+                if !big.pairs.contains(&pair) && rng.chance(20) {
+                    big.pairs.insert(pair);
+                }
+            }
+        }
+    }
+    big
+}
+
+/// A homomorphism out of `a`: `a` with one null replaced by a value and
+/// then grown, reached by the identity on rows and that one null entry.
+#[must_use]
+pub fn generated_hom_out(
+    rng: &mut SplitMix,
+    side: &TableSide,
+    a: &Table,
+) -> (Table, crate::rel::Hom) {
+    let nulls: Vec<u64> = a
+        .rows
+        .values()
+        .flat_map(|(_, cells)| cells.values())
+        .filter_map(|value| match value {
+            Value::LabeledNull(id) => Some(*id),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut null_map = BTreeMap::new();
+    let mut b = a.clone();
+    if let Some(&null) = rng.pick(&nulls) {
+        let cells = generated_cells();
+        let value = rng.pick(&cells).cloned().unwrap_or(Value::Int(0));
+        for (_, cells) in b.rows.values_mut() {
+            for cell in cells.values_mut() {
+                if *cell == Value::LabeledNull(null) {
+                    *cell = value.clone();
+                }
+            }
+        }
+        null_map.insert(null, value);
+    }
+    let b = generated_growth(rng, side, &b);
+    let hom = crate::rel::Hom {
+        rows: a.rows.keys().map(|row| (*row, *row)).collect(),
+        nulls: null_map,
+    };
+    (b, hom)
+}
+
+/// `table` with one row corrupted: a stray cell, a missing cell or a
+/// labelled null nested in a list; unchanged when it has no row.
+#[must_use]
+pub fn generated_corruption(rng: &mut SplitMix, table: &Table) -> Table {
+    let mut out = table.clone();
+    let rows: Vec<u32> = table.rows.keys().copied().collect();
+    let Some(&row) = rng.pick(&rows) else {
+        return out;
+    };
+    if let Some((_, cells)) = out.rows.get_mut(&row) {
+        let columns: Vec<String> = cells.keys().cloned().collect();
+        match (rng.below(3), rng.pick(&columns)) {
+            (0, _) | (_, None) => {
+                cells.insert("zz-stray".to_owned(), Value::Int(0));
+            }
+            (1, Some(column)) => {
+                cells.remove(column);
+            }
+            (_, Some(column)) => {
+                cells.insert(column.clone(), Value::List(vec![Value::LabeledNull(9)]));
+            }
+        }
+    }
+    out
+}
+
+/// One generated case.
+///
+/// A spec, an instance `x` on the whole source, one `j`
+/// on the target (row ids from a random first id below 8), the product
+/// bound drawn from `PRODUCT_BOUNDS`, and the generator's state after them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GeneratedCase {
+    /// The spec.
+    pub spec: TableSpec,
+    /// An instance on the whole source.
+    pub x: Table,
+    /// An instance on the target.
+    pub j: Table,
+    /// The Pi product bound.
+    pub max: usize,
+    /// The generator after the case, for derived instances.
+    pub rng: SplitMix,
+}
+
+/// The generated case a seed names.
+#[must_use]
+pub fn generated_case(seed: u64) -> GeneratedCase {
+    let mut rng = SplitMix(seed);
+    let spec = generated_spec(&mut rng);
+    let x = generated_instance(&mut rng, &spec.src, 0);
+    let first = u32::try_from(rng.below(8)).unwrap_or(0);
+    let j = generated_instance(&mut rng, &spec.tgt, first);
+    let max = if rng.chance(50) {
+        PRODUCT_BOUNDS[0]
+    } else {
+        PRODUCT_BOUNDS[1]
+    };
+    GeneratedCase {
+        spec,
+        x,
+        j,
+        max,
+        rng,
+    }
+}
+
+/// One Pi join case: a fibre of one to four source tables over the target
+/// columns `p, q, r, s` all sent to one target table `d`, an instance of it
+/// and a product bound from {1, 4, 81}.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PiJoinCase {
+    /// The functor.
+    pub spec: TableSpec,
+    /// The instance on the source.
+    pub instance: Table,
+    /// The product bound.
+    pub max: usize,
+    /// Whether the fibre holds the triangle `pq, qr, rp`.
+    pub cyclic: bool,
+}
+
+/// The 3000 Pi join cases.
+///
+/// Generated fibres of one to four tables over the
+/// target columns `p, q, r, s` with shared columns in connected and
+/// disconnected, acyclic and cyclic (every fourth case holds the triangle
+/// `pq, qr, rp`) patterns, zero to five rows per table with values from
+/// three integers, and bounds 1, 4 and 81, by a fixed xorshift sequence.
+#[must_use]
+pub fn pi_join_cases() -> Vec<PiJoinCase> {
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let mut next = |n: u64| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state % n
+    };
+    let all = ["p", "q", "r", "s"];
+    let mut cases = Vec::with_capacity(3000);
+    for case in 0..3000 {
+        let mut shapes: Vec<Vec<&str>> = Vec::new();
+        let cyclic = case % 4 == 0;
+        if cyclic {
+            shapes.extend([vec!["p", "q"], vec!["q", "r"], vec!["r", "p"]]);
+        }
+        for _ in 0..=next(if shapes.is_empty() { 4 } else { 2 }) {
+            shapes.push(all.iter().copied().filter(|_| next(2) == 0).collect());
+        }
+        let names: Vec<String> = (0..shapes.len()).map(|k| format!("a{k}")).collect();
+        let used: BTreeSet<&str> = shapes.iter().flatten().copied().collect();
+        let mut spec = TableSpec::default();
+        for (name, shape) in names.iter().zip(&shapes) {
+            spec.src.tables.insert(
+                name.clone(),
+                shape.iter().map(|column| (*column).to_owned()).collect(),
+            );
+            spec.tables.insert(name.clone(), "d".to_owned());
+            for column in shape {
+                spec.columns
+                    .insert((name.clone(), (*column).to_owned()), (*column).to_owned());
+            }
+        }
+        spec.tgt.tables.insert(
+            "d".to_owned(),
+            used.iter().map(|column| (*column).to_owned()).collect(),
+        );
+        let mut instance = Table::default();
+        let mut id = 0u32;
+        for (name, shape) in names.iter().zip(&shapes) {
+            for _ in 0..next(6) {
+                id += 1;
+                let row: BTreeMap<String, Value> = shape
+                    .iter()
+                    .map(|column| {
+                        (
+                            (*column).to_owned(),
+                            Value::Int(i64::try_from(next(3)).unwrap_or(0)),
+                        )
+                    })
+                    .collect();
+                instance.rows.insert(id, (name.clone(), row));
+            }
+        }
+        let max = [1, 4, 81][usize::try_from(next(3)).unwrap_or(0)];
+        cases.push(PiJoinCase {
+            spec,
+            instance,
+            max,
+            cyclic,
+        });
+    }
+    cases
+}
+
+// ---------------------------------------------------------------------------
+// Classification and entity-functor scopes.
+// ---------------------------------------------------------------------------
+
+/// The vertex kinds of the classification scope: a table kind `t`, a value
+/// kind `v`, an unclassified kind `u`, and a kind `b` that the ambiguous
+/// partition declares both ways.
+pub const CLASSIFICATION_KINDS: [&str; 4] = ["t", "v", "u", "b"];
+
+/// The two kind partitions `(value kinds, non-value kinds)` of the
+/// classification scope: a strict one, and one declaring `b` both ways.
+#[must_use]
+pub fn classification_partitions() -> Vec<(BTreeSet<String>, BTreeSet<String>)> {
+    let set = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect();
+    vec![
+        (set(&["v"]), set(&["t"])),
+        (set(&["v", "b"]), set(&["t", "b"])),
+    ]
+}
+
+/// Every schema of the classification scope.
+///
+/// Vertices `v0, v1, v2`, each
+/// with a kind from [`CLASSIFICATION_KINDS`], at most two edges of kind
+/// `prop` named `a` over every ordered vertex pair, and every subset of the
+/// vertices declared tables by a key `k`.
+#[must_use]
+pub fn classification_schemas() -> Vec<Schema> {
+    let mut out = Vec::new();
+    for schema in super::schemas(3, &CLASSIFICATION_KINDS, &["a"], 2) {
+        let vertices: Vec<String> = schema.vertices.keys().cloned().collect();
+        for declared in super::subsets(&vertices, vertices.len()) {
+            let mut with_keys = schema.clone();
+            for vertex in declared {
+                with_keys.keys.insert(
+                    vertex,
+                    vec![crate::schema::Key {
+                        id: "k".to_owned(),
+                        parts: Vec::new(),
+                        role: crate::schema::KeyRole::Primary,
+                        scope: crate::schema::KeyScope::Document,
+                        equality: Vec::new(),
+                    }],
+                );
+            }
+            out.push(with_keys);
+        }
+    }
+    out
+}
+
+/// Independent count of [`classification_schemas`]:
+/// `4^3 (1 + C(9,1) + C(9,2)) 2^3`.
+#[must_use]
+pub fn classification_schemas_count() -> u64 {
+    4u64.pow(3) * (1 + super::choose(9, 1) + super::choose(9, 2)) * 2u64.pow(3)
+}
+
+/// The schemas of the entity-functor scope.
+///
+/// Each over kinds `record` and
+/// `value`: one table; one table with a column; two tables and a relation;
+/// one table with two columns; a table with a structured column (an inner
+/// edge below it); a table with a loop relation.
+#[must_use]
+pub fn entity_schemas() -> Vec<Schema> {
+    vec![
+        Schema::default().vertex("a", "record"),
+        Schema::default()
+            .vertex("a", "record")
+            .vertex("a.x", "value")
+            .edge("a", "a.x", "prop", Some("x")),
+        Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "fk", Some("f")),
+        Schema::default()
+            .vertex("a", "record")
+            .vertex("a.x", "value")
+            .vertex("a.y", "value")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("a", "a.y", "prop", Some("y")),
+        Schema::default()
+            .vertex("a", "record")
+            .vertex("a.x", "value")
+            .vertex("a.x.k", "value")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("a.x", "a.x.k", "inner", Some("k")),
+        Schema::default()
+            .vertex("a", "record")
+            .edge("a", "a", "fk", Some("l")),
+    ]
+}
+
+/// Every migration of the entity-functor scope from `src` to `tgt`.
+///
+/// Every
+/// partial vertex map from the source vertices to the target vertices,
+/// every partial edge map from the source edges to the target edges, and
+/// every subset of the target vertices and of the target edges declared
+/// surviving.
+#[must_use]
+pub fn entity_migrations(src: &Schema, tgt: &Schema) -> Vec<Migration> {
+    let source_vertices: Vec<String> = src.vertices.keys().cloned().collect();
+    let target_vertices: Vec<String> = tgt.vertices.keys().cloned().collect();
+    let source_edges: Vec<SEdge> = src.edges.iter().cloned().collect();
+    let target_edges: Vec<SEdge> = tgt.edges.iter().cloned().collect();
+    let options = |n: usize| (0..=n).collect::<Vec<usize>>();
+    let vertex_maps = product(&vec![options(target_vertices.len()); source_vertices.len()]);
+    let edge_maps = product(&vec![options(target_edges.len()); source_edges.len()]);
+    let surviving_vertices = super::subsets(&target_vertices, target_vertices.len());
+    let surviving_edges = super::subsets(&target_edges, target_edges.len());
+    let mut out = Vec::new();
+    for vertex_map in &vertex_maps {
+        for edge_map in &edge_maps {
+            for verts in &surviving_vertices {
+                for edges in &surviving_edges {
+                    let mut migration = Migration::default();
+                    for (source, choice) in source_vertices.iter().zip(vertex_map) {
+                        if *choice > 0 {
+                            migration
+                                .vertex_remap
+                                .insert(source.clone(), target_vertices[choice - 1].clone());
+                        }
+                    }
+                    for (source, choice) in source_edges.iter().zip(edge_map) {
+                        if *choice > 0 {
+                            migration
+                                .edge_remap
+                                .insert(source.clone(), target_edges[choice - 1].clone());
+                        }
+                    }
+                    migration.surviving_verts = verts.iter().cloned().collect();
+                    migration.surviving_edges = edges.iter().cloned().collect();
+                    out.push(migration);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`entity_migrations`]:
+/// `(m + 1)^n (f + 1)^e 2^m 2^f` for `n` source and `m` target vertices and
+/// `e` source and `f` target edges.
+#[must_use]
+pub fn entity_migrations_count(src: &Schema, tgt: &Schema) -> u64 {
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let (n, m) = (count(src.vertices.len()), count(tgt.vertices.len()));
+    let (e, f) = (count(src.edges.len()), count(tgt.edges.len()));
+    (u64::from(m) + 1).pow(n) * (u64::from(f) + 1).pow(e) * 2u64.pow(m) * 2u64.pow(f)
+}

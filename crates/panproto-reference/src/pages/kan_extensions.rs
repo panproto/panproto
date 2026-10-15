@@ -435,18 +435,23 @@ pub mod encode {
         Ok(())
     }
 
+    /// Whether following in-edges up from `n` reaches a table node: at each
+    /// node the in-edge with the least id is followed, and the walk fails at
+    /// a node without one or on returning to a node it has passed.
     fn rooted(g: &Graph, side: &GraphSide, n: u32) -> bool {
+        let mut seen = BTreeSet::new();
         let mut cur = n;
-        for _ in 0..=g.nodes.len() {
-            let ins: Vec<&GEdge> = g.edges.values().filter(|e| e.tgt == cur).collect();
-            let [one] = ins.as_slice() else { return false };
-            let Some(parent) = g.nodes.get(&one.src) else {
+        while seen.insert(cur) {
+            let Some(edge) = g.edges.values().find(|e| e.tgt == cur) else {
+                return false;
+            };
+            let Some(parent) = g.nodes.get(&edge.src) else {
                 return false;
             };
             if side.tables.contains(&parent.anchor) {
                 return true;
             }
-            cur = one.src;
+            cur = edge.src;
         }
         false
     }
@@ -605,6 +610,42 @@ pub mod encode {
             }
         }
         layout
+    }
+
+    /// Definition: the restriction of a graph to a side.
+    ///
+    /// The nodes anchored at a table or a value vertex of the side, with
+    /// their ids and data, and the edges between two kept nodes whose label
+    /// is a relation, an attribute arrow or an inner value edge of the side,
+    /// with their ids and positions. On a graph encodable over a functor's
+    /// whole source and the side [`GraphSide::kept`], this is the graph
+    /// restriction `rho_S'`: a node at a dropped table, a value node at a
+    /// dropped column and every edge they meet go.
+    ///
+    /// Book anchors: `L-kan-extensions-8`.
+    #[must_use]
+    pub fn restrict_graph(g: &Graph, side: &GraphSide) -> Graph {
+        let nodes: BTreeMap<u32, Node> = g
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                side.tables.contains(&node.anchor) || side.value_vertices.contains(&node.anchor)
+            })
+            .map(|(id, node)| (*id, node.clone()))
+            .collect();
+        let edges = g
+            .edges
+            .iter()
+            .filter(|(_, edge)| {
+                (side.relations.contains(&edge.label)
+                    || side.is_column(&edge.label)
+                    || side.inner_edges.contains(&edge.label))
+                    && nodes.contains_key(&edge.src)
+                    && nodes.contains_key(&edge.tgt)
+            })
+            .map(|(id, edge)| (*id, edge.clone()))
+            .collect();
+        Graph { nodes, edges }
     }
 
     /// Why decoding a table into its graph carrier can refuse.
@@ -1365,78 +1406,22 @@ pub mod encode {
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum SigmaLayoutTerm {
-        Slot(u32, String),
-        Null(u64),
-        Constant(Vec<u8>),
-    }
-
-    fn sigma_layout_term(value: &Value) -> SigmaLayoutTerm {
-        match value {
-            Value::LabeledNull(id) => SigmaLayoutTerm::Null(*id),
-            other => {
-                SigmaLayoutTerm::Constant(crate::canonical::value_bytes(other).unwrap_or_default())
-            }
-        }
-    }
-
-    fn sigma_layout_classes(
-        input: &Table,
-        output: &Table,
-        f: &RelFunctor,
-    ) -> BTreeMap<SigmaLayoutTerm, usize> {
-        fn ensure(
-            labels: &mut BTreeMap<SigmaLayoutTerm, usize>,
-            next: &mut usize,
-            term: SigmaLayoutTerm,
-        ) {
-            if let std::collections::btree_map::Entry::Vacant(entry) = labels.entry(term) {
-                entry.insert(*next);
-                *next += 1;
-            }
-        }
-        fn join(
-            labels: &mut BTreeMap<SigmaLayoutTerm, usize>,
-            next: &mut usize,
-            left: &SigmaLayoutTerm,
-            right: &SigmaLayoutTerm,
-        ) {
-            ensure(labels, next, left.clone());
-            ensure(labels, next, right.clone());
-            let (a, b) = (labels[left], labels[right]);
-            if a != b {
-                for label in labels.values_mut() {
-                    if *label == b {
-                        *label = a;
-                    }
-                }
-            }
-        }
-
-        let mut labels = BTreeMap::new();
-        let mut next = 0;
-        for (row, (target_table, target_cells)) in &output.rows {
-            let Some((source_table, source_cells)) = input.rows.get(row) else {
-                continue;
-            };
-            if f.tables.get(source_table) != Some(target_table) {
-                continue;
-            }
-            for target_column in target_cells.keys() {
-                let slot = SigmaLayoutTerm::Slot(*row, target_column.clone());
-                ensure(&mut labels, &mut next, slot.clone());
-                for ((table, source_column), image) in &f.columns {
-                    if table == source_table
-                        && image == target_column
-                        && let Some(value) = source_cells.get(source_column)
-                    {
-                        join(&mut labels, &mut next, &slot, &sigma_layout_term(value));
-                    }
-                }
-            }
-        }
-        labels
+    /// The input cells Sigma equates with the output slot `(row, column)`:
+    /// the cells of the same row at the kept columns of its table that the
+    /// functor sends to `column`, ascending.
+    fn sigma_slot_sources(input: &Table, row: u32, column: &str, f: &RelFunctor) -> Vec<(u32, String)> {
+        let Some((source_table, source_cells)) = input.rows.get(&row) else {
+            return Vec::new();
+        };
+        f.columns
+            .iter()
+            .filter(|((table, source_column), image)| {
+                table == source_table
+                    && image.as_str() == column
+                    && source_cells.contains_key(source_column)
+            })
+            .map(|((_, source_column), _)| (row, source_column.clone()))
+            .collect()
     }
 
     fn sigma_layout(
@@ -1451,8 +1436,7 @@ pub mod encode {
             reserved_edge_ids: input_layout.reserved_edge_ids.clone(),
             ..GraphLayout::default()
         };
-        let classes = sigma_layout_classes(input, output, f);
-        for (row, (_source_table, _)) in &input.rows {
+        for (row, (source_table, _)) in &input.rows {
             if output.rows.contains_key(row)
                 && let Some(node) = input_layout.table_nodes.get(row)
             {
@@ -1469,30 +1453,16 @@ pub mod encode {
                 else {
                     continue;
                 };
-                let slot = SigmaLayoutTerm::Slot(*row, target_column.clone());
-                let Some(slot_class) = classes.get(&slot) else {
-                    continue;
-                };
                 let mut origins = Vec::new();
-                for (source_row, (origin_table, origin_cells)) in &input.rows {
-                    for ((table, source_column), image_column) in &f.columns {
-                        if table == origin_table
-                            && let Some(origin_value) = origin_cells.get(source_column)
-                            && classes.get(&sigma_layout_term(origin_value)) == Some(slot_class)
-                            && let Some(image_table) = f.tables.get(origin_table)
-                            && let Some(image_arrow) = target
-                                .columns
-                                .get(image_table)
-                                .and_then(|columns| columns.get(image_column))
-                        {
-                            origins.push((
-                                origin_table.clone(),
-                                *source_row,
-                                source_column.clone(),
-                                image_arrow.clone(),
-                            ));
-                        }
-                    }
+                for (source_row, source_column) in
+                    sigma_slot_sources(input, *row, target_column, f)
+                {
+                    origins.push((
+                        source_table.clone(),
+                        source_row,
+                        source_column,
+                        arrow.clone(),
+                    ));
                 }
                 origins.sort();
                 let candidate =
@@ -1709,28 +1679,15 @@ pub mod encode {
     }
 
     fn sigma_origins(input: &Table, output: &Table, f: &RelFunctor) -> GraphOrigins {
-        let classes = sigma_layout_classes(input, output, f);
         let mut origins = GraphOrigins::default();
         for (row, (_, cells)) in &output.rows {
             if input.rows.contains_key(row) {
                 origins.rows.insert(*row, BTreeSet::from([*row]));
             }
             for target_column in cells.keys() {
-                let Some(class) = classes.get(&SigmaLayoutTerm::Slot(*row, target_column.clone()))
-                else {
-                    continue;
-                };
-                let mut contributors = BTreeSet::new();
-                for (source_row, (source_table, source_cells)) in &input.rows {
-                    for (table, column) in f.columns.keys() {
-                        if table == source_table
-                            && let Some(value) = source_cells.get(column)
-                            && classes.get(&sigma_layout_term(value)) == Some(class)
-                        {
-                            contributors.insert((*source_row, column.clone()));
-                        }
-                    }
-                }
+                let contributors = sigma_slot_sources(input, *row, target_column, f)
+                    .into_iter()
+                    .collect();
                 origins
                     .cells
                     .insert((*row, target_column.clone()), contributors);
@@ -3146,29 +3103,29 @@ pub mod rel {
         /// Run step 4b and produce the functor accepted by the Kan extensions.
         ///
         /// An inner edge keeps value structure precisely when its image is an
-        /// inner target edge with the same kind and written name, and the kinds
-        /// of its endpoints agree after applying the recorded vertex remap.
+        /// inner target edge with the same kind and written name, and the kind
+        /// of each endpoint of the image is the kind of the image, under the
+        /// recorded vertex remap, of the corresponding endpoint of the edge
+        /// (an endpoint without a remap entry keeps its own kind).
         ///
         /// # Errors
         ///
         /// [`FunctorError::ValueStructureRemap`] for the least bad inner edge.
         pub fn into_kan(mut self) -> Result<RelFunctor, FunctorError> {
             for (edge, image) in &self.inner_edges {
-                let source_image = self
-                    .value_vertices
-                    .get(&edge.src)
-                    .map_or(edge.src.as_str(), String::as_str);
-                let target_image = self
-                    .value_vertices
-                    .get(&edge.tgt)
-                    .map_or(edge.tgt.as_str(), String::as_str);
+                // The kind an endpoint of the image must have: that of the
+                // endpoint's remap image when it has one, else its own.
+                let expected = |vertex: &str| {
+                    self.value_vertices.get(vertex).map_or_else(
+                        || self.maps.src.kinds.get(vertex),
+                        |remapped| self.maps.tgt.kinds.get(remapped),
+                    )
+                };
                 let keeps_structure = self.maps.tgt.inner_edges.contains(image)
                     && image.name == edge.name
                     && image.kind == edge.kind
-                    && image.src == source_image
-                    && image.tgt == target_image
-                    && self.maps.src.kinds.get(&edge.src) == self.maps.tgt.kinds.get(source_image)
-                    && self.maps.src.kinds.get(&edge.tgt) == self.maps.tgt.kinds.get(target_image);
+                    && self.maps.tgt.kinds.get(&image.src) == expected(&edge.src)
+                    && self.maps.tgt.kinds.get(&image.tgt) == expected(&edge.tgt);
                 if !keeps_structure {
                     return Err(FunctorError::ValueStructureRemap {
                         edge: Box::new(edge.clone()),
@@ -4055,7 +4012,19 @@ pub mod rel {
         Ok((out, prov))
     }
 
-    pub(super) fn sigma_restricted(
+    /// Definition: Sigma of an instance of the kept part `S'`.
+    ///
+    /// [`sigma`] along the same maps with the source replaced by the kept
+    /// part: its kept tables with only their kept columns, its kept
+    /// relations, and the value vertices and inner edges below the kept
+    /// columns. The input is checked against `S'`, not `S`.
+    ///
+    /// # Errors
+    ///
+    /// As [`sigma`], conformance read against `S'`.
+    ///
+    /// Book anchors: `L-kan-extensions-2`, `L-kan-extensions-4`.
+    pub fn sigma_restricted(
         f: &RelFunctor,
         i: &Table,
     ) -> Result<(Table, SigmaProvenance), KanError> {
@@ -4299,7 +4268,17 @@ pub mod rel {
         Ok((out, prov))
     }
 
-    pub(super) fn pi_restricted(
+    /// Definition: Pi of an instance of the kept part `S'`.
+    ///
+    /// [`pi`] along the same maps with the source replaced by the kept part,
+    /// as [`sigma_restricted`] replaces it.
+    ///
+    /// # Errors
+    ///
+    /// As [`pi`], conformance read against `S'`.
+    ///
+    /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
+    pub fn pi_restricted(
         f: &RelFunctor,
         i: &Table,
         max_product_size: usize,
@@ -5102,6 +5081,589 @@ pub mod rel {
                 map.remove(&row);
             }
         }
+    }
+    /// An object of the entity category of a relational side: a table, or a
+    /// relation (an edge between two tables).
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum EntityObject {
+        /// A table.
+        Table(Name),
+        /// A relation object.
+        Relation(SEdge),
+    }
+
+    /// An arrow of the entity category: an identity, or one of the two legs
+    /// of a relation object.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum EntityArrow {
+        /// The identity of an object.
+        Id(EntityObject),
+        /// The source leg `e -> src(e)` of a relation `e`.
+        Src(SEdge),
+        /// The target leg `e -> tgt(e)` of a relation `e`.
+        Tgt(SEdge),
+    }
+
+    impl EntityArrow {
+        /// The domain of the arrow.
+        #[must_use]
+        pub fn dom(&self) -> EntityObject {
+            match self {
+                Self::Id(object) => object.clone(),
+                Self::Src(edge) | Self::Tgt(edge) => EntityObject::Relation(edge.clone()),
+            }
+        }
+
+        /// The codomain of the arrow.
+        #[must_use]
+        pub fn cod(&self) -> EntityObject {
+            match self {
+                Self::Id(object) => object.clone(),
+                Self::Src(edge) => EntityObject::Table(edge.src.clone()),
+                Self::Tgt(edge) => EntityObject::Table(edge.tgt.clone()),
+            }
+        }
+    }
+
+    /// Definition: composition in the entity category.
+    ///
+    /// `after . first`, defined when `cod first = dom after`. Besides
+    /// identities the category has only legs, each ending at a table, and no
+    /// arrow but the identity leaves a table, so two legs never compose.
+    /// `None` when the composite is undefined.
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn entity_compose(after: &EntityArrow, first: &EntityArrow) -> Option<EntityArrow> {
+        if first.cod() != after.dom() {
+            return None;
+        }
+        match (after, first) {
+            (EntityArrow::Id(_), other) | (other, EntityArrow::Id(_)) => Some(other.clone()),
+            _ => None,
+        }
+    }
+
+    /// Definition: the objects and every arrow of the entity category of a
+    /// side.
+    ///
+    /// One object per table and one per relation; the arrows are the
+    /// identities and, for each relation `e`, its legs `Src(e)` and `Tgt(e)`.
+    /// Objects come tables first, each list ascending, and arrows the
+    /// identities in object order followed by the legs relation by relation.
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn entity_category(
+        tables: &BTreeSet<Name>,
+        relations: &BTreeSet<SEdge>,
+    ) -> (Vec<EntityObject>, Vec<EntityArrow>) {
+        let mut objects: Vec<EntityObject> =
+            tables.iter().cloned().map(EntityObject::Table).collect();
+        objects.extend(relations.iter().cloned().map(EntityObject::Relation));
+        let mut arrows: Vec<EntityArrow> = objects.iter().cloned().map(EntityArrow::Id).collect();
+        for edge in relations {
+            arrows.push(EntityArrow::Src(edge.clone()));
+            arrows.push(EntityArrow::Tgt(edge.clone()));
+        }
+        (objects, arrows)
+    }
+
+    /// A finite functor from an entity category to sets: the set of
+    /// elements at each object and the action of each leg. Elements are
+    /// numbers.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct EntityInstance {
+        /// The elements at each object.
+        pub sets: BTreeMap<EntityObject, BTreeSet<usize>>,
+        /// The image of each element under each leg leaving its object.
+        pub legs: BTreeMap<(EntityArrow, usize), usize>,
+    }
+
+    impl EntityInstance {
+        /// `I(u)(x)`: the identity returns `x`, a leg its recorded image;
+        /// `None` when a leg has no recorded image of `x`.
+        #[must_use]
+        pub fn act(&self, arrow: &EntityArrow, element: usize) -> Option<usize> {
+            match arrow {
+                EntityArrow::Id(_) => Some(element),
+                leg => self.legs.get(&(leg.clone(), element)).copied(),
+            }
+        }
+    }
+
+    /// Definition: the entity instance of a graph over a side.
+    ///
+    /// At each table of the side, the ids of the graph's nodes anchored
+    /// there; at each relation, the ids of the graph's edges labelled by it,
+    /// each edge its own element (so parallel edges stay apart); each leg
+    /// sends an edge to the corresponding endpoint. Nodes and edges at no
+    /// object of the side are left out.
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn entity_instance(
+        graph: &crate::model::Graph,
+        tables: &BTreeSet<Name>,
+        relations: &BTreeSet<SEdge>,
+    ) -> EntityInstance {
+        let mut instance = EntityInstance::default();
+        for table in tables {
+            instance
+                .sets
+                .insert(EntityObject::Table(table.clone()), BTreeSet::new());
+        }
+        for relation in relations {
+            instance
+                .sets
+                .insert(EntityObject::Relation(relation.clone()), BTreeSet::new());
+        }
+        for node in graph.nodes.values() {
+            if let Some(set) = instance
+                .sets
+                .get_mut(&EntityObject::Table(node.anchor.clone()))
+            {
+                set.insert(node.id as usize);
+            }
+        }
+        for (id, edge) in &graph.edges {
+            if let Some(set) = instance
+                .sets
+                .get_mut(&EntityObject::Relation(edge.label.clone()))
+            {
+                let element = *id as usize;
+                set.insert(element);
+                instance.legs.insert(
+                    (EntityArrow::Src(edge.label.clone()), element),
+                    edge.src as usize,
+                );
+                instance.legs.insert(
+                    (EntityArrow::Tgt(edge.label.clone()), element),
+                    edge.tgt as usize,
+                );
+            }
+        }
+        instance
+    }
+
+    /// The image of an entity object under the table and relation maps of a
+    /// functor; `None` when the map omits it.
+    fn entity_image(f: &RelFunctor, object: &EntityObject) -> Option<EntityObject> {
+        match object {
+            EntityObject::Table(table) => f.tables.get(table).cloned().map(EntityObject::Table),
+            EntityObject::Relation(edge) => {
+                f.relations.get(edge).cloned().map(EntityObject::Relation)
+            }
+        }
+    }
+
+    /// The image of an entity arrow: identities to identities, each leg of
+    /// `e` to the same leg of `F(e)`; `None` when the map omits it.
+    fn entity_arrow_image(f: &RelFunctor, arrow: &EntityArrow) -> Option<EntityArrow> {
+        match arrow {
+            EntityArrow::Id(object) => entity_image(f, object).map(EntityArrow::Id),
+            EntityArrow::Src(edge) => f.relations.get(edge).cloned().map(EntityArrow::Src),
+            EntityArrow::Tgt(edge) => f.relations.get(edge).cloned().map(EntityArrow::Tgt),
+        }
+    }
+
+    const fn find_root(parent: &mut [usize], mut element: usize) -> usize {
+        while parent[element] != element {
+            parent[element] = parent[parent[element]];
+            element = parent[element];
+        }
+        element
+    }
+
+    /// Definition: the pointwise left Kan extension of an entity instance
+    /// along the entity part of a functor.
+    ///
+    /// For each target object `d` of the entity category on `target_tables`
+    /// and `target_relations`, the colimit over the comma category `(F, d)`:
+    /// the disjoint union of the sets `I(c)` indexed by the comma objects
+    /// `(c, f: F(c) -> d)`, quotiented by joining `x` at `(c, f)` with
+    /// `I(u)(x)` at `(c', f')` for every source arrow `u: c -> c'` with
+    /// `f' . F(u) = f`, the pointwise formula. Each class is named by the index
+    /// of its least member in comma order. A target leg `l: r -> d` sends the
+    /// class of `x` at `(c, f)` to the class of `x` at `(c, l . f)`.
+    ///
+    /// The source category is the one on the functor's kept tables and kept
+    /// relations (`f.tables`, `f.relations`). `None` when the instance lacks
+    /// an object of the source category, a leg image is missing, a functor
+    /// image lies outside the target, or a leg action depends on the
+    /// representative (which the colimit rules out).
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn presheaf_left_kan(
+        instance: &EntityInstance,
+        f: &RelFunctor,
+        target_tables: &BTreeSet<Name>,
+        target_relations: &BTreeSet<SEdge>,
+    ) -> Option<EntityInstance> {
+        let source_tables: BTreeSet<Name> = f.tables.keys().cloned().collect();
+        let source_relations: BTreeSet<SEdge> = f.relations.keys().cloned().collect();
+        let (source_objects, source_arrows) = entity_category(&source_tables, &source_relations);
+        let (target_objects, target_arrows) = entity_category(target_tables, target_relations);
+        let mut result = EntityInstance::default();
+        let mut classes: BTreeMap<EntityObject, BTreeMap<(usize, usize), usize>> = BTreeMap::new();
+        let mut commas: BTreeMap<EntityObject, Vec<(EntityObject, EntityArrow)>> = BTreeMap::new();
+        for d in &target_objects {
+            let mut comma: Vec<(EntityObject, EntityArrow)> = Vec::new();
+            for c in &source_objects {
+                let image = entity_image(f, c)?;
+                if !target_objects.contains(&image) {
+                    return None;
+                }
+                for arrow in &target_arrows {
+                    if arrow.dom() == image && arrow.cod() == *d {
+                        comma.push((c.clone(), arrow.clone()));
+                    }
+                }
+            }
+            let mut elements: Vec<(usize, usize)> = Vec::new();
+            for (k, (c, _)) in comma.iter().enumerate() {
+                for x in instance.sets.get(c)? {
+                    elements.push((k, *x));
+                }
+            }
+            let index: BTreeMap<(usize, usize), usize> = elements
+                .iter()
+                .enumerate()
+                .map(|(position, element)| (*element, position))
+                .collect();
+            let mut parent: Vec<usize> = (0..elements.len()).collect();
+            for (k, (c, along)) in comma.iter().enumerate() {
+                for (k2, (c2, along2)) in comma.iter().enumerate() {
+                    for u in source_arrows
+                        .iter()
+                        .filter(|u| u.dom() == *c && u.cod() == *c2)
+                    {
+                        let image = entity_arrow_image(f, u)?;
+                        if entity_compose(along2, &image).as_ref() != Some(along) {
+                            continue;
+                        }
+                        for x in instance.sets.get(c)? {
+                            let moved = instance.act(u, *x)?;
+                            let a = find_root(&mut parent, *index.get(&(k, *x))?);
+                            let b = find_root(&mut parent, *index.get(&(k2, moved))?);
+                            let (low, high) = (a.min(b), a.max(b));
+                            parent[high] = low;
+                        }
+                    }
+                }
+            }
+            let mut class = BTreeMap::new();
+            for element in &elements {
+                let root = find_root(&mut parent, *index.get(element)?);
+                class.insert(*element, root);
+            }
+            result
+                .sets
+                .insert(d.clone(), class.values().copied().collect());
+            classes.insert(d.clone(), class);
+            commas.insert(d.clone(), comma);
+        }
+        for leg in target_arrows
+            .iter()
+            .filter(|arrow| !matches!(arrow, EntityArrow::Id(_)))
+        {
+            let (r, d) = (leg.dom(), leg.cod());
+            let into_d = commas.get(&d)?;
+            for (&(k, x), &class) in classes.get(&r)? {
+                let (c, along) = commas.get(&r)?.get(k)?;
+                let composite = entity_compose(leg, along)?;
+                let k2 = into_d
+                    .iter()
+                    .position(|(c2, along2)| c2 == c && *along2 == composite)?;
+                let image = *classes.get(&d)?.get(&(k2, x))?;
+                if let Some(previous) = result.legs.insert((leg.clone(), class), image) {
+                    if previous != image {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(result)
+    }
+
+    /// Each relation's multiset of endpoint pairs, a count per pair.
+    pub type EndpointPairs = BTreeMap<SEdge, BTreeMap<(usize, usize), usize>>;
+
+    /// Definition: the separated reflection `L_sep` of an entity instance on
+    /// its relations.
+    ///
+    /// The quotient identifying two elements of one relation whose two legs
+    /// agree; the tables are unchanged. Returned as each relation's set of
+    /// endpoint pairs (every count is one), with how many elements the
+    /// quotient identified. `None` when a relation of `relations` has no set
+    /// or a leg image is missing.
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn separated_pairs(
+        instance: &EntityInstance,
+        relations: &BTreeSet<SEdge>,
+    ) -> Option<(EndpointPairs, usize)> {
+        let mut pairs = BTreeMap::new();
+        let mut identified = 0;
+        for relation in relations {
+            let mut ends: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            for element in instance
+                .sets
+                .get(&EntityObject::Relation(relation.clone()))?
+            {
+                let key = (
+                    instance.act(&EntityArrow::Src(relation.clone()), *element)?,
+                    instance.act(&EntityArrow::Tgt(relation.clone()), *element)?,
+                );
+                if ends.insert(key, 1).is_some() {
+                    identified += 1;
+                }
+            }
+            pairs.insert(relation.clone(), ends);
+        }
+        Some((pairs, identified))
+    }
+
+    /// Definition: the relation elements of an entity instance as a
+    /// multiset of endpoint pairs, without the separated reflection: equal
+    /// endpoints keep their multiplicity.
+    ///
+    /// `None` as in [`separated_pairs`].
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn unseparated_pairs(
+        instance: &EntityInstance,
+        relations: &BTreeSet<SEdge>,
+    ) -> Option<EndpointPairs> {
+        let mut pairs = BTreeMap::new();
+        for relation in relations {
+            let mut ends: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            for element in instance
+                .sets
+                .get(&EntityObject::Relation(relation.clone()))?
+            {
+                let key = (
+                    instance.act(&EntityArrow::Src(relation.clone()), *element)?,
+                    instance.act(&EntityArrow::Tgt(relation.clone()), *element)?,
+                );
+                *ends.entry(key).or_default() += 1;
+            }
+            pairs.insert(relation.clone(), ends);
+        }
+        Some(pairs)
+    }
+
+    /// One term of Sigma's value equations: a constant by its canonical
+    /// bytes, or a labelled null.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ValueTerm {
+        Constant(Vec<u8>),
+        Null(u64),
+    }
+
+    /// Definition: whether the value equations of Sigma are inconsistent.
+    ///
+    /// Each row of a kept table equates the cells of its kept columns that
+    /// the functor sends to one target column; a labelled null names one
+    /// unknown everywhere, so the equations close under transitivity across
+    /// rows; they clash when they join two constants with different
+    /// canonical bytes. Rows at tables the functor does not keep, and cells
+    /// at columns it drops, contribute no equation. `None` when a cell has
+    /// no canonical bytes.
+    ///
+    /// Book anchors: `L-kan-extensions-2`.
+    #[must_use]
+    pub fn sigma_values_clash(input: &Table, f: &RelFunctor) -> Option<bool> {
+        let mut terms: Vec<ValueTerm> = Vec::new();
+        let mut index: BTreeMap<ValueTerm, usize> = BTreeMap::new();
+        let mut equations: Vec<(usize, usize)> = Vec::new();
+        let mut intern = |term: ValueTerm, terms: &mut Vec<ValueTerm>| {
+            *index.entry(term.clone()).or_insert_with(|| {
+                terms.push(term);
+                terms.len() - 1
+            })
+        };
+        for (table, cells) in input.rows.values() {
+            let mut by_image: BTreeMap<&String, Vec<&Value>> = BTreeMap::new();
+            for (column, value) in cells {
+                if let Some(image) = f.columns.get(&(table.clone(), column.clone())) {
+                    by_image.entry(image).or_default().push(value);
+                }
+            }
+            for values in by_image.values() {
+                let mut ids = Vec::new();
+                for value in values {
+                    let term = match value {
+                        Value::LabeledNull(null) => ValueTerm::Null(*null),
+                        other => ValueTerm::Constant(crate::canonical::value_bytes(other)?),
+                    };
+                    ids.push(intern(term, &mut terms));
+                }
+                if let Some((first, rest)) = ids.split_first() {
+                    equations.extend(rest.iter().map(|other| (*first, *other)));
+                }
+            }
+        }
+        let mut parent: Vec<usize> = (0..terms.len()).collect();
+        for (a, b) in equations {
+            let (a, b) = (find_root(&mut parent, a), find_root(&mut parent, b));
+            parent[a.max(b)] = a.min(b);
+        }
+        let mut constant_of: BTreeMap<usize, &ValueTerm> = BTreeMap::new();
+        for (position, term) in terms.iter().enumerate() {
+            if matches!(term, ValueTerm::Constant(_)) {
+                let root = find_root(&mut parent, position);
+                if constant_of
+                    .insert(root, term)
+                    .is_some_and(|other| other != term)
+                {
+                    return Some(true);
+                }
+            }
+        }
+        Some(false)
+    }
+    /// The homomorphism `domain -> codomain` with row map `rows`, its null
+    /// map forced by the cells: each labelled null of the domain goes to the
+    /// cell it first meets in `(row, column)` order, every later occurrence
+    /// and every constant agreeing by canonical bytes. `None` when no such
+    /// homomorphism exists.
+    fn forced_hom(domain: &Table, codomain: &Table, rows: BTreeMap<u32, u32>) -> Option<Hom> {
+        let mut nulls = BTreeMap::new();
+        for (source, (_, source_cells)) in &domain.rows {
+            let target = rows.get(source)?;
+            let (_, target_cells) = codomain.rows.get(target)?;
+            for (column, value) in source_cells {
+                let image = target_cells.get(column)?;
+                let image_bytes = crate::canonical::value_bytes(image)?;
+                match value {
+                    Value::LabeledNull(id) => {
+                        if let Some(prior) = nulls.get(id) {
+                            if crate::canonical::value_bytes(prior)? != image_bytes {
+                                return None;
+                            }
+                        }
+                        nulls.insert(*id, image.clone());
+                    }
+                    other => {
+                        if crate::canonical::value_bytes(other)? != image_bytes {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+        let hom = Hom { rows, nulls };
+        hom.check(domain, codomain).ok()?;
+        Some(hom)
+    }
+
+    /// Definition: Sigma on a homomorphism of instances of the kept part.
+    ///
+    /// For `h: I -> I'`, `Sigma(h): Sigma(I) -> Sigma(I')` sends each row of
+    /// `Sigma(I)` (which keeps the ids of the rows of `I`) to the image of
+    /// that row under `h`; its null map is forced by the cells, so it is the
+    /// unique homomorphism with that row map. Both Sigma results are
+    /// [`sigma_restricted`].
+    ///
+    /// `None` when either Sigma refuses, `h` is no homomorphism `I -> I'`, or
+    /// no homomorphism has that row map.
+    ///
+    /// Book anchors: `L-kan-extensions-2`, `L-kan-extensions-4`.
+    #[must_use]
+    pub fn sigma_on_hom(
+        f: &RelFunctor,
+        domain: &Table,
+        codomain: &Table,
+        hom: &Hom,
+    ) -> Option<Hom> {
+        let (sigma_domain, _) = sigma_restricted(f, domain).ok()?;
+        let (sigma_codomain, _) = sigma_restricted(f, codomain).ok()?;
+        hom.check(domain, codomain).ok()?;
+        let rows = sigma_domain
+            .rows
+            .keys()
+            .map(|row| Some((*row, *hom.rows.get(row)?)))
+            .collect::<Option<_>>()?;
+        forced_hom(&sigma_domain, &sigma_codomain, rows)
+    }
+
+    /// Definition: Delta on a homomorphism of target instances.
+    ///
+    /// For `h: J -> J'`, `Delta(h)` sends the copy at `s` of a row `r` to the
+    /// copy at `s` of `h(r)`, as [`delta`]'s provenance names the copies; its
+    /// null map is forced by the cells.
+    ///
+    /// `None` when either Delta refuses, `h` is no homomorphism `J -> J'`, or
+    /// no homomorphism has that row map.
+    ///
+    /// Book anchors: `L-kan-extensions-1`, `L-kan-extensions-4`,
+    /// `L-kan-extensions-5`.
+    #[must_use]
+    pub fn delta_on_hom(
+        f: &RelFunctor,
+        domain: &Table,
+        codomain: &Table,
+        hom: &Hom,
+    ) -> Option<Hom> {
+        let (delta_domain, domain_copies) = delta(f, domain).ok()?;
+        let (delta_codomain, codomain_copies) = delta(f, codomain).ok()?;
+        hom.check(domain, codomain).ok()?;
+        let index: BTreeMap<(Name, u32), u32> = codomain_copies
+            .iter()
+            .map(|(copy, origin)| (origin.clone(), *copy))
+            .collect();
+        let rows = domain_copies
+            .iter()
+            .map(|(copy, (table, row))| {
+                let image = *hom.rows.get(row)?;
+                Some((*copy, *index.get(&(table.clone(), image))?))
+            })
+            .collect::<Option<_>>()?;
+        forced_hom(&delta_domain, &delta_codomain, rows)
+    }
+
+    /// Definition: Pi on a homomorphism of instances of the kept part.
+    ///
+    /// For `h: I -> I'`, `Pi(h)` sends the row of each tuple of
+    /// `Pi(I)` to the row of `Pi(I')` whose tuple holds the components'
+    /// images under `h`, as [`pi_restricted`]'s provenance names the tuples
+    /// (the one row of a table outside the image to the one row); its null
+    /// map is forced by the cells.
+    ///
+    /// `None` when either Pi refuses at `max_product_size`, `h` is no
+    /// homomorphism `I -> I'`, or no homomorphism has that row map.
+    ///
+    /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
+    #[must_use]
+    pub fn pi_on_hom(
+        f: &RelFunctor,
+        domain: &Table,
+        codomain: &Table,
+        hom: &Hom,
+        max_product_size: usize,
+    ) -> Option<Hom> {
+        let (pi_domain, domain_tuples) = pi_restricted(f, domain, max_product_size).ok()?;
+        let (pi_codomain, codomain_tuples) = pi_restricted(f, codomain, max_product_size).ok()?;
+        hom.check(domain, codomain).ok()?;
+        let index: BTreeMap<(Name, Vec<u32>), u32> = codomain_tuples
+            .iter()
+            .map(|(product, origin)| (origin.clone(), *product))
+            .collect();
+        let rows = domain_tuples
+            .iter()
+            .map(|(product, (table, tuple))| {
+                let image = tuple
+                    .iter()
+                    .map(|row| hom.rows.get(row).copied())
+                    .collect::<Option<Vec<_>>>()?;
+                Some((*product, *index.get(&(table.clone(), image))?))
+            })
+            .collect::<Option<_>>()?;
+        forced_hom(&pi_domain, &pi_codomain, rows)
     }
 }
 
