@@ -1373,6 +1373,9 @@ pub mod coerce {
     }
 
     /// Definition: Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
+    /// Under `Any`, a temporal lexeme with a calendar-date reading takes that
+    /// reading; reduced-form offset readings are considered only when no date
+    /// reading exists. A declared temporal kind selects its own reading.
     ///
     /// A lexeme of class `Tagged(tag)` with no discriminator table is read by
     /// the declared kind as a `String` when there is one, and under `Any` by
@@ -1805,7 +1808,9 @@ pub mod coerce {
         }
         if let Some(rest) = body.strip_prefix('0')
             && !rest.is_empty()
-            && rest.bytes().all(|b| (b'0'..=b'7').contains(&b) || b == b'_')
+            && rest
+                .bytes()
+                .all(|b| (b'0'..=b'7').contains(&b) || b == b'_')
         {
             let digits = rest.replace('_', "");
             return if digits.is_empty() {
@@ -1927,7 +1932,8 @@ pub mod coerce {
                 }
             }
             LexClass::Bool => coerce_bool(text, class).map_err(|_| FidelityReason::InvalidEncoding),
-            LexClass::DateTime => temporal::parse_any(text)
+            LexClass::DateTime => temporal::parse(TemporalKind::Date, text)
+                .or_else(|| temporal::parse_any(text))
                 .map(Value::Temporal)
                 .ok_or(FidelityReason::InvalidTemporal),
             LexClass::Bytes => decode_bytes(text, BytesText::Base64)
