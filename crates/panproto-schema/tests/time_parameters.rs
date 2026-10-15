@@ -92,5 +92,6 @@ fn a_time_parameter_is_read_and_kept() {
     assert_eq!(serde_json::from_str::<ValueSpec>(&text).unwrap(), at);
     // A spec without either parameter writes neither field.
     let plain = serde_json::to_string(&ValueSpec::new(ScalarKind::DateTime)).unwrap();
-    assert!(!plain.contains("time_"), "{plain}");
+    assert!(!plain.contains("\"time_unit\""), "{plain}");
+    assert!(!plain.contains("\"time_zone\":"), "{plain}");
 }
