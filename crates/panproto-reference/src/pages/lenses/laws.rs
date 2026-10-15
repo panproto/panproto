@@ -1771,6 +1771,151 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
     }
 }
 
+/// A typed refusal of the executable table law adapter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TableLawError {
+    /// Forward restriction refused.
+    Restrict(RestrictError),
+    /// Checked put refused.
+    Put(super::table::TablePutError),
+    /// The complete put-domain check refused.
+    Domain(super::table::TableCheckError),
+}
+
+/// The table Single-Step Basis: for each view row in ascending id, each
+/// target column of its table in ascending name set to the alternate of its
+/// cell; one empty row at the least id neither in the view nor reserved, in
+/// each target table; and each view row removed with its incident pairs.
+fn table_basis(
+    lens: &super::table::TableLens<'_>,
+    view: &Table,
+    complement: &TableComplement,
+) -> Vec<BasisCase<Table, TableLawError>> {
+    let columns = &lens.plan().target_boundary().columns;
+    let mut basis = Vec::new();
+    let mut push = |mutation: Mutation, edited: Table| {
+        basis.push(BasisCase {
+            ordinal: basis.len(),
+            mutation,
+            view: edited,
+            domain: DomainExpectation::Admitted,
+        });
+    };
+    for (id, (table, cells)) in &view.rows {
+        for column in columns.get(table).into_iter().flat_map(BTreeMap::keys) {
+            let mut edited = view.clone();
+            let mut row = cells.clone();
+            row.insert(column.clone(), alternate_value(cells.get(column)));
+            edited.rows.insert(*id, (table.clone(), row));
+            push(Mutation::ValueEdit, edited);
+        }
+    }
+    let fresh = floor_of(
+        view.rows
+            .keys()
+            .chain(complement.dropped_rows.keys())
+            .copied(),
+    );
+    if fresh != u32::MAX {
+        for table in columns.keys() {
+            let mut edited = view.clone();
+            edited.rows.insert(fresh, (table.clone(), BTreeMap::new()));
+            push(Mutation::AddNode, edited);
+        }
+    }
+    for id in view.rows.keys() {
+        let mut edited = view.clone();
+        edited.rows.remove(id);
+        edited.pairs.retain(|(_, s, t)| s != id && t != id);
+        push(Mutation::RemoveNode, edited);
+    }
+    basis
+}
+
+impl<'a> LawShape<super::table::TableLens<'a>> for TableShape {
+    type Refusal = TableLawError;
+    type Context = ();
+
+    fn get(
+        lens: &super::table::TableLens<'a>,
+        source: &Table,
+        (): &(),
+    ) -> Result<(Table, TableComplement), TableLawError> {
+        lens.get(source).map_err(TableLawError::Restrict)
+    }
+
+    fn put(
+        lens: &super::table::TableLens<'a>,
+        view: &Table,
+        complement: &TableComplement,
+        (): &(),
+    ) -> Result<Table, TableLawError> {
+        super::table::put(lens, view, complement).map_err(TableLawError::Put)
+    }
+
+    fn check_put_domain(
+        lens: &super::table::TableLens<'a>,
+        view: &Table,
+        complement: &TableComplement,
+        (): &(),
+    ) -> Result<(), TableLawError> {
+        super::table::check_put_domain(lens, view, complement).map_err(TableLawError::Domain)
+    }
+
+    fn single_step_basis(
+        lens: &super::table::TableLens<'a>,
+        _: &Table,
+        view: &Table,
+        complement: &TableComplement,
+        (): &(),
+    ) -> Vec<BasisCase<Table, TableLawError>> {
+        table_basis(lens, view, complement)
+    }
+
+    fn put_get_mode() -> PutGetMode {
+        PutGetMode::Strict
+    }
+
+    fn rekey_complement(
+        complement: &TableComplement,
+        _: &Table,
+        _: &Table,
+        _: &TableComplement,
+    ) -> TableComplement {
+        complement.clone()
+    }
+
+    fn congruence_cases(
+        _: &super::table::TableLens<'a>,
+        _: &Table,
+        _: &TableComplement,
+        (): &(),
+    ) -> Vec<CongruenceCase<Table, TableComplement>> {
+        Vec::new()
+    }
+
+    fn locality_divergence(
+        _: &super::table::TableLens<'a>,
+        _: &Table,
+        _: &Table,
+        _: &Table,
+        _: &Table,
+        _: &TableComplement,
+        (): &(),
+    ) -> Option<Divergence> {
+        None
+    }
+}
+
+/// Run the five law gates against the concrete table reference lens.
+#[must_use]
+pub fn check_table_laws(
+    lens: &super::table::TableLens<'_>,
+    source: &Table,
+) -> LawReport<TableLawError> {
+    check_laws_report::<TableShape, _>(lens, source, &())
+}
+
 fn tree_congruence_case(
     view: &Tree,
     complement: &TreeLawComplement,

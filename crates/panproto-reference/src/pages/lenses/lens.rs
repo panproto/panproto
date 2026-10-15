@@ -11,9 +11,9 @@ pub use super::laws::{
     BasisCase, CongruenceCase, Divergence, DivergenceKind, DomainExpectation, EqualityClass,
     FusionCheck, FusionObservation, GateReport, GraphShape, LawFailure, LawGate, LawGateStatus,
     LawObstruction, LawOperation, LawReport, LawShape, LensShape, LocalityReport, Mutation,
-    OutcomeClass, PutGetMode, ReferenceLawError, SynthIndex, TableShape, TreeLawComplement,
-    TreeShape, check_graph_laws, check_laws_report, check_locality_report, check_tree_laws,
-    compare_fusion, put,
+    OutcomeClass, PutGetMode, ReferenceLawError, SynthIndex, TableLawError, TableShape,
+    TreeLawComplement, TreeShape, check_graph_laws, check_laws_report, check_locality_report,
+    check_table_laws, check_tree_laws, compare_fusion, put,
 };
 pub use super::protolens::{
     InstantiatedLens, Protolens, ProtolensApplication, ProtolensError, SchemaPrecondition, get,

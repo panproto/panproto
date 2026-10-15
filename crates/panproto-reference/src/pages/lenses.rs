@@ -19,9 +19,9 @@ pub use self::laws::{
     BasisCase, CongruenceCase, Divergence, DivergenceKind, DomainExpectation, EqualityClass,
     FusionCheck, FusionObservation, GateReport, GraphShape, LawFailure, LawGate, LawGateStatus,
     LawObstruction, LawOperation, LawReport, LawShape, LensShape, LocalityReport, Mutation,
-    OutcomeClass, PutGetMode, ReferenceLawError, SynthIndex, TableShape, TreeLawComplement,
-    TreeShape, check_graph_laws, check_laws_report, check_locality_report, check_tree_laws,
-    compare_fusion,
+    OutcomeClass, PutGetMode, ReferenceLawError, SynthIndex, TableLawError, TableShape,
+    TreeLawComplement, TreeShape, check_graph_laws, check_laws_report, check_locality_report,
+    check_table_laws, check_tree_laws, compare_fusion,
 };
 pub use self::lens::{
     GraphLens, GraphSquareObservation, IdentityError, IdentityStatus, InstantiatedLens, LensError,

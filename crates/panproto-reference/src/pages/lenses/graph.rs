@@ -837,7 +837,9 @@ pub fn on_delta_fragment(lens: &GraphLens<'_>) -> bool {
         && lens.tgt.edges.iter().all(|e| lens.src.edges.contains(e))
 }
 
-/// Whether `part` is a subinstance of `whole`: every node of `part` is a
+/// Whether `part` is a subinstance of `whole`.
+///
+/// Every node of `part` is a
 /// node of `whole` with the same id and content, and every edge of `part`
 /// is an edge of `whole` with the same id, endpoints, label and position.
 ///
@@ -904,7 +906,11 @@ pub fn subinstances(source: &Graph) -> Vec<Graph> {
 ///
 /// Book anchors: `L-lenses-4`.
 #[must_use]
-pub fn largest_exact_preimage(lens: &GraphLens<'_>, source: &Graph, edited: &Graph) -> Option<Graph> {
+pub fn largest_exact_preimage(
+    lens: &GraphLens<'_>,
+    source: &Graph,
+    edited: &Graph,
+) -> Option<Graph> {
     if !on_delta_fragment(lens) {
         return None;
     }
@@ -940,8 +946,10 @@ pub fn cascade_universal_property(
     if !on_delta_fragment(lens) || !is_subinstance(result, source) {
         return false;
     }
-    subinstances(source).iter().all(|candidate| match lens.get(candidate) {
-        Ok((view, _)) => !is_subinstance(&view, edited) || is_subinstance(candidate, result),
-        Err(_) => false,
-    })
+    subinstances(source)
+        .iter()
+        .all(|candidate| match lens.get(candidate) {
+            Ok((view, _)) => !is_subinstance(&view, edited) || is_subinstance(candidate, result),
+            Err(_) => false,
+        })
 }

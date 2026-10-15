@@ -936,6 +936,11 @@ impl<'a> TableLens<'a> {
         &self.identity
     }
 
+    /// The compiled table plan this lens executes.
+    pub(super) const fn plan(&self) -> &TablePlan {
+        self.tp
+    }
+
     /// Forward table-lens direction under this exact compiled boundary.
     ///
     /// # Errors

@@ -18,6 +18,9 @@ use panproto_inst::{
     NodeShape, PutDomainError, RestrictError, SynthKey, Value, ViewRef,
 };
 use panproto_lens::{Lens, LensError, graph_lens};
+use panproto_reference::enumerate::lenses::{
+    C11_FIELD, C11_VALUE, C11AddField, C11Layer, C11Stage, C11SurvivalFalse,
+};
 use panproto_reference::harness::{Disagreement, agree};
 use panproto_reference::lens::{GraphLens as RefGraphLens, LensError as RefLensError};
 use panproto_reference::migration::Migration as RefMigration;
@@ -28,9 +31,6 @@ use panproto_reference::model::{
 use panproto_reference::restrict::{
     Complement as RefComplement, EngineError, NoValueLayer, Plan, PlanError,
     RestrictError as RefRestrictError, SynthKey as RefSynthKey, ValueLayer,
-};
-use panproto_reference::enumerate::lenses::{
-    C11_FIELD, C11_VALUE, C11AddField, C11Layer, C11Stage, C11SurvivalFalse,
 };
 use panproto_reference::schema::Schema as RefSchema;
 use panproto_reference::value::{Presence as RefPresence, Value as RefValue};
@@ -181,7 +181,8 @@ fn ref_graph(graph: &GInstance) -> RefGraph {
 fn prod_graph(graph: &RefGraph) -> GInstance {
     let mut out = GInstance::new();
     for node in graph.nodes.values() {
-        out.insert_node(prod_node(node)).expect("distinct reference node id");
+        out.insert_node(prod_node(node))
+            .expect("distinct reference node id");
     }
     for (id, edge) in &graph.edges {
         out.insert_edge(EdgeId(*id), prod_gedge(edge))
@@ -284,7 +285,9 @@ fn prod_schema(schema: &RefSchema) -> Schema {
     let protocol = Protocol::default();
     let mut builder = SchemaBuilder::new(&protocol);
     for (vertex, kind) in &schema.vertices {
-        builder = builder.vertex(vertex, kind, None).expect("reference vertex");
+        builder = builder
+            .vertex(vertex, kind, None)
+            .expect("reference vertex");
     }
     for edge in &schema.edges {
         builder = builder
@@ -320,7 +323,12 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
         "value-layer stages are converted by their own stage constructors"
     );
     CompiledMigration {
-        surviving_verts: migration.surviving_verts.iter().cloned().map(Into::into).collect(),
+        surviving_verts: migration
+            .surviving_verts
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect(),
         surviving_edges: migration.surviving_edges.iter().map(prod_edge).collect(),
         vertex_remap: migration
             .vertex_remap
@@ -336,7 +344,10 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
             .resolver
             .iter()
             .map(|((source, target), edge)| {
-                ((source.clone().into(), target.clone().into()), prod_edge(edge))
+                (
+                    (source.clone().into(), target.clone().into()),
+                    prod_edge(edge),
+                )
             })
             .collect(),
         expansion_path: migration
@@ -354,7 +365,10 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
             .iter()
             .map(|((hyper, labels), (target, remap))| {
                 (
-                    (hyper.clone().into(), labels.iter().cloned().map(Into::into).collect()),
+                    (
+                        hyper.clone().into(),
+                        labels.iter().cloned().map(Into::into).collect(),
+                    ),
                     (
                         target.clone().into(),
                         remap
@@ -455,7 +469,10 @@ fn put_domain_reason(error: &PutDomainError) -> String {
         PutDomainError::AmbiguousReverseAnchor { elem, candidates } => format!(
             "AmbiguousReverseAnchor {} {:?}",
             view_ref(elem),
-            candidates.iter().map(ToString::to_string).collect::<Vec<_>>()
+            candidates
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
         ),
         PutDomainError::SurvivalPredicateFails { elem } => {
             format!("SurvivalPredicateFails {}", view_ref(elem))
@@ -488,7 +505,10 @@ fn ref_put_domain_reason(error: &panproto_reference::lens::PutDomainError) -> St
             format!("UnrepresentableViewEdge {}", ref_view_ref(elem))
         }
         R::AmbiguousReverseAnchor { elem, candidates } => {
-            format!("AmbiguousReverseAnchor {} {candidates:?}", ref_view_ref(elem))
+            format!(
+                "AmbiguousReverseAnchor {} {candidates:?}",
+                ref_view_ref(elem)
+            )
         }
         R::SurvivalPredicateFails { elem } => {
             format!("SurvivalPredicateFails {}", ref_view_ref(elem))
@@ -544,9 +564,7 @@ fn lens_reason(error: &LensError) -> Reason {
 fn ref_lens_reason(error: &RefLensError) -> Reason {
     match error {
         RefLensError::PutDomain(found) => Reason::PutDomain(ref_put_domain_reason(found)),
-        RefLensError::PutDomainReport(found) => {
-            Reason::PutDomain(ref_put_domain_reason(&found[0]))
-        }
+        RefLensError::PutDomainReport(found) => Reason::PutDomain(ref_put_domain_reason(&found[0])),
         RefLensError::Identity(found) => Reason::Identity(format!("{found:?}")),
         RefLensError::TreeOperational(found) => Reason::Restrict(format!("{found:?}")),
     }
@@ -740,9 +758,7 @@ fn gf5_cascade_outcome(
             .as_ref()
             .and_then(|outcome| outcome.put.as_ref().ok())
             .is_some_and(|restored| {
-                panproto_reference::lens::cascade_universal_property(
-                    lens, source, edited, restored,
-                )
+                panproto_reference::lens::cascade_universal_property(lens, source, edited, restored)
             });
         (largest, universal)
     });
@@ -753,7 +769,9 @@ fn gf5_cascade_outcome(
 fn the_cascade_agrees_with_the_reference_on_the_gf5_scope() {
     let certificate = gf5_count_certificate();
     let mut sources = [0_usize; 2];
-    for_each_gf5_source(|fixture, _| sources[usize::from(fixture == Gf5Fixture::VisibleThenHidden)] += 1);
+    for_each_gf5_source(|fixture, _| {
+        sources[usize::from(fixture == Gf5Fixture::VisibleThenHidden)] += 1
+    });
     assert_eq!(sources, certificate.sources);
 
     let mut cases = Vec::new();
@@ -767,7 +785,8 @@ fn the_cascade_agrees_with_the_reference_on_the_gf5_scope() {
         gf5_pair(Gf5Fixture::DropTarget),
         gf5_pair(Gf5Fixture::VisibleThenHidden),
     ];
-    let pair_of = |fixture: Gf5Fixture| &pairs[usize::from(fixture == Gf5Fixture::VisibleThenHidden)];
+    let pair_of =
+        |fixture: Gf5Fixture| &pairs[usize::from(fixture == Gf5Fixture::VisibleThenHidden)];
     let bound = format!(
         "GF5: fixtures=2, nodes<=3, edges<=3, sources={}, deletion_edits={edits}, source_subinstance_probes={probes}",
         sources.iter().sum::<usize>()
@@ -813,10 +832,16 @@ fn graph_get_agrees_with_the_reference_on_the_gf5_sources() {
         &bound,
         cases.iter(),
         |(fixture, source)| {
-            production_get(&pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)], source)
+            production_get(
+                &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)],
+                source,
+            )
         },
         |(fixture, source)| {
-            reference_get(&pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)], source)
+            reference_get(
+                &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)],
+                source,
+            )
         },
         |production, reference| production == reference,
     ));
@@ -829,28 +854,6 @@ fn graph_get_agrees_with_the_reference_on_the_gf5_sources() {
         let reference = reference_strict_put(pair, source, &view).expect("reference get");
         assert_eq!(production, reference);
         assert_eq!(reference.put, Ok(source.clone()));
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::default())]
-    #[test]
-    fn randomized_lens_law_differential(index in 0_usize..604) {
-        let pairs = [
-            gf5_pair(Gf5Fixture::DropTarget),
-            gf5_pair(Gf5Fixture::VisibleThenHidden),
-        ];
-        let mut found = None;
-        let mut at = 0;
-        for_each_gf5_deletion_edit(|fixture, source, edited| {
-            if at == index {
-                found = Some((fixture, source.clone(), edited.clone()));
-            }
-            at += 1;
-        });
-        let (fixture, source, edited) = found.expect("index in scope");
-        let pair = &pairs[usize::from(fixture == Gf5Fixture::VisibleThenHidden)];
-        prop_assert_eq!(production_put(pair, &source, &edited), reference_put(pair, &source, &edited));
     }
 }
 
@@ -1111,8 +1114,13 @@ fn production_table_put(pair: &TablePair, source: &RefTable, edited: &RefTable) 
         put: table_lens::put(&pair.production, &view, &complement, pair.protocols())
             .map(|restored| ref_table(&restored))
             .map_err(|error| lens_reason(&error)),
-        domain: table_lens::check_put_domain(&pair.production, &view, &complement, pair.protocols())
-            .map_err(|errors| errors.iter().map(put_domain_reason).collect()),
+        domain: table_lens::check_put_domain(
+            &pair.production,
+            &view,
+            &complement,
+            pair.protocols(),
+        )
+        .map_err(|errors| errors.iter().map(put_domain_reason).collect()),
     }
 }
 
@@ -1120,7 +1128,8 @@ fn reference_table_put(pair: &TablePair, source: &RefTable, edited: &RefTable) -
     pair.with_reference(|lens, _| {
         let (_, complement) = lens.get(source).expect("fixture gets are total");
         TablePutOutcome {
-            put: RefTableLens::put(lens, edited, &complement).map_err(|error| ref_table_put_reason(&error)),
+            put: RefTableLens::put(lens, edited, &complement)
+                .map_err(|error| ref_table_put_reason(&error)),
             domain: match panproto_reference::table::check_put_domain(lens, edited, &complement) {
                 Ok(()) => Ok(()),
                 Err(TableCheckError::Domain { violations, .. }) => {
@@ -1248,7 +1257,11 @@ fn table_writers_agree_with_the_reference_on_the_writer_carrier() {
             let pair = writer_pair(fixture);
             let source = fixture.source();
             let (mut view, _) = production_table_get(&pair, &source).expect("writer get");
-            view.rows.get_mut(&0).unwrap().1.insert((*target).to_owned(), RefValue::Int(*edit));
+            view.rows
+                .get_mut(&0)
+                .unwrap()
+                .1
+                .insert((*target).to_owned(), RefValue::Int(*edit));
             production_table_put(&pair, &source, &view).put
         },
         |(fixture, target, edit)| {
@@ -1256,14 +1269,28 @@ fn table_writers_agree_with_the_reference_on_the_writer_carrier() {
             let source = fixture.source();
             pair.with_reference(|lens, plan| {
                 let (mut view, complement) = lens.get(&source).expect("writer get");
-                view.rows.get_mut(&0).unwrap().1.insert((*target).to_owned(), RefValue::Int(*edit));
+                view.rows
+                    .get_mut(&0)
+                    .unwrap()
+                    .1
+                    .insert((*target).to_owned(), RefValue::Int(*edit));
                 let restored = RefTableLens::put(lens, &view, &complement)
                     .map_err(|error| ref_table_put_reason(&error));
                 // The last writer of the edited column is the column put writes.
-                let writer = plan.writer("t", target).expect("an image column has a writer");
+                let writer = panproto_reference::table::TablePlan::writer(plan, "t", target)
+                    .expect("an image column has a writer");
                 let mut expected = source.clone();
-                expected.rows.get_mut(&0).unwrap().1.insert(writer, RefValue::Int(*edit));
-                assert_eq!(restored.as_ref(), Ok(&expected), "reference put writes the last writer");
+                expected
+                    .rows
+                    .get_mut(&0)
+                    .unwrap()
+                    .1
+                    .insert(writer, RefValue::Int(*edit));
+                assert_eq!(
+                    restored.as_ref(),
+                    Ok(&expected),
+                    "reference put writes the last writer"
+                );
                 restored
             })
         },
@@ -1339,7 +1366,10 @@ fn graph_laws_agree_with_the_reference_on_the_gf5_sources() {
         cases.iter(),
         |(fixture, source)| {
             let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
-            production_law_outcome(&graph_lens::check_laws(&pair.production, &prod_graph(source)))
+            production_law_outcome(&graph_lens::check_laws(
+                &pair.production,
+                &prod_graph(source),
+            ))
         },
         |(fixture, source)| {
             let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
@@ -1360,7 +1390,7 @@ fn graph_laws_agree_with_the_reference_on_the_gf5_sources() {
 // the reference checker on every lens and source
 // ---------------------------------------------------------------------------
 
-use panproto_inst::{SynthIndex};
+use panproto_inst::SynthIndex;
 use panproto_lens::laws::{LawShape, Mutation, MutationCases, SmallScope};
 use panproto_lens::{DerivedMap, LensShape, SkipReason};
 use panproto_reference::enumerate::lenses::{
@@ -1385,13 +1415,12 @@ impl LensShape for PartialShape {
     type Complement = u8;
     type Context = PartialLens;
 
-    fn get(
-        _lens: &Lens,
-        source: &u8,
-        ctx: &PartialLens,
-    ) -> Result<(u8, u8), LensError> {
+    fn get(_lens: &Lens, source: &u8, ctx: &PartialLens) -> Result<(u8, u8), LensError> {
         let (view, complement) = ctx.get_table()[usize::from(*source)];
-        Ok((u8::try_from(view).unwrap(), u8::try_from(complement).unwrap()))
+        Ok((
+            u8::try_from(view).unwrap(),
+            u8::try_from(complement).unwrap(),
+        ))
     }
 
     fn put(_lens: &Lens, view: &u8, complement: &u8, ctx: &PartialLens) -> Result<u8, LensError> {
@@ -1526,7 +1555,9 @@ fn partial_lens_laws_agree_with_the_reference_on_every_lens_and_source() {
                 &carrier, source, lens,
             ))
         },
-        |(lens, source)| reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source))),
+        |(lens, source)| {
+            reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source)))
+        },
         |production, reference| production == reference,
     ));
     assert_eq!(compared, 43_740);
@@ -1552,14 +1583,51 @@ fn c11_sources(stage: &C11Stage) -> Vec<RefGraph> {
     }
 }
 
-/// One stage, one state and one edited view (the unedited view when
-/// `edit` is `None`), compared on both sides: get, then put and the domain
-/// report of the view.
-fn c11_case(pair: &Pair, source: &RefGraph, edited: Option<&RefGraph>) -> (GetOutcome, GetOutcome, Option<(Option<PutOutcome>, Option<PutOutcome>)>) {
-    let production = production_get(pair, source);
-    let reference = reference_get(pair, source);
-    let puts = edited.map(|view| (production_put(pair, source, view), reference_put(pair, source, view)));
-    (production, reference, puts)
+/// One case of the C11 graph scope: the get of a stage on a state, or the
+/// put of one view (unedited or one-step edited) against that get's
+/// complement.
+#[derive(Debug)]
+enum GraphCase {
+    Get(usize, RefGraph),
+    Put(usize, RefGraph, RefGraph),
+}
+
+/// The outcome of one graph case: a get outcome, or a put outcome on both
+/// the module put and the strict lens put.
+#[derive(Debug, PartialEq, Eq)]
+enum GraphCaseOutcome {
+    Get(GetOutcome),
+    Put(Option<PutOutcome>),
+}
+
+/// Every C11 graph case, in stage order, state order, and the unedited view
+/// before its one-step edits. Also returns the total edit count from the
+/// independent per-view formula.
+fn c11_graph_cases(stages: &[C11Stage], pairs: &[Pair]) -> (Vec<GraphCase>, usize, usize) {
+    let mut cases = Vec::new();
+    let mut counted = 0_usize;
+    let mut states = 0_usize;
+    for (index, stage) in stages.iter().enumerate() {
+        let sources = c11_sources(stage);
+        let certified = if stage.source == c11_fan_schema() {
+            c11_fan_state_count()
+        } else {
+            c11_graph_state_count(&stage.source)
+        };
+        assert_eq!(sources.len(), certified, "stage {}", stage.name);
+        for source in sources {
+            states += 1;
+            if let Ok((view, complement)) = reference_get(&pairs[index], &source) {
+                counted += c11_graph_edit_count(&view, &stage.target, &complement);
+                cases.push(GraphCase::Put(index, source.clone(), view.clone()));
+                for edit in c11_graph_edits(&view, &stage.target, &complement) {
+                    cases.push(GraphCase::Put(index, source.clone(), edit.view));
+                }
+            }
+            cases.push(GraphCase::Get(index, source));
+        }
+    }
+    (cases, states, counted)
 }
 
 #[test]
@@ -1568,50 +1636,62 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
     let schemas = sigma2_schemas();
     assert_eq!(schemas.len(), sigma2_count());
     let stages = c11_stages();
-    let mut states = 0_usize;
-    let mut edits = 0_usize;
-    let mut counted_edits = 0_usize;
-    let mut cases = 0_u64;
-    for stage in &stages {
-        let pair = Pair::from_stage(stage);
-        let sources = c11_sources(stage);
-        let certified = if stage.source == c11_fan_schema() {
-            c11_fan_state_count()
-        } else {
-            c11_graph_state_count(&stage.source)
-        };
-        assert_eq!(sources.len(), certified, "stage {}", stage.name);
-        for source in &sources {
-            states += 1;
-            let (production, reference, _) = c11_case(&pair, source, None);
-            assert_eq!(production, reference, "stage {} get on {source:?}", stage.name);
-            cases += 1;
-            let Ok((view, complement)) = reference else {
-                continue;
-            };
-            let mut views = vec![view.clone()];
-            let family = c11_graph_edits(&view, &stage.target, &complement);
-            counted_edits += c11_graph_edit_count(&view, &stage.target, &complement);
-            edits += family.len();
-            views.extend(family.into_iter().map(|edit| edit.view));
-            for edited in &views {
-                let (_, _, puts) = c11_case(&pair, source, Some(edited));
-                let (production, reference) = puts.expect("an edit was supplied");
-                assert_eq!(
-                    production, reference,
-                    "stage {} put of {edited:?} against get of {source:?}",
-                    stage.name
-                );
-                cases += 1;
-            }
-        }
-    }
-    assert_eq!(edits, counted_edits);
-    println!(
-        "C11 graph scope: schemas={}, stages={}, states={states}, one-step edits={edits}, compared cases={cases}",
+    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+    let (cases, states, counted_edits) = c11_graph_cases(&stages, &pairs);
+    let puts = cases
+        .iter()
+        .filter(|case| matches!(case, GraphCase::Put(..)))
+        .count();
+    let gets = cases.len() - puts;
+    assert_eq!(gets, states);
+    assert_eq!(puts - gets_with_view(&cases), counted_edits);
+    let bound = format!(
+        "C11 graph scope: schemas={}, stages={}, states={states}, unedited views={}, one-step edits={counted_edits}, cases={}",
         schemas.len(),
-        stages.len()
+        stages.len(),
+        gets_with_view(&cases),
+        cases.len()
     );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |case| match case {
+            GraphCase::Get(stage, source) => {
+                GraphCaseOutcome::Get(production_get(&pairs[*stage], source))
+            }
+            GraphCase::Put(stage, source, view) => {
+                GraphCaseOutcome::Put(production_put(&pairs[*stage], source, view))
+            }
+        },
+        |case| match case {
+            GraphCase::Get(stage, source) => {
+                GraphCaseOutcome::Get(reference_get(&pairs[*stage], source))
+            }
+            GraphCase::Put(stage, source, view) => {
+                let module = reference_put(&pairs[*stage], source, view);
+                assert_eq!(
+                    module,
+                    reference_strict_put(&pairs[*stage], source, view),
+                    "the module put is the strict lens put"
+                );
+                GraphCaseOutcome::Put(module)
+            }
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+/// The number of unedited views among the cases: one per state whose get
+/// succeeded.
+fn gets_with_view(cases: &[GraphCase]) -> usize {
+    cases
+        .windows(2)
+        .filter(|pair| {
+            matches!(pair[1], GraphCase::Get(..)) && matches!(pair[0], GraphCase::Put(..))
+        })
+        .count()
 }
 
 // ---------------------------------------------------------------------------
@@ -1778,7 +1858,11 @@ fn production_tree_case(pair: &Pair, source: &RefTree, inside: bool) -> TreeOutc
                 let restored = panproto_lens::put(&pair.production, &view, &complement)
                     .map(|restored| ref_tree(&restored))
                     .map_err(|error| lens_reason(&error));
-                (ref_tree(&view), production_tree_residue(&complement), restored)
+                (
+                    ref_tree(&view),
+                    production_tree_residue(&complement),
+                    restored,
+                )
             })
             .map_err(|error| lens_reason(&error)),
     )
@@ -1832,7 +1916,9 @@ fn tree_lens_agrees_with_the_reference_exhaustively() {
                 inside.then(|| {
                     production_law_outcome(&panproto_lens::check_laws_report::<
                         panproto_lens::TreeShape,
-                    >(&pairs[*stage].production, &prod_tree(tree), &()))
+                    >(
+                        &pairs[*stage].production, &prod_tree(tree), &()
+                    ))
                 }),
             )
         },
@@ -1859,10 +1945,7 @@ fn tree_lens_agrees_with_the_reference_exhaustively() {
 // ---------------------------------------------------------------------------
 
 use panproto_lens::LensPath;
-use panproto_reference::path::{
-    LensPath as RefLensPath, PathError, PathStage,
-    PathStageError,
-};
+use panproto_reference::path::{LensPath as RefLensPath, PathError, PathStage, PathStageError};
 
 fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
     PathStage::new(
@@ -1882,7 +1965,7 @@ fn reference_word(stages: &[C11Stage], word: &[usize]) -> Result<RefLensPath<usi
         let next = RefLensPath::single(ref_path_stage(*index, &stages[*index]));
         path = Some(match path {
             None => next,
-            Some(path) => path.then(&next).map_err(|error| format!("{error:?}"))?,
+            Some(path) => RefLensPath::then(&path, &next).map_err(|error| format!("{error:?}"))?,
         });
     }
     path.ok_or_else(|| "empty word".to_owned())
@@ -1978,7 +2061,8 @@ fn reference_path_outcome(
             let lens = lens.map_err(Reason::Restrict)?;
             let mut stamped = entry.clone();
             stamped.identity = Some(*lens.identity());
-            panproto_reference::lens::put(lens, input, &stamped).map_err(|error| ref_lens_reason(&error))
+            panproto_reference::lens::put(lens, input, &stamped)
+                .map_err(|error| ref_lens_reason(&error))
         })
     };
     let puts = std::iter::once(&view)
@@ -2057,7 +2141,25 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
         );
         if let (Ok(production), Ok(reference)) = (production, reference) {
             assert_eq!(production.len(), reference.len());
+            let first = &stages[word[0]];
+            let last = &stages[word[word.len() - 1]];
+            // The word composed with the identity on either side, on both
+            // sides of the differential (the unit laws, behaviourally).
+            let left = (
+                LensPath::identity(&prod_schema(&first.source))
+                    .then(&production)
+                    .unwrap(),
+                RefLensPath::then(&RefLensPath::identity(&first.source), &reference).unwrap(),
+            );
+            let right = (
+                production
+                    .then(&LensPath::identity(&prod_schema(&last.target)))
+                    .unwrap(),
+                RefLensPath::then(&reference, &RefLensPath::identity(&last.target)).unwrap(),
+            );
             composable.push((word.clone(), production, reference));
+            composable.push((word.clone(), left.0, left.1));
+            composable.push((word.clone(), right.0, right.1));
         }
     }
     let mut cases = Vec::new();
@@ -2067,8 +2169,9 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
         }
     }
     let bound = format!(
-        "C11 paths: stages=28, words of length at most 3={}, composable={}, (word, state) cases={}",
+        "C11 paths: stages=28, words of length at most 3={}, composable={}, with both identity composites={}, (path, state) cases={}",
         all.len(),
+        composable.len() / 3,
         composable.len(),
         cases.len()
     );
@@ -2122,26 +2225,56 @@ fn edits_of_reference_view(
 #[ignore = "the C11 alphabets await the orchestrator's acceptance"]
 fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
-    let schemas: Vec<RefSchema> = sigma2_schemas().into_iter().chain([c11_fan_schema()]).collect();
+    let schemas: Vec<RefSchema> = sigma2_schemas()
+        .into_iter()
+        .chain([c11_fan_schema()])
+        .collect();
     let mut identities = 0_usize;
     let mut triples = 0_usize;
     let envelopes = |path: &LensPath| path.identity_envelope(panproto_inst::ComplementShape::Graph);
     for (index, stage) in stages.iter().enumerate() {
         let reference = RefLensPath::single(ref_path_stage(index, stage));
-        let left = RefLensPath::identity(&stage.source).then(&reference);
-        let right = reference.then(&RefLensPath::identity(&stage.target));
-        assert_eq!(left.as_ref(), Ok(&reference), "reference left identity at {}", stage.name);
-        assert_eq!(right.as_ref(), Ok(&reference), "reference right identity at {}", stage.name);
+        let left = RefLensPath::then(&RefLensPath::identity(&stage.source), &reference);
+        let right = RefLensPath::then(&reference, &RefLensPath::identity(&stage.target));
+        assert_eq!(
+            left.as_ref(),
+            Ok(&reference),
+            "reference left identity at {}",
+            stage.name
+        );
+        assert_eq!(
+            right.as_ref(),
+            Ok(&reference),
+            "reference right identity at {}",
+            stage.name
+        );
         let production = LensPath::single(production_stage(stage));
-        let left = LensPath::identity(&prod_schema(&stage.source)).then(&production).unwrap();
-        let right = production.then(&LensPath::identity(&prod_schema(&stage.target))).unwrap();
-        assert_eq!(envelopes(&left), envelopes(&production), "production left identity at {}", stage.name);
-        assert_eq!(envelopes(&right), envelopes(&production), "production right identity at {}", stage.name);
+        let left = LensPath::identity(&prod_schema(&stage.source))
+            .then(&production)
+            .unwrap();
+        let right = production
+            .then(&LensPath::identity(&prod_schema(&stage.target)))
+            .unwrap();
+        assert_eq!(
+            envelopes(&left),
+            envelopes(&production),
+            "production left identity at {}",
+            stage.name
+        );
+        assert_eq!(
+            envelopes(&right),
+            envelopes(&production),
+            "production right identity at {}",
+            stage.name
+        );
         identities += 1;
     }
     for schema in &schemas {
         let reference = RefLensPath::<usize>::identity(schema);
-        assert_eq!(reference.then(&reference).as_ref(), Ok(&reference));
+        assert_eq!(
+            RefLensPath::then(&reference, &reference).as_ref(),
+            Ok(&reference)
+        );
         let production = LensPath::identity(&prod_schema(schema));
         let twice = production.then(&production).unwrap();
         assert!(twice.is_identity());
@@ -2150,17 +2283,24 @@ fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
     for p in 0..stages.len() {
         for q in 0..stages.len() {
             for r in 0..stages.len() {
-                let single = |index: usize| RefLensPath::single(ref_path_stage(index, &stages[index]));
-                let left = single(p).then(&single(q)).and_then(|pq| pq.then(&single(r)));
-                let right = single(q).then(&single(r)).and_then(|qr| single(p).then(&qr));
+                let single =
+                    |index: usize| RefLensPath::single(ref_path_stage(index, &stages[index]));
+                let left = RefLensPath::then(&single(p), &single(q))
+                    .and_then(|pq| RefLensPath::then(&pq, &single(r)));
+                let right = RefLensPath::then(&single(q), &single(r))
+                    .and_then(|qr| RefLensPath::then(&single(p), &qr));
                 assert_eq!(left, right, "reference associativity at {p} {q} {r}");
                 let prod = |index: usize| LensPath::single(production_stage(&stages[index]));
                 let left = prod(p).then(&prod(q)).and_then(|pq| pq.then(&prod(r)));
                 let right = prod(q).then(&prod(r)).and_then(|qr| prod(p).then(&qr));
                 match (left, right) {
                     (Ok(left), Ok(right)) => assert_eq!(envelopes(&left), envelopes(&right)),
-                    (Err(left), Err(right)) => assert_eq!(format!("{left:?}"), format!("{right:?}")),
-                    (left, right) => panic!("production associativity at {p} {q} {r}: {left:?} against {right:?}"),
+                    (Err(left), Err(right)) => {
+                        assert_eq!(format!("{left:?}"), format!("{right:?}"))
+                    }
+                    (left, right) => panic!(
+                        "production associativity at {p} {q} {r}: {left:?} against {right:?}"
+                    ),
                 }
                 triples += 1;
             }
@@ -2288,7 +2428,9 @@ fn table_square_agrees_with_the_reference_on_the_fixture_scope() {
             let (graph, _) = GInstance::from_finstance(&prod_table(&fixture.source)).unwrap();
             let graph_leg = production_graph_leg(&pair.production, &graph);
             let fast = graph_lens_via_table(&pair, &graph);
-            let commutes = fast.as_ref().is_some_and(|fast| legs_agree(fast, &graph_leg));
+            let commutes = fast
+                .as_ref()
+                .is_some_and(|fast| legs_agree(fast, &graph_leg));
             SquareOutcome {
                 graph: graph_leg,
                 fast,
@@ -2301,10 +2443,16 @@ fn table_square_agrees_with_the_reference_on_the_fixture_scope() {
             graph_pair.with_reference(|graph_lens| {
                 let graph_lens = graph_lens.expect("fixture plans compile");
                 pair.with_reference(|table_lens, _| {
-                    let result =
-                        panproto_reference::lens::table_square(graph_lens, table_lens, &fixture.source);
+                    let result = panproto_reference::lens::table_square(
+                        graph_lens,
+                        table_lens,
+                        &fixture.source,
+                    );
                     reference_square(&result, |observation| {
-                        (reference_leg(&observation.graph), reference_leg(&observation.fast))
+                        (
+                            reference_leg(&observation.graph),
+                            reference_leg(&observation.fast),
+                        )
                     })
                 })
             })
@@ -2326,7 +2474,12 @@ fn graph_lens_via_table(pair: &TablePair, graph: &GInstance) -> Option<Leg> {
         }),
         Ok(Some((view, complement))) => Some(Leg {
             get: Ok((ref_graph(&view), ref_complement(&complement))),
-            put: match panproto_lens::graph_put_via_table(lens, &view, &complement, pair.protocols()) {
+            put: match panproto_lens::graph_put_via_table(
+                lens,
+                &view,
+                &complement,
+                pair.protocols(),
+            ) {
                 Ok(None) => None,
                 Ok(Some(restored)) => Some(Ok(ref_graph(&restored))),
                 Err(error) => Some(Err(format!("{error:?}"))),
@@ -2377,7 +2530,9 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
             let graph = GInstance::from_wtype(&prod_tree(tree)).unwrap();
             let graph_leg = production_graph_leg(lens, &graph);
             let fast = graph_lens_via_tree(lens, &graph);
-            let commutes = fast.as_ref().is_some_and(|fast| legs_agree(fast, &graph_leg));
+            let commutes = fast
+                .as_ref()
+                .is_some_and(|fast| legs_agree(fast, &graph_leg));
             SquareOutcome {
                 graph: graph_leg,
                 fast,
@@ -2389,11 +2544,797 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
                 let lens = lens.expect("stage plans compile");
                 let result = panproto_reference::lens::graph_square(lens, tree);
                 reference_square(&result, |observation| {
-                    (reference_leg(&observation.graph), reference_leg(&observation.fast))
+                    (
+                        reference_leg(&observation.graph),
+                        reference_leg(&observation.fast),
+                    )
                 })
             })
         },
         squares_agree,
     ));
     assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+#[test]
+fn table_laws_agree_with_the_reference_on_the_fixture_scope() {
+    let certificate = table_fixture_count_certificate();
+    let mut fixtures = Vec::new();
+    for_each_table_fixture(|fixture| fixtures.push(fixture));
+    assert_eq!(fixtures.len(), certificate.total);
+    assert_eq!(certificate.total, 9_921);
+    let pairs: Vec<Vec<TablePair>> = (0..=2_usize)
+        .map(|columns| {
+            (0..(1_usize << columns))
+                .map(|retained| {
+                    fixture_pair(&TableFixture {
+                        columns,
+                        retained,
+                        source: RefTable::default(),
+                    })
+                })
+                .collect()
+        })
+        .collect();
+    let pair_of = |fixture: &TableFixture| &pairs[fixture.columns][fixture.retained];
+    let bound = format!(
+        "table law reports: rows<=2, columns<=2, cell alphabet=7, lenses=7, source/lens cases={}",
+        certificate.total
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        fixtures.iter(),
+        |fixture| {
+            let pair = pair_of(fixture);
+            production_law_outcome(&table_lens::check_laws(
+                &pair.production,
+                &prod_table(&fixture.source),
+                pair.protocols(),
+            ))
+        },
+        |fixture| {
+            pair_of(fixture).with_reference(|lens, _| {
+                reference_law_outcome(&panproto_reference::lens::check_table_laws(
+                    lens,
+                    &fixture.source,
+                ))
+            })
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, 9_921);
+}
+
+// ---------------------------------------------------------------------------
+// Protolenses: precondition gating, schema instantiation and instance
+// application against the reference's bounded protolens
+// ---------------------------------------------------------------------------
+
+use panproto_lens::protolens::elementary;
+use panproto_reference::lens::{Protolens as RefProtolens, ProtolensError as RefProtolensError};
+
+/// The elementary protolens alphabet over the C11 schemas: drop and rename
+/// the one vertex kind, and drop and rename the one edge name.
+fn protolens_alphabet() -> Vec<panproto_lens::Protolens> {
+    vec![
+        elementary::drop_sort("obj"),
+        elementary::rename_sort("obj", "thing"),
+        elementary::drop_edge("obj", "obj", Some("e".into())),
+        elementary::rename_edge_name("obj", "obj", "e", "g"),
+    ]
+}
+
+fn ref_schema(schema: &Schema) -> RefSchema {
+    let mut out = RefSchema::default();
+    for (id, vertex) in &schema.vertices {
+        out = out.vertex(id, &vertex.kind);
+    }
+    for edge in schema.edges.keys() {
+        out.edges.insert(ref_edge(edge));
+    }
+    for (id, hyper) in &schema.hyper_edges {
+        out.hyper_edges.insert(
+            id.to_string(),
+            panproto_reference::schema::HyperEdge {
+                kind: hyper.kind.to_string(),
+                signature: hyper
+                    .signature
+                    .iter()
+                    .map(|(label, vertex)| (label.to_string(), vertex.to_string()))
+                    .collect(),
+                parent_label: hyper.parent_label.to_string(),
+            },
+        );
+    }
+    out
+}
+
+fn ref_migration(compiled: &CompiledMigration) -> RefMigration {
+    RefMigration {
+        surviving_verts: compiled
+            .surviving_verts
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        surviving_edges: compiled.surviving_edges.iter().map(ref_edge).collect(),
+        vertex_remap: compiled
+            .vertex_remap
+            .iter()
+            .map(|(from, to)| (from.to_string(), to.to_string()))
+            .collect(),
+        edge_remap: compiled
+            .edge_remap
+            .iter()
+            .map(|(from, to)| (ref_edge(from), ref_edge(to)))
+            .collect(),
+        resolver: compiled
+            .resolver
+            .iter()
+            .map(|((from, to), edge)| ((from.to_string(), to.to_string()), ref_edge(edge)))
+            .collect(),
+        expansion_path: compiled
+            .expansion_path
+            .iter()
+            .map(|((from, to), path)| {
+                (
+                    (from.to_string(), to.to_string()),
+                    path.iter().map(ToString::to_string).collect(),
+                )
+            })
+            .collect(),
+        conditional: compiled
+            .conditional_survival
+            .keys()
+            .map(ToString::to_string)
+            .collect(),
+        transformed: compiled
+            .field_transforms
+            .iter()
+            .filter(|(_, transforms)| !transforms.is_empty())
+            .map(|(vertex, _)| vertex.to_string())
+            .collect(),
+        ..RefMigration::default()
+    }
+}
+
+/// The observable outcome of applying one protolens at one schema to one
+/// source: applicability, then the view and complement or the refusal.
+#[derive(Debug, PartialEq, Eq)]
+enum ProtolensOutcome {
+    Inapplicable,
+    Refused(String),
+    Applied(RefGraph, RefComplement),
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn protolens_transforms_agree_with_the_reference_exhaustively() {
+    let protocol = Protocol::default();
+    let alphabet = protolens_alphabet();
+    let schemas = sigma2_schemas();
+    let mut cases = Vec::new();
+    for (index, _) in alphabet.iter().enumerate() {
+        for schema in &schemas {
+            for source in c11_graph_states(schema) {
+                cases.push((index, schema.clone(), source));
+            }
+        }
+    }
+    let bound = format!(
+        "C11 protolenses: protolenses={}, schemas={}, (protolens, schema, state) cases={}",
+        alphabet.len(),
+        schemas.len(),
+        cases.len()
+    );
+    println!("{bound}");
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |(index, schema, source)| {
+            let schema = prod_schema(schema);
+            match panproto_lens::graph_protolens::apply(
+                &alphabet[*index],
+                &schema,
+                &protocol,
+                &prod_graph(source),
+            ) {
+                Ok(applied) => ProtolensOutcome::Applied(
+                    ref_graph(&applied.view),
+                    ref_complement(&applied.complement),
+                ),
+                Err(LensError::ProtolensError(_)) if !alphabet[*index].applicable_to(&schema) => {
+                    ProtolensOutcome::Inapplicable
+                }
+                Err(error) => ProtolensOutcome::Refused(format!("{:?}", lens_reason(&error))),
+            }
+        },
+        |(index, schema, source)| {
+            let production_schema = prod_schema(schema);
+            let protolens = &alphabet[*index];
+            // The reference protolens at this schema: its precondition is
+            // the production precondition's verdict at exactly this schema
+            // (`Exact` when it holds, an unsatisfiable vertex requirement
+            // otherwise), its target and migration the production
+            // instantiation's.
+            let Ok(lens) = protolens.instantiate(&production_schema, &protocol) else {
+                return ProtolensOutcome::Inapplicable;
+            };
+            let target = ref_schema(&lens.tgt_schema);
+            let migration = ref_migration(&lens.compiled);
+            let reference = if protolens.applicable_to(&production_schema) {
+                RefProtolens::exact(schema, &target, &migration)
+            } else {
+                RefProtolens::new(
+                    panproto_reference::lens::SchemaPrecondition::HasVertices(
+                        ["\u{0}unsatisfiable".to_owned()].into(),
+                    ),
+                    target,
+                    migration,
+                )
+            };
+            let instantiated = panproto_reference::lens::protolens_schema(&reference, schema);
+            assert_eq!(
+                instantiated.as_ref().map(|lens| lens.source().clone()).ok(),
+                protolens
+                    .applicable_to(&production_schema)
+                    .then(|| schema.clone())
+                    .filter(|_| instantiated.is_ok()),
+                "an instantiated reference protolens is bound to exactly its schema"
+            );
+            match panproto_reference::lens::protolens_instance(&reference, schema, source) {
+                Ok(application) => ProtolensOutcome::Applied(
+                    application.view,
+                    without_identity(&application.complement),
+                ),
+                Err(RefProtolensError::FalsePrecondition { .. }) => ProtolensOutcome::Inapplicable,
+                Err(RefProtolensError::Restrict(error)) => ProtolensOutcome::Refused(format!(
+                    "{:?}",
+                    Reason::Restrict(ref_restrict_reason(&error))
+                )),
+                Err(RefProtolensError::Plan(error)) => ProtolensOutcome::Refused(format!(
+                    "{:?}",
+                    Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+                )),
+            }
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+/// The law-report case families of the L.8 scope.
+#[derive(Debug)]
+enum LawCase {
+    Partial(PartialLens, u8),
+    Table(TableFixture),
+    Graph(usize, RefGraph),
+    Tree(usize, RefTree),
+}
+
+#[test]
+#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn lens_laws_agree_with_the_reference_exhaustively() {
+    let stages = c11_stages();
+    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+    let table_pairs: Vec<Vec<TablePair>> = (0..=2_usize)
+        .map(|columns| {
+            (0..(1_usize << columns))
+                .map(|retained| {
+                    fixture_pair(&TableFixture {
+                        columns,
+                        retained,
+                        source: RefTable::default(),
+                    })
+                })
+                .collect()
+        })
+        .collect();
+    let mut cases = Vec::new();
+    for_each_partial_lens(|lens| {
+        for source in 0..2_u8 {
+            cases.push(LawCase::Partial(lens, source));
+        }
+    });
+    let partial = cases.len();
+    for_each_table_fixture(|fixture| cases.push(LawCase::Table(fixture)));
+    let tables = cases.len() - partial;
+    for (index, stage) in stages.iter().enumerate() {
+        for source in c11_sources(stage) {
+            cases.push(LawCase::Graph(index, source));
+        }
+        if stage.source != c11_fan_schema() {
+            for tree in c11_tree_states(&stage.source) {
+                cases.push(LawCase::Tree(index, tree));
+            }
+        }
+    }
+    assert_eq!(partial, 2 * partial_lens_count_certificate());
+    assert_eq!(tables, table_fixture_count_certificate().total);
+    let bound = format!(
+        "L.8 law reports: partial lens/source cases={partial}, table fixtures={tables}, C11 graph and tree (stage, state) cases={}, total={}",
+        cases.len() - partial - tables,
+        cases.len()
+    );
+    println!("{bound}");
+    let carrier = empty_lens();
+    let compared = assert_agree(agree(
+        &bound,
+        cases.iter(),
+        |case| match case {
+            LawCase::Partial(lens, source) => production_law_outcome(
+                &panproto_lens::laws::check_laws_report::<PartialShape>(&carrier, source, lens),
+            ),
+            LawCase::Table(fixture) => {
+                let pair = &table_pairs[fixture.columns][fixture.retained];
+                production_law_outcome(&table_lens::check_laws(
+                    &pair.production,
+                    &prod_table(&fixture.source),
+                    pair.protocols(),
+                ))
+            }
+            LawCase::Graph(stage, source) => production_law_outcome(&graph_lens::check_laws(
+                &pairs[*stage].production,
+                &prod_graph(source),
+            )),
+            LawCase::Tree(stage, tree) => production_law_outcome(
+                &panproto_lens::check_laws_report::<panproto_lens::TreeShape>(
+                    &pairs[*stage].production,
+                    &prod_tree(tree),
+                    &(),
+                ),
+            ),
+        },
+        |case| match case {
+            LawCase::Partial(lens, source) => {
+                reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source)))
+            }
+            LawCase::Table(fixture) => table_pairs[fixture.columns][fixture.retained]
+                .with_reference(|lens, _| {
+                    reference_law_outcome(&panproto_reference::lens::check_table_laws(
+                        lens,
+                        &fixture.source,
+                    ))
+                }),
+            LawCase::Graph(stage, source) => pairs[*stage].with_reference(|lens| match lens {
+                Ok(lens) => {
+                    let outcome = reference_law_outcome(
+                        &panproto_reference::lens::check_graph_laws(lens, source),
+                    );
+                    // A passing report includes GetPut: the unedited view is in
+                    // the put domain and both reference puts return the source.
+                    if outcome.first_failure.is_none() {
+                        let (view, complement) =
+                            panproto_reference::lens::get(lens, source).expect("GetPut passed");
+                        assert_eq!(
+                            RefGraphLens::check_put_domain(lens, &view, &complement),
+                            Ok(())
+                        );
+                        assert_eq!(
+                            RefGraphLens::put(lens, &view, &complement).as_ref(),
+                            Ok(source)
+                        );
+                        assert_eq!(
+                            panproto_reference::lens::put(lens, &view, &complement).as_ref(),
+                            Ok(source)
+                        );
+                    }
+                    outcome
+                }
+                Err(_) => LawOutcome {
+                    first_failure: Some("Refusal".to_owned()),
+                },
+            }),
+            LawCase::Tree(stage, tree) => pairs[*stage].with_reference(|lens| match lens {
+                Ok(lens) => {
+                    reference_law_outcome(&panproto_reference::lens::check_tree_laws(lens, tree))
+                }
+                Err(_) => LawOutcome {
+                    first_failure: Some("Refusal".to_owned()),
+                },
+            }),
+        },
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+}
+
+// ---------------------------------------------------------------------------
+// The property differential: random cases from every exhaustive family
+// ---------------------------------------------------------------------------
+
+/// Whether the orchestrator has accepted the C11 alphabets; until then the
+/// property test samples only the families whose scopes are fixed.
+const C11_ACCEPTED: bool = false;
+
+fn gf5_cases() -> &'static [(Gf5Fixture, RefGraph, RefGraph)] {
+    static CASES: std::sync::OnceLock<Vec<(Gf5Fixture, RefGraph, RefGraph)>> =
+        std::sync::OnceLock::new();
+    CASES.get_or_init(|| {
+        let mut cases = Vec::new();
+        for_each_gf5_deletion_edit(|fixture, source, edited| {
+            cases.push((fixture, source.clone(), edited.clone()));
+        });
+        cases
+    })
+}
+
+fn table_fixtures() -> &'static [TableFixture] {
+    static CASES: std::sync::OnceLock<Vec<TableFixture>> = std::sync::OnceLock::new();
+    CASES.get_or_init(|| {
+        let mut cases = Vec::new();
+        for_each_table_fixture(|fixture| cases.push(fixture));
+        cases
+    })
+}
+
+fn partial_lenses() -> &'static [PartialLens] {
+    static CASES: std::sync::OnceLock<Vec<PartialLens>> = std::sync::OnceLock::new();
+    CASES.get_or_init(|| {
+        let mut cases = Vec::new();
+        for_each_partial_lens(|lens| cases.push(lens));
+        cases
+    })
+}
+
+fn c11_cases() -> &'static (Vec<C11Stage>, Vec<(usize, RefGraph)>, Vec<(usize, RefTree)>) {
+    static CASES: std::sync::OnceLock<(
+        Vec<C11Stage>,
+        Vec<(usize, RefGraph)>,
+        Vec<(usize, RefTree)>,
+    )> = std::sync::OnceLock::new();
+    CASES.get_or_init(|| {
+        let stages = c11_stages();
+        let mut graphs = Vec::new();
+        let mut trees = Vec::new();
+        for (index, stage) in stages.iter().enumerate() {
+            graphs.extend(c11_sources(stage).into_iter().map(|g| (index, g)));
+            if stage.source != c11_fan_schema() {
+                trees.extend(
+                    c11_tree_states(&stage.source)
+                        .into_iter()
+                        .map(|t| (index, t)),
+                );
+            }
+        }
+        (stages, graphs, trees)
+    })
+}
+
+/// One random case of one family, compared on both sides.
+fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
+    let differ = |what: &str, production: String, reference: String| {
+        if production == reference {
+            Ok(())
+        } else {
+            Err(format!(
+                "{what}: production {production} against reference {reference}"
+            ))
+        }
+    };
+    match family {
+        0 => {
+            let cases = gf5_cases();
+            let (fixture, source, edited) = &cases[index % cases.len()];
+            let pair = gf5_pair(*fixture);
+            differ(
+                "GF5 put",
+                format!("{:?}", production_put(&pair, source, edited)),
+                format!("{:?}", reference_put(&pair, source, edited)),
+            )?;
+            let (production, largest, universal) = gf5_cascade_outcome(&pair, source, edited);
+            differ(
+                "GF5 cascade",
+                format!(
+                    "{:?}",
+                    (production.and_then(|outcome| outcome.put.ok()), universal)
+                ),
+                format!("{:?}", (largest, true)),
+            )
+        }
+        1 => {
+            let fixtures = table_fixtures();
+            let fixture = &fixtures[index % fixtures.len()];
+            let pair = fixture_pair(fixture);
+            differ(
+                "table get",
+                format!("{:?}", production_table_get(&pair, &fixture.source)),
+                format!("{:?}", reference_table_get(&pair, &fixture.source)),
+            )?;
+            let (view, complement) =
+                reference_table_get(&pair, &fixture.source).map_err(|e| format!("{e:?}"))?;
+            let columns: Vec<String> = (0..fixture.columns)
+                .filter(|column| fixture.retained & (1 << column) != 0)
+                .map(|column| format!("c{column}"))
+                .collect();
+            let reserved: Vec<u32> = complement.dropped_rows.keys().copied().collect();
+            let mut views = vec![view.clone()];
+            views.extend(table_view_edits(&view, &columns, &reserved));
+            let edited = &views[edit % views.len()];
+            differ(
+                "table put",
+                format!("{:?}", production_table_put(&pair, &fixture.source, edited)),
+                format!("{:?}", reference_table_put(&pair, &fixture.source, edited)),
+            )?;
+            differ(
+                "table laws",
+                format!(
+                    "{:?}",
+                    production_law_outcome(&table_lens::check_laws(
+                        &pair.production,
+                        &prod_table(&fixture.source),
+                        pair.protocols(),
+                    ))
+                ),
+                format!(
+                    "{:?}",
+                    pair.with_reference(|lens, _| {
+                        reference_law_outcome(&panproto_reference::lens::check_table_laws(
+                            lens,
+                            &fixture.source,
+                        ))
+                    })
+                ),
+            )
+        }
+        2 => {
+            let lenses = partial_lenses();
+            let lens = &lenses[index % lenses.len()];
+            let source = u8::try_from(edit % 2).unwrap();
+            differ(
+                "partial-lens laws",
+                format!(
+                    "{:?}",
+                    production_law_outcome(
+                        &panproto_lens::laws::check_laws_report::<PartialShape>(
+                            &empty_lens(),
+                            &source,
+                            lens,
+                        )
+                    )
+                ),
+                format!(
+                    "{:?}",
+                    reference_law_outcome(&partial_lens_law_report(lens, usize::from(source)))
+                ),
+            )
+        }
+        3 if C11_ACCEPTED => {
+            let (stages, graphs, _) = c11_cases();
+            let (stage, source) = &graphs[index % graphs.len()];
+            let pair = Pair::from_stage(&stages[*stage]);
+            differ(
+                "C11 get",
+                format!("{:?}", production_get(&pair, source)),
+                format!("{:?}", reference_get(&pair, source)),
+            )?;
+            let Ok((view, complement)) = reference_get(&pair, source) else {
+                return Ok(());
+            };
+            let mut views = vec![view.clone()];
+            views.extend(
+                c11_graph_edits(&view, &stages[*stage].target, &complement)
+                    .into_iter()
+                    .map(|e| e.view),
+            );
+            let edited = &views[edit % views.len()];
+            differ(
+                "C11 put",
+                format!("{:?}", production_put(&pair, source, edited)),
+                format!("{:?}", reference_strict_put(&pair, source, edited)),
+            )
+        }
+        4 if C11_ACCEPTED => {
+            let (stages, _, trees) = c11_cases();
+            let (stage, tree) = &trees[index % trees.len()];
+            let pair = Pair::from_stage(&stages[*stage]);
+            let reference = reference_tree_case(&pair, tree);
+            differ(
+                "C11 tree",
+                format!(
+                    "{:?}",
+                    production_tree_case(&pair, tree, reference.is_some())
+                ),
+                format!("{reference:?}"),
+            )?;
+            let production_square = {
+                let graph =
+                    GInstance::from_wtype(&prod_tree(tree)).map_err(|e| format!("{e:?}"))?;
+                let graph_leg = production_graph_leg(&pair.production, &graph);
+                let fast = graph_lens_via_tree(&pair.production, &graph);
+                let commutes = fast
+                    .as_ref()
+                    .is_some_and(|fast| legs_agree(fast, &graph_leg));
+                SquareOutcome {
+                    graph: graph_leg,
+                    fast,
+                    commutes,
+                }
+            };
+            let reference_square_outcome = pair.with_reference(|lens| {
+                lens.ok().map(|lens| {
+                    reference_square(&panproto_reference::lens::graph_square(lens, tree), |o| {
+                        (reference_leg(&o.graph), reference_leg(&o.fast))
+                    })
+                })
+            });
+            match reference_square_outcome {
+                Some(reference) if !squares_agree(&production_square, &reference) => Err(format!(
+                    "graph square: production {production_square:?} against reference {reference:?}"
+                )),
+                _ => Ok(()),
+            }
+        }
+        5 if C11_ACCEPTED => {
+            let (stages, _, _) = c11_cases();
+            let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+            let all = words(stages.len());
+            let word = &all[index % all.len()];
+            let production = production_word(stages, word);
+            let reference = reference_word(stages, word);
+            let (Ok(production), Ok(reference)) = (production, reference) else {
+                return differ(
+                    "path composition",
+                    format!("{}", production_word(stages, word).is_ok()),
+                    format!("{}", reference_word(stages, word).is_ok()),
+                );
+            };
+            let sources = c11_sources(&stages[word[0]]);
+            let source = &sources[edit % sources.len()];
+            let edits = edits_of_reference_view(&pairs, stages, word, &reference, source);
+            let p = production_path_outcome(&production, source, &edits);
+            let r = reference_path_outcome(&pairs, &reference, source, &edits);
+            if path_outcomes_agree(&p, &r) {
+                Ok(())
+            } else {
+                Err(format!("path: production {p:?} against reference {r:?}"))
+            }
+        }
+        6 => {
+            let mut fixtures = Vec::new();
+            for_each_writer_fixture(|fixture| fixtures.push(fixture));
+            let fixture = &fixtures[index % fixtures.len()];
+            let targets = fixture.target_columns();
+            if targets.is_empty() {
+                return Ok(());
+            }
+            let target = targets[edit % targets.len()];
+            let value = WRITER_EDITS[(edit / targets.len()) % WRITER_EDITS.len()];
+            let pair = writer_pair(fixture);
+            let source = fixture.source();
+            let (mut view, _) =
+                production_table_get(&pair, &source).map_err(|e| format!("{e:?}"))?;
+            view.rows
+                .get_mut(&0)
+                .unwrap()
+                .1
+                .insert(target.to_owned(), RefValue::Int(value));
+            let production = production_table_put(&pair, &source, &view).put;
+            let reference = pair.with_reference(|lens, plan| {
+                let (_, complement) = lens.get(&source).expect("writer get");
+                let writer = panproto_reference::table::TablePlan::writer(plan, "t", target)
+                    .expect("an image column has a writer");
+                let mut expected = source.clone();
+                expected
+                    .rows
+                    .get_mut(&0)
+                    .unwrap()
+                    .1
+                    .insert(writer, RefValue::Int(value));
+                let restored = RefTableLens::put(lens, &view, &complement)
+                    .map_err(|error| ref_table_put_reason(&error));
+                assert_eq!(
+                    restored.as_ref(),
+                    Ok(&expected),
+                    "reference put writes the last writer"
+                );
+                restored
+            });
+            differ(
+                "table writer",
+                format!("{production:?}"),
+                format!("{reference:?}"),
+            )
+        }
+        7 => {
+            let fixtures = table_fixtures();
+            let fixture = &fixtures[index % fixtures.len()];
+            let pair = fixture_pair(fixture);
+            let (graph, _) = GInstance::from_finstance(&prod_table(&fixture.source))
+                .map_err(|e| format!("{e:?}"))?;
+            let graph_leg = production_graph_leg(&pair.production, &graph);
+            let fast = graph_lens_via_table(&pair, &graph);
+            let commutes = fast
+                .as_ref()
+                .is_some_and(|fast| legs_agree(fast, &graph_leg));
+            let production = SquareOutcome {
+                graph: graph_leg,
+                fast,
+                commutes,
+            };
+            let graph_pair = table_square_pair_graph(&pair);
+            let reference = graph_pair.with_reference(|graph_lens| {
+                let graph_lens = graph_lens.expect("fixture plans compile");
+                pair.with_reference(|table_lens, _| {
+                    reference_square(
+                        &panproto_reference::lens::table_square(
+                            graph_lens,
+                            table_lens,
+                            &fixture.source,
+                        ),
+                        |o| (reference_leg(&o.graph), reference_leg(&o.fast)),
+                    )
+                })
+            });
+            if squares_agree(&production, &reference) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "table square: production {production:?} against reference {reference:?}"
+                ))
+            }
+        }
+        8 if C11_ACCEPTED => {
+            let protocol = Protocol::default();
+            let alphabet = protolens_alphabet();
+            let schemas = sigma2_schemas();
+            let protolens = &alphabet[index % alphabet.len()];
+            let schema = &schemas[(index / alphabet.len()) % schemas.len()];
+            let states = c11_graph_states(schema);
+            let source = &states[edit % states.len()];
+            let production_schema = prod_schema(schema);
+            let production = panproto_lens::graph_protolens::apply(
+                protolens,
+                &production_schema,
+                &protocol,
+                &prod_graph(source),
+            )
+            .map(|applied| {
+                (
+                    ref_graph(&applied.view),
+                    ref_complement(&applied.complement),
+                )
+            })
+            .map_err(|_| ());
+            let Ok(lens) = protolens.instantiate(&production_schema, &protocol) else {
+                return Ok(());
+            };
+            let reference_protolens = RefProtolens::exact(
+                schema,
+                &ref_schema(&lens.tgt_schema),
+                &ref_migration(&lens.compiled),
+            );
+            let instantiated =
+                panproto_reference::lens::protolens_schema(&reference_protolens, schema);
+            let reference =
+                panproto_reference::lens::protolens_instance(&reference_protolens, schema, source)
+                    .map(|application| {
+                        (application.view, without_identity(&application.complement))
+                    })
+                    .map_err(|_| ());
+            if !protolens.applicable_to(&production_schema) || instantiated.is_err() {
+                return Ok(());
+            }
+            differ(
+                "protolens instance",
+                format!("{production:?}"),
+                format!("{reference:?}"),
+            )
+        }
+        _ => Ok(()),
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::default())]
+    #[test]
+    fn randomized_lens_law_differential(
+        family in 0_u8..9,
+        index in any::<usize>(),
+        edit in any::<usize>(),
+    ) {
+        if let Err(message) = property_case(family, index, edit) {
+            prop_assert!(false, "{}", message);
+        }
+    }
 }
