@@ -1285,11 +1285,10 @@ mod exact {
 
     /// A leap second is its own instant, strictly between second 59 of its
     /// minute and the next minute's second 0, with or without a fraction;
-    /// and the departures the rustdoc of `Temporal` records for the year's
-    /// written sign hold as stated: neither a plus sign before a year nor a
-    /// minus sign before the year zero is written back.
+    /// and the exact year-sign rules preserve written negative zero while
+    /// refusing a leading plus.
     #[test]
-    fn a_leap_second_is_ordered_and_the_recorded_year_departures_hold() {
+    fn a_leap_second_is_ordered_and_the_year_sign_rules_hold() {
         let parse = |text: &str| Temporal::parse(text).unwrap();
         let leap = parse("2024-01-01T23:59:60Z");
         let midnight = parse("2024-01-02T00:00:00Z");
@@ -1303,22 +1302,18 @@ mod exact {
             parse("2024-01-01T23:59:59.999Z").cmp_chronological(&leap),
             Some(Ordering::Less)
         );
-        assert_eq!(parse("+2024-01-01").to_string(), "2024-01-01");
-        assert_eq!(parse("+2024-01-01"), parse("2024-01-01"));
-        // A minus sign before the year zero is read as the year zero and
-        // not written back.
-        assert_eq!(parse("-0000-01-01").to_string(), "0000-01-01");
-        assert_eq!(parse("-0000-01-01"), parse("0000-01-01"));
+        assert!(Temporal::parse("+2024-01-01").is_err());
+        assert!(Temporal::parse_date("+2024-01-01").is_err());
+        assert!(Temporal::parse("+2024-01-01T00:00:00Z").is_err());
+        assert!(Temporal::parse_date_time("+2024-01-01T00:00:00Z").is_err());
+        assert_eq!(parse("-0000-01-01").to_string(), "-0000-01-01");
+        assert_ne!(parse("-0000-01-01"), parse("0000-01-01"));
         assert_eq!(
             parse("-0000-01-01T00:00:00Z").to_string(),
-            "0000-01-01T00:00:00Z"
+            "-0000-01-01T00:00:00Z"
         );
         // A minus sign before any other year is kept.
         assert_eq!(parse("-0001-01-01").to_string(), "-0001-01-01");
-        assert_eq!(
-            parse("+2024-01-01T00:00:00Z").to_string(),
-            "2024-01-01T00:00:00Z"
-        );
     }
 
     /// The canonical NaN is one constant defined by its bits.

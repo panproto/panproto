@@ -675,6 +675,52 @@ mod tests {
     }
 
     #[test]
+    fn segment_reader_refuses_complete_extended_aliases() {
+        let date = DateFields {
+            year: Some(TemporalYear {
+                value: 2000,
+                negative_zero: false,
+                width: 4,
+            }),
+            month: Some(1),
+            day: Some(2),
+        };
+        let time = TimeFields {
+            hour: Some(3),
+            minute: Some(4),
+            second: Some(5),
+            fraction: Fraction::default(),
+        };
+        let aliases = [
+            ExtendedTemporal {
+                date: Some(date),
+                time: None,
+                separator: None,
+                offset: Offset::Local,
+                infinity: None,
+            },
+            ExtendedTemporal {
+                date: None,
+                time: Some(time.clone()),
+                separator: None,
+                offset: Offset::Zulu(ZuluCase::Upper),
+                infinity: None,
+            },
+            ExtendedTemporal {
+                date: Some(date),
+                time: Some(time),
+                separator: Some(DateTimeSeparator::Upper),
+                offset: Offset::Fixed(0),
+                infinity: None,
+            },
+        ];
+        for alias in aliases {
+            let value = Value::Temporal(Temporal::Extended(alias));
+            assert!(message(read(&written(&value))).contains("an invalid extended temporal"));
+        }
+    }
+
+    #[test]
     fn segment_reader_refuses_a_malformed_fraction() {
         let value = Value::Temporal(ok(Temporal::parse("12:00:00.25Z")));
         let bytes = written(&value);

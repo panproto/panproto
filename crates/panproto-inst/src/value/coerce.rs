@@ -1046,7 +1046,7 @@ fn coerce_temporal(
     }
     .map_err(|e| e.reason)?;
     match (parsed.offset(), with_time_zone) {
-        (Some(Offset::Local), Some(true)) => Err(FidelityReason::OffsetRequired),
+        (None | Some(Offset::Local), Some(true)) => Err(FidelityReason::OffsetRequired),
         (Some(offset), Some(false)) if offset.is_zoned() => Err(FidelityReason::OffsetForbidden),
         _ => Ok(Value::Temporal(parsed)),
     }

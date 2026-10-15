@@ -167,18 +167,24 @@ const fn offset_form_from_ref(form: rt::OffsetForm) -> OffsetForm {
     }
 }
 
-const fn offset_from_ref(o: rt::Offset) -> Offset {
-    match o {
+fn offset_from_ref(o: rt::Offset) -> Option<Offset> {
+    Some(match o {
         rt::Offset::Local => Offset::Local,
         rt::Offset::Zulu(rt::ZuluCase::Upper) => Offset::Zulu(ZuluCase::Upper),
         rt::Offset::Zulu(rt::ZuluCase::Lower) => Offset::Zulu(ZuluCase::Lower),
         rt::Offset::Zulu(rt::ZuluCase::Unwritten) => Offset::Zulu(ZuluCase::Unwritten),
         rt::Offset::Fixed(m, rt::OffsetForm::Extended) => Offset::fixed(m).ok()?,
-        rt::Offset::Fixed(m, form) => Offset::FixedForm(m, offset_form_from_ref(form)),
-        rt::Offset::FixedSeconds(s) => Offset::FixedSeconds(s),
+        rt::Offset::Fixed(m, form) => Offset::fixed_form(m, offset_form_from_ref(form)).ok()?,
+        rt::Offset::FixedSeconds(s) => Offset::fixed_seconds(s).ok()?,
         rt::Offset::NegZero(rt::OffsetForm::Extended) => Offset::NegZero,
-        rt::Offset::NegZero(form) => Offset::NegZeroForm(offset_form_from_ref(form)),
-    }
+        rt::Offset::NegZero(form) => {
+            let form = offset_form_from_ref(form);
+            if form == OffsetForm::Unwritten {
+                return None;
+            }
+            Offset::NegZeroForm(form)
+        }
+    })
 }
 
 const fn separator_to_ref(s: DateTimeSeparator) -> rt::Separator {
@@ -320,7 +326,7 @@ fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
 }
 
 fn temporal_from_ref(t: &rt::Temporal) -> Option<Temporal> {
-    let offset = offset_from_ref(t.offset);
+    let offset = offset_from_ref(t.offset)?;
     if t.infinity.is_none() {
         match (&t.date, &t.time, t.separator) {
             (Some(d), None, None) if offset == Offset::Local => {
@@ -1232,6 +1238,22 @@ fn the_value_conversion_is_injective_on_the_scope() {
         "conversion: {} refusal reasons, pairwise distinct",
         reasons.len()
     );
+}
+
+#[test]
+fn a_complete_local_date_requires_an_offset_when_declared() {
+    let spec = ValueSpec {
+        with_time_zone: Some(true),
+        ..ValueSpec::new(ScalarKind::Date)
+    };
+    let class = LexClass::DateTime;
+    let production =
+        coerce(&Lexeme::new("2000-01-02", class.clone()), &spec).map_err(|error| error.reason);
+    assert_eq!(production, Err(FidelityReason::OffsetRequired));
+
+    let reference = r::coerce("2000-01-02", &class_to_ref(&class), &spec_to_ref(&spec))
+        .expect("a complete date is in the reference coercion domain");
+    assert_eq!(reference, Err(r::FidelityReason::OffsetRequired));
 }
 
 /// The number of worker threads a differential run uses.

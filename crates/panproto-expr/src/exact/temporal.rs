@@ -30,7 +30,7 @@ use super::{ExactKind, ExactParseError, FidelityReason};
 /// assert_eq!(lower.to_string(), "2026-09-28t12:34:56z");
 /// # Ok::<(), panproto_expr::ExactParseError>(())
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Temporal {
     /// A calendar date.
@@ -45,6 +45,43 @@ pub enum Temporal {
     /// variants above so their serde and canonical representations remain
     /// unchanged.
     Extended(ExtendedTemporal),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TemporalRepr {
+    Date(CivilDate),
+    Time(CivilTime, Offset),
+    DateTime(CivilDate, CivilTime, Offset, DateTimeSeparator),
+    Extended(ExtendedTemporal),
+}
+
+impl TryFrom<TemporalRepr> for Temporal {
+    type Error = &'static str;
+
+    fn try_from(value: TemporalRepr) -> Result<Self, Self::Error> {
+        let temporal = match value {
+            TemporalRepr::Date(date) => Self::Date(date),
+            TemporalRepr::Time(time, offset) if legacy_offset(offset) => Self::Time(time, offset),
+            TemporalRepr::DateTime(date, time, offset, separator) if legacy_offset(offset) => {
+                Self::DateTime(date, time, offset, separator)
+            }
+            TemporalRepr::Extended(value) if value.well_formed() => Self::Extended(value),
+            TemporalRepr::Time(..) | TemporalRepr::DateTime(..) | TemporalRepr::Extended(_) => {
+                return Err("a noncanonical temporal representation");
+            }
+        };
+        Ok(temporal)
+    }
+}
+
+impl<'de> Deserialize<'de> for Temporal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(TemporalRepr::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
 }
 
 /// The separator a date-time was written with between its date and its
@@ -654,6 +691,10 @@ impl ExtendedTemporal {
         if !self.well_formed() {
             return None;
         }
+        self.structural_lexical_form()
+    }
+
+    fn structural_lexical_form(&self) -> Option<TemporalLexicalForm> {
         Some(TemporalLexicalForm {
             kind: self.form()?,
             date_shape: self.date.map(|date| {
@@ -691,6 +732,10 @@ impl ExtendedTemporal {
     /// Whether the public fields denote an admitted temporal form.
     #[must_use]
     pub fn well_formed(&self) -> bool {
+        self.structurally_well_formed() && !self.has_legacy_alias()
+    }
+
+    fn structurally_well_formed(&self) -> bool {
         if !offset_well_formed(self.offset) {
             return false;
         }
@@ -757,6 +802,22 @@ impl ExtendedTemporal {
             }) && self.time.as_ref().is_some_and(|time| time.hour.is_some()))
     }
 
+    fn has_legacy_alias(&self) -> bool {
+        if self.infinity.is_some() {
+            return false;
+        }
+        match (&self.date, &self.time, self.separator) {
+            (Some(date), None, None) => self.offset == Offset::Local && complete_date_fields(date),
+            (None, Some(time), None) => legacy_offset(self.offset) && complete_time_fields(time),
+            (Some(date), Some(time), Some(_)) => {
+                legacy_offset(self.offset)
+                    && complete_date_fields(date)
+                    && complete_time_fields(time)
+            }
+            _ => false,
+        }
+    }
+
     fn is_truncated(&self) -> bool {
         self.infinity.is_none()
             && (self.date.is_some_and(|date| date.year.is_none())
@@ -767,7 +828,8 @@ impl ExtendedTemporal {
 
 const fn offset_well_formed(offset: Offset) -> bool {
     match offset {
-        Offset::Local | Offset::Zulu(_) | Offset::Fixed(_) | Offset::NegZero => true,
+        Offset::Local | Offset::Zulu(_) | Offset::NegZero => true,
+        Offset::Fixed(minutes) => minutes.unsigned_abs() < 24 * 60,
         Offset::FixedForm(minutes, form) => {
             minutes.unsigned_abs() < 24 * 60
                 && (!matches!(form, OffsetForm::HourOnly) || minutes % 60 == 0)
@@ -775,101 +837,6 @@ const fn offset_well_formed(offset: Offset) -> bool {
         }
         Offset::FixedSeconds(seconds) => seconds.unsigned_abs() < 24 * 60 * 60 && seconds % 60 != 0,
         Offset::NegZeroForm(form) => !matches!(form, OffsetForm::Extended | OffsetForm::Unwritten),
-    }
-}
-
-/// Read exactly `n` ASCII digits at the start of `s`.
-fn take_digits(s: &str, n: usize) -> Result<(u32, &str), ExactParseError> {
-    let head = s.get(..n).ok_or_else(invalid)?;
-    if !head.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(invalid());
-    }
-    let value = head.parse::<u32>().map_err(|_| invalid())?;
-    Ok((value, &s[n..]))
-}
-
-/// Read the literal byte `c` at the start of `s`.
-fn take_byte(s: &str, c: u8) -> Result<&str, ExactParseError> {
-    if s.as_bytes().first() == Some(&c) {
-        Ok(&s[1..])
-    } else {
-        Err(invalid())
-    }
-}
-
-fn narrow(v: u32) -> Result<u8, ExactParseError> {
-    u8::try_from(v).map_err(|_| invalid())
-}
-
-/// Read `[sign]YYYY-MM-DD` (four or more year digits, the year within
-/// `i64`) at the start of `s`. A plus sign is read as no sign, and a minus
-/// sign before the year zero (`-0000`) as no sign (known losses, stated at
-/// [`Temporal::parse`]).
-fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
-    let (negative, s) = match s.as_bytes().first() {
-        Some(b'-') => (true, &s[1..]),
-        Some(b'+') => (false, &s[1..]),
-        _ => (false, s),
-    };
-    let year_len = s.bytes().take_while(u8::is_ascii_digit).count();
-    // Four digits, or more without a leading zero (XML Schema years).
-    if year_len < 4 || (year_len > 4 && s.starts_with('0')) {
-        return Err(invalid());
-    }
-    let magnitude = i128::from(s[..year_len].parse::<u64>().map_err(|_| invalid())?);
-    let year =
-        i64::try_from(if negative { -magnitude } else { magnitude }).map_err(|_| invalid())?;
-    let s = &s[year_len..];
-    let s = take_byte(s, b'-')?;
-    let (month, s) = take_digits(s, 2)?;
-    let s = take_byte(s, b'-')?;
-    let (day, s) = take_digits(s, 2)?;
-    Ok((CivilDate::new(year, narrow(month)?, narrow(day)?)?, s))
-}
-
-/// Read `HH:MM:SS[.fraction]` at the start of `s`.
-fn read_time(s: &str) -> Result<(CivilTime, &str), ExactParseError> {
-    let (hour, s) = take_digits(s, 2)?;
-    let s = take_byte(s, b':')?;
-    let (minute, s) = take_digits(s, 2)?;
-    let s = take_byte(s, b':')?;
-    let (second, s) = take_digits(s, 2)?;
-    let (fraction, s) = match s.strip_prefix('.') {
-        None => (Fraction::default(), s),
-        Some(rest) => {
-            let n = rest.bytes().take_while(u8::is_ascii_digit).count();
-            if n == 0 {
-                return Err(invalid());
-            }
-            (Fraction::new(&rest[..n])?, &rest[n..])
-        }
-    };
-    let time = CivilTime::new(narrow(hour)?, narrow(minute)?, narrow(second)?, fraction)?;
-    Ok((time, s))
-}
-
-/// Read the whole of `s` as an offset: empty, `Z`, or `±HH:MM`.
-fn read_offset(s: &str) -> Result<Offset, ExactParseError> {
-    match s {
-        "" => Ok(Offset::Local),
-        "Z" => Ok(Offset::Zulu(ZuluCase::Upper)),
-        "z" => Ok(Offset::Zulu(ZuluCase::Lower)),
-        "-00:00" => Ok(Offset::NegZero),
-        _ => {
-            let (sign, rest) = match s.as_bytes().first() {
-                Some(b'+') => (1_i16, &s[1..]),
-                Some(b'-') => (-1, &s[1..]),
-                _ => return Err(invalid()),
-            };
-            let (hours, rest) = take_digits(rest, 2)?;
-            let rest = take_byte(rest, b':')?;
-            let (minutes, rest) = take_digits(rest, 2)?;
-            if !rest.is_empty() || hours > 23 || minutes > 59 {
-                return Err(invalid());
-            }
-            let total = i16::try_from(hours * 60 + minutes).map_err(|_| invalid())?;
-            Offset::fixed(sign * total)
-        }
     }
 }
 
@@ -1214,37 +1181,49 @@ fn extended_from_legacy(value: &Temporal) -> ExtendedTemporal {
     }
 }
 
+fn date_fields_as_civil(date: DateFields) -> Option<CivilDate> {
+    let year = date.year?;
+    if year.negative_zero || year.width != year.value.unsigned_abs().to_string().len().max(4) {
+        return None;
+    }
+    CivilDate::new(year.value, date.month?, date.day?).ok()
+}
+
+fn time_fields_as_civil(time: &TimeFields) -> Option<CivilTime> {
+    CivilTime::new(
+        time.hour?,
+        time.minute?,
+        time.second?,
+        time.fraction.clone(),
+    )
+    .ok()
+}
+
+fn complete_date_fields(date: &DateFields) -> bool {
+    date_fields_as_civil(*date).is_some()
+}
+
+fn complete_time_fields(time: &TimeFields) -> bool {
+    time_fields_as_civil(time).is_some()
+}
+
 fn temporal_from_extended(value: ExtendedTemporal) -> Temporal {
-    let civil_date = |date: DateFields| {
-        let year = date.year?;
-        if year.negative_zero || year.width != year.value.unsigned_abs().to_string().len().max(4) {
-            return None;
-        }
-        CivilDate::new(year.value, date.month?, date.day?).ok()
-    };
-    let civil_time = |time: &TimeFields| {
-        CivilTime::new(
-            time.hour?,
-            time.minute?,
-            time.second?,
-            time.fraction.clone(),
-        )
-        .ok()
-    };
-    if value.infinity.is_none() && value.well_formed() {
+    if value.infinity.is_none() && value.structurally_well_formed() {
         match (&value.date, &value.time, value.separator) {
             (Some(date), None, None) if value.offset == Offset::Local => {
-                if let Some(date) = civil_date(*date) {
+                if let Some(date) = date_fields_as_civil(*date) {
                     return Temporal::Date(date);
                 }
             }
             (None, Some(time), None) if legacy_offset(value.offset) => {
-                if let Some(time) = civil_time(time) {
+                if let Some(time) = time_fields_as_civil(time) {
                     return Temporal::Time(time, value.offset);
                 }
             }
             (Some(date), Some(time), Some(separator)) if legacy_offset(value.offset) => {
-                if let (Some(date), Some(time)) = (civil_date(*date), civil_time(time)) {
+                if let (Some(date), Some(time)) =
+                    (date_fields_as_civil(*date), time_fields_as_civil(time))
+                {
                     return Temporal::DateTime(date, time, value.offset, separator);
                 }
             }
@@ -1369,12 +1348,9 @@ impl Temporal {
     /// lexeme: a date-time has a `T`, `t` or space after the date, a date
     /// has a `-` after its year, and anything else is read as a time.
     ///
-    /// The value records the separator and the case of a `Z` as written,
-    /// and `Display` writes them back. Known losses: a plus sign before the
-    /// year (`+2024-01-01`) is read as an unsigned year is, and a minus sign
-    /// before the year zero (`-0000-01-01`) as the year zero is, so neither
-    /// sign is written back (`0000-01-01`); the value does not record that
-    /// a sign was written.
+    /// The value records the separator, the case of a `Z` and a written
+    /// minus sign on year zero. A leading plus on a year is not an admitted
+    /// XML Schema year form and is refused.
     ///
     /// # Errors
     ///
@@ -1403,12 +1379,7 @@ impl Temporal {
         {
             return Ok(temporal_from_extended(value));
         }
-        // Preserve the historical acceptance of a leading plus sign on a
-        // complete date. Its sign remains a documented non-distinction.
-        let (date, rest) = read_date(text)?;
-        rest.is_empty()
-            .then_some(Self::Date(date))
-            .ok_or_else(invalid)
+        Err(invalid())
     }
 
     /// Read a time of day, `HH:MM:SS[.fraction][offset]`.
@@ -1436,17 +1407,7 @@ impl Temporal {
         {
             return Ok(temporal_from_extended(value));
         }
-        // Preserve the historical acceptance of a leading plus sign on a
-        // complete date-time.
-        let (date, rest) = read_date(text)?;
-        let separator = rest
-            .as_bytes()
-            .first()
-            .copied()
-            .and_then(DateTimeSeparator::from_byte)
-            .ok_or_else(invalid)?;
-        let (time, rest) = read_time(&rest[1..])?;
-        Ok(Self::DateTime(date, time, read_offset(rest)?, separator))
+        Err(invalid())
     }
 
     /// Read a lexeme under its exact lexical descriptor.
@@ -1515,7 +1476,21 @@ impl Temporal {
     /// The exact descriptor that makes display/parse reversible.
     #[must_use]
     pub fn lexical_form(&self) -> Option<TemporalLexicalForm> {
-        extended_from_legacy(self).lexical_form()
+        if !self.well_formed() {
+            return None;
+        }
+        extended_from_legacy(self).structural_lexical_form()
+    }
+
+    /// Whether this value uses the one admitted carrier for its temporal
+    /// representation.
+    #[must_use]
+    pub fn well_formed(&self) -> bool {
+        match self {
+            Self::Date(_) => true,
+            Self::Time(_, offset) | Self::DateTime(_, _, offset, _) => legacy_offset(*offset),
+            Self::Extended(value) => value.well_formed(),
+        }
     }
 
     /// The offset the value was written with; `None` for a date.
