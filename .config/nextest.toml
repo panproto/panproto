@@ -85,9 +85,9 @@ filter = 'package(panproto-lens) & binary(law_reference) & test(=check_laws_agre
 slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
 threads-required = 'num-cpus'
 
-# The theory class-comparison acceptance gate streams 3,400^2 operation
-# pairs and 350^2 sort pairs through both public composition engines. The
-# carrier is small, but the 11,682,500 compositions cannot fit the ordinary
+# The theory class-comparison acceptance gate streams 2,809^2 operation
+# pairs and 254^2 sort pairs through both public composition engines. The
+# carrier is small, but the 7,954,997 comparisons cannot fit the ordinary
 # ten-minute CI timeout. Run it alone, allow two hours, and keep it in the
 # ordinary CI filter; its own worker pool is capped at four.
 [[profile.ci.overrides]]

@@ -1716,6 +1716,31 @@ fn composition_agrees_on_every_class_signature_pair() {
         rewrite_budget: 512,
     };
 
+    for [repeated, renamed, captured] in scope::class_operation_capture_witnesses() {
+        assert_eq!(
+            operation_class_verdict(&scope::operation_class_pair(&repeated, &renamed), &options,),
+            Ok(OperationClassVerdict::Agree),
+            "renaming local binders must preserve the public operation-class verdict"
+        );
+        assert_eq!(
+            operation_class_verdict(&scope::operation_class_pair(&renamed, &captured), &options,),
+            Ok(OperationClassVerdict::NeedsSortEquation),
+            "selecting a different captured binder must change the public operation-class verdict"
+        );
+    }
+    for [repeated, renamed, captured] in scope::class_sort_capture_witnesses() {
+        assert_eq!(
+            sort_class_verdict(&scope::sort_class_pair(&repeated, &renamed), &options,),
+            Ok(SortClassVerdict::Agree),
+            "renaming local binders must preserve the public sort-class verdict"
+        );
+        assert_eq!(
+            sort_class_verdict(&scope::sort_class_pair(&renamed, &captured), &options,),
+            Ok(SortClassVerdict::ParamSort),
+            "selecting a different captured binder must change the public sort-class verdict"
+        );
+    }
+
     let operations = scope::class_operation_scope();
     assert_eq!(operations.len(), scope::CLASS_OPERATION_SCOPE_LEN);
     for operation in &operations {

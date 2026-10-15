@@ -1082,14 +1082,14 @@ pub fn fibre_spans() -> Vec<crate::theory::TheoryDiagram> {
 }
 
 /// Operations in the prefix-valid class-comparison scope.
-pub const CLASS_OPERATION_SCOPE_LEN: usize = 3_400;
+pub const CLASS_OPERATION_SCOPE_LEN: usize = 2_809;
 /// Sorts in the prefix-valid class-comparison scope.
-pub const CLASS_SORT_SCOPE_LEN: usize = 350;
+pub const CLASS_SORT_SCOPE_LEN: usize = 254;
 
-const BASE_CLASS_OPERATION_SCOPE_LEN: usize = 3_392;
-const SCOPED_BINDER_OPERATION_LEN: usize = 8;
-const BASE_CLASS_SORT_SCOPE_LEN: usize = 344;
-const SCOPED_BINDER_SORT_LEN: usize = 6;
+const BASE_CLASS_OPERATION_SCOPE_LEN: usize = 2_797;
+const SCOPED_BINDER_OPERATION_LEN: usize = 12;
+const BASE_CLASS_SORT_SCOPE_LEN: usize = 244;
+const SCOPED_BINDER_SORT_LEN: usize = 10;
 
 #[derive(Clone, Debug)]
 enum ClassTermForm {
@@ -1109,6 +1109,12 @@ struct ClassOpForm {
     output: ClassSortForm,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ClassSortSyntax<'a> {
+    Name(&'a str),
+    App(&'a str, &'a [Term]),
+}
+
 fn class_bound_positions(prefix: &[ClassSortForm]) -> Vec<usize> {
     prefix
         .iter()
@@ -1120,6 +1126,18 @@ fn class_bound_positions(prefix: &[ClassSortForm]) -> Vec<usize> {
 
 fn class_constant(name: &'static str) -> ClassTermForm {
     ClassTermForm::App(name, Vec::new())
+}
+
+fn class_sort_form_has_bare_x(sort: &ClassSortForm) -> bool {
+    sort.head == "X" && sort.args.is_none()
+}
+
+fn class_operation_has_bare_x(operation: &ClassOpForm) -> bool {
+    operation
+        .inputs
+        .iter()
+        .any(|(sort, _)| class_sort_form_has_bare_x(sort))
+        || class_sort_form_has_bare_x(&operation.output)
 }
 
 /// Prefix-valid sort forms. A dependent argument may mention only an
@@ -1233,19 +1251,21 @@ fn extend_class_operations(
     }
 }
 
-/// An independent recurrence for the number of rendered operation forms.
-/// `x_bound` is the number of earlier inputs whose sort is `X`.
-fn class_operation_count(depth: usize, x_bound: usize) -> usize {
+/// An independent recurrence for the number of unique rendered operations.
+/// `x_bound` is the number of earlier inputs whose sort is `X`; `has_bare_x`
+/// records whether the prefix already contains an `X` spelling to vary.
+fn class_operation_count(depth: usize, x_bound: usize, has_bare_x: bool) -> usize {
     let atoms = 2 + x_bound;
     let outputs = 2 + atoms + atoms.pow(2);
     let naming = if depth == 0 { 1 } else { 2 };
-    let here = outputs * naming * 2;
+    let spellings = if has_bare_x { 2 * outputs } else { outputs + 1 };
+    let here = naming * spellings;
     if depth == 2 {
         return here;
     }
     let non_x_inputs = 3 + x_bound;
-    here + 2 * class_operation_count(depth + 1, x_bound + 1)
-        + 2 * non_x_inputs * class_operation_count(depth + 1, x_bound)
+    here + 2 * class_operation_count(depth + 1, x_bound + 1, true)
+        + 2 * non_x_inputs * class_operation_count(depth + 1, x_bound, has_bare_x)
 }
 
 fn base_class_operation_scope() -> Vec<Op> {
@@ -1253,14 +1273,19 @@ fn base_class_operation_scope() -> Vec<Op> {
     extend_class_operations(&mut Vec::new(), &mut forms);
     let mut out = Vec::new();
     for form in forms {
+        let has_bare_x = class_operation_has_bare_x(&form);
         for names in class_names(form.inputs.len()) {
-            for empty_app in [false, true] {
-                out.push(render_class_operation(&form, &names, empty_app));
+            out.push(render_class_operation(&form, &names, false));
+            if has_bare_x {
+                out.push(render_class_operation(&form, &names, true));
             }
         }
     }
-    assert_eq!(class_operation_count(0, 0), BASE_CLASS_OPERATION_SCOPE_LEN);
-    assert_eq!(out.len(), class_operation_count(0, 0));
+    assert_eq!(
+        class_operation_count(0, 0, false),
+        BASE_CLASS_OPERATION_SCOPE_LEN
+    );
+    assert_eq!(out.len(), class_operation_count(0, 0, false));
     out
 }
 
@@ -1276,40 +1301,72 @@ fn scoped_shadow() -> Term {
     Term::Let("x".to_owned(), Box::new(var("x")), Box::new(var("x")))
 }
 
-fn scoped_repeated_let() -> Term {
+fn scoped_nested_let(outer: &str, inner: &str, select_inner: bool) -> Term {
     Term::Let(
-        "u".to_owned(),
+        outer.to_owned(),
         Box::new(var("x")),
         Box::new(Term::Let(
-            "u".to_owned(),
-            Box::new(var("u")),
-            Box::new(var("u")),
+            inner.to_owned(),
+            Box::new(app("s", vec![var(outer)])),
+            Box::new(app(
+                "s",
+                vec![var(if select_inner { inner } else { outer })],
+            )),
         )),
     )
 }
 
-fn scoped_case() -> Term {
+fn scoped_case(first: &str, second: &str, select_last: bool) -> Term {
     Term::Case(
         Box::new(constant("z")),
         vec![
             CaseBranch {
                 constructor: "z".to_owned(),
                 binders: Vec::new(),
-                body: constant("a"),
+                body: app("s", vec![constant("a")]),
             },
             CaseBranch {
                 constructor: "pair".to_owned(),
-                binders: vec!["u".to_owned(), "u".to_owned()],
-                body: var("u"),
+                binders: vec![first.to_owned(), second.to_owned()],
+                body: app("s", vec![var(if select_last { second } else { first })]),
             },
         ],
     )
 }
 
+fn scoped_operation(inputs: Vec<(String, SortExpr, Implicit)>, output: Term) -> Op {
+    Op {
+        name: "member".to_owned(),
+        inputs,
+        output: sort_app("Y", vec![output]),
+    }
+}
+
+/// The nested-`Let` and `Case` capture witnesses for operation signatures.
+/// Each triple is `(repeated names selecting the last binder, alpha-renamed
+/// distinct names selecting the last binder, distinct names selecting the
+/// first binder)`.
+#[must_use]
+pub fn class_operation_capture_witnesses() -> [[Op; 3]; 2] {
+    let input = || vec![("x".to_owned(), simple("X"), Implicit::No)];
+    [
+        [
+            scoped_operation(input(), scoped_nested_let("u", "u", true)),
+            scoped_operation(input(), scoped_nested_let("p", "q", true)),
+            scoped_operation(input(), scoped_nested_let("p", "q", false)),
+        ],
+        [
+            scoped_operation(Vec::new(), scoped_case("u", "u", true)),
+            scoped_operation(Vec::new(), scoped_case("p", "q", true)),
+            scoped_operation(Vec::new(), scoped_case("p", "q", false)),
+        ],
+    ]
+}
+
 fn scoped_binder_operations() -> Vec<Op> {
     let y = |term| sort_app("Y", vec![term]);
     let input = |name: &str, sort: SortExpr, implicit| (name.to_owned(), sort, implicit);
-    vec![
+    let mut out = vec![
         Op {
             name: "member".to_owned(),
             inputs: Vec::new(),
@@ -1325,16 +1382,9 @@ fn scoped_binder_operations() -> Vec<Op> {
             inputs: vec![input("x", simple("X"), Implicit::No)],
             output: y(scoped_shadow()),
         },
-        Op {
-            name: "member".to_owned(),
-            inputs: vec![input("x", simple("X"), Implicit::Yes)],
-            output: y(scoped_repeated_let()),
-        },
-        Op {
-            name: "member".to_owned(),
-            inputs: Vec::new(),
-            output: y(scoped_case()),
-        },
+    ];
+    out.extend(class_operation_capture_witnesses().into_iter().flatten());
+    out.extend([
         Op {
             name: "member".to_owned(),
             inputs: vec![input("x", simple("X"), Implicit::No)],
@@ -1361,16 +1411,49 @@ fn scoped_binder_operations() -> Vec<Op> {
                 input("x", simple("X"), Implicit::No),
                 input("y", simple("X"), Implicit::No),
             ],
-            output: y(scoped_case()),
+            output: y(scoped_case("u", "u", true)),
         },
-    ]
+    ]);
+    out
+}
+
+fn class_sort_syntax(sort: &SortExpr) -> ClassSortSyntax<'_> {
+    match sort {
+        SortExpr::Name(name) => ClassSortSyntax::Name(name),
+        SortExpr::App(name, arguments) => ClassSortSyntax::App(name, arguments),
+    }
+}
+
+fn assert_class_operations_are_unique(operations: &[Op]) {
+    let syntax = operations
+        .iter()
+        .map(|operation| {
+            (
+                operation.name.as_str(),
+                operation
+                    .inputs
+                    .iter()
+                    .map(|(name, sort, implicit)| {
+                        (name.as_str(), class_sort_syntax(sort), *implicit)
+                    })
+                    .collect::<Vec<_>>(),
+                class_sort_syntax(&operation.output),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        syntax.len(),
+        operations.len(),
+        "the operation class-agreement carrier contains duplicate syntax"
+    );
 }
 
 /// Every well-formed operation signature of the class-comparison scope.
 /// The base product has arity at most two, prefix-scoped dependencies, both
-/// implicit flags and both `X` spellings. Eight additional signatures cover
-/// arity three, applications, holes, shadowing, repeated local binders and
-/// exhaustive case analysis without introducing a duplicate telescope binder.
+/// implicit flags and both `X` spellings without duplicate renderings. Twelve
+/// additional signatures cover arity three, applications, holes, shadowing,
+/// alpha-equivalent and capture-distinguishing local binders, and exhaustive
+/// case analysis without introducing a duplicate telescope binder.
 #[must_use]
 pub fn class_operation_scope() -> Vec<Op> {
     let mut out = base_class_operation_scope();
@@ -1378,6 +1461,7 @@ pub fn class_operation_scope() -> Vec<Op> {
     assert_eq!(scoped.len(), SCOPED_BINDER_OPERATION_LEN);
     out.extend(scoped);
     assert_eq!(out.len(), CLASS_OPERATION_SCOPE_LEN);
+    assert_class_operations_are_unique(&out);
     out
 }
 
@@ -1417,14 +1501,14 @@ fn extend_class_sorts(prefix: &mut Vec<ClassSortForm>, out: &mut Vec<Vec<ClassSo
     }
 }
 
-fn class_sort_count(depth: usize, x_bound: usize) -> usize {
+fn class_sort_count(depth: usize, x_bound: usize, has_bare_x: bool) -> usize {
     let naming = if depth == 0 { 1 } else { 2 };
-    let here = 4 * naming * 2;
+    let here = 4 * naming * if has_bare_x { 2 } else { 1 };
     if depth == 2 {
         return here;
     }
-    here + class_sort_count(depth + 1, x_bound + 1)
-        + (3 + x_bound) * class_sort_count(depth + 1, x_bound)
+    here + class_sort_count(depth + 1, x_bound + 1, true)
+        + (3 + x_bound) * class_sort_count(depth + 1, x_bound, has_bare_x)
 }
 
 fn base_class_sort_scope() -> Vec<Sort> {
@@ -1432,20 +1516,24 @@ fn base_class_sort_scope() -> Vec<Sort> {
     extend_class_sorts(&mut Vec::new(), &mut forms);
     let mut out = Vec::new();
     for params in forms {
+        let has_bare_x = params.iter().any(class_sort_form_has_bare_x);
         for names in class_names(params.len()) {
-            for empty_app in [false, true] {
-                for value_kind in [false, true] {
-                    for closed in [false, true] {
+            for value_kind in [false, true] {
+                for closed in [false, true] {
+                    out.push(render_class_sort_declaration(
+                        &params, &names, false, value_kind, closed,
+                    ));
+                    if has_bare_x {
                         out.push(render_class_sort_declaration(
-                            &params, &names, empty_app, value_kind, closed,
+                            &params, &names, true, value_kind, closed,
                         ));
                     }
                 }
             }
         }
     }
-    assert_eq!(class_sort_count(0, 0), BASE_CLASS_SORT_SCOPE_LEN);
-    assert_eq!(out.len(), class_sort_count(0, 0));
+    assert_eq!(class_sort_count(0, 0, false), BASE_CLASS_SORT_SCOPE_LEN);
+    assert_eq!(out.len(), class_sort_count(0, 0, false));
     out
 }
 
@@ -1457,7 +1545,7 @@ fn scoped_binder_sorts() -> Vec<Sort> {
         constructors: None,
     };
     let param = |name: &str, sort| (name.to_owned(), sort);
-    vec![
+    let mut out = vec![
         declaration(vec![param("p", sort_app("Y", vec![scoped_hole(None)]))]),
         declaration(vec![param(
             "p",
@@ -1467,32 +1555,84 @@ fn scoped_binder_sorts() -> Vec<Sort> {
             param("x", simple("X")),
             param("y", sort_app("Y", vec![scoped_shadow()])),
         ]),
-        declaration(vec![
-            param("x", simple("X")),
-            param("y", sort_app("Y", vec![scoped_repeated_let()])),
-        ]),
-        declaration(vec![param("p", sort_app("Y", vec![scoped_case()]))]),
-        declaration(vec![
-            param("x", simple("X")),
-            param("y", sort_app("Y", vec![var("x")])),
-            param(
-                "z",
-                sort_app(
-                    "H",
-                    vec![
-                        var("x"),
-                        app("m", vec![app("s", vec![var("x")]), constant("a")]),
-                    ],
-                ),
+    ];
+    out.extend(class_sort_capture_witnesses().into_iter().flatten());
+    out.push(declaration(vec![
+        param("x", simple("X")),
+        param("y", sort_app("Y", vec![var("x")])),
+        param(
+            "z",
+            sort_app(
+                "H",
+                vec![
+                    var("x"),
+                    app("m", vec![app("s", vec![var("x")]), constant("a")]),
+                ],
             ),
-        ]),
+        ),
+    ]));
+    out
+}
+
+/// The nested-`Let` and `Case` capture witnesses for sort declarations.
+/// The entry order of each triple is the same as in
+/// [`class_operation_capture_witnesses`].
+#[must_use]
+pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 2] {
+    let declaration = |params| Sort {
+        name: "W".to_owned(),
+        params,
+        kind: STRUCTURAL.to_owned(),
+        constructors: None,
+    };
+    let let_declaration = |term| {
+        declaration(vec![
+            ("x".to_owned(), simple("X")),
+            ("y".to_owned(), sort_app("Y", vec![term])),
+        ])
+    };
+    let case_declaration = |term| declaration(vec![("p".to_owned(), sort_app("Y", vec![term]))]);
+    [
+        [
+            let_declaration(scoped_nested_let("u", "u", true)),
+            let_declaration(scoped_nested_let("p", "q", true)),
+            let_declaration(scoped_nested_let("p", "q", false)),
+        ],
+        [
+            case_declaration(scoped_case("u", "u", true)),
+            case_declaration(scoped_case("x", "y", true)),
+            case_declaration(scoped_case("x", "y", false)),
+        ],
     ]
+}
+
+fn assert_class_sorts_are_unique(sorts: &[Sort]) {
+    let syntax = sorts
+        .iter()
+        .map(|sort| {
+            (
+                sort.name.as_str(),
+                sort.params
+                    .iter()
+                    .map(|(name, expression)| (name.as_str(), class_sort_syntax(expression)))
+                    .collect::<Vec<_>>(),
+                sort.kind.as_str(),
+                sort.constructors.as_deref(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        syntax.len(),
+        sorts.len(),
+        "the sort class-agreement carrier contains duplicate syntax"
+    );
 }
 
 /// Every well-formed sort declaration of the class-comparison scope. The
 /// base product crosses prefix-scoped parameters with structural/value kind,
-/// open/closed closure and bare/empty `X` spellings. Six additional
-/// declarations cover arity three and the well-scoped local term forms.
+/// open/closed closure and bare/empty `X` spellings without duplicate
+/// renderings. Ten additional declarations cover arity three and the
+/// alpha-equivalent and capture-distinguishing local term forms.
 #[must_use]
 pub fn class_sort_scope() -> Vec<Sort> {
     let mut out = base_class_sort_scope();
@@ -1500,6 +1640,7 @@ pub fn class_sort_scope() -> Vec<Sort> {
     assert_eq!(scoped.len(), SCOPED_BINDER_SORT_LEN);
     out.extend(scoped);
     assert_eq!(out.len(), CLASS_SORT_SCOPE_LEN);
+    assert_class_sorts_are_unique(&out);
     out
 }
 
