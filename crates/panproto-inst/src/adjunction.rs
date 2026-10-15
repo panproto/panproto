@@ -1645,7 +1645,9 @@ fn pi_counit_hom(
 ///
 /// # Errors
 ///
-/// As [`f_pi_unit`] and [`f_pi_on_hom`].
+/// In operation order: the errors of [`f_delta_with_provenance`],
+/// [`AdjunctionError::NotANaturalMap`] when `g` is not a homomorphism from
+/// `Delta_F J` to `I`, then the errors of [`crate::functor_pi_restricted`].
 pub fn f_pi_transpose_left(
     g: &FInstanceHom,
     y: &FInstance,
@@ -1653,16 +1655,20 @@ pub fn f_pi_transpose_left(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    PiTransposeLeft::new(y, i, functor, max_product_size)?.apply(g)
+    let (delta, copies) = f_delta_with_provenance(y, functor)?;
+    require_hom(g, &delta, i)?;
+    PiTransposeLeft::from_delta(y, i, functor, max_product_size, delta, copies)?.apply_hom(g)
 }
 
 /// [`f_pi_transpose_left`] at fixed `J` and `I`: `Delta_F J`, its copy
-/// index, and `Pi_F I` are taken once. The errors are those of
-/// [`f_pi_transpose_left`], in its order.
+/// index, and `Pi_F I` are taken once. The public entry point still checks
+/// its supplied map before constructing bounded `Pi_F I`.
 struct PiTransposeLeft<'a> {
     y: &'a FInstance,
     y_nulls: BTreeSet<u64>,
+    #[cfg(test)]
     i: &'a FInstance,
+    #[cfg(test)]
     delta: FInstance,
     copies: HashMap<(Name, RowId), RowId>,
     functor: &'a MigrationFunctor,
@@ -1670,18 +1676,38 @@ struct PiTransposeLeft<'a> {
 }
 
 impl<'a> PiTransposeLeft<'a> {
+    /// Test-only hom-set cache, used after the enumerator has established
+    /// that every supplied map is a homomorphism.
+    #[cfg(test)]
     fn new(
         y: &'a FInstance,
         i: &'a FInstance,
-        functor: &MigrationFunctor,
+        functor: &'a MigrationFunctor,
         max_product_size: usize,
     ) -> Result<Self, AdjunctionError> {
         let (delta, copies) = f_delta_with_provenance(y, functor)?;
+        Self::from_delta(y, i, functor, max_product_size, delta, copies)
+    }
+
+    /// The cached transpose after `Delta_F J` and its copies have already
+    /// been computed.
+    fn from_delta(
+        y: &'a FInstance,
+        i: &'a FInstance,
+        functor: &'a MigrationFunctor,
+        max_product_size: usize,
+        delta: FInstance,
+        copies: DeltaProvenance,
+    ) -> Result<Self, AdjunctionError> {
         let pi = pi_on_domain(i, functor, max_product_size)?;
+        #[cfg(not(test))]
+        let _unused_delta = delta;
         Ok(Self {
             y,
             y_nulls: nulls_of(y),
+            #[cfg(test)]
             i,
+            #[cfg(test)]
             delta,
             copies: copies.copy_index(),
             functor,
@@ -1691,8 +1717,14 @@ impl<'a> PiTransposeLeft<'a> {
 
     /// The direct tuple formula for `Pi_F(g) . unit_J`, for
     /// `g: Delta_F J -> I`.
+    #[cfg(test)]
     fn apply(&self, g: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
         require_hom(g, &self.delta, self.i)?;
+        self.apply_hom(g)
+    }
+
+    /// The direct tuple formula after `g` has been checked.
+    fn apply_hom(&self, g: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
         let mut row_map = BTreeMap::new();
         for (table, rows) in self.y.tables() {
             let fibre = self.functor.table_fibre(table);

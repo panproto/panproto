@@ -2167,9 +2167,10 @@ fn check_sigma_pair(
 /// The Delta -| Pi bijection at one pair and one bound, as
 /// [`check_sigma_pair`] states it for `Hom(Delta J, I)` and `Hom(J, Pi I)`,
 /// the component formulas `unit_J ; Pi(h)` and `Delta(k) ; counit_I`. Where
-/// the unit's codomain `Pi(Delta J)` is over the bound, the transposes
-/// refuse on both sides and the hom-set sizes still agree. Returns the
-/// number of homomorphisms and of unit refusals.
+/// the unit's codomain `Pi(Delta J)` is over the operational bound, the
+/// transposes and their round trips remain defined from `Pi(I)`; only the
+/// explicit unit naturality formula is unavailable at that bound. Returns
+/// the number of homomorphisms and of unavailable unit formulas.
 fn check_pi_pair(
     functors: &Functors,
     target: &PairTarget,
@@ -2203,14 +2204,6 @@ fn check_pi_pair(
             bound,
         );
         let reference = rel::pi_transpose_forward(f, &target.target, input, hom, bound);
-        let Some(unit) = unit else {
-            assert!(
-                image.is_err() && reference.is_err(),
-                "a Pi transpose past the unit's bound"
-            );
-            refusals += 1;
-            continue;
-        };
         let (image, reference) = (image.unwrap(), reference.unwrap());
         assert!(
             ref_hom(&image).same_as(&reference, &target.target),
@@ -2229,21 +2222,27 @@ fn check_pi_pair(
             ref_hom(&back).same_as(hom, &target.delta),
             "the Pi round trip"
         );
-        let production_pi_delta = target.production_pi_delta[slot].as_ref().unwrap();
-        let pi_h = panproto_inst::f_pi_on_hom(
-            &production_hom,
-            &target.production_delta,
-            &source.production,
-            fp,
-            bound,
-        )
-        .unwrap();
-        let reference_pi_h = rel::pi_on_hom(f, &target.delta, input, hom, bound).unwrap();
-        assert!(ref_hom(&pi_h).same_as(&reference_pi_h, &ref_table(production_pi_delta)));
-        assert!(
-            then(unit, &pi_h).same_as(&ref_hom(&image), &target.target),
-            "unit ; Pi(h)"
-        );
+        if let (Some(unit), Some(production_pi_delta)) =
+            (unit, target.production_pi_delta[slot].as_ref())
+        {
+            let pi_h = panproto_inst::f_pi_on_hom(
+                &production_hom,
+                &target.production_delta,
+                &source.production,
+                fp,
+                bound,
+            )
+            .unwrap();
+            let reference_pi_h = rel::pi_on_hom(f, &target.delta, input, hom, bound).unwrap();
+            assert!(ref_hom(&pi_h).same_as(&reference_pi_h, &ref_table(production_pi_delta)));
+            assert!(
+                then(unit, &pi_h).same_as(&ref_hom(&image), &target.target),
+                "unit ; Pi(h)"
+            );
+        } else {
+            assert!(unit.is_none() && target.production_pi_delta[slot].is_none());
+            refusals += 1;
+        }
     }
     for hom in &right {
         let production_hom = prod_hom(hom);
@@ -2261,20 +2260,18 @@ fn check_pi_pair(
             "the inverse Pi transpose"
         );
         assert!(left_keys.contains(&hom_key(&ref_hom(&image), &target.delta)));
-        if unit.is_some() {
-            let back = panproto_inst::f_pi_transpose_left(
-                &image,
-                &target.production,
-                &source.production,
-                fp,
-                bound,
-            )
-            .unwrap();
-            assert!(
-                ref_hom(&back).same_as(hom, &target.target),
-                "the inverse Pi round trip"
-            );
-        }
+        let back = panproto_inst::f_pi_transpose_left(
+            &image,
+            &target.production,
+            &source.production,
+            fp,
+            bound,
+        )
+        .unwrap();
+        assert!(
+            ref_hom(&back).same_as(hom, &target.target),
+            "the inverse Pi round trip"
+        );
         let delta_k =
             panproto_inst::f_delta_on_hom(&production_hom, &target.production, production_pi, fp)
                 .unwrap();
@@ -4470,7 +4467,11 @@ fn generated_case_agrees(seed: u64) {
 
 /// The seeds whose cases shrank a failure of the generated table laws in
 /// the past, run before any random seed.
-const REGRESSION_SEEDS: [u64; 2] = [5_467_035_014_510_298_700, 7_302_257_756_398_127_275];
+const REGRESSION_SEEDS: [u64; 3] = [
+    251_554_501_479_628_105,
+    5_467_035_014_510_298_700,
+    7_302_257_756_398_127_275,
+];
 
 #[test]
 fn generated_regression_seeds_agree_with_the_reference() {
@@ -4938,4 +4939,79 @@ fn pi_transposes_do_not_need_pi_of_the_delta() {
     let back = panproto_inst::f_pi_transpose_right(&ours, &prod_table(&j), &prod_table(&i), fp, 4)
         .unwrap();
     assert!(ref_hom(&back).same_as(&homs[0], &delta));
+}
+
+/// The forward Pi transpose validates its supplied map after Delta and
+/// before constructing bounded `Pi(I)`: an invalid map is the first error
+/// even when `Pi(I)` has product size 9 at bound 4.
+#[test]
+fn pi_transpose_checks_the_map_before_the_product_bound() {
+    let case = scope::family()
+        .into_iter()
+        .find(|case| case.name == "merge-shared-column")
+        .unwrap();
+    let functors = Functors::new(
+        &case.source_schema(),
+        &case.target_schema(),
+        &case.migration(),
+        &family_kinds(),
+    );
+    let (f, fp) = (&functors.reference, &functors.production);
+    let j = one_table("m", &[(0, &[("x", int(0))])]);
+    let i = model::Table {
+        rows: BTreeMap::from([
+            (
+                0,
+                ("a".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                1,
+                ("a".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                2,
+                ("a".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                3,
+                ("b".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                4,
+                ("b".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                5,
+                ("b".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+        ]),
+        pairs: BTreeSet::new(),
+    };
+    assert!(matches!(
+        rel::pi(f, &i, 4),
+        Err(rel::KanError::ProductSizeExceeded {
+            actual: 9,
+            limit: 4,
+            ..
+        })
+    ));
+    let (delta, _) = rel::delta(f, &j).unwrap();
+    let first = *delta.rows.keys().next().unwrap();
+    let invalid = rel::Hom::default();
+    assert_eq!(
+        rel::pi_transpose_forward(f, &j, &i, &invalid, 4),
+        Err(rel::TransposeError::Hom(Box::new(
+            rel::HomError::NodeNotMapped(first)
+        )))
+    );
+    assert!(matches!(
+        panproto_inst::f_pi_transpose_left(
+            &prod_hom(&invalid),
+            &prod_table(&j),
+            &prod_table(&i),
+            fp,
+            4,
+        ),
+        Err(AdjunctionError::NotANaturalMap { row }) if row == RowId(first)
+    ));
 }
