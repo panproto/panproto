@@ -5,12 +5,13 @@ use std::collections::BTreeSet;
 
 use panproto_reference::canonical;
 use panproto_reference::enumerate::lenses::{
-    C11_GRAPH_TREE_PATH_HOLD, C11_SCOPE_STATUS, C11MissingDimension, Gf5Counts, Gf5Fixture,
+    C11_DYNAMIC_VERIFICATION_HOLD, C11_SCOPE_COMPLETE, Gf5Counts, Gf5Fixture,
     PARTIAL_LENS_COMPLEMENTS, PARTIAL_LENS_SOURCES, PARTIAL_LENS_VIEWS, PARTIAL_PUT_ALPHABET,
-    PartialLensHistogram, TABLE_FIXTURE_BOUND, for_each_gf5_deletion_edit, for_each_gf5_source,
-    for_each_gf5_source_subinstance_probe, for_each_partial_lens, for_each_table_fixture,
-    gf5_count_certificate, partial_lens_count_certificate, partial_lens_histogram,
-    table_cell_alphabet, table_fixture_count_certificate,
+    PartialLensHistogram, TABLE_FIXTURE_BOUND, c11_path_count_certificate,
+    for_each_gf5_deletion_edit, for_each_gf5_source, for_each_gf5_source_subinstance_probe,
+    for_each_partial_lens, for_each_table_fixture, gf5_count_certificate,
+    partial_lens_count_certificate, partial_lens_histogram, table_cell_alphabet,
+    table_fixture_count_certificate,
 };
 use panproto_reference::migration::Migration;
 use panproto_reference::model::Graph;
@@ -332,21 +333,18 @@ fn gf5_exact_fixtures_have_the_three_certified_counts() {
 }
 
 #[test]
-fn the_larger_graph_tree_and_path_census_remains_parameterized_hold() {
-    const {
-        assert!(!C11_SCOPE_STATUS.scope_complete);
-        assert!(C11_SCOPE_STATUS.closed_subcarriers == 3);
-    }
+fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
+    const { assert!(C11_SCOPE_COMPLETE) }
+    let counts = c11_path_count_certificate();
+    assert_eq!(counts.stages, 31);
+    assert_eq!(counts.words_by_length, [31, 961, 29_791]);
+    assert_eq!(counts.composable_by_length, [31, 93, 413]);
+    assert_eq!(counts.single_stage_states, 144_397);
+    assert_eq!(counts.word_states_by_length, [144_397, 182_833, 291_373]);
+    assert_eq!(counts.tree_stages, 29);
+    assert_eq!(counts.stage_tree_states, 2_548);
     assert_eq!(
-        C11_SCOPE_STATUS.missing_dimensions,
-        [
-            C11MissingDimension::GraphAndTreeCarrierAlphabet,
-            C11MissingDimension::OneStepViewEditAlphabet,
-            C11MissingDimension::LensPathStageAndFusionAlphabet,
-        ]
-    );
-    assert_eq!(
-        C11_GRAPH_TREE_PATH_HOLD,
-        "HOLD: graph/tree schema and carrier alphabets, one-step edit alphabet, and LensPath atomic-stage/fusion alphabet require owner parameters"
+        C11_DYNAMIC_VERIFICATION_HOLD,
+        "HOLD: build the amended C11 census and reproduce its independent counts before execution"
     );
 }

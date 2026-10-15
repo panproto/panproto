@@ -1117,6 +1117,9 @@ fn analyse_field_transforms(xforms: &[panproto_inst::wtype::FieldTransform]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panproto_expr::Expr;
+    use panproto_inst::FieldTransform;
+
     use crate::tests::{identity_lens, three_node_schema};
 
     #[test]
@@ -1195,5 +1198,39 @@ mod tests {
             matches!(result, Err(LensError::CompositionMismatch)),
             "composition across a hyper-edge mismatch must be rejected: {result:?}"
         );
+    }
+
+    #[test]
+    fn fusion_reports_a_field_read_after_a_drop() {
+        let schema = panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol::default())
+            .vertex("a", "obj", None)
+            .expect("the C11 vertex is valid")
+            .build()
+            .expect("the C11 schema is valid");
+        let anchor = panproto_gat::Name::from("a");
+        let mut first = identity_lens(&schema);
+        first.compiled.field_transforms.insert(
+            anchor.clone(),
+            vec![FieldTransform::DropField {
+                key: "f".to_owned(),
+            }],
+        );
+        let mut second = identity_lens(&schema);
+        second.compiled.field_transforms.insert(
+            anchor.clone(),
+            vec![FieldTransform::ApplyExpr {
+                key: "f".to_owned(),
+                expr: Expr::Var("f".into()),
+                inverse: Some(Expr::Var("f".into())),
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        );
+        assert!(matches!(
+            fuse(&first, &second),
+            Err(LensError::ComposeUnboundField {
+                anchor: refused_anchor,
+                field,
+            }) if refused_anchor == anchor.as_str() && field == "f"
+        ));
     }
 }

@@ -3207,7 +3207,9 @@
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
-            "panproto_reference::lens::put"
+            "panproto_reference::lens::put",
+            "panproto_reference::lens::tree_get",
+            "panproto_reference::lens::tree_put"
           ],
           "due_gate": "phase3"
         },
@@ -3306,8 +3308,8 @@
             }
           ],
           "references": [
-            "panproto_reference::lens::tree_get",
-            "panproto_reference::lens::tree_put"
+            "panproto_reference::table::TableComplement",
+            "panproto_reference::table::get"
           ],
           "due_gate": "phase3"
         },

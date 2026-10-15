@@ -19,7 +19,8 @@ use panproto_inst::{
 };
 use panproto_lens::{Lens, LensError, graph_lens};
 use panproto_reference::enumerate::lenses::{
-    C11_FIELD, C11_VALUE, C11AddField, C11Layer, C11Stage, C11SurvivalFalse,
+    C11_FIELD, C11_VALUE, C11AddField, C11DropField, C11Layer, C11OpTerm, C11ReadField, C11Stage,
+    C11SurvivalFalse,
 };
 use panproto_reference::harness::{Disagreement, agree};
 use panproto_reference::lens::{GraphLens as RefGraphLens, LensError as RefLensError};
@@ -411,6 +412,43 @@ fn production_stage(stage: &C11Stage) -> Lens {
                 );
             }
         }
+        C11Layer::DropField => {
+            for vertex in &stage.migration.transformed {
+                compiled.field_transforms.insert(
+                    vertex.clone().into(),
+                    vec![panproto_inst::FieldTransform::DropField {
+                        key: C11_FIELD.to_owned(),
+                    }],
+                );
+            }
+        }
+        C11Layer::ReadField => {
+            for vertex in &stage.migration.transformed {
+                compiled.field_transforms.insert(
+                    vertex.clone().into(),
+                    vec![panproto_inst::FieldTransform::ApplyExpr {
+                        key: C11_FIELD.to_owned(),
+                        expr: panproto_expr::Expr::Var(C11_FIELD.into()),
+                        inverse: Some(panproto_expr::Expr::Var(C11_FIELD.into())),
+                        coercion_class: panproto_gat::CoercionClass::Iso,
+                    }],
+                );
+            }
+        }
+        C11Layer::OpTerm => {
+            for vertex in &stage.migration.transformed {
+                compiled.op_term_assignments.insert(
+                    vertex.clone().into(),
+                    vec![panproto_inst::TermAssignment::Compute {
+                        target: C11_FIELD.to_owned(),
+                        scope: panproto_inst::TermScope::Row,
+                        term: panproto_expr::Expr::Lit(panproto_expr::Literal::Int(0)),
+                        inverse: None,
+                        coercion_class: panproto_gat::CoercionClass::Projection,
+                    }],
+                );
+            }
+        }
     }
     Lens {
         compiled,
@@ -620,6 +658,9 @@ impl Pair {
             C11Layer::None => &NoValueLayer,
             C11Layer::SurvivalFalse => &C11SurvivalFalse,
             C11Layer::AddField => &C11AddField,
+            C11Layer::DropField => &C11DropField,
+            C11Layer::ReadField => &C11ReadField,
+            C11Layer::OpTerm => &C11OpTerm,
         };
         Self::with_production(
             stage.source.clone(),
@@ -1570,7 +1611,8 @@ fn partial_lens_laws_agree_with_the_reference_on_every_lens_and_source() {
 
 use panproto_reference::enumerate::lenses::{
     c11_fan_schema, c11_fan_state_count, c11_fan_states, c11_graph_edit_count, c11_graph_edits,
-    c11_graph_state_count, c11_graph_states, c11_stages, sigma2_count, sigma2_schemas,
+    c11_graph_state_count, c11_graph_states, c11_path_count_certificate, c11_stages, sigma2_count,
+    sigma2_schemas,
 };
 
 /// The states a stage reads: the fan states for a stage over the fan
@@ -1631,13 +1673,16 @@ fn c11_graph_cases(stages: &[C11Stage], pairs: &[Pair]) -> (Vec<GraphCase>, usiz
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn graph_lens_agrees_with_the_reference_exhaustively() {
     let schemas = sigma2_schemas();
     assert_eq!(schemas.len(), sigma2_count());
     let stages = c11_stages();
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let (cases, states, counted_edits) = c11_graph_cases(&stages, &pairs);
+    let certificate = c11_path_count_certificate();
+    assert_eq!(stages.len(), certificate.stages);
+    assert_eq!(states, certificate.single_stage_states);
     let puts = cases
         .iter()
         .filter(|case| matches!(case, GraphCase::Put(..)))
@@ -1885,9 +1930,10 @@ fn reference_tree_case(pair: &Pair, source: &RefTree) -> TreeOutcome {
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn tree_lens_agrees_with_the_reference_exhaustively() {
     let stages = c11_stages();
+    let certificate = c11_path_count_certificate();
     let mut cases = Vec::new();
     let mut certified = 0_usize;
     for (index, stage) in stages.iter().enumerate() {
@@ -1899,10 +1945,11 @@ fn tree_lens_agrees_with_the_reference_exhaustively() {
         cases.extend(trees.into_iter().map(|tree| (index, tree)));
     }
     assert_eq!(cases.len(), certified);
+    assert_eq!(certified, certificate.stage_tree_states);
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let bound = format!(
         "C11 tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
-        stages.len() - 1,
+        certificate.tree_stages,
         cases.len()
     );
     println!("{bound}");
@@ -2123,13 +2170,72 @@ fn words(stages: usize) -> Vec<Vec<usize>> {
     out
 }
 
+fn c11_stage_index(stages: &[C11Stage], name: &str) -> usize {
+    stages
+        .iter()
+        .position(|stage| stage.name == name)
+        .unwrap_or_else(|| panic!("missing C11 stage {name}"))
+}
+
+fn c11_identity_index(stages: &[C11Stage], schema: &RefSchema) -> usize {
+    stages
+        .iter()
+        .position(|stage| {
+            stage.name.starts_with("Id") && stage.source == *schema && stage.target == *schema
+        })
+        .unwrap_or_else(|| panic!("missing C11 identity at {schema:?}"))
+}
+
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
+    let stages = c11_stages();
+    let named = |name| c11_stage_index(&stages, name);
+    let identity_after = |name| c11_identity_index(&stages, &stages[named(name)].target);
+    let witnesses = [
+        (
+            0_u8,
+            "admitted",
+            c11_identity_index(&stages, &stages[named("T")].source),
+            c11_identity_index(&stages, &stages[named("T")].source),
+            true,
+        ),
+        (1, "contraction", named("C"), identity_after("C"), false),
+        (2, "unbound field", named("DropF"), named("ReadF"), false),
+        (3, "direct edge image", named("D"), named("Ext"), false),
+        (4, "expansion", named("X"), identity_after("X"), false),
+        (5, "value layers", named("Q"), named("T"), false),
+        (6, "fan retarget", named("H"), named("Id_h"), false),
+        (7, "plan refusal", named("B"), identity_after("B"), false),
+    ];
+    for (condition, label, first, second, fused) in witnesses {
+        assert_eq!(
+            stages[first].target, stages[second].source,
+            "condition {condition} ({label}) must be boundary-matched"
+        );
+        let path = production_word(&stages, &[first, second]).expect("matching boundary");
+        let groups = path.tree_normal_form();
+        assert_eq!(
+            groups.len(),
+            if fused { 1 } else { 2 },
+            "condition {condition} ({label}) at {} then {}",
+            stages[first].name,
+            stages[second].name
+        );
+        println!(
+            "C11 fusion condition {condition} ({label}): {} then {}, fused={fused}",
+            stages[first].name, stages[second].name
+        );
+    }
+}
+
+#[test]
+#[ignore = "the amended C11 census awaits build verification"]
 fn lens_paths_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
+    let certificate = c11_path_count_certificate();
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let all = words(stages.len());
-    assert_eq!(all.len(), 28 + 28 * 28 + 28 * 28 * 28);
+    assert_eq!(all.len(), certificate.words());
     let mut composable = Vec::new();
     for word in &all {
         let production = production_word(&stages, word);
@@ -2162,6 +2268,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
             composable.push((word.clone(), right.0, right.1));
         }
     }
+    assert_eq!(composable.len() / 3, certificate.composable());
     let mut cases = Vec::new();
     for (index, (word, _, _)) in composable.iter().enumerate() {
         for source in c11_sources(&stages[word[0]]) {
@@ -2169,12 +2276,17 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
         }
     }
     let bound = format!(
-        "C11 paths: stages=28, words of length at most 3={}, composable={}, with both identity composites={}, (path, state) cases={}",
+        "C11 paths: stages={}, words by length={:?}, words={}, composable by length={:?}, composable={}, with both identity composites={}, word-state pairs={}, evaluated path-state cases={}",
+        stages.len(),
+        certificate.words_by_length,
         all.len(),
+        certificate.composable_by_length,
         composable.len() / 3,
         composable.len(),
+        certificate.word_states(),
         cases.len()
     );
+    assert_eq!(cases.len(), 3 * certificate.word_states());
     println!("{bound}");
     let compared = assert_agree(agree(
         &bound,
@@ -2222,7 +2334,7 @@ fn edits_of_reference_view(
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
     let schemas: Vec<RefSchema> = sigma2_schemas()
@@ -2311,7 +2423,7 @@ fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
         stages.len(),
         schemas.len()
     );
-    assert_eq!(triples, 28 * 28 * 28);
+    assert_eq!(triples, c11_path_count_certificate().words_by_length[2]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2507,7 +2619,7 @@ fn graph_lens_via_tree(lens: &Lens, graph: &GInstance) -> Option<Leg> {
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn graph_square_agrees_with_the_reference_exhaustively() {
     let stages = c11_stages();
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
@@ -2708,7 +2820,7 @@ enum ProtolensOutcome {
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn protolens_transforms_agree_with_the_reference_exhaustively() {
     let protocol = Protocol::default();
     let alphabet = protolens_alphabet();
@@ -2813,7 +2925,7 @@ enum LawCase {
 }
 
 #[test]
-#[ignore = "the C11 alphabets await the orchestrator's acceptance"]
+#[ignore = "the amended C11 census awaits build verification"]
 fn lens_laws_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
@@ -2943,8 +3055,8 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
 // The property differential: random cases from every exhaustive family
 // ---------------------------------------------------------------------------
 
-/// Whether the orchestrator has accepted the C11 alphabets; until then the
-/// property test samples only the families whose scopes are fixed.
+/// Whether the amended C11 census has passed its build and count gates.
+/// Until then the property test samples only the already verified families.
 const C11_ACCEPTED: bool = false;
 
 fn gf5_cases() -> &'static [(Gf5Fixture, RefGraph, RefGraph)] {

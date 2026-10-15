@@ -41,7 +41,7 @@ Lens, plan, get, put, put domain and identity envelope are defined at the head o
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `graph_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lib.rs`
@@ -96,7 +96,7 @@ Lens, plan, get, complement and identity envelope are defined at the head of thi
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `graph_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
@@ -150,7 +150,7 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `graph_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
@@ -259,7 +259,9 @@ Lens, put domain and report order are defined at the head of this page; the clau
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, stages=27, nodes=3, tree_states=2020`
+- Reference: `panproto_reference::lens::tree_get`
+- Reference: `panproto_reference::lens::tree_put`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
 - Exhaustive differential test: `tree_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/asymmetric.rs`
@@ -312,7 +314,7 @@ Complement is defined at the head of this page. Agreement on a shared key means 
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `lens_paths_agree_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_paths_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/asymmetric.rs`
@@ -365,7 +367,7 @@ Complement and synthesis key are defined at the head of this page and in [L-lens
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `graph_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lens_shape.rs`
@@ -466,7 +468,7 @@ The graph form and embedding are those of [L-lenses-5](#L-lenses-5); the square 
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, stages=27, nodes=3, tree_states=2020`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
 - Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
@@ -518,7 +520,7 @@ Lens, complement and identity envelope are defined at the head of this page; pro
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=28, nodes=3, edges=3, graph_states=116208, fan_states=9940`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `graph_lens_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_lens_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_symmetric.rs`
@@ -567,8 +569,8 @@ Complement, identity envelope and the preimage rule are defined at the head of t
 ### Executable counterpart
 
 - Law ID: `lenses.t3`
-- Reference: `panproto_reference::lens::tree_get`
-- Reference: `panproto_reference::lens::tree_put`
+- Reference: `panproto_reference::table::TableComplement`
+- Reference: `panproto_reference::table::get`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_table_fixture; bound: rows=2, columns=2, cell_values=7, lenses=7, cases=9921`
 - Exhaustive differential test: `table_get_and_put_agree_with_the_reference_on_the_fixture_scope; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_get_and_put_agree_with_the_reference_on_the_fixture_scope)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
@@ -576,7 +578,6 @@ Complement, identity envelope and the preimage rule are defined at the head of t
 - File: `crates/panproto-lens/src/table_lens.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-reference/src/pages/lenses/table.rs`
-- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
 ### Mutation equivalences
@@ -668,7 +669,7 @@ A lens path is the free-category word over atomic lens stages; the distinguished
 - Law ID: `lenses.path-left-identity`
 - Reference: `panproto_reference::path::get_path`
 - Reference: `panproto_reference::path::put_path`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=28, words=22764, composable_words=243, word_states=584109`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=31, words_by_length=31/961/29791, words=30783, composable_by_length=31/93/413, composable_words=537, stage_states=144397, word_states=618603`
 - Exhaustive differential test: `lens_paths_agree_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_paths_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
@@ -714,7 +715,7 @@ A lens path is the free-category word over atomic lens stages; the distinguished
 - Law ID: `lenses.path-right-identity`
 - Reference: `panproto_reference::path::get_path`
 - Reference: `panproto_reference::path::put_path`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=28, words=22764, composable_words=243, word_states=584109`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=31, words_by_length=31/961/29791, words=30783, composable_by_length=31/93/413, composable_words=537, stage_states=144397, word_states=618603`
 - Exhaustive differential test: `lens_paths_agree_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_paths_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
@@ -759,7 +760,7 @@ Lens path, the distinguished identity and composition are defined in [L-lenses-1
 
 - Law ID: `lenses.path-associativity`
 - Reference: `panproto_reference::path::LensPath::then`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=28, words=22764, composable_words=243, word_states=584109`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=31, words_by_length=31/961/29791, words=30783, composable_by_length=31/93/413, composable_words=537, stage_states=144397, word_states=618603`
 - Exhaustive differential test: `lens_path_category_laws_agree_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_path_category_laws_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
@@ -801,13 +802,14 @@ Lens path and composition are defined in [L-lenses-13](#L-lenses-13). The normal
 3. No stage synthesizes an object (no contraction or expansion), so puts restore from the residue alone, and the fused residue is the union of the two stage residues keyed by the same ids; restoring through $\ell$ equals restoring through $\ell_2$ then $\ell_1$, and a domain violation occurs in one exactly when it occurs in the other.
 4. A plan that refuses refuses every source; condition 7 excludes such stages, so no refusal is hidden by fusion.
 5. By induction on the number of fusions in the leftmost strategy, each fusion replaces an adjacent pair by a lens with the same behaviour (steps 1 to 4), so the normal form's fold equals the atomic fold.
+6. The bounded predicate census also checks every refusal branch. In particular, `DropF;ReadF` reaches condition 2: composing the migrations returns `ComposeUnboundField` because the second stage reads `f` after the first drops it, so normalization retains the two atomic stages. The separate `Op` stage exercises op-term execution rather than treating that route as another field transform.
 
 ### Executable counterpart
 
 - Law ID: `lenses.fusion-soundness`
 - Reference: `panproto_reference::path::get_path`
 - Reference: `panproto_reference::path::put_path`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=28, words=22764, composable_words=243, word_states=584109`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_stages; bound: stages=31, words_by_length=31/961/29791, words=30783, composable_by_length=31/93/413, composable_words=537, stage_states=144397, word_states=618603`
 - Exhaustive differential test: `lens_paths_agree_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_paths_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
@@ -852,7 +854,7 @@ The graph form, the embedding and the conversion of complements are those of [L-
 
 - Law ID: `lenses.fb-graph-square`
 - Reference: `panproto_reference::lens::graph_square`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, stages=27, nodes=3, tree_states=2020`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
 - Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
@@ -924,7 +926,7 @@ For a protolens and a schema $S$, schema instantiation first checks the protolen
 
 ### Outside the domain
 
-A schema that fails the precondition: refused before instantiation (`FalsePrecondition` in the reference, the inapplicability refusal in production). A plan that does not compile: the plan error.
+A schema that fails the precondition: refused before instantiation (`FalsePrecondition` in the reference, the stringly inapplicability refusal in production). The differential compares this inapplicability category, not exact error-variant parity. A plan that does not compile: the plan error.
 
 ### Definitions used
 
@@ -935,6 +937,7 @@ A protolens is a schema-indexed family of lenses given by a precondition and a c
 1. Instantiation evaluates the precondition on $S$ and returns the refusal when it does not hold, without reading the target or the migration (definition).
 2. Otherwise it computes the target schema from $S$, the migration between $S$ and the target, and binds the three as a lens whose source is $S$ (definition).
 3. Compiling the plan of that lens is the plan compilation of [L-lenses-3](#L-lenses-3) step 1, which either succeeds or refuses.
+4. The reference names a failed precondition with `FalsePrecondition`, while production currently carries the same category in `LensError::ProtolensError(String)`; thus the comparison establishes when instantiation is inapplicable but does not establish equality of those representations.
 
 ### Executable counterpart
 
@@ -969,7 +972,7 @@ For a protolens, a schema $S$ and an instance $s$ of $S$, instance application c
 
 ### Outside the domain
 
-A schema that fails the precondition: refused before instantiation. A plan that does not compile or a get that refuses: that refusal.
+A schema that fails the precondition: refused before instantiation, compared only as the inapplicability category described in [L-lenses-19](#L-lenses-19). A plan that does not compile or a get that refuses: that refusal.
 
 ### Definitions used
 

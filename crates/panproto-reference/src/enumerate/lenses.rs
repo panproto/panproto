@@ -1660,79 +1660,13 @@ pub const fn path_contract_law_count_certificate() -> PathContractLawCounts {
     }
 }
 
-/// Owner-selected alphabets still required for the full C11 claim.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum C11MissingOwnerAlphabet {
-    /// Graph/tree schema names and declaration constructors.
-    SchemaDeclarations,
-    /// Node values, presence states and field payloads.
-    ValuesAndFields,
-    /// Node shapes, metadata and edge positions.
-    ShapesMetadataAndPositions,
-    /// Tree fan signatures and fan occurrences.
-    TreeFans,
-    /// One-step graph/tree/table view edits and negative cases.
-    OneStepViewEdits,
-    /// Production atomic lens stages rather than the contract subcarrier.
-    ProductionAtomicStages,
-    /// Shape-specific graph/tree/table fusion contexts and candidates.
-    ShapeFusionContexts,
-}
+/// Every finite C11 alphabet now has a binding owner ruling.
+pub const C11_SCOPE_COMPLETE: bool = true;
 
-/// Explicit full-C11 owner gaps retained after closing the structural path
-/// contract subcarrier.
-pub const C11_MISSING_OWNER_ALPHABETS: [C11MissingOwnerAlphabet; 7] = [
-    C11MissingOwnerAlphabet::SchemaDeclarations,
-    C11MissingOwnerAlphabet::ValuesAndFields,
-    C11MissingOwnerAlphabet::ShapesMetadataAndPositions,
-    C11MissingOwnerAlphabet::TreeFans,
-    C11MissingOwnerAlphabet::OneStepViewEdits,
-    C11MissingOwnerAlphabet::ProductionAtomicStages,
-    C11MissingOwnerAlphabet::ShapeFusionContexts,
-];
-
-/// The remaining C11 graph/tree/path census is on hold until its owner fixes
-/// the schema/name, value, node-shape, edge-position, fan, one-step-edit,
-/// atomic-stage and fusion alphabets.
-///
-/// The partial-lens, table and GF5 carriers closed before the structural
-/// path-contract subcarrier do not choose those missing parameters by
-/// analogy with current production fixtures. The path-contract subcarrier
-/// fixes only abstract two-state arrows, not the production alphabets below.
-pub const C11_GRAPH_TREE_PATH_HOLD: &str = "HOLD: graph/tree schema and carrier alphabets, one-step edit alphabet, and LensPath atomic-stage/fusion alphabet require owner parameters";
-
-/// A missing finite alphabet needed before the full C11 census is defined.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum C11MissingDimension {
-    /// Graph/tree schema names, values, node shapes, positions and fan data.
-    GraphAndTreeCarrierAlphabet,
-    /// The finite set of one-step view edits.
-    OneStepViewEditAlphabet,
-    /// Production atomic and fusible stages from which paths arise.
-    LensPathStageAndFusionAlphabet,
-}
-
-/// Structured completion status for the full C11 finite census.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C11ScopeStatus {
-    /// False until every finite alphabet named by C11 has an owner ruling.
-    pub scope_complete: bool,
-    /// Closed subcarriers supplied by this reference page.
-    pub closed_subcarriers: usize,
-    /// Dimensions that still lack a binding finite alphabet.
-    pub missing_dimensions: &'static [C11MissingDimension],
-}
-
-/// The closed partial-lens, table and GF5 carriers do not complete C11.
-pub const C11_SCOPE_STATUS: C11ScopeStatus = C11ScopeStatus {
-    scope_complete: false,
-    closed_subcarriers: 3,
-    missing_dimensions: &[
-        C11MissingDimension::GraphAndTreeCarrierAlphabet,
-        C11MissingDimension::OneStepViewEditAlphabet,
-        C11MissingDimension::LensPathStageAndFusionAlphabet,
-    ],
-};
+/// Dynamic execution remains on hold until the amended reference and
+/// production tests build and reproduce the independent count certificate.
+pub const C11_DYNAMIC_VERIFICATION_HOLD: &str =
+    "HOLD: build the amended C11 census and reproduce its independent counts before execution";
 
 /// Vertex names of the C11 schema alphabet.
 pub const C11_VERTICES: [&str; 2] = ["a", "b"];
@@ -2247,6 +2181,12 @@ pub enum C11Layer {
     SurvivalFalse,
     /// The transform adding field [`C11_FIELD`] with [`C11_VALUE`] on `a`.
     AddField,
+    /// The transform dropping field [`C11_FIELD`] on `a`.
+    DropField,
+    /// The invertible transform reading [`C11_FIELD`] on `a`.
+    ReadField,
+    /// The op-term assignment computing [`C11_FIELD`] on `a`.
+    OpTerm,
 }
 
 /// One atomic stage of the C11 stage alphabet.
@@ -2288,9 +2228,10 @@ fn stage(
     }
 }
 
-/// The 28 atomic stages of the C11 stage alphabet: the identity on every
+/// The 31 atomic stages of the C11 stage alphabet: the identity on every
 /// schema of [`sigma2_schemas`] (16) and on [`c11_fan_schema`], then `P`,
-/// `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`, `Ext` and `B`.
+/// `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`, `DropF`, `ReadF`, `Op`, `Ext`
+/// and `B`.
 #[must_use]
 pub fn c11_stages() -> Vec<C11Stage> {
     let mut out: Vec<C11Stage> = sigma2_schemas()
@@ -2336,7 +2277,34 @@ pub fn c11_stages() -> Vec<C11Stage> {
     ));
     let mut transform = identity_migration(&a);
     transform.transformed.insert("a".to_owned());
-    out.push(stage("T", a.clone(), a, transform, C11Layer::AddField));
+    out.push(stage(
+        "T",
+        a.clone(),
+        a.clone(),
+        transform,
+        C11Layer::AddField,
+    ));
+    let mut drop_field = identity_migration(&a);
+    drop_field.transformed.insert("a".to_owned());
+    out.push(stage(
+        "DropF",
+        a.clone(),
+        a.clone(),
+        drop_field,
+        C11Layer::DropField,
+    ));
+    let mut read_field = identity_migration(&a);
+    read_field.transformed.insert("a".to_owned());
+    out.push(stage(
+        "ReadF",
+        a.clone(),
+        a.clone(),
+        read_field,
+        C11Layer::ReadField,
+    ));
+    let mut op_term = identity_migration(&a);
+    op_term.transformed.insert("a".to_owned());
+    out.push(stage("Op", a.clone(), a, op_term, C11Layer::OpTerm));
     out.push(stage(
         "Ext",
         bare.clone(),
@@ -2535,6 +2503,254 @@ impl crate::restrict::ValueLayer for C11AddField {
                 .cloned()
                 .unwrap_or_else(|| view.value.clone()),
         ))
+    }
+}
+
+/// The dropping value layer of stage `DropF`: get removes [`C11_FIELD`]
+/// and put restores a captured source row. With no captured row, put keeps
+/// the view, as the production graph lens does for an externally supplied
+/// complement.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct C11DropField;
+
+impl crate::restrict::ValueLayer for C11DropField {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/c11-drop-field",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        fields.remove(C11_FIELD);
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        Ok((
+            original_fields
+                .cloned()
+                .unwrap_or_else(|| view.fields.clone()),
+            original_value
+                .cloned()
+                .unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+/// The invertible field-read layer of stage `ReadF`. Its forward and inverse
+/// maps are both the identity on [`C11_FIELD`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct C11ReadField;
+
+impl crate::restrict::ValueLayer for C11ReadField {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/c11-read-field",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        Ok((node.fields.clone(), node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        _: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        Ok((
+            view.fields.clone(),
+            original_value
+                .cloned()
+                .unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+/// The op-term layer of stage `Op`: get computes [`C11_FIELD`] as
+/// [`C11_VALUE`], and put restores the captured source row. This separate
+/// implementation keeps the op-term execution path distinct from `T` even
+/// though the two stages agree on the bounded carrier's forward value.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct C11OpTerm;
+
+impl crate::restrict::ValueLayer for C11OpTerm {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/c11-op-term",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        original_value: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        Ok((
+            original_fields
+                .cloned()
+                .unwrap_or_else(|| view.fields.clone()),
+            original_value
+                .cloned()
+                .unwrap_or_else(|| view.value.clone()),
+        ))
+    }
+}
+
+/// Independent cardinalities of the C11 stage and path carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct C11PathCounts {
+    /// Atomic stages.
+    pub stages: usize,
+    /// All words of lengths one, two and three.
+    pub words_by_length: [usize; 3],
+    /// Boundary-matched words of lengths one, two and three.
+    pub composable_by_length: [usize; 3],
+    /// `(stage, graph state)` pairs.
+    pub single_stage_states: usize,
+    /// `(word, graph state)` pairs for boundary-matched words, by length.
+    pub word_states_by_length: [usize; 3],
+    /// Non-fan atomic stages.
+    pub tree_stages: usize,
+    /// `(stage, tree state)` pairs.
+    pub stage_tree_states: usize,
+}
+
+impl C11PathCounts {
+    /// Total number of words.
+    #[must_use]
+    pub const fn words(self) -> usize {
+        self.words_by_length[0] + self.words_by_length[1] + self.words_by_length[2]
+    }
+
+    /// Total number of boundary-matched words.
+    #[must_use]
+    pub const fn composable(self) -> usize {
+        self.composable_by_length[0] + self.composable_by_length[1] + self.composable_by_length[2]
+    }
+
+    /// Total number of boundary-matched `(word, graph state)` pairs.
+    #[must_use]
+    pub const fn word_states(self) -> usize {
+        self.word_states_by_length[0]
+            + self.word_states_by_length[1]
+            + self.word_states_by_length[2]
+    }
+}
+
+/// Compute the C11 path counts from endpoint products and the independent
+/// graph/tree state formulae. This does not enumerate words.
+#[must_use]
+pub fn c11_path_count_certificate() -> C11PathCounts {
+    let stages = c11_stages();
+    let count = stages.len();
+    let mut paths = vec![1_usize; count];
+    let state_weights: Vec<usize> = stages
+        .iter()
+        .map(|stage| {
+            if stage.source == c11_fan_schema() {
+                c11_fan_state_count()
+            } else {
+                c11_graph_state_count(&stage.source)
+            }
+        })
+        .collect();
+    let mut weighted = state_weights.clone();
+    let mut composable_by_length = [count, 0, 0];
+    let mut word_states_by_length = [state_weights.iter().sum(), 0, 0];
+    for length in 1..3 {
+        let mut next_paths = vec![0_usize; count];
+        let mut next_weighted = vec![0_usize; count];
+        for (earlier, left) in stages.iter().enumerate() {
+            for (later, right) in stages.iter().enumerate() {
+                if left.target == right.source {
+                    next_paths[later] += paths[earlier];
+                    next_weighted[later] += weighted[earlier];
+                }
+            }
+        }
+        composable_by_length[length] = next_paths.iter().sum();
+        word_states_by_length[length] = next_weighted.iter().sum();
+        paths = next_paths;
+        weighted = next_weighted;
+    }
+    let tree_stages: Vec<&C11Stage> = stages
+        .iter()
+        .filter(|stage| stage.source != c11_fan_schema())
+        .collect();
+    C11PathCounts {
+        stages: count,
+        words_by_length: [count, count * count, count * count * count],
+        composable_by_length,
+        single_stage_states: state_weights.iter().sum(),
+        word_states_by_length,
+        tree_stages: tree_stages.len(),
+        stage_tree_states: tree_stages
+            .iter()
+            .map(|stage| c11_tree_state_count(&stage.source))
+            .sum(),
     }
 }
 
@@ -2917,8 +3133,8 @@ pub fn c11_graph_edit_count(
 #[cfg(test)]
 mod tests {
     use super::{
-        PartialLens, partial_lens_count_certificate, partial_lens_histogram,
-        writer_count_certificate,
+        PartialLens, c11_path_count_certificate, c11_stages, partial_lens_count_certificate,
+        partial_lens_histogram, writer_count_certificate,
     };
 
     /// `GetPut` and `WeakPutGet` do not imply `PutTwice`: put `(1, 2)` gives
@@ -2954,5 +3170,29 @@ mod tests {
     #[test]
     fn the_writer_carrier_has_its_certified_counts() {
         assert_eq!(writer_count_certificate(), (9, 81, 180));
+    }
+
+    #[test]
+    fn the_amended_c11_stage_and_path_census_is_exact() {
+        let stages = c11_stages();
+        let names: Vec<&str> = stages.iter().map(|stage| stage.name.as_str()).collect();
+        assert_eq!(stages.len(), 31);
+        assert_eq!(names.iter().filter(|name| **name == "DropF").count(), 1);
+        assert_eq!(names.iter().filter(|name| **name == "ReadF").count(), 1);
+        assert_eq!(names.iter().filter(|name| **name == "Op").count(), 1);
+        let certificate = c11_path_count_certificate();
+        assert_eq!(certificate.stages, 31);
+        assert_eq!(certificate.words_by_length, [31, 961, 29_791]);
+        assert_eq!(certificate.words(), 30_783);
+        assert_eq!(certificate.composable_by_length, [31, 93, 413]);
+        assert_eq!(certificate.composable(), 537);
+        assert_eq!(certificate.single_stage_states, 144_397);
+        assert_eq!(
+            certificate.word_states_by_length,
+            [144_397, 182_833, 291_373]
+        );
+        assert_eq!(certificate.word_states(), 618_603);
+        assert_eq!(certificate.tree_stages, 29);
+        assert_eq!(certificate.stage_tree_states, 2_548);
     }
 }
