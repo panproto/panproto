@@ -68,3 +68,4 @@ The table lists each page of this part with the commit at which its blocks were 
 
 | Page | Laws | Audited commit |
 |---|---|---|
+| [Values](./values.md) | 42 | pending |
