@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::colimit::colimit_by_name;
 use crate::compose::{
     ClashPolicy, ComposeOptions, CompositionMode, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode,
     TheoryDiagram, compose,
@@ -154,17 +153,19 @@ pub enum RecipeOpImage {
 /// Each step looks up a base theory, computes a colimit, or composes a
 /// diagram. Intermediate results are stored under generated names
 /// (`step_0`, `step_1`, ...). The final step's result is renamed to
-/// `spec.result_name`. A [`CompositionStep::Colimit`] uses
-/// [`colimit_by_name`] unless its mode is
-/// [`CompositionMode::ExplicitIdentity`], in which case it composes the
-/// same by-name span in that mode, rejecting name clashes.
+/// `spec.result_name`. A [`CompositionStep::Colimit`] composes the
+/// by-name span `left <- {step}_interface -> right` in the step's mode,
+/// rejecting name clashes, with each side labeled by the name the step
+/// gives it and the interface holding the shared sorts and operations as
+/// `left` declares them.
 ///
 /// # Errors
 ///
 /// Returns [`GatError::TheoryNotFound`] if a referenced theory is
 /// missing from the inline theories, the registry and intermediate
-/// results. Propagates any [`GatError`] from [`colimit_by_name`], and a
-/// refused composition as [`GatError::Composition`].
+/// results; [`GatError::FactorizationError`] for a shared sort or
+/// operation one side lacks, the shared sorts checked before the shared
+/// operations; and a refused composition as [`GatError::Composition`].
 pub fn recompose<S: ::std::hash::BuildHasher>(
     spec: &CompositionSpec,
     registry: &HashMap<String, Theory, S>,
@@ -252,50 +253,48 @@ fn replay_colimit(
         .get(right)
         .ok_or_else(|| GatError::TheoryNotFound(right.clone()))?;
 
-    // Build the shared sub-theory from named sorts and operations.
-    // Operations must exist in both theories to form a valid span.
+    // Build the shared sub-theory from named sorts and operations, each as
+    // the left side declares it; each must exist in both theories.
+    let missing = |kind: &str, name: &str, side: &str, theory: &str| {
+        GatError::FactorizationError(format!(
+            "shared {kind} '{name}' not found in {side} theory '{theory}'"
+        ))
+    };
+    let mut shared_sort_defs: Vec<Sort> = Vec::with_capacity(shared_sorts.len());
+    for sort_name in shared_sorts {
+        let left_sort = left_theory
+            .find_sort(sort_name)
+            .ok_or_else(|| missing("sort", sort_name, "left", left))?;
+        if !right_theory.has_sort(sort_name) {
+            return Err(missing("sort", sort_name, "right", right));
+        }
+        shared_sort_defs.push(left_sort.clone());
+    }
     let mut shared_op_defs: Vec<Operation> = Vec::with_capacity(shared_ops.len());
     for op_name in shared_ops {
-        let left_op = left_theory.find_op(op_name).ok_or_else(|| {
-            GatError::FactorizationError(format!(
-                "shared operation '{op_name}' not found in left theory '{left}'"
-            ))
-        })?;
+        let left_op = left_theory
+            .find_op(op_name)
+            .ok_or_else(|| missing("operation", op_name, "left", left))?;
         if !right_theory.has_op(op_name) {
-            return Err(GatError::FactorizationError(format!(
-                "shared operation '{op_name}' not found in right theory '{right}'"
-            )));
+            return Err(missing("operation", op_name, "right", right));
         }
         shared_op_defs.push(left_op.clone());
     }
 
-    let shared = Theory::new(
-        step_name,
-        shared_sorts
-            .iter()
-            .map(|s| Sort::simple(s.as_str()))
-            .collect(),
-        shared_op_defs,
-        vec![],
-    );
+    let shared = Theory::new(step_name, shared_sort_defs, shared_op_defs, vec![]);
 
-    match mode {
-        CompositionMode::Amalgamate => colimit_by_name(left_theory, right_theory, &shared),
-        CompositionMode::ExplicitIdentity => {
-            let diagram = TheoryDiagram::by_name(
-                ("apex", shared),
-                ("left", left_theory.clone()),
-                ("right", right_theory.clone()),
-            )?;
-            let opts = ComposeOptions {
-                mode,
-                result_name: Arc::from(step_name),
-                clash: ClashPolicy::Reject,
-                rewrite_budget: DEFAULT_VERIFY_BUDGET,
-            };
-            Ok(compose(&diagram, &opts)?.theory)
-        }
-    }
+    let diagram = TheoryDiagram::by_name(
+        (format!("{step_name}_interface"), shared),
+        (left.as_str(), left_theory.clone()),
+        (right.as_str(), right_theory.clone()),
+    )?;
+    let opts = ComposeOptions {
+        mode,
+        result_name: Arc::from(step_name),
+        clash: ClashPolicy::Reject,
+        rewrite_budget: DEFAULT_VERIFY_BUDGET,
+    };
+    Ok(compose(&diagram, &opts)?.theory)
 }
 
 /// Rebuild the diagram of a [`CompositionStep::Diagram`].
@@ -364,6 +363,7 @@ fn replay_diagram(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::colimit::colimit_by_name;
     use crate::op::Operation;
     use crate::sort::{Sort, SortParam};
 

@@ -1401,10 +1401,11 @@ pub(crate) fn compose_with_naming(
     )?;
     let order = canonical_edge_order(diagram);
     let added = added_equations(diagram, &order, &nodes, symbols.op_map());
+    check_transports(diagram, &nodes, &symbols, &added, &opts.result_name)?;
     let elements = Elements::collect(&nodes, &symbols, &added, opts, naming, &mut freshened)?;
     let (theory, provenance) = assemble(&opts.result_name, &nodes, &symbols, &elements, &added);
 
-    gate_result(&theory, &symbols.free_names, &elements, &added)?;
+    gate_result(&theory, &symbols.free_names)?;
     records.push(record(
         CompositionCheckKind::ResultWellTyped,
         CheckSubject::Diagram,
@@ -1639,18 +1640,11 @@ impl Elements {
             .map(|a| (Arc::clone(&a.equation.name), a.source.op.clone()))
             .collect();
         let none = BTreeMap::new();
-        let eqs = group_equations(nodes, symbols.op_map(), false);
-        let directed = group_equations(nodes, symbols.op_map(), true);
-        let policies = group_policies(nodes);
-        let eq_names = name_content_groups(
-            SymKind::Eq,
-            &eqs.members,
-            &reserved,
-            opts,
-            naming,
-            freshened,
-        )?;
-        let directed_names = name_content_groups(
+        let eqs = group_equations(nodes, symbols.op_map(), false, opts.mode)?;
+        let directed = group_equations(nodes, symbols.op_map(), true, opts.mode)?;
+        let policies = group_policies(nodes, opts.mode)?;
+        let eq_names = name_classes(SymKind::Eq, &eqs.members, &reserved, opts, naming, freshened)?;
+        let directed_names = name_classes(
             SymKind::DirectedEq,
             &directed.members,
             &none,
@@ -1658,7 +1652,7 @@ impl Elements {
             naming,
             freshened,
         )?;
-        let policy_names = name_content_groups(
+        let policy_names = name_classes(
             SymKind::Policy,
             &policies.members,
             &none,
@@ -2030,40 +2024,50 @@ fn check_sort_classes(
     edge_uf: &mut UnionFind<Key>,
 ) -> Result<(), CompositionError> {
     for members in classes {
-        let entries: Vec<(&SymRef, Option<&Sort>)> = members
+        let declared: Vec<(&SymRef, &Sort)> = members
             .iter()
-            .map(|m| (m, nodes[&m.node].theory.find_sort(&m.name)))
+            .filter_map(|m| nodes[&m.node].theory.find_sort(&m.name).map(|d| (m, d)))
             .collect();
-        for (i, (a, a_decl)) in entries.iter().enumerate() {
-            for (b, b_decl) in &entries[i + 1..] {
-                let mismatch = match (a_decl, b_decl) {
-                    (Some(a_decl), Some(b_decl)) => sort_class_mismatch(
-                        &translate_sort(a_decl, tokens.sorts_of(&a.node), tokens.ops_of(&a.node)),
-                        &translate_sort(b_decl, tokens.sorts_of(&b.node), tokens.ops_of(&b.node)),
-                        a_decl,
-                        b_decl,
-                    ),
-                    // A sort a node uses without declaring has arity 0 and
-                    // carries nothing else to compare.
-                    (Some(decl), None) | (None, Some(decl)) if decl.arity() != 0 => {
-                        let (first, second) = if a_decl.is_some() {
-                            (decl.arity(), 0)
-                        } else {
-                            (0, decl.arity())
-                        };
-                        Some(SortMismatch::Arity { first, second })
-                    }
-                    _ => None,
-                };
-                if let Some(detail) = mismatch {
-                    return Err(name_rule_conflict(SymKind::Sort, a, b, opts, edge_uf)
-                        .unwrap_or_else(|| CompositionError::SortSignatureMismatch {
-                            first: (*a).clone(),
-                            second: (*b).clone(),
-                            detail,
-                        }));
-                }
-            }
+        let Some(&(first, first_decl)) = declared.first() else {
+            continue;
+        };
+        let translated = |m: &SymRef, decl: &Sort| {
+            translate_sort(decl, tokens.sorts_of(&m.node), tokens.ops_of(&m.node))
+        };
+        let first_translated = translated(first, first_decl);
+        let mismatch = declared[1..]
+            .iter()
+            .find_map(|&(m, decl)| {
+                sort_class_mismatch(&first_translated, &translated(m, decl), first_decl, decl)
+                    .map(|detail| (m, detail))
+            })
+            .or_else(|| {
+                // A sort a node uses without declaring has arity 0 and
+                // carries nothing else to compare.
+                (first_decl.arity() != 0)
+                    .then(|| {
+                        members
+                            .iter()
+                            .find(|m| !nodes[&m.node].theory.has_sort(&m.name))
+                    })
+                    .flatten()
+                    .map(|m| {
+                        (
+                            m,
+                            SortMismatch::Arity {
+                                first: first_decl.arity(),
+                                second: 0,
+                            },
+                        )
+                    })
+            });
+        if let Some((second, detail)) = mismatch {
+            return Err(name_rule_conflict(SymKind::Sort, first, second, opts, edge_uf)
+                .unwrap_or_else(|| CompositionError::SortSignatureMismatch {
+                    first: first.clone(),
+                    second: second.clone(),
+                    detail,
+                }));
         }
     }
     Ok(())
@@ -2088,34 +2092,34 @@ fn check_op_classes(
                 ))
             })
             .collect();
-        for (i, (a, a_op)) in translated.iter().enumerate() {
-            for (b, b_op) in &translated[i + 1..] {
-                if let Some(mismatch) = op_class_mismatch(a_op, b_op) {
-                    let typed = match mismatch {
-                        OpMismatch::NeedsSortEquation => {
-                            CompositionError::QuotientNotRepresentable {
-                                first: (*a).clone(),
-                                second: (*b).clone(),
-                                reason: NotRepresentableReason::NeedsSortEquation,
-                            }
-                        }
-                        OpMismatch::Signature => CompositionError::OpSignatureMismatch {
-                            first: (*a).clone(),
-                            second: (*b).clone(),
-                        },
-                    };
-                    return Err(
-                        name_rule_conflict(SymKind::Op, a, b, opts, edge_uf).unwrap_or(typed)
-                    );
-                }
-            }
+        let Some((first, first_op)) = translated.first() else {
+            continue;
+        };
+        let mismatch = translated[1..]
+            .iter()
+            .find_map(|(m, op)| op_class_mismatch(first_op, op).map(|mismatch| (*m, mismatch)));
+        if let Some((second, mismatch)) = mismatch {
+            let typed = match mismatch {
+                OpMismatch::NeedsSortEquation => CompositionError::QuotientNotRepresentable {
+                    first: (*first).clone(),
+                    second: second.clone(),
+                    reason: NotRepresentableReason::NeedsSortEquation,
+                },
+                OpMismatch::Signature => CompositionError::OpSignatureMismatch {
+                    first: (*first).clone(),
+                    second: second.clone(),
+                },
+            };
+            return Err(name_rule_conflict(SymKind::Op, first, second, opts, edge_uf).unwrap_or(typed));
         }
     }
     Ok(())
 }
 
-/// In [`CompositionMode::Amalgamate`], a mismatch between two same-name
-/// members that only the name rule relates is a [`CompositionError::NameConflict`].
+/// In [`CompositionMode::Amalgamate`], a mismatch between two members that
+/// the edges alone do not relate (only the name rule joined them into one
+/// class) is a [`CompositionError::NameConflict`], named by the first
+/// member's name.
 fn name_rule_conflict(
     kind: SymKind,
     a: &SymRef,
@@ -2124,7 +2128,6 @@ fn name_rule_conflict(
     edge_uf: &mut UnionFind<Key>,
 ) -> Option<CompositionError> {
     (opts.mode == CompositionMode::Amalgamate
-        && a.name == b.name
         && !edge_uf.same(&(kind, a.clone()), &(kind, b.clone())))
     .then(|| CompositionError::NameConflict {
         kind,
@@ -2259,42 +2262,6 @@ fn name_classes(
         }
     }
     Ok(names)
-}
-
-/// Name groups of equations, directed equations or policies. In
-/// [`CompositionMode::Amalgamate`], a name carried by members of two
-/// different groups is a [`CompositionError::NameConflict`] first.
-fn name_content_groups(
-    kind: SymKind,
-    groups: &[Vec<SymRef>],
-    reserved: &BTreeMap<Arc<str>, SymRef>,
-    opts: &ComposeOptions,
-    naming: Naming<'_>,
-    freshened: &mut Vec<Freshening>,
-) -> Result<Vec<Arc<str>>, CompositionError> {
-    if opts.mode == CompositionMode::Amalgamate {
-        let mut owner: BTreeMap<&Arc<str>, (usize, &SymRef)> = BTreeMap::new();
-        for (g, members) in groups.iter().enumerate() {
-            for m in members {
-                match owner.get(&m.name) {
-                    Some(&(h, first)) if h != g => {
-                        let (first, second) = if first <= m { (first, m) } else { (m, first) };
-                        return Err(CompositionError::NameConflict {
-                            kind,
-                            name: Arc::clone(&m.name),
-                            first: first.clone(),
-                            second: second.clone(),
-                        });
-                    }
-                    Some(_) => {}
-                    None => {
-                        owner.insert(&m.name, (g, m));
-                    }
-                }
-            }
-        }
-    }
-    name_classes(kind, groups, reserved, opts, naming, freshened)
 }
 
 // ─── edges, equations and the result ───────────────────────────────
@@ -2514,25 +2481,66 @@ struct EqGroups {
     directed_reps: Vec<DirectedEquation>,
 }
 
+/// Group `items` (taken in ascending source order) by content: under
+/// [`CompositionMode::ExplicitIdentity`] an item joins the group of equal
+/// content; under [`CompositionMode::Amalgamate`] it joins the group of
+/// equal content that holds its name, and an item whose name a group of
+/// other content holds is a [`CompositionError::NameConflict`] between
+/// that group's least member and the item. Returns each group's members
+/// (ascending) and its least member's item.
+fn classify_by_content<T>(
+    kind: SymKind,
+    mut items: Vec<(SymRef, T)>,
+    same_content: impl Fn(&T, &T) -> bool,
+    mode: CompositionMode,
+) -> Result<(Vec<Vec<SymRef>>, Vec<T>), CompositionError> {
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut members: Vec<Vec<SymRef>> = Vec::new();
+    let mut reps: Vec<T> = Vec::new();
+    for (source, item) in items {
+        let holds_name = |group: &[SymRef]| group.iter().any(|m| m.name == source.name);
+        let found = (0..reps.len()).find(|&g| {
+            same_content(&reps[g], &item)
+                && (mode == CompositionMode::ExplicitIdentity || holds_name(&members[g]))
+        });
+        if let Some(g) = found {
+            members[g].push(source);
+            continue;
+        }
+        if mode == CompositionMode::Amalgamate
+            && let Some(g) = members.iter().position(|group| holds_name(group))
+        {
+            return Err(CompositionError::NameConflict {
+                kind,
+                name: Arc::clone(&source.name),
+                first: members[g][0].clone(),
+                second: source,
+            });
+        }
+        members.push(vec![source]);
+        reps.push(item);
+    }
+    Ok((members, reps))
+}
+
 /// Group every node's equations (or, with `directed`, directed equations)
-/// by translated content: alpha-equivalence, in either orientation for
-/// undirected equations and in the stated orientation for directed ones.
+/// by translated content: alpha-equivalence of the two sides in their
+/// stated orientation and, for directed equations, equal implementation,
+/// inverse, value kinds and classification. See [`classify_by_content`].
 fn group_equations(
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     op_map: &BTreeMap<Arc<str>, HashMap<Arc<str>, Arc<str>>>,
     directed: bool,
-) -> EqGroups {
-    let mut items: Vec<(SymRef, Term, Term, Option<DirectedEquation>)> = Vec::new();
+    mode: CompositionMode,
+) -> Result<EqGroups, CompositionError> {
+    let mut items: Vec<(SymRef, DirectedEquation)> = Vec::new();
     for (label, info) in nodes {
         let ops = node_map(op_map, label);
         if directed {
             for de in &info.theory.directed_eqs {
-                let renamed = de.rename_ops(ops);
                 items.push((
                     SymRef::new(Arc::clone(label), Arc::clone(&de.name)),
-                    renamed.lhs.clone(),
-                    renamed.rhs.clone(),
-                    Some(renamed),
+                    de.rename_ops(ops),
                 ));
             }
         } else {
@@ -2540,42 +2548,49 @@ fn group_equations(
                 let renamed = eq.rename_ops(ops);
                 items.push((
                     SymRef::new(Arc::clone(label), Arc::clone(&eq.name)),
-                    renamed.lhs,
-                    renamed.rhs,
-                    None,
+                    DirectedEquation {
+                        name: renamed.name,
+                        lhs: renamed.lhs,
+                        rhs: renamed.rhs,
+                        impl_term: panproto_expr::Expr::Var(Arc::from("")),
+                        inverse: None,
+                        source_kind: None,
+                        target_kind: None,
+                        coercion_class: crate::sort::CoercionClass::default(),
+                    },
                 ));
             }
         }
     }
-    items.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut groups = EqGroups {
-        members: Vec::new(),
-        reps: Vec::new(),
-        directed_reps: Vec::new(),
+    let kind = if directed { SymKind::DirectedEq } else { SymKind::Eq };
+    let same = |a: &DirectedEquation, b: &DirectedEquation| {
+        alpha_equivalent_equation(&a.lhs, &a.rhs, &b.lhs, &b.rhs)
+            && a.impl_term == b.impl_term
+            && a.inverse == b.inverse
+            && a.source_kind == b.source_kind
+            && a.target_kind == b.target_kind
+            && a.coercion_class == b.coercion_class
     };
-    let mut rep_terms: Vec<(Term, Term)> = Vec::new();
-    for (source, lhs, rhs, de) in items {
-        let found = rep_terms.iter().position(|(l, r)| {
-            alpha_equivalent_equation(l, r, &lhs, &rhs)
-                || (!directed && alpha_equivalent_equation(l, r, &rhs, &lhs))
-        });
-        if let Some(g) = found {
-            groups.members[g].push(source);
-        } else {
-            groups.members.push(vec![source.clone()]);
-            if let Some(de) = de {
-                groups.directed_reps.push(de);
-            } else {
-                groups.reps.push(Equation {
-                    name: Arc::clone(&source.name),
-                    lhs: lhs.clone(),
-                    rhs: rhs.clone(),
-                });
-            }
-            rep_terms.push((lhs, rhs));
-        }
-    }
-    groups
+    let (members, reps) = classify_by_content(kind, items, same, mode)?;
+    let (reps, directed_reps) = if directed {
+        (Vec::new(), reps)
+    } else {
+        (
+            reps.into_iter()
+                .map(|de| Equation {
+                    name: de.name,
+                    lhs: de.lhs,
+                    rhs: de.rhs,
+                })
+                .collect(),
+            Vec::new(),
+        )
+    };
+    Ok(EqGroups {
+        members,
+        reps,
+        directed_reps,
+    })
 }
 
 /// Conflict policies grouped by content (value kind and strategy).
@@ -2586,47 +2601,88 @@ struct PolicyGroups {
     reps: Vec<ConflictPolicy>,
 }
 
-/// Group every node's policies by content. A policy mentions no sort or
-/// operation, so its translation is the identity.
-fn group_policies(nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>) -> PolicyGroups {
-    let mut items: Vec<(SymRef, &ConflictPolicy)> = nodes
+/// Group every node's policies by content (value kind and strategy), as
+/// [`classify_by_content`] does. A policy mentions no sort or operation, so
+/// its translation is the identity.
+fn group_policies(
+    nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
+    mode: CompositionMode,
+) -> Result<PolicyGroups, CompositionError> {
+    let items: Vec<(SymRef, ConflictPolicy)> = nodes
         .iter()
         .flat_map(|(label, info)| {
             info.theory
                 .policies
                 .iter()
-                .map(move |p| (SymRef::new(Arc::clone(label), Arc::clone(&p.name)), p))
+                .map(move |p| (SymRef::new(Arc::clone(label), Arc::clone(&p.name)), p.clone()))
         })
         .collect();
-    items.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut groups = PolicyGroups {
-        members: Vec::new(),
-        reps: Vec::new(),
+    let same = |a: &ConflictPolicy, b: &ConflictPolicy| {
+        a.value_kind == b.value_kind && a.strategy == b.strategy
     };
-    for (source, policy) in items {
-        let found = groups
-            .reps
-            .iter()
-            .position(|r| r.value_kind == policy.value_kind && r.strategy == policy.strategy);
-        if let Some(g) = found {
-            groups.members[g].push(source);
-        } else {
-            groups.members.push(vec![source]);
-            groups.reps.push(policy.clone());
-        }
-    }
-    groups
+    let (members, reps) = classify_by_content(SymKind::Policy, items, same, mode)?;
+    Ok(PolicyGroups { members, reps })
 }
 
-/// Step 7: the result's signature (ignoring free names), every translated
-/// equation, and the remaining checks of [`crate::typecheck_theory`].
-fn gate_result(
-    theory: &Theory,
-    free_names: &BTreeSet<Arc<str>>,
-    elements: &Elements,
+/// Step 6, before equations are grouped: every node equation translated
+/// into result names (nodes in diagram order, equations in declaration
+/// order), then every added equation (in canonical edge order, operations
+/// ascending), then every node's directed equations read as the equation
+/// between their two sides, each typechecked against the result's sorts
+/// and operations.
+///
+/// # Errors
+///
+/// [`CompositionError::IllTypedTransport`] for the first that does not
+/// typecheck, naming the source equation, or for an added equation the
+/// operation it identifies.
+fn check_transports(
+    diagram: &TheoryDiagram,
+    nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
+    symbols: &Symbols,
     added: &[Added],
+    result_name: &Arc<str>,
 ) -> Result<(), CompositionError> {
-    let (eq_groups, eq_names) = (&elements.eqs, &elements.eq_names);
+    let signature = Theory::new(
+        Arc::clone(result_name),
+        sorted_by_name(build_sorts(symbols, nodes), |s| &s.name),
+        sorted_by_name(build_ops(symbols, nodes), |o| &o.name),
+        Vec::new(),
+    );
+    let refuse = |source: SymRef, err: GatError| CompositionError::IllTypedTransport {
+        source,
+        detail: err.to_string(),
+    };
+    for node in &diagram.nodes {
+        let ops = node_map(symbols.op_map(), &node.label);
+        for eq in &nodes[&node.label].theory.eqs {
+            typecheck_equation(&eq.rename_ops(ops), &signature)
+                .map_err(|err| refuse(SymRef::new(Arc::clone(&node.label), Arc::clone(&eq.name)), err))?;
+        }
+    }
+    for a in added {
+        typecheck_equation(&a.equation, &signature).map_err(|err| refuse(a.source.op.clone(), err))?;
+    }
+    for node in &diagram.nodes {
+        let ops = node_map(symbols.op_map(), &node.label);
+        for de in &nodes[&node.label].theory.directed_eqs {
+            let renamed = de.rename_ops(ops);
+            let eq = Equation {
+                name: Arc::clone(&renamed.name),
+                lhs: renamed.lhs,
+                rhs: renamed.rhs,
+            };
+            typecheck_equation(&eq, &signature)
+                .map_err(|err| refuse(SymRef::new(Arc::clone(&node.label), Arc::clone(&de.name)), err))?;
+        }
+    }
+    Ok(())
+}
+
+/// Step 7: the result's signature (ignoring free names) and the remaining
+/// checks of [`crate::typecheck_theory`] beyond the equations, which
+/// [`check_transports`] typechecked.
+fn gate_result(theory: &Theory, free_names: &BTreeSet<Arc<str>>) -> Result<(), CompositionError> {
     if let Err(defects) = typecheck_signature(theory) {
         let remaining: Vec<SignatureDefect> = defects
             .into_iter()
@@ -2634,48 +2690,6 @@ fn gate_result(
             .collect();
         if !remaining.is_empty() {
             return Err(CompositionError::IllTypedResult { defects: remaining });
-        }
-    }
-    for ((members, rep), name) in eq_groups.members.iter().zip(&eq_groups.reps).zip(eq_names) {
-        let eq = Equation {
-            name: Arc::clone(name),
-            lhs: rep.lhs.clone(),
-            rhs: rep.rhs.clone(),
-        };
-        if let Err(err) = typecheck_equation(&eq, theory) {
-            return Err(CompositionError::IllTypedTransport {
-                source: members[0].clone(),
-                detail: err.to_string(),
-            });
-        }
-    }
-    // A directed equation is well typed when the equation between its two
-    // sides is: both sides sort in the same context.
-    let directed = &elements.directed;
-    for ((members, rep), name) in directed
-        .members
-        .iter()
-        .zip(&directed.directed_reps)
-        .zip(&elements.directed_names)
-    {
-        let eq = Equation {
-            name: Arc::clone(name),
-            lhs: rep.lhs.clone(),
-            rhs: rep.rhs.clone(),
-        };
-        if let Err(err) = typecheck_equation(&eq, theory) {
-            return Err(CompositionError::IllTypedTransport {
-                source: members[0].clone(),
-                detail: err.to_string(),
-            });
-        }
-    }
-    for a in added {
-        if let Err(err) = typecheck_equation(&a.equation, theory) {
-            return Err(CompositionError::IllTypedTransport {
-                source: a.source.op.clone(),
-                detail: err.to_string(),
-            });
         }
     }
     typecheck_theory_body(theory).map_err(|_| CompositionError::IllTypedResult {
@@ -5335,6 +5349,58 @@ mod tests {
             other => return Err(format!("expected NotACocone, got {other:?}").into()),
         }
         Ok(())
+    }
+
+    #[test]
+    fn a_cocone_sending_identified_operations_to_different_inputs_is_refused() -> TestResult {
+        // `S.o(x, y) : A` goes to `T.p` along one edge and to `T.q` along the
+        // other, so `S.o`, `T.p` and `T.q` form one class. A cocone sending
+        // `S.o` and `T.p` to the input `x` and `T.q` to the input `y` sends
+        // the class to two different terms: it is no cocone, although each
+        // image, taken alone, is a single variable.
+        let a = || SortExpr::from("A");
+        let binary = |name: &str| {
+            Operation::new(name, vec![("x".into(), a()), ("y".into(), a())], "A")
+        };
+        let s = Theory::new("S", vec![Sort::simple("A")], vec![binary("o")], vec![]);
+        let t = Theory::new(
+            "T",
+            vec![Sort::simple("A")],
+            vec![binary("p"), binary("q")],
+            vec![],
+        );
+        let leg = |image: &str| {
+            let mut op_map: HashMap<Arc<str>, OpAssignment> = HashMap::new();
+            op_map.insert("o".into(), OpAssignment::op(image));
+            TheoryMorphism::new(
+                format!("o_to_{image}"),
+                "S",
+                "T",
+                HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+                op_map,
+            )
+        };
+        let d = TheoryDiagram::parallel(("S", s), ("T", t), leg("p"), leg("q"));
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let q = Theory::new("Q", vec![Sort::simple("A")], vec![], vec![]);
+        let to_q = |images: &[(&str, &str)]| {
+            let op_map: HashMap<Arc<str>, OpAssignment> = images
+                .iter()
+                .map(|(o, v)| (Arc::from(*o), OpAssignment::Term(Term::var(*v))))
+                .collect();
+            TheoryMorphism::new(
+                "to_q",
+                "T",
+                "Q",
+                HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+                op_map,
+            )
+        };
+        let legs = [to_q(&[("o", "x")]), to_q(&[("p", "x"), ("q", "y")])];
+        match c.verify_universal(&d, &q, &legs) {
+            Err(CompositionError::NotACocone { .. }) => Ok(()),
+            other => Err(format!("expected NotACocone, got {other:?}").into()),
+        }
     }
 
     #[test]

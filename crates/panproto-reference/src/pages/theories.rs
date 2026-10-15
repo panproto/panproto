@@ -1694,6 +1694,34 @@ pub mod theory {
         NeedsSortEquation,
     }
 
+    /// The first difference between two members of a sort class, in the
+    /// order arity, parameter sorts by position, kind, closure.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SortMismatch {
+        /// The members' arities.
+        Arity {
+            /// The first member's arity.
+            first: usize,
+            /// The second member's arity.
+            second: usize,
+        },
+        /// The first parameter whose sort differs once every sort and
+        /// operation is read through its class, with both parameter sorts
+        /// as declared.
+        ParamSort {
+            /// The parameter's position.
+            index: usize,
+            /// The first member's parameter sort.
+            first: Name,
+            /// The second member's parameter sort.
+            second: Name,
+        },
+        /// The members' kinds.
+        Kind,
+        /// The members' constructor classes.
+        Closure,
+    }
+
     /// A composition refusal.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum ComposeError {
@@ -1716,8 +1744,8 @@ pub mod theory {
         MissingSortMapping(Name),
         /// A shared operation is absent from one by-name leg.
         MissingOpMapping(Name),
-        /// A sort class disagrees.
-        SortSignatureMismatch(SymRef, SymRef),
+        /// A sort class disagrees: two members and their first difference.
+        SortSignatureMismatch(SymRef, SymRef, SortMismatch),
         /// An operation class disagrees.
         OpSignatureMismatch(SymRef, SymRef),
         /// An operation class agrees only modulo a sort equation, which this
@@ -1752,7 +1780,8 @@ pub mod theory {
     /// generated it.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AddedEquation {
-        /// The edge's index in the caller's diagram.
+        /// The edge's position in the canonical edge order: ascending
+        /// (source label, target label, canonical morphism bytes).
         pub edge: usize,
         /// The source operation.
         pub op: SymRef,
@@ -2115,6 +2144,20 @@ pub mod theory {
                     .collect(),
             ),
         }
+    }
+
+    /// Definition: The whole action of a morphism on a source term.
+    ///
+    /// An application of an operation sent to an operation is renamed; one
+    /// sent to a term is replaced by that term with the operation's inputs
+    /// substituted, capture-avoiding, by the translated arguments; a case
+    /// branch's constructor is replaced by its constructor image (kept when
+    /// it has none); variables, holes and binders are kept.
+    ///
+    /// Book anchors: `L-theories-7`.
+    #[must_use]
+    pub fn apply_morphism(src: &Theory, m: &Morphism, t: &Term) -> Term {
+        translate_term(src, m, t)
     }
 
     /// A source sort expression translated along a morphism: its sort renamed
@@ -2704,45 +2747,72 @@ pub mod theory {
             .unwrap_or_default()
     }
 
-    /// Name every class of one kind: its candidate; under explicit identity, a
-    /// candidate shared by several classes is a clash, refused or freshened as
-    /// `{least member label}.{candidate}`, any remaining collision suffixed
-    /// `#1`, `#2`, ... in ascending class order.
+    /// Name every class of one kind: its candidate. A candidate shared by
+    /// several classes, or equal to a reserved name (the name of an added
+    /// equation, held by the operation it identifies), is a clash: under
+    /// amalgamation a `NameConflict` between the class's first member and
+    /// the other class's first member or the reserved name's holder; under
+    /// explicit identity refused as `NameClash` or freshened as
+    /// `{least member label}.{candidate}`, and then every class of a name
+    /// that is still shared, or still reserved, is suffixed `#1`, `#2`, ...
+    /// in ascending class order, until no name is shared or reserved.
     fn name_classes(
         kind: SymKind,
         classes: &[Vec<SymRef>],
+        reserved: &BTreeMap<Name, SymRef>,
         mode: Mode,
         clash: ClashPolicy,
         freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<Name>, ComposeError> {
         let cands: Vec<Name> = classes.iter().map(|c| majority(c)).collect();
         let mut names = cands.clone();
-        if mode == Mode::ExplicitIdentity {
-            for (i, c) in cands.iter().enumerate() {
-                let sharing: Vec<usize> = (0..cands.len()).filter(|j| cands[*j] == *c).collect();
-                if sharing.len() > 1 {
-                    if clash == ClashPolicy::Reject {
-                        return Err(ComposeError::NameClash(
-                            kind,
-                            c.clone(),
-                            Box::new(sharing.iter().map(|j| classes[*j].clone()).collect()),
-                        ));
-                    }
-                    let label = classes[i]
-                        .iter()
-                        .map(|m| m.node.clone())
-                        .min()
-                        .unwrap_or_default();
-                    names[i] = format!("{label}.{c}");
-                }
+        for (i, c) in cands.iter().enumerate() {
+            let sharing: Vec<usize> = (0..cands.len()).filter(|j| cands[*j] == *c).collect();
+            let holder = reserved.get(c);
+            if sharing.len() < 2 && holder.is_none() {
+                continue;
             }
-            let mut seen: BTreeMap<Name, usize> = BTreeMap::new();
-            for n in &mut names {
-                let k = seen.entry(n.clone()).or_insert(0);
-                if *k > 0 {
-                    *n = format!("{n}#{k}");
+            if mode == Mode::Amalgamate {
+                let other = sharing
+                    .iter()
+                    .find(|j| **j != i)
+                    .map(|j| classes[*j][0].clone())
+                    .or_else(|| holder.cloned())
+                    .unwrap_or_else(|| classes[i][0].clone());
+                return Err(ComposeError::NameConflict(kind, c.clone(), classes[i][0].clone(), other));
+            }
+            if clash == ClashPolicy::Reject {
+                let mut clashing: Vec<Vec<SymRef>> =
+                    sharing.iter().map(|j| classes[*j].clone()).collect();
+                if let Some(holder) = holder {
+                    clashing.push(vec![holder.clone()]);
                 }
-                *k += 1;
+                clashing.sort();
+                return Err(ComposeError::NameClash(kind, c.clone(), Box::new(clashing)));
+            }
+            let label = classes[i]
+                .iter()
+                .map(|m| m.node.clone())
+                .min()
+                .unwrap_or_default();
+            names[i] = format!("{label}.{c}");
+        }
+        loop {
+            let mut sharing: BTreeMap<Name, Vec<usize>> = BTreeMap::new();
+            for (index, name) in names.iter().enumerate() {
+                sharing.entry(name.clone()).or_default().push(index);
+            }
+            let shared: Vec<(Name, Vec<usize>)> = sharing
+                .into_iter()
+                .filter(|(name, indices)| indices.len() > 1 || reserved.contains_key(name))
+                .collect();
+            if shared.is_empty() {
+                break;
+            }
+            for (name, indices) in shared {
+                for (position, index) in indices.into_iter().enumerate() {
+                    names[index] = format!("{name}#{}", position + 1);
+                }
             }
         }
         for ((members, candidate), result) in classes.iter().zip(cands).zip(&names) {
@@ -3485,12 +3555,19 @@ pub mod theory {
         let res =
             |kind: SymKind, node: &str, name: &str| result_symbol(cl, &result_of, kind, node, name);
         let (mut out, free_sorts) = finish_signature(nodes, cl, implicit, result_name, &res);
-        let (eqs, added_eqs) = equation_inputs(nodes, edges, &res);
-        provenance.added_eqs = added_eqs;
+        let (eqs, added) = equation_inputs(nodes, edges, &res);
         for (source, _, lhs, rhs) in &eqs {
             equation_well_typed(&out, lhs, rhs).map_err(|detail| {
                 ComposeError::IllTypedTransport {
                     source: source.clone(),
+                    detail,
+                }
+            })?;
+        }
+        for (_, generated) in &added {
+            equation_well_typed(&out, &generated.lhs, &generated.rhs).map_err(|detail| {
+                ComposeError::IllTypedTransport {
+                    source: generated.source.op.clone(),
                     detail,
                 }
             })?;
@@ -3511,7 +3588,27 @@ pub mod theory {
                 })?;
             }
         }
-        out.eqs = equations(&eqs, mode, clash, &mut provenance, &mut freshened)?;
+        let reserved: BTreeMap<Name, SymRef> = added
+            .iter()
+            .map(|(name, generated)| (name.clone(), generated.source.op.clone()))
+            .collect();
+        out.eqs = equations(&eqs, &reserved, mode, clash, &mut provenance, &mut freshened)?;
+        let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
+        for (name, generated) in &added {
+            let least = closing.entry(generated.edge_index).or_insert_with(|| name.clone());
+            if name < least {
+                least.clone_from(name);
+            }
+        }
+        for (name, generated) in added {
+            out.eqs.push(Equation {
+                name: name.clone(),
+                lhs: generated.lhs,
+                rhs: generated.rhs,
+            });
+            provenance.added_eqs.insert(name, generated.source);
+        }
+        out.eqs.sort_by(|a, b| a.name.cmp(&b.name));
         out.directed_eqs =
             directed_equations(nodes, &res, mode, clash, &mut provenance, &mut freshened)?;
         out.policies = policies(nodes, mode, clash, &mut provenance, &mut freshened)?;
@@ -3530,7 +3627,7 @@ pub mod theory {
             return Err(ComposeError::IllTypedResult(Vec::new()));
         }
         let inclusions = finish_inclusions(nodes, &provenance, &out.name);
-        let (name_clash_free, checks) = finish_checks(input, legs, &provenance, &free_sorts);
+        let (name_clash_free, checks) = finish_checks(input, legs, &provenance, &closing, &free_sorts);
         freshened.sort();
         let status = aggregate_status(&checks);
         Ok(Composition {
@@ -3557,7 +3654,7 @@ pub mod theory {
         let mut result_of = BTreeMap::new();
         for kind in [SymKind::Sort, SymKind::Op] {
             let members = classes.members(kind);
-            let names = name_classes(kind, &members, mode, clash, &mut freshened)?;
+            let names = name_classes(kind, &members, &BTreeMap::new(), mode, clash, &mut freshened)?;
             for (class, name) in members.iter().zip(names) {
                 for member in class {
                     provenance
@@ -3706,10 +3803,11 @@ pub mod theory {
         input: &Input<'_>,
         legs: &Classes,
         provenance: &Provenance,
+        closing: &BTreeMap<usize, Name>,
         free_sorts: &BTreeSet<Name>,
     ) -> (bool, Vec<CheckRecord>) {
         let mut checks = node_checks(input.nodes, provenance, free_sorts);
-        checks.extend(edge_checks(input, provenance));
+        checks.extend(edge_checks(input, closing));
         checks.push(CheckRecord {
             check: CompositionCheckKind::ClassSignaturesAgree,
             subject: CheckSubject::Diagram,
@@ -3789,7 +3887,10 @@ pub mod theory {
         checks
     }
 
-    fn edge_checks(input: &Input<'_>, provenance: &Provenance) -> Vec<CheckRecord> {
+    /// The leg and cocone-square records of every edge; `closing` holds,
+    /// per diagram edge, the least name of the equations its term-valued
+    /// images generated.
+    fn edge_checks(input: &Input<'_>, closing: &BTreeMap<usize, Name>) -> Vec<CheckRecord> {
         let mut checks = Vec::new();
         for (edge, _) in input.edges.iter().enumerate() {
             checks.push(CheckRecord {
@@ -3797,11 +3898,7 @@ pub mod theory {
                 subject: CheckSubject::Edge(edge),
                 outcome: CheckOutcome::Passed,
             });
-            let equation = provenance
-                .added_eqs
-                .iter()
-                .find(|(_, added)| added.edge == edge)
-                .map(|(name, _)| name.clone());
+            let equation = closing.get(&edge).cloned();
             checks.push(CheckRecord {
                 check: CompositionCheckKind::CoconeCommutes,
                 subject: CheckSubject::Edge(edge),
@@ -4391,7 +4488,8 @@ pub mod theory {
                     return Err(if mode == Mode::Amalgamate && !same_leg {
                         ComposeError::NameConflict(kind, first.name.clone(), first, second)
                     } else if kind == SymKind::Sort {
-                        ComposeError::SortSignatureMismatch(first, second)
+                        let detail = sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
+                        ComposeError::SortSignatureMismatch(first, second, detail)
                     } else if head_signatures_match {
                         ComposeError::QuotientNotRepresentable {
                             first,
@@ -4407,16 +4505,80 @@ pub mod theory {
         Ok(())
     }
 
-    type EquationInputs = (
-        Vec<(SymRef, Name, Term, Term)>,
-        BTreeMap<Name, AddedEquation>,
-    );
+    /// The first difference between two members of a sort class, each read
+    /// through the classes of its own node: arity, then each parameter's
+    /// name-free sort, then kind, then the set of constructor classes. An
+    /// implicit second member has arity 0 and no other attribute.
+    fn sort_mismatch(
+        nodes: &[(Name, Theory)],
+        cl: &Classes,
+        first: &SymRef,
+        second: &SymRef,
+        second_implicit: bool,
+    ) -> SortMismatch {
+        let declared = |member: &SymRef| {
+            node_theory(nodes, &member.node)
+                .sorts
+                .iter()
+                .find(|sort| sort.name == member.name)
+                .cloned()
+        };
+        let (Some(left), right) = (declared(first), declared(second)) else {
+            return SortMismatch::Closure;
+        };
+        let Some(right) = right.filter(|_| !second_implicit) else {
+            return SortMismatch::Arity {
+                first: left.params.len(),
+                second: 0,
+            };
+        };
+        if left.params.len() != right.params.len() {
+            return SortMismatch::Arity {
+                first: left.params.len(),
+                second: right.params.len(),
+            };
+        }
+        let read = |member: &SymRef, sort: &Sort| {
+            let sc = |n: &str| class_id(cl, SymKind::Sort, &member.node, n);
+            let oc = |n: &str| class_id(cl, SymKind::Op, &member.node, n);
+            sort_signature(sort, &sc, &oc)
+        };
+        let (left_signature, right_signature) = (read(first, &left), read(second, &right));
+        for (index, (left_param, right_param)) in
+            left_signature.3.iter().zip(&right_signature.3).enumerate()
+        {
+            if left_param != right_param {
+                return SortMismatch::ParamSort {
+                    index,
+                    first: left.params[index].1.to_string(),
+                    second: right.params[index].1.to_string(),
+                };
+            }
+        }
+        if left_signature.1 != right_signature.1 {
+            return SortMismatch::Kind;
+        }
+        SortMismatch::Closure
+    }
+
+    /// An equation generated by a term-valued leg: its two sides in result
+    /// names and its provenance.
+    struct Generated {
+        lhs: Term,
+        rhs: Term,
+        source: AddedEquation,
+        edge_index: usize,
+    }
+
+    type EquationInputs = (Vec<(SymRef, Name, Term, Term)>, Vec<(Name, Generated)>);
 
     type OrderedEdge<'a> = (usize, &'a (Name, Name, Morphism), Vec<u8>);
 
-    /// The equations to classify: every node theory's equations renamed into
-    /// the result, then one per term-valued operation image, for the edges in
-    /// (source, target, morphism) order.
+    /// The equations of the result before classification: every node
+    /// theory's equations renamed into the result (nodes and equations in
+    /// input order), and, separately, one generated equation per
+    /// term-valued operation image, for the edges in (source, target,
+    /// morphism) order and the operations in ascending order.
     fn equation_inputs(
         nodes: &[(Name, Theory)],
         edges: &[(Name, Name, Morphism)],
@@ -4424,7 +4586,6 @@ pub mod theory {
     ) -> EquationInputs {
         let theory = |l: &str| node_theory(nodes, l);
         let mut eqs: Vec<(SymRef, Name, Term, Term)> = Vec::new();
-        let mut added = BTreeMap::new();
         for (l, t) in nodes {
             for e in &t.eqs {
                 let op = |n: &str| res(SymKind::Op, l, n);
@@ -4449,6 +4610,7 @@ pub mod theory {
             })
             .collect();
         ordered.sort_by(|a, b| (&a.1.0, &a.1.1, &a.2).cmp(&(&b.1.0, &b.1.1, &b.2)));
+        let mut added = Vec::new();
         for (rank, (edge_index, (s, t, m), _)) in ordered.iter().enumerate() {
             for (o, img) in &m.ops {
                 let OpImage::Term(term) = img else { continue };
@@ -4464,25 +4626,20 @@ pub mod theory {
                         .collect(),
                 );
                 let rhs = rename_term(term, &|n| res(SymKind::Op, t, n));
-                let name = format!("{s}.{o}~{rank}");
-                added.insert(
-                    name.clone(),
-                    AddedEquation {
-                        edge: *edge_index,
-                        op: SymRef {
-                            node: s.clone(),
-                            name: o.clone(),
+                added.push((
+                    format!("{s}.{o}~{rank}"),
+                    Generated {
+                        lhs,
+                        rhs,
+                        source: AddedEquation {
+                            edge: rank,
+                            op: SymRef {
+                                node: s.clone(),
+                                name: o.clone(),
+                            },
                         },
+                        edge_index: *edge_index,
                     },
-                );
-                eqs.push((
-                    SymRef {
-                        node: s.clone(),
-                        name: name.clone(),
-                    },
-                    name,
-                    lhs,
-                    rhs,
                 ));
             }
         }
@@ -4501,6 +4658,7 @@ pub mod theory {
     fn classify_items<K: PartialEq, T: Clone>(
         kind: SymKind,
         items: Vec<(SymRef, Name, K, T)>,
+        reserved: &BTreeMap<Name, SymRef>,
         mode: Mode,
         clash: ClashPolicy,
         provenance: &mut Provenance,
@@ -4527,7 +4685,7 @@ pub mod theory {
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         let members: Vec<Vec<SymRef>> = classes.iter().map(|c| c.0.clone()).collect();
-        let names = name_classes(kind, &members, mode, clash, freshened)?;
+        let names = name_classes(kind, &members, reserved, mode, clash, freshened)?;
         let mut out = Vec::new();
         for (c, n) in classes.into_iter().zip(names) {
             for m in &c.0 {
@@ -4544,6 +4702,7 @@ pub mod theory {
     /// alpha-equivalent ones merge and same-named different ones conflict.
     fn equations(
         eqs: &[(SymRef, Name, Term, Term)],
+        reserved: &BTreeMap<Name, SymRef>,
         mode: Mode,
         clash: ClashPolicy,
         provenance: &mut Provenance,
@@ -4561,7 +4720,7 @@ pub mod theory {
             })
             .collect();
         Ok(
-            classify_items(SymKind::Eq, items, mode, clash, provenance, freshened)?
+            classify_items(SymKind::Eq, items, reserved, mode, clash, provenance, freshened)?
                 .into_iter()
                 .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
                 .collect(),
@@ -4607,6 +4766,7 @@ pub mod theory {
         Ok(classify_items(
             SymKind::DirectedEq,
             items,
+            &BTreeMap::new(),
             mode,
             clash,
             provenance,
@@ -4639,7 +4799,7 @@ pub mod theory {
             }
         }
         Ok(
-            classify_items(SymKind::Policy, items, mode, clash, provenance, freshened)?
+            classify_items(SymKind::Policy, items, &BTreeMap::new(), mode, clash, provenance, freshened)?
                 .into_iter()
                 .map(|(name, p)| Policy { name, ..p })
                 .collect(),
@@ -5042,6 +5202,132 @@ pub mod theory {
             }
         }
         writer.bytes
+    }
+
+    #[cfg(test)]
+    mod tests {
+        //! Worked examples that pin single clauses of the definitions above.
+
+        use super::*;
+
+        fn simple(name: &str) -> Sort {
+            Sort {
+                name: name.to_owned(),
+                params: Vec::new(),
+                kind: "structural".to_owned(),
+                constructors: None,
+            }
+        }
+
+        fn var(name: &str) -> Term {
+            Term::Var(name.to_owned())
+        }
+
+        fn binary(name: &str) -> Op {
+            Op {
+                name: name.to_owned(),
+                inputs: vec![
+                    ("x".to_owned(), SortExpr::Name("A".to_owned()), Implicit::No),
+                    ("y".to_owned(), SortExpr::Name("A".to_owned()), Implicit::No),
+                ],
+                output: SortExpr::Name("A".to_owned()),
+            }
+        }
+
+        fn sort_map() -> BTreeMap<Name, Name> {
+            BTreeMap::from([("A".to_owned(), "A".to_owned())])
+        }
+
+        #[test]
+        fn an_equation_relating_two_distinct_variables_is_not_preserved_without_an_axiom() {
+            let domain = Theory {
+                name: "D".to_owned(),
+                sorts: vec![simple("A")],
+                eqs: vec![Equation {
+                    name: "e".to_owned(),
+                    lhs: var("x"),
+                    rhs: var("y"),
+                }],
+                ..Theory::default()
+            };
+            let codomain = Theory {
+                name: "C".to_owned(),
+                sorts: vec![simple("A")],
+                ..Theory::default()
+            };
+            let m = Morphism {
+                name: "m".to_owned(),
+                domain: "D".to_owned(),
+                codomain: "C".to_owned(),
+                sorts: sort_map(),
+                ops: BTreeMap::new(),
+            };
+            assert_eq!(
+                check_morphism(&domain, &codomain, &m),
+                Err(MorphismError::EquationNotPreserved("e".to_owned()))
+            );
+            let mut same = domain.clone();
+            same.eqs[0].rhs = var("x");
+            assert_eq!(check_morphism(&same, &codomain, &m), Ok(()));
+        }
+
+        #[test]
+        fn a_cocone_sending_identified_operations_to_different_inputs_is_refused() {
+            let s = Theory {
+                name: "S".to_owned(),
+                sorts: vec![simple("A")],
+                ops: vec![binary("o")],
+                ..Theory::default()
+            };
+            let t = Theory {
+                name: "T".to_owned(),
+                sorts: vec![simple("A")],
+                ops: vec![binary("p"), binary("q")],
+                ..Theory::default()
+            };
+            let leg = |image: &str| Morphism {
+                name: format!("o_to_{image}"),
+                domain: "S".to_owned(),
+                codomain: "T".to_owned(),
+                sorts: sort_map(),
+                ops: BTreeMap::from([("o".to_owned(), OpImage::Op(image.to_owned()))]),
+            };
+            let diagram = TheoryDiagram::parallel(
+                ("S".to_owned(), s),
+                ("T".to_owned(), t),
+                leg("p"),
+                leg("q"),
+            );
+            let options = ComposeOptions {
+                mode: CompositionMode::ExplicitIdentity,
+                result_name: "R".to_owned(),
+                clash: ClashPolicy::Reject,
+                rewrite_budget: 512,
+            };
+            let composition = compose(&diagram, &options).expect("the parallel pair composes");
+            let q = Theory {
+                name: "Q".to_owned(),
+                sorts: vec![simple("A")],
+                ..Theory::default()
+            };
+            let to_q = |images: &[(&str, &str)]| Morphism {
+                name: "to_q".to_owned(),
+                domain: "T".to_owned(),
+                codomain: "Q".to_owned(),
+                sorts: sort_map(),
+                ops: images
+                    .iter()
+                    .map(|(o, v)| ((*o).to_owned(), OpImage::Term(var(v))))
+                    .collect(),
+            };
+            let legs = [to_q(&[("o", "x")]), to_q(&[("p", "x"), ("q", "y")])];
+            assert!(matches!(
+                composition.verify_universal(&diagram, &q, &legs),
+                Err(ComposeError::NotACocone(_))
+            ));
+            let agreeing = [to_q(&[("o", "x")]), to_q(&[("p", "x"), ("q", "x")])];
+            assert!(composition.verify_universal(&diagram, &q, &agreeing).is_ok());
+        }
     }
 }
 

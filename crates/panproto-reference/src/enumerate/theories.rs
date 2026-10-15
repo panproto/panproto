@@ -1,6 +1,30 @@
 //! Complete finite scopes for the theory page.
+//!
+//! The scopes are built over one fixed alphabet, the two-sort alphabet:
+//!
+//! - sorts named `A` and `B`; `A` is simple, open or closed (its
+//!   constructors are then every operation whose output is `A`, in
+//!   declaration order), and structural or, when it is the only sort, of
+//!   kind `value`; `B` is simple or depends on one parameter `p : A`;
+//! - at most two operations, `f` and then `g`, of arity at most two, whose
+//!   inputs are named `x` and then `y`; an input's and the output's sort is
+//!   `A`, a simple `B`, or the dependent `B` applied to an earlier input of
+//!   sort `A`;
+//! - at most one equation `e`, both of whose sides are terms of depth at
+//!   most one: the variables `x` and `y` and the constants (the nullary
+//!   operations applied to nothing). Depth is that of the term action's
+//!   rewriting bound: a variable, a hole and a constant have depth one.
+//!
+//! Every enumerator lists labelled structures (names and declaration order
+//! are part of the structure) with no pruning of isomorphic copies; the
+//! count of each is computed by the page's tests from a closed formula,
+//! independently of the enumeration.
 
 use crate::schema::Schema;
+use crate::theory::{
+    ClashPolicy, ComposeOptions, CompositionMode, CompositionSpec, CompositionStep, Equation,
+    Implicit, Morphism, Op, OpImage, RecipeEdge, RecipeOpImage, Sort, SortExpr, Term, Theory,
+};
 
 /// Every two-object schema with one kind, one edge name and at most one edge.
 #[must_use]
@@ -18,4 +42,996 @@ pub fn sequences<T: Clone>(alphabet: &[T]) -> Vec<Vec<T>> {
 #[must_use]
 pub fn subsets<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
     super::subsets(items, 2)
+}
+
+/// The kind of a structural sort.
+pub const STRUCTURAL: &str = "structural";
+/// The kind of a value sort.
+pub const VALUE: &str = "value";
+/// The name of every theory the scopes build.
+pub const THEORY_NAME: &str = "Th";
+
+/// The sort declarations of a signature of the two-sort alphabet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SortShape {
+    /// Whether `A` is declared.
+    pub a: bool,
+    /// Whether `A` is closed.
+    pub a_closed: bool,
+    /// Whether `A` has kind `value`.
+    pub a_value: bool,
+    /// `None` without `B`; `Some(false)` for a simple `B`; `Some(true)`
+    /// for `B(p : A)`.
+    pub b: Option<bool>,
+}
+
+impl SortShape {
+    /// The eight sort shapes, in enumeration order: none; `A` open, closed
+    /// and of kind `value`; `A` open and closed with a simple `B`; `A` open
+    /// and closed with the dependent `B`.
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        let only = |a_closed, a_value| Self {
+            a: true,
+            a_closed,
+            a_value,
+            b: None,
+        };
+        let with = |a_closed, dependent| Self {
+            a: true,
+            a_closed,
+            a_value: false,
+            b: Some(dependent),
+        };
+        vec![
+            Self {
+                a: false,
+                a_closed: false,
+                a_value: false,
+                b: None,
+            },
+            only(false, false),
+            only(true, false),
+            only(false, true),
+            with(false, false),
+            with(true, false),
+            with(false, true),
+            with(true, true),
+        ]
+    }
+
+    /// The sort expressions an input or output may have, given the earlier
+    /// inputs: `A`, a simple `B`, and the dependent `B` applied to each
+    /// earlier input whose sort is `A`.
+    fn expressions(self, earlier: &[(String, SortExpr, Implicit)]) -> Vec<SortExpr> {
+        let mut out = Vec::new();
+        if self.a {
+            out.push(SortExpr::Name("A".to_owned()));
+        }
+        match self.b {
+            Some(false) => out.push(SortExpr::Name("B".to_owned())),
+            Some(true) => {
+                for (name, sort, _) in earlier {
+                    if *sort == SortExpr::Name("A".to_owned()) {
+                        out.push(SortExpr::App("B".to_owned(), vec![Term::Var(name.clone())]));
+                    }
+                }
+            }
+            None => {}
+        }
+        out
+    }
+
+    /// Every operation signature of arity at most two, named `name`.
+    #[must_use]
+    pub fn operations(self, name: &str) -> Vec<Op> {
+        let mut out = Vec::new();
+        let mut frontier: Vec<Vec<(String, SortExpr, Implicit)>> = vec![Vec::new()];
+        for arity in 0..=2 {
+            let mut next = Vec::new();
+            for inputs in &frontier {
+                for output in self.expressions(inputs) {
+                    out.push(Op {
+                        name: name.to_owned(),
+                        inputs: inputs.clone(),
+                        output,
+                    });
+                }
+                if arity < 2 {
+                    let binder = ["x", "y"][arity];
+                    for sort in self.expressions(inputs) {
+                        let mut grown = inputs.clone();
+                        grown.push((binder.to_owned(), sort, Implicit::No));
+                        next.push(grown);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        out
+    }
+
+    fn sorts(self, ops: &[Op]) -> Vec<Sort> {
+        let mut sorts = Vec::new();
+        if self.a {
+            sorts.push(Sort {
+                name: "A".to_owned(),
+                params: Vec::new(),
+                kind: if self.a_value { VALUE } else { STRUCTURAL }.to_owned(),
+                constructors: self.a_closed.then(|| {
+                    ops.iter()
+                        .filter(|op| op.output.head() == "A")
+                        .map(|op| op.name.clone())
+                        .collect()
+                }),
+            });
+        }
+        if let Some(dependent) = self.b {
+            sorts.push(Sort {
+                name: "B".to_owned(),
+                params: if dependent {
+                    vec![("p".to_owned(), SortExpr::Name("A".to_owned()))]
+                } else {
+                    Vec::new()
+                },
+                kind: STRUCTURAL.to_owned(),
+                constructors: None,
+            });
+        }
+        sorts
+    }
+}
+
+/// Every operation list of a sort shape: none, `[f]`, and `[f, g]`.
+#[must_use]
+pub fn operation_lists(shape: SortShape) -> Vec<Vec<Op>> {
+    let firsts = shape.operations("f");
+    let seconds = shape.operations("g");
+    let mut out = vec![Vec::new()];
+    out.extend(firsts.iter().map(|f| vec![f.clone()]));
+    for f in &firsts {
+        for g in &seconds {
+            out.push(vec![f.clone(), g.clone()]);
+        }
+    }
+    out
+}
+
+/// The terms of depth at most one over the variables `x` and `y` and the
+/// nullary operations of `ops`, in that order.
+#[must_use]
+pub fn shallow_terms(ops: &[Op]) -> Vec<Term> {
+    let mut out = vec![Term::Var("x".to_owned()), Term::Var("y".to_owned())];
+    out.extend(
+        ops.iter()
+            .filter(|op| op.inputs.is_empty())
+            .map(|op| Term::App(op.name.clone(), Vec::new())),
+    );
+    out
+}
+
+fn theory(shape: SortShape, ops: Vec<Op>, eqs: Vec<Equation>) -> Theory {
+    Theory {
+        name: THEORY_NAME.to_owned(),
+        sorts: shape.sorts(&ops),
+        ops,
+        eqs,
+        ..Theory::default()
+    }
+}
+
+/// Every signature of the two-sort alphabet without an equation.
+#[must_use]
+pub fn bare_signatures() -> Vec<Theory> {
+    let mut out = Vec::new();
+    for shape in SortShape::all() {
+        for ops in operation_lists(shape) {
+            out.push(theory(shape, ops, Vec::new()));
+        }
+    }
+    out
+}
+
+/// Every signature of the two-sort alphabet: each bare signature with no
+/// equation and with every equation `e : l = r` between terms of depth at
+/// most one.
+#[must_use]
+pub fn signatures() -> Vec<Theory> {
+    let mut out = Vec::new();
+    for bare in bare_signatures() {
+        let terms = shallow_terms(&bare.ops);
+        out.push(bare.clone());
+        for lhs in &terms {
+            for rhs in &terms {
+                let mut with = bare.clone();
+                with.eqs.push(Equation {
+                    name: "e".to_owned(),
+                    lhs: lhs.clone(),
+                    rhs: rhs.clone(),
+                });
+                out.push(with);
+            }
+        }
+    }
+    out
+}
+
+/// The sort expressions of the raw alphabet: the declared heads, the
+/// undeclared `C`, `A` applied to an argument, and `B` applied to `x`,
+/// `y` and the unbound `z`.
+#[must_use]
+pub fn raw_sort_expressions() -> Vec<SortExpr> {
+    let app = |head: &str, var: &str| SortExpr::App(head.to_owned(), vec![Term::Var(var.to_owned())]);
+    vec![
+        SortExpr::Name("A".to_owned()),
+        SortExpr::Name("B".to_owned()),
+        SortExpr::Name("C".to_owned()),
+        app("A", "x"),
+        app("B", "x"),
+        app("B", "y"),
+        app("B", "z"),
+    ]
+}
+
+/// The sort declarations of the raw family: `A`; `A` and `B`; `A` and
+/// `B(p : A)`; `A` and `B(p : B)` (a self-dependency); `A(p : B)` and
+/// `B(q : A)` (a cycle); `A` twice; and `A` with `B(p : C)` (an undeclared
+/// parameter sort).
+#[must_use]
+pub fn raw_sort_lists() -> Vec<Vec<Sort>> {
+    let sort = |name: &str, param: Option<(&str, &str)>| Sort {
+        name: name.to_owned(),
+        params: param
+            .map(|(p, s)| vec![(p.to_owned(), SortExpr::Name(s.to_owned()))])
+            .unwrap_or_default(),
+        kind: STRUCTURAL.to_owned(),
+        constructors: None,
+    };
+    vec![
+        vec![sort("A", None)],
+        vec![sort("A", None), sort("B", None)],
+        vec![sort("A", None), sort("B", Some(("p", "A")))],
+        vec![sort("A", None), sort("B", Some(("p", "B")))],
+        vec![sort("A", Some(("p", "B"))), sort("B", Some(("q", "A")))],
+        vec![sort("A", None), sort("A", None)],
+        vec![sort("A", None), sort("B", Some(("p", "C")))],
+    ]
+}
+
+/// Every operation `f` of arity at most two whose inputs are named from
+/// `x` and `y` (repetition allowed) and whose input and output sorts are
+/// drawn from [`raw_sort_expressions`].
+#[must_use]
+pub fn raw_operations() -> Vec<Op> {
+    let exprs = raw_sort_expressions();
+    let binders = ["x", "y"];
+    let mut out = Vec::new();
+    let mut frontier: Vec<Vec<(String, SortExpr, Implicit)>> = vec![Vec::new()];
+    for arity in 0..=2 {
+        let mut next = Vec::new();
+        for inputs in &frontier {
+            for output in &exprs {
+                out.push(Op {
+                    name: "f".to_owned(),
+                    inputs: inputs.clone(),
+                    output: output.clone(),
+                });
+            }
+            if arity < 2 {
+                for binder in binders {
+                    for sort in &exprs {
+                        let mut grown = inputs.clone();
+                        grown.push((binder.to_owned(), sort.clone(), Implicit::No));
+                        next.push(grown);
+                    }
+                }
+            }
+        }
+        frontier = next;
+    }
+    out
+}
+
+/// The raw family of signature-checking inputs: every sort list of
+/// [`raw_sort_lists`] with no operation and with each operation of
+/// [`raw_operations`]; then the five duplicate-symbol theories (two sorts,
+/// two operations, two equations, two directed equations, two policies
+/// sharing one name).
+#[must_use]
+pub fn raw_signatures() -> Vec<Theory> {
+    let mut out = Vec::new();
+    let ops = raw_operations();
+    for sorts in raw_sort_lists() {
+        out.push(Theory {
+            name: THEORY_NAME.to_owned(),
+            sorts: sorts.clone(),
+            ..Theory::default()
+        });
+        for op in &ops {
+            out.push(Theory {
+                name: THEORY_NAME.to_owned(),
+                sorts: sorts.clone(),
+                ops: vec![op.clone()],
+                ..Theory::default()
+            });
+        }
+    }
+    out.extend(duplicate_symbol_theories());
+    out
+}
+
+fn duplicate_symbol_theories() -> Vec<Theory> {
+    use crate::theory::{DirectedEquation, Policy};
+    let a = || Sort {
+        name: "A".to_owned(),
+        params: Vec::new(),
+        kind: STRUCTURAL.to_owned(),
+        constructors: None,
+    };
+    let constant = || Op {
+        name: "f".to_owned(),
+        inputs: Vec::new(),
+        output: SortExpr::Name("A".to_owned()),
+    };
+    let base = || Theory {
+        name: THEORY_NAME.to_owned(),
+        sorts: vec![a()],
+        ops: vec![constant()],
+        ..Theory::default()
+    };
+    let c = || Term::App("f".to_owned(), Vec::new());
+    let equation = || Equation {
+        name: "e".to_owned(),
+        lhs: c(),
+        rhs: c(),
+    };
+    let directed = || DirectedEquation {
+        name: "d".to_owned(),
+        lhs: c(),
+        rhs: c(),
+        implementation: "x".to_owned(),
+        inverse: None,
+        source_kind: None,
+        target_kind: None,
+        coercion_class: "Iso".to_owned(),
+    };
+    let policy = || Policy {
+        name: "q".to_owned(),
+        value_kind: "Str".to_owned(),
+        strategy: "KeepLeft".to_owned(),
+    };
+    vec![
+        Theory {
+            sorts: vec![a(), a()],
+            ..base()
+        },
+        Theory {
+            ops: vec![constant(), constant()],
+            ..base()
+        },
+        Theory {
+            eqs: vec![equation(), equation()],
+            ..base()
+        },
+        Theory {
+            directed_eqs: vec![directed(), directed()],
+            ..base()
+        },
+        Theory {
+            policies: vec![policy(), policy()],
+            ..base()
+        },
+    ]
+}
+
+/// The images an operation `op` of the domain may have in `codomain`:
+/// each codomain operation by name, then each term of depth at most one
+/// over `op`'s inputs, that is each input variable and each codomain
+/// constant.
+#[must_use]
+pub fn operation_images(op: &Op, codomain: &Theory) -> Vec<OpImage> {
+    let mut out: Vec<OpImage> = codomain
+        .ops
+        .iter()
+        .map(|target| OpImage::Op(target.name.clone()))
+        .collect();
+    out.extend(
+        op.inputs
+            .iter()
+            .map(|(name, _, _)| OpImage::Term(Term::Var(name.clone()))),
+    );
+    out.extend(
+        codomain
+            .ops
+            .iter()
+            .filter(|target| target.inputs.is_empty())
+            .map(|target| OpImage::Term(Term::App(target.name.clone(), Vec::new()))),
+    );
+    out
+}
+
+/// Every total assignment from `domain` to `codomain`: each domain sort to
+/// a codomain sort, and each domain operation to one of its
+/// [`operation_images`]. The morphism is named `m`.
+#[must_use]
+pub fn morphisms(domain: &Theory, codomain: &Theory) -> Vec<Morphism> {
+    let mut out = vec![Morphism {
+        name: "m".to_owned(),
+        domain: domain.name.clone(),
+        codomain: codomain.name.clone(),
+        ..Morphism::default()
+    }];
+    for sort in &domain.sorts {
+        out = out
+            .into_iter()
+            .flat_map(|partial| {
+                codomain.sorts.iter().map(move |target| {
+                    let mut grown = partial.clone();
+                    grown.sorts.insert(sort.name.clone(), target.name.clone());
+                    grown
+                })
+            })
+            .collect();
+    }
+    for op in &domain.ops {
+        let images = operation_images(op, codomain);
+        out = out
+            .into_iter()
+            .flat_map(|partial| {
+                images.iter().map(move |image| {
+                    let mut grown = partial.clone();
+                    grown.ops.insert(op.name.clone(), image.clone());
+                    grown
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+/// The assignments that are not total or name what the codomain does not
+/// declare, for the refusals a total assignment cannot reach: for each
+/// domain sort, the identity-on-names assignment without it and with it
+/// sent to the undeclared `Z`; for each domain operation, the same
+/// assignment without it and with it sent to the undeclared `h`. The
+/// identity-on-names assignment sends each symbol to the codomain symbol
+/// of its name when there is one, and leaves it out otherwise.
+#[must_use]
+pub fn partial_morphisms(domain: &Theory, codomain: &Theory) -> Vec<Morphism> {
+    let mut identity = Morphism {
+        name: "m".to_owned(),
+        domain: domain.name.clone(),
+        codomain: codomain.name.clone(),
+        ..Morphism::default()
+    };
+    for sort in &domain.sorts {
+        if codomain.sorts.iter().any(|target| target.name == sort.name) {
+            identity.sorts.insert(sort.name.clone(), sort.name.clone());
+        }
+    }
+    for op in &domain.ops {
+        if codomain.ops.iter().any(|target| target.name == op.name) {
+            identity
+                .ops
+                .insert(op.name.clone(), OpImage::Op(op.name.clone()));
+        }
+    }
+    let mut out = Vec::new();
+    for sort in &domain.sorts {
+        let mut without = identity.clone();
+        without.sorts.remove(&sort.name);
+        out.push(without);
+        let mut unknown = identity.clone();
+        unknown.sorts.insert(sort.name.clone(), "Z".to_owned());
+        out.push(unknown);
+    }
+    for op in &domain.ops {
+        let mut without = identity.clone();
+        without.ops.remove(&op.name);
+        out.push(without);
+        let mut unknown = identity.clone();
+        unknown.ops.insert(op.name.clone(), OpImage::Op("h".to_owned()));
+        out.push(unknown);
+    }
+    out
+}
+
+/// The four option sets of a composition: each mode with each clash
+/// policy, named `R` with the rewrite budget 512.
+#[must_use]
+pub fn option_sets() -> Vec<ComposeOptions> {
+    let mut out = Vec::new();
+    for mode in [CompositionMode::Amalgamate, CompositionMode::ExplicitIdentity] {
+        for clash in [ClashPolicy::Freshen, ClashPolicy::Reject] {
+            out.push(ComposeOptions {
+                mode,
+                result_name: "R".to_owned(),
+                clash,
+                rewrite_budget: 512,
+            });
+        }
+    }
+    out
+}
+
+/// Every identification list of length at most `max_len` over the pairs
+/// of `0..=size` (the index `size` is out of range).
+#[must_use]
+pub fn identifications(size: usize, max_len: usize) -> Vec<Vec<(usize, usize)>> {
+    let pairs: Vec<(usize, usize)> = (0..=size)
+        .flat_map(|left| (0..=size).map(move |right| (left, right)))
+        .collect();
+    super::sequences(&pairs, max_len)
+}
+
+/// The recipes of the replay scope over a registry holding `L` and `R`:
+/// the base step of `L`, of `R` and of the missing `M`; the by-name
+/// colimit of `L` and `R` in each mode over every subset of their common
+/// sort names and every subset of their common operation names, and over
+/// the absent sort `Z`; and the explicit diagram step of the span
+/// `L <- I -> R` for each of the four option sets, `I` an inline theory
+/// declaring `A` and the identity-on-names legs, together with the same
+/// step naming a node that is neither inline nor registered. Every recipe
+/// is named `out` and states version 1.
+#[must_use]
+pub fn recipes(left: &Theory, right: &Theory) -> Vec<CompositionSpec> {
+    let spec = |steps| CompositionSpec {
+        result_name: "out".to_owned(),
+        steps,
+        version: 1,
+    };
+    let mut out = vec![
+        spec(vec![CompositionStep::Base("L".to_owned())]),
+        spec(vec![CompositionStep::Base("R".to_owned())]),
+        spec(vec![CompositionStep::Base("M".to_owned())]),
+    ];
+    let common_sorts: Vec<String> = left
+        .sorts
+        .iter()
+        .filter(|sort| right.sorts.iter().any(|other| other.name == sort.name))
+        .map(|sort| sort.name.clone())
+        .collect();
+    let common_ops: Vec<String> = left
+        .ops
+        .iter()
+        .filter(|op| right.ops.iter().any(|other| other.name == op.name))
+        .map(|op| op.name.clone())
+        .collect();
+    for mode in [CompositionMode::Amalgamate, CompositionMode::ExplicitIdentity] {
+        for shared_sorts in super::subsets(&common_sorts, common_sorts.len()) {
+            for shared_ops in super::subsets(&common_ops, common_ops.len()) {
+                out.push(spec(vec![CompositionStep::Colimit {
+                    left: "L".to_owned(),
+                    right: "R".to_owned(),
+                    shared_sorts: shared_sorts.clone(),
+                    shared_ops,
+                    mode,
+                }]));
+            }
+        }
+        out.push(spec(vec![CompositionStep::Colimit {
+            left: "L".to_owned(),
+            right: "R".to_owned(),
+            shared_sorts: vec!["Z".to_owned()],
+            shared_ops: Vec::new(),
+            mode,
+        }]));
+    }
+    let interface = Theory {
+        name: "I".to_owned(),
+        sorts: vec![Sort {
+            name: "A".to_owned(),
+            params: Vec::new(),
+            kind: STRUCTURAL.to_owned(),
+            constructors: None,
+        }],
+        ..Theory::default()
+    };
+    let leg = |target: &str| RecipeEdge {
+        src: "I".to_owned(),
+        tgt: target.to_owned(),
+        sorts: vec![("A".to_owned(), "A".to_owned())],
+        ops: Vec::<(String, RecipeOpImage)>::new(),
+    };
+    for options in option_sets() {
+        for nodes in [["I", "L", "R"], ["I", "L", "M"]] {
+            out.push(spec(vec![CompositionStep::Diagram {
+                nodes: nodes.iter().map(|node| (*node).to_owned()).collect(),
+                edges: vec![leg(nodes[1]), leg(nodes[2])],
+                mode: options.mode,
+                clash: options.clash,
+                rewrite_budget: options.rewrite_budget,
+                inline: vec![interface.clone()],
+            }]));
+        }
+    }
+    out
+}
+
+/// A family of morphism checks: every leg against every domain and every
+/// codomain, with probe terms on which the whole action is compared.
+#[derive(Clone, Debug)]
+pub struct ActionScope {
+    /// The domains.
+    pub domains: Vec<Theory>,
+    /// The codomains.
+    pub codomains: Vec<Theory>,
+    /// The legs, each from every domain to every codomain.
+    pub legs: Vec<Morphism>,
+    /// Domain terms on which the whole action is compared.
+    pub probes: Vec<Term>,
+}
+
+fn var(name: &str) -> Term {
+    Term::Var(name.to_owned())
+}
+
+fn constant(name: &str) -> Term {
+    Term::App(name.to_owned(), Vec::new())
+}
+
+fn app(op: &str, args: Vec<Term>) -> Term {
+    Term::App(op.to_owned(), args)
+}
+
+fn simple(name: &str) -> SortExpr {
+    SortExpr::Name(name.to_owned())
+}
+
+fn sort_app(head: &str, args: Vec<Term>) -> SortExpr {
+    SortExpr::App(head.to_owned(), args)
+}
+
+fn declare(name: &str, params: Vec<(&str, SortExpr)>, constructors: Option<&[&str]>) -> Sort {
+    Sort {
+        name: name.to_owned(),
+        params: params
+            .into_iter()
+            .map(|(p, s)| (p.to_owned(), s))
+            .collect(),
+        kind: STRUCTURAL.to_owned(),
+        constructors: constructors.map(|cs| cs.iter().map(|c| (*c).to_owned()).collect()),
+    }
+}
+
+fn operation(name: &str, inputs: Vec<(&str, SortExpr)>, output: SortExpr) -> Op {
+    Op {
+        name: name.to_owned(),
+        inputs: inputs
+            .into_iter()
+            .map(|(n, s)| (n.to_owned(), s, Implicit::No))
+            .collect(),
+        output,
+    }
+}
+
+/// `X`, `Y(x : X)`, `H(x : X, y : X)`, the closed `B` over `closure`, and
+/// `Z(w : Y(z_arg()))`.
+fn action_sorts(closure: &[&str], z_arg: &str) -> Vec<Sort> {
+    vec![
+        declare("X", Vec::new(), None),
+        declare("Y", vec![("x", simple("X"))], None),
+        declare("H", vec![("x", simple("X")), ("y", simple("X"))], None),
+        declare("B", Vec::new(), Some(closure)),
+        declare("Z", vec![("w", sort_app("Y", vec![constant(z_arg)]))], None),
+    ]
+}
+
+/// The domain of the whole-action family: constants `c, d : X`,
+/// constructors `t, f : B`, `p : Y(p_arg())`, `r(z : X) : r_out` and
+/// `q(u : X, v : X) : H(u, v)`.
+fn action_domain(p_arg: &str, r_out: SortExpr) -> Theory {
+    Theory {
+        name: "D".to_owned(),
+        sorts: action_sorts(&["t", "f"], "c"),
+        ops: vec![
+            operation("c", Vec::new(), simple("X")),
+            operation("d", Vec::new(), simple("X")),
+            operation("t", Vec::new(), simple("B")),
+            operation("f", Vec::new(), simple("B")),
+            operation("p", Vec::new(), sort_app("Y", vec![constant(p_arg)])),
+            operation("r", vec![("z", simple("X"))], r_out),
+            operation(
+                "q",
+                vec![("u", simple("X")), ("v", simple("X"))],
+                sort_app("H", vec![var("u"), var("v")]),
+            ),
+        ],
+        ..Theory::default()
+    }
+}
+
+/// The codomain of the whole-action family, with `B` closed over
+/// `closure` and `Z(w : Y(z_arg()))`: `c, d : X`, `t, f : B`, `p : Y(c())`,
+/// `p2 : Y(d())`, `r(z : X) : H(z, c())`, `r2(w : X) : H(w, d())`,
+/// `q(z : X, z : X) : H(z, z)`, `q2(a : X, b : X) : H(a, b)` and
+/// `neg(b : B) : B`.
+fn action_codomain(closure: &[&str], z_arg: &str) -> Theory {
+    let x = || simple("X");
+    Theory {
+        name: "C".to_owned(),
+        sorts: action_sorts(closure, z_arg),
+        ops: vec![
+            operation("c", Vec::new(), x()),
+            operation("d", Vec::new(), x()),
+            operation("t", Vec::new(), simple("B")),
+            operation("f", Vec::new(), simple("B")),
+            operation("p", Vec::new(), sort_app("Y", vec![constant("c")])),
+            operation("p2", Vec::new(), sort_app("Y", vec![constant("d")])),
+            operation("r", vec![("z", x())], sort_app("H", vec![var("z"), constant("c")])),
+            operation("r2", vec![("w", x())], sort_app("H", vec![var("w"), constant("d")])),
+            operation("q", vec![("z", x()), ("z", x())], sort_app("H", vec![var("z"), var("z")])),
+            operation("q2", vec![("a", x()), ("b", x())], sort_app("H", vec![var("a"), var("b")])),
+            operation("neg", vec![("b", simple("B"))], simple("B")),
+        ],
+        ..Theory::default()
+    }
+}
+
+fn product_legs(
+    domain: &str,
+    codomain: &str,
+    sorts: &[&str],
+    images: Vec<(&str, Vec<OpImage>)>,
+) -> Vec<Morphism> {
+    let base = Morphism {
+        name: "m".to_owned(),
+        domain: domain.to_owned(),
+        codomain: codomain.to_owned(),
+        sorts: sorts
+            .iter()
+            .map(|s| ((*s).to_owned(), (*s).to_owned()))
+            .collect(),
+        ops: std::collections::BTreeMap::new(),
+    };
+    let mut legs = vec![base];
+    for (op, choices) in images {
+        legs = legs
+            .into_iter()
+            .flat_map(|partial| {
+                choices.iter().map(move |image| {
+                    let mut grown = partial.clone();
+                    grown.ops.insert(op.to_owned(), image.clone());
+                    grown
+                })
+            })
+            .collect();
+    }
+    legs
+}
+
+/// The whole-action family: six domains (`p : Y(c())` or `Y(d())`, and
+/// `r`'s output `H(z, c())`, `H(c(), z)` or `H(z, z)`), six codomains
+/// (`B` closed over `{t, f}`, `{t}` or `{f}`, and `Z` over `Y(c())` or
+/// `Y(d())`), and 7200 legs: the identity on sorts with one candidate
+/// image per domain operation, renames and derived terms built from
+/// constants, constructors and the operation's inputs; probes are a case
+/// analysis over `B`, uses of `r` and `q`, and a local binding.
+#[must_use]
+pub fn whole_action_scope() -> ActionScope {
+    let rename = |name: &str| OpImage::Op(name.to_owned());
+    let term = OpImage::Term;
+    let mut domains = Vec::new();
+    for p_arg in ["c", "d"] {
+        for r_out in [
+            sort_app("H", vec![var("z"), constant("c")]),
+            sort_app("H", vec![constant("c"), var("z")]),
+            sort_app("H", vec![var("z"), var("z")]),
+        ] {
+            domains.push(action_domain(p_arg, r_out));
+        }
+    }
+    let mut codomains = Vec::new();
+    for closure in [&["t", "f"][..], &["t"][..], &["f"][..]] {
+        for z_arg in ["c", "d"] {
+            codomains.push(action_codomain(closure, z_arg));
+        }
+    }
+    let images = vec![
+        ("c", vec![rename("c"), rename("d"), term(constant("c")), term(constant("d"))]),
+        ("d", vec![rename("d"), rename("c"), term(constant("d"))]),
+        (
+            "t",
+            vec![
+                rename("t"),
+                rename("f"),
+                term(constant("t")),
+                term(constant("f")),
+                term(app("neg", vec![constant("f")])),
+            ],
+        ),
+        ("f", vec![rename("f"), rename("t"), term(constant("f"))]),
+        ("p", vec![rename("p"), rename("p2")]),
+        (
+            "r",
+            vec![
+                rename("r"),
+                rename("r2"),
+                term(app("r", vec![var("z")])),
+                term(app("r2", vec![var("z")])),
+                term(app("r", vec![constant("c")])),
+            ],
+        ),
+        (
+            "q",
+            vec![
+                rename("q"),
+                rename("q2"),
+                term(app("q2", vec![var("u"), var("v")])),
+                term(app("q2", vec![var("v"), var("u")])),
+            ],
+        ),
+    ];
+    let probes = vec![
+        Term::Case(
+            Box::new(var("b")),
+            vec![
+                crate::theory::CaseBranch {
+                    constructor: "t".to_owned(),
+                    binders: Vec::new(),
+                    body: constant("f"),
+                },
+                crate::theory::CaseBranch {
+                    constructor: "f".to_owned(),
+                    binders: Vec::new(),
+                    body: app("r", vec![constant("c")]),
+                },
+            ],
+        ),
+        app("q", vec![constant("d"), app("r", vec![constant("c")])]),
+        Term::Let(
+            "n".to_owned(),
+            Box::new(constant("c")),
+            Box::new(app("q", vec![var("n"), constant("d")])),
+        ),
+    ];
+    ActionScope {
+        domains,
+        codomains,
+        legs: product_legs("D", "C", &["X", "Y", "H", "B", "Z"], images),
+        probes,
+    }
+}
+
+/// The constructor family: domains with `X`, `a : X`, `B` closed over
+/// `c(first : X, second : X) : B` and `pick(b : B) : X`, the input names
+/// of `c` being `(z, w)`, `(z, z)` or `(w, z)`; codomains with `X`,
+/// `a : X`, `B` closed over `{k}`, `{k, k1}`, `{k1}` or nothing,
+/// `k(u : X, v : X) : B`, `k1(u : X) : B` and `pick(b : B) : X`; and 16
+/// legs sending `c` to `k`, to `k1`, to `k1` and `k` applied to every
+/// choice of `z`, `w` and `a()`, to an over-applied `k`, or to a bare
+/// variable, every other symbol to itself.
+#[must_use]
+pub fn constructor_scope() -> ActionScope {
+    let x = || simple("X");
+    let domains = [("z", "w"), ("z", "z"), ("w", "z")]
+        .into_iter()
+        .map(|(first, second)| Theory {
+            name: "D".to_owned(),
+            sorts: vec![declare("X", Vec::new(), None), declare("B", Vec::new(), Some(&["c"]))],
+            ops: vec![
+                operation("a", Vec::new(), x()),
+                operation("c", vec![(first, x()), (second, x())], simple("B")),
+                operation("pick", vec![("b", simple("B"))], x()),
+            ],
+            ..Theory::default()
+        })
+        .collect();
+    let codomains = [&["k"][..], &["k", "k1"][..], &["k1"][..], &[][..]]
+        .into_iter()
+        .map(|closure| Theory {
+            name: "C".to_owned(),
+            sorts: vec![declare("X", Vec::new(), None), declare("B", Vec::new(), Some(closure))],
+            ops: vec![
+                operation("a", Vec::new(), x()),
+                operation("k", vec![("u", x()), ("v", x())], simple("B")),
+                operation("k1", vec![("u", x())], simple("B")),
+                operation("pick", vec![("b", simple("B"))], x()),
+            ],
+            ..Theory::default()
+        })
+        .collect();
+    let leaves = [var("z"), var("w"), constant("a")];
+    let mut images = vec![OpImage::Op("k".to_owned()), OpImage::Op("k1".to_owned())];
+    for first in &leaves {
+        images.push(OpImage::Term(app("k1", vec![first.clone()])));
+        for second in &leaves {
+            images.push(OpImage::Term(app("k", vec![first.clone(), second.clone()])));
+        }
+    }
+    images.push(OpImage::Term(app("k", vec![var("z"), var("w"), var("z")])));
+    images.push(OpImage::Term(var("z")));
+    let legs = product_legs(
+        "D",
+        "C",
+        &["X", "B"],
+        vec![
+            ("a", vec![OpImage::Op("a".to_owned())]),
+            ("c", images),
+            ("pick", vec![OpImage::Op("pick".to_owned())]),
+        ],
+    );
+    let probes = vec![
+        Term::Case(
+            Box::new(var("b")),
+            vec![crate::theory::CaseBranch {
+                constructor: "c".to_owned(),
+                binders: vec!["p".to_owned(), "q".to_owned()],
+                body: var("p"),
+            }],
+        ),
+        app("c", vec![constant("a"), var("y")]),
+        app("pick", vec![app("c", vec![var("y"), constant("a")])]),
+    ];
+    ActionScope {
+        domains,
+        codomains,
+        legs,
+        probes,
+    }
+}
+
+/// A theory with `X`, `Y(x : X)`, a constant `constant : X` and a constant
+/// `fibre : Y(constant())`.
+fn fibred(name: &str, constant_name: &str, fibre: &str) -> Theory {
+    Theory {
+        name: name.to_owned(),
+        sorts: vec![
+            declare("X", Vec::new(), None),
+            declare("Y", vec![("x", simple("X"))], None),
+        ],
+        ops: vec![
+            operation(constant_name, Vec::new(), simple("X")),
+            operation(fibre, Vec::new(), sort_app("Y", vec![constant(constant_name)])),
+        ],
+        ..Theory::default()
+    }
+}
+
+/// The fibre span over `constant` with fibres `fibres` in `S`, `L` and
+/// `R`: each leg is the identity on `X` and `Y`, renames the constant or
+/// sends it to the derived term that is the target's constant, as
+/// `renames` says, and renames the apex's fibre to the target's.
+#[must_use]
+pub fn fibre_span(constant_name: &str, fibres: [&str; 3], renames: [bool; 2]) -> crate::theory::TheoryDiagram {
+    let [h, f, g] = fibres;
+    let leg = |target: &str, fibre: &str, renamed: bool| {
+        let mut ops = std::collections::BTreeMap::new();
+        ops.insert(
+            constant_name.to_owned(),
+            if renamed {
+                OpImage::Op(constant_name.to_owned())
+            } else {
+                OpImage::Term(constant(constant_name))
+            },
+        );
+        ops.insert(h.to_owned(), OpImage::Op(fibre.to_owned()));
+        Morphism {
+            name: format!("S_to_{target}"),
+            domain: "S".to_owned(),
+            codomain: target.to_owned(),
+            sorts: [("X", "X"), ("Y", "Y")]
+                .into_iter()
+                .map(|(a, b)| (a.to_owned(), b.to_owned()))
+                .collect(),
+            ops,
+        }
+    };
+    crate::theory::TheoryDiagram::span(
+        ("S".to_owned(), fibred("S", constant_name, h)),
+        ("L".to_owned(), fibred("L", constant_name, f)),
+        ("R".to_owned(), fibred("R", constant_name, g)),
+        leg("L", f, renames[0]),
+        leg("R", g, renames[1]),
+    )
+}
+
+/// The four fibre spans over `a` with fibres `h`, `f` and `g`, one per
+/// choice of each leg's image of `a`.
+#[must_use]
+pub fn fibre_spans() -> Vec<crate::theory::TheoryDiagram> {
+    [[true, true], [true, false], [false, true], [false, false]]
+        .into_iter()
+        .map(|renames| fibre_span("a", ["h", "f", "g"], renames))
+        .collect()
 }

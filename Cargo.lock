@@ -1940,6 +1940,7 @@ dependencies = [
  "divan",
  "miette",
  "panproto-expr",
+ "panproto-reference",
  "proptest",
  "rustc-hash",
  "serde",

@@ -2969,4 +2969,31 @@ mod tests {
             "{result:?}"
         );
     }
+
+    #[test]
+    fn an_equation_relating_two_distinct_variables_is_not_preserved_without_an_axiom() {
+        // `e : x = y` says every two elements of `A` are equal. Its image
+        // under the identity is `x = y` again, which the codomain, with no
+        // equation at all, does not entail: the two sides are distinct
+        // variables, although each, taken alone, is a single variable.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("A")],
+            vec![],
+            vec![Equation::new("e", Term::var("x"), Term::var("y"))],
+        );
+        let codomain = Theory::new("C", vec![Sort::simple("A")], vec![], vec![]);
+        let m = TheoryMorphism::new(
+            "m",
+            "D",
+            "C",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::<Arc<str>, OpAssignment>::new(),
+        );
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(&result, Err(GatError::EquationNotPreserved { equation, .. }) if equation == "e"),
+            "{result:?}"
+        );
+    }
 }

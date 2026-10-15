@@ -1497,7 +1497,9 @@ impl std::fmt::Display for SignatureDefect {
 /// # Errors
 ///
 /// Returns every defect found, in the order: duplicates, then sorts in
-/// declaration order, then operations in declaration order.
+/// declaration order, then operations in declaration order; within one
+/// parameter or input, a repeated binder name comes before the defects of
+/// its sort.
 pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> {
     let mut defects = duplicate_symbols(theory);
     let ordered = sorts_in_dependency_order(theory);
@@ -1509,16 +1511,16 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
                 sort: Arc::clone(&sort.name),
                 index,
             };
+            fresh_binder(&param.name, site.clone(), &ctx, &mut defects);
             let head = param.sort.head();
             if theory.has_sort(head) && !ordered.contains(head) {
                 defects.push(SignatureDefect::UndeclaredSort {
-                    site: site.clone(),
+                    site,
                     sort: Arc::clone(head),
                 });
             } else {
                 check_sort_expr(&param.sort, &site, &ctx, theory, &mut defects);
             }
-            fresh_binder(&param.name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(&param.name), param.sort.clone());
         }
     }
@@ -1530,8 +1532,8 @@ pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> 
                 op: Arc::clone(&op.name),
                 index,
             };
+            fresh_binder(name, site.clone(), &ctx, &mut defects);
             check_sort_expr(sort, &site, &ctx, theory, &mut defects);
-            fresh_binder(name, site, &ctx, &mut defects);
             ctx.insert(Arc::clone(name), sort.clone());
         }
         let site = SignatureSite::OpOutput {
