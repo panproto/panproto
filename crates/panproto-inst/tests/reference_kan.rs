@@ -4883,6 +4883,46 @@ fn tree_pi_reports_the_first_merging_pair_in_source_order() {
     );
 }
 
+/// The first tree-Pi collision is the first one encountered while scanning
+/// source vertices, not the lexicographically least colliding pair: for the
+/// crossing pairs `(a, z)` and `(b, c)`, the scan reaches `c` before `z` and
+/// must report `(b, c)` at `t2`.
+#[test]
+fn tree_pi_orders_crossing_collisions_by_the_second_source() {
+    let source = panproto_reference::schema::Schema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("z", "record");
+    let target = panproto_reference::schema::Schema::default()
+        .vertex("t1", "record")
+        .vertex("t2", "record");
+    let mut migration = panproto_reference::migration::Migration::default();
+    for (s, t) in [("a", "t1"), ("b", "t2"), ("c", "t2"), ("z", "t1")] {
+        migration.vertex_remap.insert(s.to_owned(), t.to_owned());
+    }
+    let functors = Functors::new(&source, &target, &migration, &family_kinds());
+    let tree = model::Tree {
+        nodes: BTreeMap::from([(0, model::Node::new(0, "a"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    let expected = encode::t_pi(&functors.reference, &tree, 4);
+    assert_eq!(
+        expected,
+        Err(encode::TreeKanError::NonInjectiveVertexMap {
+            first: "b".to_owned(),
+            second: "c".to_owned(),
+            target: "t2".to_owned(),
+        })
+    );
+    assert_eq!(
+        check_tree_route(&functors, TreeRoute::Pi(4), &tree, &expected, false),
+        "NonInjectiveVertexMap"
+    );
+}
+
 /// The Delta -| Pi transposes need Pi of the source instance only: along
 /// the merge of `a{x}` and `b{x}` into `m{x}`, with `J` three `m` rows (so
 /// `Pi(Delta J)` is a product of 9, over the bound 4) and `I` one row in each

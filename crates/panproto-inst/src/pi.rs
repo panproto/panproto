@@ -957,10 +957,13 @@ pub fn wtype_pi(
     // fiber with multiple sources would require a product of subtrees, which
     // this function does not build (see `functor_pi` for the set-valued
     // product). Reject rather than silently return Sigma-shaped output.
+    // Scanning source vertices in ascending order discovers a fibre's
+    // collision at its second source. Thus the first collision is ordered
+    // by `(second, first)`, while `target` remains the shared-image detail.
     if let Some((target, sources)) = fiber_map
         .iter()
         .filter(|(_, sources)| sources.len() > 1)
-        .min_by(|(_, left), (_, right)| left[..2].cmp(&right[..2]))
+        .min_by(|(_, left), (_, right)| left[1].cmp(&right[1]).then_with(|| left[0].cmp(&right[0])))
     {
         return Err(RestrictError::NonInjectiveVertexMap {
             target: target.clone(),
