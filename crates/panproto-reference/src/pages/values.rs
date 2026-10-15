@@ -1373,6 +1373,7 @@ pub mod coerce {
     }
 
     /// Definition: Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
+    ///
     /// Under `Any`, a temporal lexeme with a calendar-date reading takes that
     /// reading; reduced-form offset readings are considered only when no date
     /// reading exists. A declared temporal kind selects its own reading.

@@ -9,10 +9,11 @@
 //!
 //! # The conversion between the two value models
 //!
-//! The reference holds a richer model than production: decimal NaNs,
-//! infinities and negative zeros, reduced-precision and unwritten-offset
-//! temporals, the padded and Latin-1 byte texts, numeral dialects and a
-//! second float reading. Production's model embeds in it by [`to_ref`]
+//! The reference and production carriers cover the same values in this
+//! scope: decimal NaNs, infinities and negative zeros; reduced-precision,
+//! front-truncated and unwritten-offset temporals; padded and Latin-1 byte
+//! texts; numeral dialects; and both float readings. Production embeds in
+//! the reference model by [`to_ref`]
 //! (values), [`spec_to_ref`] (specs) and [`reason_to_ref`] (refusals):
 //!
 //! - `Bool`, `Int`, `Str`, `Bytes`, `CidLink`, `Blob`, `Token`, `Null` and
@@ -32,7 +33,9 @@
 //!   offset `o'`; a date-time to the one with both, its separator mapped
 //!   case for case. The offset map `o -> o'` sends `Local` to `Local`,
 //!   `Zulu(case)` to `Zulu(case)`, `Fixed(m)` to `Fixed(m, Extended)` and
-//!   `NegZero` to `NegZero(Extended)`.
+//!   `NegZero` to `NegZero(Extended)`. The extended temporal carrier maps
+//!   every optional field, written offset form and infinity component
+//!   directly.
 //! - A spec goes to the spec of the corresponding kind (the four production
 //!   byte texts to the reference's of the same name) with the same
 //!   precision, scale, offset requirement, integer width and signedness,
@@ -48,11 +51,13 @@
 //! `significand` and a `WideInt` magnitude as non-empty ASCII digit strings
 //! (the invariants of `DecimalValue::new`, `BigIntValue` and `WideInt`),
 //! which `Nat::parse` reads, and a `BigInt`'s zero count is never negative;
-//! the temporal clauses cover the three temporal variants; the spec clause
+//! the temporal clauses cover the three historical temporal variants and
+//! the extended carrier; the spec clause
 //! covers every production kind. Injectivity, by induction on the value:
-//! (1) distinct production variants go to distinct reference variants, the
-//! three temporal variants to temporals told apart by which of `date` and
-//! `time` are present; (2) within a variant every component map is
+//! (1) distinct non-temporal production variants go to distinct reference
+//! variants, while temporal constructors map injectively through their exact
+//! field-presence and lexical descriptors; (2) within a variant every
+//! component map is
 //! injective: `f64::to_bits` is injective on representations (it is a
 //! bijection with `u64`); `Nat::parse` is injective on digit strings without
 //! a leading zero (two such strings read as one number are equal, since
@@ -87,8 +92,9 @@ use std::time::Instant;
 use panproto_inst::Value;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce, coerce_discriminated, coerce_value};
 use panproto_inst::value::{
-    BigIntValue, CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue,
-    FidelityReason, Fraction, Offset, Temporal, ValueSite, WideInt, ZuluCase,
+    BigIntValue, CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass, DecimalValue,
+    ExtendedTemporal, FidelityReason, Fraction, Offset, OffsetForm, Temporal, TemporalForm,
+    TemporalInfinity, TemporalYear, TimeFields, ValueSite, WideInt, ZuluCase,
 };
 use panproto_reference::bytes::{encode_base64, latin1_decode};
 use panproto_reference::coerce as r;
@@ -132,20 +138,47 @@ const fn offset_to_ref(o: Offset) -> rt::Offset {
         Offset::Local => rt::Offset::Local,
         Offset::Zulu(ZuluCase::Upper) => rt::Offset::Zulu(rt::ZuluCase::Upper),
         Offset::Zulu(ZuluCase::Lower) => rt::Offset::Zulu(rt::ZuluCase::Lower),
+        Offset::Zulu(ZuluCase::Unwritten) => rt::Offset::Zulu(rt::ZuluCase::Unwritten),
         Offset::Fixed(m) => rt::Offset::Fixed(m, rt::OffsetForm::Extended),
+        Offset::FixedForm(m, form) => rt::Offset::Fixed(m, offset_form_to_ref(form)),
+        Offset::FixedSeconds(s) => rt::Offset::FixedSeconds(s),
         Offset::NegZero => rt::Offset::NegZero(rt::OffsetForm::Extended),
+        Offset::NegZeroForm(form) => rt::Offset::NegZero(offset_form_to_ref(form)),
     }
 }
 
-fn offset_from_ref(o: rt::Offset) -> Option<Offset> {
-    Some(match o {
+const fn offset_form_to_ref(form: OffsetForm) -> rt::OffsetForm {
+    match form {
+        OffsetForm::Extended => rt::OffsetForm::Extended,
+        OffsetForm::Basic => rt::OffsetForm::Basic,
+        OffsetForm::HourOnly => rt::OffsetForm::HourOnly,
+        OffsetForm::ExtendedSeconds => rt::OffsetForm::ExtendedSeconds,
+        OffsetForm::Unwritten => rt::OffsetForm::Unwritten,
+    }
+}
+
+const fn offset_form_from_ref(form: rt::OffsetForm) -> OffsetForm {
+    match form {
+        rt::OffsetForm::Extended => OffsetForm::Extended,
+        rt::OffsetForm::Basic => OffsetForm::Basic,
+        rt::OffsetForm::HourOnly => OffsetForm::HourOnly,
+        rt::OffsetForm::ExtendedSeconds => OffsetForm::ExtendedSeconds,
+        rt::OffsetForm::Unwritten => OffsetForm::Unwritten,
+    }
+}
+
+const fn offset_from_ref(o: rt::Offset) -> Offset {
+    match o {
         rt::Offset::Local => Offset::Local,
         rt::Offset::Zulu(rt::ZuluCase::Upper) => Offset::Zulu(ZuluCase::Upper),
         rt::Offset::Zulu(rt::ZuluCase::Lower) => Offset::Zulu(ZuluCase::Lower),
+        rt::Offset::Zulu(rt::ZuluCase::Unwritten) => Offset::Zulu(ZuluCase::Unwritten),
         rt::Offset::Fixed(m, rt::OffsetForm::Extended) => Offset::fixed(m).ok()?,
+        rt::Offset::Fixed(m, form) => Offset::FixedForm(m, offset_form_from_ref(form)),
+        rt::Offset::FixedSeconds(s) => Offset::FixedSeconds(s),
         rt::Offset::NegZero(rt::OffsetForm::Extended) => Offset::NegZero,
-        _ => return None,
-    })
+        rt::Offset::NegZero(form) => Offset::NegZeroForm(offset_form_from_ref(form)),
+    }
 }
 
 const fn separator_to_ref(s: DateTimeSeparator) -> rt::Separator {
@@ -203,6 +236,48 @@ fn time_from_ref(t: &rt::TimeFields) -> Option<CivilTime> {
     .ok()
 }
 
+fn date_fields_to_ref(date: DateFields) -> rt::DateFields {
+    rt::DateFields {
+        year: date.year.map(|year| rt::Year {
+            value: year.value,
+            negative_zero: year.negative_zero,
+            width: year.width,
+        }),
+        month: date.month,
+        day: date.day,
+    }
+}
+
+fn time_fields_to_ref(time: &TimeFields) -> rt::TimeFields {
+    rt::TimeFields {
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
+        fraction: time.fraction.as_str().to_owned(),
+    }
+}
+
+fn date_fields_from_ref(date: &rt::DateFields) -> DateFields {
+    DateFields {
+        year: date.year.map(|year| TemporalYear {
+            value: year.value,
+            negative_zero: year.negative_zero,
+            width: year.width,
+        }),
+        month: date.month,
+        day: date.day,
+    }
+}
+
+fn time_fields_from_ref(time: &rt::TimeFields) -> Option<TimeFields> {
+    Some(TimeFields {
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
+        fraction: Fraction::new(&time.fraction).ok()?,
+    })
+}
+
 fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
     let (date, time, separator, offset) = match t {
         Temporal::Date(d) => (Some(date_to_ref(*d)), None, None, Offset::Local),
@@ -213,6 +288,27 @@ fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
             Some(separator_to_ref(*s)),
             *o,
         ),
+        Temporal::Extended(value) => {
+            return rt::Temporal {
+                date: value.date.map(date_fields_to_ref),
+                time: value.time.as_ref().map(time_fields_to_ref),
+                separator: value.separator.map(separator_to_ref),
+                offset: offset_to_ref(value.offset),
+                infinity: value.infinity.map(|(sign, form)| {
+                    (
+                        match sign {
+                            TemporalInfinity::Negative => rt::TemporalInfinity::Negative,
+                            TemporalInfinity::Positive => rt::TemporalInfinity::Positive,
+                        },
+                        match form {
+                            TemporalForm::Date => rt::TemporalForm::Date,
+                            TemporalForm::Time => rt::TemporalForm::Time,
+                            TemporalForm::DateTime => rt::TemporalForm::DateTime,
+                        },
+                    )
+                }),
+            };
+        }
     };
     rt::Temporal {
         date,
@@ -224,21 +320,70 @@ fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
 }
 
 fn temporal_from_ref(t: &rt::Temporal) -> Option<Temporal> {
-    if t.infinity.is_some() {
-        return None;
+    let offset = offset_from_ref(t.offset);
+    if t.infinity.is_none() {
+        match (&t.date, &t.time, t.separator) {
+            (Some(d), None, None) if offset == Offset::Local => {
+                if let Some(date) = date_from_ref(d) {
+                    return Some(Temporal::Date(date));
+                }
+            }
+            (None, Some(time), None)
+                if matches!(
+                    offset,
+                    Offset::Local
+                        | Offset::Zulu(ZuluCase::Upper | ZuluCase::Lower)
+                        | Offset::Fixed(_)
+                        | Offset::NegZero
+                ) =>
+            {
+                if let Some(time) = time_from_ref(time) {
+                    return Some(Temporal::Time(time, offset));
+                }
+            }
+            (Some(d), Some(time), Some(separator))
+                if matches!(
+                    offset,
+                    Offset::Local
+                        | Offset::Zulu(ZuluCase::Upper | ZuluCase::Lower)
+                        | Offset::Fixed(_)
+                        | Offset::NegZero
+                ) =>
+            {
+                if let (Some(date), Some(time)) = (date_from_ref(d), time_from_ref(time)) {
+                    return Some(Temporal::DateTime(
+                        date,
+                        time,
+                        offset,
+                        separator_from_ref(separator),
+                    ));
+                }
+            }
+            _ => {}
+        }
     }
-    let offset = offset_from_ref(t.offset)?;
-    Some(match (&t.date, &t.time, t.separator) {
-        (Some(d), None, None) if offset == Offset::Local => Temporal::Date(date_from_ref(d)?),
-        (None, Some(time), None) => Temporal::Time(time_from_ref(time)?, offset),
-        (Some(d), Some(time), Some(s)) => Temporal::DateTime(
-            date_from_ref(d)?,
-            time_from_ref(time)?,
-            offset,
-            separator_from_ref(s),
-        ),
-        _ => return None,
-    })
+    Some(Temporal::Extended(ExtendedTemporal {
+        date: t.date.as_ref().map(date_fields_from_ref),
+        time: match &t.time {
+            Some(time) => Some(time_fields_from_ref(time)?),
+            None => None,
+        },
+        separator: t.separator.map(separator_from_ref),
+        offset,
+        infinity: t.infinity.map(|(sign, form)| {
+            (
+                match sign {
+                    rt::TemporalInfinity::Negative => TemporalInfinity::Negative,
+                    rt::TemporalInfinity::Positive => TemporalInfinity::Positive,
+                },
+                match form {
+                    rt::TemporalForm::Date => TemporalForm::Date,
+                    rt::TemporalForm::Time => TemporalForm::Time,
+                    rt::TemporalForm::DateTime => TemporalForm::DateTime,
+                },
+            )
+        }),
+    }))
 }
 
 /// The reference decimal of a production decimal: a finite value field for
@@ -428,8 +573,8 @@ const fn kind_to_ref(k: &ScalarKind) -> r::ScalarKind {
     }
 }
 
-const fn kind_from_ref(k: r::ScalarKind) -> Option<ScalarKind> {
-    Some(match k {
+const fn kind_from_ref(k: r::ScalarKind) -> ScalarKind {
+    match k {
         r::ScalarKind::Bool => ScalarKind::Bool,
         r::ScalarKind::Int { bits, signed } => ScalarKind::Int { bits, signed },
         r::ScalarKind::BigInt => ScalarKind::BigInt,
@@ -452,7 +597,7 @@ const fn kind_from_ref(k: r::ScalarKind) -> Option<ScalarKind> {
         r::ScalarKind::DateTime => ScalarKind::DateTime,
         r::ScalarKind::Token => ScalarKind::Token,
         r::ScalarKind::Any => ScalarKind::Any,
-    })
+    }
 }
 
 const fn reading_to_ref(reading: FloatReading) -> r::FloatReading {
@@ -522,7 +667,7 @@ fn spec_into_production(s: &r::ValueSpec) -> Option<ValueSpec> {
         Some(d) => Some(*DIALECTS.iter().find(|p| dialect_to_ref(**p) == d)?),
     };
     let p = ValueSpec {
-        kind: kind_from_ref(s.kind)?,
+        kind: kind_from_ref(s.kind),
         precision: s.precision,
         scale: s.scale,
         with_time_zone: s.with_time_zone,

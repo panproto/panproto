@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use panproto_expr::exact::{DateTimeSeparator, Fraction, WideInt, ZuluCase};
+use panproto_expr::exact::WideInt;
 use panproto_gat::Name;
 use panproto_schema::Edge;
 
@@ -18,7 +18,9 @@ use super::store::ArtifactKind;
 use crate::identity::Digest;
 use crate::metadata::{Node, NodeShape};
 use crate::value::{
-    BigIntValue, CivilDate, CivilTime, DecimalValue, FieldPresence, Offset, Temporal, Value,
+    BigIntValue, CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalValue,
+    ExtendedTemporal, FieldPresence, Fraction, Offset, OffsetForm, Temporal, TemporalForm,
+    TemporalInfinity, TemporalYear, TimeFields, Value, ZuluCase,
 };
 use crate::view_ref::{RowId, ViewRef};
 
@@ -378,17 +380,154 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn optional_u8(&mut self, what: &str) -> Result<Option<u8>, SegmentError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(self.u8()?)),
+            other => Err(self.error(format!("{what} presence tag {other}"))),
+        }
+    }
+
+    fn date_fields(&mut self) -> Result<DateFields, SegmentError> {
+        let year = match self.u8()? {
+            0 => None,
+            1 => Some(TemporalYear {
+                value: self.i64()?,
+                negative_zero: self.bool()?,
+                width: usize::try_from(self.u64()?)
+                    .map_err(|_| self.error("a temporal year width leaves usize"))?,
+            }),
+            other => return Err(self.error(format!("temporal year presence tag {other}"))),
+        };
+        Ok(DateFields {
+            year,
+            month: self.optional_u8("temporal month")?,
+            day: self.optional_u8("temporal day")?,
+        })
+    }
+
+    fn time_fields(&mut self) -> Result<TimeFields, SegmentError> {
+        let hour = self.optional_u8("temporal hour")?;
+        let minute = self.optional_u8("temporal minute")?;
+        let second = self.optional_u8("temporal second")?;
+        let digits = self.byte_string()?;
+        let fraction = std::str::from_utf8(digits)
+            .ok()
+            .and_then(|digits| Fraction::new(digits).ok())
+            .ok_or_else(|| self.error("a fraction of a second holds a byte that is not a digit"))?;
+        Ok(TimeFields {
+            hour,
+            minute,
+            second,
+            fraction,
+        })
+    }
+
+    fn offset_form(&mut self) -> Result<OffsetForm, SegmentError> {
+        match self.u8()? {
+            0 => Ok(OffsetForm::Extended),
+            1 => Ok(OffsetForm::Basic),
+            2 => Ok(OffsetForm::HourOnly),
+            3 => Ok(OffsetForm::ExtendedSeconds),
+            4 => Ok(OffsetForm::Unwritten),
+            other => Err(self.error(format!("offset form tag {other}"))),
+        }
+    }
+
+    fn extended_offset(&mut self) -> Result<Offset, SegmentError> {
+        let offset = match self.u8()? {
+            0 => Offset::Local,
+            1 => Offset::Zulu(match self.u8()? {
+                0 => ZuluCase::Upper,
+                1 => ZuluCase::Lower,
+                2 => ZuluCase::Unwritten,
+                other => return Err(self.error(format!("extended Z offset case tag {other}"))),
+            }),
+            2 => {
+                let minutes = i16::try_from(self.i64()?)
+                    .map_err(|_| self.error("an extended offset leaves i16"))?;
+                match self.offset_form()? {
+                    OffsetForm::Extended => Offset::fixed(minutes),
+                    form => Offset::fixed_form(minutes, form),
+                }
+                .map_err(|error| self.error(error.to_string()))?
+            }
+            3 => match self.offset_form()? {
+                OffsetForm::Extended => Offset::NegZero,
+                form @ (OffsetForm::Basic | OffsetForm::HourOnly | OffsetForm::ExtendedSeconds) => {
+                    Offset::NegZeroForm(form)
+                }
+                OffsetForm::Unwritten => {
+                    return Err(self.error("an unwritten negative-zero offset"));
+                }
+            },
+            4 => {
+                let seconds = i32::try_from(self.i64()?)
+                    .map_err(|_| self.error("a second offset leaves i32"))?;
+                Offset::fixed_seconds(seconds).map_err(|error| self.error(error.to_string()))?
+            }
+            other => return Err(self.error(format!("extended offset tag {other}"))),
+        };
+        Ok(offset)
+    }
+
+    fn separator(&mut self) -> Result<DateTimeSeparator, SegmentError> {
+        let byte = self.u8()?;
+        DateTimeSeparator::from_byte(byte)
+            .ok_or_else(|| self.error(format!("date-time separator byte {byte}")))
+    }
+
     fn temporal(&mut self) -> Result<Temporal, SegmentError> {
         match self.u8()? {
             0 => Ok(Temporal::Date(self.civil_date()?)),
             1 => Ok(Temporal::Time(self.civil_time()?, self.offset()?)),
             2 => {
                 let date = self.civil_date()?;
-                let byte = self.u8()?;
-                let separator = DateTimeSeparator::from_byte(byte)
-                    .ok_or_else(|| self.error(format!("date-time separator byte {byte}")))?;
+                let separator = self.separator()?;
                 let time = self.civil_time()?;
                 Ok(Temporal::DateTime(date, time, self.offset()?, separator))
+            }
+            tag @ 3..=5 => {
+                let form = match tag {
+                    3 => TemporalForm::Date,
+                    4 => TemporalForm::Time,
+                    _ => TemporalForm::DateTime,
+                };
+                let date = matches!(form, TemporalForm::Date | TemporalForm::DateTime)
+                    .then(|| self.date_fields())
+                    .transpose()?;
+                let separator = (form == TemporalForm::DateTime)
+                    .then(|| self.separator())
+                    .transpose()?;
+                let time = matches!(form, TemporalForm::Time | TemporalForm::DateTime)
+                    .then(|| self.time_fields())
+                    .transpose()?;
+                let value = ExtendedTemporal {
+                    date,
+                    time,
+                    separator,
+                    offset: self.extended_offset()?,
+                    infinity: None,
+                };
+                value
+                    .well_formed()
+                    .then_some(Temporal::Extended(value))
+                    .ok_or_else(|| self.error("an invalid extended temporal"))
+            }
+            tag @ 6..=7 => {
+                let form = if tag == 6 {
+                    TemporalForm::Date
+                } else {
+                    TemporalForm::DateTime
+                };
+                let sign = match self.u8()? {
+                    0 => TemporalInfinity::Negative,
+                    1 => TemporalInfinity::Positive,
+                    other => return Err(self.error(format!("temporal infinity sign tag {other}"))),
+                };
+                let value = ExtendedTemporal::infinite(sign, form, self.extended_offset()?)
+                    .ok_or_else(|| self.error("an invalid temporal infinity"))?;
+                Ok(Temporal::Extended(value))
             }
             other => Err(self.error(format!("temporal tag {other}"))),
         }
@@ -508,6 +647,31 @@ mod tests {
         }
         let date = Value::Temporal(ok(Temporal::parse("-0044-03-15")));
         assert_eq!(ok(read(&written(&date))), date);
+
+        for text in [
+            "2018",
+            "1973-06",
+            "--04-12",
+            "---12",
+            "-0000",
+            "2018Z",
+            "23",
+            "-20:50",
+            "--50",
+            "23:20+04",
+            "03:04:05+01:02:03",
+            "03:04:05+01:02:00",
+            "1985-04-12T23",
+            "---15T09:45:00+01:00",
+            "2024-01-02T03:04:05-0000",
+            "infinity",
+            "-infinity",
+        ] {
+            let value = Value::Temporal(ok(Temporal::parse(text)));
+            let bytes = written(&value);
+            assert_eq!(ok(read(&bytes)), value, "{text}");
+            assert_eq!(ok(read(&bytes)).canonical_bytes(), value.canonical_bytes());
+        }
     }
 
     #[test]
@@ -582,6 +746,25 @@ mod tests {
             bytes[at] = byte;
             assert!(message(read(&bytes)).starts_with(&format!("date-time separator byte {byte}")));
         }
+
+        // A reduced form uses the extended offset encoding; its spelling
+        // tag is typed and unknown tags are refused.
+        let reduced = Value::Temporal(ok(Temporal::parse_time("23+01")));
+        let mut bytes = written(&reduced);
+        let form_at = bytes.len() - 1;
+        assert_eq!(bytes[form_at], 2);
+        bytes[form_at] = 5;
+        assert!(message(read(&bytes)).starts_with("offset form tag 5"));
+
+        // A nonzero-second offset uses extended offset tag 4. Its signed
+        // second count must stay within a day and have a nonzero seconds
+        // component.
+        let second_offset = Value::Temporal(ok(Temporal::parse_time("03:04:05+01:02:03")));
+        let mut bytes = written(&second_offset);
+        let tag_at = bytes.len() - 9;
+        assert_eq!(bytes[tag_at], 4);
+        bytes[tag_at + 1..].copy_from_slice(&(86_400_i64).to_le_bytes());
+        assert!(message(read(&bytes)).contains("invalid temporal"));
     }
 
     /// The bytes of a `WideInt`: its sign byte and its magnitude's digits

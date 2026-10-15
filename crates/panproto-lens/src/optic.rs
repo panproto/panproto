@@ -407,6 +407,36 @@ fn perturb_value(value: &mut panproto_inst::value::Value) {
             | panproto_inst::value::Temporal::DateTime(_, time, _, _) => {
                 time.minute = (time.minute + 1) % 60;
             }
+            panproto_inst::value::Temporal::Extended(value) => {
+                if let Some(year) = value.date.as_mut().and_then(|date| date.year.as_mut()) {
+                    year.value = year.value.checked_add(400).unwrap_or(year.value - 400);
+                    year.negative_zero = false;
+                    year.width = year.value.unsigned_abs().to_string().len().max(4);
+                } else if let Some(time) = &mut value.time {
+                    if let Some(minute) = &mut time.minute {
+                        *minute = (*minute + 1) % 60;
+                    } else if let Some(hour) = &mut time.hour {
+                        *hour = (*hour + 1) % 24;
+                    } else if let Some(second) = &mut time.second {
+                        *second = (*second + 1) % 61;
+                    }
+                } else if let Some(date) = &mut value.date {
+                    if let Some(day) = &mut date.day {
+                        *day = if *day == 1 { 2 } else { 1 };
+                    } else if let Some(month) = &mut date.month {
+                        *month = (*month % 12) + 1;
+                    }
+                } else if let Some((sign, _)) = &mut value.infinity {
+                    *sign = match sign {
+                        panproto_inst::value::TemporalInfinity::Negative => {
+                            panproto_inst::value::TemporalInfinity::Positive
+                        }
+                        panproto_inst::value::TemporalInfinity::Positive => {
+                            panproto_inst::value::TemporalInfinity::Negative
+                        }
+                    };
+                }
+            }
         },
     }
 }

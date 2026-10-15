@@ -10,8 +10,8 @@
 use std::cmp::Ordering;
 
 use panproto_expr::exact::{
-    CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue, Offset, Temporal, WideInt,
-    ZuluCase,
+    CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass, DecimalValue, Offset,
+    OffsetForm, Temporal, TemporalForm, TemporalInfinity, TimeFields, WideInt, ZuluCase,
 };
 use panproto_expr::{BuiltinOp, ExprError, Literal, apply_builtin};
 use panproto_reference::exact as rx;
@@ -106,8 +106,22 @@ const fn offset_to_ref(o: Offset) -> rt::Offset {
         Offset::Local => rt::Offset::Local,
         Offset::Zulu(ZuluCase::Upper) => rt::Offset::Zulu(rt::ZuluCase::Upper),
         Offset::Zulu(ZuluCase::Lower) => rt::Offset::Zulu(rt::ZuluCase::Lower),
+        Offset::Zulu(ZuluCase::Unwritten) => rt::Offset::Zulu(rt::ZuluCase::Unwritten),
         Offset::Fixed(m) => rt::Offset::Fixed(m, rt::OffsetForm::Extended),
+        Offset::FixedForm(m, form) => rt::Offset::Fixed(m, offset_form_to_ref(form)),
+        Offset::FixedSeconds(s) => rt::Offset::FixedSeconds(s),
         Offset::NegZero => rt::Offset::NegZero(rt::OffsetForm::Extended),
+        Offset::NegZeroForm(form) => rt::Offset::NegZero(offset_form_to_ref(form)),
+    }
+}
+
+const fn offset_form_to_ref(form: OffsetForm) -> rt::OffsetForm {
+    match form {
+        OffsetForm::Extended => rt::OffsetForm::Extended,
+        OffsetForm::Basic => rt::OffsetForm::Basic,
+        OffsetForm::HourOnly => rt::OffsetForm::HourOnly,
+        OffsetForm::ExtendedSeconds => rt::OffsetForm::ExtendedSeconds,
+        OffsetForm::Unwritten => rt::OffsetForm::Unwritten,
     }
 }
 
@@ -132,6 +146,27 @@ fn time_to_ref(t: &CivilTime) -> rt::TimeFields {
     }
 }
 
+fn date_fields_to_ref(date: DateFields) -> rt::DateFields {
+    rt::DateFields {
+        year: date.year.map(|year| rt::Year {
+            value: year.value,
+            negative_zero: year.negative_zero,
+            width: year.width,
+        }),
+        month: date.month,
+        day: date.day,
+    }
+}
+
+fn time_fields_to_ref(time: &TimeFields) -> rt::TimeFields {
+    rt::TimeFields {
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
+        fraction: time.fraction.as_str().to_owned(),
+    }
+}
+
 const fn separator_to_ref(s: DateTimeSeparator) -> rt::Separator {
     match s {
         DateTimeSeparator::Upper => rt::Separator::Upper,
@@ -151,6 +186,27 @@ fn temporal_to_ref(t: &Temporal) -> rt::Temporal {
             Some(separator_to_ref(*s)),
             *o,
         ),
+        Temporal::Extended(value) => {
+            return rt::Temporal {
+                date: value.date.map(date_fields_to_ref),
+                time: value.time.as_ref().map(time_fields_to_ref),
+                separator: value.separator.map(separator_to_ref),
+                offset: offset_to_ref(value.offset),
+                infinity: value.infinity.map(|(sign, form)| {
+                    (
+                        match sign {
+                            TemporalInfinity::Negative => rt::TemporalInfinity::Negative,
+                            TemporalInfinity::Positive => rt::TemporalInfinity::Positive,
+                        },
+                        match form {
+                            TemporalForm::Date => rt::TemporalForm::Date,
+                            TemporalForm::Time => rt::TemporalForm::Time,
+                            TemporalForm::DateTime => rt::TemporalForm::DateTime,
+                        },
+                    )
+                }),
+            };
+        }
     };
     rt::Temporal {
         date,

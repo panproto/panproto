@@ -36,7 +36,9 @@ pub use binary16::{BINARY16_OVERFLOW, binary16_bits, binary16_nearest, binary16_
 pub use decimal::{DecimalClass, DecimalValue};
 pub use integer::{BigIntValue, ExactInteger, WideInt};
 pub use temporal::{
-    CivilDate, CivilTime, DateTimeSeparator, Fraction, Offset, Temporal, TimeUnit, ZuluCase,
+    CivilDate, CivilTime, DateFields, DateTimeSeparator, ExtendedTemporal, Fraction, Offset,
+    OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalLexicalForm, TemporalParseError,
+    TemporalYear, TimeFields, TimeUnit, ZuluCase,
 };
 
 /// The canonical quiet NaN, bits `0x7ff8000000000000`.
