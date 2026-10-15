@@ -808,3 +808,140 @@ pub fn present(n: &Node) -> Option<&Value> {
         _ => None,
     }
 }
+
+/// Whether a lens lies on the Delta fragment of L.4: a subschema
+/// restriction with monic deletions and no contraction, expansion, fan
+/// retargeting, survival predicate or transform.
+///
+/// Every surviving source vertex keeps its own name and every surviving
+/// source edge is kept as itself, the target schema's vertices and edges are
+/// among the source schema's, and the migration states no resolver,
+/// expansion path, hyper-edge resolver, survival predicate or transform.
+///
+/// Book anchors: `L-lenses-4`.
+#[must_use]
+pub fn on_delta_fragment(lens: &GraphLens<'_>) -> bool {
+    let m = lens.m;
+    m.vertex_remap.is_empty()
+        && m.edge_remap.is_empty()
+        && m.resolver.is_empty()
+        && m.expansion_path.is_empty()
+        && m.hyper_resolver.is_empty()
+        && m.conditional.is_empty()
+        && m.transformed.is_empty()
+        && lens
+            .tgt
+            .vertices
+            .iter()
+            .all(|(v, kind)| lens.src.vertices.get(v) == Some(kind))
+        && lens.tgt.edges.iter().all(|e| lens.src.edges.contains(e))
+}
+
+/// Whether `part` is a subinstance of `whole`: every node of `part` is a
+/// node of `whole` with the same id and content, and every edge of `part`
+/// is an edge of `whole` with the same id, endpoints, label and position.
+///
+/// Book anchors: `L-lenses-4`.
+#[must_use]
+pub fn is_subinstance(part: &Graph, whole: &Graph) -> bool {
+    part.nodes
+        .iter()
+        .all(|(id, node)| whole.nodes.get(id) == Some(node))
+        && part
+            .edges
+            .iter()
+            .all(|(id, edge)| whole.edges.get(id) == Some(edge))
+}
+
+/// Every endpoint-closed subinstance of `source`: each set of its nodes
+/// together with each set of the edges whose endpoints are both kept, in
+/// ascending node-mask and then edge-mask order.
+///
+/// Book anchors: `L-lenses-4`.
+#[must_use]
+pub fn subinstances(source: &Graph) -> Vec<Graph> {
+    let nodes: Vec<(&u32, &Node)> = source.nodes.iter().collect();
+    let edges: Vec<(&u32, &GEdge)> = source.edges.iter().collect();
+    let mut out = Vec::new();
+    for node_mask in 0..(1_u64 << nodes.len()) {
+        let mut base = Graph::default();
+        for (index, (id, node)) in nodes.iter().enumerate() {
+            if node_mask & (1 << index) != 0 {
+                base.nodes.insert(**id, (*node).clone());
+            }
+        }
+        let eligible: Vec<&(&u32, &GEdge)> = edges
+            .iter()
+            .filter(|(_, edge)| {
+                base.nodes.contains_key(&edge.src) && base.nodes.contains_key(&edge.tgt)
+            })
+            .collect();
+        for edge_mask in 0..(1_u64 << eligible.len()) {
+            let mut graph = base.clone();
+            for (index, (id, edge)) in eligible.iter().enumerate() {
+                if edge_mask & (1 << index) != 0 {
+                    graph.edges.insert(**id, (*edge).clone());
+                }
+            }
+            out.push(graph);
+        }
+    }
+    out
+}
+
+/// Definition: on the Delta fragment, the largest source subinstance whose
+/// restriction is exactly the edited view.
+///
+/// For a lens on [`on_delta_fragment`] and a source `s`, the candidates are
+/// the endpoint-closed subinstances of `s` whose reference get view equals
+/// `edited`. The result is the candidate that contains every other
+/// candidate, which is the cartesian reading of the L.4 cascade for
+/// deletion-only view edits.
+///
+/// `None` when the lens is off the fragment, when a candidate's get refuses,
+/// or when no candidate contains every other one (in particular when there
+/// is no candidate, as for a view that is not a deletion of `get(s)`).
+///
+/// Book anchors: `L-lenses-4`.
+#[must_use]
+pub fn largest_exact_preimage(lens: &GraphLens<'_>, source: &Graph, edited: &Graph) -> Option<Graph> {
+    if !on_delta_fragment(lens) {
+        return None;
+    }
+    let mut exact = Vec::new();
+    for candidate in subinstances(source) {
+        let (view, _) = lens.get(&candidate).ok()?;
+        if view == *edited {
+            exact.push(candidate);
+        }
+    }
+    exact
+        .iter()
+        .find(|largest| exact.iter().all(|other| is_subinstance(other, largest)))
+        .cloned()
+}
+
+/// Definition: the universal property of the L.4 cascade on the Delta
+/// fragment.
+///
+/// `result` is a subinstance of `source`, and every endpoint-closed
+/// subinstance of `source` whose reference get view is a subinstance of
+/// `edited` is a subinstance of `result`. `false` off the fragment or when a
+/// candidate's get refuses.
+///
+/// Book anchors: `L-lenses-4`.
+#[must_use]
+pub fn cascade_universal_property(
+    lens: &GraphLens<'_>,
+    source: &Graph,
+    edited: &Graph,
+    result: &Graph,
+) -> bool {
+    if !on_delta_fragment(lens) || !is_subinstance(result, source) {
+        return false;
+    }
+    subinstances(source).iter().all(|candidate| match lens.get(candidate) {
+        Ok((view, _)) => !is_subinstance(&view, edited) || is_subinstance(candidate, result),
+        Err(_) => false,
+    })
+}

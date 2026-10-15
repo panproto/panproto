@@ -3,7 +3,9 @@
 
 pub use super::domain::{PutDomainError, ViewRef};
 pub use super::graph::{
-    GraphLens, IdentityError, IdentityStatus, LensError, graph_lens_identity, present,
+    GraphLens, IdentityError, IdentityStatus, LensError, cascade_universal_property,
+    graph_lens_identity, is_subinstance, largest_exact_preimage, on_delta_fragment, present,
+    subinstances,
 };
 pub use super::laws::{
     BasisCase, CongruenceCase, Divergence, DivergenceKind, DomainExpectation, EqualityClass,

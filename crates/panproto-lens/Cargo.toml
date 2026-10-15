@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { path = "../panproto-reference" }
 divan = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
