@@ -642,6 +642,16 @@ proptest! {
                     decimals[j]
                 );
                 prop_assert_eq!(
+                    rv::representation(
+                        &RValue::Decimal(reference_decimals[i].clone()),
+                        &RValue::Decimal(reference_decimals[j].clone()),
+                    ),
+                    Some(decimals[i] == decimals[j]),
+                    "generated decimal equality disagrees with reference representation equality: {} against {}",
+                    decimals[i],
+                    decimals[j]
+                );
+                prop_assert_eq!(
                     decimals[i].canonical_bytes() == decimals[j].canonical_bytes(),
                     decimals[i] == decimals[j],
                     "generated decimal canonical payloads are not injective: {} against {}",
@@ -794,6 +804,16 @@ proptest! {
                     forward,
                     backward.map(Ordering::reverse),
                     "generated temporal reversal fails: {:?} against {:?}",
+                    selected[i],
+                    selected[j]
+                );
+                prop_assert_eq!(
+                    rv::representation(
+                        &RValue::Temporal(reference_temporal.clone()),
+                        &RValue::Temporal(other_reference.clone()),
+                    ),
+                    Some(production_temporal == other_production),
+                    "generated temporal equality disagrees with reference representation equality: {:?} against {:?}",
                     selected[i],
                     selected[j]
                 );
@@ -1000,10 +1020,20 @@ proptest! {
         unwritten_form.offset = Offset::Zulu(ZuluCase::Unwritten);
         let production_unwritten = Temporal::parse_as(unwritten_form, &local_text)
             .expect("an unwritten-Z descriptor reparses a local epoch display");
-        let reference_unwritten = temporal_to_ref(&production_unwritten);
+        let mut reference_unwritten_form = reference_local
+            .lexical_form()
+            .expect("a generated reference local epoch value has an exact lexical form");
+        reference_unwritten_form.offset = rt::Offset::Zulu(rt::ZuluCase::Unwritten);
+        let reference_unwritten = rt::parse_as(reference_unwritten_form, &local_text)
+            .expect("the reference unwritten-Z descriptor reparses a local epoch display");
+        prop_assert_eq!(
+            temporal_to_ref(&production_unwritten),
+            reference_unwritten.clone(),
+            "production and reference unwritten-Z values disagree for {local_text:?}"
+        );
         prop_assert!(
             rt::unwritten_zulu(&reference_unwritten),
-            "reference adapter lost the unwritten-Z marker for {local_text:?}"
+            "reference parsing lost the unwritten-Z marker for {local_text:?}"
         );
         prop_assert_eq!(
             production_unwritten.to_string(),
@@ -1014,6 +1044,26 @@ proptest! {
             reference_unwritten.to_string(),
             reference_local.to_string(),
             "the reference unwritten-Z temporal did not preserve its local display"
+        );
+        prop_assert_eq!(
+            production_unwritten.cmp_chronological(&production_instant),
+            Some(Ordering::Equal),
+            "an unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}"
+        );
+        prop_assert_eq!(
+            production_instant.cmp_chronological(&production_unwritten),
+            Some(Ordering::Equal),
+            "an explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}"
+        );
+        prop_assert_eq!(
+            rt::cmp_chronological(&reference_unwritten, &reference_instant),
+            Some(Ordering::Equal),
+            "the reference unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}"
+        );
+        prop_assert_eq!(
+            rt::cmp_chronological(&reference_instant, &reference_unwritten),
+            Some(Ordering::Equal),
+            "the reference explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}"
         );
         prop_assert_ne!(
             &production_unwritten,
@@ -1026,6 +1076,16 @@ proptest! {
             "a reference unwritten-Z temporal collapsed with its local representation for {local_text:?}"
         );
         prop_assert_ne!(
+            &production_unwritten,
+            &production_instant,
+            "an unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}"
+        );
+        prop_assert_ne!(
+            &reference_unwritten,
+            &reference_instant,
+            "a reference unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}"
+        );
+        prop_assert_ne!(
             production_unwritten.canonical_bytes(),
             production_local.canonical_bytes(),
             "an unwritten-Z canonical payload collided with its local payload for {local_text:?}"
@@ -1034,6 +1094,16 @@ proptest! {
             rt::canonical_bytes(&reference_unwritten),
             rt::canonical_bytes(&reference_local),
             "reference unwritten-Z canonical bytes collided with local bytes for {local_text:?}"
+        );
+        prop_assert_ne!(
+            production_unwritten.canonical_bytes(),
+            production_instant.canonical_bytes(),
+            "an unwritten-Z canonical payload collided with explicit-Z payload for {local_text:?}"
+        );
+        prop_assert_ne!(
+            rt::canonical_bytes(&reference_unwritten),
+            rt::canonical_bytes(&reference_instant),
+            "reference unwritten-Z canonical bytes collided with explicit-Z bytes for {local_text:?}"
         );
     }
 }
