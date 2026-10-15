@@ -1331,7 +1331,8 @@ fn cmp_extended(left: &ExtendedTemporal, right: &ExtendedTemporal) -> Option<Ord
     };
     if !same_shape
         || left.offset.is_zoned() != right.offset.is_zoned()
-        || (left.is_truncated() && left.offset.minutes() != right.offset.minutes())
+        || ((left.is_truncated() || right.is_truncated())
+            && left.offset.minutes() != right.offset.minutes())
     {
         return None;
     }

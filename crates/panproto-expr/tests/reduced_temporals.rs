@@ -182,6 +182,20 @@ fn unwritten_offsets_and_infinities_remain_distinct() {
 }
 
 #[test]
+fn zoned_infinity_and_truncated_date_require_matching_offset_minutes() {
+    let infinity = scoped_infinity(
+        TemporalForm::Date,
+        Offset::Zulu(ZuluCase::Upper),
+        TemporalInfinity::Positive,
+    )
+    .value;
+    let truncated = Temporal::parse_date("---01+05:30:00").unwrap();
+
+    assert_eq!(infinity.cmp_chronological(&truncated), None);
+    assert_eq!(truncated.cmp_chronological(&infinity), None);
+}
+
+#[test]
 fn written_offset_forms_are_representation_distinct() {
     let texts = [
         "03:04:05+01:00",
@@ -637,6 +651,15 @@ fn sql_temporal_forms() {
                     scope[finite].value.cmp_chronological(&infinity.value),
                     Some(expected.reverse())
                 );
+            }
+        }
+        for infinity in infinities
+            .iter()
+            .filter(|infinity| !infinity_applies(*class, infinity))
+        {
+            for &finite in members {
+                assert_eq!(infinity.value.cmp_chronological(&scope[finite].value), None);
+                assert_eq!(scope[finite].value.cmp_chronological(&infinity.value), None);
             }
         }
 
