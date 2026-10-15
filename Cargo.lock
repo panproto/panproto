@@ -2180,6 +2180,7 @@ dependencies = [
  "panproto-gat",
  "panproto-inst",
  "panproto-mig",
+ "panproto-reference",
  "panproto-schema",
  "proptest",
  "rustc-hash",

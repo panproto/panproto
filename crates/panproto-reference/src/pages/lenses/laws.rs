@@ -1772,6 +1772,8 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
 }
 
 /// A typed refusal of the executable table law adapter.
+///
+/// Book anchors: `L-lenses-8`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TableLawError {
     /// Forward restriction refused.
@@ -1907,7 +1909,11 @@ impl<'a> LawShape<super::table::TableLens<'a>> for TableShape {
     }
 }
 
-/// Run the five law gates against the concrete table reference lens.
+/// Definition: the five law gates of the table lens, over the table
+/// Single-Step Basis (a value edit per row and target column, one fresh row
+/// per target table, each row removed).
+///
+/// Book anchors: `L-lenses-8`.
 #[must_use]
 pub fn check_table_laws(
     lens: &super::table::TableLens<'_>,
