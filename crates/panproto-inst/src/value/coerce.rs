@@ -77,11 +77,12 @@ use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 use super::{
-    BigIntValue, CANONICAL_NAN, DecimalClass, DecimalValue, ExactInteger, FidelityReason, NEGATIVE_CANONICAL_NAN,
-    Offset, Temporal, Value, ValueFidelityError, ValueSite, WideInt, binary32_bits,
+    BigIntValue, CANONICAL_NAN, DecimalClass, DecimalValue, ExactInteger, FidelityReason,
+    NEGATIVE_CANONICAL_NAN, Offset, Temporal, Value, ValueFidelityError, ValueSite, WideInt,
+    binary32_bits,
 };
-use panproto_expr::exact::{BINARY16_OVERFLOW, binary16_bits, binary16_nearest};
 use crate::error::ParseError;
+use panproto_expr::exact::{BINARY16_OVERFLOW, binary16_bits, binary16_nearest};
 
 /// A scalar as a source wrote it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,10 +220,13 @@ pub fn coerce(lexeme: &Lexeme<'_>, spec: &ValueSpec) -> Result<Value, ValueFidel
     if let Some(dialect) = spec.numeral {
         let numeric_kind = matches!(
             spec.kind,
-            ScalarKind::Int { .. } | ScalarKind::BigInt | ScalarKind::Float { .. } | ScalarKind::Decimal
+            ScalarKind::Int { .. }
+                | ScalarKind::BigInt
+                | ScalarKind::Float { .. }
+                | ScalarKind::Decimal
         );
-        let numeral_class = lexeme.class == LexClass::Number
-            || (lexeme.class == LexClass::String && numeric_kind);
+        let numeral_class =
+            lexeme.class == LexClass::Number || (lexeme.class == LexClass::String && numeric_kind);
         if numeral_class {
             return coerce_in_dialect(lexeme, dialect, spec);
         }
@@ -443,7 +447,9 @@ fn decimal_numeral(text: &str, grammar: DecimalGrammar) -> bool {
     if integer.is_empty() && fraction == 0 {
         return false;
     }
-    if !grammar.admits(DecimalGrammar::LEADING_ZERO) && integer.len() > 1 && integer.starts_with('0')
+    if !grammar.admits(DecimalGrammar::LEADING_ZERO)
+        && integer.len() > 1
+        && integer.starts_with('0')
     {
         return false;
     }
@@ -521,7 +527,13 @@ fn radix_to_decimal(digits: &str, radix: u32) -> Option<String> {
     while value.len() > 1 && value.last() == Some(&0) {
         value.pop();
     }
-    Some(value.iter().rev().filter_map(|d| char::from_digit(*d, 10)).collect())
+    Some(
+        value
+            .iter()
+            .rev()
+            .filter_map(|d| char::from_digit(*d, 10))
+            .collect(),
+    )
 }
 
 /// The decimal digits of a `0x`, `0o` or `0b` integer (no sign), with `_`
@@ -530,7 +542,10 @@ fn prefixed_integer(text: &str) -> Option<String> {
     let (digits, radix) = [("0x", 16), ("0o", 8), ("0b", 2)]
         .into_iter()
         .find_map(|(prefix, radix)| text.strip_prefix(prefix).map(|d| (d, radix)))?;
-    radix_to_decimal(&without_separators(digits, |b| b.is_ascii_hexdigit())?, radix)
+    radix_to_decimal(
+        &without_separators(digits, |b| b.is_ascii_hexdigit())?,
+        radix,
+    )
 }
 
 /// A TOML numeral (see [`dialect_numeral`]).
@@ -607,7 +622,11 @@ fn times_sixty_plus(value: &str, field: u32) -> String {
     while digits.len() > 1 && digits.last() == Some(&0) {
         digits.pop();
     }
-    digits.iter().rev().filter_map(|d| char::from_digit(*d, 10)).collect()
+    digits
+        .iter()
+        .rev()
+        .filter_map(|d| char::from_digit(*d, 10))
+        .collect()
 }
 
 /// The decimal digits of the base 60 numeral `first(:field)+`: `first`
@@ -616,17 +635,21 @@ fn times_sixty_plus(value: &str, field: u32) -> String {
 fn sexagesimal(text: &str, nonzero_lead: bool) -> Option<String> {
     let mut fields = text.split(':');
     let first = fields.next()?;
-    let lead_ok = first
-        .bytes()
-        .next()
-        .is_some_and(|b| if nonzero_lead { matches!(b, b'1'..=b'9') } else { b.is_ascii_digit() });
+    let lead_ok = first.bytes().next().is_some_and(|b| {
+        if nonzero_lead {
+            matches!(b, b'1'..=b'9')
+        } else {
+            b.is_ascii_digit()
+        }
+    });
     if !lead_ok || !first.bytes().all(|b| b.is_ascii_digit() || b == b'_') {
         return None;
     }
     let mut value = radix_to_decimal(&first.replace('_', ""), 10)?;
     let mut any = false;
     for field in fields {
-        let well_formed = (1..=2).contains(&field.len()) && field.bytes().all(|b| b.is_ascii_digit());
+        let well_formed =
+            (1..=2).contains(&field.len()) && field.bytes().all(|b| b.is_ascii_digit());
         let field_value: u32 = field.parse().ok().filter(|v| well_formed && *v < 60)?;
         value = times_sixty_plus(&value, field_value);
         any = true;
@@ -688,8 +711,12 @@ fn yaml11_numeral(text: &str) -> Option<String> {
             radix_to_decimal(&digits, 8)?
         }));
     }
-    if body == "0" || (body.bytes().next().is_some_and(|b| matches!(b, b'1'..=b'9'))
-        && body.bytes().all(|b| b.is_ascii_digit() || b == b'_'))
+    if body == "0"
+        || (body
+            .bytes()
+            .next()
+            .is_some_and(|b| matches!(b, b'1'..=b'9'))
+            && body.bytes().all(|b| b.is_ascii_digit() || b == b'_'))
     {
         return Some(signed(body.replace('_', "")));
     }
@@ -699,10 +726,13 @@ fn yaml11_numeral(text: &str) -> Option<String> {
         .map_or((body, None), |at| (&body[..at], Some(&body[at + 1..])));
     let (whole, fraction) = mantissa.split_once('.')?;
     let whole_ok = whole.is_empty()
-        || (whole.as_bytes()[0].is_ascii_digit() && whole.bytes().all(|b| b.is_ascii_digit() || b == b'_'));
+        || (whole.as_bytes()[0].is_ascii_digit()
+            && whole.bytes().all(|b| b.is_ascii_digit() || b == b'_'));
     let fraction_ok = fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_');
     let exponent_ok = exponent.is_none_or(|e| {
-        e.len() > 1 && matches!(e.as_bytes()[0], b'+' | b'-') && e[1..].bytes().all(|b| b.is_ascii_digit())
+        e.len() > 1
+            && matches!(e.as_bytes()[0], b'+' | b'-')
+            && e[1..].bytes().all(|b| b.is_ascii_digit())
     });
     let has_digit = mantissa.bytes().any(|b| b.is_ascii_digit());
     if !(whole_ok && fraction_ok && exponent_ok && has_digit) {
@@ -1038,10 +1068,16 @@ const BASE64_URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
 /// no encoding produces, or nonzero bits after the last byte (which a
 /// canonical encoder never writes, so two texts never decode to one
 /// value).
-fn decode_base64(text: &str, alphabet: &[u8; 64]) -> Option<Vec<u8>> {
+fn decode_base64(text: &str, alphabet: &[u8; 64], padding_required: bool) -> Option<Vec<u8>> {
     let body = text.trim_end_matches('=');
     let padding = text.len() - body.len();
-    if padding > 2 || (padding > 0 && text.len() % 4 != 0) || body.len() % 4 == 1 {
+    let expected_padding = (4 - body.len() % 4) % 4;
+    let padding_ok = if padding_required {
+        padding == expected_padding
+    } else {
+        padding == 0 || padding == expected_padding
+    };
+    if !padding_ok || expected_padding > 2 || body.len() % 4 == 1 {
         return None;
     }
     let mut out = Vec::with_capacity(body.len() * 3 / 4);
@@ -1077,10 +1113,16 @@ fn decode_hex(text: &str) -> Option<Vec<u8>> {
 /// The bytes `text` encodes in `encoding`.
 fn decode_bytes(text: &str, encoding: &BytesText) -> Option<Vec<u8>> {
     match encoding {
-        BytesText::Base64 => decode_base64(text, BASE64),
-        BytesText::Base64Url => decode_base64(text, BASE64_URL),
+        BytesText::Base64 => decode_base64(text, BASE64, false),
+        BytesText::Base64Url => decode_base64(text, BASE64_URL, false),
+        BytesText::Base64Padded => decode_base64(text, BASE64, true),
+        BytesText::Base64UrlPadded => decode_base64(text, BASE64_URL, true),
         BytesText::Hex => decode_hex(text),
         BytesText::Raw => Some(text.as_bytes().to_vec()),
+        BytesText::Latin1 => text
+            .chars()
+            .map(|character| u8::try_from(u32::from(character)).ok())
+            .collect(),
     }
 }
 
@@ -1196,11 +1238,8 @@ pub fn coerce_discriminated(
         || {
             Ok(Value::Opaque {
                 type_: tag.to_owned(),
-                fields: std::iter::once((
-                    "value".to_owned(),
-                    Value::Str(lexeme.text.to_owned()),
-                ))
-                .collect(),
+                fields: std::iter::once(("value".to_owned(), Value::Str(lexeme.text.to_owned())))
+                    .collect(),
             })
         },
         |kind| {

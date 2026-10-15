@@ -58,14 +58,20 @@ pub enum ScalarKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BytesText {
-    /// Standard base64.
+    /// Standard base64, with padding optional on read.
     Base64,
-    /// URL-safe base64.
+    /// URL-safe base64, with padding optional on read.
     Base64Url,
+    /// Standard base64, with canonical padding required on read.
+    Base64Padded,
+    /// URL-safe base64, with canonical padding required on read.
+    Base64UrlPadded,
     /// Hexadecimal.
     Hex,
-    /// The raw bytes.
+    /// The UTF-8 bytes of the text.
     Raw,
+    /// One code point U+0000 through U+00FF per byte.
+    Latin1,
 }
 
 /// How a float column reads a finite numeral.

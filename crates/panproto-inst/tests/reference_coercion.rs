@@ -342,7 +342,11 @@ fn from_ref(x: &RValue) -> Option<Value> {
             negative,
             signalling,
             payload,
-        }) => Value::Decimal(DecimalValue::nan(*negative, *signalling, payload.to_string())),
+        }) => Value::Decimal(DecimalValue::nan(
+            *negative,
+            *signalling,
+            payload.to_string(),
+        )),
         RValue::BigInt(b) => Value::BigInt(BigIntValue {
             negative: b.negative,
             significand: b.significand.to_string(),
@@ -396,8 +400,11 @@ const fn bytes_text_to_ref(t: &BytesText) -> r::BytesText {
     match t {
         BytesText::Base64 => r::BytesText::Base64,
         BytesText::Base64Url => r::BytesText::Base64Url,
+        BytesText::Base64Padded => r::BytesText::Base64Padded,
+        BytesText::Base64UrlPadded => r::BytesText::Base64UrlPadded,
         BytesText::Hex => r::BytesText::Hex,
         BytesText::Raw => r::BytesText::Raw,
+        BytesText::Latin1 => r::BytesText::Latin1,
     }
 }
 
@@ -431,9 +438,15 @@ const fn kind_from_ref(k: r::ScalarKind) -> Option<ScalarKind> {
         r::ScalarKind::Str => ScalarKind::Str,
         r::ScalarKind::Bytes(r::BytesText::Base64) => ScalarKind::Bytes(BytesText::Base64),
         r::ScalarKind::Bytes(r::BytesText::Base64Url) => ScalarKind::Bytes(BytesText::Base64Url),
+        r::ScalarKind::Bytes(r::BytesText::Base64Padded) => {
+            ScalarKind::Bytes(BytesText::Base64Padded)
+        }
+        r::ScalarKind::Bytes(r::BytesText::Base64UrlPadded) => {
+            ScalarKind::Bytes(BytesText::Base64UrlPadded)
+        }
         r::ScalarKind::Bytes(r::BytesText::Hex) => ScalarKind::Bytes(BytesText::Hex),
         r::ScalarKind::Bytes(r::BytesText::Raw) => ScalarKind::Bytes(BytesText::Raw),
-        r::ScalarKind::Bytes(_) => return None,
+        r::ScalarKind::Bytes(r::BytesText::Latin1) => ScalarKind::Bytes(BytesText::Latin1),
         r::ScalarKind::Date => ScalarKind::Date,
         r::ScalarKind::Time => ScalarKind::Time,
         r::ScalarKind::DateTime => ScalarKind::DateTime,
@@ -1222,7 +1235,11 @@ fn coerce_agrees_with_the_reference_over_the_values_scope() {
 // ---------------------------------------------------------------------------
 
 /// The outcome of production `coerce` in the reference model.
-fn coerce_to_ref(text: &str, class: &LexClass, spec: &ValueSpec) -> Result<RValue, r::FidelityReason> {
+fn coerce_to_ref(
+    text: &str,
+    class: &LexClass,
+    spec: &ValueSpec,
+) -> Result<RValue, r::FidelityReason> {
     coerce(&Lexeme::new(text, class.clone()), spec)
         .map(|v| to_ref(&v))
         .map_err(|e| reason_to_ref(&e.reason))
@@ -1257,7 +1274,11 @@ fn float16_coercion_agrees_with_the_reference() {
                 let Some(reference) = r::coerce_value(&x, &spec_to_ref(&spec)) else {
                     continue;
                 };
-                assert_eq!(coerce_value_to_ref(&p, &spec), reference, "{bits:#x} {reading:?}");
+                assert_eq!(
+                    coerce_value_to_ref(&p, &spec),
+                    reference,
+                    "{bits:#x} {reading:?}"
+                );
                 values += 1;
             }
         }
@@ -1310,15 +1331,96 @@ fn float16_coercion_agrees_with_the_reference() {
 /// The dialect probes: every example of the dialect table, the listed
 /// malformed spellings, and further forms at each grammar's edges.
 const DIALECT_PROBES: &[&str] = &[
-    "1_000", "0x1F", "0x1f", "0X1F", "+inf", "-inf", "inf", "nan", "+nan", "-nan", "1__0", "_1",
-    "1_", "017", "0o17", "0o", "0b101", "0b2", "22:30", "190:20:30", "1:60", "0:30", "1e3", "1e+3",
-    "1.0e3", "1.e+3", ".5", "0.", "5.", "+12e03", "-2E+05", "INF", "+INF", "-INF", "NaN", "-NaN",
-    "+NaN", "Infinity", "-Infinity", "+Infinity", "infinity", ".inf", "-.inf", "+.inf", ".Inf",
-    ".INF", ".nan", ".NaN", ".NAN", "-.nan", "+.nan", "+1", "-1", "-0", "00", "01", "1", "1.5",
-    "0x", "+0x1", "-0x1F", "0x_1F", "0x1_F", "685.230_15e+03", "685_230.15", "190:20:30.15",
-    "9.0e+999", "-9.0e+999", "0.1000000000000000055", "12345678901234567170.0", "1e2", "1.5e1",
-    "0b1010_0111", "02472256", "08", "0_", "-0b11", "+0o17", "1_000.5", "1_000e1", "1.5_5", "12e",
-    "", "-", "+", ".", "abc", "sNaN", "Inf", "inf5",
+    "1_000",
+    "0x1F",
+    "0x1f",
+    "0X1F",
+    "+inf",
+    "-inf",
+    "inf",
+    "nan",
+    "+nan",
+    "-nan",
+    "1__0",
+    "_1",
+    "1_",
+    "017",
+    "0o17",
+    "0o",
+    "0b101",
+    "0b2",
+    "22:30",
+    "190:20:30",
+    "1:60",
+    "0:30",
+    "1e3",
+    "1e+3",
+    "1.0e3",
+    "1.e+3",
+    ".5",
+    "0.",
+    "5.",
+    "+12e03",
+    "-2E+05",
+    "INF",
+    "+INF",
+    "-INF",
+    "NaN",
+    "-NaN",
+    "+NaN",
+    "Infinity",
+    "-Infinity",
+    "+Infinity",
+    "infinity",
+    ".inf",
+    "-.inf",
+    "+.inf",
+    ".Inf",
+    ".INF",
+    ".nan",
+    ".NaN",
+    ".NAN",
+    "-.nan",
+    "+.nan",
+    "+1",
+    "-1",
+    "-0",
+    "00",
+    "01",
+    "1",
+    "1.5",
+    "0x",
+    "+0x1",
+    "-0x1F",
+    "0x_1F",
+    "0x1_F",
+    "685.230_15e+03",
+    "685_230.15",
+    "190:20:30.15",
+    "9.0e+999",
+    "-9.0e+999",
+    "0.1000000000000000055",
+    "12345678901234567170.0",
+    "1e2",
+    "1.5e1",
+    "0b1010_0111",
+    "02472256",
+    "08",
+    "0_",
+    "-0b11",
+    "+0o17",
+    "1_000.5",
+    "1_000e1",
+    "1.5_5",
+    "12e",
+    "",
+    "-",
+    "+",
+    ".",
+    "abc",
+    "sNaN",
+    "Inf",
+    "inf5",
 ];
 
 /// Each dialect, and none, over every probe of [`DIALECT_PROBES`] as a
@@ -1368,7 +1470,10 @@ fn dialect_coercion_agrees_with_the_reference() {
         kinds.len(),
         DIALECT_PROBES.len()
     );
-    assert_eq!(cases, 9 * kinds.len() as u64 * 2 * DIALECT_PROBES.len() as u64);
+    assert_eq!(
+        cases,
+        9 * kinds.len() as u64 * 2 * DIALECT_PROBES.len() as u64
+    );
 }
 
 /// Under the discriminator table {integer, float, text}, every tag of the
@@ -1392,7 +1497,14 @@ fn discriminated_coercion_agrees_with_the_reference() {
         .iter()
         .map(|(tag, kind)| (tag.clone(), kind_to_ref(kind)))
         .collect();
-    let tags = [None, Some("integer"), Some("float"), Some("text"), Some("x-custom"), Some("")];
+    let tags = [
+        None,
+        Some("integer"),
+        Some("float"),
+        Some("text"),
+        Some("x-custom"),
+        Some(""),
+    ];
     let lexemes = ["42", "1e2", "0.5", "abc", "true", "", "2024-01-02", "AQI="];
     let mut classes = vec![
         LexClass::Number,
@@ -1413,9 +1525,10 @@ fn discriminated_coercion_agrees_with_the_reference() {
         for tag in tags {
             for class in &classes {
                 for text in lexemes {
-                    let production = coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
-                        .map(|v| to_ref(&v))
-                        .map_err(|e| reason_to_ref(&e.reason));
+                    let production =
+                        coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
+                            .map(|v| to_ref(&v))
+                            .map_err(|e| reason_to_ref(&e.reason));
                     let reference = r::coerce_discriminated(
                         text,
                         &class_to_ref(class),
@@ -1424,7 +1537,10 @@ fn discriminated_coercion_agrees_with_the_reference() {
                         &spec_to_ref(&plain),
                     )
                     .unwrap();
-                    assert_eq!(production, reference, "{text:?} {class:?} tagged {tag:?} under {own:?}");
+                    assert_eq!(
+                        production, reference,
+                        "{text:?} {class:?} tagged {tag:?} under {own:?}"
+                    );
                     cases += 1;
                 }
             }
@@ -1436,7 +1552,10 @@ fn discriminated_coercion_agrees_with_the_reference() {
         classes.len(),
         lexemes.len()
     );
-    assert_eq!(cases, 3 * (tags.len() * classes.len() * lexemes.len()) as u64);
+    assert_eq!(
+        cases,
+        3 * (tags.len() * classes.len() * lexemes.len()) as u64
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1495,19 +1614,31 @@ fn randomized_values() -> &'static [RValue] {
         use r::ScalarKind as K;
         let mut out = Vec::new();
         for t in lexemes(0) {
-            for kind in [K::Any, K::BigInt, K::Decimal, K::Float { bits: 16 }, K::Float { bits: 32 }, K::Float { bits: 64 }] {
+            for kind in [
+                K::Any,
+                K::BigInt,
+                K::Decimal,
+                K::Float { bits: 16 },
+                K::Float { bits: 32 },
+                K::Float { bits: 64 },
+            ] {
                 if let Some(Ok(v)) = r::coerce(&t, &r::LexClass::Number, &r::ValueSpec::of(kind)) {
                     out.push(v);
                 }
             }
             for kind in [K::Date, K::Time, K::DateTime] {
-                if let Some(Ok(v)) = r::coerce(&t, &r::LexClass::DateTime, &r::ValueSpec::of(kind)) {
+                if let Some(Ok(v)) = r::coerce(&t, &r::LexClass::DateTime, &r::ValueSpec::of(kind))
+                {
                     out.push(v);
                 }
             }
             out.push(RValue::Str(t));
         }
-        out.extend(scope::binary16_patterns().into_iter().map(|h| RValue::Float(widen_bits(Format::B16, h))));
+        out.extend(
+            scope::binary16_patterns()
+                .into_iter()
+                .map(|h| RValue::Float(widen_bits(Format::B16, h))),
+        );
         dedupe(out)
     })
 }
