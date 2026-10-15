@@ -261,7 +261,8 @@ pub fn signatures() -> Vec<Theory> {
 /// `y` and the unbound `z`.
 #[must_use]
 pub fn raw_sort_expressions() -> Vec<SortExpr> {
-    let app = |head: &str, var: &str| SortExpr::App(head.to_owned(), vec![Term::Var(var.to_owned())]);
+    let app =
+        |head: &str, var: &str| SortExpr::App(head.to_owned(), vec![Term::Var(var.to_owned())]);
     vec![
         SortExpr::Name("A".to_owned()),
         SortExpr::Name("B".to_owned()),
@@ -530,7 +531,9 @@ pub fn partial_morphisms(domain: &Theory, codomain: &Theory) -> Vec<Morphism> {
         without.ops.remove(&op.name);
         out.push(without);
         let mut unknown = identity.clone();
-        unknown.ops.insert(op.name.clone(), OpImage::Op("h".to_owned()));
+        unknown
+            .ops
+            .insert(op.name.clone(), OpImage::Op("h".to_owned()));
         out.push(unknown);
     }
     out
@@ -541,7 +544,10 @@ pub fn partial_morphisms(domain: &Theory, codomain: &Theory) -> Vec<Morphism> {
 #[must_use]
 pub fn option_sets() -> Vec<ComposeOptions> {
     let mut out = Vec::new();
-    for mode in [CompositionMode::Amalgamate, CompositionMode::ExplicitIdentity] {
+    for mode in [
+        CompositionMode::Amalgamate,
+        CompositionMode::ExplicitIdentity,
+    ] {
         for clash in [ClashPolicy::Freshen, ClashPolicy::Reject] {
             out.push(ComposeOptions {
                 mode,
@@ -597,7 +603,10 @@ pub fn recipes(left: &Theory, right: &Theory) -> Vec<CompositionSpec> {
         .filter(|op| right.ops.iter().any(|other| other.name == op.name))
         .map(|op| op.name.clone())
         .collect();
-    for mode in [CompositionMode::Amalgamate, CompositionMode::ExplicitIdentity] {
+    for mode in [
+        CompositionMode::Amalgamate,
+        CompositionMode::ExplicitIdentity,
+    ] {
         for shared_sorts in super::subsets(&common_sorts, common_sorts.len()) {
             for shared_ops in super::subsets(&common_ops, common_ops.len()) {
                 out.push(spec(vec![CompositionStep::Colimit {
@@ -685,10 +694,7 @@ fn sort_app(head: &str, args: Vec<Term>) -> SortExpr {
 fn declare(name: &str, params: Vec<(&str, SortExpr)>, constructors: Option<&[&str]>) -> Sort {
     Sort {
         name: name.to_owned(),
-        params: params
-            .into_iter()
-            .map(|(p, s)| (p.to_owned(), s))
-            .collect(),
+        params: params.into_iter().map(|(p, s)| (p.to_owned(), s)).collect(),
         kind: STRUCTURAL.to_owned(),
         constructors: constructors.map(|cs| cs.iter().map(|c| (*c).to_owned()).collect()),
     }
@@ -758,10 +764,26 @@ fn action_codomain(closure: &[&str], z_arg: &str) -> Theory {
             operation("f", Vec::new(), simple("B")),
             operation("p", Vec::new(), sort_app("Y", vec![constant("c")])),
             operation("p2", Vec::new(), sort_app("Y", vec![constant("d")])),
-            operation("r", vec![("z", x())], sort_app("H", vec![var("z"), constant("c")])),
-            operation("r2", vec![("w", x())], sort_app("H", vec![var("w"), constant("d")])),
-            operation("q", vec![("z", x()), ("z", x())], sort_app("H", vec![var("z"), var("z")])),
-            operation("q2", vec![("a", x()), ("b", x())], sort_app("H", vec![var("a"), var("b")])),
+            operation(
+                "r",
+                vec![("z", x())],
+                sort_app("H", vec![var("z"), constant("c")]),
+            ),
+            operation(
+                "r2",
+                vec![("w", x())],
+                sort_app("H", vec![var("w"), constant("d")]),
+            ),
+            operation(
+                "q",
+                vec![("z", x()), ("z", x())],
+                sort_app("H", vec![var("z"), var("z")]),
+            ),
+            operation(
+                "q2",
+                vec![("a", x()), ("b", x())],
+                sort_app("H", vec![var("a"), var("b")]),
+            ),
             operation("neg", vec![("b", simple("B"))], simple("B")),
         ],
         ..Theory::default()
@@ -828,7 +850,15 @@ pub fn whole_action_scope() -> ActionScope {
         }
     }
     let images = vec![
-        ("c", vec![rename("c"), rename("d"), term(constant("c")), term(constant("d"))]),
+        (
+            "c",
+            vec![
+                rename("c"),
+                rename("d"),
+                term(constant("c")),
+                term(constant("d")),
+            ],
+        ),
         ("d", vec![rename("d"), rename("c"), term(constant("d"))]),
         (
             "t",
@@ -908,7 +938,10 @@ pub fn constructor_scope() -> ActionScope {
         .into_iter()
         .map(|(first, second)| Theory {
             name: "D".to_owned(),
-            sorts: vec![declare("X", Vec::new(), None), declare("B", Vec::new(), Some(&["c"]))],
+            sorts: vec![
+                declare("X", Vec::new(), None),
+                declare("B", Vec::new(), Some(&["c"])),
+            ],
             ops: vec![
                 operation("a", Vec::new(), x()),
                 operation("c", vec![(first, x()), (second, x())], simple("B")),
@@ -921,7 +954,10 @@ pub fn constructor_scope() -> ActionScope {
         .into_iter()
         .map(|closure| Theory {
             name: "C".to_owned(),
-            sorts: vec![declare("X", Vec::new(), None), declare("B", Vec::new(), Some(closure))],
+            sorts: vec![
+                declare("X", Vec::new(), None),
+                declare("B", Vec::new(), Some(closure)),
+            ],
             ops: vec![
                 operation("a", Vec::new(), x()),
                 operation("k", vec![("u", x()), ("v", x())], simple("B")),
@@ -982,7 +1018,11 @@ fn fibred(name: &str, constant_name: &str, fibre: &str) -> Theory {
         ],
         ops: vec![
             operation(constant_name, Vec::new(), simple("X")),
-            operation(fibre, Vec::new(), sort_app("Y", vec![constant(constant_name)])),
+            operation(
+                fibre,
+                Vec::new(),
+                sort_app("Y", vec![constant(constant_name)]),
+            ),
         ],
         ..Theory::default()
     }
@@ -993,7 +1033,11 @@ fn fibred(name: &str, constant_name: &str, fibre: &str) -> Theory {
 /// sends it to the derived term that is the target's constant, as
 /// `renames` says, and renames the apex's fibre to the target's.
 #[must_use]
-pub fn fibre_span(constant_name: &str, fibres: [&str; 3], renames: [bool; 2]) -> crate::theory::TheoryDiagram {
+pub fn fibre_span(
+    constant_name: &str,
+    fibres: [&str; 3],
+    renames: [bool; 2],
+) -> crate::theory::TheoryDiagram {
     let [h, f, g] = fibres;
     let leg = |target: &str, fibre: &str, renamed: bool| {
         let mut ops = std::collections::BTreeMap::new();

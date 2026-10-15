@@ -2387,7 +2387,8 @@ pub mod theory {
     }
 
     fn derivable_within(lhs: &Term, rhs: &Term, target: &Theory, budget: u32) -> Result<bool, u32> {
-        if alpha(lhs, lhs).0 == alpha(rhs, rhs).0 {
+        let initial = alpha(lhs, rhs);
+        if initial.0 == initial.1 {
             return Ok(true);
         }
         let directed: Vec<(Term, Term)> = target
@@ -2398,7 +2399,8 @@ pub mod theory {
         let common = |rules: &[(Term, Term)]| -> Result<bool, u32> {
             let left = normalize_bounded(lhs, rules, budget)?;
             let right = normalize_bounded(rhs, rules, budget)?;
-            Ok(alpha(&left, &left).0 == alpha(&right, &right).0)
+            let normalized = alpha(&left, &right);
+            Ok(normalized.0 == normalized.1)
         };
         if common(&directed)? {
             return Ok(true);
@@ -2779,7 +2781,12 @@ pub mod theory {
                     .map(|j| classes[*j][0].clone())
                     .or_else(|| holder.cloned())
                     .unwrap_or_else(|| classes[i][0].clone());
-                return Err(ComposeError::NameConflict(kind, c.clone(), classes[i][0].clone(), other));
+                return Err(ComposeError::NameConflict(
+                    kind,
+                    c.clone(),
+                    classes[i][0].clone(),
+                    other,
+                ));
             }
             if clash == ClashPolicy::Reject {
                 let mut clashing: Vec<Vec<SymRef>> =
@@ -3592,10 +3599,19 @@ pub mod theory {
             .iter()
             .map(|(name, generated)| (name.clone(), generated.source.op.clone()))
             .collect();
-        out.eqs = equations(&eqs, &reserved, mode, clash, &mut provenance, &mut freshened)?;
+        out.eqs = equations(
+            &eqs,
+            &reserved,
+            mode,
+            clash,
+            &mut provenance,
+            &mut freshened,
+        )?;
         let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
         for (name, generated) in &added {
-            let least = closing.entry(generated.edge_index).or_insert_with(|| name.clone());
+            let least = closing
+                .entry(generated.edge_index)
+                .or_insert_with(|| name.clone());
             if name < least {
                 least.clone_from(name);
             }
@@ -3627,7 +3643,8 @@ pub mod theory {
             return Err(ComposeError::IllTypedResult(Vec::new()));
         }
         let inclusions = finish_inclusions(nodes, &provenance, &out.name);
-        let (name_clash_free, checks) = finish_checks(input, legs, &provenance, &closing, &free_sorts);
+        let (name_clash_free, checks) =
+            finish_checks(input, legs, &provenance, &closing, &free_sorts);
         freshened.sort();
         let status = aggregate_status(&checks);
         Ok(Composition {
@@ -3654,7 +3671,14 @@ pub mod theory {
         let mut result_of = BTreeMap::new();
         for kind in [SymKind::Sort, SymKind::Op] {
             let members = classes.members(kind);
-            let names = name_classes(kind, &members, &BTreeMap::new(), mode, clash, &mut freshened)?;
+            let names = name_classes(
+                kind,
+                &members,
+                &BTreeMap::new(),
+                mode,
+                clash,
+                &mut freshened,
+            )?;
             for (class, name) in members.iter().zip(names) {
                 for member in class {
                     provenance
@@ -3983,7 +4007,8 @@ pub mod theory {
     ) -> Result<bool, u32> {
         let left = eta_image(left, inputs);
         let right = eta_image(right, inputs);
-        if alpha(&left, &left).0 == alpha(&right, &right).0 {
+        let images = alpha(&left, &right);
+        if images.0 == images.1 {
             Ok(true)
         } else {
             derivable_within(&left, &right, target, budget)
@@ -4488,7 +4513,8 @@ pub mod theory {
                     return Err(if mode == Mode::Amalgamate && !same_leg {
                         ComposeError::NameConflict(kind, first.name.clone(), first, second)
                     } else if kind == SymKind::Sort {
-                        let detail = sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
+                        let detail =
+                            sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
                         ComposeError::SortSignatureMismatch(first, second, detail)
                     } else if head_signatures_match {
                         ComposeError::QuotientNotRepresentable {
@@ -4719,12 +4745,18 @@ pub mod theory {
                 )
             })
             .collect();
-        Ok(
-            classify_items(SymKind::Eq, items, reserved, mode, clash, provenance, freshened)?
-                .into_iter()
-                .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
-                .collect(),
-        )
+        Ok(classify_items(
+            SymKind::Eq,
+            items,
+            reserved,
+            mode,
+            clash,
+            provenance,
+            freshened,
+        )?
+        .into_iter()
+        .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
+        .collect())
     }
 
     /// The result directed equations: each node's directed equations with
@@ -4798,12 +4830,18 @@ pub mod theory {
                 items.push((r, p.name.clone(), key, p.clone()));
             }
         }
-        Ok(
-            classify_items(SymKind::Policy, items, &BTreeMap::new(), mode, clash, provenance, freshened)?
-                .into_iter()
-                .map(|(name, p)| Policy { name, ..p })
-                .collect(),
-        )
+        Ok(classify_items(
+            SymKind::Policy,
+            items,
+            &BTreeMap::new(),
+            mode,
+            clash,
+            provenance,
+            freshened,
+        )?
+        .into_iter()
+        .map(|(name, p)| Policy { name, ..p })
+        .collect())
     }
 
     /// Domain separator for canonical theory identities.
@@ -5326,9 +5364,15 @@ pub mod theory {
                 Err(ComposeError::NotACocone(_))
             ));
             let agreeing = [to_q(&[("o", "x")]), to_q(&[("p", "x"), ("q", "x")])];
-            assert!(composition.verify_universal(&diagram, &q, &agreeing).is_ok());
+            assert!(
+                composition
+                    .verify_universal(&diagram, &q, &agreeing)
+                    .is_ok()
+            );
         }
     }
 }
 
-pub use self::theory::{check_morphism, compose, quotient, recompose, typecheck_signature};
+pub use self::theory::{
+    apply_morphism, check_morphism, compose, quotient, recompose, typecheck_signature,
+};

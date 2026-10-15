@@ -3,10 +3,7 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{
-    Term, alpha_equivalent, alpha_equivalent_equation, normalize_with_status,
-    normalize_with_witness,
-};
+use crate::eq::{Term, alpha_equivalent_equation, normalize_with_status, normalize_with_witness};
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
 use crate::sort::{SortExpr, sort_exprs_agree};
@@ -961,6 +958,16 @@ enum Derivability {
     Unknown,
 }
 
+/// Whether two terms in one ambient context are alpha-equivalent.
+///
+/// [`alpha_equivalent_equation`] fixes the free-variable correspondence while
+/// it compares both sides. Comparing `lhs = rhs` with the reflexive equation
+/// `lhs = lhs` therefore permits renaming local `Let` and `Case` binders but
+/// does not identify two distinct free variables such as `x` and `y`.
+fn equal_in_context(lhs: &Term, rhs: &Term) -> bool {
+    alpha_equivalent_equation(lhs, rhs, lhs, lhs)
+}
+
 /// Decide whether `lhs = rhs` holds in the codomain by rewriting, first with
 /// the codomain's directed equations alone (which terminate when the system is
 /// sound), then, if that does not decide it, with the congruence closure over
@@ -975,7 +982,7 @@ fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Deriva
     // Tier 1: the codomain's directed equations only.
     let (lnf, lex) = normalize_bounded(lhs, &codomain.directed_eqs, BUDGET);
     let (rnf, rex) = normalize_bounded(rhs, &codomain.directed_eqs, BUDGET);
-    if !lex && !rex && alpha_equivalent(&lnf, &rnf) {
+    if !lex && !rex && equal_in_context(&lnf, &rnf) {
         return Derivability::Derivable;
     }
 
@@ -987,7 +994,7 @@ fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Deriva
     if lex2 || rex2 {
         return Derivability::Unknown;
     }
-    if alpha_equivalent(&lnf2, &rnf2) {
+    if equal_in_context(&lnf2, &rnf2) {
         Derivability::Derivable
     } else {
         Derivability::NotDerivable

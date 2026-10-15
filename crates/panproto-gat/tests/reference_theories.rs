@@ -81,7 +81,9 @@ mod convert {
     pub fn back_term(t: &p::Term) -> r::Term {
         match t {
             p::Term::Var(x) => r::Term::Var(x.to_string()),
-            p::Term::App { op, args } => r::Term::App(op.to_string(), args.iter().map(back_term).collect()),
+            p::Term::App { op, args } => {
+                r::Term::App(op.to_string(), args.iter().map(back_term).collect())
+            }
             p::Term::Case {
                 scrutinee,
                 branches,
@@ -108,7 +110,9 @@ mod convert {
     pub fn sort_expr(s: &r::SortExpr) -> p::SortExpr {
         match s {
             r::SortExpr::Name(n) => p::SortExpr::Name(Arc::from(n.as_str())),
-            r::SortExpr::App(n, args) => p::SortExpr::app(n.as_str(), args.iter().map(term).collect()),
+            r::SortExpr::App(n, args) => {
+                p::SortExpr::app(n.as_str(), args.iter().map(term).collect())
+            }
         }
     }
 
@@ -258,7 +262,9 @@ mod convert {
                     kind: kind_name(&s.kind),
                     constructors: match &s.closure {
                         p::SortClosure::Open => None,
-                        p::SortClosure::Closed(cs) => Some(cs.iter().map(ToString::to_string).collect()),
+                        p::SortClosure::Closed(cs) => {
+                            Some(cs.iter().map(ToString::to_string).collect())
+                        }
                     },
                 })
                 .collect(),
@@ -329,7 +335,13 @@ mod convert {
                 )
             })
             .collect();
-        p::TheoryMorphism::new(m.name.as_str(), m.domain.as_str(), m.codomain.as_str(), sorts, ops)
+        p::TheoryMorphism::new(
+            m.name.as_str(),
+            m.domain.as_str(),
+            m.codomain.as_str(),
+            sorts,
+            ops,
+        )
     }
 
     pub fn back_morphism(m: &p::TheoryMorphism) -> r::Morphism {
@@ -469,9 +481,11 @@ mod convert {
             },
             p::CheckOutcome::Inapplicable { reason } => r::CheckOutcome::Inapplicable {
                 reason: match reason {
-                    p::InapplicableReason::OpenTheory { missing_sorts } => r::InapplicableReason::OpenTheory {
-                        missing_sorts: missing_sorts.iter().map(ToString::to_string).collect(),
-                    },
+                    p::InapplicableReason::OpenTheory { missing_sorts } => {
+                        r::InapplicableReason::OpenTheory {
+                            missing_sorts: missing_sorts.iter().map(ToString::to_string).collect(),
+                        }
+                    }
                     p::InapplicableReason::NoEquations => r::InapplicableReason::NoEquations,
                 },
             },
@@ -575,7 +589,9 @@ mod convert {
 
     pub fn site(s: &p::SignatureSite) -> r::Site {
         match s {
-            p::SignatureSite::SortParam { sort, index } => r::Site::SortParam(sort.to_string(), *index),
+            p::SignatureSite::SortParam { sort, index } => {
+                r::Site::SortParam(sort.to_string(), *index)
+            }
             p::SignatureSite::OpInput { op, index } => r::Site::OpInput(op.to_string(), *index),
             p::SignatureSite::OpOutput { op } => r::Site::OpOutput(op.to_string()),
         }
@@ -632,9 +648,13 @@ mod convert {
     /// The reference defect with the same reduction.
     pub fn reduce_defect(d: &r::Defect) -> r::Defect {
         match d {
-            r::Defect::ParamIllTyped(s, sort, index, expected, found) => {
-                r::Defect::ParamIllTyped(s.clone(), sort.clone(), *index, expected.clone(), sortless(found))
-            }
+            r::Defect::ParamIllTyped(s, sort, index, expected, found) => r::Defect::ParamIllTyped(
+                s.clone(),
+                sort.clone(),
+                *index,
+                expected.clone(),
+                sortless(found),
+            ),
             other => other.clone(),
         }
     }
@@ -706,11 +726,15 @@ mod convert {
                     got: got.clone(),
                 }
             }
-            p::GatError::EquationNotPreserved { equation, .. } => M::EquationNotPreserved(equation.clone()),
-            p::GatError::EquationPreservationUnknown { equation, .. } => M::EquationPreservationUnknown {
-                equation: equation.clone(),
-                steps: 0,
-            },
+            p::GatError::EquationNotPreserved { equation, .. } => {
+                M::EquationNotPreserved(equation.clone())
+            }
+            p::GatError::EquationPreservationUnknown { equation, .. } => {
+                M::EquationPreservationUnknown {
+                    equation: equation.clone(),
+                    steps: 0,
+                }
+            }
             p::GatError::DirectedEquationNotPreserved { equation, .. } => {
                 M::DirectedEquationNotPreserved(equation.clone())
             }
@@ -729,10 +753,12 @@ mod convert {
                     steps: 0,
                 }
             }
-            r::MorphismError::TermAssignmentIllTyped { op, .. } => r::MorphismError::TermAssignmentIllTyped {
-                op: op.clone(),
-                detail: String::new(),
-            },
+            r::MorphismError::TermAssignmentIllTyped { op, .. } => {
+                r::MorphismError::TermAssignmentIllTyped {
+                    op: op.clone(),
+                    detail: String::new(),
+                }
+            }
             other => other.clone(),
         }
     }
@@ -851,12 +877,16 @@ fn signature_checking_agrees_with_the_reference_on_every_signature() {
                 .map_err(|ds| ds.iter().map(convert::defect).collect::<Vec<_>>())
         },
         |t| {
-            r::typecheck_signature(t).map_err(|ds| ds.iter().map(convert::reduce_defect).collect::<Vec<_>>())
+            r::typecheck_signature(t)
+                .map_err(|ds| ds.iter().map(convert::reduce_defect).collect::<Vec<_>>())
         },
         |a, b| a == b,
     )
     .unwrap_or_else(|d| panic!("{d}"));
-    let refused = raw.iter().filter(|t| r::typecheck_signature(t).is_err()).count();
+    let refused = raw
+        .iter()
+        .filter(|t| r::typecheck_signature(t).is_err())
+        .count();
     println!("compared {compared}; raw signatures refused {refused}");
     assert_eq!(compared as usize, signatures.len() + raw.len());
 }
@@ -869,7 +899,9 @@ fn signature_checking_agrees_with_the_reference_on_every_signature() {
 fn indexed_theory(size: usize) -> panproto_gat::Theory {
     panproto_gat::Theory::new(
         "Q",
-        (0..size).map(|i| panproto_gat::Sort::simple(format!("s{i}"))).collect(),
+        (0..size)
+            .map(|i| panproto_gat::Sort::simple(format!("s{i}")))
+            .collect(),
         (0..size)
             .map(|i| panproto_gat::Operation::nullary(format!("c{i}"), format!("s{i}")))
             .collect(),
@@ -956,11 +988,18 @@ fn endpoints<'a>(domain: &'a r::Theory, codomain: &'a r::Theory) -> Endpoints<'a
 fn endpoint_outcomes(
     ends: &Endpoints<'_>,
     m: &r::Morphism,
-) -> (Result<(), Option<r::MorphismError>>, Result<(), r::MorphismError>) {
-    let production = panproto_gat::check_morphism(&convert::morphism(m), &ends.production.0, &ends.production.1)
-        .map_err(|e| convert::morphism_error(&e));
-    let reference =
-        r::check_morphism(ends.domain, ends.codomain, m).map_err(|e| convert::reduce_morphism_error(&e));
+) -> (
+    Result<(), Option<r::MorphismError>>,
+    Result<(), r::MorphismError>,
+) {
+    let production = panproto_gat::check_morphism(
+        &convert::morphism(m),
+        &ends.production.0,
+        &ends.production.1,
+    )
+    .map_err(|e| convert::morphism_error(&e));
+    let reference = r::check_morphism(ends.domain, ends.codomain, m)
+        .map_err(|e| convert::reduce_morphism_error(&e));
     (production, reference)
 }
 
@@ -969,7 +1008,10 @@ fn morphism_outcomes(
     domain: &r::Theory,
     codomain: &r::Theory,
     m: &r::Morphism,
-) -> (Result<(), Option<r::MorphismError>>, Result<(), r::MorphismError>) {
+) -> (
+    Result<(), Option<r::MorphismError>>,
+    Result<(), r::MorphismError>,
+) {
     endpoint_outcomes(&endpoints(domain, codomain), m)
 }
 
@@ -986,12 +1028,83 @@ fn morphism_agrees(domain: &r::Theory, codomain: &r::Theory, m: &r::Morphism) ->
     same_morphism_outcome(&production, &reference)
 }
 
+/// Compare morphism refusals and the whole action on every probe of one
+/// independently enumerated action scope.
+fn action_scope_agrees(
+    action: &scope::ActionScope,
+    expected_domains: usize,
+    expected_codomains: usize,
+    expected_legs: usize,
+) -> (u64, u64) {
+    assert_eq!(action.domains.len(), expected_domains);
+    assert_eq!(action.codomains.len(), expected_codomains);
+    assert_eq!(action.legs.len(), expected_legs);
+    let pairs: Vec<(&r::Theory, &r::Theory)> = action
+        .domains
+        .iter()
+        .flat_map(|domain| {
+            action
+                .codomains
+                .iter()
+                .map(move |codomain| (domain, codomain))
+        })
+        .collect();
+    let morphisms = parallel(&pairs, |&(domain, codomain)| {
+        let ends = endpoints(domain, codomain);
+        agree(
+            "whole-action morphism assignments",
+            action
+                .legs
+                .iter()
+                .map(|morphism| (morphism, endpoint_outcomes(&ends, morphism))),
+            |(_, outcomes)| outcomes.0.clone(),
+            |(_, outcomes)| outcomes.1.clone(),
+            same_morphism_outcome,
+        )
+        .map_err(|d| format!("{d}\n  domain: {domain:?}\n  codomain: {codomain:?}"))
+    });
+    let actions = parallel(&pairs, |&(domain, _codomain)| {
+        let production_domain = convert::theory(domain);
+        agree(
+            "whole term action",
+            action
+                .legs
+                .iter()
+                .flat_map(|morphism| action.probes.iter().map(move |probe| (morphism, probe))),
+            |(morphism, probe)| {
+                let production = convert::morphism(morphism)
+                    .apply_to_term_substituting(&convert::term(probe), &production_domain);
+                convert::back_term(&production)
+            },
+            |(morphism, probe)| r::apply_morphism(domain, morphism, probe),
+            |production, reference| production == reference,
+        )
+        .map_err(|d| format!("{d}\n  domain: {domain:?}"))
+    });
+    let endpoint_count = u64::try_from(expected_domains * expected_codomains).unwrap();
+    assert_eq!(
+        morphisms,
+        endpoint_count * u64::try_from(expected_legs).unwrap()
+    );
+    assert_eq!(
+        actions,
+        endpoint_count
+            * u64::try_from(expected_legs).unwrap()
+            * u64::try_from(action.probes.len()).unwrap()
+    );
+    (morphisms, actions)
+}
+
 /// The closed-form number of total assignments from `domain` to
 /// `codomain`: `|sorts'|^|sorts|` times, per domain operation, the number
 /// of codomain operations plus its arity plus the number of codomain
 /// constants.
 fn assignment_count(domain: &r::Theory, codomain: &r::Theory) -> u64 {
-    let constants = codomain.ops.iter().filter(|op| op.inputs.is_empty()).count() as u64;
+    let constants = codomain
+        .ops
+        .iter()
+        .filter(|op| op.inputs.is_empty())
+        .count() as u64;
     let ops = codomain.ops.len() as u64;
     let mut count = (codomain.sorts.len() as u64).pow(domain.sorts.len() as u32);
     for op in &domain.ops {
@@ -1019,7 +1132,10 @@ fn parallel<T: Sync>(items: &[T], check: impl Fn(&T) -> Result<u64, String> + Sy
                     let Some(item) = items.get(at) else { break };
                     match check(item) {
                         Ok(n) => {
-                            total.fetch_add(usize::try_from(n).unwrap_or(usize::MAX), Ordering::Relaxed);
+                            total.fetch_add(
+                                usize::try_from(n).unwrap_or(usize::MAX),
+                                Ordering::Relaxed,
+                            );
                         }
                         Err(e) => {
                             stop.store(true, Ordering::Relaxed);
@@ -1051,8 +1167,10 @@ fn morphism_checking_agrees_with_the_reference_on_every_assignment() {
         bare.len(),
         bare.len() * bare.len()
     );
-    let pairs: Vec<(&r::Theory, &r::Theory)> =
-        bare.iter().flat_map(|d| bare.iter().map(move |c| (d, c))).collect();
+    let pairs: Vec<(&r::Theory, &r::Theory)> = bare
+        .iter()
+        .flat_map(|d| bare.iter().map(move |c| (d, c)))
+        .collect();
     let started = std::time::Instant::now();
     let compared = parallel(&pairs, |&(domain, codomain)| {
         let mut n = 0u64;
@@ -1093,6 +1211,31 @@ fn morphism_checking_agrees_with_the_reference_on_every_assignment() {
         started.elapsed()
     );
     assert_eq!(compared, formula + partial);
+
+    let whole = scope::whole_action_scope();
+    let (whole_morphisms, whole_actions) = action_scope_agrees(&whole, 6, 6, 7_200);
+    println!(
+        "whole-action alphabet: dependent sorts Y(x:X), H(x:X,y:X), Z(w:Y(c())); \
+         open and closed B; operations of arity 0..=2; renames and terms over constants, \
+         constructors and inputs; Case and Let probes"
+    );
+    println!(
+        "whole-action scope: 6 domains x 6 codomains x 7200 legs = {whole_morphisms} \
+         morphism comparisons; {} probes = {whole_actions} exact action comparisons",
+        whole.probes.len()
+    );
+
+    let constructors = scope::constructor_scope();
+    let (constructor_morphisms, constructor_actions) = action_scope_agrees(&constructors, 3, 4, 16);
+    println!(
+        "constructor alphabet: repeated binders (z,w), (z,z), (w,z); closed B; \
+         constructor images k, k1, derived k/k1 applications, an over-application and a variable"
+    );
+    println!(
+        "constructor scope: 3 domains x 4 codomains x 16 legs = {constructor_morphisms} \
+         morphism comparisons; {} probes = {constructor_actions} exact action comparisons",
+        constructors.probes.len()
+    );
 }
 
 /// Every equation variant of a bare signature: the bare signature itself
@@ -1156,7 +1299,10 @@ fn equation_preservation_agrees_with_the_reference_on_every_equation_pair() {
 fn compose_outcomes(
     diagram: &r::TheoryDiagram,
     options: &r::ComposeOptions,
-) -> (Result<r::Composition, String>, Result<r::Composition, String>) {
+) -> (
+    Result<r::Composition, String>,
+    Result<r::Composition, String>,
+) {
     let production = panproto_gat::compose(&convert::diagram(diagram), &convert::options(options))
         .map(|c| {
             let labels: Vec<String> = diagram.nodes.iter().map(|n| n.label.clone()).collect();
@@ -1204,11 +1350,12 @@ fn production_refusal(diagram: &r::TheoryDiagram, e: &panproto_gat::CompositionE
                 &node(&leg.tgt),
             );
             match checked {
-                Err(error) if error.to_string() == *detail => format!(
-                    "InvalidLeg({edge}, {:?})",
-                    convert::morphism_error(&error)
-                ),
-                other => format!("InvalidLeg({edge}, unexplained {detail:?}; check gives {other:?})"),
+                Err(error) if error.to_string() == *detail => {
+                    format!("InvalidLeg({edge}, {:?})", convert::morphism_error(&error))
+                }
+                other => {
+                    format!("InvalidLeg({edge}, unexplained {detail:?}; check gives {other:?})")
+                }
             }
         }
         E::SortSignatureMismatch {
@@ -1221,7 +1368,11 @@ fn production_refusal(diagram: &r::TheoryDiagram, e: &panproto_gat::CompositionE
             sym_text(second)
         ),
         E::OpSignatureMismatch { first, second } => {
-            format!("OpSignatureMismatch({}, {})", sym_text(first), sym_text(second))
+            format!(
+                "OpSignatureMismatch({}, {})",
+                sym_text(first),
+                sym_text(second)
+            )
         }
         E::QuotientNotRepresentable {
             first,
@@ -1276,7 +1427,10 @@ fn reference_refusal(e: &r::ComposeError) -> String {
         E::UnknownNodeLabel(label) => format!("UnknownNodeLabel({label})"),
         E::InvalidNode(label, defects) => format!(
             "InvalidNode({label}, {:?})",
-            defects.iter().map(convert::reduce_defect).collect::<Vec<_>>()
+            defects
+                .iter()
+                .map(convert::reduce_defect)
+                .collect::<Vec<_>>()
         ),
         E::InvalidLeg { edge, detail } => format!(
             "InvalidLeg({edge}, {:?})",
@@ -1315,10 +1469,15 @@ fn reference_refusal(e: &r::ComposeError) -> String {
                 .map(|c| c.iter().map(ref_sym_text).collect::<Vec<_>>())
                 .collect::<Vec<_>>()
         ),
-        E::IllTypedTransport { source, .. } => format!("IllTypedTransport({})", ref_sym_text(source)),
+        E::IllTypedTransport { source, .. } => {
+            format!("IllTypedTransport({})", ref_sym_text(source))
+        }
         E::IllTypedResult(defects) => format!(
             "IllTypedResult({:?})",
-            defects.iter().map(convert::reduce_defect).collect::<Vec<_>>()
+            defects
+                .iter()
+                .map(convert::reduce_defect)
+                .collect::<Vec<_>>()
         ),
         E::NotACocone(class) => format!(
             "NotACocone({:?})",
@@ -1386,7 +1545,11 @@ fn composition_agrees_with_the_reference_on_every_span() {
          total assignment the reference accepts; options: both modes x both clash policies",
         signatures.len()
     );
-    println!("spans: {}; compositions: {}", diagrams.len(), diagrams.len() * options.len());
+    println!(
+        "spans: {}; compositions: {}",
+        diagrams.len(),
+        diagrams.len() * options.len()
+    );
     let compared = parallel(&diagrams, |d| {
         let mut n = 0;
         for o in &options {
@@ -1522,7 +1685,8 @@ fn recompose_outcomes(
     let production = panproto_gat::recompose(&recipe(spec), &production_registry)
         .map(|t| convert::back_theory(&t))
         .map_err(|e| production_replay_refusal(&e));
-    let reference = r::recompose(spec, &reference_registry).map_err(|e| reference_replay_refusal(&e));
+    let reference =
+        r::recompose(spec, &reference_registry).map_err(|e| reference_replay_refusal(&e));
     (production, reference)
 }
 
@@ -1531,7 +1695,11 @@ fn recompose_outcomes(
 /// hand; the leg's own refusal is compared exactly by the morphism tests).
 fn replay_composition_refusal(text: String) -> String {
     match text.find("InvalidLeg(") {
-        Some(0) => text.split(',').next().map(|edge| format!("{edge})")).unwrap_or(text),
+        Some(0) => text
+            .split(',')
+            .next()
+            .map(|edge| format!("{edge})"))
+            .unwrap_or(text),
         _ => text,
     }
 }
@@ -1643,8 +1811,18 @@ fn randomized_theory_differential() {
         options.len()
     );
     let strategy = (
-        (0..signatures.len(), 0..signatures.len(), 0..signatures.len(), 0..raw.len()),
-        (any::<usize>(), any::<usize>(), 0..options.len(), any::<usize>()),
+        (
+            0..signatures.len(),
+            0..signatures.len(),
+            0..signatures.len(),
+            0..raw.len(),
+        ),
+        (
+            any::<usize>(),
+            any::<usize>(),
+            0..options.len(),
+            any::<usize>(),
+        ),
         (0..=6usize).prop_flat_map(|size| {
             (
                 Just(size),
@@ -1653,7 +1831,11 @@ fn randomized_theory_differential() {
         }),
     )
         .prop_map(
-            |((first, second, third, raw), (leg, other_leg, options, recipe), (size, identifications))| Case {
+            |(
+                (first, second, third, raw),
+                (leg, other_leg, options, recipe),
+                (size, identifications),
+            )| Case {
                 first,
                 second,
                 third,
@@ -1668,15 +1850,26 @@ fn randomized_theory_differential() {
         );
     let mut runner = TestRunner::new(config);
     let result = runner.run(&strategy, |case| {
-        let (a, b, c) = (&signatures[case.first], &signatures[case.second], &signatures[case.third]);
+        let (a, b, c) = (
+            &signatures[case.first],
+            &signatures[case.second],
+            &signatures[case.third],
+        );
         prop_assert!(typecheck_agrees(a), "signature checking of {a:?}");
-        prop_assert!(typecheck_agrees(&raw[case.raw]), "signature checking of {:?}", raw[case.raw]);
+        prop_assert!(
+            typecheck_agrees(&raw[case.raw]),
+            "signature checking of {:?}",
+            raw[case.raw]
+        );
 
         let mut candidates = scope::morphisms(a, b);
         candidates.extend(scope::partial_morphisms(a, b));
         if !candidates.is_empty() {
             let m = &candidates[case.leg % candidates.len()];
-            prop_assert!(morphism_agrees(a, b, m), "morphism check of {m:?}: {a:?} -> {b:?}");
+            prop_assert!(
+                morphism_agrees(a, b, m),
+                "morphism check of {m:?}: {a:?} -> {b:?}"
+            );
         }
 
         let valid = |foot: &r::Theory| -> Vec<r::Morphism> {
@@ -1695,10 +1888,21 @@ fn randomized_theory_differential() {
                 left_legs[case.leg % left_legs.len()].clone(),
                 right_legs[case.other_leg % right_legs.len()].clone(),
             );
-            prop_assert!(compose_agrees(&diagram, o).is_ok(), "{}", compose_agrees(&diagram, o).unwrap_err());
+            prop_assert!(
+                compose_agrees(&diagram, o).is_ok(),
+                "{}",
+                compose_agrees(&diagram, o).unwrap_err()
+            );
         }
-        let discrete = r::TheoryDiagram::discrete(vec![("L".to_owned(), b.clone()), ("R".to_owned(), c.clone())]);
-        prop_assert!(compose_agrees(&discrete, o).is_ok(), "{}", compose_agrees(&discrete, o).unwrap_err());
+        let discrete = r::TheoryDiagram::discrete(vec![
+            ("L".to_owned(), b.clone()),
+            ("R".to_owned(), c.clone()),
+        ]);
+        prop_assert!(
+            compose_agrees(&discrete, o).is_ok(),
+            "{}",
+            compose_agrees(&discrete, o).unwrap_err()
+        );
 
         prop_assert_eq!(
             production_closure(case.size, &case.identifications),
@@ -1714,7 +1918,9 @@ fn randomized_theory_differential() {
     match result {
         Ok(()) => println!("property run passed with seed {seed}"),
         Err(TestError::Fail(reason, case)) => {
-            panic!("property run failed with seed {seed}: {reason}\nshrunk counterexample: {case:?}")
+            panic!(
+                "property run failed with seed {seed}: {reason}\nshrunk counterexample: {case:?}"
+            )
         }
         Err(TestError::Abort(reason)) => panic!("property run aborted with seed {seed}: {reason}"),
     }

@@ -35,7 +35,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::check_status::CheckStatus;
-use crate::eq::{DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation};
+use crate::eq::{DirectedEquation, Equation, Term, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::ident::SiteRename;
 use crate::morphism::{OpAssignment, TheoryMorphism, check_morphism, normalize_bounded};
@@ -1643,7 +1643,14 @@ impl Elements {
         let eqs = group_equations(nodes, symbols.op_map(), false, opts.mode)?;
         let directed = group_equations(nodes, symbols.op_map(), true, opts.mode)?;
         let policies = group_policies(nodes, opts.mode)?;
-        let eq_names = name_classes(SymKind::Eq, &eqs.members, &reserved, opts, naming, freshened)?;
+        let eq_names = name_classes(
+            SymKind::Eq,
+            &eqs.members,
+            &reserved,
+            opts,
+            naming,
+            freshened,
+        )?;
         let directed_names = name_classes(
             SymKind::DirectedEq,
             &directed.members,
@@ -2062,12 +2069,15 @@ fn check_sort_classes(
                     })
             });
         if let Some((second, detail)) = mismatch {
-            return Err(name_rule_conflict(SymKind::Sort, first, second, opts, edge_uf)
-                .unwrap_or_else(|| CompositionError::SortSignatureMismatch {
-                    first: first.clone(),
-                    second: second.clone(),
-                    detail,
-                }));
+            return Err(
+                name_rule_conflict(SymKind::Sort, first, second, opts, edge_uf).unwrap_or_else(
+                    || CompositionError::SortSignatureMismatch {
+                        first: first.clone(),
+                        second: second.clone(),
+                        detail,
+                    },
+                ),
+            );
         }
     }
     Ok(())
@@ -2110,7 +2120,9 @@ fn check_op_classes(
                     second: second.clone(),
                 },
             };
-            return Err(name_rule_conflict(SymKind::Op, first, second, opts, edge_uf).unwrap_or(typed));
+            return Err(
+                name_rule_conflict(SymKind::Op, first, second, opts, edge_uf).unwrap_or(typed),
+            );
         }
     }
     Ok(())
@@ -2562,7 +2574,11 @@ fn group_equations(
             }
         }
     }
-    let kind = if directed { SymKind::DirectedEq } else { SymKind::Eq };
+    let kind = if directed {
+        SymKind::DirectedEq
+    } else {
+        SymKind::Eq
+    };
     let same = |a: &DirectedEquation, b: &DirectedEquation| {
         alpha_equivalent_equation(&a.lhs, &a.rhs, &b.lhs, &b.rhs)
             && a.impl_term == b.impl_term
@@ -2611,10 +2627,12 @@ fn group_policies(
     let items: Vec<(SymRef, ConflictPolicy)> = nodes
         .iter()
         .flat_map(|(label, info)| {
-            info.theory
-                .policies
-                .iter()
-                .map(move |p| (SymRef::new(Arc::clone(label), Arc::clone(&p.name)), p.clone()))
+            info.theory.policies.iter().map(move |p| {
+                (
+                    SymRef::new(Arc::clone(label), Arc::clone(&p.name)),
+                    p.clone(),
+                )
+            })
         })
         .collect();
     let same = |a: &ConflictPolicy, b: &ConflictPolicy| {
@@ -2656,12 +2674,17 @@ fn check_transports(
     for node in &diagram.nodes {
         let ops = node_map(symbols.op_map(), &node.label);
         for eq in &nodes[&node.label].theory.eqs {
-            typecheck_equation(&eq.rename_ops(ops), &signature)
-                .map_err(|err| refuse(SymRef::new(Arc::clone(&node.label), Arc::clone(&eq.name)), err))?;
+            typecheck_equation(&eq.rename_ops(ops), &signature).map_err(|err| {
+                refuse(
+                    SymRef::new(Arc::clone(&node.label), Arc::clone(&eq.name)),
+                    err,
+                )
+            })?;
         }
     }
     for a in added {
-        typecheck_equation(&a.equation, &signature).map_err(|err| refuse(a.source.op.clone(), err))?;
+        typecheck_equation(&a.equation, &signature)
+            .map_err(|err| refuse(a.source.op.clone(), err))?;
     }
     for node in &diagram.nodes {
         let ops = node_map(symbols.op_map(), &node.label);
@@ -2672,8 +2695,12 @@ fn check_transports(
                 lhs: renamed.lhs,
                 rhs: renamed.rhs,
             };
-            typecheck_equation(&eq, &signature)
-                .map_err(|err| refuse(SymRef::new(Arc::clone(&node.label), Arc::clone(&de.name)), err))?;
+            typecheck_equation(&eq, &signature).map_err(|err| {
+                refuse(
+                    SymRef::new(Arc::clone(&node.label), Arc::clone(&de.name)),
+                    err,
+                )
+            })?;
         }
     }
     Ok(())
@@ -2965,12 +2992,12 @@ enum Decision {
 /// oriented both ways (as [`crate::check_morphism`] does).
 fn decide_equal(a: &Term, b: &Term, q: &Theory, budget: u32) -> Decision {
     let budget = budget as usize;
-    if alpha_equivalent(a, b) {
+    if alpha_equivalent_equation(a, b, a, a) {
         return Decision::Equal;
     }
     let (na, ea) = normalize_bounded(a, &q.directed_eqs, budget);
     let (nb, eb) = normalize_bounded(b, &q.directed_eqs, budget);
-    if !ea && !eb && alpha_equivalent(&na, &nb) {
+    if !ea && !eb && alpha_equivalent_equation(&na, &nb, &na, &na) {
         return Decision::Equal;
     }
     let rules = crate::nat_transform::full_rewrite_rules(q);
@@ -2978,7 +3005,7 @@ fn decide_equal(a: &Term, b: &Term, q: &Theory, budget: u32) -> Decision {
     let (nb, eb) = normalize_bounded(b, &rules, budget);
     if ea || eb {
         Decision::Exhausted
-    } else if alpha_equivalent(&na, &nb) {
+    } else if alpha_equivalent_equation(&na, &nb, &na, &na) {
         Decision::Equal
     } else {
         Decision::Distinct
@@ -5359,9 +5386,8 @@ mod tests {
         // the class to two different terms: it is no cocone, although each
         // image, taken alone, is a single variable.
         let a = || SortExpr::from("A");
-        let binary = |name: &str| {
-            Operation::new(name, vec![("x".into(), a()), ("y".into(), a())], "A")
-        };
+        let binary =
+            |name: &str| Operation::new(name, vec![("x".into(), a()), ("y".into(), a())], "A");
         let s = Theory::new("S", vec![Sort::simple("A")], vec![binary("o")], vec![]);
         let t = Theory::new(
             "T",
