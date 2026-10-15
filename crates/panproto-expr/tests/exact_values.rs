@@ -1259,20 +1259,21 @@ mod exact {
         assert_eq!(pairs, 1111 * 1111 + 8191 * 8191);
     }
 
-    /// The departures the rustdoc of `Temporal` records hold as stated: a
-    /// leap second compares `Equal` to the next minute's second 0 (and, with
-    /// a fraction, after it), and neither a plus sign before a year nor a
+    /// A leap second is its own instant, strictly between second 59 of its
+    /// minute and the next minute's second 0, with or without a fraction;
+    /// and the departures the rustdoc of `Temporal` records for the year's
+    /// written sign hold as stated: neither a plus sign before a year nor a
     /// minus sign before the year zero is written back.
     #[test]
-    fn the_recorded_temporal_departures_hold_as_stated() {
+    fn a_leap_second_is_ordered_and_the_recorded_year_departures_hold() {
         let parse = |text: &str| Temporal::parse(text).unwrap();
         let leap = parse("2024-01-01T23:59:60Z");
         let midnight = parse("2024-01-02T00:00:00Z");
-        assert_eq!(leap.cmp_chronological(&midnight), Some(Ordering::Equal));
+        assert_eq!(leap.cmp_chronological(&midnight), Some(Ordering::Less));
         assert_ne!(leap, midnight);
         assert_eq!(
             parse("2024-01-01T23:59:60.5Z").cmp_chronological(&midnight),
-            Some(Ordering::Greater)
+            Some(Ordering::Less)
         );
         assert_eq!(
             parse("2024-01-01T23:59:59.999Z").cmp_chronological(&leap),

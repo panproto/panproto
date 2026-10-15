@@ -1915,6 +1915,7 @@ name = "panproto-expr"
 version = "0.74.4"
 dependencies = [
  "divan",
+ "panproto-reference",
  "proptest",
  "rustc-hash",
  "serde",

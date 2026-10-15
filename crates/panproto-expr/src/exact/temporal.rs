@@ -596,28 +596,31 @@ impl Temporal {
     /// Zoned values are compared on the UTC timeline, so the three zero
     /// offsets `Z`, `+00:00` and `-00:00` compare `Equal`; local values by
     /// their civil fields. How a value was written (the case of `Z` or of
-    /// the separator) does not enter the comparison. Fractions of any length compare as decimal
-    /// fractions of a second (`.1` and `.10` are equal). A leap second
-    /// sorts after second 59 of its minute.
+    /// the separator) does not enter the comparison. Fractions of any
+    /// length compare as decimal fractions of a second (`.1` and `.10` are
+    /// equal).
     ///
-    /// Known departure from the order of instants, kept so that the order
-    /// of values whose fractions have at most nine digits is unchanged: a
-    /// value is placed by its whole seconds (second 60 counting as the
-    /// sixtieth second of its minute, so `23:59:60` is second 86400 of its
-    /// day) and then its fraction, so a leap second compares `Equal` to the
-    /// following minute's second 0 with an equal fraction
-    /// (`2024-01-01T23:59:60Z` and `2024-01-02T00:00:00Z`), and a leap
-    /// second with a fraction sorts after that second 0, though the leap
-    /// second precedes it.
+    /// A leap second is its own instant, after second 59 of its minute and
+    /// before the next minute's second 0, whatever the fractions: a value is
+    /// placed by twice its whole seconds on the timeline, second 60 taking
+    /// the odd point between second 59 and the next minute, and then by its
+    /// fraction. So `2024-01-01T23:59:60Z` and `2024-01-01T23:59:60.5Z` both
+    /// precede `2024-01-02T00:00:00Z`, and both follow
+    /// `2024-01-01T23:59:59.999Z`.
     #[must_use]
     pub fn cmp_chronological(&self, other: &Self) -> Option<Ordering> {
-        let seconds = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {
+        // Twice the whole seconds since the epoch, with a leap second on the
+        // odd point after second 59 of its minute, less twice the offset.
+        let key = |date: Option<&CivilDate>, time: &CivilTime, offset: Offset| {
             let days = date.map_or(0, |d| d.days_since_epoch());
-            days * 86_400 + time.seconds_of_day() - i64::from(offset.minutes()) * 60
+            let minute = i64::from(time.hour) * 60 + i64::from(time.minute);
+            let ordinary = i64::from(time.second.min(59));
+            (days * 1440 + minute) * 120 + ordinary * 2 + i64::from(time.second == 60)
+                - i64::from(offset.minutes()) * 120
         };
         let instant = |date, ta: &CivilTime, oa, db, tb: &CivilTime, ob| {
-            seconds(date, ta, oa)
-                .cmp(&seconds(db, tb, ob))
+            key(date, ta, oa)
+                .cmp(&key(db, tb, ob))
                 .then_with(|| ta.fraction.cmp_numeric(&tb.fraction))
         };
         match (self, other) {
