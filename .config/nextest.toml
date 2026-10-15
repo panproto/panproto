@@ -18,16 +18,20 @@
 #     and are what would catch a regression; the corpus run is the wider net.
 #     Its name is unique on purpose, since the filter below matches test names
 #     across every binary and the fixture siblings must stay lit.
+#   * the two exact O14 Kan certificates, which enumerate the complete labelled
+#     member and representative-pair spaces. They are acceptance gates with
+#     separately persisted evidence; the representative-pair certificate alone
+#     takes several hours in release mode and cannot fit an ordinary CI job.
 #
-# Running these on every PR is wasteful: the code they exercise is stable, and
-# they still run
+# Running these on every PR is wasteful. Every excluded test still runs by
+# default for local runs (`cargo nextest run`). The corpus gates also run
 #
-#   * by default for local runs (`cargo nextest run`), and
-#   * on a schedule (and on demand) in the `corpus-gate` workflow,
+#   * on a schedule (and on demand) in the `corpus-gate` workflow.
 #
-# so both guarantees stay enforced without blocking PR CI.
+# The O14 certificates instead run as separately recorded graph-parity
+# acceptance gates. Thus both guarantees stay enforced without blocking PR CI.
 [profile.ci]
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|o14_executes_every_representative_profile_pair|o14_every_labelled_member_has_checked_operation_transports/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #
@@ -79,3 +83,4 @@ threads-required = 'num-cpus'
 [[profile.ci.overrides]]
 filter = 'package(panproto-lens) & binary(law_reference) & test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses)'
 slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
+threads-required = 'num-cpus'
