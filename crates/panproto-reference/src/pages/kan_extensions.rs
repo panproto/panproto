@@ -1409,7 +1409,12 @@ pub mod encode {
     /// The input cells Sigma equates with the output slot `(row, column)`:
     /// the cells of the same row at the kept columns of its table that the
     /// functor sends to `column`, ascending.
-    fn sigma_slot_sources(input: &Table, row: u32, column: &str, f: &RelFunctor) -> Vec<(u32, String)> {
+    fn sigma_slot_sources(
+        input: &Table,
+        row: u32,
+        column: &str,
+        f: &RelFunctor,
+    ) -> Vec<(u32, String)> {
         let Some((source_table, source_cells)) = input.rows.get(&row) else {
             return Vec::new();
         };
@@ -1454,8 +1459,7 @@ pub mod encode {
                     continue;
                 };
                 let mut origins = Vec::new();
-                for (source_row, source_column) in
-                    sigma_slot_sources(input, *row, target_column, f)
+                for (source_row, source_column) in sigma_slot_sources(input, *row, target_column, f)
                 {
                     origins.push((
                         source_table.clone(),

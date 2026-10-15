@@ -1353,7 +1353,11 @@ fn check_tree_route(
                 !matches!(production_read_back(out, schema), ReadBack::Tree(_)),
                 "{route:?} of {tree:?}: production reads a tree"
             );
-            assert_eq!(graph_roots(&ref_graph(out)).len(), *count, "{route:?} of {tree:?}");
+            assert_eq!(
+                graph_roots(&ref_graph(out)).len(),
+                *count,
+                "{route:?} of {tree:?}"
+            );
             format!("RootCount({count})")
         }
         (Ok(out), Err(encode::TreeKanError::NotATree(reason))) => {
@@ -1361,7 +1365,11 @@ fn check_tree_route(
                 !matches!(production_read_back(out, schema), ReadBack::Tree(_)),
                 "{route:?} of {tree:?}: production reads a tree"
             );
-            assert_eq!(graph_roots(&ref_graph(out)).len(), 1, "{route:?} of {tree:?}");
+            assert_eq!(
+                graph_roots(&ref_graph(out)).len(),
+                1,
+                "{route:?} of {tree:?}"
+            );
             format!("NotATree({reason:?})")
         }
         (Err(ours), Err(encode::TreeKanError::Graph(theirs))) => {
@@ -1556,7 +1564,9 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
                 &ref_table(&square)
             ));
             assert_eq!(
-                encode::encode_graph(graph_out, &family.target_side).unwrap().0,
+                encode::encode_graph(graph_out, &family.target_side)
+                    .unwrap()
+                    .0,
                 ref_table(&square)
             );
             census.add("Sigma ok", 1);
@@ -1587,10 +1597,18 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
                 let (graph_out, graph_provenance) = graph_pi.as_ref().unwrap();
                 let (production_out, production_provenance) = production_graph_pi.as_ref().unwrap();
                 assert!(
-                    panproto_reference::migration::graph_square(&ref_graph(production_out), graph_out),
+                    panproto_reference::migration::graph_square(
+                        &ref_graph(production_out),
+                        graph_out
+                    ),
                     "graph Pi of {input:?}"
                 );
-                schema_taking_graph_kan_agree(&family.functors, &graph, &production_graph, Some(bound));
+                schema_taking_graph_kan_agree(
+                    &family.functors,
+                    &graph,
+                    &production_graph,
+                    Some(bound),
+                );
                 assert_eq!(
                     &ref_pi_provenance(&production_provenance.table),
                     &graph_provenance.table
@@ -1610,7 +1628,9 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
                     &ref_table(&square)
                 ));
                 assert_eq!(
-                    encode::encode_graph(graph_out, &family.target_side).unwrap().0,
+                    encode::encode_graph(graph_out, &family.target_side)
+                        .unwrap()
+                        .0,
                     ref_table(&square)
                 );
                 census.add(format!("Pi({bound}) ok"), 1);
@@ -1745,7 +1765,9 @@ fn check_target_object(family: &FamilyCase, input: &model::Table) -> Census {
         &ref_table(&square)
     ));
     assert_eq!(
-        encode::encode_graph(&graph_out, &encode::GraphSide::kept(f)).unwrap().0,
+        encode::encode_graph(&graph_out, &encode::GraphSide::kept(f))
+            .unwrap()
+            .0,
         ref_table(&square)
     );
     census.add("Delta ok", 1);
@@ -4878,11 +4900,24 @@ fn pi_transposes_do_not_need_pi_of_the_delta() {
         &family_kinds(),
     );
     let (f, fp) = (&functors.reference, &functors.production);
-    let j = one_table("m", &[(0, &[("x", int(0))]), (1, &[("x", int(0))]), (2, &[("x", int(0))])]);
+    let j = one_table(
+        "m",
+        &[
+            (0, &[("x", int(0))]),
+            (1, &[("x", int(0))]),
+            (2, &[("x", int(0))]),
+        ],
+    );
     let i = model::Table {
         rows: BTreeMap::from([
-            (0, ("a".to_owned(), BTreeMap::from([("x".to_owned(), int(0))]))),
-            (1, ("b".to_owned(), BTreeMap::from([("x".to_owned(), int(0))]))),
+            (
+                0,
+                ("a".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
+            (
+                1,
+                ("b".to_owned(), BTreeMap::from([("x".to_owned(), int(0))])),
+            ),
         ]),
         pairs: BTreeSet::new(),
     };
@@ -4891,9 +4926,14 @@ fn pi_transposes_do_not_need_pi_of_the_delta() {
     let homs = rel::homs(&delta, &i);
     assert_eq!(homs.len(), 1);
     let theirs = rel::pi_transpose_forward(f, &j, &i, &homs[0], 4).unwrap();
-    let ours =
-        panproto_inst::f_pi_transpose_left(&prod_hom(&homs[0]), &prod_table(&j), &prod_table(&i), fp, 4)
-            .unwrap_or_else(|e| panic!("the production transpose refuses: {e}"));
+    let ours = panproto_inst::f_pi_transpose_left(
+        &prod_hom(&homs[0]),
+        &prod_table(&j),
+        &prod_table(&i),
+        fp,
+        4,
+    )
+    .unwrap_or_else(|e| panic!("the production transpose refuses: {e}"));
     assert!(ref_hom(&ours).same_as(&theirs, &j));
     let back = panproto_inst::f_pi_transpose_right(&ours, &prod_table(&j), &prod_table(&i), fp, 4)
         .unwrap();
