@@ -486,8 +486,8 @@ fn read_date(s: &str) -> Result<(CivilDate, &str), ExactParseError> {
         return Err(invalid());
     }
     let magnitude = i128::from(s[..year_len].parse::<u64>().map_err(|_| invalid())?);
-    let year = i64::try_from(if negative { -magnitude } else { magnitude })
-        .map_err(|_| invalid())?;
+    let year =
+        i64::try_from(if negative { -magnitude } else { magnitude }).map_err(|_| invalid())?;
     let s = &s[year_len..];
     let s = take_byte(s, b'-')?;
     let (month, s) = take_digits(s, 2)?;
@@ -697,7 +697,8 @@ impl Temporal {
         let ticks = 10_i128.pow(digits);
         let seconds = count.div_euclid(ticks);
         let within = count.rem_euclid(ticks);
-        let date = CivilDate::from_days_since_epoch(seconds.div_euclid(86_400)).ok_or_else(overflow)?;
+        let date =
+            CivilDate::from_days_since_epoch(seconds.div_euclid(86_400)).ok_or_else(overflow)?;
         let of_day = seconds.rem_euclid(86_400);
         let field = |n: i128| u8::try_from(n).map_err(|_| overflow());
         let fraction = if digits == 0 {

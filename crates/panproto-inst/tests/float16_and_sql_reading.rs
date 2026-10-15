@@ -56,7 +56,10 @@ fn a_float16_and_the_sql_reading_hold_their_laws() {
     for (text, expected) in pins {
         assert_eq!(read(text, &half), expected.map(f64::to_bits), "{text}");
     }
-    assert_eq!(keep(0.099_975_585_937_5, &half), Ok(0.099_975_585_937_5_f64.to_bits()));
+    assert_eq!(
+        keep(0.099_975_585_937_5, &half),
+        Ok(0.099_975_585_937_5_f64.to_bits())
+    );
     assert_eq!(keep(f64::INFINITY, &half), Ok(f64::INFINITY.to_bits()));
     for nan in [0x7ff8_0000_0000_0000_u64, 0x7ff4_0000_0000_0000] {
         assert_eq!(keep(f64::from_bits(nan), &half), Ok(nan));

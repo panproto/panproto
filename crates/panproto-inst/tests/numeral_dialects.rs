@@ -77,7 +77,10 @@ fn a_numeral_is_read_in_its_dialect() {
     assert_eq!(number("inf", FLOAT, D::Xsd), not_a_number);
     // JSON: no plus sign, no quoted special.
     assert_eq!(number("+1", INT, D::Json), not_a_number);
-    assert_eq!(read("NaN", LexClass::String, FLOAT, Some(D::Json)), not_a_number);
+    assert_eq!(
+        read("NaN", LexClass::String, FLOAT, Some(D::Json)),
+        not_a_number
+    );
     // Java's specials.
     assert_eq!(float_bits(number("Infinity", FLOAT, D::Java)), inf);
     assert_eq!(number("inf", FLOAT, D::Java), not_a_number);

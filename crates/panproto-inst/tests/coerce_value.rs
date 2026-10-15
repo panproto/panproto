@@ -783,11 +783,7 @@ fn written_decimal(text: &str) -> Want {
     let digits = all.trim_start_matches('0');
     let digits = if digits.is_empty() { "0" } else { digits };
     let exponent = written - i128::try_from(frac.len()).unwrap();
-    Want::Decimal(
-        negative,
-        digits.to_owned(),
-        exponent.to_string(),
-    )
+    Want::Decimal(negative, digits.to_owned(), exponent.to_string())
 }
 
 // ---------------------------------------------------------------------------

@@ -110,7 +110,11 @@ fn a_discriminator_picks_the_kind() {
     for (text, class) in &lexemes {
         for (tag, kind) in table() {
             let under_kind = read(text, class.clone(), &ValueSpec::new(kind));
-            assert_eq!(tagged(text, class.clone(), Some(&tag)), under_kind, "{tag} {text}");
+            assert_eq!(
+                tagged(text, class.clone(), Some(&tag)),
+                under_kind,
+                "{tag} {text}"
+            );
             checked += 1;
         }
         assert_eq!(

@@ -111,10 +111,13 @@ mod exact {
         )
         .unwrap();
         assert_eq!(nan, dec("-sNaN12"));
-        assert_eq!(serde_json::to_value(&nan).unwrap(), serde_json::json!({
-            "negative": true, "digits": "0", "exponent": "0",
-            "class": {"na_n": {"signalling": true, "payload": "12"}}
-        }));
+        assert_eq!(
+            serde_json::to_value(&nan).unwrap(),
+            serde_json::json!({
+                "negative": true, "digits": "0", "exponent": "0",
+                "class": {"na_n": {"signalling": true, "payload": "12"}}
+            })
+        );
         assert_eq!(
             serde_json::to_string(&dec("1.5")).unwrap(),
             r#"{"negative":false,"digits":"15","exponent":"-1"}"#

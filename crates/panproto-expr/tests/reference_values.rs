@@ -10,8 +10,8 @@
 use std::cmp::Ordering;
 
 use panproto_expr::exact::{
-    CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue, Offset, Temporal,
-    WideInt, ZuluCase,
+    CivilDate, CivilTime, DateTimeSeparator, DecimalClass, DecimalValue, Offset, Temporal, WideInt,
+    ZuluCase,
 };
 use panproto_expr::{BuiltinOp, ExprError, Literal, apply_builtin};
 use panproto_reference::exact as rx;
@@ -361,9 +361,17 @@ fn decimal_orders_agree_with_the_reference() {
         assert!(bytes.insert(a_bytes), "two values with one encoding: {a}");
         for (j, b) in scope.iter().enumerate() {
             let numeric = a.cmp_numeric(b);
-            assert_eq!(numeric, reference[i].cmp_numeric(&reference[j]), "{a} against {b}");
+            assert_eq!(
+                numeric,
+                reference[i].cmp_numeric(&reference[j]),
+                "{a} against {b}"
+            );
             let total = a.compare_total(b);
-            assert_eq!(total, reference[i].compare_total(&reference[j]), "{a} total {b}");
+            assert_eq!(
+                total,
+                reference[i].compare_total(&reference[j]),
+                "{a} total {b}"
+            );
             assert_eq!(total.is_eq(), a == b, "{a} total {b}");
             if numeric.is_lt() {
                 assert!(total.is_lt(), "compare-total refines the order: {a} {b}");
@@ -406,9 +414,9 @@ fn decimal_lexemes_read_as_the_reference_reads_them() {
     let mut lexemes: Vec<String> = panproto_reference::enumerate::values::numerals();
     for sign in ["", "+", "-"] {
         for body in [
-            "NaN", "nan", "NAN", "sNaN", "snan", "SNAN", "NaN0", "NaN1", "NaN007", "sNaN12",
-            "Inf", "inf", "INF", "Infinity", "infinity", "INFINITY", "0", "0.00", "0e5", "0E+3",
-            "1.50", ".5", "5.", "Infinit", "NaN.5", "sNaN-1", "nanx", ".nan", "in", "",
+            "NaN", "nan", "NAN", "sNaN", "snan", "SNAN", "NaN0", "NaN1", "NaN007", "sNaN12", "Inf",
+            "inf", "INF", "Infinity", "infinity", "INFINITY", "0", "0.00", "0e5", "0E+3", "1.50",
+            ".5", "5.", "Infinit", "NaN.5", "sNaN-1", "nanx", ".nan", "in", "",
         ] {
             lexemes.push(format!("{sign}{body}"));
         }
@@ -417,16 +425,27 @@ fn decimal_lexemes_read_as_the_reference_reads_them() {
     for text in &lexemes {
         let production = DecimalValue::parse(text).ok();
         let reference = rx::parse_decimal(text);
-        assert_eq!(production.as_ref().map(decimal_to_ref), reference, "{text:?}");
+        assert_eq!(
+            production.as_ref().map(decimal_to_ref),
+            reference,
+            "{text:?}"
+        );
         if let Some(value) = production {
             let shown = value.to_string();
-            assert_eq!(DecimalValue::parse(&shown).ok().as_ref(), Some(&value), "{text:?}");
+            assert_eq!(
+                DecimalValue::parse(&shown).ok().as_ref(),
+                Some(&value),
+                "{text:?}"
+            );
             assert_eq!(
                 apply_builtin(BuiltinOp::ToString, &[Literal::Decimal(value.clone())])
                     .ok()
                     .map(|l| literal_to_ref(&l)),
-                rv::apply_builtin(rv::BuiltinOp::ToString, &[RValue::Decimal(decimal_to_ref(&value))])
-                    .ok(),
+                rv::apply_builtin(
+                    rv::BuiltinOp::ToString,
+                    &[RValue::Decimal(decimal_to_ref(&value))]
+                )
+                .ok(),
                 "{text:?}"
             );
             read += 1;

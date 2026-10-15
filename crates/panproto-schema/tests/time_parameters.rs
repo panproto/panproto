@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use panproto_expr::exact::TimeUnit;
 use panproto_gat::Name;
 use panproto_schema::{
-    ConstraintSemantics, ConstraintValueReason, Protocol, ScalarKind, SchemaBuilder, ValueParameter,
-    ValueSpec,
+    ConstraintSemantics, ConstraintValueReason, Protocol, ScalarKind, SchemaBuilder,
+    ValueParameter, ValueSpec,
 };
 
 /// `time_unit` reads `s`, `ms`, `us` and `ns` and refuses any other text;
@@ -30,9 +30,19 @@ fn a_time_parameter_is_read_and_kept() {
     }
     for text in ["min", "", "S", "MS", " ms", "µs"] {
         let error = ValueParameter::parse("time_unit", text).unwrap_err();
-        assert_eq!(error.reason, ConstraintValueReason::NotATimeUnit, "{text:?}");
+        assert_eq!(
+            error.reason,
+            ConstraintValueReason::NotATimeUnit,
+            "{text:?}"
+        );
     }
-    for zone in ["Asia/Kolkata", "+05:30", "UTC", "Z", "America/Argentina/Buenos_Aires"] {
+    for zone in [
+        "Asia/Kolkata",
+        "+05:30",
+        "UTC",
+        "Z",
+        "America/Argentina/Buenos_Aires",
+    ] {
         assert_eq!(
             ValueParameter::parse("time_zone", zone),
             Ok(ValueParameter::TimeZone(zone.to_owned()))

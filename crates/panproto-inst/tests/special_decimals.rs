@@ -12,7 +12,9 @@ use panproto_inst::{
     FidelityReason, FieldPresence, GInstance, IncompleteReason, Node, Value, ValueSite,
     validate_graph,
 };
-use panproto_schema::{Constraint, ConstraintSemantics, Protocol, ScalarKind, Schema, ValueSpec, Vertex};
+use panproto_schema::{
+    Constraint, ConstraintSemantics, Protocol, ScalarKind, Schema, ValueSpec, Vertex,
+};
 
 fn decimal(text: &str) -> Value {
     Value::Decimal(DecimalValue::parse(text).unwrap_or_else(|e| panic!("{text}: {e}")))
@@ -55,19 +57,25 @@ fn a_special_decimal_is_not_compared_with_a_bound() {
     );
     let check = |value: Value| {
         validate_graph(
-            &GInstance::new().with_node(Node::new(0, "a").with_value(FieldPresence::Present(value))),
+            &GInstance::new()
+                .with_node(Node::new(0, "a").with_value(FieldPresence::Present(value))),
             &schema,
             &protocol,
         )
     };
     for special in ["NaN", "-sNaN3", "Infinity", "-Infinity"] {
         let report = check(decimal(special));
-        assert_eq!(report.status, CheckStatus::Incomplete, "{special}: {report:?}");
+        assert_eq!(
+            report.status,
+            CheckStatus::Incomplete,
+            "{special}: {report:?}"
+        );
         assert!(
-            report.incomplete.iter().all(|i| matches!(
-                &i.reason,
-                IncompleteReason::IllFormedDeclaration { .. }
-            )) && !report.incomplete.is_empty(),
+            report
+                .incomplete
+                .iter()
+                .all(|i| matches!(&i.reason, IncompleteReason::IllFormedDeclaration { .. }))
+                && !report.incomplete.is_empty(),
             "{special}: {report:?}"
         );
     }
@@ -76,10 +84,17 @@ fn a_special_decimal_is_not_compared_with_a_bound() {
 
     // Under `Decimal` the special spellings and negative zeros are values.
     assert_eq!(read("-0", ScalarKind::Decimal), Ok(decimal("-0")));
-    assert_ne!(read("-0", ScalarKind::Decimal), read("0", ScalarKind::Decimal));
+    assert_ne!(
+        read("-0", ScalarKind::Decimal),
+        read("0", ScalarKind::Decimal)
+    );
     assert_eq!(read("-0.00", ScalarKind::Decimal), Ok(decimal("-0.00")));
     for special in ["NaN", "-NaN", "sNaN", "NaN12", "Inf", "-Infinity"] {
-        assert_eq!(read(special, ScalarKind::Decimal), Ok(decimal(special)), "{special}");
+        assert_eq!(
+            read(special, ScalarKind::Decimal),
+            Ok(decimal(special)),
+            "{special}"
+        );
     }
     // Where a number of another kind is needed, a special decimal is
     // refused, and `Float(-0.0)` under `Decimal` is a negative zero.

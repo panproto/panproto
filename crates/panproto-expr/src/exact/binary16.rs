@@ -93,8 +93,8 @@ pub fn binary16_widen(h: u16) -> f64 {
         0x1f => f64::from_bits(sign | (0x7ff << 52) | (fraction << 42)),
         0 => {
             // Zero or a subnormal: fraction × 2^-24, exact in binary64.
-            let magnitude =
-                f64::from(u32::try_from(fraction).unwrap_or(0)) * f64::from_bits(0x3e70_0000_0000_0000);
+            let magnitude = f64::from(u32::try_from(fraction).unwrap_or(0))
+                * f64::from_bits(0x3e70_0000_0000_0000);
             f64::from_bits(sign | magnitude.to_bits())
         }
         _ => f64::from_bits(sign | ((field + 1008) << 52) | (fraction << 42)),
@@ -182,7 +182,11 @@ pub fn binary16_nearest(d: &DecimalValue) -> f64 {
         }
     };
     let m = if up { hi } else { lo };
-    signed(if m > BINARY16_OVERFLOW { f64::INFINITY } else { m })
+    signed(if m > BINARY16_OVERFLOW {
+        f64::INFINITY
+    } else {
+        m
+    })
 }
 
 impl DecimalValue {

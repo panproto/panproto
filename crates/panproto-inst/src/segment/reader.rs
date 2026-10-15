@@ -289,7 +289,8 @@ impl<'a> Reader<'a> {
             lead @ (0 | 1) => {
                 let digits = self.string()?;
                 let exponent = self.wide_int("a decimal exponent")?;
-                DecimalValue::new(lead == 1, digits, exponent).map_err(|e| self.error(e.to_string()))
+                DecimalValue::new(lead == 1, digits, exponent)
+                    .map_err(|e| self.error(e.to_string()))
             }
             2 => Ok(DecimalValue::infinity(self.bool()?)),
             3 => {
@@ -678,10 +679,16 @@ mod tests {
         // exponent, a sign byte other than 0 or 1, and digits that are not
         // decimal digits are refused.
         for (exponent, what) in [
-            (wide(false, "012"), "not decimal digits without a leading zero"),
+            (
+                wide(false, "012"),
+                "not decimal digits without a leading zero",
+            ),
             (wide(true, "0"), "is a negative zero"),
             (wide(false, ""), "not decimal digits without a leading zero"),
-            (wide(false, "1a"), "not decimal digits without a leading zero"),
+            (
+                wide(false, "1a"),
+                "not decimal digits without a leading zero",
+            ),
             (
                 [vec![2], wide(false, "1")[1..].to_vec()].concat(),
                 "has sign byte 2",
@@ -698,7 +705,12 @@ mod tests {
             (vec![13, 2, 2], "boolean byte 2"),
             (vec![13, 3, 0, 7], "boolean byte 7"),
             (
-                [vec![13, 3, 1, 0], 2_u64.to_le_bytes().to_vec(), b"07".to_vec()].concat(),
+                [
+                    vec![13, 3, 1, 0],
+                    2_u64.to_le_bytes().to_vec(),
+                    b"07".to_vec(),
+                ]
+                .concat(),
                 "payload is not decimal digits without a leading zero",
             ),
         ] {

@@ -143,7 +143,10 @@ impl TryFrom<DecimalParts> for DecimalValue {
             DecimalClass::NaN {
                 signalling,
                 payload,
-            } if parts.digits == "0" && parts.exponent.is_zero() && is_canonical_digits(&payload) => {
+            } if parts.digits == "0"
+                && parts.exponent.is_zero()
+                && is_canonical_digits(&payload) =>
+            {
                 Ok(Self::nan(parts.negative, signalling, payload))
             }
             DecimalClass::Infinite | DecimalClass::NaN { .. } => Err(not_a_number()),
@@ -541,13 +544,33 @@ impl DecimalValue {
     /// plus infinity, positive signalling NaNs, positive quiet NaNs.
     const fn class_rank(&self) -> u8 {
         match (&self.class, self.negative) {
-            (DecimalClass::NaN { signalling: false, .. }, true) => 0,
-            (DecimalClass::NaN { signalling: true, .. }, true) => 1,
+            (
+                DecimalClass::NaN {
+                    signalling: false, ..
+                },
+                true,
+            ) => 0,
+            (
+                DecimalClass::NaN {
+                    signalling: true, ..
+                },
+                true,
+            ) => 1,
             (DecimalClass::Infinite, true) => 2,
             (DecimalClass::Finite, _) => 3,
             (DecimalClass::Infinite, false) => 4,
-            (DecimalClass::NaN { signalling: true, .. }, false) => 5,
-            (DecimalClass::NaN { signalling: false, .. }, false) => 6,
+            (
+                DecimalClass::NaN {
+                    signalling: true, ..
+                },
+                false,
+            ) => 5,
+            (
+                DecimalClass::NaN {
+                    signalling: false, ..
+                },
+                false,
+            ) => 6,
         }
     }
 
