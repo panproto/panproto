@@ -1716,28 +1716,28 @@ fn composition_agrees_on_every_class_signature_pair() {
         rewrite_budget: 512,
     };
 
-    for [repeated, renamed, captured] in scope::class_operation_capture_witnesses() {
+    for [bound, renamed, captured] in scope::class_operation_capture_witnesses() {
         assert_eq!(
-            operation_class_verdict(&scope::operation_class_pair(&repeated, &renamed), &options,),
+            operation_class_verdict(&scope::operation_class_pair(&bound, &renamed), &options,),
             Ok(OperationClassVerdict::Agree),
-            "renaming local binders must preserve the public operation-class verdict"
+            "renaming selected local binders must preserve the public operation-class verdict"
         );
         assert_eq!(
             operation_class_verdict(&scope::operation_class_pair(&renamed, &captured), &options,),
             Ok(OperationClassVerdict::NeedsSortEquation),
-            "selecting a different captured binder must change the public operation-class verdict"
+            "selecting a different in-scope binder must change the public operation-class verdict"
         );
     }
-    for [repeated, renamed, captured] in scope::class_sort_capture_witnesses() {
+    for [bound, renamed, captured] in scope::class_sort_capture_witnesses() {
         assert_eq!(
-            sort_class_verdict(&scope::sort_class_pair(&repeated, &renamed), &options,),
+            sort_class_verdict(&scope::sort_class_pair(&bound, &renamed), &options,),
             Ok(SortClassVerdict::Agree),
-            "renaming local binders must preserve the public sort-class verdict"
+            "renaming selected local binders must preserve the public sort-class verdict"
         );
         assert_eq!(
             sort_class_verdict(&scope::sort_class_pair(&renamed, &captured), &options,),
             Ok(SortClassVerdict::ParamSort),
-            "selecting a different captured binder must change the public sort-class verdict"
+            "selecting a different in-scope binder must change the public sort-class verdict"
         );
     }
 
@@ -1784,8 +1784,8 @@ fn composition_agrees_on_every_class_signature_pair() {
         .expect("operation verdict counts");
     println!(
         "operation-class scope: {} well-formed signatures, {operation_compared} ordered pairs; \
-         both implicit flags and X spellings, applications, repeated local binders, and \
-         Let/Case/hole arguments included; agree {}, sort equation {}, signature {}",
+         both implicit flags and X spellings, applications, local-local and signature-local \
+         capture, and Let/Case/hole arguments included; agree {}, sort equation {}, signature {}",
         operations.len(),
         operation_verdicts[0],
         operation_verdicts[1],
@@ -1841,8 +1841,8 @@ fn composition_agrees_on_every_class_signature_pair() {
     println!(
         "sort-class scope: {} well-formed declarations, {sort_compared} ordered pairs; \
          structural/value kind, open/closed closure, both X spellings, arity three, \
-         repeated local binders and locally bound arguments included; agree {}, arity {}, \
-         parameter sort {}, kind {}, closure {}",
+         local-local and telescope-local capture included; agree {}, arity {}, parameter sort {}, \
+         kind {}, closure {}",
         sorts.len(),
         sort_verdicts[0],
         sort_verdicts[1],

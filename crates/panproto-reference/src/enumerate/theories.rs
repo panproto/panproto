@@ -1082,14 +1082,14 @@ pub fn fibre_spans() -> Vec<crate::theory::TheoryDiagram> {
 }
 
 /// Operations in the prefix-valid class-comparison scope.
-pub const CLASS_OPERATION_SCOPE_LEN: usize = 2_809;
+pub const CLASS_OPERATION_SCOPE_LEN: usize = 2_815;
 /// Sorts in the prefix-valid class-comparison scope.
-pub const CLASS_SORT_SCOPE_LEN: usize = 254;
+pub const CLASS_SORT_SCOPE_LEN: usize = 260;
 
 const BASE_CLASS_OPERATION_SCOPE_LEN: usize = 2_797;
-const SCOPED_BINDER_OPERATION_LEN: usize = 12;
+const SCOPED_BINDER_OPERATION_LEN: usize = 18;
 const BASE_CLASS_SORT_SCOPE_LEN: usize = 244;
-const SCOPED_BINDER_SORT_LEN: usize = 10;
+const SCOPED_BINDER_SORT_LEN: usize = 16;
 
 #[derive(Clone, Debug)]
 enum ClassTermForm {
@@ -1334,6 +1334,32 @@ fn scoped_case(first: &str, second: &str, select_last: bool) -> Term {
     )
 }
 
+fn scoped_signature_let(local: &str, select_local: bool) -> Term {
+    Term::Let(
+        local.to_owned(),
+        Box::new(constant("a")),
+        Box::new(var(if select_local { local } else { "x" })),
+    )
+}
+
+fn scoped_signature_case(local: &str, select_local: bool) -> Term {
+    Term::Case(
+        Box::new(constant("z")),
+        vec![
+            CaseBranch {
+                constructor: "z".to_owned(),
+                binders: Vec::new(),
+                body: constant("a"),
+            },
+            CaseBranch {
+                constructor: "pair".to_owned(),
+                binders: vec![local.to_owned(), "v".to_owned()],
+                body: var(if select_local { local } else { "x" }),
+            },
+        ],
+    )
+}
+
 fn scoped_operation(inputs: Vec<(String, SortExpr, Implicit)>, output: Term) -> Op {
     Op {
         name: "member".to_owned(),
@@ -1342,12 +1368,13 @@ fn scoped_operation(inputs: Vec<(String, SortExpr, Implicit)>, output: Term) -> 
     }
 }
 
-/// The nested-`Let` and `Case` capture witnesses for operation signatures.
-/// Each triple is `(repeated names selecting the last binder, alpha-renamed
-/// distinct names selecting the last binder, distinct names selecting the
-/// first binder)`.
+/// The `Let` and `Case` capture witnesses for operation signatures. The first
+/// two triples distinguish repeated local binders from alpha-renamed and
+/// capture-changing forms. The last two distinguish a local binder that
+/// shadows the signature input `x` from a renamed local and a use of the
+/// signature input.
 #[must_use]
-pub fn class_operation_capture_witnesses() -> [[Op; 3]; 2] {
+pub fn class_operation_capture_witnesses() -> [[Op; 3]; 4] {
     let input = || vec![("x".to_owned(), simple("X"), Implicit::No)];
     [
         [
@@ -1359,6 +1386,16 @@ pub fn class_operation_capture_witnesses() -> [[Op; 3]; 2] {
             scoped_operation(Vec::new(), scoped_case("u", "u", true)),
             scoped_operation(Vec::new(), scoped_case("p", "q", true)),
             scoped_operation(Vec::new(), scoped_case("p", "q", false)),
+        ],
+        [
+            scoped_operation(input(), scoped_signature_let("x", true)),
+            scoped_operation(input(), scoped_signature_let("u", true)),
+            scoped_operation(input(), scoped_signature_let("u", false)),
+        ],
+        [
+            scoped_operation(input(), scoped_signature_case("x", true)),
+            scoped_operation(input(), scoped_signature_case("u", true)),
+            scoped_operation(input(), scoped_signature_case("u", false)),
         ],
     ]
 }
@@ -1450,10 +1487,11 @@ fn assert_class_operations_are_unique(operations: &[Op]) {
 
 /// Every well-formed operation signature of the class-comparison scope.
 /// The base product has arity at most two, prefix-scoped dependencies, both
-/// implicit flags and both `X` spellings without duplicate renderings. Twelve
+/// implicit flags and both `X` spellings without duplicate renderings. Eighteen
 /// additional signatures cover arity three, applications, holes, shadowing,
-/// alpha-equivalent and capture-distinguishing local binders, and exhaustive
-/// case analysis without introducing a duplicate telescope binder.
+/// alpha-equivalent and capture-distinguishing local binders, capture between
+/// signature and local binders, and exhaustive case analysis without
+/// introducing a duplicate telescope binder.
 #[must_use]
 pub fn class_operation_scope() -> Vec<Op> {
     let mut out = base_class_operation_scope();
@@ -1574,18 +1612,18 @@ fn scoped_binder_sorts() -> Vec<Sort> {
     out
 }
 
-/// The nested-`Let` and `Case` capture witnesses for sort declarations.
-/// The entry order of each triple is the same as in
+/// The local-local and telescope-local capture witnesses for sort declarations.
+/// The entry order and meaning of each triple are the same as in
 /// [`class_operation_capture_witnesses`].
 #[must_use]
-pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 2] {
+pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 4] {
     let declaration = |params| Sort {
         name: "W".to_owned(),
         params,
         kind: STRUCTURAL.to_owned(),
         constructors: None,
     };
-    let let_declaration = |term| {
+    let dependent_declaration = |term| {
         declaration(vec![
             ("x".to_owned(), simple("X")),
             ("y".to_owned(), sort_app("Y", vec![term])),
@@ -1594,14 +1632,24 @@ pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 2] {
     let case_declaration = |term| declaration(vec![("p".to_owned(), sort_app("Y", vec![term]))]);
     [
         [
-            let_declaration(scoped_nested_let("u", "u", true)),
-            let_declaration(scoped_nested_let("p", "q", true)),
-            let_declaration(scoped_nested_let("p", "q", false)),
+            dependent_declaration(scoped_nested_let("u", "u", true)),
+            dependent_declaration(scoped_nested_let("p", "q", true)),
+            dependent_declaration(scoped_nested_let("p", "q", false)),
         ],
         [
             case_declaration(scoped_case("u", "u", true)),
             case_declaration(scoped_case("x", "y", true)),
             case_declaration(scoped_case("x", "y", false)),
+        ],
+        [
+            dependent_declaration(scoped_signature_let("x", true)),
+            dependent_declaration(scoped_signature_let("u", true)),
+            dependent_declaration(scoped_signature_let("u", false)),
+        ],
+        [
+            dependent_declaration(scoped_signature_case("x", true)),
+            dependent_declaration(scoped_signature_case("u", true)),
+            dependent_declaration(scoped_signature_case("u", false)),
         ],
     ]
 }
@@ -1631,8 +1679,9 @@ fn assert_class_sorts_are_unique(sorts: &[Sort]) {
 /// Every well-formed sort declaration of the class-comparison scope. The
 /// base product crosses prefix-scoped parameters with structural/value kind,
 /// open/closed closure and bare/empty `X` spellings without duplicate
-/// renderings. Ten additional declarations cover arity three and the
-/// alpha-equivalent and capture-distinguishing local term forms.
+/// renderings. Sixteen additional declarations cover arity three, the
+/// alpha-equivalent and capture-distinguishing local term forms, and capture
+/// between telescope and local binders.
 #[must_use]
 pub fn class_sort_scope() -> Vec<Sort> {
     let mut out = base_class_sort_scope();
