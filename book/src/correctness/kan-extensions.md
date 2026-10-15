@@ -1,6 +1,6 @@
 # Kan extensions
 
-This page proves the laws of panproto's three Kan extensions along a migration: Delta (pulling an instance back), Sigma (pushing it forward by a quotient) and Pi (pushing it forward by a limit), on tables, on graphs and on trees. It also proves the two adjunctions $\Sigma \dashv \Delta \dashv \Pi$ with their hom-set bijections, the squares that make the graph and tree forms conjugates of the table form, and the two constructions every one of them reads first: the classification of a schema into tables, relations and columns, and the entity functor a migration states between two classified schemas.
+This page proves the laws of panproto's three Kan extensions along a migration on tables, graphs, and trees. Delta pulls an instance back, Sigma pushes it forward by a quotient, and Pi pushes it forward by a limit. The page also proves the two adjunctions $\Sigma \dashv \Delta \dashv \Pi$ with their hom-set bijections, the squares that make the graph and tree forms conjugates of the table form, and the two constructions every one of them reads first: the classification of a schema into tables, relations and columns, and the entity functor a migration states between two classified schemas.
 
 The construction itself is explained in the [Explanation](../explanation/index.md) part; we use the notation of [Shared notation](../explanation/semantics/shared-notation.md) and fix the objects below once, so that each block can name them.
 
@@ -18,7 +18,7 @@ The **graph form** of an instance has a node per row, one value subtree per cell
 
 #### The finite scopes
 
-Every law below has an exhaustive differential test over a stated scope and a property differential test. The **bounded family** has ten migrations: two tables merged with disjoint columns, two tables merged with a shared column, a column rename, a target column outside the image, a target table outside the image, a relation carried to a loop across a merge of tables, a partial self relation, two columns of one table sent to one column (over the alphabet $\{0, 1, n_0, n_1\}$ of two integers and two labelled nulls, and again over the four float bit patterns $+0$, $-0$ and the two quiet NaNs), and an identity carrying a relation. Its objects are every labelled instance of every source and target with at most three rows per table and six in all, every subset of the possible pairs of each relation, every cell drawn from the case's alphabet: 248,552 labelled objects, whose per-case counts are recomputed by a separate product formula. Pi is run at the product bounds 4 and 81.
+Every law below has an exhaustive differential test over a stated scope and a property differential test. The **bounded family** has ten migrations: (i) two tables merged with disjoint columns; (ii) two tables merged with a shared column; (iii) a column rename; (iv) a target column outside the image; (v) a target table outside the image; (vi) a relation carried to a loop across a merge of tables; (vii) a partial self relation; (viii) two columns of one table sent to one column over the alphabet $\{0, 1, n_0, n_1\}$ of two integers and two labelled nulls; (ix) that column merge over the four float bit patterns $+0$, $-0$ and the two quiet NaNs; and (x) an identity carrying a relation. Its objects are every labelled instance of every source and target with at most three rows per table and six in all, every subset of the possible pairs of each relation, every cell drawn from the case's alphabet: 248,552 labelled objects, whose per-case counts are recomputed by a separate product formula. Pi is run at the product bounds 4 and 81.
 
 The 3,918,714,467 ordered source-target pairs of the bounded family are covered through a quotient. Two labelled objects of one case and side are in one **hom profile** when one is carried onto the other by a permutation of the rows within each table together with a permutation of the case's labelled-null alphabet. Each profile is represented by the image of least canonical bytes under these permutations, and its size is counted independently as the index of the representative's stabilizer in the permutation group. The bounded family has 18,811 profiles and 19,120,495 ordered representative pairs, whose class sizes multiply out to exactly the 3,918,714,467 labelled pairs. The two blocks on the hom-set bijections prove that the quotient is exact for every observable they check.
 
@@ -40,7 +40,7 @@ Classified schema, instance, conformance, functor, kept part and homomorphism, a
 
 ### Proof
 
-1. Each copy $r_s$ lies at the kept table $s$ and holds exactly the cells at the kept columns of $s$, because each $F(s, \alpha)$ is a column of $F(s)$ and $r$ conforms to $T$, so $J(r)$ has a cell at it. A cell is copied unchanged, so no labelled null is nested below a cell's top level. Each pair $(e, a_{\mathrm{src}(e)}, b_{\mathrm{tgt}(e)})$ joins rows at the endpoints of $e$ because $F(e)$ runs from $F(\mathrm{src}(e))$ to $F(\mathrm{tgt}(e))$, so $a$ lies at $F(\mathrm{src}(e))$ and has a copy at $\mathrm{src}(e)$, and likewise $b$. Hence $\Delta_F J$ conforms to $S'$.
+1. Each copy $r_s$ lies at the kept table $s$ and holds exactly the cells at the kept columns of $s$, because each $F(s, \alpha)$ is a column of $F(s)$ and $r$ conforms to $T$, so $J(r)$ has a cell at it. A cell is copied unchanged, so no labelled null is nested below a cell's top level. Each pair $(e, a_{\mathrm{src}(e)}, b_{\mathrm{tgt}(e)})$ joins rows at the endpoints of $e$ because $F(e)$ runs from $F(\mathrm{src}(e))$ to $F(\mathrm{tgt}(e))$, so $a$ lies at $F(\mathrm{src}(e))$ and has a copy at $\mathrm{src}(e)$, and likewise $b$. Thus $\Delta_F J$ conforms to $S'$.
 2. The ids are pairwise distinct: the first copy of each row keeps that row's id, which is distinct from every other row's, and every later copy takes a fresh id above every id of $J$, each handed out once. When none is left the operation refuses before returning, so no partial instance escapes.
 3. $\Delta_F J$ is $J \circ F$ on $\mathcal{E}(S')$ with the copies named by the provenance: at a table $s$ the rows of $J \circ F$ are the rows of $J$ at $F(s)$, which the copies $r_s$ enumerate bijectively; at a relation $e$ they are the pairs of $J$ at $F(e)$, which the pairs of step 1 enumerate bijectively, and the legs agree because each copied pair joins the copies of its endpoints.
 4. For a homomorphism $h : J \to J'$, the map $r_s \mapsto h(r)_s$ keeps tables; a copied cell $J(r)(F(s,\alpha))$ equals $J'(h(r))(F(s,\alpha))$ under the null map of $h$ because $h$ preserves every cell of $r$; a copied pair goes to the copy of the image pair, which $h$ preserves. So $\Delta_F h$ is a homomorphism whose null map is forced by its cells. The identity of $J$ gives $r_s \mapsto r_s$, and for $h' \circ h$ the copy $r_s$ goes to $h'(h(r))_s$ either way, so $\Delta_F$ is a functor.
@@ -63,12 +63,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Sigma is the quotient of the disjoint union {#L-kan-extensions-2}
 
@@ -88,9 +88,9 @@ Instance, conformance, functor, kept part, entity category and homomorphism, as 
 
 ### Proof
 
-1. The rows. Let $d$ be a table of $T$. The arrows of $\mathcal{E}(T)$ into $d$ are its identity and the legs of the relations with an endpoint at $d$, so the comma objects are $(s, \mathrm{id}_d)$ for each kept table $s$ of the fibre of $d$ and $(e, \ell)$ for each kept relation $e$ and leg $\ell$ of $F(e)$ ending at $d$. Each element of $P(e)$ at $(e, \ell)$ is joined, along the leg $u$ of $e$ with $F(u) = \ell$, with its endpoint at $(s, \mathrm{id}_d)$. No arrow of $\mathcal{E}(S')$ leaves a table except its identity, so no two rows are joined. The colimit at $d$ is therefore the disjoint union of the rows of the fibre tables, which is the row set of $\Sigma_F I$ with each row keeping its id.
+1. The rows. Let $d$ be a table of $T$. The arrows of $\mathcal{E}(T)$ into $d$ are its identity and the legs of the relations with an endpoint at $d$, so the comma objects are $(s, \mathrm{id}_d)$ for each kept table $s$ of the fibre of $d$ and $(e, \ell)$ for each kept relation $e$ and leg $\ell$ of $F(e)$ ending at $d$. Each element of $P(e)$ at $(e, \ell)$ is joined, along the leg $u$ of $e$ with $F(u) = \ell$, with its endpoint at $(s, \mathrm{id}_d)$. No arrow of $\mathcal{E}(S')$ leaves a table except its identity, so no two rows are joined. Thus the colimit at $d$ is the disjoint union of the rows of the fibre tables, which is the row set of $\Sigma_F I$ with each row keeping its id.
 2. The pairs. At a relation $\rho$ of $T$ the only arrows into $\rho$ are its identity, so the comma objects are the kept relations $e$ with $F(e) = \rho$ and the colimit is the disjoint union of their pairs, each leg sending a pair to the class of its endpoint. $L_{\mathrm{sep}}$ identifies two of these elements exactly when their endpoints agree, which leaves the set of image pairs $(F(e), a, b)$.
-3. The cells. A cell of the output is an unknown of the value side; the equations of the statement are the conditions under which the copy of $r$ in $\Delta_F \Sigma_F I$ agrees with $r$, which is what makes the unit a homomorphism (block [Sigma is left adjoint to Delta](#L-kan-extensions-4), step 1). Closing them under transitivity gives the classes, and a homomorphism out of $\Sigma_F I$ must send every member of a class to one value. A class with two distinct constants therefore admits no value, which is the refusal; otherwise the least choice is the class's constant, else a labelled null shared by the class, and the class's least labelled null is chosen so that a null of $I$ keeps its id. A cell with no preimage column is constrained by nothing, so it is a fresh unknown.
+3. The cells. A cell of the output is an unknown of the value side; the equations of the statement are the conditions under which the copy of $r$ in $\Delta_F \Sigma_F I$ agrees with $r$, which is what makes the unit a homomorphism (block [Sigma is left adjoint to Delta](#L-kan-extensions-4), step 1). Closing them under transitivity gives the classes, and a homomorphism out of $\Sigma_F I$ must send every member of a class to one value. A class with two distinct constants thus admits no value, which is the refusal; otherwise the least choice is the class's constant, else a labelled null shared by the class, and the class's least labelled null is chosen so that a null of $I$ keeps its id. A cell with no preimage column is constrained by nothing, so it is a fresh unknown.
 4. Conformance. Each output row lies at a table of $T$ and holds exactly the columns of that table, because each column $\beta$ either has a preimage column of the row's table, whose cell exists, or receives a fresh null. A representative is a constant or a labelled null at the top of a cell; a constant of $I'$ conforms, so it has no nested null. Each image pair joins rows at the endpoints of $F(e)$. Fresh nulls are distinct from every null of $I$ because they are numbered above them, and distinct from each other because each is handed out once.
 5. Functoriality. For $h : I \to I'$, the row map $r \mapsto h(r)$ keeps tables after $F$ and sends pairs to pairs. A cell of $\Sigma_F I$ is the representative of a class whose members are cells of $I$ and nulls; $h$ sends each member to a member of the corresponding class of $\Sigma_F I'$, a fresh null of $(r, \beta)$ to the cell of $(h(r), \beta)$, so the cells agree under the forced null map. Identities and composites are kept because the row maps compose.
 6. The graph form. By steps 1 and 2, graph Sigma (decode after table Sigma after encode) has at each target table the rows of the fibre and at each relation the image pairs, which is $L_{\mathrm{sep}}$ of the presheaf left Kan extension of the graph's entity presheaf; parallel edges of the input that land on one pair are identified, and rows never are.
@@ -114,12 +114,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Pi is the limit of compatible families {#L-kan-extensions-3}
 
@@ -162,12 +162,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Sigma is left adjoint to Delta {#L-kan-extensions-4}
 
@@ -188,7 +188,7 @@ Instance, homomorphism and functor, as defined at the top of this page; $\Sigma_
 1. The unit is a homomorphism. The copy $r_s$ lies at $s$, the table of $r$. Its cell at a kept column $\alpha$ is $\Sigma_F I (r)(F(s, \alpha))$, the representative of the class of the output cell $(r, F(s, \alpha))$, which by the equations of Sigma contains $I(r)(\alpha)$; so $I(r)(\alpha)$, read through the null map that sends each null to the representative of its class, equals the copied cell. A pair $(e, a, b)$ of $I$ goes to $(e, a_{\mathrm{src}(e)}, b_{\mathrm{tgt}(e)})$, the copy of the image pair $(F(e), a, b)$ of $\Sigma_F I$.
 2. The counit is a homomorphism. $\Sigma_F \Delta_F J$ keeps the ids of the copies, the copy $r_s$ lying at $F(s)$, the table of $r$. Its cell $(r_s, \beta)$ is, when $\beta$ has preimage columns, the representative of the class of the copied cells $J(r)(\beta)$, all equal, so the class holds no two constants and its value is $J(r)(\beta)$ or a null standing for it; with no preimage it is a fresh null, sent to $J(r)(\beta)$. A pair $(F(e), a_{\mathrm{src}(e)}, b_{\mathrm{tgt}(e)})$ goes to $(F(e), a, b)$, a pair of $J$.
 3. The triangle identities. $\Delta_F \varepsilon_J \circ \eta_{\Delta_F J}$ sends $r_s$ to the copy at $s$ of $\varepsilon_J(r_s) = r$, which is $r_s$, and every null of $\Delta_F J$ is a null of $J$ that both maps fix; so it is the identity. $\varepsilon_{\Sigma_F I} \circ \Sigma_F \eta_I$ sends a row $r$ of $\Sigma_F I$ to the copy $r_s$ in $\Sigma_F \Delta_F \Sigma_F I$ and then back to $r$; a fresh null of $\Sigma_F I$ goes to the fresh null of the same cell and back to it. So it is the identity.
-4. The clash. If Sigma clashes on $I$, two constants $c \ne c'$ lie in one class. A homomorphism $g : I \to \Delta_F J$ would send each cell of $I$ to the copied cell of $J$, and each output cell $(r, \beta)$ of a class to one cell of $J$, namely $J(g(r))(\beta)$; following the equations that join $c$ and $c'$, the values $c$ and $c'$ would both equal one value of $J$, which is impossible because they differ. Hence no such $g$ exists.
+4. The clash. If Sigma clashes on $I$, two constants $c \ne c'$ lie in one class. A homomorphism $g : I \to \Delta_F J$ would send each cell of $I$ to the copied cell of $J$, and each output cell $(r, \beta)$ of a class to one cell of $J$, namely $J(g(r))(\beta)$; following the equations that join $c$ and $c'$, the values $c$ and $c'$ would both equal one value of $J$, which is impossible because they differ. Thus no such $g$ exists.
 
 ### Executable counterpart
 
@@ -214,12 +214,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Delta is left adjoint to Pi {#L-kan-extensions-5}
 
@@ -266,12 +266,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## The Sigma and Delta hom-sets are in bijection {#L-kan-extensions-6}
 
@@ -290,9 +290,21 @@ Instance, homomorphism, functor and hom profile, as defined at the top of this p
 ### Proof
 
 1. $\Phi$ and $\Phi^{-1}$ land in the stated hom-sets: each is a composite of homomorphisms ([Delta is precomposition](#L-kan-extensions-1), step 4; [Sigma is the quotient of the disjoint union](#L-kan-extensions-2), step 5; [Sigma is left adjoint to Delta](#L-kan-extensions-4), steps 1 and 2).
-2. $\Phi^{-1} \circ \Phi = \mathrm{id}$. For $h : \Sigma_F I \to J$, $\Phi^{-1}(\Phi(h)) = \varepsilon_J \circ \Sigma_F \Delta_F h \circ \Sigma_F \eta_I = h \circ \varepsilon_{\Sigma_F I} \circ \Sigma_F \eta_I$ by naturality of $\varepsilon$ (it sends a copy to the row it copies, which commutes with applying $h$ to rows and cells), and this is $h$ by the second triangle identity. $\Phi \circ \Phi^{-1} = \mathrm{id}$ by the symmetric argument with naturality of $\eta$ and the first triangle identity. Hence both are bijections.
+2. $\Phi^{-1} \circ \Phi = \mathrm{id}$. For $h : \Sigma_F I \to J$, $\Phi^{-1}(\Phi(h)) = \varepsilon_J \circ \Sigma_F \Delta_F h \circ \Sigma_F \eta_I = h \circ \varepsilon_{\Sigma_F I} \circ \Sigma_F \eta_I$ by naturality of $\varepsilon$ (it sends a copy to the row it copies, which commutes with applying $h$ to rows and cells), and this is $h$ by the second triangle identity. $\Phi \circ \Phi^{-1} = \mathrm{id}$ by the symmetric argument with naturality of $\eta$ and the first triangle identity. Thus both are bijections.
 3. Naturality. $\Phi(c \circ h \circ \Sigma_F a) = \Delta_F c \circ \Delta_F h \circ \Delta_F \Sigma_F a \circ \eta_{I'} = \Delta_F c \circ \Delta_F h \circ \eta_I \circ a$ by functoriality of $\Delta_F$ and naturality of $\eta$; the inverse transpose is natural by the dual computation.
-4. The hom-profile quotient is exact. Let $\alpha : I \to \bar{I}$ and $\gamma : J \to \bar{J}$ be the profile transports onto the representatives (row permutations within tables, with a permutation of the case's labelled nulls). (i) Each labelled object has exactly one profile, because the representative is the image of least canonical bytes over a finite group, and its class size is the index of its stabilizer. (ii) Conjugation $h \mapsto \gamma \circ h \circ \Sigma_F \alpha^{-1}$ is a bijection $\mathrm{Hom}(\Sigma_F I, J) \to \mathrm{Hom}(\Sigma_F \bar{I}, \bar{J})$ with inverse the conjugation by $\alpha$ and $\gamma^{-1}$, and $k \mapsto \Delta_F \gamma \circ k \circ \alpha^{-1}$ is a bijection of the other hom-set; $\Sigma_F \alpha$ is the transport of Sigma's output (rows by $\alpha$, merged nulls by their representatives, fresh nulls by their cells), because Sigma's equations, classes and fresh numbering are carried by $\alpha$ slot for slot. (iii) By step 3 these bijections commute with $\Phi$ and $\Phi^{-1}$. (iv) They carry identities, composites and naturality squares to identities, composites and naturality squares, because conjugation is a functor. (v) The production and reference operations are equivariant under the same transports, since both compute the same exact outputs on every labelled object (block [Sigma is the quotient of the disjoint union](#L-kan-extensions-2)) and their transposes are the formulas of the statement, which are written in the transported data; the one exception is the first-witness payload of `SigmaConstantClash`, which names the first clashing equation in numeric row order, so its row and constant pair need not correspond under a row permutation. For that refusal the comparison between two members of one profile checks only that both refuse with `SigmaConstantClash` and that each returned witness belongs to the clash set the transport carries; on every labelled object the payload is compared exactly. Executing every representative pair and weighting it by the product of its two class sizes therefore checks every one of the 3,918,714,467 labelled pairs.
+4. The hom-profile quotient is exact. Let $\alpha : I \to \bar{I}$ and $\gamma : J \to \bar{J}$ be the profile transports onto the representatives (row permutations within tables, with a permutation of the case's labelled nulls).
+
+   (i) Each labelled object has exactly one profile, because the representative is the image of least canonical bytes over a finite group, and its class size is the index of its stabilizer.
+
+   (ii) Conjugation $h \mapsto \gamma \circ h \circ \Sigma_F \alpha^{-1}$ is a bijection $\mathrm{Hom}(\Sigma_F I, J) \to \mathrm{Hom}(\Sigma_F \bar{I}, \bar{J})$ with inverse the conjugation by $\alpha$ and $\gamma^{-1}$, and $k \mapsto \Delta_F \gamma \circ k \circ \alpha^{-1}$ is a bijection of the other hom-set. The transport $\Sigma_F \alpha$ sends rows by $\alpha$, merged nulls by their representatives, and fresh nulls by their cells, for Sigma's equations, classes and fresh numbering are carried by $\alpha$ slot for slot.
+
+   (iii) By step 3 these bijections commute with $\Phi$ and $\Phi^{-1}$.
+
+   (iv) They carry identities, composites and naturality squares to identities, composites and naturality squares, because conjugation is a functor.
+
+   (v) The production and reference operations are equivariant under the same transports, since both compute the same exact outputs on every labelled object (block [Sigma is the quotient of the disjoint union](#L-kan-extensions-2)) and their transposes are the formulas of the statement, which are written in the transported data. The one exception is the first-witness payload of `SigmaConstantClash`, which names the first clashing equation in numeric row order, so its row and constant pair need not correspond under a row permutation. For that refusal the comparison between two members of one profile checks only that both refuse with `SigmaConstantClash` and that each returned witness belongs to the clash set the transport carries; on every labelled object the payload is compared exactly.
+
+   Executing every representative pair and weighting it by the product of its two class sizes thus checks every one of the 3,918,714,467 labelled pairs.
 
 ### Executable counterpart
 
@@ -316,12 +328,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## The Delta and Pi hom-sets are in bijection {#L-kan-extensions-7}
 
@@ -368,18 +380,24 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Graph Kan extensions are conjugates of the table ones {#L-kan-extensions-8}
 
 ### Statement
 
-For a classified schema $X$, a graph is **encodable** over $X$ when it passes five checks in order, the first failure being `NotEncodable` with the least offender of the first failing pass: (1) nodes ascending, no node is a fan and every anchor is a table or value vertex of $X$; (2) edges ascending, every label is a relation, attribute arrow or inner edge of $X$ joining nodes anchored at its endpoints; (3) no two edges share label and endpoints; (4) table nodes ascending and their columns ascending, each table node has exactly one edge along each column; (5) value nodes ascending, each has exactly one in-edge, following the least in-edge reaches a table node, a leaf holds a present or null value, a node with out-edges holds none and its out-edges form a record (no positions, distinct column names) or a list (distinct positions), and no labelled null lies below the top of a cell. On encodable graphs the encoding $E_X$ is a table and a layout, $D_X(E_X G) = G$, and for every conforming table $T$ and every layout $L$ the table of $E_X(D_X(T, L))$ is $T$. A homomorphism of encodable graphs is a map of table nodes whose encodings form a table homomorphism; $E$ is a bijection on these hom-sets that keeps identities and composites. For a functor $F$, graph Delta, Sigma and Pi are $D \circ X_F \circ E$ for the table operation $X_F$ of [Delta is precomposition](#L-kan-extensions-1), [Sigma is the quotient of the disjoint union](#L-kan-extensions-2) and [Pi is the limit of compatible families](#L-kan-extensions-3), Sigma and Pi encoding over the whole source and restricting to the kept part $\rho$ (which keeps the nodes at kept tables and value vertices and the edges at kept arrows between them, so $E(\rho G)$ is the restriction of $E(G)$), with the output layout chosen from the table provenance: a row node keeps its decorations when it has one source row; each output cell takes the subtree of the least contributing input cell, moved along the functor's value remaps, that still folds to it, else a record-free leaf; selected ids are kept at their first occurrence when unclaimed and every other node and edge is fresh above every input and layout id. Their units, counits and transposes are those of the table adjunctions read through $E$, and both graph adjunctions hold on the encodable graphs over the kept part and over the target. Graph provenance names, for every output node and edge, every input node and edge that contributes to it: a row its source rows, a cell's nodes and edges every node and edge of the input cells the table provenance names for that cell, and a relation edge the input edges of its contributing pairs.
+For a classified schema $X$, a graph is **encodable** over $X$ when it passes five checks in order. The first failure is `NotEncodable` with the least offender of the first failing pass: (1) nodes ascending, no node is a fan and every anchor is a table or value vertex of $X$; (2) edges ascending, every label is a relation, attribute arrow or inner edge of $X$ joining nodes anchored at its endpoints; (3) no two edges share label and endpoints; (4) table nodes ascending and their columns ascending, each table node has exactly one edge along each column; (5) value nodes ascending, each has exactly one in-edge, following the least in-edge reaches a table node, a leaf holds a present or null value, a node with out-edges holds none and its out-edges form a record (no positions, distinct column names) or a list (distinct positions), and no labelled null lies below the top of a cell.
+
+On encodable graphs the encoding $E_X$ is a table and a layout, $D_X(E_X G) = G$, and for every conforming table $T$ and every layout $L$ the table of $E_X(D_X(T, L))$ is $T$. A homomorphism of encodable graphs is a map of table nodes whose encodings form a table homomorphism; $E$ is a bijection on these hom-sets that keeps identities and composites.
+
+For a functor $F$, graph Delta, Sigma and Pi are $D \circ X_F \circ E$ for the table operation $X_F$ of [Delta is precomposition](#L-kan-extensions-1), [Sigma is the quotient of the disjoint union](#L-kan-extensions-2) and [Pi is the limit of compatible families](#L-kan-extensions-3). Sigma and Pi encode over the whole source and restrict to the kept part $\rho$, which keeps the nodes at kept tables and value vertices and the edges at kept arrows between them, so $E(\rho G)$ is the restriction of $E(G)$. The output layout is chosen from the table provenance: a row node keeps its decorations when it has one source row; each output cell takes the subtree of the least contributing input cell, moved along the functor's value remaps, that still folds to it, else a record-free leaf; selected ids are kept at their first occurrence when unclaimed and every other node and edge is fresh above every input and layout id. Their units, counits and transposes are those of the table adjunctions read through $E$, and both graph adjunctions hold on the encodable graphs over the kept part and over the target.
+
+Graph provenance names, for every output node and edge, every input node and edge that contributes to it: a row its source rows, a cell's nodes and edges every node and edge of the input cells the table provenance names for that cell, and a relation edge the input edges of its contributing pairs.
 
 ### Outside the domain
 
@@ -421,12 +439,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Table Kan extensions are the encodings of the graph ones {#L-kan-extensions-9}
 
@@ -468,12 +486,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Tree Kan extensions are the graph ones read back {#L-kan-extensions-10}
 
@@ -517,12 +535,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## A migration states one entity functor {#L-kan-extensions-11}
 
@@ -562,12 +580,12 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.
 
 ## Classification {#L-kan-extensions-12}
 
@@ -607,9 +625,9 @@ None.
 
 ### Audit record
 
-- Author: AUTHOR
-- Auditor: AUDITOR
-- Date: DATE
-- Commit: COMMIT
-- Verdict: VERDICT
-- Defects: DEFECTS
+- Author: Kan-extension proof author
+- Auditor: independent proof auditor
+- Date: 2026-10-15
+- Commit: 0000000
+- Verdict: fail
+- Defects: audit pending.

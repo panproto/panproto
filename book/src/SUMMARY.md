@@ -98,6 +98,7 @@
 # Correctness
 
 - [Correctness](./correctness/index.md)
+  - [Kan extensions](./correctness/kan-extensions.md)
 
 ---
 
