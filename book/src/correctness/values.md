@@ -2,7 +2,7 @@
 
 The value layer preserves both mathematical content and source representation. A decimal retains its scale and special-value payload, a temporal retains its written form, and a binary value distinguishes exact from nearest reading. We call this boundary the **representation-fidelity boundary** (RFB). The RFB separates chronological or numeric comparison from representation equality and makes each loss of source information explicit.
 
-This page states the 42 registered value laws. Its base finite scopes contain 600 signed numerals with at most two significand digits and exponents from -1 through 1, all 65,536 binary16 patterns, 19,098 temporal lexemes, and all 65,793 byte strings of length at most two. Focused tests extend these bases where special decimals, epoch boundaries or written temporal forms require another product. Every audit remains open until the named exhaustive and property differentials, mutation campaigns and independent proof review close at one immutable commit.
+This page states 42 registered laws for (i) representation and coercion, (ii) binary and decimal operations, (iii) temporal values, (iv) byte-text mappings, and (v) expression evaluation. Its base finite scopes contain 600 signed numerals with at most two significand digits and exponents from -1 through 1, all 65,536 binary16 patterns, 19,098 temporal lexemes, and all 65,793 byte strings of length at most two. Focused tests add separate products for special decimals, epoch boundaries, and written temporal forms. Each audit remains open until its named exhaustive and property differentials and mutation campaigns pass and its independent proof reviewer signs off at the same immutable commit.
 
 ## Representation equality is canonical-byte equality {#L-values-1}
 
@@ -285,7 +285,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -329,7 +329,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -374,7 +374,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -506,7 +506,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -638,7 +638,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -682,7 +682,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -726,7 +726,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -770,7 +770,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -814,7 +814,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -858,7 +858,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -902,7 +902,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -1214,7 +1214,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -1258,7 +1258,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -1302,7 +1302,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -1346,7 +1346,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -1390,7 +1390,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -1434,7 +1434,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -1478,7 +1478,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
@@ -1698,7 +1698,7 @@ A temporal representation holds its finite or infinite form, written field shape
 
 1. The reference operation first checks the representation domain, then derives an exact chronological key, descriptor or canonical payload as the law requires.
 2. The production operation retains the same representation fields and applies the corresponding comparison, round-trip or encoding branch.
-3. The case split proves the stated invariant source-statically; exhaustive and generated verification remain pending.
+3. The source-static case split supports the stated invariant; exhaustive and generated verification remain pending.
 
 ### Executable counterpart
 
@@ -1834,7 +1834,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 
 1. The reference operation computes exact midpoints or an exact quotient and remainder in the selected format.
 2. The production operation uses the same format parameters and distinguishes finite, infinite and NaN patterns before constructing its result.
-3. The branches establish the stated result for each bit-pattern class, with differential execution still pending.
+3. The branches support the stated result for each bit-pattern class; differential execution remains pending.
 
 ### Executable counterpart
 
