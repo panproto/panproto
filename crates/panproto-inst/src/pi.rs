@@ -957,13 +957,15 @@ pub fn wtype_pi(
     // fiber with multiple sources would require a product of subtrees, which
     // this function does not build (see `functor_pi` for the set-valued
     // product). Reject rather than silently return Sigma-shaped output.
-    for (tgt, srcs) in &fiber_map {
-        if srcs.len() > 1 {
-            return Err(RestrictError::NonInjectiveVertexMap {
-                target: tgt.clone(),
-                sources: srcs.clone(),
-            });
-        }
+    if let Some((target, sources)) = fiber_map
+        .iter()
+        .filter(|(_, sources)| sources.len() > 1)
+        .min_by(|(_, left), (_, right)| left[..2].cmp(&right[..2]))
+    {
+        return Err(RestrictError::NonInjectiveVertexMap {
+            target: target.clone(),
+            sources: sources.clone(),
+        });
     }
 
     // The vertex-injective case never forms a product, so `max_product_nodes`

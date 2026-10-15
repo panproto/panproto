@@ -1635,8 +1635,13 @@ fn pi_counit_hom(
     Ok(FInstanceHom::new(row_map))
 }
 
-/// Transpose `Hom_S'(Delta_F J, I) -> Hom_T(J, Pi_F I)`, sending `g` to
-/// `Pi_F(g) . unit_J`.
+/// Transpose `Hom_S'(Delta_F J, I) -> Hom_T(J, Pi_F I)`.
+///
+/// A row `r` of `J` is sent to the row of `Pi_F I` whose tuple contains,
+/// at each table `s` of its fibre, the image under `g` of the copy `(s, r)`
+/// in `Delta_F J`. This direct formula is equal to `Pi_F(g) . unit_J`, but
+/// it does not construct the otherwise unobserved `Pi_F(Delta_F J)` and so
+/// does not impose the product bound on that intermediate instance.
 ///
 /// # Errors
 ///
@@ -1651,20 +1656,17 @@ pub fn f_pi_transpose_left(
     PiTransposeLeft::new(y, i, functor, max_product_size)?.apply(g)
 }
 
-/// [`f_pi_transpose_left`] at fixed `J` and `I`: `Delta_F J` and the limits
-/// `Pi_F(Delta_F J)` and `Pi_F I` are taken once. The errors are those of
+/// [`f_pi_transpose_left`] at fixed `J` and `I`: `Delta_F J`, its copy
+/// index, and `Pi_F I` are taken once. The errors are those of
 /// [`f_pi_transpose_left`], in its order.
 struct PiTransposeLeft<'a> {
+    y: &'a FInstance,
     y_nulls: BTreeSet<u64>,
     i: &'a FInstance,
     delta: FInstance,
-    pi_delta: PiLimit,
-    pi_delta_nulls: BTreeSet<u64>,
+    copies: HashMap<(Name, RowId), RowId>,
+    functor: &'a MigrationFunctor,
     pi: PiLimit,
-    /// The unit at `J`, or the row at which it is not natural; its error
-    /// is raised after the homomorphism's own, as [`f_pi_transpose_left`]
-    /// raises it.
-    unit: Result<FInstanceHom, RowId>,
 }
 
 impl<'a> PiTransposeLeft<'a> {
@@ -1675,26 +1677,55 @@ impl<'a> PiTransposeLeft<'a> {
         max_product_size: usize,
     ) -> Result<Self, AdjunctionError> {
         let (delta, copies) = f_delta_with_provenance(y, functor)?;
-        let pi_delta = pi_on_domain(&delta, functor, max_product_size)?;
         let pi = pi_on_domain(i, functor, max_product_size)?;
-        let unit = pi_unit_hom(y, functor, &copies, &pi_delta);
         Ok(Self {
+            y,
             y_nulls: nulls_of(y),
             i,
             delta,
-            pi_delta_nulls: nulls_of(&pi_delta.instance),
-            pi_delta,
+            copies: copies.copy_index(),
+            functor,
             pi,
-            unit,
         })
     }
 
-    /// `Pi_F(g) . unit_J` for `g: Delta_F J -> I`.
+    /// The direct tuple formula for `Pi_F(g) . unit_J`, for
+    /// `g: Delta_F J -> I`.
     fn apply(&self, g: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
         require_hom(g, &self.delta, self.i)?;
-        let unit = self.unit.as_ref().map_err(|row| not_natural(*row))?;
-        let pi_g = pi_hom(g, &self.pi_delta, &self.pi_delta_nulls, &self.pi)?;
-        then(unit, &pi_g, &self.y_nulls)
+        let mut row_map = BTreeMap::new();
+        for (table, rows) in self.y.tables() {
+            let fibre = self.functor.table_fibre(table);
+            for row in rows.ids() {
+                let tuple = fibre
+                    .iter()
+                    .map(|source| {
+                        self.copies
+                            .get(&((*source).clone(), row))
+                            .and_then(|copy| g.image(*copy))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or(AdjunctionError::NotANaturalMap { row })?;
+                let image = self
+                    .pi
+                    .rows
+                    .get(&(table.clone(), tuple))
+                    .copied()
+                    .ok_or(AdjunctionError::NotANaturalMap { row })?;
+                row_map.insert(row, image);
+            }
+        }
+        let null_map = self
+            .y_nulls
+            .iter()
+            .map(|&null| {
+                let own = Value::LabeledNull(null);
+                (null, g.image_value(&own).clone())
+            })
+            .collect();
+        let transpose = FInstanceHom::new(row_map).with_null_map(null_map);
+        require_hom(&transpose, self.y, &self.pi.instance)?;
+        Ok(transpose)
     }
 }
 
