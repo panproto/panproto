@@ -4004,6 +4004,23 @@ mod tests {
     }
 
     #[test]
+    fn an_equation_and_its_reverse_are_one_axiom() -> TestResult {
+        let forward = idempotent("e", "x");
+        let reverse = Equation::new("e", forward.rhs.clone(), forward.lhs.clone());
+        let d = equation_span(forward.clone(), reverse);
+        for opts in [explicit(ClashPolicy::Reject), amalgamate()] {
+            let c = compose(&d, &opts)?;
+            assert_eq!(names(&c.theory.eqs, |e| &e.name), ["e"]);
+            assert_eq!(c.theory.eqs[0].lhs, forward.lhs);
+            assert_eq!(
+                c.provenance.members(SymKind::Eq, "e"),
+                [sym("T1", "e"), sym("T2", "e")]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn alpha_equivalent_equations_merge_and_keep_both_provenance_entries() -> TestResult {
         let d = equation_span(idempotent("e1", "x"), idempotent("e2_different_name", "y"));
         for opts in [explicit(ClashPolicy::Reject), amalgamate()] {

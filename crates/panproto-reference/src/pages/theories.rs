@@ -5370,6 +5370,172 @@ pub mod theory {
                     .is_ok()
             );
         }
+
+        fn unary(name: &str) -> Op {
+            Op {
+                name: name.to_owned(),
+                inputs: vec![("x".to_owned(), SortExpr::Name("A".to_owned()), Implicit::No)],
+                output: SortExpr::Name("A".to_owned()),
+            }
+        }
+
+        fn app(op: &str, args: Vec<Term>) -> Term {
+            Term::App(op.to_owned(), args)
+        }
+
+        /// A theory with the sort `A`, the operation `f : A -> A` and one
+        /// equation.
+        fn with_equation(theory: &str, name: &str, lhs: Term, rhs: Term) -> Theory {
+            Theory {
+                name: theory.to_owned(),
+                sorts: vec![simple("A")],
+                ops: vec![unary("f")],
+                eqs: vec![Equation {
+                    name: name.to_owned(),
+                    lhs,
+                    rhs,
+                }],
+                ..Theory::default()
+            }
+        }
+
+        fn options(mode: CompositionMode) -> ComposeOptions {
+            ComposeOptions {
+                mode,
+                result_name: "R".to_owned(),
+                clash: ClashPolicy::Reject,
+                rewrite_budget: 512,
+            }
+        }
+
+        fn sym(node: &str, name: &str) -> SymRef {
+            SymRef {
+                node: node.to_owned(),
+                name: name.to_owned(),
+            }
+        }
+
+        #[test]
+        fn alpha_equivalent_equations_under_different_names_are_one_axiom_in_every_mode() {
+            let diagram = TheoryDiagram::discrete(vec![
+                (
+                    "L".to_owned(),
+                    with_equation("TL", "e1", app("f", vec![var("x")]), var("x")),
+                ),
+                (
+                    "R".to_owned(),
+                    with_equation("TR", "e2", app("f", vec![var("y")]), var("y")),
+                ),
+            ]);
+            for mode in [
+                CompositionMode::Amalgamate,
+                CompositionMode::ExplicitIdentity,
+            ] {
+                let composition =
+                    compose(&diagram, &options(mode)).expect("the two theories compose");
+                let names: Vec<&str> = composition
+                    .theory
+                    .eqs
+                    .iter()
+                    .map(|e| e.name.as_str())
+                    .collect();
+                assert_eq!(names, ["e1"], "{mode:?}");
+                assert_eq!(
+                    composition.provenance.eqs,
+                    BTreeMap::from([
+                        (sym("L", "e1"), "e1".to_owned()),
+                        (sym("R", "e2"), "e1".to_owned()),
+                    ]),
+                    "{mode:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn an_equation_and_its_reverse_are_one_axiom() {
+            let diagram = TheoryDiagram::discrete(vec![
+                (
+                    "L".to_owned(),
+                    with_equation("TL", "e", app("f", vec![var("x")]), var("x")),
+                ),
+                (
+                    "R".to_owned(),
+                    with_equation("TR", "e", var("y"), app("f", vec![var("y")])),
+                ),
+            ]);
+            for mode in [
+                CompositionMode::Amalgamate,
+                CompositionMode::ExplicitIdentity,
+            ] {
+                let composition =
+                    compose(&diagram, &options(mode)).expect("the two theories compose");
+                assert_eq!(composition.theory.eqs.len(), 1, "{mode:?}");
+                assert_eq!(composition.theory.eqs[0].lhs, app("f", vec![var("x")]));
+            }
+        }
+
+        #[test]
+        fn a_disagreeing_pair_of_different_names_is_not_a_name_conflict() {
+            // `M.r` is renamed to `L.p` by the edge and glued to `R.r` by name;
+            // `L.p` and `R.r` differ only in the order of `H`'s arguments, and
+            // they do not share a name.
+            let hom = |theory: &str, op: &str, swapped: bool| {
+                let args = if swapped {
+                    vec![var("y"), var("x")]
+                } else {
+                    vec![var("x"), var("y")]
+                };
+                Theory {
+                    name: theory.to_owned(),
+                    sorts: vec![
+                        simple("O"),
+                        Sort {
+                            params: vec![
+                                ("a".to_owned(), SortExpr::Name("O".to_owned())),
+                                ("b".to_owned(), SortExpr::Name("O".to_owned())),
+                            ],
+                            ..simple("H")
+                        },
+                    ],
+                    ops: vec![Op {
+                        name: op.to_owned(),
+                        inputs: vec![
+                            ("x".to_owned(), SortExpr::Name("O".to_owned()), Implicit::No),
+                            ("y".to_owned(), SortExpr::Name("O".to_owned()), Implicit::No),
+                        ],
+                        output: SortExpr::App("H".to_owned(), args),
+                    }],
+                    ..Theory::default()
+                }
+            };
+            let mut diagram = TheoryDiagram::discrete(vec![
+                ("l".to_owned(), hom("TL", "p", false)),
+                ("m".to_owned(), hom("TM", "r", false)),
+                ("r".to_owned(), hom("TR", "r", true)),
+            ]);
+            diagram.edges.push(DiagramEdge {
+                src: "m".to_owned(),
+                tgt: "l".to_owned(),
+                morphism: Morphism {
+                    name: "m_to_l".to_owned(),
+                    domain: "TM".to_owned(),
+                    codomain: "TL".to_owned(),
+                    sorts: BTreeMap::from([
+                        ("O".to_owned(), "O".to_owned()),
+                        ("H".to_owned(), "H".to_owned()),
+                    ]),
+                    ops: BTreeMap::from([("r".to_owned(), OpImage::Op("p".to_owned()))]),
+                },
+            });
+            assert_eq!(
+                compose(&diagram, &options(CompositionMode::Amalgamate)).err(),
+                Some(ComposeError::QuotientNotRepresentable {
+                    first: sym("l", "p"),
+                    second: sym("r", "r"),
+                    reason: NotRepresentableReason::NeedsSortEquation,
+                })
+            );
+        }
     }
 }
 
