@@ -2800,10 +2800,17 @@ impl Cocone<'_> {
                     }
                 }
             }
-            let outcome = match (broken, self.added.iter().find(|a| a.edge_index == index)) {
+            // The least name among the equations this edge generated.
+            let closing = self
+                .added
+                .iter()
+                .filter(|a| a.edge_index == index)
+                .map(|a| &a.equation.name)
+                .min();
+            let outcome = match (broken, closing) {
                 (Some(detail), _) => CheckOutcome::Failed { detail },
-                (None, Some(a)) => CheckOutcome::PassedByEquation {
-                    equation: Arc::clone(&a.equation.name),
+                (None, Some(name)) => CheckOutcome::PassedByEquation {
+                    equation: Arc::clone(name),
                 },
                 (None, None) => CheckOutcome::Passed,
             };

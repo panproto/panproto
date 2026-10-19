@@ -17,7 +17,7 @@ use crate::compose::SymKind;
 use crate::eq::{CaseBranch, Equation, Term};
 use crate::error::GatError;
 use crate::op::{Implicit, Operation};
-use crate::sort::{SortClosure, SortExpr};
+use crate::sort::{SortClosure, SortExpr, sort_exprs_agree};
 use crate::theory::Theory;
 
 /// A sort scheme: a sort expression universally quantified over a list
@@ -272,7 +272,7 @@ fn typecheck_case(
             // another.
             let refined = motive.subst(&subst);
             let body_sort = check_term(&b.body, &refined, &extended, theory)?;
-            if !body_sort.alpha_eq(&refined) {
+            if !sort_exprs_agree(&body_sort, &[], &refined, &[]) {
                 return Err(GatError::CaseBranchSortMismatch {
                     constructor: b.constructor.to_string(),
                     expected: refined.to_string(),
@@ -286,7 +286,7 @@ fn typecheck_case(
         match &branch_sort {
             None => branch_sort = Some(body_sort),
             Some(existing) => {
-                if !existing.alpha_eq(&body_sort) {
+                if !sort_exprs_agree(&existing, &[], &body_sort, &[]) {
                     return Err(GatError::EquationSortMismatch {
                         equation: "case".to_string(),
                         lhs_sort: existing.to_string(),
@@ -331,7 +331,7 @@ fn typecheck_app_explicit(
     {
         let arg_sort = typecheck_term(arg, ctx, theory)?;
         let expected = declared_sort.subst(&theta);
-        if !arg_sort.alpha_eq(&expected) {
+        if !sort_exprs_agree(&arg_sort, &[], &expected, &[]) {
             return Err(GatError::ArgTypeMismatch {
                 op: op.to_string(),
                 arg_index: i,
@@ -797,9 +797,11 @@ fn typecheck_with_expected(
                     let arg_sort =
                         typecheck_with_expected(arg, Some(&expected_sort), ctx, theory, reports)?;
                     // Holes produce the expected sort by construction,
-                    // so alpha_eq holds trivially. For non-hole terms,
-                    // enforce the usual alpha_eq check.
-                    if !term_contains_hole(arg) && !arg_sort.alpha_eq(&expected_sort) {
+                    // so the sorts agree trivially. For non-hole terms,
+                    // compare them up to the names of local binders.
+                    if !term_contains_hole(arg)
+                        && !sort_exprs_agree(&arg_sort, &[], &expected_sort, &[])
+                    {
                         return Err(GatError::ArgTypeMismatch {
                             op: op.to_string(),
                             arg_index: i,
@@ -856,7 +858,7 @@ fn typecheck_case_with_holes(
             let refined = motive.subst(&subst);
             let body_sort =
                 typecheck_with_expected(&b.body, Some(&refined), &extended, theory, reports)?;
-            if !term_contains_hole(&b.body) && !body_sort.alpha_eq(&refined) {
+            if !term_contains_hole(&b.body) && !sort_exprs_agree(&body_sort, &[], &refined, &[]) {
                 return Err(GatError::CaseBranchSortMismatch {
                     constructor: b.constructor.to_string(),
                     expected: refined.to_string(),
@@ -873,7 +875,7 @@ fn typecheck_case_with_holes(
                 // Require every branch body to produce an
                 // alpha-equivalent output sort. Mirror the strict
                 // typecheck_case behaviour.
-                if !existing.alpha_eq(&body_sort) {
+                if !sort_exprs_agree(&existing, &[], &body_sort, &[]) {
                     return Err(GatError::EquationSortMismatch {
                         equation: "case".to_string(),
                         lhs_sort: existing.to_string(),
@@ -1213,7 +1215,7 @@ pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError
             let rhs_sort = check_term(&eq.rhs, &lhs_sort, &ctx, theory)?;
             (lhs_sort, rhs_sort)
         };
-    if !lhs_sort.alpha_eq(&rhs_sort) {
+    if !sort_exprs_agree(&lhs_sort, &[], &rhs_sort, &[]) {
         return Err(GatError::EquationSortMismatch {
             equation: eq.name.to_string(),
             lhs_sort: lhs_sort.to_string(),
@@ -1676,7 +1678,7 @@ fn check_sort_expr(
         };
         if unbound.is_empty() {
             match typecheck_term(arg, ctx, theory) {
-                Ok(found) if found.alpha_eq(&expected) => {}
+                Ok(found) if sort_exprs_agree(&found, &[], &expected, &[]) => {}
                 Ok(found) => defects.push(SignatureDefect::ParamIllTyped {
                     site: site.clone(),
                     sort: Arc::clone(head),

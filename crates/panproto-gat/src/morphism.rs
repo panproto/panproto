@@ -968,21 +968,31 @@ fn equal_in_context(lhs: &Term, rhs: &Term) -> bool {
     alpha_equivalent_equation(lhs, rhs, lhs, lhs)
 }
 
-/// Decide whether `lhs = rhs` holds in the codomain by rewriting, first with
-/// the codomain's directed equations alone (which terminate when the system is
-/// sound), then, if that does not decide it, with the congruence closure over
-/// all codomain equations (undirected equations applied in both directions).
+/// Decide whether `lhs = rhs` holds in the codomain: at once when the two
+/// sides agree in one context, otherwise by rewriting, first with the
+/// codomain's directed equations alone (which terminate when the system is
+/// sound), then, if their normal forms differ, with the congruence closure
+/// over all codomain equations (undirected equations applied in both
+/// directions).
 ///
-/// Returns [`Derivability::Derivable`] only when a common normal form is found
-/// without exhausting the budget, so the check never accepts on inconclusive
-/// evidence.
+/// Returns [`Derivability::Derivable`] only when the sides agree or a common
+/// normal form is found without exhausting the budget, and
+/// [`Derivability::Unknown`] as soon as a normalization exhausts it, so the
+/// check never accepts on inconclusive evidence.
 fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Derivability {
     const BUDGET: usize = 512;
+
+    if equal_in_context(lhs, rhs) {
+        return Derivability::Derivable;
+    }
 
     // Tier 1: the codomain's directed equations only.
     let (lnf, lex) = normalize_bounded(lhs, &codomain.directed_eqs, BUDGET);
     let (rnf, rex) = normalize_bounded(rhs, &codomain.directed_eqs, BUDGET);
-    if !lex && !rex && equal_in_context(&lnf, &rnf) {
+    if lex || rex {
+        return Derivability::Unknown;
+    }
+    if equal_in_context(&lnf, &rnf) {
         return Derivability::Derivable;
     }
 
