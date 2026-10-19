@@ -197,10 +197,10 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         // `checked_rem` like every other integer operation here.
         BuiltinOp::Mod => match (&args[0], &args[1]) {
             (Literal::Int(_), Literal::Int(0)) => Err(ExprError::DivisionByZero),
-            (Literal::Int(a), Literal::Int(b)) => a
-                .checked_rem(*b)
-                .map(Literal::Int)
-                .ok_or(ExprError::Overflow),
+            // The truncated remainder is below |b| in magnitude, so it is
+            // always an `i64`; only i64::MIN by -1 wraps, and its remainder
+            // is exactly 0.
+            (Literal::Int(a), Literal::Int(b)) => Ok(Literal::Int(a.wrapping_rem(*b))),
             _ => Err(type_err("int", &args[0])),
         },
         BuiltinOp::Neg => match &args[0] {

@@ -609,18 +609,17 @@ impl DecimalValue {
     }
 
     /// The General Decimal Arithmetic's compare-total, a total order whose
-    /// equality is representation equality (Cowlishaw 2009, "compare-total",
-    /// stated: `-NaN -sNaN -Infinity -127 -1.00 -1 -0.000 -0 0 1.2300 1.23
-    /// 1E+9 Infinity sNaN NaN NaN456`, lowest to highest).
+    /// equality is representation equality (Cowlishaw 2009, "compare-total":
+    /// "The following items describe the ordering for representations whose
+    /// sign is 0. If the sign is 1, the order is reversed.").
     ///
-    /// Every value with its sign set is below every value without. Of two
-    /// values of one sign: two finite values compare as numbers and, when
-    /// equal as numbers, by exponent, the smaller exponent lower, for either
-    /// sign; otherwise, for the positive sign, finite values are below the
-    /// infinity, which is below the signalling NaNs, which are below the
-    /// quiet NaNs, and two NaNs of one flag compare by payload; for the
-    /// negative sign that order of the non-finite classes and payloads is
-    /// reversed.
+    /// Every value with its sign set is below every value without. For the
+    /// positive sign, finite values compare as numbers and, when equal as
+    /// numbers, by exponent, the larger exponent higher; finite values are
+    /// below the infinity, which is below the signalling NaNs, which are
+    /// below the quiet NaNs; and two NaNs of one flag compare by payload. For
+    /// the negative sign that whole order is reversed, so `-1` is below
+    /// `-1.00` and `-0` below `-0.000`.
     #[must_use]
     pub fn compare_total(&self, other: &Self) -> Ordering {
         if self.negative != other.negative {
@@ -631,9 +630,14 @@ impl DecimalValue {
             };
         }
         if self.class.is_finite() && other.class.is_finite() {
-            return self
-                .cmp_numeric(other)
-                .then_with(|| self.exponent.cmp(&other.exponent));
+            // At equal value the larger exponent is higher for the positive
+            // sign, and the order is reversed for the negative sign.
+            let exponents = self.exponent.cmp(&other.exponent);
+            return self.cmp_numeric(other).then(if self.negative {
+                exponents.reverse()
+            } else {
+                exponents
+            });
         }
         let rank = |d: &Self| match d.class {
             DecimalClass::Finite => 0_u8,
