@@ -923,13 +923,19 @@ pub mod bytes {
 
     /// Definition: Normalize optional base64 padding to the unique padded length.
     ///
-    /// This operation checks only the padding shape. Alphabet and quantum
-    /// decoding remain the caller's format-specific operation.
+    /// The text splits at its first `=` into a body and a padding. The
+    /// operation checks, in order, (a) that the padding is only `=` and at
+    /// most two of them, (b) that every body byte is in the standard
+    /// alphabet, and (c) that the body needs at most two padding characters
+    /// to complete a four-character quantum and that a nonempty padding is
+    /// exactly that many; it then returns the body followed by the needed
+    /// padding. Unused-bit and quantum decoding remain
+    /// [`decode_base64`]'s.
     ///
     /// # Errors
     ///
-    /// [`ByteTextError::InvalidPadding`] when padding is misplaced, has the
-    /// wrong length, or cannot complete one four-character quantum.
+    /// [`ByteTextError::InvalidPadding`] when (a) or (c) fails and
+    /// [`ByteTextError::InvalidBase64`] when (b) fails.
     ///
     /// Book anchors: `L-values-26`, `L-values-27`.
     pub fn optional(text: &str) -> Result<String, ByteTextError> {
@@ -1061,8 +1067,9 @@ pub mod coerce {
     //! narrowing rules for float kinds. Both are written straight from their
     //! definitions, with exact rationals for every float decision.
     //!
-    //! Domain: the default numeral reading (no numeral dialect declared).
-    //! Tagged lexemes are read with or without a discriminator table. A float
+    //! Every numeral dialect is read as its grammar states, and the default
+    //! reading applies when none is declared. Tagged lexemes are read with or
+    //! without a discriminator table. A float
     //! width other than 16, 32 and 64, for which no rule is stated, gives
     //! `None`, as does the nearest-keeping-lexeme reading of an existing value.
 
@@ -2091,50 +2098,28 @@ pub mod coerce {
         }
     }
 
-    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    const B64_URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-    /// Base64 by its definition (RFC 4648 Sec 4, Sec 5): each character is six
-    /// bits, the bit string is cut into bytes, the leftover bits (fewer than
-    /// eight) must be zero, a body of length 1 mod 4 is no encoding, and
-    /// padding brings the length to a multiple of four.
-    fn decode_base64(text: &str, alphabet: &[u8; 64], padding_required: bool) -> Option<Vec<u8>> {
-        let body = text.trim_end_matches('=');
-        let pads = text.len() - body.len();
-        let expected_pads = (4 - body.len() % 4) % 4;
-        let padding_ok = if padding_required {
-            pads == expected_pads
-        } else {
-            pads == 0 || pads == expected_pads
-        };
-        if !padding_ok || body.len() % 4 == 1 {
-            return None;
-        }
-        let mut bits: Vec<bool> = Vec::new();
-        for c in body.bytes() {
-            let v = alphabet.iter().position(|a| *a == c)?;
-            for k in (0..6).rev() {
-                bits.push((v >> k) & 1 == 1);
+    /// Base64 text under the standard or the URL-safe alphabet, read by the
+    /// byte-text page's [`crate::bytes::decode_base64`]: a URL-safe text is
+    /// refused if it holds a standard-only character and is otherwise read
+    /// with `-` and `_` in the places of `+` and `/`.
+    fn decode_base64(text: &str, url: bool, padding_required: bool) -> Option<Vec<u8>> {
+        let standard = if url {
+            if text.contains(['+', '/']) {
+                return None;
             }
-        }
-        let whole = bits.len() / 8 * 8;
-        if bits[whole..].iter().any(|b| *b) {
-            return None;
-        }
-        Some(
-            bits[..whole]
-                .chunks(8)
-                .map(|byte| byte.iter().fold(0u8, |acc, b| (acc << 1) | u8::from(*b)))
-                .collect(),
-        )
+            text.replace('-', "+").replace('_', "/")
+        } else {
+            text.to_owned()
+        };
+        crate::bytes::decode_base64(&standard, padding_required).ok()
     }
 
     fn decode_bytes(text: &str, encoding: BytesText) -> Option<Vec<u8>> {
         match encoding {
-            BytesText::Base64 => decode_base64(text, B64, false),
-            BytesText::Base64Url => decode_base64(text, B64_URL, false),
-            BytesText::Base64Padded => decode_base64(text, B64, true),
-            BytesText::Base64UrlPadded => decode_base64(text, B64_URL, true),
+            BytesText::Base64 => decode_base64(text, false, false),
+            BytesText::Base64Url => decode_base64(text, true, false),
+            BytesText::Base64Padded => decode_base64(text, false, true),
+            BytesText::Base64UrlPadded => decode_base64(text, true, true),
             BytesText::Hex => {
                 if text.len() % 2 != 0 {
                     return None;
@@ -2149,10 +2134,7 @@ pub mod coerce {
                     .collect()
             }
             BytesText::Raw => Some(text.as_bytes().to_vec()),
-            BytesText::Latin1 => text
-                .chars()
-                .map(|c| u8::try_from(u32::from(c)).ok())
-                .collect(),
+            BytesText::Latin1 => crate::bytes::latin1_encode(text).ok(),
         }
     }
 
@@ -2256,7 +2238,11 @@ pub mod coerce {
     /// signalling), else refused with `NonFinite`; an `Int`, `BigInt` or finite
     /// `Decimal` gives `Float(x)` iff b holds its value x exactly (a decimal
     /// zero keeps its sign), else `Overflow` or `PrecisionExceeded`; a special
-    /// decimal is refused with `NonFinite`. Under any other non-`Any` kind a
+    /// decimal is refused with `NonFinite`; and any other value with a scalar
+    /// lexeme (a string, token, boolean, temporal or null) is read through
+    /// [`coerce`] of that lexeme under the float kind alone, with no dialect
+    /// or reading. Under `BigInt` a special decimal is refused with
+    /// `NonFinite`. Under any other non-`Any` kind a
     /// non-finite `Float` is refused with `NonFinite`, a value with a scalar
     /// lexeme is read through [`coerce`] (under the specification's numeral
     /// dialect when the value is a string or a token, whose lexeme is source
@@ -2981,9 +2967,14 @@ pub mod exact {
             }
         }
 
-        /// The total numeric preorder: finite values by number (every zero
-        /// `Equal`), the infinities at the ends of the finite values, and NaNs
-        /// in compare-total's places, payloads ignored.
+        /// Definition: the total numeric preorder on decimal values: two
+        /// finite values by [`DecimalValue::cmp_numeric`] (every zero
+        /// `Equal`), and otherwise by class rank, lowest first: negative
+        /// quiet NaNs, negative signalling NaNs, the negative infinity, every
+        /// finite value, the positive infinity, positive signalling NaNs and
+        /// positive quiet NaNs, payloads ignored.
+        ///
+        /// Book anchors: `L-values-35`, `L-values-36`.
         #[must_use]
         pub fn cmp_numeric(&self, other: &Self) -> Ordering {
             match (self, other) {
@@ -3619,7 +3610,11 @@ pub mod float {
         }
     }
 
-    /// Definition: The canonical quiet NaN produced by arithmetic in `format`.
+    /// Definition: The canonical quiet NaN produced by arithmetic in `format`:
+    /// the positive pattern with an all-ones exponent field and only the
+    /// quiet bit of the fraction set, `exponent_mask << (p - 1) | 1 << (p - 2)`
+    /// for precision `p` (`0x7e00`, `0x7fc0_0000` and `0x7ff8_0000_0000_0000`
+    /// at binary16, binary32 and binary64).
     ///
     /// Book anchors: `L-values-7`.
     #[must_use]
@@ -4292,9 +4287,11 @@ pub mod temporal {
         a.shape() == b.shape() && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
     }
 
-    /// Definition: The partial chronological order: `None` for incomparable values, else
-    /// the order of `order_key` with the fraction compared as a decimal
-    /// fraction.
+    /// Definition: The partial chronological order: `None` for incomparable
+    /// values ([`comparable`]); else, when either value is an infinity, the
+    /// negative infinity below and the positive above every other value of
+    /// its form and zoning, two infinities by sign; and else the order of
+    /// `order_key` with the fraction compared as a decimal fraction.
     ///
     /// Book anchors: `L-values-12`, `L-values-17`, `L-values-18`, `L-values-19`, `L-values-20`.
     #[must_use]
