@@ -895,7 +895,7 @@
             }
           ],
           "references": [
-            "panproto_reference::exact::DecimalValue::cmp_numeric"
+            "panproto_reference::exact::Decimal::cmp_numeric"
           ],
           "due_gate": "phase3",
           "consumers": [
@@ -916,7 +916,7 @@
             }
           ],
           "references": [
-            "panproto_reference::exact::DecimalValue::cmp_numeric"
+            "panproto_reference::exact::Decimal::cmp_numeric"
           ],
           "due_gate": "phase3",
           "consumers": [
