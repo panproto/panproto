@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{Term, alpha_equivalent, normalize_with_status};
+use crate::eq::{Term, normalize_with_status};
 use crate::error::GatError;
-use crate::morphism::{OpAssignment, TheoryMorphism};
+use crate::morphism::{OpAssignment, TheoryMorphism, equal_in_context};
 use crate::theory::Theory;
 
 /// Step budget for normalizing the two sides of a naturality square before
@@ -140,7 +140,9 @@ pub fn check_natural_transformation(
         let (lhs_norm, lhs_exhausted) = normalize_with_status(&lhs, &all_rules, NAT_STEP_LIMIT);
         let (rhs_norm, rhs_exhausted) = normalize_with_status(&rhs, &all_rules, NAT_STEP_LIMIT);
 
-        if !alpha_equivalent(&lhs_norm, &rhs_norm) {
+        // The two sides share the variables x0, ..., xn-1, so they are
+        // compared with those variables held fixed.
+        if !equal_in_context(&lhs_norm, &rhs_norm) {
             // A truncated normalization cannot decide the naturality square:
             // report budget exhaustion rather than a spurious violation.
             if lhs_exhausted || rhs_exhausted {
@@ -413,7 +415,8 @@ pub fn check_interchange(
             .get(&sort.name)
             .ok_or_else(|| GatError::MissingNatTransComponent(sort.name.to_string()))?;
 
-        if !alpha_equivalent(lhs_comp, rhs_comp) {
+        // Both components read the one input variable `x`.
+        if !equal_in_context(lhs_comp, rhs_comp) {
             return Err(GatError::NaturalityViolation {
                 op: format!("interchange at sort {}", sort.name),
                 lhs: format!("{lhs_comp:?}"),
