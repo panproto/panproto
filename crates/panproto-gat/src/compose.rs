@@ -2128,10 +2128,9 @@ fn check_op_classes(
     Ok(())
 }
 
-/// In [`CompositionMode::Amalgamate`], a mismatch between two members that
-/// the edges alone do not relate (only the name rule joined them into one
-/// class) is a [`CompositionError::NameConflict`], named by the first
-/// member's name.
+/// In [`CompositionMode::Amalgamate`], a mismatch between two same-name
+/// members that the edges alone do not relate (only the name rule joined
+/// them) is a [`CompositionError::NameConflict`].
 fn name_rule_conflict(
     kind: SymKind,
     a: &SymRef,
@@ -2140,6 +2139,7 @@ fn name_rule_conflict(
     edge_uf: &mut UnionFind<Key>,
 ) -> Option<CompositionError> {
     (opts.mode == CompositionMode::Amalgamate
+        && a.name == b.name
         && !edge_uf.same(&(kind, a.clone()), &(kind, b.clone())))
     .then(|| CompositionError::NameConflict {
         kind,
@@ -2493,13 +2493,15 @@ struct EqGroups {
     directed_reps: Vec<DirectedEquation>,
 }
 
-/// Group `items` (taken in ascending source order) by content: under
-/// [`CompositionMode::ExplicitIdentity`] an item joins the group of equal
-/// content; under [`CompositionMode::Amalgamate`] it joins the group of
-/// equal content that holds its name, and an item whose name a group of
-/// other content holds is a [`CompositionError::NameConflict`] between
-/// that group's least member and the item. Returns each group's members
-/// (ascending) and its least member's item.
+/// Group `items` (taken in ascending source order) by content: an item
+/// joins the group of equal content, whatever its name. Under
+/// [`CompositionMode::Amalgamate`] a name carried by members of two
+/// different groups is then a [`CompositionError::NameConflict`]: scanning
+/// the groups in order and each group's members in ascending order, the
+/// first member whose name an earlier group holds conflicts with the first
+/// member of that name, the two reported in ascending order. Returns each
+/// group's members (ascending), groups ordered by least member, and each
+/// group's least member's item.
 fn classify_by_content<T>(
     kind: SymKind,
     mut items: Vec<(SymRef, T)>,
@@ -2510,35 +2512,44 @@ fn classify_by_content<T>(
     let mut members: Vec<Vec<SymRef>> = Vec::new();
     let mut reps: Vec<T> = Vec::new();
     for (source, item) in items {
-        let holds_name = |group: &[SymRef]| group.iter().any(|m| m.name == source.name);
-        let found = (0..reps.len()).find(|&g| {
-            same_content(&reps[g], &item)
-                && (mode == CompositionMode::ExplicitIdentity || holds_name(&members[g]))
-        });
-        if let Some(g) = found {
+        if let Some(g) = reps.iter().position(|rep| same_content(rep, &item)) {
             members[g].push(source);
-            continue;
+        } else {
+            members.push(vec![source]);
+            reps.push(item);
         }
-        if mode == CompositionMode::Amalgamate
-            && let Some(g) = members.iter().position(|group| holds_name(group))
-        {
-            return Err(CompositionError::NameConflict {
-                kind,
-                name: Arc::clone(&source.name),
-                first: members[g][0].clone(),
-                second: source,
-            });
+    }
+    if mode == CompositionMode::Amalgamate {
+        let mut owner: BTreeMap<&Arc<str>, (usize, &SymRef)> = BTreeMap::new();
+        for (g, group) in members.iter().enumerate() {
+            for m in group {
+                match owner.get(&m.name) {
+                    Some(&(h, first)) if h != g => {
+                        let (first, second) = if first <= m { (first, m) } else { (m, first) };
+                        return Err(CompositionError::NameConflict {
+                            kind,
+                            name: Arc::clone(&m.name),
+                            first: first.clone(),
+                            second: second.clone(),
+                        });
+                    }
+                    Some(_) => {}
+                    None => {
+                        owner.insert(&m.name, (g, m));
+                    }
+                }
+            }
         }
-        members.push(vec![source]);
-        reps.push(item);
     }
     Ok((members, reps))
 }
 
 /// Group every node's equations (or, with `directed`, directed equations)
-/// by translated content: alpha-equivalence of the two sides in their
-/// stated orientation and, for directed equations, equal implementation,
-/// inverse, value kinds and classification. See [`classify_by_content`].
+/// by translated content: for undirected equations, alpha-equivalence of
+/// the two sides in either orientation; for directed equations,
+/// alpha-equivalence in the stated orientation together with equal
+/// implementation, inverse, value kinds and classification. See
+/// [`classify_by_content`].
 fn group_equations(
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     op_map: &BTreeMap<Arc<str>, HashMap<Arc<str>, Arc<str>>>,
@@ -2580,7 +2591,8 @@ fn group_equations(
         SymKind::Eq
     };
     let same = |a: &DirectedEquation, b: &DirectedEquation| {
-        alpha_equivalent_equation(&a.lhs, &a.rhs, &b.lhs, &b.rhs)
+        (alpha_equivalent_equation(&a.lhs, &a.rhs, &b.lhs, &b.rhs)
+            || (!directed && alpha_equivalent_equation(&a.lhs, &a.rhs, &b.rhs, &b.lhs)))
             && a.impl_term == b.impl_term
             && a.inverse == b.inverse
             && a.source_kind == b.source_kind

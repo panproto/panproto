@@ -418,7 +418,7 @@ mod tests {
     use super::*;
     use crate::eq::{Equation, Term};
     use crate::op::Operation;
-    use crate::sort::{Sort, SortParam};
+    use crate::sort::{Sort, SortExpr, SortParam};
 
     #[test]
     fn graph_constraint_colimit() {
@@ -510,20 +510,38 @@ mod tests {
     fn eq_conflict_detected() {
         let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
 
-        // t1: ax says x = y (two distinct variables).
-        // t2: ax says x = x (one variable, used twice).
+        // t1: ax says g(x, y) = x (two distinct variables).
+        // t2: ax says g(a, a) = a (one variable, used twice).
         // These are NOT alpha-equivalent since the variable multiplicity differs.
+        let g = || {
+            Operation::new(
+                "g",
+                vec![
+                    (Arc::from("l"), SortExpr::from("A")),
+                    (Arc::from("r"), SortExpr::from("A")),
+                ],
+                "A",
+            )
+        };
         let t1 = Theory::new(
             "T1",
-            Vec::new(),
-            Vec::new(),
-            vec![Equation::new("ax", Term::var("x"), Term::var("y"))],
+            vec![Sort::simple("A")],
+            vec![g()],
+            vec![Equation::new(
+                "ax",
+                Term::app("g", vec![Term::var("x"), Term::var("y")]),
+                Term::var("x"),
+            )],
         );
         let t2 = Theory::new(
             "T2",
-            Vec::new(),
-            Vec::new(),
-            vec![Equation::new("ax", Term::var("a"), Term::var("a"))],
+            vec![Sort::simple("A")],
+            vec![g()],
+            vec![Equation::new(
+                "ax",
+                Term::app("g", vec![Term::var("a"), Term::var("a")]),
+                Term::var("a"),
+            )],
         );
 
         let result = colimit_by_name(&t1, &t2, &shared);
@@ -673,34 +691,40 @@ mod tests {
 
         let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
 
-        let t1 = Theory::full(
+        // Both sides declare `A`, `f : A -> A` and constants `a, b : A`;
+        // the two `rule`s differ in content.
+        let side = |name: &str, rule: DirectedEquation| {
+            Theory::full(
+                name,
+                Vec::new(),
+                vec![Sort::simple("A")],
+                vec![
+                    Operation::unary("f", "x", "A", "A"),
+                    Operation::nullary("a", "A"),
+                    Operation::nullary("b", "A"),
+                ],
+                Vec::new(),
+                vec![rule],
+                Vec::new(),
+            )
+        };
+        let t1 = side(
             "T1",
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            vec![DirectedEquation::new(
+            DirectedEquation::new(
                 "rule",
+                Term::app("f", vec![Term::var("x")]),
                 Term::var("x"),
-                Term::var("y"),
                 panproto_expr::Expr::Var("_".into()),
-            )],
-            Vec::new(),
+            ),
         );
-
-        let t2 = Theory::full(
+        let t2 = side(
             "T2",
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            vec![DirectedEquation::new(
+            DirectedEquation::new(
                 "rule",
                 Term::constant("a"),
                 Term::constant("b"),
                 panproto_expr::Expr::Var("_".into()),
-            )],
-            Vec::new(),
+            ),
         );
 
         let result = colimit_by_name(&t1, &t2, &shared);
