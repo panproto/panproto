@@ -89,11 +89,12 @@ mod exact {
         assert_eq!(dec("1.50").to_string(), "1.50");
         assert_eq!(dec("0.005").to_string(), "0.005");
         assert_eq!(dec("-1e3").to_string(), "-1e3");
-        // The invariants hold for every constructor: no leading zero, no
-        // negative zero.
+        // The invariants hold for every constructor: no leading zero, and a
+        // zero keeps its written sign at every exponent.
         assert!(DecimalValue::new(false, "012", 0).is_err());
         assert!(DecimalValue::new(false, "", 0).is_err());
-        assert!(!DecimalValue::new(true, "0", 4).unwrap().negative);
+        assert!(DecimalValue::new(true, "0", 4).unwrap().negative);
+        assert!(!DecimalValue::new(false, "0", 4).unwrap().negative);
     }
 
     #[test]
@@ -571,14 +572,21 @@ mod exact {
             "24:00:00",
             "12:60:00",
             "12:00:61",
-            "12:00",
             "2026-09-28T12:00:00+24:00",
-            "2026-09-28T12:00:00+0530",
             "2026-9-28",
             "2026-09-28X12:00:00",
             "12:00:00.",
         ] {
             assert_eq!(Temporal::parse(bad), Err(invalid.clone()), "{bad}");
+        }
+        // A minute-precision time and a basic offset are written forms of
+        // their own, read and displayed back exactly.
+        for reduced in ["12:00", "2026-09-28T12:00:00+0530"] {
+            assert_eq!(
+                Temporal::parse(reduced).unwrap().to_string(),
+                reduced,
+                "{reduced}"
+            );
         }
         // A fraction past nine digits is read, not refused.
         assert_eq!(

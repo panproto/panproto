@@ -183,7 +183,7 @@ fn unwritten_offsets_and_infinities_remain_distinct() {
 }
 
 #[test]
-fn zoned_infinity_and_truncated_date_require_matching_offset_minutes() {
+fn a_zoned_infinity_orders_every_truncated_date_of_its_zoning() {
     let infinity = scoped_infinity(
         TemporalForm::Date,
         Offset::Zulu(ZuluCase::Upper),
@@ -192,8 +192,48 @@ fn zoned_infinity_and_truncated_date_require_matching_offset_minutes() {
     .value;
     let truncated = Temporal::parse_date("---01+05:30:00").unwrap();
 
-    assert_eq!(infinity.cmp_chronological(&truncated), None);
-    assert_eq!(truncated.cmp_chronological(&infinity), None);
+    assert_eq!(
+        infinity.cmp_chronological(&truncated),
+        Some(Ordering::Greater)
+    );
+    assert_eq!(truncated.cmp_chronological(&infinity), Some(Ordering::Less));
+}
+
+#[test]
+fn an_infinity_spelling_reads_as_a_date_without_a_declared_form() {
+    for (text, sign) in [
+        ("infinity", TemporalInfinity::Positive),
+        ("-infinity", TemporalInfinity::Negative),
+    ] {
+        let value = Temporal::parse(text).unwrap();
+        assert_eq!(
+            value.lexical_form().map(|form| form.kind),
+            Some(TemporalForm::Date)
+        );
+        assert_eq!(
+            value.lexical_form().and_then(|form| form.infinity),
+            Some(sign)
+        );
+        assert_eq!(value.to_string(), text);
+    }
+}
+
+#[test]
+fn an_offset_with_a_non_ascii_character_is_refused() {
+    for text in ["2018+aé1", "12:00+aé1", "2018-01-02T12:00+aé1", "+aé1"] {
+        assert!(Temporal::parse(text).is_err(), "{text}");
+        assert!(Temporal::parse_time(text).is_err(), "{text}");
+        assert!(Temporal::parse_date(text).is_err(), "{text}");
+    }
+}
+
+#[test]
+fn truncated_values_with_offsets_a_second_apart_are_incomparable() {
+    let seconds = Temporal::parse_time("--50+00:00:30").unwrap();
+    let zulu = Temporal::parse_time("--50Z").unwrap();
+    assert_eq!(seconds.cmp_chronological(&zulu), None);
+    assert_eq!(zulu.cmp_chronological(&seconds), None);
+    assert_eq!(seconds.cmp_chronological(&seconds), Some(Ordering::Equal));
 }
 
 #[test]
@@ -419,7 +459,7 @@ struct ComparabilityClass {
     date_shape: Option<(bool, bool, bool)>,
     time_shape: Option<(bool, bool, bool)>,
     zoned: bool,
-    truncated_offset_minutes: Option<i16>,
+    truncated_offset_seconds: Option<i32>,
 }
 
 struct ScopedTemporal {
@@ -433,7 +473,6 @@ struct ScopedInfinity {
     reference: rt::Temporal,
     kind: TemporalForm,
     zoned: bool,
-    offset_minutes: i16,
     sign: TemporalInfinity,
 }
 
@@ -468,7 +507,7 @@ fn scoped_value(
             date_shape,
             time_shape,
             zoned: offset.is_zoned(),
-            truncated_offset_minutes: truncated.then(|| offset.minutes()),
+            truncated_offset_seconds: truncated.then(|| offset.seconds()),
         },
     }
 }
@@ -498,18 +537,14 @@ fn scoped_infinity(kind: TemporalForm, offset: Offset, sign: TemporalInfinity) -
         reference,
         kind,
         zoned: offset.is_zoned(),
-        offset_minutes: offset.minutes(),
         sign,
     }
 }
 
 fn infinity_applies(class: ComparabilityClass, infinity: &ScopedInfinity) -> bool {
-    class.kind != TemporalForm::Time
-        && class.kind == infinity.kind
-        && class.zoned == infinity.zoned
-        && class
-            .truncated_offset_minutes
-            .is_none_or(|minutes| minutes == infinity.offset_minutes)
+    // An infinity lies beyond every value of its form and zoning, whatever
+    // the class's truncated offset.
+    class.kind != TemporalForm::Time && class.kind == infinity.kind && class.zoned == infinity.zoned
 }
 
 const DATE_BODIES: [(&str, (bool, bool, bool)); 12] = [
@@ -851,16 +886,16 @@ fn sql_temporal_forms() {
     assert_eq!(class_sizes.len(), 54);
     assert_eq!(
         class_sizes.iter().map(|size| size.pow(2)).sum::<usize>(),
-        25_700
+        28_732
     );
     assert_eq!(
         class_sizes.iter().map(|size| size.pow(3)).sum::<usize>(),
-        1_369_448
+        1_485_464
     );
 
     let (class_pairs, class_triples) = check_class_orders(&scope, &classes, &infinities);
-    assert_eq!(class_pairs, 25_700);
-    assert_eq!(class_triples, 1_369_448);
+    assert_eq!(class_pairs, 28_732);
+    assert_eq!(class_triples, 1_485_464);
 
     check_canonical_injectivity(&scope, &infinities);
     let reference_pairs = check_reference_order(&scope, &infinities);
@@ -868,6 +903,6 @@ fn sql_temporal_forms() {
     assert_eq!(reference_pairs, 432_964);
 
     println!(
-        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 25700 class-local pairs with infinities, 1369448 class-local triples, 432964 representation pairs; the reference reads, displays, encodes and orders all 658 values and all 432964 ordered pairs alike"
+        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 28732 class-local pairs with infinities, 1485464 class-local triples, 432964 representation pairs; the reference reads, displays, encodes and orders all 658 values and all 432964 ordered pairs alike"
     );
 }

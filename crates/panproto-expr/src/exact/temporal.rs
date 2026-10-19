@@ -1040,8 +1040,8 @@ fn parse_written_offset(text: &str) -> Option<Offset> {
         )
     } else if body.len() == 4 {
         (
-            digits_n(&body[..2], 2)?,
-            digits_n(&body[2..], 2)?,
+            digits_n(body.get(..2)?, 2)?,
+            digits_n(body.get(2..)?, 2)?,
             OffsetForm::Basic,
         )
     } else {
@@ -1325,16 +1325,16 @@ fn extended_order_key(value: &ExtendedTemporal) -> Option<(Vec<i128>, Fraction)>
 }
 
 fn cmp_extended(left: &ExtendedTemporal, right: &ExtendedTemporal) -> Option<Ordering> {
-    let same_shape = if left.infinity.is_some() || right.infinity.is_some() {
+    // An infinity lies beyond every value of its form and zoning; two finite
+    // values compare within one shape, and a truncated shape is not on the
+    // UTC timeline, so its offsets must be equal to the second.
+    let comparable = if left.infinity.is_some() || right.infinity.is_some() {
         left.form() == right.form()
     } else {
         extended_shape(left) == extended_shape(right)
+            && (!left.is_truncated() || left.offset.seconds() == right.offset.seconds())
     };
-    if !same_shape
-        || left.offset.is_zoned() != right.offset.is_zoned()
-        || ((left.is_truncated() || right.is_truncated())
-            && left.offset.minutes() != right.offset.minutes())
-    {
+    if !comparable || left.offset.is_zoned() != right.offset.is_zoned() {
         return None;
     }
     match (left.infinity, right.infinity) {
@@ -1369,6 +1369,11 @@ impl Temporal {
     /// forms or a field is out of range. A fraction of any number of digits
     /// is read and kept as written.
     pub fn parse(text: &str) -> Result<Self, ExactParseError> {
+        // The infinity spellings contain a `t` but have a date reading,
+        // which wins as it does for every lexeme with one.
+        if matches!(text, "infinity" | "-infinity") {
+            return Self::parse_date(text);
+        }
         if text.contains(['T', 't', ' ']) {
             Self::parse_date_time(text)
         } else {
@@ -1526,6 +1531,12 @@ impl Temporal {
 
     /// Compare two values in time, when both are of one form and either
     /// both are local or both are zoned; `None` otherwise.
+    ///
+    /// Two finite values compare only within one shape (form, precision and
+    /// truncation), and two values of a truncated shape, which is not placed
+    /// on the UTC timeline, only when their offsets are equal to the second.
+    /// An infinity compares with every value of its form and zoning: the
+    /// negative one below it and the positive one above.
     ///
     /// Zoned values are compared on the UTC timeline, so the three zero
     /// offsets `Z`, `+00:00` and `-00:00` compare `Equal`; local values by
