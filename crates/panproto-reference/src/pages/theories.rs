@@ -4519,7 +4519,10 @@ pub mod theory {
                                 .find(|operation| operation.name == member.name)
                                 .map(|operation| {
                                     let head = |sort: &SortExpr| {
-                                        class_id(SymKind::Sort, &member.node, sort.head())
+                                        (
+                                            class_id(SymKind::Sort, &member.node, sort.head()),
+                                            sort_arguments(sort).len(),
+                                        )
                                     };
                                     (
                                         operation
