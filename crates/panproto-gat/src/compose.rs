@@ -5414,11 +5414,16 @@ mod tests {
         // `S.o` and `T.p` to the input `x` and `T.q` to the input `y` sends
         // the class to two different terms: it is no cocone, although each
         // image, taken alone, is a single variable.
-        let a = || SortExpr::from("A");
-        let binary =
-            |name: &str| Operation::new(name, vec![("x".into(), a()), ("y".into(), a())], "A");
-        let s = Theory::new("S", vec![Sort::simple("A")], vec![binary("o")], vec![]);
-        let t = Theory::new(
+        let sort_a = || SortExpr::from("A");
+        let binary = |name: &str| {
+            Operation::new(
+                name,
+                vec![("x".into(), sort_a()), ("y".into(), sort_a())],
+                "A",
+            )
+        };
+        let source = Theory::new("S", vec![Sort::simple("A")], vec![binary("o")], vec![]);
+        let target = Theory::new(
             "T",
             vec![Sort::simple("A")],
             vec![binary("p"), binary("q")],
@@ -5435,13 +5440,13 @@ mod tests {
                 op_map,
             )
         };
-        let d = TheoryDiagram::parallel(("S", s), ("T", t), leg("p"), leg("q"));
-        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
-        let q = Theory::new("Q", vec![Sort::simple("A")], vec![], vec![]);
+        let diagram = TheoryDiagram::parallel(("S", source), ("T", target), leg("p"), leg("q"));
+        let composition = compose(&diagram, &explicit(ClashPolicy::Reject))?;
+        let apex = Theory::new("Q", vec![Sort::simple("A")], vec![], vec![]);
         let to_q = |images: &[(&str, &str)]| {
             let op_map: HashMap<Arc<str>, OpAssignment> = images
                 .iter()
-                .map(|(o, v)| (Arc::from(*o), OpAssignment::Term(Term::var(*v))))
+                .map(|(op, var)| (Arc::from(*op), OpAssignment::Term(Term::var(*var))))
                 .collect();
             TheoryMorphism::new(
                 "to_q",
@@ -5452,7 +5457,7 @@ mod tests {
             )
         };
         let legs = [to_q(&[("o", "x")]), to_q(&[("p", "x"), ("q", "y")])];
-        match c.verify_universal(&d, &q, &legs) {
+        match composition.verify_universal(&diagram, &apex, &legs) {
             Err(CompositionError::NotACocone { .. }) => Ok(()),
             other => Err(format!("expected NotACocone, got {other:?}").into()),
         }

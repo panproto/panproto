@@ -125,14 +125,14 @@ mod convert {
         }
     }
 
-    fn implicit(i: r::Implicit) -> p::Implicit {
+    const fn implicit(i: r::Implicit) -> p::Implicit {
         match i {
             r::Implicit::No => p::Implicit::No,
             r::Implicit::Yes => p::Implicit::Yes,
         }
     }
 
-    fn back_implicit(i: p::Implicit) -> r::Implicit {
+    const fn back_implicit(i: p::Implicit) -> r::Implicit {
         match i {
             p::Implicit::No => r::Implicit::No,
             p::Implicit::Yes => r::Implicit::Yes,
@@ -370,21 +370,21 @@ mod convert {
         }
     }
 
-    pub fn mode(m: r::CompositionMode) -> p::CompositionMode {
+    pub const fn mode(m: r::CompositionMode) -> p::CompositionMode {
         match m {
             r::CompositionMode::Amalgamate => p::CompositionMode::Amalgamate,
             r::CompositionMode::ExplicitIdentity => p::CompositionMode::ExplicitIdentity,
         }
     }
 
-    fn back_mode(m: p::CompositionMode) -> r::CompositionMode {
+    const fn back_mode(m: p::CompositionMode) -> r::CompositionMode {
         match m {
             p::CompositionMode::Amalgamate => r::CompositionMode::Amalgamate,
             p::CompositionMode::ExplicitIdentity => r::CompositionMode::ExplicitIdentity,
         }
     }
 
-    pub fn clash(c: r::ClashPolicy) -> p::ClashPolicy {
+    pub const fn clash(c: r::ClashPolicy) -> p::ClashPolicy {
         match c {
             r::ClashPolicy::Freshen => p::ClashPolicy::Freshen,
             r::ClashPolicy::Reject => p::ClashPolicy::Reject,
@@ -422,7 +422,7 @@ mod convert {
         }
     }
 
-    pub fn sym_kind(k: p::SymKind) -> r::SymKind {
+    pub const fn sym_kind(k: p::SymKind) -> r::SymKind {
         match k {
             p::SymKind::Sort => r::SymKind::Sort,
             p::SymKind::Op => r::SymKind::Op,
@@ -443,7 +443,7 @@ mod convert {
         m.iter().map(|(k, v)| (sym(k), v.to_string())).collect()
     }
 
-    fn check_kind(k: p::CompositionCheckKind) -> r::CompositionCheckKind {
+    const fn check_kind(k: p::CompositionCheckKind) -> r::CompositionCheckKind {
         use p::CompositionCheckKind as P;
         use r::CompositionCheckKind as R;
         match k {
@@ -505,7 +505,7 @@ mod convert {
         }
     }
 
-    fn status(s: p::CheckStatus) -> r::CheckStatus {
+    const fn status(s: p::CheckStatus) -> r::CheckStatus {
         match s {
             p::CheckStatus::Passed => r::CheckStatus::Passed,
             p::CheckStatus::Failed => r::CheckStatus::Failed,
@@ -522,6 +522,33 @@ mod convert {
         } else {
             name.to_owned()
         }
+    }
+
+    /// The reference composition with every sort applied to no arguments
+    /// spelled as the bare sort name. Production builds sort expressions
+    /// through `SortExpr::app`, which spells them that way, and its sort
+    /// equality identifies the two spellings; the page states the same
+    /// identity, so the comparison is made in production's spelling.
+    pub fn spelled(mut c: r::Composition) -> r::Composition {
+        let spell = |s: &mut r::SortExpr| {
+            if let r::SortExpr::App(name, args) = s
+                && args.is_empty()
+            {
+                *s = r::SortExpr::Name(std::mem::take(name));
+            }
+        };
+        for sort in &mut c.theory.sorts {
+            for (_, param) in &mut sort.params {
+                spell(param);
+            }
+        }
+        for op in &mut c.theory.ops {
+            for (_, input, _) in &mut op.inputs {
+                spell(input);
+            }
+            spell(&mut op.output);
+        }
+        c
     }
 
     pub fn back_composition(c: &p::Composition, labels: &[String]) -> r::Composition {
@@ -777,7 +804,7 @@ fn typecheck_agrees(t: &r::Theory) -> bool {
 
 /// The count of the signatures of one sort shape and operation list,
 /// with and without an equation: `1 + (2 + c)^2` for `c` constants.
-fn equations_count(constants: u64) -> u64 {
+const fn equations_count(constants: u64) -> u64 {
     1 + (2 + constants).pow(2)
 }
 
@@ -888,7 +915,10 @@ fn signature_checking_agrees_with_the_reference_on_every_signature() {
         .filter(|t| r::typecheck_signature(t).is_err())
         .count();
     println!("compared {compared}; raw signatures refused {refused}");
-    assert_eq!(compared as usize, signatures.len() + raw.len());
+    assert_eq!(
+        usize::try_from(compared).expect("the count fits in usize"),
+        signatures.len() + raw.len()
+    );
 }
 
 // ─── union-find closure: L-theories-6 ──────────────────────────────
@@ -1106,7 +1136,8 @@ fn assignment_count(domain: &r::Theory, codomain: &r::Theory) -> u64 {
         .filter(|op| op.inputs.is_empty())
         .count() as u64;
     let ops = codomain.ops.len() as u64;
-    let mut count = (codomain.sorts.len() as u64).pow(domain.sorts.len() as u32);
+    let exponent = u32::try_from(domain.sorts.len()).expect("a scope signature has few sorts");
+    let mut count = (codomain.sorts.len() as u64).pow(exponent);
     for op in &domain.ops {
         count *= ops + op.inputs.len() as u64 + constants;
     }
@@ -1317,7 +1348,9 @@ fn compose_outcomes(
             convert::back_composition(&c, &labels)
         })
         .map_err(|e| production_refusal(diagram, &e));
-    let reference = r::compose(diagram, options).map_err(|e| reference_refusal(&e));
+    let reference = r::compose(diagram, options)
+        .map(convert::spelled)
+        .map_err(|e| reference_refusal(&e));
     (production, reference)
 }
 
@@ -1567,7 +1600,9 @@ fn operation_class_verdict(
             convert::back_composition(&composition, &labels)
         })
         .map_err(|error| production_refusal(diagram, &error));
-    let reference = reference.map_err(|error| reference_refusal(&error));
+    let reference = reference
+        .map(convert::spelled)
+        .map_err(|error| reference_refusal(&error));
     if production != reference || production_verdict != reference_verdict {
         return Err(format!(
             "operation-class disagreement\n  diagram: {diagram:?}\n  options: {options:?}\n  production: {production:?}\n  reference: {reference:?}"
@@ -1596,7 +1631,7 @@ fn sort_class_verdict(
     let reference = r::compose(diagram, options);
     let reference_verdict = match &reference {
         Ok(_) => SortClassVerdict::Agree,
-        Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => match detail {
+        Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => match detail.as_ref() {
             r::SortMismatch::Arity { .. } => SortClassVerdict::Arity,
             r::SortMismatch::ParamSort { .. } => SortClassVerdict::ParamSort,
             r::SortMismatch::Kind => SortClassVerdict::Kind,
@@ -1614,7 +1649,9 @@ fn sort_class_verdict(
             convert::back_composition(&composition, &labels)
         })
         .map_err(|error| production_refusal(diagram, &error));
-    let reference = reference.map_err(|error| reference_refusal(&error));
+    let reference = reference
+        .map(convert::spelled)
+        .map_err(|error| reference_refusal(&error));
     if production != reference || production_verdict != reference_verdict {
         return Err(format!(
             "sort-class disagreement\n  diagram: {diagram:?}\n  options: {options:?}\n  production: {production:?}\n  reference: {reference:?}"
@@ -1685,7 +1722,10 @@ fn composition_agrees_with_the_reference_on_every_span() {
         Ok(n)
     });
     println!("compared {compared}");
-    assert_eq!(compared as usize, diagrams.len() * options.len());
+    assert_eq!(
+        usize::try_from(compared).expect("the count fits in usize"),
+        diagrams.len() * options.len()
+    );
 
     let fibres = scope::fibre_spans();
     assert_eq!(fibres.len(), 4, "two binary leg-image choices");
@@ -1702,86 +1742,113 @@ fn composition_agrees_with_the_reference_on_every_span() {
         fibres.len(),
         options.len()
     );
-    assert_eq!(fibre_compared as usize, fibres.len() * options.len());
+    assert_eq!(
+        usize::try_from(fibre_compared).expect("the count fits in usize"),
+        fibres.len() * options.len()
+    );
 }
 
-#[test]
-fn composition_agrees_on_every_class_signature_pair() {
-    use std::sync::Mutex;
-
-    let options = r::ComposeOptions {
-        mode: r::CompositionMode::Amalgamate,
-        result_name: "R".to_owned(),
-        clash: r::ClashPolicy::Freshen,
-        rewrite_budget: 512,
-    };
-
+/// The capture witnesses: renaming the selected local binders keeps the
+/// class verdict, and selecting a different in-scope binder changes it.
+fn class_capture_witnesses_agree(options: &r::ComposeOptions) {
     for [bound, renamed, captured] in scope::class_operation_capture_witnesses() {
         assert_eq!(
-            operation_class_verdict(&scope::operation_class_pair(&bound, &renamed), &options,),
+            operation_class_verdict(&scope::operation_class_pair(&bound, &renamed), options),
             Ok(OperationClassVerdict::Agree),
             "renaming selected local binders must preserve the public operation-class verdict"
         );
         assert_eq!(
-            operation_class_verdict(&scope::operation_class_pair(&renamed, &captured), &options,),
+            operation_class_verdict(&scope::operation_class_pair(&renamed, &captured), options),
             Ok(OperationClassVerdict::NeedsSortEquation),
             "selecting a different in-scope binder must change the public operation-class verdict"
         );
     }
     for [bound, renamed, captured] in scope::class_sort_capture_witnesses() {
         assert_eq!(
-            sort_class_verdict(&scope::sort_class_pair(&bound, &renamed), &options,),
+            sort_class_verdict(&scope::sort_class_pair(&bound, &renamed), options),
             Ok(SortClassVerdict::Agree),
             "renaming selected local binders must preserve the public sort-class verdict"
         );
         assert_eq!(
-            sort_class_verdict(&scope::sort_class_pair(&renamed, &captured), &options,),
+            sort_class_verdict(&scope::sort_class_pair(&renamed, &captured), options),
             Ok(SortClassVerdict::ParamSort),
             "selecting a different in-scope binder must change the public sort-class verdict"
         );
     }
+}
+
+/// Require every node of a connector diagram to pass both signature
+/// checks, so that the sweep compares well-formed members only.
+fn connector_is_well_formed(diagram: &r::TheoryDiagram, what: &str) {
+    for node in &diagram.nodes {
+        assert_eq!(
+            r::typecheck_signature(&node.theory),
+            Ok(()),
+            "reference fixture is not well formed: {what}"
+        );
+        assert_eq!(
+            panproto_gat::typecheck_signature(&convert::theory(&node.theory)),
+            Ok(()),
+            "production fixture is not well formed: {what}"
+        );
+    }
+}
+
+/// Compare every ordered pair of `members` through `verdict` and return the
+/// number of pairs compared with the count of each verdict index.
+fn sweep_pairs<T: Sync, const N: usize>(
+    members: &[T],
+    verdict: impl Fn(&T, &T) -> Result<usize, String> + Sync,
+) -> (u64, [u64; N]) {
+    use std::sync::Mutex;
+
+    let totals = Mutex::new([0_u64; N]);
+    let compared = parallel(members, |left| {
+        let mut n = 0;
+        let mut counts = [0_u64; N];
+        for right in members {
+            counts[verdict(left, right)?] += 1;
+            n += 1;
+        }
+        let mut shared = totals.lock().expect("verdict counts");
+        for (total, count) in shared.iter_mut().zip(counts) {
+            *total += count;
+        }
+        drop(shared);
+        Ok(n)
+    });
+    (compared, totals.into_inner().expect("verdict counts"))
+}
+
+#[test]
+fn composition_agrees_on_every_class_signature_pair() {
+    let options = r::ComposeOptions {
+        mode: r::CompositionMode::Amalgamate,
+        result_name: "R".to_owned(),
+        clash: r::ClashPolicy::Freshen,
+        rewrite_budget: 512,
+    };
+    class_capture_witnesses_agree(&options);
 
     let operations = scope::class_operation_scope();
     assert_eq!(operations.len(), scope::CLASS_OPERATION_SCOPE_LEN);
     for operation in &operations {
-        let diagram = scope::operation_class_pair(operation, operation);
-        for node in &diagram.nodes {
-            assert_eq!(
-                r::typecheck_signature(&node.theory),
-                Ok(()),
-                "reference operation fixture is not well formed: {operation:?}"
-            );
-            assert_eq!(
-                panproto_gat::typecheck_signature(&convert::theory(&node.theory)),
-                Ok(()),
-                "production operation fixture is not well formed: {operation:?}"
-            );
-        }
+        connector_is_well_formed(
+            &scope::operation_class_pair(operation, operation),
+            &format!("{operation:?}"),
+        );
     }
-    let operation_verdicts = Mutex::new([0_u64; 3]);
-    let operation_compared = parallel(&operations, |left| {
-        let mut n = 0;
-        let mut counts = [0_u64; 3];
-        for right in &operations {
-            let verdict =
-                operation_class_verdict(&scope::operation_class_pair(left, right), &options)?;
-            counts[match verdict {
-                OperationClassVerdict::Agree => 0,
-                OperationClassVerdict::NeedsSortEquation => 1,
-                OperationClassVerdict::Signature => 2,
-            }] += 1;
-            n += 1;
-        }
-        let mut totals = operation_verdicts.lock().expect("operation verdict counts");
-        for (total, count) in totals.iter_mut().zip(counts) {
-            *total += count;
-        }
-        Ok(n)
-    });
-    let operation_formula = scope::CLASS_OPERATION_SCOPE_LEN.pow(2);
-    let operation_verdicts = operation_verdicts
-        .into_inner()
-        .expect("operation verdict counts");
+    let (operation_compared, operation_verdicts) =
+        sweep_pairs::<_, 3>(&operations, |left, right| {
+            Ok(
+                match operation_class_verdict(&scope::operation_class_pair(left, right), &options)?
+                {
+                    OperationClassVerdict::Agree => 0,
+                    OperationClassVerdict::NeedsSortEquation => 1,
+                    OperationClassVerdict::Signature => 2,
+                },
+            )
+        });
     println!(
         "operation-class scope: {} well-formed signatures, {operation_compared} ordered pairs; \
          both implicit flags and X spellings, applications, local-local and signature-local \
@@ -1791,7 +1858,10 @@ fn composition_agrees_on_every_class_signature_pair() {
         operation_verdicts[1],
         operation_verdicts[2]
     );
-    assert_eq!(operation_compared as usize, operation_formula);
+    assert_eq!(
+        usize::try_from(operation_compared).expect("the count fits in usize"),
+        scope::CLASS_OPERATION_SCOPE_LEN.pow(2)
+    );
     assert_eq!(operation_verdicts.iter().sum::<u64>(), operation_compared);
     assert!(
         operation_verdicts.iter().all(|count| *count > 0),
@@ -1801,43 +1871,19 @@ fn composition_agrees_on_every_class_signature_pair() {
     let sorts = scope::class_sort_scope();
     assert_eq!(sorts.len(), scope::CLASS_SORT_SCOPE_LEN);
     for sort in &sorts {
-        let diagram = scope::sort_class_pair(sort, sort);
-        for node in &diagram.nodes {
-            assert_eq!(
-                r::typecheck_signature(&node.theory),
-                Ok(()),
-                "reference sort fixture is not well formed: {sort:?}"
-            );
-            assert_eq!(
-                panproto_gat::typecheck_signature(&convert::theory(&node.theory)),
-                Ok(()),
-                "production sort fixture is not well formed: {sort:?}"
-            );
-        }
+        connector_is_well_formed(&scope::sort_class_pair(sort, sort), &format!("{sort:?}"));
     }
-    let sort_verdicts = Mutex::new([0_u64; 5]);
-    let sort_compared = parallel(&sorts, |left| {
-        let mut n = 0;
-        let mut counts = [0_u64; 5];
-        for right in &sorts {
-            let verdict = sort_class_verdict(&scope::sort_class_pair(left, right), &options)?;
-            counts[match verdict {
+    let (sort_compared, sort_verdicts) = sweep_pairs::<_, 5>(&sorts, |left, right| {
+        Ok(
+            match sort_class_verdict(&scope::sort_class_pair(left, right), &options)? {
                 SortClassVerdict::Agree => 0,
                 SortClassVerdict::Arity => 1,
                 SortClassVerdict::ParamSort => 2,
                 SortClassVerdict::Kind => 3,
                 SortClassVerdict::Closure => 4,
-            }] += 1;
-            n += 1;
-        }
-        let mut totals = sort_verdicts.lock().expect("sort verdict counts");
-        for (total, count) in totals.iter_mut().zip(counts) {
-            *total += count;
-        }
-        Ok(n)
+            },
+        )
     });
-    let sort_formula = scope::CLASS_SORT_SCOPE_LEN.pow(2);
-    let sort_verdicts = sort_verdicts.into_inner().expect("sort verdict counts");
     println!(
         "sort-class scope: {} well-formed declarations, {sort_compared} ordered pairs; \
          structural/value kind, open/closed closure, both X spellings, arity three, \
@@ -1850,7 +1896,10 @@ fn composition_agrees_on_every_class_signature_pair() {
         sort_verdicts[3],
         sort_verdicts[4]
     );
-    assert_eq!(sort_compared as usize, sort_formula);
+    assert_eq!(
+        usize::try_from(sort_compared).expect("the count fits in usize"),
+        scope::CLASS_SORT_SCOPE_LEN.pow(2)
+    );
     assert_eq!(sort_verdicts.iter().sum::<u64>(), sort_compared);
     assert!(
         sort_verdicts.iter().all(|count| *count > 0),
@@ -1871,7 +1920,7 @@ fn composition_reports_every_sort_mismatch_detail_like_the_reference() {
     for (expected, diagram) in spans.iter().enumerate() {
         compose_agrees(diagram, &options).unwrap_or_else(|detail| panic!("{detail}"));
         let detail = match r::compose(diagram, &options) {
-            Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => detail,
+            Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => *detail,
             outcome => panic!("expected sort mismatch {expected}, observed {outcome:?}"),
         };
         let observed = match detail {
@@ -1923,7 +1972,10 @@ fn composition_agrees_with_the_reference_on_every_discrete_pair() {
         Ok(n)
     });
     println!("compared {compared}");
-    assert_eq!(compared as usize, diagrams.len() * options.len());
+    assert_eq!(
+        usize::try_from(compared).expect("the count fits in usize"),
+        diagrams.len() * options.len()
+    );
 }
 
 // ─── recipe replay: L-theories-8 ───────────────────────────────────
@@ -2111,6 +2163,83 @@ fn property_config() -> proptest::test_runner::Config {
     config
 }
 
+/// One case of the property differential: signature checking of three
+/// drawn signatures and one raw signature, a morphism check, a span and a
+/// discrete composition, the union-find closure and one recipe replay.
+fn property_case(
+    case: &Case,
+    signatures: &[r::Theory],
+    raw: &[r::Theory],
+    options: &[r::ComposeOptions],
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    use proptest::prelude::*;
+
+    let (a, b, c) = (
+        &signatures[case.first],
+        &signatures[case.second],
+        &signatures[case.third],
+    );
+    prop_assert!(typecheck_agrees(a), "signature checking of {a:?}");
+    prop_assert!(
+        typecheck_agrees(&raw[case.raw]),
+        "signature checking of {:?}",
+        raw[case.raw]
+    );
+
+    let mut candidates = scope::morphisms(a, b);
+    candidates.extend(scope::partial_morphisms(a, b));
+    if !candidates.is_empty() {
+        let m = &candidates[case.leg % candidates.len()];
+        prop_assert!(
+            morphism_agrees(a, b, m),
+            "morphism check of {m:?}: {a:?} -> {b:?}"
+        );
+    }
+
+    let valid = |foot: &r::Theory| -> Vec<r::Morphism> {
+        scope::morphisms(a, foot)
+            .into_iter()
+            .filter(|m| r::check_morphism(a, foot, m).is_ok())
+            .collect()
+    };
+    let (left_legs, right_legs) = (valid(b), valid(c));
+    let o = &options[case.options];
+    if !left_legs.is_empty() && !right_legs.is_empty() {
+        let diagram = r::TheoryDiagram::span(
+            ("S".to_owned(), a.clone()),
+            ("L".to_owned(), b.clone()),
+            ("R".to_owned(), c.clone()),
+            left_legs[case.leg % left_legs.len()].clone(),
+            right_legs[case.other_leg % right_legs.len()].clone(),
+        );
+        prop_assert!(
+            compose_agrees(&diagram, o).is_ok(),
+            "{}",
+            compose_agrees(&diagram, o).unwrap_err()
+        );
+    }
+    let discrete = r::TheoryDiagram::discrete(vec![
+        ("L".to_owned(), b.clone()),
+        ("R".to_owned(), c.clone()),
+    ]);
+    prop_assert!(
+        compose_agrees(&discrete, o).is_ok(),
+        "{}",
+        compose_agrees(&discrete, o).unwrap_err()
+    );
+
+    prop_assert_eq!(
+        production_closure(case.size, &case.identifications),
+        r::quotient(case.size, &case.identifications)
+    );
+
+    let recipes = scope::recipes(b, c);
+    let spec = &recipes[case.recipe % recipes.len()];
+    let (production, reference) = recompose_outcomes(b, c, spec);
+    prop_assert_eq!(production, reference, "replay of {:?}", spec);
+    Ok(())
+}
+
 #[test]
 fn randomized_theory_differential() {
     use proptest::prelude::*;
@@ -2172,70 +2301,7 @@ fn randomized_theory_differential() {
         );
     let mut runner = TestRunner::new(config);
     let result = runner.run(&strategy, |case| {
-        let (a, b, c) = (
-            &signatures[case.first],
-            &signatures[case.second],
-            &signatures[case.third],
-        );
-        prop_assert!(typecheck_agrees(a), "signature checking of {a:?}");
-        prop_assert!(
-            typecheck_agrees(&raw[case.raw]),
-            "signature checking of {:?}",
-            raw[case.raw]
-        );
-
-        let mut candidates = scope::morphisms(a, b);
-        candidates.extend(scope::partial_morphisms(a, b));
-        if !candidates.is_empty() {
-            let m = &candidates[case.leg % candidates.len()];
-            prop_assert!(
-                morphism_agrees(a, b, m),
-                "morphism check of {m:?}: {a:?} -> {b:?}"
-            );
-        }
-
-        let valid = |foot: &r::Theory| -> Vec<r::Morphism> {
-            scope::morphisms(a, foot)
-                .into_iter()
-                .filter(|m| r::check_morphism(a, foot, m).is_ok())
-                .collect()
-        };
-        let (left_legs, right_legs) = (valid(b), valid(c));
-        let o = &options[case.options];
-        if !left_legs.is_empty() && !right_legs.is_empty() {
-            let diagram = r::TheoryDiagram::span(
-                ("S".to_owned(), a.clone()),
-                ("L".to_owned(), b.clone()),
-                ("R".to_owned(), c.clone()),
-                left_legs[case.leg % left_legs.len()].clone(),
-                right_legs[case.other_leg % right_legs.len()].clone(),
-            );
-            prop_assert!(
-                compose_agrees(&diagram, o).is_ok(),
-                "{}",
-                compose_agrees(&diagram, o).unwrap_err()
-            );
-        }
-        let discrete = r::TheoryDiagram::discrete(vec![
-            ("L".to_owned(), b.clone()),
-            ("R".to_owned(), c.clone()),
-        ]);
-        prop_assert!(
-            compose_agrees(&discrete, o).is_ok(),
-            "{}",
-            compose_agrees(&discrete, o).unwrap_err()
-        );
-
-        prop_assert_eq!(
-            production_closure(case.size, &case.identifications),
-            r::quotient(case.size, &case.identifications)
-        );
-
-        let recipes = scope::recipes(b, c);
-        let spec = &recipes[case.recipe % recipes.len()];
-        let (production, reference) = recompose_outcomes(b, c, spec);
-        prop_assert_eq!(production, reference, "replay of {:?}", spec);
-        Ok(())
+        property_case(&case, &signatures, &raw, &options)
     });
     match result {
         Ok(()) => println!("property run passed with seed {seed}"),

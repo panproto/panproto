@@ -275,8 +275,9 @@ pub fn raw_sort_expressions() -> Vec<SortExpr> {
     ]
 }
 
-/// The sort declarations of the raw family: `A`; `A` and `B`; `A` and
-/// `B(p : A)`; `A` and `B(p : B)` (a self-dependency); `A(p : B)` and
+/// The sort declarations of the raw family.
+///
+/// They are `A`; `A` and `B`; `A` and `B(p : A)`; `A` and `B(p : B)` (a self-dependency); `A(p : B)` and
 /// `B(q : A)` (a cycle); `A` twice; and `A` with `B(p : C)` (an undeclared
 /// parameter sort).
 #[must_use]
@@ -334,8 +335,9 @@ pub fn raw_operations() -> Vec<Op> {
     out
 }
 
-/// The raw family of signature-checking inputs: every sort list of
-/// [`raw_sort_lists`] with no operation and with each operation of
+/// The raw family of signature-checking inputs.
+///
+/// It holds every sort list of [`raw_sort_lists`] with no operation and with each operation of
 /// [`raw_operations`]; then the five duplicate-symbol theories (two sorts,
 /// two operations, two equations, two directed equations, two policies
 /// sharing one name).
@@ -426,8 +428,9 @@ fn duplicate_symbol_theories() -> Vec<Theory> {
     ]
 }
 
-/// The images an operation `op` of the domain may have in `codomain`:
-/// each codomain operation by name, then each term of depth at most one
+/// The images an operation `op` of the domain may have in `codomain`.
+///
+/// They are each codomain operation by name, then each term of depth at most one
 /// over `op`'s inputs, that is each input variable and each codomain
 /// constant.
 #[must_use]
@@ -492,7 +495,9 @@ pub fn morphisms(domain: &Theory, codomain: &Theory) -> Vec<Morphism> {
 }
 
 /// The assignments that are not total or name what the codomain does not
-/// declare, for the refusals a total assignment cannot reach: for each
+/// declare.
+///
+/// They reach the refusals a total assignment cannot: for each
 /// domain sort, the identity-on-names assignment without it and with it
 /// sent to the undeclared `Z`; for each domain operation, the same
 /// assignment without it and with it sent to the undeclared `h`. The
@@ -571,8 +576,9 @@ pub fn identifications(size: usize, max_len: usize) -> Vec<Vec<(usize, usize)>> 
     super::sequences(&pairs, max_len)
 }
 
-/// The recipes of the replay scope over a registry holding `L` and `R`:
-/// the base step of `L`, of `R` and of the missing `M`; the by-name
+/// The recipes of the replay scope over a registry holding `L` and `R`.
+///
+/// They are the base step of `L`, of `R` and of the missing `M`; the by-name
 /// colimit of `L` and `R` in each mode over every subset of their common
 /// sort names and every subset of their common operation names, and over
 /// the absent sort `Z`; and the explicit diagram step of the span
@@ -823,7 +829,9 @@ fn product_legs(
     legs
 }
 
-/// The whole-action family: six domains (`p : Y(c())` or `Y(d())`, and
+/// The whole-action family.
+///
+/// It has six domains (`p : Y(c())` or `Y(d())`, and
 /// `r`'s output `H(z, c())`, `H(c(), z)` or `H(z, z)`), six codomains
 /// (`B` closed over `{t, f}`, `{t}` or `{f}`, and `Z` over `Y(c())` or
 /// `Y(d())`), and 7200 legs: the identity on sorts with one candidate
@@ -924,7 +932,9 @@ pub fn whole_action_scope() -> ActionScope {
     }
 }
 
-/// The constructor family: domains with `X`, `a : X`, `B` closed over
+/// The constructor family.
+///
+/// Its domains have `X`, `a : X`, `B` closed over
 /// `c(first : X, second : X) : B` and `pick(b : B) : X`, the input names
 /// of `c` being `(z, w)`, `(z, z)` or `(w, z)`; codomains with `X`,
 /// `a : X`, `B` closed over `{k}`, `{k, k1}`, `{k1}` or nothing,
@@ -1030,7 +1040,9 @@ fn fibred(name: &str, constant_name: &str, fibre: &str) -> Theory {
 }
 
 /// The fibre span over `constant` with fibres `fibres` in `S`, `L` and
-/// `R`: each leg is the identity on `X` and `Y`, renames the constant or
+/// `R`.
+///
+/// Each leg is the identity on `X` and `Y`, renames the constant or
 /// sends it to the derived term that is the target's constant, as
 /// `renames` says, and renames the apex's fibre to the target's.
 #[must_use]
@@ -1124,7 +1136,7 @@ fn class_bound_positions(prefix: &[ClassSortForm]) -> Vec<usize> {
         .collect()
 }
 
-fn class_constant(name: &'static str) -> ClassTermForm {
+const fn class_constant(name: &'static str) -> ClassTermForm {
     ClassTermForm::App(name, Vec::new())
 }
 
@@ -1368,8 +1380,9 @@ fn scoped_operation(inputs: Vec<(String, SortExpr, Implicit)>, output: Term) -> 
     }
 }
 
-/// The `Let` and `Case` capture witnesses for operation signatures. The first
-/// two triples distinguish repeated local binders from alpha-renamed and
+/// The `Let` and `Case` capture witnesses for operation signatures.
+///
+/// The first two triples distinguish repeated local binders from alpha-renamed and
 /// capture-changing forms. The last two distinguish a local binder that
 /// shadows the signature input `x` from a renamed local and a use of the
 /// signature input.
@@ -1486,12 +1499,19 @@ fn assert_class_operations_are_unique(operations: &[Op]) {
 }
 
 /// Every well-formed operation signature of the class-comparison scope.
+///
 /// The base product has arity at most two, prefix-scoped dependencies, both
 /// implicit flags and both `X` spellings without duplicate renderings. Eighteen
 /// additional signatures cover arity three, applications, holes, shadowing,
 /// alpha-equivalent and capture-distinguishing local binders, capture between
 /// signature and local binders, and exhaustive case analysis without
 /// introducing a duplicate telescope binder.
+///
+/// # Panics
+///
+/// Panics when the scope's length differs from its independently computed
+/// count or two of its signatures share a syntax key, either of which is a
+/// defect of this enumerator.
 #[must_use]
 pub fn class_operation_scope() -> Vec<Op> {
     let mut out = base_class_operation_scope();
@@ -1676,12 +1696,19 @@ fn assert_class_sorts_are_unique(sorts: &[Sort]) {
     );
 }
 
-/// Every well-formed sort declaration of the class-comparison scope. The
-/// base product crosses prefix-scoped parameters with structural/value kind,
+/// Every well-formed sort declaration of the class-comparison scope.
+///
+/// The base product crosses prefix-scoped parameters with structural/value kind,
 /// open/closed closure and bare/empty `X` spellings without duplicate
 /// renderings. Sixteen additional declarations cover arity three, the
 /// alpha-equivalent and capture-distinguishing local term forms, and capture
 /// between telescope and local binders.
+///
+/// # Panics
+///
+/// Panics when the scope's length differs from its independently computed
+/// count or two of its declarations share a syntax key, either of which is a
+/// defect of this enumerator.
 #[must_use]
 pub fn class_sort_scope() -> Vec<Sort> {
     let mut out = base_class_sort_scope();
@@ -1732,7 +1759,9 @@ fn class_ambient(name: &str, extra_op: Option<Op>, extra_sort: Option<Sort>) -> 
 }
 
 /// The three-node connector that compares two class members through public
-/// composition in amalgamation mode. Node `l` declares the left member under
+/// composition in amalgamation mode.
+///
+/// Node `l` declares the left member under
 /// the name `lead`, node `m` declares the left member under its own name and
 /// node `r` the right member under its own name, each beside the same
 /// ambient sorts and operations. The edge `m -> l` is the identity on the
@@ -1780,10 +1809,12 @@ fn class_connector(
     diagram
 }
 
-/// The three-node connector diagram whose operation class holds `left`
-/// twice (as `l.lead` and `m`'s member) and `right` once (as `r`'s member),
-/// so that public composition in amalgamation mode reports the tier-one
-/// verdict of `left` against `right`.
+/// The three-node connector diagram for two operation signatures.
+///
+/// Its operation class holds `left` twice (as `l.lead` and `m`'s member)
+/// and `right` once (as `r`'s member), so that public composition in
+/// amalgamation mode reports the tier-one verdict of `left` against
+/// `right`.
 #[must_use]
 pub fn operation_class_pair(left: &Op, right: &Op) -> TheoryDiagram {
     let lead = Op {
@@ -1799,10 +1830,12 @@ pub fn operation_class_pair(left: &Op, right: &Op) -> TheoryDiagram {
     )
 }
 
-/// The three-node connector diagram whose sort class holds `left` twice (as
-/// `l.lead` and `m`'s member) and `right` once (as `r`'s member), so that
-/// public composition in amalgamation mode reports the tier-one verdict of
-/// `left` against `right`.
+/// The three-node connector diagram for two sort declarations.
+///
+/// Its sort class holds `left` twice (as `l.lead` and `m`'s member) and
+/// `right` once (as `r`'s member), so that public composition in
+/// amalgamation mode reports the tier-one verdict of `left` against
+/// `right`.
 #[must_use]
 pub fn sort_class_pair(left: &Sort, right: &Sort) -> TheoryDiagram {
     let lead = Sort {
@@ -1842,9 +1875,10 @@ fn sort_mismatch_span(left: Sort, right: Sort) -> TheoryDiagram {
             .into_iter()
             .map(|(from, to)| (from.to_owned(), to.to_owned()))
             .collect(),
-        ops: [("witness".to_owned(), OpImage::Op("witness".to_owned()))]
-            .into_iter()
-            .collect(),
+        ops: std::collections::BTreeMap::from([(
+            "witness".to_owned(),
+            OpImage::Op("witness".to_owned()),
+        )]),
     };
     TheoryDiagram::span(
         ("S".to_owned(), source),
