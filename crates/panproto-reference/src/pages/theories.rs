@@ -5555,6 +5555,28 @@ pub mod theory {
         }
 
         #[test]
+        fn an_unapplied_and_an_applied_dependent_output_differ_in_shape() {
+            let constant = |output: SortExpr| Op {
+                name: "member".to_owned(),
+                inputs: Vec::new(),
+                output,
+            };
+            let unapplied = constant(SortExpr::Name("Y".to_owned()));
+            let applied = constant(SortExpr::App(
+                "Y".to_owned(),
+                vec![Term::App("a".to_owned(), Vec::new())],
+            ));
+            let diagram = crate::enumerate::theories::operation_class_pair(&unapplied, &applied);
+            assert_eq!(
+                compose(&diagram, &options(CompositionMode::Amalgamate)).err(),
+                Some(ComposeError::OpSignatureMismatch(
+                    sym("l", "lead"),
+                    sym("r", "member")
+                ))
+            );
+        }
+
+        #[test]
         fn a_disagreeing_pair_of_different_names_is_not_a_name_conflict() {
             // `M.r` is renamed to `L.p` by the edge and glued to `R.r` by name;
             // `L.p` and `R.r` differ only in the order of `H`'s arguments, and
