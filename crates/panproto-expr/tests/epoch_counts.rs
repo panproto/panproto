@@ -41,68 +41,134 @@ fn domain(unit: TimeUnit) -> (i128, i128) {
     (first * 86_400 * ticks, (last + 1) * 86_400 * ticks - 1)
 }
 
-/// Both round trips hold at each unit, for an instant column and a
-/// wall-clock one, on every count in [-10^4, 10^4] and within 10^4 of each
-/// bound of the domain; a count beyond either bound is refused with
-/// `Overflow`; and the inverse refuses every value outside the image. At
-/// every count the reference conversion yields the same value (the same
-/// display and the same canonical bytes), the same inverse count and the
-/// same refusals.
-#[test]
-fn an_epoch_count_round_trips() {
-    let mut checked = 0_u64;
-    for unit in UNITS {
-        let (lo, hi) = domain(unit);
-        let counts = (-10_000..=10_000)
-            .chain(lo..=lo + 10_000)
-            .chain(hi - 10_000..=hi);
-        for count in counts {
-            for instant in [true, false] {
-                let value = Temporal::from_epoch_count(count, unit, instant)
-                    .unwrap_or_else(|e| panic!("{count} {unit:?}: {e}"));
-                assert_eq!(value.to_epoch_count(unit, instant), Some(count), "{value}");
-                let back = Temporal::from_epoch_count(count, unit, instant).unwrap();
-                assert_eq!(back, value);
-                assert_eq!(value.to_epoch_count(unit, !instant), None, "{value}");
-                let reference = rt::from_epoch_count(count, unit_to_ref(unit), instant)
-                    .unwrap_or_else(|| panic!("the reference refused {count} {unit:?}"));
-                assert_eq!(reference.to_string(), value.to_string(), "{count} {unit:?}");
-                assert_eq!(
-                    rt::canonical_bytes(&reference),
-                    Some(tagged_bytes(&value)),
-                    "{count} {unit:?}"
-                );
-                assert_eq!(
-                    rt::to_epoch_count(&reference, unit_to_ref(unit), instant),
-                    Some(count),
-                    "{value}"
-                );
-                assert_eq!(
-                    rt::to_epoch_count(&reference, unit_to_ref(unit), !instant),
-                    None,
-                    "{value}"
-                );
-                checked += 1;
-            }
-        }
-        for beyond in [lo - 1, hi + 1, i128::MIN, i128::MAX] {
-            assert_eq!(
-                Temporal::from_epoch_count(beyond, unit, true).map_err(|e| e.reason),
-                Err(FidelityReason::Overflow),
-                "{beyond} {unit:?}"
-            );
-            assert_eq!(
-                rt::from_epoch_count(beyond, unit_to_ref(unit), true),
-                None,
-                "{beyond} {unit:?}"
-            );
-        }
-        println!(
-            "epoch counts: unit {}, domain [{lo}, {hi}], 20001 + 2 x 10001 counts, 2 columns, all agree with the reference",
-            unit.as_str()
+/// The production and reference conversions of one enumerated count, for an
+/// instant column and a wall-clock one: both round trips hold, the other
+/// column refuses the value, and the reference yields the same value (the
+/// same display and the same canonical bytes), the same inverse count and
+/// the same refusal.
+fn check_count(unit: TimeUnit, count: i128) -> u64 {
+    let mut checked = 0;
+    for instant in [true, false] {
+        let value = Temporal::from_epoch_count(count, unit, instant)
+            .unwrap_or_else(|e| panic!("{count} {unit:?}: {e}"));
+        assert_eq!(value.to_epoch_count(unit, instant), Some(count), "{value}");
+        let back = Temporal::from_epoch_count(count, unit, instant).unwrap();
+        assert_eq!(back, value);
+        assert_eq!(value.to_epoch_count(unit, !instant), None, "{value}");
+        let reference = rt::from_epoch_count(count, unit_to_ref(unit), instant)
+            .unwrap_or_else(|| panic!("the reference refused {count} {unit:?}"));
+        assert_eq!(reference.to_string(), value.to_string(), "{count} {unit:?}");
+        assert_eq!(
+            rt::canonical_bytes(&reference),
+            Some(tagged_bytes(&value)),
+            "{count} {unit:?}"
+        );
+        assert_eq!(
+            rt::to_epoch_count(&reference, unit_to_ref(unit), instant),
+            Some(count),
+            "{value}"
+        );
+        assert_eq!(
+            rt::to_epoch_count(&reference, unit_to_ref(unit), !instant),
+            None,
+            "{value}"
+        );
+        checked += 1;
+    }
+    checked
+}
+
+/// The enumerator's counts of one unit are exactly the counts in
+/// [-10^4, 10^4] and within 10^4 of each bound of the production domain, in
+/// order; the reference states the bounds as production computes them; and
+/// both conversions refuse a count beyond either bound.
+fn check_unit_scope(counts: &[(rt::TimeUnit, i128)], unit: TimeUnit, per_unit: usize) {
+    let (lo, hi) = domain(unit);
+    assert_eq!(
+        panproto_reference::enumerate::values::epoch_count_bounds(unit_to_ref(unit)),
+        (lo, hi),
+        "{unit:?}"
+    );
+    let expected: Vec<i128> = (-10_000..=10_000)
+        .chain(lo..=lo + 10_000)
+        .chain(hi - 10_000..=hi)
+        .collect();
+    let enumerated: Vec<i128> = counts
+        .iter()
+        .filter(|(of, _)| *of == unit_to_ref(unit))
+        .map(|(_, count)| *count)
+        .collect();
+    assert_eq!(expected.len(), per_unit);
+    assert_eq!(enumerated, expected, "{unit:?}");
+    for beyond in [lo - 1, hi + 1, i128::MIN, i128::MAX] {
+        assert_eq!(
+            Temporal::from_epoch_count(beyond, unit, true).map_err(|e| e.reason),
+            Err(FidelityReason::Overflow),
+            "{beyond} {unit:?}"
+        );
+        assert_eq!(
+            rt::from_epoch_count(beyond, unit_to_ref(unit), true),
+            None,
+            "{beyond} {unit:?}"
         );
     }
+    println!(
+        "epoch counts: unit {}, domain [{lo}, {hi}], {} counts (20001 + 2 x 10001), 2 columns",
+        unit.as_str(),
+        enumerated.len()
+    );
+}
+
+const WORKERS: usize = 4;
+
+/// Both round trips hold at each unit, for an instant column and a
+/// wall-clock one, on every count of the reference enumerator: every count
+/// in [-10^4, 10^4] and within 10^4 of each bound of the domain, whose
+/// bounds the reference states as the production domain computes them; a
+/// count beyond either bound is refused with `Overflow`; and the inverse
+/// refuses every value outside the image. At every count the reference
+/// conversion yields the same value (the same display and the same
+/// canonical bytes), the same inverse count and the same refusals.
+#[test]
+fn an_epoch_count_round_trips() {
+    let counts = panproto_reference::enumerate::values::epoch_counts();
+    let per_unit = 20_001 + 2 * 10_001;
+    assert_eq!(counts.len(), 4 * (20_001 + 2 * 10_001));
+    assert_eq!(counts.len(), 160_012);
+
+    for unit in UNITS {
+        check_unit_scope(&counts, unit, per_unit);
+    }
+
+    let production_unit = |unit: rt::TimeUnit| {
+        UNITS
+            .into_iter()
+            .find(|candidate| unit_to_ref(*candidate) == unit)
+            .unwrap()
+    };
+    let checked: u64 = std::thread::scope(|scope| {
+        let counts = &counts;
+        let workers: [_; WORKERS] = std::array::from_fn(|worker| {
+            scope.spawn(move || {
+                counts
+                    .iter()
+                    .skip(worker)
+                    .step_by(WORKERS)
+                    .map(|(unit, count)| check_count(production_unit(*unit), *count))
+                    .sum::<u64>()
+            })
+        });
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("an epoch-count worker panicked"))
+            .sum()
+    });
     assert_eq!(checked, 4 * (20_001 + 2 * 10_001) * 2);
+    println!("bound: epoch_counts={}", counts.len());
+    println!(
+        "epoch counts: {} enumerated counts, {checked} conversions (2 columns each), all agree with the reference",
+        counts.len()
+    );
 
     // Outside the image: another fraction length, offset, separator or
     // case of `Z`, second 60, a date or a time.

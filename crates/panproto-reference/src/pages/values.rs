@@ -3610,8 +3610,9 @@ pub mod float {
         }
     }
 
-    /// Definition: The canonical quiet NaN produced by arithmetic in `format`:
-    /// the positive pattern with an all-ones exponent field and only the
+    /// Definition: The canonical quiet NaN produced by arithmetic in `format`.
+    ///
+    /// It is the positive pattern with an all-ones exponent field and only the
     /// quiet bit of the fraction set, `exponent_mask << (p - 1) | 1 << (p - 2)`
     /// for precision `p` (`0x7e00`, `0x7fc0_0000` and `0x7ff8_0000_0000_0000`
     /// at binary16, binary32 and binary64).
@@ -4265,8 +4266,9 @@ pub mod temporal {
         format!("{a:0<n$}").cmp(&format!("{b:0<n$}"))
     }
 
-    /// Definition: two values are comparable when both are local or both
-    /// are zoned and either (i) one of them is an infinity and both have one
+    /// Definition: whether two values are comparable.
+    ///
+    /// They are when both are local or both are zoned and either (i) one of them is an infinity and both have one
     /// form, since an infinity lies beyond every value of its form and
     /// zoning, or (ii) both are finite of one shape and, for a truncated
     /// shape, their offsets have equal minutes, since a truncated value is
@@ -4287,8 +4289,9 @@ pub mod temporal {
         a.shape() == b.shape() && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
     }
 
-    /// Definition: The partial chronological order: `None` for incomparable
-    /// values ([`comparable`]); else, when either value is an infinity, the
+    /// Definition: The partial chronological order.
+    ///
+    /// It is `None` for incomparable values ([`comparable`]); else, when either value is an infinity, the
     /// negative infinity below and the positive above every other value of
     /// its form and zoning, two infinities by sign; and else the order of
     /// `order_key` with the fraction compared as a decimal fraction.
@@ -5554,7 +5557,7 @@ pub mod value {
         /// far held in surface order.
         Builtin {
             op: BuiltinOp,
-            supplied: Vec<Runtime>,
+            supplied: Vec<Self>,
         },
     }
 

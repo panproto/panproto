@@ -41,8 +41,9 @@ pub fn byte_strings_up_to_three() -> Option<super::ByteStrings> {
     super::byte_strings(3)
 }
 
-/// The decimals of the special-value laws: every decimal of at most two
-/// significant digits (significands 1 to 99) and the zero, with exponent -2
+/// The decimals of the special-value laws.
+///
+/// Every decimal of at most two significant digits (significands 1 to 99) and the zero, with exponent -2
 /// to 2 and either sign, both infinities, and the NaNs of each sign and
 /// flag with payloads 0 and 1; 5 x 2 x 100 + 2 + 8 = 1010 values.
 #[must_use]
@@ -193,7 +194,7 @@ const DATETIME_DATES: [(&str, Shape); 4] = [
 /// unwritten UTC zone, the extended, basic and hour-only zero offsets,
 /// `+05:30:00` written with seconds, the second-resolution `-04:56:02`, a
 /// basic negative zero, and unwritten fixed offsets of 0 and +05:30.
-fn finite_offsets() -> [(&'static str, Offset); 11] {
+const fn finite_offsets() -> [(&'static str, Offset); 11] {
     [
         ("", Offset::Local),
         ("Z", Offset::Zulu(ZuluCase::Upper)),
@@ -219,8 +220,9 @@ const INFINITY_OFFSETS: [Offset; 5] = [
     Offset::FixedSeconds(-17_762),
 ];
 
-/// The written temporal forms with their exact descriptors: every date
-/// body (12), time body (14) and date-time pairing (4 x 8) of reduced,
+/// The written temporal forms with their exact descriptors.
+///
+/// Every date body (12), time body (14) and date-time pairing (4 x 8) of reduced,
 /// truncated and complete shape under each of eleven offsets, and both
 /// infinities of the date and date-time forms under each of five offsets:
 /// 132 + 154 + 352 + 20 = 658 forms.
@@ -327,7 +329,9 @@ pub fn epoch_counts() -> Vec<(TimeUnit, i128)> {
     out
 }
 
-/// The values of the representation and canonical-byte laws: the 1010
+/// The values of the representation and canonical-byte laws.
+///
+/// They are the 1010
 /// [`decimals`], every byte string of length at most one (257), the 658
 /// [`temporal_forms`], the integers -2 to 2 and `i64`'s bounds (7), both
 /// booleans, null, four strings and the same four tokens, the widened

@@ -1,7 +1,7 @@
 //! Reduced, truncated, offset-rich and infinite temporals keep their exact
 //! representations while the historical complete forms stay unchanged.
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use panproto_expr::exact::{
     CivilDate, CivilTime, DateFields, DateTimeSeparator, ExtendedTemporal, Fraction, Offset,
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalLexicalForm, TemporalParseError,
-    TemporalYear, TimeFields, ZuluCase,
+    TemporalYear, TimeFields, TimeUnit, ZuluCase,
 };
 use panproto_reference::temporal as rt;
 
@@ -419,6 +419,63 @@ const fn descriptor_to_ref(form: TemporalLexicalForm) -> rt::TemporalLexicalForm
     }
 }
 
+const fn offset_form_from_ref(form: rt::OffsetForm) -> OffsetForm {
+    match form {
+        rt::OffsetForm::Extended => OffsetForm::Extended,
+        rt::OffsetForm::Basic => OffsetForm::Basic,
+        rt::OffsetForm::HourOnly => OffsetForm::HourOnly,
+        rt::OffsetForm::ExtendedSeconds => OffsetForm::ExtendedSeconds,
+        rt::OffsetForm::Unwritten => OffsetForm::Unwritten,
+    }
+}
+
+/// The production offset of a reference offset: the extended minute and
+/// negative-zero forms are the historical `Fixed` and `NegZero` variants,
+/// every other written form is kept beside its magnitude.
+const fn offset_from_ref(offset: rt::Offset) -> Offset {
+    match offset {
+        rt::Offset::Local => Offset::Local,
+        rt::Offset::Zulu(rt::ZuluCase::Upper) => Offset::Zulu(ZuluCase::Upper),
+        rt::Offset::Zulu(rt::ZuluCase::Lower) => Offset::Zulu(ZuluCase::Lower),
+        rt::Offset::Zulu(rt::ZuluCase::Unwritten) => Offset::Zulu(ZuluCase::Unwritten),
+        rt::Offset::Fixed(minutes, rt::OffsetForm::Extended) => Offset::Fixed(minutes),
+        rt::Offset::Fixed(minutes, form) => Offset::FixedForm(minutes, offset_form_from_ref(form)),
+        rt::Offset::FixedSeconds(seconds) => Offset::FixedSeconds(seconds),
+        rt::Offset::NegZero(rt::OffsetForm::Extended) => Offset::NegZero,
+        rt::Offset::NegZero(form) => Offset::NegZeroForm(offset_form_from_ref(form)),
+    }
+}
+
+const fn form_from_ref(form: rt::TemporalForm) -> TemporalForm {
+    match form {
+        rt::TemporalForm::Date => TemporalForm::Date,
+        rt::TemporalForm::Time => TemporalForm::Time,
+        rt::TemporalForm::DateTime => TemporalForm::DateTime,
+    }
+}
+
+/// The production descriptor of a reference descriptor, field by field:
+/// the inverse of [`descriptor_to_ref`].
+const fn ref_to_descriptor(form: rt::TemporalLexicalForm) -> TemporalLexicalForm {
+    TemporalLexicalForm {
+        kind: form_from_ref(form.kind),
+        date_shape: form.date_shape,
+        time_shape: form.time_shape,
+        separator: match form.separator {
+            None => None,
+            Some(rt::Separator::Upper) => Some(DateTimeSeparator::Upper),
+            Some(rt::Separator::Lower) => Some(DateTimeSeparator::Lower),
+            Some(rt::Separator::Space) => Some(DateTimeSeparator::Space),
+        },
+        offset: offset_from_ref(form.offset),
+        infinity: match form.infinity {
+            None => None,
+            Some(rt::TemporalInfinity::Negative) => Some(TemporalInfinity::Negative),
+            Some(rt::TemporalInfinity::Positive) => Some(TemporalInfinity::Positive),
+        },
+    }
+}
+
 /// The reference reading of one scoped lexeme under the mapped descriptor,
 /// with the per-value laws checked against production: both readers accept
 /// the lexeme, both displays restore it, both values report the descriptor,
@@ -538,126 +595,50 @@ fn infinity_applies(class: ComparabilityClass, infinity: &ScopedInfinity) -> boo
     class.kind != TemporalForm::Time && class.kind == infinity.kind && class.zoned == infinity.zoned
 }
 
-const DATE_BODIES: [(&str, (bool, bool, bool)); 12] = [
-    ("0000", (true, false, false)),
-    ("-0000", (true, false, false)),
-    ("2000-01", (true, true, false)),
-    ("2000-02", (true, true, false)),
-    ("2000-01-01", (true, true, true)),
-    ("2000-01-02", (true, true, true)),
-    ("--01", (false, true, false)),
-    ("--02", (false, true, false)),
-    ("--01-01", (false, true, true)),
-    ("--01-02", (false, true, true)),
-    ("---01", (false, false, true)),
-    ("---02", (false, false, true)),
-];
-const TIME_BODIES: [(&str, (bool, bool, bool)); 14] = [
-    ("00", (true, false, false)),
-    ("01", (true, false, false)),
-    ("00:00", (true, true, false)),
-    ("00:01", (true, true, false)),
-    ("00:00:00", (true, true, true)),
-    ("00:00:00.0", (true, true, true)),
-    ("23:59:60", (true, true, true)),
-    ("23:59:60.5", (true, true, true)),
-    ("-00", (false, true, false)),
-    ("-01", (false, true, false)),
-    ("-00:00", (false, true, true)),
-    ("-00:01", (false, true, true)),
-    ("--00", (false, false, true)),
-    ("--01", (false, false, true)),
-];
-const DATETIME_DATES: [(&str, (bool, bool, bool)); 4] = [
-    ("2000-01-01", (true, true, true)),
-    ("2000-01-02", (true, true, true)),
-    ("---01", (false, false, true)),
-    ("---02", (false, false, true)),
-];
-const DATETIME_TIMES: [(&str, (bool, bool, bool)); 8] = [
-    ("00", (true, false, false)),
-    ("01", (true, false, false)),
-    ("00:00", (true, true, false)),
-    ("00:01", (true, true, false)),
-    ("00:00:00", (true, true, true)),
-    ("00:00:00.0", (true, true, true)),
-    ("23:59:60", (true, true, true)),
-    ("23:59:60.5", (true, true, true)),
-];
-
-fn finite_offsets() -> [(&'static str, Offset); 11] {
-    [
-        ("", Offset::Local),
-        ("Z", Offset::Zulu(ZuluCase::Upper)),
-        ("", Offset::Zulu(ZuluCase::Unwritten)),
-        ("+00:00", Offset::Fixed(0)),
-        ("+0000", Offset::FixedForm(0, OffsetForm::Basic)),
-        ("+00", Offset::FixedForm(0, OffsetForm::HourOnly)),
-        (
-            "+05:30:00",
-            Offset::FixedForm(330, OffsetForm::ExtendedSeconds),
-        ),
-        ("-04:56:02", Offset::fixed_seconds(-17_762).unwrap()),
-        ("-0000", Offset::NegZeroForm(OffsetForm::Basic)),
-        ("", Offset::FixedForm(0, OffsetForm::Unwritten)),
-        ("", Offset::FixedForm(330, OffsetForm::Unwritten)),
-    ]
-}
-
-fn finite_scope(offsets: &[(&'static str, Offset)]) -> Vec<ScopedTemporal> {
-    assert_eq!(DATE_BODIES.len(), 12);
-    assert_eq!(TIME_BODIES.len(), 14);
-    assert_eq!(DATETIME_DATES.len(), 4);
-    assert_eq!(DATETIME_TIMES.len(), 8);
-    assert_eq!(offsets.len(), 11);
-    assert_eq!(DATE_BODIES.len() * offsets.len(), 132);
-    assert_eq!(TIME_BODIES.len() * offsets.len(), 154);
-    assert_eq!(
-        DATETIME_DATES.len() * DATETIME_TIMES.len() * offsets.len(),
-        352
-    );
+/// The written temporal forms of the reference enumerator, read by
+/// production under the adapted descriptor: the finite forms in enumerator
+/// order and the infinities in enumerator order. Every reference descriptor
+/// survives the round trip through the production descriptor.
+fn reference_scope() -> (Vec<ScopedTemporal>, Vec<ScopedInfinity>) {
+    let forms = panproto_reference::enumerate::values::temporal_forms();
+    assert_eq!(forms.len(), 12 * 11 + 14 * 11 + 4 * 8 * 11 + 2 * 5 * 2);
+    assert_eq!(forms.len(), 658);
 
     let mut scope = Vec::new();
-    for (body, shape) in DATE_BODIES {
-        for (suffix, offset) in offsets.iter().copied() {
-            scope.push(scoped_value(
-                &format!("{body}{suffix}"),
-                TemporalForm::Date,
-                Some(shape),
-                None,
-                None,
-                offset,
-            ));
-        }
-    }
-    for (body, shape) in TIME_BODIES {
-        for (suffix, offset) in offsets.iter().copied() {
-            scope.push(scoped_value(
-                &format!("{body}{suffix}"),
-                TemporalForm::Time,
-                None,
-                Some(shape),
-                None,
-                offset,
-            ));
-        }
-    }
-    for (date, date_shape) in DATETIME_DATES {
-        for (time, time_shape) in DATETIME_TIMES {
-            for (suffix, offset) in offsets.iter().copied() {
-                scope.push(scoped_value(
-                    &format!("{date}T{time}{suffix}"),
-                    TemporalForm::DateTime,
-                    Some(date_shape),
-                    Some(time_shape),
-                    Some(DateTimeSeparator::Upper),
-                    offset,
-                ));
+    let mut infinities = Vec::new();
+    for (text, reference_form) in &forms {
+        let form = ref_to_descriptor(*reference_form);
+        assert_eq!(descriptor_to_ref(form), *reference_form, "{text}");
+        match form.infinity {
+            None => scope.push(scoped_value(
+                text,
+                form.kind,
+                form.date_shape,
+                form.time_shape,
+                form.separator,
+                form.offset,
+            )),
+            Some(sign) => {
+                assert!(form.date_shape.is_none() && form.time_shape.is_none());
+                assert!(form.separator.is_none());
+                let infinity = scoped_infinity(form.kind, form.offset, sign);
+                assert_eq!(infinity.value.to_string(), *text);
+                infinities.push(infinity);
             }
         }
     }
+    (scope, infinities)
+}
 
-    scope
+/// The distinct offsets of some descriptors, in first-seen order.
+fn distinct_offsets(forms: impl Iterator<Item = Offset>) -> Vec<Offset> {
+    let mut out: Vec<Offset> = Vec::new();
+    for offset in forms {
+        if !out.contains(&offset) {
+            out.push(offset);
+        }
+    }
+    out
 }
 
 fn comparability_classes(scope: &[ScopedTemporal]) -> Vec<(ComparabilityClass, Vec<usize>)> {
@@ -671,29 +652,6 @@ fn comparability_classes(scope: &[ScopedTemporal]) -> Vec<(ComparabilityClass, V
     }
 
     classes
-}
-
-fn scoped_infinities() -> Vec<ScopedInfinity> {
-    let infinity_offsets = [
-        Offset::Local,
-        Offset::Zulu(ZuluCase::Upper),
-        Offset::Zulu(ZuluCase::Unwritten),
-        Offset::FixedForm(330, OffsetForm::Unwritten),
-        Offset::fixed_seconds(-17_762).unwrap(),
-    ];
-    let mut infinities = Vec::new();
-    for kind in [TemporalForm::Date, TemporalForm::DateTime] {
-        for offset in infinity_offsets {
-            for sign in [TemporalInfinity::Negative, TemporalInfinity::Positive] {
-                infinities.push(scoped_infinity(kind, offset, sign));
-            }
-        }
-    }
-    assert_eq!(infinity_offsets.len(), 5);
-    assert_eq!(2 * infinity_offsets.len() * 2, 20);
-    assert_eq!(infinities.len(), 20);
-
-    infinities
 }
 
 fn check_finite_pairs(scope: &[ScopedTemporal]) -> (usize, usize) {
@@ -848,15 +806,45 @@ fn check_canonical_injectivity(scope: &[ScopedTemporal], infinities: &[ScopedInf
 
 #[test]
 fn sql_temporal_forms() {
-    let offsets = finite_offsets();
-    let scope = finite_scope(&offsets);
+    let (scope, infinities) = reference_scope();
+    let count_kind = |kind| {
+        scope
+            .iter()
+            .filter(|item| item.value.lexical_form().map(|form| form.kind) == Some(kind))
+            .count()
+    };
+    let (dates, times, date_times) = (
+        count_kind(TemporalForm::Date),
+        count_kind(TemporalForm::Time),
+        count_kind(TemporalForm::DateTime),
+    );
+    assert_eq!(dates, 12 * 11);
+    assert_eq!(times, 14 * 11);
+    assert_eq!(date_times, 4 * 8 * 11);
+    assert_eq!(dates, 132);
+    assert_eq!(times, 154);
+    assert_eq!(date_times, 352);
+    let finite_offsets = distinct_offsets(
+        scope
+            .iter()
+            .filter_map(|item| item.value.lexical_form().map(|form| form.offset)),
+    );
+    assert_eq!(finite_offsets.len(), 11);
+    let infinity_offsets = distinct_offsets(
+        infinities
+            .iter()
+            .filter_map(|item| item.value.lexical_form().map(|form| form.offset)),
+    );
+    assert_eq!(infinity_offsets.len(), 5);
     assert_eq!(scope.len(), 638);
+    assert_eq!(infinities.len(), 2 * infinity_offsets.len() * 2);
+    assert_eq!(infinities.len(), 20);
     let classes = comparability_classes(&scope);
     assert_eq!(classes.len(), 54);
-    let infinities = scoped_infinities();
     assert_eq!(scope.len() + infinities.len(), 658);
 
     let (all_pairs, comparable_pairs) = check_finite_pairs(&scope);
+    assert_eq!(all_pairs, 638 * 638);
     assert_eq!(all_pairs, 407_044);
     assert_eq!(comparable_pairs, 19_932);
     assert_eq!(
@@ -893,7 +881,249 @@ fn sql_temporal_forms() {
     assert_eq!(reference_pairs, 658 * 658);
     assert_eq!(reference_pairs, 432_964);
 
+    println!("bound: forms=658");
     println!(
-        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 28732 class-local pairs with infinities, 1485464 class-local triples, 432964 representation pairs; the reference reads, displays, encodes and orders all 658 values and all 432964 ordered pairs alike"
+        "SQL temporal forms: {} values ({} finite: {dates} dates, {times} times, {date_times} date-times; {} infinities) over {} finite offsets and {} infinity offsets, {} finite comparability classes, {all_pairs} finite ordered pairs, {comparable_pairs} comparable finite pairs, {class_pairs} class-local pairs with infinities, {class_triples} class-local triples, {reference_pairs} representation pairs; the reference reads, displays, encodes and orders every value and ordered pair alike",
+        scope.len() + infinities.len(),
+        scope.len(),
+        infinities.len(),
+        finite_offsets.len(),
+        infinity_offsets.len(),
+        classes.len(),
+    );
+}
+
+const KINDS: [TemporalForm; 3] = [
+    TemporalForm::Date,
+    TemporalForm::Time,
+    TemporalForm::DateTime,
+];
+
+const UNITS: [TimeUnit; 4] = [
+    TimeUnit::Seconds,
+    TimeUnit::Millis,
+    TimeUnit::Micros,
+    TimeUnit::Nanos,
+];
+
+const WORKERS: usize = 4;
+
+const fn unit_to_ref(unit: TimeUnit) -> rt::TimeUnit {
+    match unit {
+        TimeUnit::Seconds => rt::TimeUnit::Seconds,
+        TimeUnit::Millis => rt::TimeUnit::Millis,
+        TimeUnit::Micros => rt::TimeUnit::Micros,
+        TimeUnit::Nanos => rt::TimeUnit::Nanos,
+    }
+}
+
+/// The production reader of one carrier kind.
+fn production_read(kind: TemporalForm, text: &str) -> Option<Temporal> {
+    match kind {
+        TemporalForm::Date => Temporal::parse_date(text).ok(),
+        TemporalForm::Time => Temporal::parse_time(text).ok(),
+        TemporalForm::DateTime => Temporal::parse_date_time(text).ok(),
+    }
+}
+
+/// One lexeme accepted under one carrier kind by both readers.
+struct AcceptedLexeme {
+    text: String,
+    kind: TemporalForm,
+    value: Temporal,
+    reference: rt::Temporal,
+}
+
+/// Read every lexeme under every kind with both readers, checking that they
+/// agree on acceptance and, for an accepted lexeme, on the display, the
+/// exact descriptor, the canonical bytes, both reference representation laws
+/// and the production round trip under the descriptor.
+fn read_lexemes(lexemes: &[String]) -> (Vec<AcceptedLexeme>, usize) {
+    let mut accepted = Vec::new();
+    let mut readings = 0_usize;
+    for text in lexemes {
+        for kind in KINDS {
+            readings += 1;
+            let production = production_read(kind, text);
+            let reference = rt::parse(form_to_ref(kind), text);
+            assert_eq!(
+                production.is_some(),
+                reference.is_some(),
+                "{text} as {kind:?}: production {production:?}, reference {reference:?}"
+            );
+            let (Some(value), Some(reference)) = (production, reference) else {
+                continue;
+            };
+            let display = value.to_string();
+            assert_eq!(reference.to_string(), display, "{text} as {kind:?}");
+            assert_eq!(display, *text, "{text} as {kind:?}");
+            let form = value
+                .lexical_form()
+                .unwrap_or_else(|| panic!("{text} as {kind:?} has no production descriptor"));
+            let reference_form = reference
+                .lexical_form()
+                .unwrap_or_else(|| panic!("{text} as {kind:?} has no reference descriptor"));
+            assert_eq!(form.kind, kind, "{text}");
+            assert_eq!(
+                descriptor_to_ref(form),
+                reference_form,
+                "{text} as {kind:?}"
+            );
+            assert_eq!(
+                ref_to_descriptor(reference_form),
+                form,
+                "{text} as {kind:?}"
+            );
+            let mut tagged = vec![15];
+            tagged.extend_from_slice(&value.canonical_bytes());
+            assert_eq!(
+                rt::canonical_bytes(&reference),
+                Some(tagged),
+                "{text} as {kind:?}"
+            );
+            assert!(
+                rt::parse_display(reference_form, text),
+                "{text} as {kind:?}"
+            );
+            assert!(rt::display_parse(&reference), "{text} as {kind:?}");
+            assert_eq!(
+                Temporal::parse_as(form, &display).as_ref(),
+                Some(&value),
+                "{text} as {kind:?}"
+            );
+            accepted.push(AcceptedLexeme {
+                text: text.clone(),
+                kind,
+                value,
+                reference,
+            });
+        }
+    }
+    (accepted, readings)
+}
+
+/// Production and reference chronological orders agree on every ordered
+/// pair of accepted values; the left operands are split across the workers.
+/// Returns the pairs visited and the comparable pairs among them.
+fn check_lexeme_order(accepted: &[AcceptedLexeme]) -> (usize, usize) {
+    std::thread::scope(|scope| {
+        let workers: [_; WORKERS] = std::array::from_fn(|worker| {
+            scope.spawn(move || {
+                let mut pairs = 0_usize;
+                let mut comparable = 0_usize;
+                for left in accepted.iter().skip(worker).step_by(WORKERS) {
+                    for right in accepted {
+                        let production = left.value.cmp_chronological(&right.value);
+                        assert_eq!(
+                            production,
+                            rt::cmp_chronological(&left.reference, &right.reference),
+                            "{} ({:?}) against {} ({:?})",
+                            left.text,
+                            left.kind,
+                            right.text,
+                            right.kind
+                        );
+                        pairs += 1;
+                        comparable += usize::from(production.is_some());
+                    }
+                }
+                (pairs, comparable)
+            })
+        });
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("an order worker panicked"))
+            .fold((0, 0), |(pairs, comparable), (p, c)| {
+                (pairs + p, comparable + c)
+            })
+    })
+}
+
+/// Production epoch counts agree with the reference on every accepted
+/// date-time, unit and column kind. Returns the conversions checked and
+/// those that yield a count.
+fn check_lexeme_epoch_counts(accepted: &[AcceptedLexeme]) -> (usize, usize) {
+    let mut conversions = 0_usize;
+    let mut counted = 0_usize;
+    for item in accepted
+        .iter()
+        .filter(|item| item.kind == TemporalForm::DateTime)
+    {
+        for unit in UNITS {
+            for instant in [true, false] {
+                let production = item.value.to_epoch_count(unit, instant);
+                assert_eq!(
+                    production,
+                    rt::to_epoch_count(&item.reference, unit_to_ref(unit), instant),
+                    "{} {unit:?} instant={instant}",
+                    item.text
+                );
+                conversions += 1;
+                counted += usize::from(production.is_some());
+            }
+        }
+    }
+    (conversions, counted)
+}
+
+#[test]
+fn temporal_lexemes_agree_with_the_reference() {
+    let lexemes = panproto_reference::enumerate::values::temporal_lexemes();
+    // Per offset: dates 4 years x (1 + 3 months x (1 + 4 days)), times
+    // 2 hours x (1 + 2 minutes x (1 + 3 seconds x 3 fractions)), and every
+    // complete date (4 x 3 x 4) joined to every time; nine offsets.
+    let dates_per_offset = 4 * (1 + 3 * (1 + 4));
+    let times_per_offset = 2 * (1 + 2 * (1 + 3 * 3));
+    let date_times_per_offset = 4 * 3 * 4 * times_per_offset;
+    let bound = 9 * (dates_per_offset + times_per_offset + date_times_per_offset);
+    assert_eq!(lexemes.len(), bound);
+    assert_eq!(bound, 19_098);
+    assert_eq!(
+        lexemes.iter().collect::<HashSet<_>>().len(),
+        bound,
+        "the lexemes are distinct"
+    );
+
+    let (accepted, readings) = read_lexemes(&lexemes);
+    assert_eq!(readings, KINDS.len() * bound);
+    let accepted_of = |kind| accepted.iter().filter(|item| item.kind == kind).count();
+    let (dates, times, date_times) = (
+        accepted_of(TemporalForm::Date),
+        accepted_of(TemporalForm::Time),
+        accepted_of(TemporalForm::DateTime),
+    );
+    assert_eq!(dates + times + date_times, accepted.len());
+
+    let (pairs, comparable) = check_lexeme_order(&accepted);
+    assert_eq!(pairs, accepted.len() * accepted.len());
+
+    let mut by_bytes: std::collections::HashMap<Vec<u8>, &Temporal> =
+        std::collections::HashMap::new();
+    for item in &accepted {
+        let bytes = item.value.canonical_bytes();
+        if let Some(previous) = by_bytes.insert(bytes, &item.value) {
+            assert_eq!(
+                previous, &item.value,
+                "{} shares canonical bytes",
+                item.text
+            );
+        }
+    }
+    let distinct_values = accepted
+        .iter()
+        .map(|item| &item.value)
+        .collect::<HashSet<_>>()
+        .len();
+    assert_eq!(by_bytes.len(), distinct_values);
+
+    let (conversions, counted) = check_lexeme_epoch_counts(&accepted);
+    assert_eq!(conversions, date_times * UNITS.len() * 2);
+
+    println!("bound: lexemes={bound}");
+    println!(
+        "temporal lexemes: {bound} lexemes ({dates_per_offset} dates, {times_per_offset} times, {date_times_per_offset} date-times per offset over 9 offsets), {readings} kind readings, {} accepted ({dates} dates, {times} times, {date_times} date-times), {} rejected; {pairs} ordered pairs, {comparable} comparable; {} distinct canonical byte strings for {distinct_values} distinct values; {conversions} epoch conversions, {counted} with a count; production agrees with the reference on every one",
+        accepted.len(),
+        readings - accepted.len(),
+        by_bytes.len(),
     );
 }

@@ -48,6 +48,8 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 - Exhaustive differential test: `the_value_conversion_is_injective_on_the_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=the_value_conversion_is_injective_on_the_scope)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-inst/src/value.rs`
+- File: `crates/panproto-inst/src/identity.rs`
+- File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -465,6 +467,7 @@ Item 2 constrains only results of the form `Ok(Value::Float(_))`; every other ou
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/builtin.rs`
+- File: `crates/panproto-expr/src/eval.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -527,6 +530,7 @@ In particular, at $F$ = `Format::B32`, every binary32 NaN survives widening and 
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-inst/src/value/coerce.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -655,6 +659,8 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 - Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/decimal.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -917,6 +923,10 @@ A value with an ill-formed temporal component is outside $\mathcal{D}$: `write_t
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-inst/src/value.rs`
+- File: `crates/panproto-inst/src/identity.rs`
+- File: `crates/panproto-schema/src/canonical.rs`
+- File: `crates/panproto-expr/src/exact/decimal.rs`
+- File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1406,6 +1416,7 @@ So canonical bytes are injective on the whole carrier: on reduced, truncated, in
 - Exhaustive differential test: `sql_temporal_forms; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=sql_temporal_forms)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
+- File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1987,6 +1998,8 @@ Two facts used by later laws are part of this statement. (a) For every finite `D
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`
+- File: `crates/panproto-inst/src/value/coerce.rs`
+- File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -2044,6 +2057,9 @@ These are statements about the reference operations, which the production printe
 - Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/decimal.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
+- File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -2317,6 +2333,7 @@ There is no input outside the domain: every value of the reference type `Decimal
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
+- File: `crates/panproto-expr/src/exact/integer.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -2537,6 +2554,8 @@ None. The operation is total on `Format` $\times$ `Rat` $\times$ `bool`: it neve
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`
+- File: `crates/panproto-inst/src/value/coerce.rs`
+- File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
