@@ -2164,8 +2164,23 @@ fn recipe_replay_agrees_with_the_reference_on_every_recipe() {
     let signatures = span_signatures();
     let mut compared = 0u64;
     let mut recipes = 0u64;
+    let mut by_formula = 0u64;
     for left in &signatures {
         for right in &signatures {
+            // Three base steps; per mode, one colimit per subset of the
+            // common sort names and of the common operation names, and one
+            // over the absent `Z`; two diagram steps per option set.
+            let common = left
+                .sorts
+                .iter()
+                .filter(|s| right.sorts.iter().any(|t| t.name == s.name))
+                .count()
+                + left
+                    .ops
+                    .iter()
+                    .filter(|o| right.ops.iter().any(|t| t.name == o.name))
+                    .count();
+            by_formula += 3 + 2 * ((1 << common) + 1) + 2 * 4;
             for spec in scope::recipes(left, right) {
                 recipes += 1;
                 let (production, reference) = recompose_outcomes(left, right, &spec);
@@ -2177,7 +2192,9 @@ fn recipe_replay_agrees_with_the_reference_on_every_recipe() {
             }
         }
     }
-    println!("recipes: {recipes}; compared {compared}");
+    println!("recipes: {recipes} ({by_formula} by formula); compared {compared}");
+    assert_eq!(recipes, by_formula);
+    assert_eq!(compared, recipes);
 }
 
 // ─── the property differential over the same constructor families ──
