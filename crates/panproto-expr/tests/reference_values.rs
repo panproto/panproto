@@ -74,6 +74,7 @@ const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
         BuiltinOp::Div => rv::BuiltinOp::Div,
         BuiltinOp::Neg => rv::BuiltinOp::Neg,
         BuiltinOp::Abs => rv::BuiltinOp::Abs,
+        BuiltinOp::StrToFloat => rv::BuiltinOp::StrToFloat,
         _ => panic!("no reference builtin mapped"),
     }
 }
@@ -499,6 +500,26 @@ fn computed_nans_agree_with_the_reference() {
             }
         }
     }
+    // A NaN spelling is read, not computed: its written sign is kept and no
+    // payload is read.
+    let spellings = ["NaN", "+NaN", "-NaN", "nan", "-nan"];
+    for text in spellings {
+        let production = apply_builtin(BuiltinOp::StrToFloat, &[Literal::Str(text.into())]);
+        assert_eq!(
+            outcome_to_ref(&production),
+            rv::apply_builtin(rv::BuiltinOp::StrToFloat, &[RValue::Str(text.to_owned())]),
+            "{text}"
+        );
+        let sign = if text.starts_with('-') {
+            1_u64 << 63
+        } else {
+            0
+        };
+        assert!(
+            matches!(production, Ok(Literal::Float(x)) if x.to_bits() == canonical | sign),
+            "{text}"
+        );
+    }
     for &nan in &nans {
         let expr = let_in("x", float(f64::from_bits(nan)), var("x"));
         let production = eval(&expr, &Env::new(), &EvalConfig::default());
@@ -509,8 +530,9 @@ fn computed_nans_agree_with_the_reference() {
         assert!(matches!(production, Ok(Literal::Float(x)) if x.to_bits() == nan));
     }
     println!(
-        "computed NaNs: {} builtin cases ({computed} computed NaNs), {} pass-through NaNs, all agree",
+        "computed NaNs: {} builtin cases ({computed} computed NaNs), {} NaN spellings, {} pass-through NaNs, all agree",
         cases.len(),
+        spellings.len(),
         nans.len()
     );
     assert_eq!(nans.len(), 2 * 1023 + 4);

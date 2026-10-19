@@ -2258,7 +2258,10 @@ pub mod coerce {
     /// zero keeps its sign), else `Overflow` or `PrecisionExceeded`; a special
     /// decimal is refused with `NonFinite`. Under any other non-`Any` kind a
     /// non-finite `Float` is refused with `NonFinite`, a value with a scalar
-    /// lexeme is read through [`coerce`], and any other value is unchanged.
+    /// lexeme is read through [`coerce`] (under the specification's numeral
+    /// dialect when the value is a string or a token, whose lexeme is source
+    /// text, and without it otherwise, since a typed value's lexeme is
+    /// canonical), and any other value is unchanged.
     /// `None` under the nearest-keeping-lexeme reading (no rule states how an
     /// existing value is read under it) or a float width other than 16, 32
     /// and 64.
@@ -2288,8 +2291,17 @@ pub mod coerce {
         {
             return Some(Err(FidelityReason::NonFinite));
         }
+        // A numeral dialect is the syntax of source text; a typed value's
+        // lexeme is canonical, so it is read without the dialect.
+        let source_text = matches!(v, Value::Str(_) | Value::Token(_));
+        let canonical = ValueSpec {
+            numeral: None,
+            ..*spec
+        };
         match lexeme_of(v, spec.kind) {
-            Some((text, class)) => coerce(&text, &class, spec),
+            Some((text, class)) => {
+                coerce(&text, &class, if source_text { spec } else { &canonical })
+            }
             None => Some(Ok(v.clone())),
         }
     }
@@ -4240,18 +4252,26 @@ pub mod temporal {
         format!("{a:0<n$}").cmp(&format!("{b:0<n$}"))
     }
 
-    /// Whether two values are comparable: one shape, both local or both zoned,
-    /// and, for a truncated shape, offsets of equal minutes.
+    /// Definition: two values are comparable when both are local or both
+    /// are zoned and either (i) one of them is an infinity and both have one
+    /// form, since an infinity lies beyond every value of its form and
+    /// zoning, or (ii) both are finite of one shape and, for a truncated
+    /// shape, their offsets are equal to the second, since a truncated value
+    /// is not placed on the UTC timeline.
+    ///
+    /// The relation is symmetric: each clause reads its two arguments alike,
+    /// and two finite values of one shape are both truncated or neither.
+    ///
+    /// Book anchors: `L-values-17`, `L-values-18`.
     #[must_use]
     pub fn comparable(a: &Temporal, b: &Temporal) -> bool {
-        let same_shape = if a.infinity.is_some() || b.infinity.is_some() {
-            a.form() == b.form()
-        } else {
-            a.shape() == b.shape()
-        };
-        same_shape
-            && a.offset.is_zoned() == b.offset.is_zoned()
-            && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
+        if a.offset.is_zoned() != b.offset.is_zoned() {
+            return false;
+        }
+        if a.infinity.is_some() || b.infinity.is_some() {
+            return a.form() == b.form();
+        }
+        a.shape() == b.shape() && (!a.is_truncated() || a.offset.seconds() == b.offset.seconds())
     }
 
     /// Definition: The partial chronological order: `None` for incomparable values, else
@@ -4485,8 +4505,8 @@ pub mod temporal {
             )
         } else if body.len() == 4 {
             (
-                digits_n(&body[..2], 2)?,
-                digits_n(&body[2..], 2)?,
+                digits_n(body.get(..2)?, 2)?,
+                digits_n(body.get(2..)?, 2)?,
                 OffsetForm::Basic,
             )
         } else {
@@ -5094,6 +5114,68 @@ pub mod temporal {
                 Some(Some(Ordering::Greater))
             );
         }
+
+        #[test]
+        fn an_offset_with_a_non_ascii_character_is_refused() {
+            for kind in [
+                TemporalKind::Date,
+                TemporalKind::Time,
+                TemporalKind::DateTime,
+            ] {
+                for text in ["2018+aé1", "12:00+aé1", "2018-01-02T12:00+aé1", "+aé1"] {
+                    assert_eq!(parse(kind, text), None, "{text}");
+                }
+            }
+        }
+
+        #[test]
+        fn truncated_values_with_offsets_a_second_apart_are_incomparable() {
+            let seconds = parse(TemporalKind::Time, "--50+00:00:30");
+            let zulu = parse(TemporalKind::Time, "--50Z");
+            assert!(seconds.is_some() && zulu.is_some());
+            let pair = seconds.zip(zulu);
+            assert_eq!(
+                pair.as_ref()
+                    .map(|(a, b)| (cmp_chronological(a, b), cmp_chronological(b, a))),
+                Some((None, None))
+            );
+        }
+
+        #[test]
+        fn an_infinity_orders_every_value_of_its_kind_and_zoning() {
+            // A zoned date infinity whose offset has zero minutes against a
+            // truncated date at +05:30, in both operand orders.
+            let truncated = parse(TemporalKind::Date, "---01+05:30:00");
+            assert!(truncated.is_some());
+            for (sign, expected) in [
+                (TemporalInfinity::Negative, Ordering::Less),
+                (TemporalInfinity::Positive, Ordering::Greater),
+            ] {
+                let infinity =
+                    Temporal::infinite(sign, TemporalForm::Date, Offset::Zulu(ZuluCase::Upper));
+                let pair = infinity.zip(truncated.clone());
+                assert_eq!(
+                    pair.as_ref().map(|(a, b)| cmp_chronological(a, b)),
+                    Some(Some(expected))
+                );
+                assert_eq!(
+                    pair.as_ref().map(|(a, b)| cmp_chronological(b, a)),
+                    Some(Some(expected.reverse()))
+                );
+            }
+            // A local infinity stays incomparable with a zoned value.
+            let local = Temporal::infinite(
+                TemporalInfinity::Negative,
+                TemporalForm::Date,
+                Offset::Local,
+            );
+            assert_eq!(
+                local
+                    .zip(truncated)
+                    .map(|(a, b)| (cmp_chronological(&a, &b), cmp_chronological(&b, &a))),
+                Some((None, None))
+            );
+        }
     }
 }
 
@@ -5105,7 +5187,7 @@ pub mod value {
     use std::collections::BTreeMap;
 
     use crate::exact::{BigIntValue, Decimal, DecimalValue, ExactInteger, parse_decimal};
-    use crate::float::{CANONICAL_NAN_BITS, Format, shortest};
+    use crate::float::{CANONICAL_NAN_BITS, Format, NEGATIVE_CANONICAL_NAN_BITS, shortest};
     use crate::num::Int;
     use crate::temporal::Temporal;
 
@@ -5476,9 +5558,12 @@ pub mod value {
         Closure {
             parameter: String,
             body: Box<Expr>,
-            environment: BTreeMap<String, Value>,
+            environment: Environment,
         },
     }
+
+    /// A lexical environment: each name is bound to a value or a closure.
+    type Environment = BTreeMap<String, Runtime>;
 
     impl Runtime {
         fn value(self) -> Result<Value, EvalError> {
@@ -5489,7 +5574,7 @@ pub mod value {
         }
     }
 
-    fn apply_runtime(function: Runtime, argument: Value) -> Result<Runtime, EvalError> {
+    fn apply_runtime(function: Runtime, argument: Runtime) -> Result<Runtime, EvalError> {
         let Runtime::Closure {
             parameter,
             body,
@@ -5548,16 +5633,12 @@ pub mod value {
         }
     }
 
-    fn eval_runtime(
-        expr: &Expr,
-        environment: &BTreeMap<String, Value>,
-    ) -> Result<Runtime, EvalError> {
+    fn eval_runtime(expr: &Expr, environment: &Environment) -> Result<Runtime, EvalError> {
         match expr {
             Expr::Literal(value) => Ok(Runtime::Value(value.clone())),
             Expr::Variable(name) => environment
                 .get(name)
                 .cloned()
-                .map(Runtime::Value)
                 .ok_or_else(|| EvalError::UnboundVariable(name.clone())),
             Expr::Lambda(parameter, body) => Ok(Runtime::Closure {
                 parameter: parameter.clone(),
@@ -5566,7 +5647,7 @@ pub mod value {
             }),
             Expr::Apply(function, argument) => {
                 let function = eval_runtime(function, environment)?;
-                let argument = eval_runtime(argument, environment)?.value()?;
+                let argument = eval_runtime(argument, environment)?;
                 apply_runtime(function, argument)
             }
             Expr::Record(fields) => fields
@@ -5589,7 +5670,7 @@ pub mod value {
             Expr::Index(list, index) => eval_index(list, index, environment),
             Expr::Match { scrutinee, arms } => eval_match(scrutinee, arms, environment),
             Expr::Let { name, value, body } => {
-                let value = eval_runtime(value, environment)?.value()?;
+                let value = eval_runtime(value, environment)?;
                 let mut nested = environment.clone();
                 nested.insert(name.clone(), value);
                 eval_runtime(body, &nested)
@@ -5616,7 +5697,7 @@ pub mod value {
     fn eval_field(
         record: &Expr,
         field: &str,
-        environment: &BTreeMap<String, Value>,
+        environment: &Environment,
     ) -> Result<Runtime, EvalError> {
         match eval_runtime(record, environment)?.value()? {
             Value::Unknown(fields) | Value::Opaque { fields, .. } => fields
@@ -5631,7 +5712,7 @@ pub mod value {
     fn eval_index(
         list: &Expr,
         index: &Expr,
-        environment: &BTreeMap<String, Value>,
+        environment: &Environment,
     ) -> Result<Runtime, EvalError> {
         let list = eval_runtime(list, environment)?.value()?;
         let index = eval_runtime(index, environment)?.value()?;
@@ -5654,14 +5735,18 @@ pub mod value {
     fn eval_match(
         scrutinee: &Expr,
         arms: &[(Pattern, Expr)],
-        environment: &BTreeMap<String, Value>,
+        environment: &Environment,
     ) -> Result<Runtime, EvalError> {
         let scrutinee = eval_runtime(scrutinee, environment)?.value()?;
         for (pattern, body) in arms {
             let mut bindings = BTreeMap::new();
             if match_pattern(pattern, &scrutinee, &mut bindings) {
                 let mut nested = environment.clone();
-                nested.extend(bindings);
+                nested.extend(
+                    bindings
+                        .into_iter()
+                        .map(|(name, value)| (name, Runtime::Value(value))),
+                );
                 return eval_runtime(body, &nested);
             }
         }
@@ -5671,7 +5756,7 @@ pub mod value {
     fn eval_builtin_expr(
         op: BuiltinOp,
         arguments: &[Expr],
-        environment: &BTreeMap<String, Value>,
+        environment: &Environment,
     ) -> Result<Runtime, EvalError> {
         if matches!(
             op,
@@ -5690,7 +5775,7 @@ pub mod value {
     fn eval_higher_order(
         op: BuiltinOp,
         arguments: &[Expr],
-        environment: &BTreeMap<String, Value>,
+        environment: &Environment,
     ) -> Result<Runtime, EvalError> {
         let expected = if op == BuiltinOp::Fold { 3 } else { 2 };
         if arguments.len() != expected {
@@ -5708,14 +5793,16 @@ pub mod value {
         match op {
             BuiltinOp::Map => items
                 .into_iter()
-                .map(|item| apply_runtime(function.clone(), item).and_then(Runtime::value))
+                .map(|item| {
+                    apply_runtime(function.clone(), Runtime::Value(item)).and_then(Runtime::value)
+                })
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::List)
                 .map(Runtime::Value),
             BuiltinOp::Filter => {
                 let mut output = Vec::new();
                 for item in items {
-                    match apply_runtime(function.clone(), item.clone())?.value()? {
+                    match apply_runtime(function.clone(), Runtime::Value(item.clone()))?.value()? {
                         Value::Bool(true) => output.push(item),
                         Value::Bool(false) => {}
                         other => return Err(type_error("bool", &other)),
@@ -5726,7 +5813,7 @@ pub mod value {
             BuiltinOp::FlatMap => {
                 let mut output = Vec::new();
                 for item in items {
-                    match apply_runtime(function.clone(), item)?.value()? {
+                    match apply_runtime(function.clone(), Runtime::Value(item))?.value()? {
                         Value::List(values) => output.extend(values),
                         other => return Err(type_error("list", &other)),
                     }
@@ -5736,8 +5823,8 @@ pub mod value {
             BuiltinOp::Fold => {
                 let mut accumulator = eval_runtime(&arguments[1], environment)?.value()?;
                 for item in items {
-                    let partial = apply_runtime(function.clone(), accumulator)?;
-                    accumulator = apply_runtime(partial, item)?.value()?;
+                    let partial = apply_runtime(function.clone(), Runtime::Value(accumulator))?;
+                    accumulator = apply_runtime(partial, Runtime::Value(item))?.value()?;
                 }
                 Ok(Runtime::Value(accumulator))
             }
@@ -5748,8 +5835,15 @@ pub mod value {
     /// Definition: Evaluate one exact-value expression in the supplied
     /// lexical environment.
     ///
-    /// Lambdas are applied with lexical capture; every builtin returns a
-    /// typed error rather than silently changing a value's carrier.
+    /// A lambda evaluates to a closure over its defining environment; a
+    /// `let` may bind a closure and an application may pass one, so a
+    /// closure applied anywhere evaluates its body in the environment it was
+    /// written in, extended by its parameter. Every builtin returns a typed
+    /// error rather than silently changing a value's carrier, and an
+    /// expression whose result is a closure is refused with
+    /// [`EvalError::NotAFunction`], since a closure is not a value. A
+    /// builtin application takes its full arity; a free variable must be
+    /// bound by `environment`.
     ///
     /// # Errors
     ///
@@ -5758,7 +5852,11 @@ pub mod value {
     ///
     /// Book anchors: `L-values-14`.
     pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Result<Value, EvalError> {
-        eval_runtime(expr, environment)?.value()
+        let environment = environment
+            .iter()
+            .map(|(name, value)| (name.clone(), Runtime::Value(value.clone())))
+            .collect();
+        eval_runtime(expr, &environment)?.value()
     }
 
     const fn type_name(value: &Value) -> &'static str {
@@ -6061,9 +6159,16 @@ pub mod value {
                 other => Err(type_error("string", other)),
             },
             BuiltinOp::StrToFloat => match &arguments[0] {
+                // A NaN spelling keeps its written sign and no payload.
                 Value::Str(value) => value
                     .parse::<f64>()
-                    .map(|value| Value::Float(canonical_float(value)))
+                    .map(|parsed| {
+                        Value::Float(if parsed.is_nan() && value.starts_with('-') {
+                            NEGATIVE_CANONICAL_NAN_BITS
+                        } else {
+                            canonical_float(parsed)
+                        })
+                    })
                     .map_err(|_| EvalError::InvalidDecimal(value.clone())),
                 other => Err(type_error("string", other)),
             },
@@ -6515,6 +6620,58 @@ pub mod value {
             .parse::<f64>()
             .map_err(|_| EvalError::InvalidDecimal(text))?;
         Ok(Value::Float(canonical_float(parsed)))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn var(name: &str) -> Expr {
+            Expr::Variable(name.to_owned())
+        }
+
+        fn int(value: i64) -> Expr {
+            Expr::Literal(Value::Int(value))
+        }
+
+        fn let_in(name: &str, value: Expr, body: Expr) -> Expr {
+            Expr::Let {
+                name: name.to_owned(),
+                value: Box::new(value),
+                body: Box::new(body),
+            }
+        }
+
+        #[test]
+        fn a_closure_keeps_its_defining_scope() {
+            // let y = 1 in let f = \z. y in let y = 2 in f 0 evaluates to 1.
+            let captured = let_in(
+                "y",
+                int(1),
+                let_in(
+                    "f",
+                    Expr::Lambda("z".to_owned(), Box::new(var("y"))),
+                    let_in(
+                        "y",
+                        int(2),
+                        Expr::Apply(Box::new(var("f")), Box::new(int(0))),
+                    ),
+                ),
+            );
+            assert_eq!(eval(&captured, &BTreeMap::new()), Ok(Value::Int(1)));
+            // (\g. g 7) (\z. z) evaluates to 7: a closure is an argument.
+            let higher = Expr::Apply(
+                Box::new(Expr::Lambda(
+                    "g".to_owned(),
+                    Box::new(Expr::Apply(Box::new(var("g")), Box::new(int(7)))),
+                )),
+                Box::new(Expr::Lambda("z".to_owned(), Box::new(var("z")))),
+            );
+            assert_eq!(eval(&higher, &BTreeMap::new()), Ok(Value::Int(7)));
+            // A closure is not a value: evaluating to one is refused.
+            let bare = Expr::Lambda("z".to_owned(), Box::new(var("z")));
+            assert_eq!(eval(&bare, &BTreeMap::new()), Err(EvalError::NotAFunction));
+        }
     }
 }
 
