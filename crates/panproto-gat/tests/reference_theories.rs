@@ -1555,14 +1555,20 @@ enum SortClassVerdict {
 }
 
 /// Compare one operation-class pair through both public composition engines
-/// and return the exact class-check verdict they exposed.
+/// and return the exact class-check verdict they exposed. A pair whose class
+/// check passed but whose result then fails the theory-body check (an
+/// implicit input that no explicit input or output mentions) agrees: the
+/// class check did not refuse, and both engines must report the same
+/// `IllTypedResult`.
 fn operation_class_verdict(
     diagram: &r::TheoryDiagram,
     options: &r::ComposeOptions,
 ) -> Result<OperationClassVerdict, String> {
     let production = panproto_gat::compose(&convert::diagram(diagram), &convert::options(options));
     let production_verdict = match &production {
-        Ok(_) => OperationClassVerdict::Agree,
+        Ok(_) | Err(panproto_gat::CompositionError::IllTypedResult { .. }) => {
+            OperationClassVerdict::Agree
+        }
         Err(panproto_gat::CompositionError::QuotientNotRepresentable {
             reason: panproto_gat::NotRepresentableReason::NeedsSortEquation,
             ..
@@ -1578,7 +1584,7 @@ fn operation_class_verdict(
     };
     let reference = r::compose(diagram, options);
     let reference_verdict = match &reference {
-        Ok(_) => OperationClassVerdict::Agree,
+        Ok(_) | Err(r::ComposeError::IllTypedResult(_)) => OperationClassVerdict::Agree,
         Err(r::ComposeError::QuotientNotRepresentable {
             reason: r::NotRepresentableReason::NeedsSortEquation,
             ..
@@ -1612,14 +1618,17 @@ fn operation_class_verdict(
 }
 
 /// Compare one sort-class pair through both public composition engines and
-/// return the exact class-check verdict they exposed.
+/// return the exact class-check verdict they exposed; a later
+/// `IllTypedResult`, identical in both engines, counts as agreement.
 fn sort_class_verdict(
     diagram: &r::TheoryDiagram,
     options: &r::ComposeOptions,
 ) -> Result<SortClassVerdict, String> {
     let production = panproto_gat::compose(&convert::diagram(diagram), &convert::options(options));
     let production_verdict = match &production {
-        Ok(_) => SortClassVerdict::Agree,
+        Ok(_) | Err(panproto_gat::CompositionError::IllTypedResult { .. }) => {
+            SortClassVerdict::Agree
+        }
         Err(panproto_gat::CompositionError::SortSignatureMismatch { detail, .. }) => match detail {
             panproto_gat::SortMismatch::Arity { .. } => SortClassVerdict::Arity,
             panproto_gat::SortMismatch::ParamSort { .. } => SortClassVerdict::ParamSort,
@@ -1630,7 +1639,7 @@ fn sort_class_verdict(
     };
     let reference = r::compose(diagram, options);
     let reference_verdict = match &reference {
-        Ok(_) => SortClassVerdict::Agree,
+        Ok(_) | Err(r::ComposeError::IllTypedResult(_)) => SortClassVerdict::Agree,
         Err(r::ComposeError::SortSignatureMismatch(_, _, detail)) => match detail.as_ref() {
             r::SortMismatch::Arity { .. } => SortClassVerdict::Arity,
             r::SortMismatch::ParamSort { .. } => SortClassVerdict::ParamSort,
@@ -1796,7 +1805,7 @@ fn connector_is_well_formed(diagram: &r::TheoryDiagram, what: &str) {
 
 /// Compare every ordered pair of `members` through `verdict` and return the
 /// number of pairs compared with the count of each verdict index.
-fn sweep_pairs<T: Sync, const N: usize>(
+fn sweep_pairs<T: Sync + std::fmt::Debug, const N: usize>(
     members: &[T],
     verdict: impl Fn(&T, &T) -> Result<usize, String> + Sync,
 ) -> (u64, [u64; N]) {
@@ -1807,7 +1816,8 @@ fn sweep_pairs<T: Sync, const N: usize>(
         let mut n = 0;
         let mut counts = [0_u64; N];
         for right in members {
-            counts[verdict(left, right)?] += 1;
+            counts[verdict(left, right)
+                .map_err(|e| format!("{e}\n  left: {left:?}\n  right: {right:?}"))?] += 1;
             n += 1;
         }
         let mut shared = totals.lock().expect("verdict counts");
