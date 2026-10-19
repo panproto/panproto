@@ -5506,6 +5506,33 @@ pub mod theory {
         }
 
         #[test]
+        fn a_nullary_sort_and_its_empty_application_are_one_sort() {
+            let constant = |theory: &str, output: SortExpr| Theory {
+                name: theory.to_owned(),
+                sorts: vec![simple("A")],
+                ops: vec![Op {
+                    name: "k".to_owned(),
+                    inputs: Vec::new(),
+                    output,
+                }],
+                ..Theory::default()
+            };
+            let diagram = TheoryDiagram::discrete(vec![
+                (
+                    "L".to_owned(),
+                    constant("TL", SortExpr::Name("A".to_owned())),
+                ),
+                (
+                    "R".to_owned(),
+                    constant("TR", SortExpr::App("A".to_owned(), Vec::new())),
+                ),
+            ]);
+            let composition = compose(&diagram, &options(CompositionMode::Amalgamate))
+                .expect("`A` and `A()` are one sort");
+            assert_eq!(composition.theory.ops.len(), 1);
+        }
+
+        #[test]
         fn a_disagreeing_pair_of_different_names_is_not_a_name_conflict() {
             // `M.r` is renamed to `L.p` by the edge and glued to `R.r` by name;
             // `L.p` and `R.r` differ only in the order of `H`'s arguments, and
