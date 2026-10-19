@@ -2890,8 +2890,9 @@ pub mod theory {
     /// symbols of two nodes; (4) class checks: sort classes agree on arity,
     /// kind, closure (constructors by class) and parameter sorts by class
     /// (`SortSignatureMismatch`), operation classes on their name-free
-    /// signatures by class (`OpSignatureMismatch`), a class formed by the name
-    /// rule alone that fails being `NameConflict` in `Amalgamate` mode; (5)
+    /// signatures by class (`OpSignatureMismatch`), a disagreeing pair of
+    /// same-name members that only the name rule relates being `NameConflict`
+    /// in `Amalgamate` mode; (5)
     /// for each edge and operation with a term image, the equation
     /// `class(o)(inputs) = translate(t)` named `"{src label}.{o}~{rank}"`, the
     /// rank of the edge in ascending (source label, target label, morphism)
@@ -2899,12 +2900,13 @@ pub mod theory {
     /// (ties to the least name; under `ExplicitIdentity` a shared name is a
     /// clash, refused or freshened as `{least label}.{name}` and then suffixed
     /// `#k`); equations and directed equations translated along the cocone, a
-    /// set under `ExplicitIdentity` (alpha-equivalent translations become one,
-    /// directed ones also equal in their opaque parts), merged by name under
-    /// `Amalgamate` (same name and different content is `NameConflict`);
+    /// set by content in both modes (translations alpha-equivalent in either
+    /// orientation become one, directed ones in their stated orientation and
+    /// also equal in their opaque parts), and under `Amalgamate` one name
+    /// carried by two classes of different content is `NameConflict`;
     /// policies a set by content (value kind and strategy) named as symbols
-    /// are, merged by name under `Amalgamate` (same name and different content
-    /// is `NameConflict`); (7) the result passes [`typecheck_signature`], its
+    /// are, with the same `Amalgamate` name check; (7) the result passes
+    /// [`typecheck_signature`], its
     /// `UndeclaredSort` defects on free names admitted (`IllTypedResult`
     /// otherwise).
     ///
@@ -4510,21 +4512,23 @@ pub mod theory {
                         };
                         head_signature(&first) == head_signature(&second)
                     };
-                    return Err(if mode == Mode::Amalgamate && !same_leg {
-                        ComposeError::NameConflict(kind, first.name.clone(), first, second)
-                    } else if kind == SymKind::Sort {
-                        let detail =
-                            sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
-                        ComposeError::SortSignatureMismatch(first, second, detail)
-                    } else if head_signatures_match {
-                        ComposeError::QuotientNotRepresentable {
-                            first,
-                            second,
-                            reason: NotRepresentableReason::NeedsSortEquation,
-                        }
-                    } else {
-                        ComposeError::OpSignatureMismatch(first, second)
-                    });
+                    return Err(
+                        if mode == Mode::Amalgamate && !same_leg && first.name == second.name {
+                            ComposeError::NameConflict(kind, first.name.clone(), first, second)
+                        } else if kind == SymKind::Sort {
+                            let detail =
+                                sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
+                            ComposeError::SortSignatureMismatch(first, second, detail)
+                        } else if head_signatures_match {
+                            ComposeError::QuotientNotRepresentable {
+                                first,
+                                second,
+                                reason: NotRepresentableReason::NeedsSortEquation,
+                            }
+                        } else {
+                            ComposeError::OpSignatureMismatch(first, second)
+                        },
+                    );
                 }
             }
         }
@@ -4676,41 +4680,56 @@ pub mod theory {
     /// representative item.
     type ItemClass<K, T> = (Vec<SymRef>, K, T);
 
-    /// Classify named items by content: under explicit identity every item
-    /// joins the class of equal content; under amalgamation an item joins the
-    /// class of equal content holding its name, and an item whose name a class
-    /// of other content holds is a name conflict. Classes are then named as
-    /// symbols are.
+    /// Classify named items by content: every item joins the class of equal
+    /// content, whatever its name, and a class's representative is the item
+    /// of its least member. Under amalgamation a name carried by members of
+    /// two classes is then a name conflict: scanning the classes in ascending
+    /// order of their member lists, and each class's members in ascending
+    /// order, the first member whose name an earlier class holds conflicts
+    /// with the first member seen of that name, the two in ascending order.
+    /// Classes are then named as symbols are.
     fn classify_items<K: PartialEq, T: Clone>(
         kind: SymKind,
-        items: Vec<(SymRef, Name, K, T)>,
+        mut items: Vec<(SymRef, Name, K, T)>,
         reserved: &BTreeMap<Name, SymRef>,
         mode: Mode,
         clash: ClashPolicy,
         provenance: &mut Provenance,
         freshened: &mut Vec<Freshening>,
     ) -> Result<Vec<(Name, T)>, ComposeError> {
+        items.sort_by(|a, b| a.0.cmp(&b.0));
         let mut classes: Vec<ItemClass<K, T>> = Vec::new();
-        for (r, name, key, item) in items {
-            let found = classes.iter_mut().find(|c| {
-                c.1 == key && (mode == Mode::ExplicitIdentity || c.0.iter().any(|m| m.name == name))
-            });
-            if let Some(c) = found {
-                c.0.push(r);
-                continue;
+        for (r, _, key, item) in items {
+            match classes.iter_mut().find(|c| c.1 == key) {
+                Some(c) => c.0.push(r),
+                None => classes.push((vec![r], key, item)),
             }
-            if mode == Mode::Amalgamate
-                && let Some(c) = classes.iter().find(|c| c.0.iter().any(|m| m.name == name))
-            {
-                return Err(ComposeError::NameConflict(kind, name, c.0[0].clone(), r));
-            }
-            classes.push((vec![r], key, item));
         }
         for c in &mut classes {
             c.0.sort();
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         let members: Vec<Vec<SymRef>> = classes.iter().map(|c| c.0.clone()).collect();
+        if mode == Mode::Amalgamate {
+            let mut seen: Vec<(usize, &SymRef)> = Vec::new();
+            for (i, class) in members.iter().enumerate() {
+                for m in class {
+                    match seen.iter().find(|(_, s)| s.name == m.name) {
+                        Some(&(j, s)) if j != i => {
+                            let (first, second) = if s <= m { (s, m) } else { (m, s) };
+                            return Err(ComposeError::NameConflict(
+                                kind,
+                                m.name.clone(),
+                                first.clone(),
+                                second.clone(),
+                            ));
+                        }
+                        Some(_) => {}
+                        None => seen.push((i, m)),
+                    }
+                }
+            }
+        }
         let names = name_classes(kind, &members, reserved, mode, clash, freshened)?;
         let mut out = Vec::new();
         for (c, n) in classes.into_iter().zip(names) {
@@ -4723,9 +4742,9 @@ pub mod theory {
         Ok(out)
     }
 
-    /// The result equations: alpha-equivalent translations are one equation
-    /// under explicit identity, and under amalgamation same-named
-    /// alpha-equivalent ones merge and same-named different ones conflict.
+    /// The result equations: translations that are alpha-equivalent in either
+    /// orientation are one equation in both modes, and under amalgamation one
+    /// name carried by two different equations is a conflict.
     fn equations(
         eqs: &[(SymRef, Name, Term, Term)],
         reserved: &BTreeMap<Name, SymRef>,
@@ -4740,7 +4759,7 @@ pub mod theory {
                 (
                     r.clone(),
                     name.clone(),
-                    alpha(l, rr),
+                    alpha(l, rr).min(alpha(rr, l)),
                     (l.clone(), rr.clone()),
                 )
             })
@@ -5415,9 +5434,21 @@ pub mod theory {
             }
         }
 
+        /// The by-name span of `left` and `right` over the shared `A` and `f`.
+        fn shared_span(left: (String, Theory), right: (String, Theory)) -> TheoryDiagram {
+            let shared = Theory {
+                name: "TS".to_owned(),
+                sorts: vec![simple("A")],
+                ops: vec![unary("f")],
+                ..Theory::default()
+            };
+            TheoryDiagram::by_name(("S".to_owned(), shared), left, right)
+                .expect("both sides declare A and f")
+        }
+
         #[test]
         fn alpha_equivalent_equations_under_different_names_are_one_axiom_in_every_mode() {
-            let diagram = TheoryDiagram::discrete(vec![
+            let diagram = shared_span(
                 (
                     "L".to_owned(),
                     with_equation("TL", "e1", app("f", vec![var("x")]), var("x")),
@@ -5426,7 +5457,7 @@ pub mod theory {
                     "R".to_owned(),
                     with_equation("TR", "e2", app("f", vec![var("y")]), var("y")),
                 ),
-            ]);
+            );
             for mode in [
                 CompositionMode::Amalgamate,
                 CompositionMode::ExplicitIdentity,
@@ -5453,7 +5484,7 @@ pub mod theory {
 
         #[test]
         fn an_equation_and_its_reverse_are_one_axiom() {
-            let diagram = TheoryDiagram::discrete(vec![
+            let diagram = shared_span(
                 (
                     "L".to_owned(),
                     with_equation("TL", "e", app("f", vec![var("x")]), var("x")),
@@ -5462,7 +5493,7 @@ pub mod theory {
                     "R".to_owned(),
                     with_equation("TR", "e", var("y"), app("f", vec![var("y")])),
                 ),
-            ]);
+            );
             for mode in [
                 CompositionMode::Amalgamate,
                 CompositionMode::ExplicitIdentity,
