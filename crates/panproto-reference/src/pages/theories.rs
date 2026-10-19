@@ -1744,8 +1744,9 @@ pub mod theory {
         MissingSortMapping(Name),
         /// A shared operation is absent from one by-name leg.
         MissingOpMapping(Name),
-        /// A sort class disagrees: two members and their first difference.
-        SortSignatureMismatch(SymRef, SymRef, SortMismatch),
+        /// A sort class disagrees: two members and their first difference
+        /// (boxed to keep the refusal small).
+        SortSignatureMismatch(SymRef, SymRef, Box<SortMismatch>),
         /// An operation class disagrees.
         OpSignatureMismatch(SymRef, SymRef),
         /// An operation class agrees only modulo a sort equation, which this
@@ -2048,6 +2049,10 @@ pub mod theory {
         }
     }
 
+    /// The name-free form of a sort expression: the head through
+    /// `sort_class`, each argument through [`name_free_term`]. A sort applied
+    /// to no arguments reads as the bare sort name, since the two spellings
+    /// denote one sort expression.
     fn name_free_sort(
         binders: &[Name],
         s: &SortExpr,
@@ -2056,6 +2061,7 @@ pub mod theory {
     ) -> SortExpr {
         match s {
             SortExpr::Name(n) => SortExpr::Name(sort_class(n)),
+            SortExpr::App(n, xs) if xs.is_empty() => SortExpr::Name(sort_class(n)),
             SortExpr::App(n, xs) => SortExpr::App(
                 sort_class(n),
                 xs.iter()
@@ -3565,38 +3571,7 @@ pub mod theory {
             |kind: SymKind, node: &str, name: &str| result_symbol(cl, &result_of, kind, node, name);
         let (mut out, free_sorts) = finish_signature(nodes, cl, implicit, result_name, &res);
         let (eqs, added) = equation_inputs(nodes, edges, &res);
-        for (source, _, lhs, rhs) in &eqs {
-            equation_well_typed(&out, lhs, rhs).map_err(|detail| {
-                ComposeError::IllTypedTransport {
-                    source: source.clone(),
-                    detail,
-                }
-            })?;
-        }
-        for (_, generated) in &added {
-            equation_well_typed(&out, &generated.lhs, &generated.rhs).map_err(|detail| {
-                ComposeError::IllTypedTransport {
-                    source: generated.source.op.clone(),
-                    detail,
-                }
-            })?;
-        }
-        for (label, node) in nodes {
-            let op = |name: &str| res(SymKind::Op, label, name);
-            for equation in &node.directed_eqs {
-                let lhs = rename_term(&equation.lhs, &op);
-                let rhs = rename_term(&equation.rhs, &op);
-                equation_well_typed(&out, &lhs, &rhs).map_err(|detail| {
-                    ComposeError::IllTypedTransport {
-                        source: SymRef {
-                            node: label.clone(),
-                            name: equation.name.clone(),
-                        },
-                        detail,
-                    }
-                })?;
-            }
-        }
+        check_transports(&out, nodes, &eqs, &added, &res)?;
         let reserved: BTreeMap<Name, SymRef> = added
             .iter()
             .map(|(name, generated)| (name.clone(), generated.source.op.clone()))
@@ -3661,6 +3636,52 @@ pub mod theory {
                 freshened,
             },
         })
+    }
+
+    /// The transport check: every translated node equation, then every
+    /// generated equation, then every translated directed equation (as the
+    /// equation between its sides), each well typed against the result's
+    /// sorts and operations; the first that is not is `IllTypedTransport`.
+    fn check_transports(
+        out: &Theory,
+        nodes: &[(Name, Theory)],
+        eqs: &[(SymRef, Name, Term, Term)],
+        added: &[(Name, Generated)],
+        res: &dyn Fn(SymKind, &str, &str) -> Name,
+    ) -> Result<(), ComposeError> {
+        for (source, _, lhs, rhs) in eqs {
+            equation_well_typed(out, lhs, rhs).map_err(|detail| {
+                ComposeError::IllTypedTransport {
+                    source: source.clone(),
+                    detail,
+                }
+            })?;
+        }
+        for (_, generated) in added {
+            equation_well_typed(out, &generated.lhs, &generated.rhs).map_err(|detail| {
+                ComposeError::IllTypedTransport {
+                    source: generated.source.op.clone(),
+                    detail,
+                }
+            })?;
+        }
+        for (label, node) in nodes {
+            let op = |name: &str| res(SymKind::Op, label, name);
+            for equation in &node.directed_eqs {
+                let lhs = rename_term(&equation.lhs, &op);
+                let rhs = rename_term(&equation.rhs, &op);
+                equation_well_typed(out, &lhs, &rhs).map_err(|detail| {
+                    ComposeError::IllTypedTransport {
+                        source: SymRef {
+                            node: label.clone(),
+                            name: equation.name.clone(),
+                        },
+                        detail,
+                    }
+                })?;
+            }
+        }
+        Ok(())
     }
 
     fn finish_names(
@@ -4518,7 +4539,7 @@ pub mod theory {
                         } else if kind == SymKind::Sort {
                             let detail =
                                 sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
-                            ComposeError::SortSignatureMismatch(first, second, detail)
+                            ComposeError::SortSignatureMismatch(first, second, Box::new(detail))
                         } else if head_signatures_match {
                             ComposeError::QuotientNotRepresentable {
                                 first,
@@ -5323,7 +5344,7 @@ pub mod theory {
                 check_morphism(&domain, &codomain, &m),
                 Err(MorphismError::EquationNotPreserved("e".to_owned()))
             );
-            let mut same = domain.clone();
+            let mut same = domain;
             same.eqs[0].rhs = var("x");
             assert_eq!(check_morphism(&same, &codomain, &m), Ok(()));
         }
@@ -5361,7 +5382,8 @@ pub mod theory {
                 clash: ClashPolicy::Reject,
                 rewrite_budget: 512,
             };
-            let composition = compose(&diagram, &options).expect("the parallel pair composes");
+            let composition = compose(&diagram, &options)
+                .unwrap_or_else(|e| panic!("the parallel pair composes: {e:?}"));
             let q = Theory {
                 name: "Q".to_owned(),
                 sorts: vec![simple("A")],
@@ -5443,7 +5465,7 @@ pub mod theory {
                 ..Theory::default()
             };
             TheoryDiagram::by_name(("S".to_owned(), shared), left, right)
-                .expect("both sides declare A and f")
+                .unwrap_or_else(|e| panic!("both sides declare A and f: {e:?}"))
         }
 
         #[test]
@@ -5462,8 +5484,8 @@ pub mod theory {
                 CompositionMode::Amalgamate,
                 CompositionMode::ExplicitIdentity,
             ] {
-                let composition =
-                    compose(&diagram, &options(mode)).expect("the two theories compose");
+                let composition = compose(&diagram, &options(mode))
+                    .unwrap_or_else(|e| panic!("the two theories compose: {e:?}"));
                 let names: Vec<&str> = composition
                     .theory
                     .eqs
@@ -5498,8 +5520,8 @@ pub mod theory {
                 CompositionMode::Amalgamate,
                 CompositionMode::ExplicitIdentity,
             ] {
-                let composition =
-                    compose(&diagram, &options(mode)).expect("the two theories compose");
+                let composition = compose(&diagram, &options(mode))
+                    .unwrap_or_else(|e| panic!("the two theories compose: {e:?}"));
                 assert_eq!(composition.theory.eqs.len(), 1, "{mode:?}");
                 assert_eq!(composition.theory.eqs[0].lhs, app("f", vec![var("x")]));
             }
@@ -5528,7 +5550,7 @@ pub mod theory {
                 ),
             ]);
             let composition = compose(&diagram, &options(CompositionMode::Amalgamate))
-                .expect("`A` and `A()` are one sort");
+                .unwrap_or_else(|e| panic!("`A` and `A()` are one sort: {e:?}"));
             assert_eq!(composition.theory.ops.len(), 1);
         }
 
