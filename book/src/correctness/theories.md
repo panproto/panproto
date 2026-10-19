@@ -290,7 +290,7 @@ Well-formedness and the defects are those of [L-theories-1](#L-theories-1) and [
 
 - Law ID: `theories.q5`
 - Reference: `panproto_reference::theory::compose`
-- Enumerator: `panproto_reference::enumerate::theories::signatures; bound: nodes=2, sorts=2, operations=1, equations=1, options=4`
+- Enumerator: `panproto_reference::enumerate::theories::signatures; bound: nodes=2, sorts=2, operations=2, arity=2, equations=1, depth=1, options=4`
 - Exhaustive differential test: `composition_agrees_with_the_reference_on_every_discrete_pair; command: cargo nextest run -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=composition_agrees_with_the_reference_on_every_discrete_pair)'`
 - Property differential test: `randomized_theory_differential; command: cargo nextest run -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=randomized_theory_differential)'`
 - File: `crates/panproto-gat/src/compose.rs`

@@ -1979,51 +1979,36 @@ fn composition_reports_every_sort_mismatch_detail_like_the_reference() {
     }
 }
 
-/// Every discrete diagram of two nodes `L` and `R`, each a signature of
-/// the two-sort alphabet with at most one operation, with and without an
-/// equation.
-fn discrete_diagrams() -> Vec<r::TheoryDiagram> {
-    let nodes: Vec<r::Theory> = scope::signatures()
-        .into_iter()
-        .filter(|t| t.ops.len() <= 1)
-        .collect();
-    let mut out = Vec::new();
-    for left in &nodes {
-        for right in &nodes {
-            out.push(r::TheoryDiagram::discrete(vec![
-                ("L".to_owned(), left.clone()),
-                ("R".to_owned(), right.clone()),
-            ]));
-        }
-    }
-    out
-}
-
 #[test]
 fn composition_agrees_with_the_reference_on_every_discrete_pair() {
-    let diagrams = discrete_diagrams();
+    // Every discrete diagram of two nodes `L` and `R`, each a signature of
+    // the full scope, streamed one left node at a time.
+    let nodes = scope::signatures();
     let options = scope::option_sets();
-    let (nodes, _) = one_operation_counts();
+    let (full, _) = signature_counts();
+    assert_eq!(nodes.len() as u64, full);
     println!(
-        "bound: two nodes, each a signature with at most one operation and at most one equation \
-         ({nodes} by formula); {} diagrams x {} option sets",
-        diagrams.len(),
+        "bound: two nodes, each any signature of the scope ({full} by formula); {} diagrams x {} \
+         option sets",
+        full * full,
         options.len()
     );
-    assert_eq!(diagrams.len() as u64, nodes * nodes);
-    let compared = parallel(&diagrams, |d| {
+    let compared = parallel(&nodes, |left| {
         let mut n = 0;
-        for o in &options {
-            compose_agrees(d, o)?;
-            n += 1;
+        for right in &nodes {
+            let diagram = r::TheoryDiagram::discrete(vec![
+                ("L".to_owned(), left.clone()),
+                ("R".to_owned(), right.clone()),
+            ]);
+            for o in &options {
+                compose_agrees(&diagram, o)?;
+                n += 1;
+            }
         }
         Ok(n)
     });
     println!("compared {compared}");
-    assert_eq!(
-        usize::try_from(compared).expect("the count fits in usize"),
-        diagrams.len() * options.len()
-    );
+    assert_eq!(compared, full * full * options.len() as u64);
 }
 
 // ─── recipe replay: L-theories-8 ───────────────────────────────────
