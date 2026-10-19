@@ -656,10 +656,7 @@ impl Offset {
     pub fn minutes(self) -> i16 {
         match self {
             Self::Fixed(m) | Self::FixedForm(m, _) => m,
-            Self::FixedSeconds(s) => match i16::try_from(s / 60) {
-                Ok(minutes) => minutes,
-                Err(_) => 0,
-            },
+            Self::FixedSeconds(s) => i16::try_from(s / 60).unwrap_or_default(),
             Self::Local | Self::Zulu(_) | Self::NegZero | Self::NegZeroForm(_) => 0,
         }
     }
@@ -1242,13 +1239,17 @@ fn temporal_from_extended(value: ExtendedTemporal) -> Temporal {
     Temporal::Extended(value)
 }
 
-fn extended_shape(
-    value: &ExtendedTemporal,
-) -> (
-    Option<(bool, bool, bool)>,
-    Option<(bool, bool, bool)>,
+/// Which of three components a reduced field group writes.
+type ComponentPresence = (bool, bool, bool);
+
+/// The written components of an extended value's date and time, and its form.
+type ExtendedShape = (
+    Option<ComponentPresence>,
+    Option<ComponentPresence>,
     Option<TemporalForm>,
-) {
+);
+
+fn extended_shape(value: &ExtendedTemporal) -> ExtendedShape {
     (
         value.date.map(|date| {
             (
@@ -1650,152 +1651,151 @@ impl Temporal {
     /// bytes without changing an existing complete-form byte.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        fn date(out: &mut Vec<u8>, d: CivilDate) {
-            out.extend_from_slice(&d.year.to_le_bytes());
-            out.extend_from_slice(&[d.month, d.day]);
-        }
-        fn time(out: &mut Vec<u8>, t: &CivilTime) {
-            out.extend_from_slice(&[t.hour, t.minute, t.second]);
-            super::put_str(out, t.fraction.as_str());
-        }
-        fn legacy_offset_bytes(out: &mut Vec<u8>, o: Offset) {
-            match o {
-                Offset::Local => out.push(0),
-                Offset::Zulu(ZuluCase::Upper) => out.extend_from_slice(&[1, b'Z']),
-                Offset::Zulu(ZuluCase::Lower) => out.extend_from_slice(&[1, b'z']),
-                Offset::Fixed(m) => {
-                    out.push(2);
-                    out.extend_from_slice(&i64::from(m).to_le_bytes());
-                }
-                Offset::NegZero => out.push(3),
-                Offset::Zulu(ZuluCase::Unwritten)
-                | Offset::FixedForm(_, _)
-                | Offset::FixedSeconds(_)
-                | Offset::NegZeroForm(_) => {}
-            }
-        }
-        fn option_u8(out: &mut Vec<u8>, value: Option<u8>) {
-            match value {
-                None => out.push(0),
-                Some(value) => out.extend_from_slice(&[1, value]),
-            }
-        }
-        fn date_form(out: &mut Vec<u8>, date: DateFields) {
-            match date.year {
-                None => out.push(0),
-                Some(year) => {
-                    out.push(1);
-                    out.extend_from_slice(&year.value.to_le_bytes());
-                    out.push(u8::from(year.negative_zero));
-                    out.extend_from_slice(
-                        &u64::try_from(year.width).unwrap_or(u64::MAX).to_le_bytes(),
-                    );
-                }
-            }
-            option_u8(out, date.month);
-            option_u8(out, date.day);
-        }
-        fn time_form(out: &mut Vec<u8>, time: &TimeFields) {
-            option_u8(out, time.hour);
-            option_u8(out, time.minute);
-            option_u8(out, time.second);
-            super::put_str(out, time.fraction.as_str());
-        }
-        const fn form_tag(form: OffsetForm) -> u8 {
-            match form {
-                OffsetForm::Extended => 0,
-                OffsetForm::Basic => 1,
-                OffsetForm::HourOnly => 2,
-                OffsetForm::ExtendedSeconds => 3,
-                OffsetForm::Unwritten => 4,
-            }
-        }
-        fn extended_offset_bytes(out: &mut Vec<u8>, offset: Offset) {
-            match offset {
-                Offset::Local => out.push(0),
-                Offset::Zulu(case) => {
-                    out.extend_from_slice(&[
-                        1,
-                        match case {
-                            ZuluCase::Upper => 0,
-                            ZuluCase::Lower => 1,
-                            ZuluCase::Unwritten => 2,
-                        },
-                    ]);
-                }
-                Offset::Fixed(minutes) => {
-                    out.push(2);
-                    out.extend_from_slice(&i64::from(minutes).to_le_bytes());
-                    out.push(form_tag(OffsetForm::Extended));
-                }
-                Offset::FixedForm(minutes, form) => {
-                    out.push(2);
-                    out.extend_from_slice(&i64::from(minutes).to_le_bytes());
-                    out.push(form_tag(form));
-                }
-                Offset::NegZero => out.extend_from_slice(&[3, form_tag(OffsetForm::Extended)]),
-                Offset::NegZeroForm(form) => out.extend_from_slice(&[3, form_tag(form)]),
-                Offset::FixedSeconds(seconds) => {
-                    out.push(4);
-                    out.extend_from_slice(&i64::from(seconds).to_le_bytes());
-                }
-            }
-        }
-        fn extended(out: &mut Vec<u8>, value: &ExtendedTemporal) {
-            if let Some((infinity, form)) = value.infinity {
-                out.push(match form {
-                    TemporalForm::Date => 6,
-                    TemporalForm::DateTime => 7,
-                    TemporalForm::Time => return,
-                });
-                out.push(match infinity {
-                    TemporalInfinity::Negative => 0,
-                    TemporalInfinity::Positive => 1,
-                });
-                extended_offset_bytes(out, value.offset);
-                return;
-            }
-            let Some(form) = value.form() else {
-                return;
-            };
-            out.push(match form {
-                TemporalForm::Date => 3,
-                TemporalForm::Time => 4,
-                TemporalForm::DateTime => 5,
-            });
-            if let Some(date) = value.date {
-                date_form(out, date);
-            }
-            if let Some(separator) = value.separator {
-                out.push(separator.byte());
-            }
-            if let Some(time) = &value.time {
-                time_form(out, time);
-            }
-            extended_offset_bytes(out, value.offset);
-        }
         let mut out = Vec::with_capacity(32);
         match self {
             Self::Date(d) => {
                 out.push(0);
-                date(&mut out, *d);
+                put_civil_date(&mut out, *d);
             }
             Self::Time(t, o) => {
                 out.push(1);
-                time(&mut out, t);
+                put_civil_time(&mut out, t);
                 legacy_offset_bytes(&mut out, *o);
             }
             Self::DateTime(d, t, o, separator) => {
                 out.push(2);
-                date(&mut out, *d);
+                put_civil_date(&mut out, *d);
                 out.push(separator.byte());
-                time(&mut out, t);
+                put_civil_time(&mut out, t);
                 legacy_offset_bytes(&mut out, *o);
             }
-            Self::Extended(value) => extended(&mut out, value),
+            Self::Extended(value) => put_extended(&mut out, value),
         }
         out
     }
+}
+
+fn put_civil_date(out: &mut Vec<u8>, d: CivilDate) {
+    out.extend_from_slice(&d.year.to_le_bytes());
+    out.extend_from_slice(&[d.month, d.day]);
+}
+fn put_civil_time(out: &mut Vec<u8>, t: &CivilTime) {
+    out.extend_from_slice(&[t.hour, t.minute, t.second]);
+    super::put_str(out, t.fraction.as_str());
+}
+fn legacy_offset_bytes(out: &mut Vec<u8>, o: Offset) {
+    match o {
+        Offset::Local => out.push(0),
+        Offset::Zulu(ZuluCase::Upper) => out.extend_from_slice(&[1, b'Z']),
+        Offset::Zulu(ZuluCase::Lower) => out.extend_from_slice(&[1, b'z']),
+        Offset::Fixed(m) => {
+            out.push(2);
+            out.extend_from_slice(&i64::from(m).to_le_bytes());
+        }
+        Offset::NegZero => out.push(3),
+        Offset::Zulu(ZuluCase::Unwritten)
+        | Offset::FixedForm(_, _)
+        | Offset::FixedSeconds(_)
+        | Offset::NegZeroForm(_) => {}
+    }
+}
+fn put_option_u8(out: &mut Vec<u8>, value: Option<u8>) {
+    match value {
+        None => out.push(0),
+        Some(value) => out.extend_from_slice(&[1, value]),
+    }
+}
+fn put_date_fields(out: &mut Vec<u8>, date: DateFields) {
+    match date.year {
+        None => out.push(0),
+        Some(year) => {
+            out.push(1);
+            out.extend_from_slice(&year.value.to_le_bytes());
+            out.push(u8::from(year.negative_zero));
+            out.extend_from_slice(&u64::try_from(year.width).unwrap_or(u64::MAX).to_le_bytes());
+        }
+    }
+    put_option_u8(out, date.month);
+    put_option_u8(out, date.day);
+}
+fn put_time_fields(out: &mut Vec<u8>, time: &TimeFields) {
+    put_option_u8(out, time.hour);
+    put_option_u8(out, time.minute);
+    put_option_u8(out, time.second);
+    super::put_str(out, time.fraction.as_str());
+}
+const fn offset_form_tag(form: OffsetForm) -> u8 {
+    match form {
+        OffsetForm::Extended => 0,
+        OffsetForm::Basic => 1,
+        OffsetForm::HourOnly => 2,
+        OffsetForm::ExtendedSeconds => 3,
+        OffsetForm::Unwritten => 4,
+    }
+}
+fn extended_offset_bytes(out: &mut Vec<u8>, offset: Offset) {
+    match offset {
+        Offset::Local => out.push(0),
+        Offset::Zulu(case) => {
+            out.extend_from_slice(&[
+                1,
+                match case {
+                    ZuluCase::Upper => 0,
+                    ZuluCase::Lower => 1,
+                    ZuluCase::Unwritten => 2,
+                },
+            ]);
+        }
+        Offset::Fixed(minutes) => {
+            out.push(2);
+            out.extend_from_slice(&i64::from(minutes).to_le_bytes());
+            out.push(offset_form_tag(OffsetForm::Extended));
+        }
+        Offset::FixedForm(minutes, form) => {
+            out.push(2);
+            out.extend_from_slice(&i64::from(minutes).to_le_bytes());
+            out.push(offset_form_tag(form));
+        }
+        Offset::NegZero => out.extend_from_slice(&[3, offset_form_tag(OffsetForm::Extended)]),
+        Offset::NegZeroForm(form) => out.extend_from_slice(&[3, offset_form_tag(form)]),
+        Offset::FixedSeconds(seconds) => {
+            out.push(4);
+            out.extend_from_slice(&i64::from(seconds).to_le_bytes());
+        }
+    }
+}
+fn put_extended(out: &mut Vec<u8>, value: &ExtendedTemporal) {
+    if let Some((infinity, form)) = value.infinity {
+        out.push(match form {
+            TemporalForm::Date => 6,
+            TemporalForm::DateTime => 7,
+            TemporalForm::Time => return,
+        });
+        out.push(match infinity {
+            TemporalInfinity::Negative => 0,
+            TemporalInfinity::Positive => 1,
+        });
+        extended_offset_bytes(out, value.offset);
+        return;
+    }
+    let Some(form) = value.form() else {
+        return;
+    };
+    out.push(match form {
+        TemporalForm::Date => 3,
+        TemporalForm::Time => 4,
+        TemporalForm::DateTime => 5,
+    });
+    if let Some(date) = value.date {
+        put_date_fields(out, date);
+    }
+    if let Some(separator) = value.separator {
+        out.push(separator.byte());
+    }
+    if let Some(time) = &value.time {
+        put_time_fields(out, time);
+    }
+    extended_offset_bytes(out, value.offset);
 }
 
 /// The unit of an integral epoch count: seconds, milliseconds,
@@ -1893,10 +1893,9 @@ impl std::fmt::Display for Offset {
             }
         };
         match self {
-            Self::Local => Ok(()),
+            Self::Local | Self::Zulu(ZuluCase::Unwritten) => Ok(()),
             Self::Zulu(ZuluCase::Upper) => f.write_char('Z'),
             Self::Zulu(ZuluCase::Lower) => f.write_char('z'),
-            Self::Zulu(ZuluCase::Unwritten) => Ok(()),
             Self::NegZero => f.write_str("-00:00"),
             Self::Fixed(m) => {
                 let sign = if *m < 0 { '-' } else { '+' };

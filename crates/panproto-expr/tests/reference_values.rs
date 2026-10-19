@@ -897,9 +897,10 @@ proptest! {
         let count = i128::from(epoch_count);
         let production_epoch = Temporal::from_epoch_count(count, production_unit, instant);
         let reference_epoch = rt::from_epoch_count(count, reference_unit, instant);
+        let production_epoch_image = production_epoch.as_ref().ok().map(temporal_to_ref);
         prop_assert_eq!(
-            production_epoch.as_ref().ok().map(temporal_to_ref),
-            reference_epoch.clone(),
+            production_epoch_image.as_ref(),
+            reference_epoch.as_ref(),
             "generated epoch conversion disagrees for {count} {production_unit:?}, instant={instant}",
             count = count,
             production_unit = production_unit,
@@ -1016,8 +1017,8 @@ proptest! {
             .as_ref()
             .expect("an i64 epoch count is in the reference temporal year domain");
         prop_assert_eq!(
-            temporal_to_ref(&production_neighbor),
-            reference_neighbor.clone(),
+            &temporal_to_ref(&production_neighbor),
+            &reference_neighbor,
             "generated neighboring epoch conversion disagrees for {neighboring_count} {production_unit:?}, instant={instant}",
             neighboring_count = neighboring_count,
             production_unit = production_unit,
@@ -1068,8 +1069,8 @@ proptest! {
         let reference_unwritten = rt::parse_as(reference_unwritten_form, &local_text)
             .expect("the reference unwritten-Z descriptor reparses a local epoch display");
         prop_assert_eq!(
-            temporal_to_ref(&production_unwritten),
-            reference_unwritten.clone(),
+            &temporal_to_ref(&production_unwritten),
+            &reference_unwritten,
             "production and reference unwritten-Z values disagree for {local_text:?}",
             local_text = &local_text,
         );

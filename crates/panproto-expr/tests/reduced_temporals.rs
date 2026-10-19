@@ -12,7 +12,7 @@ use panproto_expr::exact::{
     TemporalYear, TimeFields, ZuluCase,
 };
 
-fn descriptor(
+const fn descriptor(
     kind: TemporalForm,
     date_shape: Option<(bool, bool, bool)>,
     time_shape: Option<(bool, bool, bool)>,
@@ -28,7 +28,7 @@ fn descriptor(
     }
 }
 
-fn complete_date() -> DateFields {
+const fn complete_date() -> DateFields {
     DateFields {
         year: Some(TemporalYear {
             value: 2000,
@@ -357,7 +357,7 @@ struct ScopedInfinity {
 }
 
 fn scoped_value(
-    text: String,
+    text: &str,
     kind: TemporalForm,
     date_shape: Option<(bool, bool, bool)>,
     time_shape: Option<(bool, bool, bool)>,
@@ -372,7 +372,7 @@ fn scoped_value(
         offset,
         infinity: None,
     };
-    let value = Temporal::parse_as(form, &text)
+    let value = Temporal::parse_as(form, text)
         .unwrap_or_else(|| panic!("finite-scope lexeme must parse under its descriptor: {text}"));
     assert_eq!(value.to_string(), text);
     assert_eq!(value.lexical_form(), Some(form));
@@ -427,55 +427,55 @@ fn infinity_applies(class: ComparabilityClass, infinity: &ScopedInfinity) -> boo
             .is_none_or(|minutes| minutes == infinity.offset_minutes)
 }
 
-#[test]
-fn sql_temporal_forms() {
-    const DATE_BODIES: [(&str, (bool, bool, bool)); 12] = [
-        ("0000", (true, false, false)),
-        ("-0000", (true, false, false)),
-        ("2000-01", (true, true, false)),
-        ("2000-02", (true, true, false)),
-        ("2000-01-01", (true, true, true)),
-        ("2000-01-02", (true, true, true)),
-        ("--01", (false, true, false)),
-        ("--02", (false, true, false)),
-        ("--01-01", (false, true, true)),
-        ("--01-02", (false, true, true)),
-        ("---01", (false, false, true)),
-        ("---02", (false, false, true)),
-    ];
-    const TIME_BODIES: [(&str, (bool, bool, bool)); 14] = [
-        ("00", (true, false, false)),
-        ("01", (true, false, false)),
-        ("00:00", (true, true, false)),
-        ("00:01", (true, true, false)),
-        ("00:00:00", (true, true, true)),
-        ("00:00:00.0", (true, true, true)),
-        ("23:59:60", (true, true, true)),
-        ("23:59:60.5", (true, true, true)),
-        ("-00", (false, true, false)),
-        ("-01", (false, true, false)),
-        ("-00:00", (false, true, true)),
-        ("-00:01", (false, true, true)),
-        ("--00", (false, false, true)),
-        ("--01", (false, false, true)),
-    ];
-    const DATETIME_DATES: [(&str, (bool, bool, bool)); 4] = [
-        ("2000-01-01", (true, true, true)),
-        ("2000-01-02", (true, true, true)),
-        ("---01", (false, false, true)),
-        ("---02", (false, false, true)),
-    ];
-    const DATETIME_TIMES: [(&str, (bool, bool, bool)); 8] = [
-        ("00", (true, false, false)),
-        ("01", (true, false, false)),
-        ("00:00", (true, true, false)),
-        ("00:01", (true, true, false)),
-        ("00:00:00", (true, true, true)),
-        ("00:00:00.0", (true, true, true)),
-        ("23:59:60", (true, true, true)),
-        ("23:59:60.5", (true, true, true)),
-    ];
-    let offsets = [
+const DATE_BODIES: [(&str, (bool, bool, bool)); 12] = [
+    ("0000", (true, false, false)),
+    ("-0000", (true, false, false)),
+    ("2000-01", (true, true, false)),
+    ("2000-02", (true, true, false)),
+    ("2000-01-01", (true, true, true)),
+    ("2000-01-02", (true, true, true)),
+    ("--01", (false, true, false)),
+    ("--02", (false, true, false)),
+    ("--01-01", (false, true, true)),
+    ("--01-02", (false, true, true)),
+    ("---01", (false, false, true)),
+    ("---02", (false, false, true)),
+];
+const TIME_BODIES: [(&str, (bool, bool, bool)); 14] = [
+    ("00", (true, false, false)),
+    ("01", (true, false, false)),
+    ("00:00", (true, true, false)),
+    ("00:01", (true, true, false)),
+    ("00:00:00", (true, true, true)),
+    ("00:00:00.0", (true, true, true)),
+    ("23:59:60", (true, true, true)),
+    ("23:59:60.5", (true, true, true)),
+    ("-00", (false, true, false)),
+    ("-01", (false, true, false)),
+    ("-00:00", (false, true, true)),
+    ("-00:01", (false, true, true)),
+    ("--00", (false, false, true)),
+    ("--01", (false, false, true)),
+];
+const DATETIME_DATES: [(&str, (bool, bool, bool)); 4] = [
+    ("2000-01-01", (true, true, true)),
+    ("2000-01-02", (true, true, true)),
+    ("---01", (false, false, true)),
+    ("---02", (false, false, true)),
+];
+const DATETIME_TIMES: [(&str, (bool, bool, bool)); 8] = [
+    ("00", (true, false, false)),
+    ("01", (true, false, false)),
+    ("00:00", (true, true, false)),
+    ("00:01", (true, true, false)),
+    ("00:00:00", (true, true, true)),
+    ("00:00:00.0", (true, true, true)),
+    ("23:59:60", (true, true, true)),
+    ("23:59:60.5", (true, true, true)),
+];
+
+fn finite_offsets() -> [(&'static str, Offset); 11] {
+    [
         ("", Offset::Local),
         ("Z", Offset::Zulu(ZuluCase::Upper)),
         ("", Offset::Zulu(ZuluCase::Unwritten)),
@@ -490,8 +490,10 @@ fn sql_temporal_forms() {
         ("-0000", Offset::NegZeroForm(OffsetForm::Basic)),
         ("", Offset::FixedForm(0, OffsetForm::Unwritten)),
         ("", Offset::FixedForm(330, OffsetForm::Unwritten)),
-    ];
+    ]
+}
 
+fn finite_scope(offsets: &[(&'static str, Offset)]) -> Vec<ScopedTemporal> {
     assert_eq!(DATE_BODIES.len(), 12);
     assert_eq!(TIME_BODIES.len(), 14);
     assert_eq!(DATETIME_DATES.len(), 4);
@@ -508,7 +510,7 @@ fn sql_temporal_forms() {
     for (body, shape) in DATE_BODIES {
         for (suffix, offset) in offsets.iter().copied() {
             scope.push(scoped_value(
-                format!("{body}{suffix}"),
+                &format!("{body}{suffix}"),
                 TemporalForm::Date,
                 Some(shape),
                 None,
@@ -520,7 +522,7 @@ fn sql_temporal_forms() {
     for (body, shape) in TIME_BODIES {
         for (suffix, offset) in offsets.iter().copied() {
             scope.push(scoped_value(
-                format!("{body}{suffix}"),
+                &format!("{body}{suffix}"),
                 TemporalForm::Time,
                 None,
                 Some(shape),
@@ -533,7 +535,7 @@ fn sql_temporal_forms() {
         for (time, time_shape) in DATETIME_TIMES {
             for (suffix, offset) in offsets.iter().copied() {
                 scope.push(scoped_value(
-                    format!("{date}T{time}{suffix}"),
+                    &format!("{date}T{time}{suffix}"),
                     TemporalForm::DateTime,
                     Some(date_shape),
                     Some(time_shape),
@@ -543,8 +545,11 @@ fn sql_temporal_forms() {
             }
         }
     }
-    assert_eq!(scope.len(), 638);
 
+    scope
+}
+
+fn comparability_classes(scope: &[ScopedTemporal]) -> Vec<(ComparabilityClass, Vec<usize>)> {
     let mut classes: Vec<(ComparabilityClass, Vec<usize>)> = Vec::new();
     for (index, item) in scope.iter().enumerate() {
         if let Some((_, members)) = classes.iter_mut().find(|(class, _)| *class == item.class) {
@@ -553,8 +558,11 @@ fn sql_temporal_forms() {
             classes.push((item.class, vec![index]));
         }
     }
-    assert_eq!(classes.len(), 54);
 
+    classes
+}
+
+fn scoped_infinities() -> Vec<ScopedInfinity> {
     let infinity_offsets = [
         Offset::Local,
         Offset::Zulu(ZuluCase::Upper),
@@ -573,12 +581,15 @@ fn sql_temporal_forms() {
     assert_eq!(infinity_offsets.len(), 5);
     assert_eq!(2 * infinity_offsets.len() * 2, 20);
     assert_eq!(infinities.len(), 20);
-    assert_eq!(scope.len() + infinities.len(), 658);
 
+    infinities
+}
+
+fn check_finite_pairs(scope: &[ScopedTemporal]) -> (usize, usize) {
     let mut all_pairs = 0_usize;
     let mut comparable_pairs = 0_usize;
-    for left in &scope {
-        for right in &scope {
+    for left in scope {
+        for right in scope {
             all_pairs += 1;
             let forward = left.value.cmp_chronological(&right.value);
             let backward = right.value.cmp_chronological(&left.value);
@@ -589,36 +600,17 @@ fn sql_temporal_forms() {
             }
         }
     }
-    assert_eq!(all_pairs, 407_044);
-    assert_eq!(comparable_pairs, 19_932);
-    assert_eq!(
-        classes.iter().map(|(_, xs)| xs.len().pow(2)).sum::<usize>(),
-        19_932
-    );
+    (all_pairs, comparable_pairs)
+}
 
-    let class_sizes: Vec<usize> = classes
-        .iter()
-        .map(|(class, members)| {
-            members.len()
-                + infinities
-                    .iter()
-                    .filter(|infinity| infinity_applies(*class, infinity))
-                    .count()
-        })
-        .collect();
-    assert_eq!(class_sizes.len(), 54);
-    assert_eq!(
-        class_sizes.iter().map(|size| size.pow(2)).sum::<usize>(),
-        25_700
-    );
-    assert_eq!(
-        class_sizes.iter().map(|size| size.pow(3)).sum::<usize>(),
-        1_369_448
-    );
-
+fn check_class_orders(
+    scope: &[ScopedTemporal],
+    classes: &[(ComparabilityClass, Vec<usize>)],
+    infinities: &[ScopedInfinity],
+) -> (usize, usize) {
     let mut class_pairs = 0_usize;
     let mut class_triples = 0_usize;
-    for (class, members) in &classes {
+    for (class, members) in classes {
         let applicable_infinities: Vec<_> = infinities
             .iter()
             .filter(|infinity| infinity_applies(*class, infinity))
@@ -690,9 +682,10 @@ fn sql_temporal_forms() {
             }
         }
     }
-    assert_eq!(class_pairs, 25_700);
-    assert_eq!(class_triples, 1_369_448);
+    (class_pairs, class_triples)
+}
 
+fn check_canonical_injectivity(scope: &[ScopedTemporal], infinities: &[ScopedInfinity]) {
     let all_values: Vec<&Temporal> = scope
         .iter()
         .map(|item| &item.value)
@@ -713,6 +706,51 @@ fn sql_temporal_forms() {
             );
         }
     }
+}
+
+#[test]
+fn sql_temporal_forms() {
+    let offsets = finite_offsets();
+    let scope = finite_scope(&offsets);
+    assert_eq!(scope.len(), 638);
+    let classes = comparability_classes(&scope);
+    assert_eq!(classes.len(), 54);
+    let infinities = scoped_infinities();
+    assert_eq!(scope.len() + infinities.len(), 658);
+
+    let (all_pairs, comparable_pairs) = check_finite_pairs(&scope);
+    assert_eq!(all_pairs, 407_044);
+    assert_eq!(comparable_pairs, 19_932);
+    assert_eq!(
+        classes.iter().map(|(_, xs)| xs.len().pow(2)).sum::<usize>(),
+        19_932
+    );
+
+    let class_sizes: Vec<usize> = classes
+        .iter()
+        .map(|(class, members)| {
+            members.len()
+                + infinities
+                    .iter()
+                    .filter(|infinity| infinity_applies(*class, infinity))
+                    .count()
+        })
+        .collect();
+    assert_eq!(class_sizes.len(), 54);
+    assert_eq!(
+        class_sizes.iter().map(|size| size.pow(2)).sum::<usize>(),
+        25_700
+    );
+    assert_eq!(
+        class_sizes.iter().map(|size| size.pow(3)).sum::<usize>(),
+        1_369_448
+    );
+
+    let (class_pairs, class_triples) = check_class_orders(&scope, &classes, &infinities);
+    assert_eq!(class_pairs, 25_700);
+    assert_eq!(class_triples, 1_369_448);
+
+    check_canonical_injectivity(&scope, &infinities);
 
     println!(
         "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 25700 class-local pairs with infinities, 1369448 class-local triples, 432964 representation pairs"
