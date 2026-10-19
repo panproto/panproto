@@ -1284,6 +1284,41 @@ const WORKERS: usize = 4;
 
 /// Run `case` for every spec on [`WORKERS`] threads, each spec on one
 /// thread, and merge the tallies.
+/// Run `case` on every spec and every chunk of `CHUNK` consecutive indices
+/// below `items`, the work items shared among `WORKERS` threads, so that a
+/// spec whose cases are slow is spread over every thread.
+fn over_spec_chunks(
+    specs: &[r::ValueSpec],
+    items: usize,
+    case: impl Fn(&r::ValueSpec, std::ops::Range<usize>, &mut Tally) + Sync,
+) -> Tally {
+    const CHUNK: usize = 4096;
+    let chunks = items.div_ceil(CHUNK);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let tallies: Vec<Tally> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut tally = Tally::default();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(spec) = specs.get(i / chunks.max(1)) else {
+                            return tally;
+                        };
+                        let start = (i % chunks.max(1)) * CHUNK;
+                        case(spec, start..(start + CHUNK).min(items), &mut tally);
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("worker"))
+            .collect()
+    });
+    merge_tallies(tallies)
+}
+
 fn over_specs(specs: &[r::ValueSpec], case: impl Fn(&r::ValueSpec, &mut Tally) + Sync) -> Tally {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let tallies: Vec<Tally> = std::thread::scope(|s| {
@@ -1313,6 +1348,11 @@ fn over_specs(specs: &[r::ValueSpec], case: impl Fn(&r::ValueSpec, &mut Tally) +
             .map(|w| w.join().expect("worker"))
             .collect()
     });
+    merge_tallies(tallies)
+}
+
+/// The sum of the workers' tallies.
+fn merge_tallies(tallies: Vec<Tally>) -> Tally {
     let mut all = Tally::default();
     for t in tallies {
         all.compared += t.compared;
@@ -1348,12 +1388,12 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
         values.len(),
         specs.len()
     );
-    let tally = over_specs(&specs, |spec, tally| {
+    let tally = over_spec_chunks(&specs, held.len(), |spec, range, tally| {
         let Some(production_spec) = spec_into_production(spec) else {
-            tally.outside_production += values.len() as u64;
+            tally.outside_production += range.len() as u64;
             return;
         };
-        for (x, p) in &held {
+        for (x, p) in &held[range] {
             let Some(p) = p else {
                 tally.outside_production += 1;
                 continue;
@@ -1731,6 +1771,66 @@ fn dialect_coercion_agrees_with_the_reference() {
         cases,
         9 * kinds.len() as u64 * 2 * DIALECT_PROBES.len() as u64
     );
+}
+
+/// Coercion is idempotent under every numeral dialect: a dialect reads
+/// source text, so a value coerced from a string is a fixed point of the
+/// same specification, in production and in the reference alike, on every
+/// dialect probe and the special spellings under the integer and decimal
+/// kinds.
+#[test]
+fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
+    let kinds = [
+        ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+        ScalarKind::BigInt,
+        ScalarKind::Decimal,
+    ];
+    let mut probes: Vec<&str> = DIALECT_PROBES.to_vec();
+    probes.extend(["nan", ".nan", "NaN", "1.5", "9223372036854775808", "-0.0"]);
+    let mut fixed = 0_u64;
+    let mut cases = 0_u64;
+    for dialect in std::iter::once(None).chain(DIALECTS.iter().copied().map(Some)) {
+        for kind in &kinds {
+            for unsigned in [false, true] {
+                let spec = ValueSpec {
+                    numeral: dialect,
+                    unsigned,
+                    ..ValueSpec::new(kind.clone())
+                };
+                for probe in &probes {
+                    let source = Value::Str((*probe).to_owned());
+                    let reference_spec = spec_to_ref(&spec);
+                    let first = coerce_value_to_ref(&source, &spec);
+                    assert_eq!(
+                        Some(first.clone()),
+                        r::coerce_value(&to_ref(&source), &reference_spec),
+                        "{probe:?} under {dialect:?} {kind:?}"
+                    );
+                    if let Ok(value) = &first {
+                        let second = coerce_value_to_ref(&from_ref(value).unwrap(), &spec);
+                        assert_eq!(second, first, "{probe:?} under {dialect:?} {kind:?}");
+                        assert_eq!(
+                            r::coerce_value(value, &reference_spec),
+                            Some(first.clone()),
+                            "{probe:?} under {dialect:?} {kind:?}"
+                        );
+                        fixed += 1;
+                    }
+                    cases += 1;
+                }
+            }
+        }
+    }
+    println!(
+        "idempotence: 9 dialect settings by {} kinds by 2 signedness flags by {} probes: \
+         {cases} cases, {fixed} coerced values, each a fixed point",
+        kinds.len(),
+        probes.len()
+    );
+    assert_eq!(cases, 9 * kinds.len() as u64 * 2 * probes.len() as u64);
 }
 
 /// Under the discriminator table {integer, float, text}, every tag of the

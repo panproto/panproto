@@ -1362,7 +1362,9 @@ impl FidelityLog {
 ///   class `Number` for a finite float, the text of class
 ///   [`LexClass::String`] for a string or a token, the RFC 3339 text of
 ///   class [`LexClass::DateTime`] for a date or time, and `null` of class
-///   [`LexClass::Null`] for null.
+///   [`LexClass::Null`] for null. The specification's numeral dialect reads
+///   the lexeme of a string or a token, which is source text; every other
+///   lexeme is canonical and is read without the dialect.
 /// - Any other value (bytes, links, blobs, records, lists, labelled nulls)
 ///   has no scalar lexeme and is returned unchanged; validation types it.
 ///
@@ -1507,7 +1509,18 @@ pub fn coerce_value(
             _,
         ) => return Ok(value.clone()),
     };
-    coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
+    // A numeral dialect is the syntax of source text. A typed value's
+    // lexeme is written in the canonical syntax, so it is read without the
+    // dialect, and coercing a coerced value again leaves it unchanged.
+    if matches!(value, Value::Str(_) | Value::Token(_)) || spec.numeral.is_none() {
+        coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
+    } else {
+        let canonical = ValueSpec {
+            numeral: None,
+            ..spec.clone()
+        };
+        coerce(&Lexeme::new(&text, class), &canonical).map_err(|error| error.at(site))
+    }
 }
 
 /// The float of `bits` bits (16, 32, or 64 for any other width) equal to

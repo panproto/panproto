@@ -1011,6 +1011,20 @@ fn expected_value(value: &Value, spec: &ValueSpec) -> Option<Result<Want, Fideli
                     Err(FidelityReason::PrecisionExceeded { max: 9 })
                 });
             }
+            if spec.kind == (ScalarKind::Float { bits: 16 }) {
+                let held = panproto_reference::float::narrow_bits(
+                    panproto_reference::float::Format::B16,
+                    x.to_bits(),
+                )
+                .is_some();
+                return Some(if held {
+                    Ok(Want::Float(x.to_bits()))
+                } else if x.abs() >= 65_520.0 {
+                    Err(FidelityReason::Overflow)
+                } else {
+                    Err(FidelityReason::PrecisionExceeded { max: 5 })
+                });
+            }
             if matches!(spec.kind, ScalarKind::Float { .. }) {
                 return Some(Ok(Want::Float(x.to_bits())));
             }
@@ -1470,12 +1484,14 @@ fn coerce_value_refuses_a_number_the_float_kind_does_not_hold() {
             _ => panic!("{input:?} at {bits}: got {got:?}, expected {want:?}"),
         }
     }
-    // The lexeme route under 16 bits reads binary64, so the lexeme of a
-    // refused input may still be read there.
-    assert!(same(
-        &coerce(&Lexeme::new("2049", LexClass::Number), &float(16)).unwrap(),
-        &Value::Float(2049.0)
-    ));
+    // The lexeme route under 16 bits reads binary16 exactly too, so the
+    // lexeme of a refused input is refused alike.
+    assert_eq!(
+        coerce(&Lexeme::new("2049", LexClass::Number), &float(16))
+            .unwrap_err()
+            .reason,
+        FidelityReason::PrecisionExceeded { max: 5 }
+    );
 }
 
 /// The pins of the binary64 integer boundary and a binary16 acceptance:

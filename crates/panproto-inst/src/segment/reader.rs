@@ -855,7 +855,9 @@ mod tests {
         let tag_at = bytes.len() - 9;
         assert_eq!(bytes[tag_at], 4);
         bytes[tag_at + 1..].copy_from_slice(&(86_400_i64).to_le_bytes());
-        assert!(message(read(&bytes)).contains("invalid temporal"));
+        assert!(message(read(&bytes)).contains("not a valid date or time"));
+        bytes[tag_at + 1..].copy_from_slice(&(3_600_i64).to_le_bytes());
+        assert!(message(read(&bytes)).contains("not a valid date or time"));
     }
 
     /// The bytes of a `WideInt`: its sign byte and its magnitude's digits
