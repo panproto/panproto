@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use panproto_gat::{
     ClashPolicy, ComposeOptions, CompositionError, CompositionMode, DEFAULT_VERIFY_BUDGET,
-    NotRepresentableReason, OpAssignment, Operation, Sort, SortExpr, SortParam, SymRef, Term, Theory,
-    TheoryDiagram, TheoryMorphism, compose,
+    NotRepresentableReason, OpAssignment, Operation, Sort, SortExpr, SortParam, SymRef, Term,
+    Theory, TheoryDiagram, TheoryMorphism, compose,
 };
 
 /// A theory with `X`, `Y(x : X)`, a constant `constant : X` and a
