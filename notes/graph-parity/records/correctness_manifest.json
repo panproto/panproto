@@ -20,7 +20,19 @@
           "references": [
             "panproto_reference::value::representation"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "the_value_conversion_is_injective_on_the_scope"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.vf4-lexical-mapping",
@@ -34,7 +46,19 @@
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "coerce_agrees_with_the_reference_over_the_values_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.vf6-exact-conversion",
@@ -52,7 +76,19 @@
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "coerce_value_agrees_with_the_reference_over_the_values_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.coercion-lexical-fidelity",
@@ -66,7 +102,19 @@
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "coerce_agrees_with_the_reference_over_the_values_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.coercion-idempotence",
@@ -80,7 +128,19 @@
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "coerce_value_agrees_with_the_reference_over_the_values_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.coercion-fixed-points",
@@ -95,7 +155,19 @@
             "panproto_reference::coerce::coerce",
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "coerce_agrees_with_the_reference_over_the_values_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.computed-nan-canonicalization",
@@ -109,7 +181,14 @@
           "references": [
             "panproto_reference::float::computed_nan"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "computed_nans_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.binary32-nan-bits",
@@ -124,7 +203,19 @@
             "panproto_reference::float::narrow_bits",
             "panproto_reference::float::widen_bits"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "binary32_nan_bits_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.closest-shortest-ties-even",
@@ -138,7 +229,14 @@
           "references": [
             "panproto_reference::float::shortest"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "float16_coercion_agrees_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-numeric-order",
@@ -152,7 +250,14 @@
           "references": [
             "panproto_reference::exact::DecimalValue::cmp_numeric"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-total-order",
@@ -166,7 +271,14 @@
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.temporal-chronological-order",
@@ -184,7 +296,19 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "a_leap_second_precedes_the_next_minute"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.canonical-bytes-injective",
@@ -210,7 +334,14 @@
           "references": [
             "panproto_reference::canonical::decode_value"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.expression-evaluation",
@@ -228,7 +359,14 @@
           "references": [
             "panproto_reference::value::eval"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "evaluation_agrees_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.temporal-parse-display",
@@ -242,7 +380,14 @@
           "references": [
             "panproto_reference::temporal::parse_display"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "sql_temporal_forms"
+            }
+          ]
         },
         {
           "id": "values.temporal-display-parse",
@@ -256,7 +401,14 @@
           "references": [
             "panproto_reference::temporal::display_parse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "sql_temporal_forms"
+            }
+          ]
         },
         {
           "id": "values.temporal-comparability-reversal",
@@ -282,7 +434,19 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "a_leap_second_precedes_the_next_minute"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.temporal-comparability-total-preorder",
@@ -308,7 +472,19 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "a_leap_second_precedes_the_next_minute"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.temporal-written-form-equality",
@@ -334,7 +510,19 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "a_leap_second_precedes_the_next_minute"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.temporal-complete-conservativity",
@@ -360,7 +548,19 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "a_leap_second_precedes_the_next_minute"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.temporal-new-form-byte-injectivity",
@@ -374,7 +574,19 @@
           "references": [
             "panproto_reference::temporal::canonical_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "sql_temporal_forms"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.tagged-discriminator-coercion",
@@ -388,7 +600,14 @@
           "references": [
             "panproto_reference::coerce::coerce_tagged"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "discriminated_coercion_agrees_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.numeral-dialect-agreement",
@@ -402,7 +621,14 @@
           "references": [
             "panproto_reference::coerce::coerce_dialect"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "dialect_coercion_agrees_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.latin1-decode-encode",
@@ -418,7 +644,19 @@
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_decode_encode"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.padded-accepted-text-encode-decode",
@@ -434,7 +672,19 @@
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_text_encode_decode"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.optional-byte-text-decode-encode",
@@ -448,7 +698,14 @@
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            }
+          ]
         },
         {
           "id": "values.optional-byte-text-padding-equivalence",
@@ -462,7 +719,14 @@
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            }
+          ]
         },
         {
           "id": "values.epoch-count-to-temporal-round-trip",
@@ -476,7 +740,19 @@
           "references": [
             "panproto_reference::temporal::from_epoch_count"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::epoch_counts",
+              "test": "an_epoch_count_round_trips"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.temporal-to-epoch-count-round-trip",
@@ -490,7 +766,19 @@
           "references": [
             "panproto_reference::temporal::to_epoch_count"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::epoch_counts",
+              "test": "an_epoch_count_round_trips"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.binary16-lexeme-fidelity",
@@ -504,7 +792,14 @@
           "references": [
             "panproto_reference::float::binary16"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "binary16_operations_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.nearest-reading-acceptance",
@@ -518,7 +813,14 @@
           "references": [
             "panproto_reference::float::nearest_reading"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "binary16_operations_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.nearest-reading-complement-round-trip",
@@ -532,7 +834,14 @@
           "references": [
             "panproto_reference::float::nearest_reading"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "binary16_operations_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.nearest-reading-canonical-round-trip",
@@ -546,7 +855,14 @@
           "references": [
             "panproto_reference::float::shortest"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "float16_coercion_agrees_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.exact-reading-conservativity",
@@ -560,7 +876,14 @@
           "references": [
             "panproto_reference::float::exact_reading"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "binary16_operations_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-numeric-total-preorder",
@@ -574,7 +897,14 @@
           "references": [
             "panproto_reference::exact::DecimalValue::cmp_numeric"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-special-placement",
@@ -588,7 +918,14 @@
           "references": [
             "panproto_reference::exact::DecimalValue::cmp_numeric"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-compare-total-refinement",
@@ -602,7 +939,14 @@
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            }
+          ]
         },
         {
           "id": "values.decimal-special-canonical-injectivity",
@@ -616,7 +960,19 @@
           "references": [
             "panproto_reference::canonical::decimal_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "decimal_orders_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.yaml-unwritten-zulu-representation",
@@ -630,7 +986,19 @@
           "references": [
             "panproto_reference::temporal::unwritten_zulu"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "sql_temporal_forms"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_values_differential"
+            }
+          ]
         },
         {
           "id": "values.latin1-encode-decode",
@@ -646,7 +1014,19 @@
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_encode_decode"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.padded-byte-decode-encode",
@@ -662,7 +1042,19 @@
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_bytes_decode_encode"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "a_byte_text_form_keeps_its_bytes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
+            }
+          ]
         },
         {
           "id": "values.exact-rounding-ties-even",
@@ -676,7 +1068,14 @@
           "references": [
             "panproto_reference::float::round_to"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "binary16_operations_agree_with_the_reference"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
