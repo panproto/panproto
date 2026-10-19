@@ -776,4 +776,65 @@ mod tests {
         )?;
         Ok(())
     }
+
+    #[test]
+    fn a_square_relating_two_distinct_inputs_is_not_natural() {
+        // `F(f)` is the first projection `p` and `G(f)` the second
+        // projection `q`; the identity components make the square for `f`
+        // read `x0 = x1`, which no equation of the codomain entails.
+        let binary = |name: &str| {
+            Operation::new(
+                name,
+                vec![
+                    (Arc::from("a"), crate::sort::SortExpr::from("A")),
+                    (Arc::from("b"), crate::sort::SortExpr::from("A")),
+                ],
+                "A",
+            )
+        };
+        let projection = |op: &str, kept: &str| {
+            crate::eq::DirectedEquation::new(
+                format!("{op}_proj"),
+                Term::app(op, vec![Term::var("a"), Term::var("b")]),
+                Term::var(kept),
+                panproto_expr::Expr::Var("__id__".into()),
+            )
+        };
+        let domain = Theory::new("D", vec![Sort::simple("A")], vec![binary("f")], vec![]);
+        let codomain = Theory::full(
+            "C",
+            vec![],
+            vec![Sort::simple("A")],
+            vec![binary("p"), binary("q")],
+            vec![],
+            vec![projection("p", "a"), projection("q", "b")],
+            vec![],
+        );
+        let sorts = HashMap::from([(Arc::from("A"), Arc::from("A"))]);
+        let leg = |name: &str, image: &str| {
+            TheoryMorphism::new(
+                name,
+                "D",
+                "C",
+                sorts.clone(),
+                HashMap::from([(Arc::from("f"), OpAssignment::op(image))]),
+            )
+        };
+        let nt = NaturalTransformation {
+            name: "id".into(),
+            source: "F".into(),
+            target: "G".into(),
+            components: HashMap::from([(Arc::from("A"), Term::var("x"))]),
+        };
+        let result =
+            check_natural_transformation(&nt, &leg("F", "p"), &leg("G", "q"), &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::NaturalityViolation { .. })),
+            "{result:?}"
+        );
+        // The same transformation between equal legs is natural.
+        let same =
+            check_natural_transformation(&nt, &leg("F", "p"), &leg("G", "p"), &domain, &codomain);
+        assert!(same.is_ok(), "{same:?}");
+    }
 }
