@@ -1731,30 +1731,91 @@ fn class_ambient(name: &str, extra_op: Option<Op>, extra_sort: Option<Sort>) -> 
     }
 }
 
-/// A two-node diagram whose same-name operation signatures are compared by
-/// public composition in amalgamation mode.
-#[must_use]
-pub fn operation_class_pair(left: &Op, right: &Op) -> TheoryDiagram {
-    TheoryDiagram::discrete(vec![
-        ("L".to_owned(), class_ambient("L", Some(left.clone()), None)),
-        (
-            "R".to_owned(),
-            class_ambient("R", Some(right.clone()), None),
-        ),
-    ])
+/// The three-node connector that compares two class members through public
+/// composition in amalgamation mode. Node `l` declares the left member under
+/// the name `lead`, node `m` declares the left member under its own name and
+/// node `r` the right member under its own name, each beside the same
+/// ambient sorts and operations. The edge `m -> l` is the identity on the
+/// ambient and sends `m`'s member to `lead`, so it is a theory morphism, and
+/// the name rule joins `m`'s member to `r`'s. The class is thus
+/// `{l.lead, m.<member>, r.<member>}`; its least member is `l.lead`, `m`'s
+/// member agrees with it, and the pair `l.lead`, `r.<member>` carries two
+/// names, so the tier-one verdict of the two members, not a name conflict,
+/// is what composition reports.
+fn class_connector(
+    left: Theory,
+    middle: Theory,
+    right: Theory,
+    renamed: (&str, &str),
+    sort: bool,
+) -> TheoryDiagram {
+    let (from, to) = renamed;
+    let image =
+        |name: &str, of_kind: bool| if of_kind && name == from { to } else { name }.to_owned();
+    let morphism = Morphism {
+        name: "m_to_l".to_owned(),
+        domain: middle.name.clone(),
+        codomain: left.name.clone(),
+        sorts: middle
+            .sorts
+            .iter()
+            .map(|s| (s.name.clone(), image(&s.name, sort)))
+            .collect(),
+        ops: middle
+            .ops
+            .iter()
+            .map(|o| (o.name.clone(), OpImage::Op(image(&o.name, !sort))))
+            .collect(),
+    };
+    let mut diagram = TheoryDiagram::discrete(vec![
+        ("l".to_owned(), left),
+        ("m".to_owned(), middle),
+        ("r".to_owned(), right),
+    ]);
+    diagram.edges.push(crate::theory::DiagramEdge {
+        src: "m".to_owned(),
+        tgt: "l".to_owned(),
+        morphism,
+    });
+    diagram
 }
 
-/// A two-node diagram whose same-name sort declarations are compared by
-/// public composition in amalgamation mode.
+/// The three-node connector diagram whose operation class holds `left`
+/// twice (as `l.lead` and `m`'s member) and `right` once (as `r`'s member),
+/// so that public composition in amalgamation mode reports the tier-one
+/// verdict of `left` against `right`.
+#[must_use]
+pub fn operation_class_pair(left: &Op, right: &Op) -> TheoryDiagram {
+    let lead = Op {
+        name: "lead".to_owned(),
+        ..left.clone()
+    };
+    class_connector(
+        class_ambient("L", Some(lead), None),
+        class_ambient("M", Some(left.clone()), None),
+        class_ambient("R", Some(right.clone()), None),
+        (left.name.as_str(), "lead"),
+        false,
+    )
+}
+
+/// The three-node connector diagram whose sort class holds `left` twice (as
+/// `l.lead` and `m`'s member) and `right` once (as `r`'s member), so that
+/// public composition in amalgamation mode reports the tier-one verdict of
+/// `left` against `right`.
 #[must_use]
 pub fn sort_class_pair(left: &Sort, right: &Sort) -> TheoryDiagram {
-    TheoryDiagram::discrete(vec![
-        ("L".to_owned(), class_ambient("L", None, Some(left.clone()))),
-        (
-            "R".to_owned(),
-            class_ambient("R", None, Some(right.clone())),
-        ),
-    ])
+    let lead = Sort {
+        name: "lead".to_owned(),
+        ..left.clone()
+    };
+    class_connector(
+        class_ambient("L", None, Some(lead)),
+        class_ambient("M", None, Some(left.clone())),
+        class_ambient("R", None, Some(right.clone())),
+        (left.name.as_str(), "lead"),
+        true,
+    )
 }
 
 fn sort_mismatch_target(name: &str, sort: Sort) -> Theory {
