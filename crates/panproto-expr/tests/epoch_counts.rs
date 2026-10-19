@@ -1,9 +1,11 @@
-//! An epoch count of a time unit converts to a date-time and back.
+//! An epoch count of a time unit converts to a date-time and back, exactly
+//! as the reference converts it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panproto_expr::FidelityReason;
 use panproto_expr::exact::{CivilDate, Temporal, TimeUnit};
+use panproto_reference::temporal as rt;
 
 const UNITS: [TimeUnit; 4] = [
     TimeUnit::Seconds,
@@ -11,6 +13,23 @@ const UNITS: [TimeUnit; 4] = [
     TimeUnit::Micros,
     TimeUnit::Nanos,
 ];
+
+const fn unit_to_ref(unit: TimeUnit) -> rt::TimeUnit {
+    match unit {
+        TimeUnit::Seconds => rt::TimeUnit::Seconds,
+        TimeUnit::Millis => rt::TimeUnit::Millis,
+        TimeUnit::Micros => rt::TimeUnit::Micros,
+        TimeUnit::Nanos => rt::TimeUnit::Nanos,
+    }
+}
+
+/// The reference's value bytes of a production temporal: temporal tag 15
+/// followed by the production payload.
+fn tagged_bytes(value: &Temporal) -> Vec<u8> {
+    let mut out = vec![15];
+    out.extend_from_slice(&value.canonical_bytes());
+    out
+}
 
 /// The least and the greatest count of `unit` whose date-time has a year
 /// within `i64`: the first moment of year `i64::MIN` and the last unit of
@@ -25,7 +44,10 @@ fn domain(unit: TimeUnit) -> (i128, i128) {
 /// Both round trips hold at each unit, for an instant column and a
 /// wall-clock one, on every count in [-10^4, 10^4] and within 10^4 of each
 /// bound of the domain; a count beyond either bound is refused with
-/// `Overflow`; and the inverse refuses every value outside the image.
+/// `Overflow`; and the inverse refuses every value outside the image. At
+/// every count the reference conversion yields the same value (the same
+/// display and the same canonical bytes), the same inverse count and the
+/// same refusals.
 #[test]
 fn an_epoch_count_round_trips() {
     let mut checked = 0_u64;
@@ -42,6 +64,24 @@ fn an_epoch_count_round_trips() {
                 let back = Temporal::from_epoch_count(count, unit, instant).unwrap();
                 assert_eq!(back, value);
                 assert_eq!(value.to_epoch_count(unit, !instant), None, "{value}");
+                let reference = rt::from_epoch_count(count, unit_to_ref(unit), instant)
+                    .unwrap_or_else(|| panic!("the reference refused {count} {unit:?}"));
+                assert_eq!(reference.to_string(), value.to_string(), "{count} {unit:?}");
+                assert_eq!(
+                    rt::canonical_bytes(&reference),
+                    Some(tagged_bytes(&value)),
+                    "{count} {unit:?}"
+                );
+                assert_eq!(
+                    rt::to_epoch_count(&reference, unit_to_ref(unit), instant),
+                    Some(count),
+                    "{value}"
+                );
+                assert_eq!(
+                    rt::to_epoch_count(&reference, unit_to_ref(unit), !instant),
+                    None,
+                    "{value}"
+                );
                 checked += 1;
             }
         }
@@ -51,9 +91,14 @@ fn an_epoch_count_round_trips() {
                 Err(FidelityReason::Overflow),
                 "{beyond} {unit:?}"
             );
+            assert_eq!(
+                rt::from_epoch_count(beyond, unit_to_ref(unit), true),
+                None,
+                "{beyond} {unit:?}"
+            );
         }
         println!(
-            "epoch counts: unit {}, domain [{lo}, {hi}], 20001 + 2 x 10001 counts, 2 columns",
+            "epoch counts: unit {}, domain [{lo}, {hi}], 20001 + 2 x 10001 counts, 2 columns, all agree with the reference",
             unit.as_str()
         );
     }
@@ -76,6 +121,18 @@ fn an_epoch_count_round_trips() {
         ("03:04:05Z", TimeUnit::Seconds),
     ] {
         assert_eq!(parse(text).to_epoch_count(unit, true), None, "{text}");
+        let kind = match parse(text) {
+            Temporal::Date(_) => rt::TemporalKind::Date,
+            Temporal::Time(..) => rt::TemporalKind::Time,
+            Temporal::DateTime(..) => rt::TemporalKind::DateTime,
+            Temporal::Extended(value) => panic!("{text} read as a reduced form: {value:?}"),
+        };
+        let reference = rt::parse(kind, text).unwrap();
+        assert_eq!(
+            rt::to_epoch_count(&reference, unit_to_ref(unit), true),
+            None,
+            "{text}"
+        );
     }
     assert_eq!(
         parse("1970-01-01T00:00:00.000000001Z").to_epoch_count(TimeUnit::Nanos, true),

@@ -8,17 +8,22 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::cmp::Ordering;
-use std::sync::OnceLock;
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 
 use panproto_expr::exact::{
     CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass, DecimalValue, Offset,
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TimeFields, TimeUnit, WideInt, ZuluCase,
 };
-use panproto_expr::{BuiltinOp, ExprError, Literal, apply_builtin};
+use panproto_expr::exact::{binary16_bits, binary16_nearest, binary16_widen};
+use panproto_expr::{BuiltinOp, Env, EvalConfig, Expr, ExprError, Literal, apply_builtin, eval};
 use panproto_reference::exact as rx;
+use panproto_reference::float as rf;
+use panproto_reference::float::Format;
 use panproto_reference::num::{Int, Nat};
 use panproto_reference::temporal as rt;
-use panproto_reference::value::{self as rv, EvalError, Value as RValue};
+use panproto_reference::value as rv;
+use panproto_reference::value::{EvalError, Value as RValue};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -47,6 +52,7 @@ fn error_to_ref(error: &ExprError) -> EvalError {
         ExprError::FloatNotRepresentable(_) => EvalError::FloatNotRepresentable,
         ExprError::Overflow => EvalError::Overflow,
         ExprError::DivisionByZero => EvalError::DivisionByZero,
+        ExprError::UnboundVariable(name) => EvalError::UnboundVariable(name.clone()),
         other => panic!("no reference refusal for {other:?}"),
     }
 }
@@ -62,6 +68,12 @@ const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
         BuiltinOp::Floor => rv::BuiltinOp::Floor,
         BuiltinOp::Ceil => rv::BuiltinOp::Ceil,
         BuiltinOp::Round => rv::BuiltinOp::Round,
+        BuiltinOp::Add => rv::BuiltinOp::Add,
+        BuiltinOp::Sub => rv::BuiltinOp::Sub,
+        BuiltinOp::Mul => rv::BuiltinOp::Mul,
+        BuiltinOp::Div => rv::BuiltinOp::Div,
+        BuiltinOp::Neg => rv::BuiltinOp::Neg,
+        BuiltinOp::Abs => rv::BuiltinOp::Abs,
         _ => panic!("no reference builtin mapped"),
     }
 }
@@ -263,13 +275,18 @@ fn round_breaks_an_exact_tie_to_even() {
     assert_eq!(ties, 130 + 4);
 }
 
-/// Every float-to-integer builtin returns the exact integer when it lies in
-/// `i64`'s range and refuses the float otherwise, as the reference does: the
-/// scope holds 2^63 and -2^63 and twice each, with their binary64 neighbours
-/// three patterns either way, values near them with fractions, the
-/// infinities, a NaN, the extreme finite floats and small values.
-#[test]
-fn rounding_builtins_agree_with_the_reference_beyond_i64() {
+const ROUNDING_OPS: [BuiltinOp; 4] = [
+    BuiltinOp::FloatToInt,
+    BuiltinOp::Floor,
+    BuiltinOp::Ceil,
+    BuiltinOp::Round,
+];
+
+/// The floats of the rounding-builtin scope: 2^63 and -2^63 and twice each,
+/// with their binary64 neighbours three patterns either way, values near them
+/// with fractions, the infinities, a NaN, the extreme finite floats and small
+/// values.
+fn rounding_scope() -> Vec<f64> {
     const TWO_63: f64 = 9_223_372_036_854_775_808.0;
     let mut scope = vec![
         0.0,
@@ -293,12 +310,16 @@ fn rounding_builtins_agree_with_the_reference_beyond_i64() {
             scope.push(near(base, steps));
         }
     }
-    let ops = [
-        BuiltinOp::FloatToInt,
-        BuiltinOp::Floor,
-        BuiltinOp::Ceil,
-        BuiltinOp::Round,
-    ];
+    scope
+}
+
+/// Every float-to-integer builtin returns the exact integer when it lies in
+/// `i64`'s range and refuses the float otherwise, as the reference does, on
+/// every float of [`rounding_scope`].
+#[test]
+fn rounding_builtins_agree_with_the_reference_beyond_i64() {
+    let scope = rounding_scope();
+    let ops = ROUNDING_OPS;
     for op in ops {
         for &x in &scope {
             let production = apply_builtin(op, &[Literal::Float(x)]);
@@ -311,6 +332,304 @@ fn rounding_builtins_agree_with_the_reference_beyond_i64() {
         ops.len(),
         scope.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Binary formats and computed NaNs.
+// ---------------------------------------------------------------------------
+
+/// The sign bit and exact rational value of a finite binary64 pattern.
+fn finite_rational(bits: u64) -> Option<(bool, panproto_reference::num::Rat)> {
+    match rf::decode(Format::B64, bits) {
+        rf::FloatValue::Finite { negative, value } => Some((negative, value)),
+        rf::FloatValue::Infinite { .. } | rf::FloatValue::NaN { .. } => None,
+    }
+}
+
+/// The exact decimal value of a finite binary64 value: its expansion has at
+/// most 767 significant digits, so this precision writes it exactly.
+fn exact_decimal(x: f64) -> DecimalValue {
+    DecimalValue::parse(&format!("{x:.767e}")).unwrap()
+}
+
+/// The production and reference binary16 readings of the finite binary64
+/// value with pattern `bits` agree: exact membership, and nearest rounding
+/// with ties to even through each of the reference's three names for it.
+fn check_binary16_reading(bits: u64) -> bool {
+    let Some((negative, value)) = finite_rational(bits) else {
+        return false;
+    };
+    let x = f64::from_bits(bits);
+    assert_eq!(
+        binary16_bits(x).is_some(),
+        rf::exact_reading(Format::B16, &value),
+        "exact reading of {bits:#018x}"
+    );
+    let reference = rf::binary16(&value, negative);
+    assert_eq!(
+        reference,
+        rf::nearest_reading(Format::B16, &value, negative)
+    );
+    assert_eq!(reference, rf::round_to(Format::B16, &value, negative));
+    assert_eq!(
+        binary16_nearest(&exact_decimal(x)).to_bits(),
+        rf::widen_bits(Format::B16, reference.bits(Format::B16)),
+        "nearest binary16 of {bits:#018x}"
+    );
+    true
+}
+
+/// On every binary16 pattern: widening agrees with the reference's, and
+/// narrowing the widened value and each of its two binary64 neighbours
+/// agrees with the reference's narrowing (the neighbours are refused). On
+/// every finite one of those values and on the exact midpoint between each
+/// finite pattern and the next one away from zero (the largest finite
+/// pattern's midpoint with 2^16 included), exact membership and nearest
+/// rounding with ties to even agree with the reference.
+#[test]
+fn binary16_operations_agree_with_the_reference() {
+    let mut patterns = 0_usize;
+    let mut narrowed = 0_usize;
+    let mut finite = 0_usize;
+    let mut midpoints = 0_usize;
+    for pattern in panproto_reference::enumerate::values::binary16_patterns() {
+        let h = u16::try_from(pattern).unwrap();
+        let widened = binary16_widen(h);
+        assert_eq!(
+            widened.to_bits(),
+            rf::widen_bits(Format::B16, u64::from(h)),
+            "{h:#06x}"
+        );
+        patterns += 1;
+        let bits = widened.to_bits();
+        for neighbour in [bits, bits.wrapping_add(1), bits.wrapping_sub(1)] {
+            assert_eq!(
+                binary16_bits(f64::from_bits(neighbour)).map(u64::from),
+                rf::narrow_bits(Format::B16, neighbour),
+                "{neighbour:#018x}"
+            );
+            narrowed += 1;
+            if check_binary16_reading(neighbour) {
+                finite += 1;
+            }
+        }
+        let magnitude = h & 0x7fff;
+        if magnitude <= 0x7bff {
+            let next = if magnitude == 0x7bff {
+                65_536.0_f64.copysign(widened)
+            } else {
+                binary16_widen(h + 1)
+            };
+            let midpoint = f64::midpoint(widened, next);
+            assert!(check_binary16_reading(midpoint.to_bits()));
+            midpoints += 1;
+        }
+    }
+    println!(
+        "binary16: bound 65536 patterns; {narrowed} narrowings (each pattern and its 2 binary64 \
+         neighbours); {finite} finite readings; {midpoints} midpoints; all agree with the reference"
+    );
+    assert_eq!(patterns, 1 << 16);
+    assert_eq!(narrowed, 3 << 16);
+    // The 2 x 31744 finite patterns with both neighbours are finite, except
+    // that the zeros' neighbours away from them wrap to NaNs, while each
+    // infinity's neighbour toward zero is the largest finite binary64.
+    assert_eq!(finite, 3 * 2 * 31_744);
+    assert_eq!(midpoints, 2 * 31_744);
+}
+
+/// A builtin that computes a NaN returns the reference's canonical computed
+/// NaN, on NaN operands of each sign, flag and payload (every binary16 NaN
+/// pattern widened, and four binary64 NaNs with low payload bits) and on the
+/// operand pairs that make IEEE 754 arithmetic produce one, while a
+/// `let`-bound NaN passes through with its bits; every outcome agrees with
+/// the reference.
+#[test]
+fn computed_nans_agree_with_the_reference() {
+    let mut nans: Vec<u64> = panproto_reference::enumerate::values::binary16_patterns()
+        .into_iter()
+        .filter(|pattern| pattern & 0x7c00 == 0x7c00 && pattern & 0x03ff != 0)
+        .map(|pattern| rf::widen_bits(Format::B16, pattern))
+        .collect();
+    assert_eq!(nans.len(), 2 * 1023);
+    nans.extend([
+        0x7ff8_0000_0000_0000_u64,
+        0xfff8_0000_0000_1234,
+        0x7ff4_0000_0000_0000,
+        0xfff0_0000_0000_0001,
+    ]);
+    let canonical = rf::computed_nan(Format::B64);
+    assert_eq!(canonical, 0x7ff8_0000_0000_0000);
+    let mut cases: Vec<(BuiltinOp, Vec<f64>)> = Vec::new();
+    for &nan in &nans {
+        let x = f64::from_bits(nan);
+        cases.push((BuiltinOp::Neg, vec![x]));
+        cases.push((BuiltinOp::Abs, vec![x]));
+        for op in [
+            BuiltinOp::Add,
+            BuiltinOp::Sub,
+            BuiltinOp::Mul,
+            BuiltinOp::Div,
+        ] {
+            cases.push((op, vec![x, 1.0]));
+            cases.push((op, vec![1.0, x]));
+        }
+    }
+    cases.push((BuiltinOp::Add, vec![f64::INFINITY, f64::NEG_INFINITY]));
+    cases.push((BuiltinOp::Sub, vec![f64::INFINITY, f64::INFINITY]));
+    cases.push((BuiltinOp::Mul, vec![0.0, f64::INFINITY]));
+    cases.push((BuiltinOp::Div, vec![f64::INFINITY, f64::NEG_INFINITY]));
+    let mut computed = 0_usize;
+    for (op, operands) in &cases {
+        let literals: Vec<Literal> = operands.iter().map(|x| Literal::Float(*x)).collect();
+        let references: Vec<RValue> = operands
+            .iter()
+            .map(|x| RValue::Float(x.to_bits()))
+            .collect();
+        let production = apply_builtin(*op, &literals);
+        assert_eq!(
+            outcome_to_ref(&production),
+            rv::apply_builtin(op_to_ref(*op), &references),
+            "{op:?} {operands:?}"
+        );
+        if let Ok(Literal::Float(x)) = production {
+            if x.is_nan() {
+                assert_eq!(x.to_bits(), canonical, "{op:?} {operands:?}");
+                computed += 1;
+            }
+        }
+    }
+    for &nan in &nans {
+        let expr = let_in("x", float(f64::from_bits(nan)), var("x"));
+        let production = eval(&expr, &Env::new(), &EvalConfig::default());
+        assert_eq!(
+            outcome_to_ref(&production),
+            rv::eval(&expr_to_ref(&expr), &BTreeMap::new())
+        );
+        assert!(matches!(production, Ok(Literal::Float(x)) if x.to_bits() == nan));
+    }
+    println!(
+        "computed NaNs: {} builtin cases ({computed} computed NaNs), {} pass-through NaNs, all agree",
+        cases.len(),
+        nans.len()
+    );
+    assert_eq!(nans.len(), 2 * 1023 + 4);
+    assert_eq!(cases.len(), nans.len() * (2 + 4 * 2) + 4);
+    assert_eq!(computed, cases.len());
+}
+
+// ---------------------------------------------------------------------------
+// Expression evaluation.
+// ---------------------------------------------------------------------------
+
+/// The reference expression of a production expression over variables,
+/// lambdas, applications, literals, `let` and the rounding builtins.
+fn expr_to_ref(expr: &Expr) -> rv::Expr {
+    let boxed = |e: &Expr| Box::new(expr_to_ref(e));
+    match expr {
+        Expr::Var(name) => rv::Expr::Variable(name.to_string()),
+        Expr::Lam(param, body) => rv::Expr::Lambda(param.to_string(), boxed(body)),
+        Expr::App(function, argument) => rv::Expr::Apply(boxed(function), boxed(argument)),
+        Expr::Lit(literal) => rv::Expr::Literal(literal_to_ref(literal)),
+        Expr::Let { name, value, body } => rv::Expr::Let {
+            name: name.to_string(),
+            value: boxed(value),
+            body: boxed(body),
+        },
+        Expr::Builtin(op, args) => {
+            rv::Expr::Builtin(op_to_ref(*op), args.iter().map(expr_to_ref).collect())
+        }
+        other => panic!("no reference expression for {other:?}"),
+    }
+}
+
+fn var(name: &str) -> Expr {
+    Expr::Var(Arc::from(name))
+}
+
+fn lam(param: &str, body: Expr) -> Expr {
+    Expr::Lam(Arc::from(param), Box::new(body))
+}
+
+fn app(function: Expr, argument: Expr) -> Expr {
+    Expr::App(Box::new(function), Box::new(argument))
+}
+
+fn let_in(name: &str, value: Expr, body: Expr) -> Expr {
+    Expr::Let {
+        name: Arc::from(name),
+        value: Box::new(value),
+        body: Box::new(body),
+    }
+}
+
+const fn float(x: f64) -> Expr {
+    Expr::Lit(Literal::Float(x))
+}
+
+/// The five evaluation shapes of one rounding builtin on one float: direct
+/// application, a `let`-bound argument, a lambda applied to the argument, a
+/// lambda whose parameter shadows an outer binding, and a closure whose free
+/// variable is rebound after its creation (lexical scope keeps the captured
+/// binding).
+fn evaluation_shapes(op: BuiltinOp, x: f64) -> [Expr; 5] {
+    let apply_to = |name: &str| Expr::Builtin(op, vec![var(name)]);
+    [
+        Expr::Builtin(op, vec![float(x)]),
+        let_in("x", float(x), apply_to("x")),
+        app(lam("y", apply_to("y")), float(x)),
+        let_in("y", float(0.5), app(lam("y", apply_to("y")), float(x))),
+        let_in(
+            "y",
+            float(x),
+            let_in(
+                "f",
+                lam("z", apply_to("y")),
+                let_in("y", float(0.5), app(var("f"), float(1.0))),
+            ),
+        ),
+    ]
+}
+
+/// Production evaluation agrees with the reference evaluator, value for
+/// value and refusal for refusal, on every evaluation shape of every
+/// rounding builtin over [`rounding_scope`] and every widened binary16
+/// pattern, and on an unbound variable.
+#[test]
+fn evaluation_agrees_with_the_reference() {
+    let mut scope = rounding_scope();
+    let rounding = scope.len();
+    scope.extend(
+        panproto_reference::enumerate::values::binary16_patterns()
+            .into_iter()
+            .map(|pattern| f64::from_bits(rf::widen_bits(Format::B16, pattern))),
+    );
+    assert_eq!(scope.len(), rounding + (1 << 16));
+    let config = EvalConfig::default();
+    let empty = BTreeMap::new();
+    let mut cases = 0_usize;
+    for op in ROUNDING_OPS {
+        for &x in &scope {
+            for expr in evaluation_shapes(op, x) {
+                let production = eval(&expr, &Env::new(), &config);
+                let reference = rv::eval(&expr_to_ref(&expr), &empty);
+                assert_eq!(outcome_to_ref(&production), reference, "{expr:?}");
+                cases += 1;
+            }
+        }
+    }
+    let unbound = var("unbound");
+    assert_eq!(
+        outcome_to_ref(&eval(&unbound, &Env::new(), &config)),
+        rv::eval(&expr_to_ref(&unbound), &empty)
+    );
+    cases += 1;
+    println!(
+        "evaluation: bound {} ops by {} floats ({rounding} rounding-scope floats and 65536 widened binary16 patterns) by 5 shapes plus 1 unbound variable: {cases} expressions, all agree",
+        ROUNDING_OPS.len(),
+        scope.len()
+    );
+    assert_eq!(cases, ROUNDING_OPS.len() * scope.len() * 5 + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +728,7 @@ fn decimal_orders_agree_with_the_reference() {
     // The production numeric order as a matrix, checked pair by pair.
     let mut order = vec![Ordering::Equal; n * n];
     let mut bytes = std::collections::HashSet::new();
+    let mut finite_pairs = 0_usize;
     for (i, a) in scope.iter().enumerate() {
         let a_bytes = a.canonical_bytes();
         let mut tagged_bytes = vec![13];
@@ -416,6 +736,13 @@ fn decimal_orders_agree_with_the_reference() {
         assert_eq!(
             Some(tagged_bytes),
             panproto_reference::canonical::decimal_bytes(&reference[i]),
+            "{a}"
+        );
+        let mut tagged = vec![13];
+        tagged.extend_from_slice(&a_bytes);
+        assert_eq!(
+            panproto_reference::canonical::decode_value(&tagged),
+            Some(RValue::Decimal(reference[i].clone())),
             "{a}"
         );
         assert!(bytes.insert(a_bytes), "two values with one encoding: {a}");
@@ -426,10 +753,20 @@ fn decimal_orders_agree_with_the_reference() {
                 reference[i].cmp_numeric(&reference[j]),
                 "{a} against {b}"
             );
+            if let (rx::Decimal::Finite(left), rx::Decimal::Finite(right)) =
+                (&reference[i], &reference[j])
+            {
+                assert_eq!(
+                    numeric,
+                    rx::DecimalValue::cmp_numeric(left, right),
+                    "finite {a} against {b}"
+                );
+                finite_pairs += 1;
+            }
             let total = a.compare_total(b);
             assert_eq!(
                 total,
-                reference[i].compare_total(&reference[j]),
+                rx::Decimal::compare_total(&reference[i], &reference[j]),
                 "{a} total {b}"
             );
             assert_eq!(total.is_eq(), a == b, "{a} total {b}");
@@ -460,10 +797,13 @@ fn decimal_orders_agree_with_the_reference() {
     }
     println!(
         "decimal orders: bound {n} decimals (significands 0 to 99, exponents -2 to 2, both signs, \
-         2 infinities, 8 NaNs); {} pairs, {triples} triples",
+         2 infinities, 8 NaNs); {} pairs, {finite_pairs} finite pairs, {triples} triples; \
+         every encoding decodes to its reference value",
         n * n
     );
     assert_eq!(triples, (n * n * n) as u64);
+    // The finite decimals: 5 exponents by 2 signs by 100 significands.
+    assert_eq!(finite_pairs, (5 * 2 * 100) * (5 * 2 * 100));
 }
 
 /// Every special spelling of the numeric string syntax, every finite

@@ -11,6 +11,7 @@ use panproto_expr::exact::{
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalLexicalForm, TemporalParseError,
     TemporalYear, TimeFields, ZuluCase,
 };
+use panproto_reference::temporal as rt;
 
 const fn descriptor(
     kind: TemporalForm,
@@ -334,6 +335,84 @@ fn historical_variant_admission_checks_manual_fields_and_offsets() {
     }
 }
 
+const fn offset_form_to_ref(form: OffsetForm) -> rt::OffsetForm {
+    match form {
+        OffsetForm::Extended => rt::OffsetForm::Extended,
+        OffsetForm::Basic => rt::OffsetForm::Basic,
+        OffsetForm::HourOnly => rt::OffsetForm::HourOnly,
+        OffsetForm::ExtendedSeconds => rt::OffsetForm::ExtendedSeconds,
+        OffsetForm::Unwritten => rt::OffsetForm::Unwritten,
+    }
+}
+
+const fn offset_to_ref(offset: Offset) -> rt::Offset {
+    match offset {
+        Offset::Local => rt::Offset::Local,
+        Offset::Zulu(ZuluCase::Upper) => rt::Offset::Zulu(rt::ZuluCase::Upper),
+        Offset::Zulu(ZuluCase::Lower) => rt::Offset::Zulu(rt::ZuluCase::Lower),
+        Offset::Zulu(ZuluCase::Unwritten) => rt::Offset::Zulu(rt::ZuluCase::Unwritten),
+        Offset::Fixed(minutes) => rt::Offset::Fixed(minutes, rt::OffsetForm::Extended),
+        Offset::FixedForm(minutes, form) => rt::Offset::Fixed(minutes, offset_form_to_ref(form)),
+        Offset::FixedSeconds(seconds) => rt::Offset::FixedSeconds(seconds),
+        Offset::NegZero => rt::Offset::NegZero(rt::OffsetForm::Extended),
+        Offset::NegZeroForm(form) => rt::Offset::NegZero(offset_form_to_ref(form)),
+    }
+}
+
+const fn form_to_ref(form: TemporalForm) -> rt::TemporalForm {
+    match form {
+        TemporalForm::Date => rt::TemporalForm::Date,
+        TemporalForm::Time => rt::TemporalForm::Time,
+        TemporalForm::DateTime => rt::TemporalForm::DateTime,
+    }
+}
+
+/// The reference descriptor of a production descriptor, field by field.
+const fn descriptor_to_ref(form: TemporalLexicalForm) -> rt::TemporalLexicalForm {
+    rt::TemporalLexicalForm {
+        kind: form_to_ref(form.kind),
+        date_shape: form.date_shape,
+        time_shape: form.time_shape,
+        separator: match form.separator {
+            None => None,
+            Some(DateTimeSeparator::Upper) => Some(rt::Separator::Upper),
+            Some(DateTimeSeparator::Lower) => Some(rt::Separator::Lower),
+            Some(DateTimeSeparator::Space) => Some(rt::Separator::Space),
+        },
+        offset: offset_to_ref(form.offset),
+        infinity: match form.infinity {
+            None => None,
+            Some(TemporalInfinity::Negative) => Some(rt::TemporalInfinity::Negative),
+            Some(TemporalInfinity::Positive) => Some(rt::TemporalInfinity::Positive),
+        },
+    }
+}
+
+/// The reference reading of one scoped lexeme under the mapped descriptor,
+/// with the per-value laws checked against production: both readers accept
+/// the lexeme, both displays restore it, both values report the descriptor,
+/// the canonical bytes are the reference's value bytes (temporal tag 15
+/// followed by the production payload), and both mark an unwritten UTC zone
+/// alike.
+fn reference_reading(value: &Temporal, form: TemporalLexicalForm, text: &str) -> rt::Temporal {
+    let reference_form = descriptor_to_ref(form);
+    let reference = rt::parse_as(reference_form, text)
+        .unwrap_or_else(|| panic!("the reference must read {text} under {reference_form:?}"));
+    assert!(rt::parse_display(reference_form, text), "{text}");
+    assert!(rt::display_parse(&reference), "{text}");
+    assert_eq!(reference.to_string(), value.to_string(), "{text}");
+    assert_eq!(reference.lexical_form(), Some(reference_form), "{text}");
+    let mut tagged = vec![15];
+    tagged.extend_from_slice(&value.canonical_bytes());
+    assert_eq!(rt::canonical_bytes(&reference), Some(tagged), "{text}");
+    assert_eq!(
+        rt::unwritten_zulu(&reference),
+        form.offset == Offset::Zulu(ZuluCase::Unwritten),
+        "{text}"
+    );
+    reference
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ComparabilityClass {
     kind: TemporalForm,
@@ -345,11 +424,13 @@ struct ComparabilityClass {
 
 struct ScopedTemporal {
     value: Temporal,
+    reference: rt::Temporal,
     class: ComparabilityClass,
 }
 
 struct ScopedInfinity {
     value: Temporal,
+    reference: rt::Temporal,
     kind: TemporalForm,
     zoned: bool,
     offset_minutes: i16,
@@ -376,10 +457,12 @@ fn scoped_value(
         .unwrap_or_else(|| panic!("finite-scope lexeme must parse under its descriptor: {text}"));
     assert_eq!(value.to_string(), text);
     assert_eq!(value.lexical_form(), Some(form));
+    let reference = reference_reading(&value, form, text);
     let truncated = date_shape.is_some_and(|(year, _, _)| !year)
         || (date_shape.is_none() && time_shape.is_some_and(|(hour, _, _)| !hour));
     ScopedTemporal {
         value,
+        reference,
         class: ComparabilityClass {
             kind,
             date_shape,
@@ -409,8 +492,10 @@ fn scoped_infinity(kind: TemporalForm, offset: Offset, sign: TemporalInfinity) -
     assert_eq!(value.lexical_form(), Some(form));
     let json = serde_json::to_string(&value).unwrap();
     assert_eq!(serde_json::from_str::<Temporal>(&json).unwrap(), value);
+    let reference = reference_reading(&value, form, text);
     ScopedInfinity {
         value,
+        reference,
         kind,
         zoned: offset.is_zoned(),
         offset_minutes: offset.minutes(),
@@ -685,6 +770,33 @@ fn check_class_orders(
     (class_pairs, class_triples)
 }
 
+/// The production chronological order agrees with the reference order on
+/// every ordered pair of the whole representation scope, in both operand
+/// orders and including incomparable pairs.
+fn check_reference_order(scope: &[ScopedTemporal], infinities: &[ScopedInfinity]) -> usize {
+    let values: Vec<(&Temporal, &rt::Temporal)> = scope
+        .iter()
+        .map(|item| (&item.value, &item.reference))
+        .chain(
+            infinities
+                .iter()
+                .map(|infinity| (&infinity.value, &infinity.reference)),
+        )
+        .collect();
+    let mut pairs = 0_usize;
+    for (left, left_reference) in &values {
+        for (right, right_reference) in &values {
+            assert_eq!(
+                left.cmp_chronological(right),
+                rt::cmp_chronological(left_reference, right_reference),
+                "{left} against {right}"
+            );
+            pairs += 1;
+        }
+    }
+    pairs
+}
+
 fn check_canonical_injectivity(scope: &[ScopedTemporal], infinities: &[ScopedInfinity]) {
     let all_values: Vec<&Temporal> = scope
         .iter()
@@ -751,8 +863,11 @@ fn sql_temporal_forms() {
     assert_eq!(class_triples, 1_369_448);
 
     check_canonical_injectivity(&scope, &infinities);
+    let reference_pairs = check_reference_order(&scope, &infinities);
+    assert_eq!(reference_pairs, 658 * 658);
+    assert_eq!(reference_pairs, 432_964);
 
     println!(
-        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 25700 class-local pairs with infinities, 1369448 class-local triples, 432964 representation pairs"
+        "SQL temporal forms: 658 values (638 finite: 132 dates, 154 times, 352 date-times; 20 infinities) over 11 finite offsets and 5 infinity offsets, 54 finite comparability classes, 407044 finite ordered pairs, 19932 comparable finite pairs, 25700 class-local pairs with infinities, 1369448 class-local triples, 432964 representation pairs; the reference reads, displays, encodes and orders all 658 values and all 432964 ordered pairs alike"
     );
 }

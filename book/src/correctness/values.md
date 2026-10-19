@@ -115,7 +115,7 @@ A value specification fixes the target carrier and its numeral, byte, temporal a
 - Law ID: `values.vf6-exact-conversion`
 - Reference: `panproto_reference::coerce::coerce_value`
 - Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `coerce_value_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_value_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -203,7 +203,7 @@ A value specification fixes the target carrier and its numeral, byte, temporal a
 - Law ID: `values.coercion-idempotence`
 - Reference: `panproto_reference::coerce::coerce_value`
 - Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `coerce_value_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_value_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -292,9 +292,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Law ID: `values.computed-nan-canonicalization`
 - Reference: `panproto_reference::float::computed_nan`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `rounding_builtins_agree_with_the_reference_beyond_i64; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=rounding_builtins_agree_with_the_reference_beyond_i64)'`
+- Exhaustive differential test: `computed_nans_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=computed_nans_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/builtin.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -337,9 +338,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Reference: `panproto_reference::float::narrow_bits`
 - Reference: `panproto_reference::float::widen_bits`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `binary32_nan_bits_agree_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=binary32_nan_bits_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -600,10 +602,11 @@ Representation-sensitive equality includes every field written by the canonical 
 
 - Law ID: `values.expression-evaluation`
 - Reference: `panproto_reference::value::eval`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
-- Exhaustive differential test: `rounding_builtins_agree_with_the_reference_beyond_i64; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=rounding_builtins_agree_with_the_reference_beyond_i64)'`
+- Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
+- Exhaustive differential test: `evaluation_agrees_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=evaluation_agrees_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
-- File: `crates/panproto-inst/src/value.rs`
+- File: `crates/panproto-expr/src/eval.rs`
+- File: `crates/panproto-expr/src/builtin.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1043,7 +1046,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Reference: `panproto_reference::bytes::latin1_encode`
 - Reference: `panproto_reference::bytes::latin1_decode_encode`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1089,7 +1092,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Reference: `panproto_reference::bytes::encode_base64`
 - Reference: `panproto_reference::bytes::padded_text_encode_decode`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1133,7 +1136,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Law ID: `values.optional-byte-text-decode-encode`
 - Reference: `panproto_reference::bytes::optional`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1177,7 +1180,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Law ID: `values.optional-byte-text-padding-equivalence`
 - Reference: `panproto_reference::bytes::optional`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1309,9 +1312,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Law ID: `values.binary16-lexeme-fidelity`
 - Reference: `panproto_reference::float::binary16`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1353,9 +1357,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Law ID: `values.nearest-reading-acceptance`
 - Reference: `panproto_reference::float::nearest_reading`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1400,6 +1405,7 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1485,9 +1491,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Law ID: `values.exact-reading-conservativity`
 - Reference: `panproto_reference::float::exact_reading`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
@@ -1751,7 +1758,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Reference: `panproto_reference::bytes::latin1_encode`
 - Reference: `panproto_reference::bytes::latin1_encode_decode`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1797,7 +1804,7 @@ The byte-text mappings operate positionwise for Latin-1 and quantumwise for base
 - Reference: `panproto_reference::bytes::encode_base64`
 - Reference: `panproto_reference::bytes::padded_bytes_decode_encode`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
+- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1841,9 +1848,10 @@ Each binary format is determined by its sign bit, exponent width and significand
 - Law ID: `values.exact-rounding-ties-even`
 - Reference: `panproto_reference::float::round_to`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
+- File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 

@@ -100,9 +100,10 @@ use panproto_reference::bytes::{encode_base64, latin1_decode};
 use panproto_reference::coerce as r;
 use panproto_reference::enumerate::{self as en, values as scope};
 use panproto_reference::exact as rx;
-use panproto_reference::float::{Format, widen_bits};
+use panproto_reference::float::{Format, narrow_bits, widen_bits};
 use panproto_reference::num::{Int, Nat};
 use panproto_reference::temporal as rt;
+use panproto_reference::value as rv;
 use panproto_reference::value::Value as RValue;
 use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
@@ -1189,6 +1190,9 @@ fn the_value_conversion_is_injective_on_the_scope() {
     let values = values();
     let mut images = HashSet::new();
     let mut held = 0u64;
+    let mut represented = 0u64;
+    let mut previous: Option<(&RValue, Vec<u8>)> = None;
+    let mut neighbours = 0u64;
     for x in &values {
         let Some(p) = into_production(x) else {
             continue;
@@ -1200,6 +1204,22 @@ fn the_value_conversion_is_injective_on_the_scope() {
             images.insert(to_ref(&p)),
             "two values with one image: {p:?}"
         );
+        // Representation equality is canonical-byte equality: the image of
+        // the production value has the representation of its preimage, and
+        // two successive values of the scope are equal in representation
+        // exactly when their production canonical bytes are equal.
+        let bytes = p.canonical_bytes();
+        if let Some(equal) = rv::representation(x, &to_ref(&p)) {
+            assert!(equal, "the image of {p:?} changed its representation");
+            represented += 1;
+            if let Some((before, before_bytes)) = &previous {
+                if let Some(equal) = rv::representation(before, x) {
+                    assert_eq!(equal, *before_bytes == bytes, "{before:?} against {x:?}");
+                    neighbours += 1;
+                }
+            }
+            previous = Some((x, bytes));
+        }
     }
     let specs = specs();
     let mut held_specs = 0u64;
@@ -1227,9 +1247,12 @@ fn the_value_conversion_is_injective_on_the_scope() {
     let images: HashSet<r::FidelityReason> = reasons.iter().map(reason_to_ref).collect();
     assert_eq!(images.len(), reasons.len());
     println!(
-        "conversion: {} reference values, {held} held by production, all round-tripped and pairwise distinct",
+        "conversion: {} reference values, {held} held by production, all round-tripped and pairwise distinct; \
+         {represented} in the canonical encoder's domain keep their representation, \
+         {neighbours} successive pairs compare in representation as by canonical bytes",
         values.len()
     );
+    assert!(represented > 0 && neighbours + 1 == represented);
     println!(
         "conversion: {} reference specs, {held_specs} held by production, all round-tripped",
         specs.len()
@@ -1491,6 +1514,72 @@ fn float16_coercion_agrees_with_the_reference() {
     assert_eq!(lexemes, 2 * texts.len() as u64);
 }
 
+/// The binary32 NaNs of the scope: every binary16 NaN pattern carried to
+/// binary32 on its bits, and each sign and flag with payloads at the low
+/// edge, in the middle and at the high edge of the binary32 fraction.
+fn binary32_nans() -> Vec<u64> {
+    let mut nans: Vec<u64> = scope::binary16_patterns()
+        .into_iter()
+        .filter(|pattern| pattern & 0x7c00 == 0x7c00 && pattern & 0x03ff != 0)
+        .map(|pattern| narrow_bits(Format::B32, widen_bits(Format::B16, pattern)).unwrap())
+        .collect();
+    for sign in [0_u64, 0x8000_0000] {
+        for quiet in [0_u64, 1 << 22] {
+            for payload in [0_u64, 1, 2, 0x1234, (1 << 22) - 1] {
+                if quiet != 0 || payload != 0 {
+                    nans.push(sign | 0x7f80_0000 | quiet | payload);
+                }
+            }
+        }
+    }
+    dedupe(nans)
+}
+
+/// Every binary32 NaN of [`binary32_nans`] widens to a binary64 NaN that
+/// narrows back to it, and coercing that binary64 value under
+/// `Float { bits: 32 }` keeps its bits; the same NaN with a nonzero low
+/// binary64 fraction bit is not a binary32 NaN, and both implementations
+/// refuse it alike.
+#[test]
+fn binary32_nan_bits_agree_with_the_reference() {
+    let spec = ValueSpec::new(ScalarKind::Float { bits: 32 });
+    let nans = binary32_nans();
+    let mut cases = 0_u64;
+    for &narrow in &nans {
+        let wide = widen_bits(Format::B32, narrow);
+        assert_eq!(
+            narrow_bits(Format::B32, wide),
+            Some(narrow),
+            "{narrow:#010x}"
+        );
+        for bits in [wide, wide | 1] {
+            let x = RValue::Float(bits);
+            let p = from_ref(&x).unwrap();
+            let reference = r::coerce_value(&x, &spec_to_ref(&spec))
+                .unwrap_or_else(|| panic!("{bits:#018x} is outside the reference"));
+            let production = coerce_value_to_ref(&p, &spec);
+            assert_eq!(production, reference, "{bits:#018x}");
+            if bits == wide {
+                assert_eq!(production, Ok(RValue::Float(wide)), "{narrow:#010x}");
+            } else {
+                assert_eq!(narrow_bits(Format::B32, bits), None, "{bits:#018x}");
+                assert!(production.is_err(), "{bits:#018x}");
+            }
+            cases += 1;
+        }
+    }
+    println!(
+        "binary32 NaNs: {} patterns (2046 carried from binary16 NaNs and 18 sign, flag and payload \
+         probes, less duplicates), each with a low-bit neighbour: {cases} cases, all agree",
+        nans.len()
+    );
+    // A binary16 NaN carries its fraction to the top ten binary32 fraction
+    // bits, so of the probes only the quiet NaN with payload 0 (one of each
+    // sign) is among the carried binary16 NaNs.
+    assert_eq!(nans.len(), 2 * 1023 + 2 * 9 - 2);
+    assert_eq!(cases, 2 * nans.len() as u64);
+}
+
 // ---------------------------------------------------------------------------
 // Numeral dialects and discriminators.
 // ---------------------------------------------------------------------------
@@ -1621,7 +1710,8 @@ fn dialect_coercion_agrees_with_the_reference() {
             for class in [LexClass::Number, LexClass::String] {
                 for probe in DIALECT_PROBES {
                     let reference =
-                        r::coerce(probe, &class_to_ref(&class), &spec_to_ref(&spec)).unwrap();
+                        r::coerce_dialect(probe, &class_to_ref(&class), &spec_to_ref(&spec))
+                            .unwrap();
                     assert_eq!(
                         coerce_to_ref(probe, &class, &spec),
                         reference,
@@ -1696,7 +1786,7 @@ fn discriminated_coercion_agrees_with_the_reference() {
                         coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
                             .map(|v| to_ref(&v))
                             .map_err(|e| reason_to_ref(&e.reason));
-                    let reference = r::coerce_discriminated(
+                    let reference = r::coerce_tagged(
                         text,
                         &class_to_ref(class),
                         tag,
