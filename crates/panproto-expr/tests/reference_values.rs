@@ -41,6 +41,7 @@ fn literal_to_ref(literal: &Literal) -> RValue {
         Literal::Null => RValue::Null,
         Literal::Temporal(t) => RValue::Temporal(temporal_to_ref(t)),
         Literal::Decimal(d) => RValue::Decimal(decimal_to_ref(d)),
+        Literal::List(items) => RValue::List(items.iter().map(literal_to_ref).collect()),
         other => panic!("no scalar reference value for {other:?}"),
     }
 }
@@ -53,6 +54,11 @@ fn error_to_ref(error: &ExprError) -> EvalError {
         ExprError::Overflow => EvalError::Overflow,
         ExprError::DivisionByZero => EvalError::DivisionByZero,
         ExprError::UnboundVariable(name) => EvalError::UnboundVariable(name.clone()),
+        ExprError::NotAFunction => EvalError::NotAFunction,
+        ExprError::TypeError { expected, got } => EvalError::TypeError {
+            expected: Box::leak(expected.clone().into_boxed_str()),
+            got: Box::leak(got.clone().into_boxed_str()),
+        },
         other => panic!("no reference refusal for {other:?}"),
     }
 }
@@ -75,6 +81,12 @@ const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
         BuiltinOp::Neg => rv::BuiltinOp::Neg,
         BuiltinOp::Abs => rv::BuiltinOp::Abs,
         BuiltinOp::StrToFloat => rv::BuiltinOp::StrToFloat,
+        BuiltinOp::Mod => rv::BuiltinOp::Mod,
+        BuiltinOp::Map => rv::BuiltinOp::Map,
+        BuiltinOp::Filter => rv::BuiltinOp::Filter,
+        BuiltinOp::FlatMap => rv::BuiltinOp::FlatMap,
+        BuiltinOp::Fold => rv::BuiltinOp::Fold,
+        BuiltinOp::Gt => rv::BuiltinOp::Gt,
         _ => panic!("no reference builtin mapped"),
     }
 }
@@ -561,6 +573,8 @@ fn expr_to_ref(expr: &Expr) -> rv::Expr {
         Expr::Builtin(op, args) => {
             rv::Expr::Builtin(op_to_ref(*op), args.iter().map(expr_to_ref).collect())
         }
+        Expr::List(items) => rv::Expr::List(items.iter().map(expr_to_ref).collect()),
+        Expr::Field(record, field) => rv::Expr::Field(boxed(record), field.to_string()),
         other => panic!("no reference expression for {other:?}"),
     }
 }
@@ -652,6 +666,128 @@ fn evaluation_agrees_with_the_reference() {
         scope.len()
     );
     assert_eq!(cases, ROUNDING_OPS.len() * scope.len() * 5 + 1);
+}
+
+fn int(value: i64) -> Expr {
+    Expr::Lit(Literal::Int(value))
+}
+
+fn list(items: &[i64]) -> Expr {
+    Expr::List(items.iter().copied().map(int).collect())
+}
+
+fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
+    Expr::Builtin(op, args)
+}
+
+/// Every evaluation shape of the higher-order and curried builtins: a
+/// builtin named by a free variable is that builtin curried over its
+/// surface arguments (`map f xs`, `fold f z xs`) unless a binding shadows
+/// the name; an under-saturated builtin is the function of its missing
+/// arguments; a higher-order builtin evaluates its list, then a fold's
+/// initial value, and its function only to apply it; and the remainder of
+/// the least integer by minus one is zero.
+fn higher_order_shapes() -> Vec<Expr> {
+    let add_one = lam("x", call(BuiltinOp::Add, vec![var("x"), int(1)]));
+    let sum = lam(
+        "a",
+        lam("b", call(BuiltinOp::Add, vec![var("a"), var("b")])),
+    );
+    let broken = Expr::Field(Box::new(int(1)), Arc::from("f"));
+    let failing = call(BuiltinOp::Div, vec![int(1), int(0)]);
+    vec![
+        call(BuiltinOp::Mod, vec![int(i64::MIN), int(-1)]),
+        call(BuiltinOp::Mod, vec![int(-7), int(2)]),
+        call(BuiltinOp::Div, vec![int(i64::MIN), int(-1)]),
+        call(BuiltinOp::Map, vec![list(&[1, 2]), add_one.clone()]),
+        call(BuiltinOp::Map, vec![list(&[]), broken.clone()]),
+        call(BuiltinOp::Map, vec![list(&[1]), broken.clone()]),
+        call(
+            BuiltinOp::Filter,
+            vec![
+                list(&[1, 5]),
+                lam("x", call(BuiltinOp::Gt, vec![var("x"), int(2)])),
+            ],
+        ),
+        call(
+            BuiltinOp::FlatMap,
+            vec![
+                list(&[1, 2]),
+                lam("x", Expr::List(vec![var("x"), var("x")])),
+            ],
+        ),
+        call(BuiltinOp::Fold, vec![list(&[1, 2, 3]), int(0), sum.clone()]),
+        call(
+            BuiltinOp::Fold,
+            vec![list(&[]), failing.clone(), broken.clone()],
+        ),
+        call(BuiltinOp::Fold, vec![list(&[1]), int(0), broken.clone()]),
+        call(BuiltinOp::Fold, vec![int(1), failing, broken]),
+        call(BuiltinOp::Fold, vec![list(&[1, 2]), int(0), var("add")]),
+        app(app(var("sub"), int(5)), int(3)),
+        app(call(BuiltinOp::Add, vec![int(1)]), int(2)),
+        app(app(var("map"), add_one), list(&[1, 2])),
+        app(app(app(var("fold"), sum), int(10)), list(&[1, 2, 3])),
+        let_in("add", int(5), var("add")),
+        app(var("add"), int(1)),
+    ]
+}
+
+/// Production evaluation of every higher-order and curried shape agrees
+/// with the reference evaluator, value for value and refusal for refusal.
+#[test]
+fn higher_order_builtins_evaluate_as_the_reference_does() {
+    let shapes = higher_order_shapes();
+    let config = EvalConfig::default();
+    for expr in &shapes {
+        let production = eval(expr, &Env::new(), &config);
+        let reference = rv::eval(&expr_to_ref(expr), &BTreeMap::new());
+        let production = match production {
+            Ok(Literal::Closure { .. }) => Err(EvalError::NotAFunction),
+            other => outcome_to_ref(&other),
+        };
+        assert_eq!(production, reference, "{expr:?}");
+    }
+    assert!(
+        matches!(eval(&shapes[0], &Env::new(), &config), Ok(Literal::Int(0))),
+        "the remainder of i64::MIN by -1 is zero"
+    );
+    println!(
+        "higher-order and curried builtins: {} shapes, all agree",
+        shapes.len()
+    );
+    assert_eq!(shapes.len(), 19);
+}
+
+/// Compare-total orders two representations of one negative number with
+/// the larger exponent lower: the order of the positive sign, reversed.
+#[test]
+fn compare_total_reverses_the_exponent_tie_for_negative_values() {
+    let pairs = [
+        ("-1", "-1.00", Ordering::Less),
+        ("1", "1.00", Ordering::Greater),
+        ("-0", "-0.000", Ordering::Less),
+        ("0", "0.000", Ordering::Greater),
+        ("-1.5", "-1.50", Ordering::Less),
+        ("-1E+2", "-100", Ordering::Less),
+    ];
+    for (left, right, expected) in pairs {
+        let (a, b) = (
+            DecimalValue::parse(left).unwrap(),
+            DecimalValue::parse(right).unwrap(),
+        );
+        assert_eq!(a.compare_total(&b), expected, "{left} against {right}");
+        assert_eq!(
+            b.compare_total(&a),
+            expected.reverse(),
+            "{right} against {left}"
+        );
+        assert_eq!(
+            rx::Decimal::compare_total(&decimal_to_ref(&a), &decimal_to_ref(&b)),
+            expected,
+            "reference {left} against {right}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

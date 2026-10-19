@@ -2525,9 +2525,25 @@ pub mod exact {
         BelowLo,
     }
 
-    /// `10^k` for an exponent `k` that fits `i64`.
-    fn pow10_small(k: &Int) -> Option<Rat> {
-        k.to_i64().map(Rat::pow10)
+    /// `10^k` exactly, for every integer `k`: directly when `k` fits `i64`,
+    /// and otherwise as `(10^h)^2 * 10^r` with `k = 2h + r`, `h` truncated
+    /// toward zero and `r` in `{-1, 0, 1}`, whose `|h|` is below `|k|`.
+    fn pow10_exact(k: &Int) -> Rat {
+        if let Some(small) = k.to_i64() {
+            return Rat::pow10(small);
+        }
+        let Some((half, rest)) = k.magnitude().div_rem(&Nat::from_u64(2)) else {
+            return Rat::pow10(0);
+        };
+        let half = pow10_exact(&Int::new(k.is_negative(), half));
+        let rest = if rest.is_zero() {
+            0
+        } else if k.is_negative() {
+            -1
+        } else {
+            1
+        };
+        half.mul(&half).mul(&Rat::pow10(rest))
     }
     /// A finite exact decimal `(-1)^negative x digits x 10^exponent` with an unbounded integer
     /// exponent.
@@ -2655,7 +2671,7 @@ pub mod exact {
             if p <= Int::from_i64(lo) {
                 return Scaled::BelowLo;
             }
-            let e = pow10_small(&self.exponent).unwrap_or_else(Rat::zero);
+            let e = pow10_exact(&self.exponent);
             Scaled::Value(Rat::from_int(Int::new(self.negative, self.digits.clone())).mul(&e))
         }
 
@@ -2979,10 +2995,10 @@ pub mod exact {
         /// Definition: The General Decimal Arithmetic compare-total order, from its rules:
         /// for representations of sign 0, numbers by value and, at equal value,
         /// by exponent (larger higher); every signalling NaN below every quiet
-        /// NaN, NaNs by payload; numeric magnitude and the non-finite classes
-        /// are reversed for sign 1, while the equal-number representation tie
-        /// remains ordered by exponent, and every representation of sign 1 is
-        /// below every one of sign 0.
+        /// NaN, NaNs by payload; for sign 1 the whole order is reversed ("If
+        /// the sign is 1, the order is reversed"), so of two equal negative
+        /// numbers the larger exponent is lower (`-1 < -1.00`); and every
+        /// representation of sign 1 is below every one of sign 0.
         ///
         /// Book anchors: `L-values-11`, `L-values-37`.
         #[must_use]
@@ -2998,7 +3014,8 @@ pub mod exact {
             if let (Self::Finite(a), Self::Finite(b)) = (self, other) {
                 let numeric = a.cmp_numeric(b);
                 return if numeric.is_eq() {
-                    a.exponent.cmp(&b.exponent)
+                    let exponents = a.exponent.cmp(&b.exponent);
+                    if sa { exponents.reverse() } else { exponents }
                 } else {
                     numeric
                 };
@@ -3066,16 +3083,17 @@ pub mod exact {
         #[test]
         fn compare_total_follows_its_rules() {
             // Equal finite numbers use their exponent as the representation
-            // tie for either sign, so the finer representation sorts first.
+            // tie, the larger exponent higher for sign 0 and the whole order
+            // reversed for sign 1, so `-1` sorts below `-1.00`.
             let order = [
                 "-NaN",
                 "-sNaN",
                 "-Infinity",
                 "-127",
-                "-1.00",
                 "-1",
-                "-0.000",
+                "-1.00",
                 "-0",
+                "-0.000",
                 "0",
                 "1.2300",
                 "1.23",
@@ -5525,20 +5543,8 @@ pub mod value {
         Builtin(BuiltinOp, Vec<Self>),
     }
 
-    /// Definition: Evaluate an expression in a finite environment.
-    ///
-    /// Evaluation is exact. Arithmetic accepts only `Int` and `Float`; exact
-    /// decimals, big integers and temporals require an explicit conversion and
-    /// otherwise return [`EvalError::ExactArithmetic`]. A NaN produced by a
-    /// builtin is canonicalized, while a literal, variable, list member or
-    /// selected branch passes its stored NaN bits through unchanged.
-    ///
-    /// Book anchors: `L-values-14`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed [`EvalError`] for an unbound variable, an ill-typed or
-    /// inexact built-in operation, or an operation outside its exact domain.
+    /// The result of evaluating an expression: a value, a closure, or a
+    /// builtin awaiting further arguments.
     #[derive(Clone)]
     enum Runtime {
         Value(Value),
@@ -5546,6 +5552,12 @@ pub mod value {
             parameter: String,
             body: Box<Expr>,
             environment: Environment,
+        },
+        /// A builtin awaiting the rest of its arguments, those supplied so
+        /// far held in surface order.
+        Builtin {
+            op: BuiltinOp,
+            supplied: Vec<Runtime>,
         },
     }
 
@@ -5556,22 +5568,208 @@ pub mod value {
         fn value(self) -> Result<Value, EvalError> {
             match self {
                 Self::Value(value) => Ok(value),
-                Self::Closure { .. } => Err(EvalError::NotAFunction),
+                Self::Closure { .. } | Self::Builtin { .. } => Err(EvalError::NotAFunction),
             }
         }
     }
 
+    /// Definition: the number of arguments the builtin `op` takes.
+    ///
+    /// Book anchors: `L-values-14`.
+    #[must_use]
+    pub const fn arity(op: BuiltinOp) -> usize {
+        match op {
+            BuiltinOp::Neg
+            | BuiltinOp::Abs
+            | BuiltinOp::Floor
+            | BuiltinOp::Ceil
+            | BuiltinOp::Round
+            | BuiltinOp::Not
+            | BuiltinOp::Upper
+            | BuiltinOp::Lower
+            | BuiltinOp::Trim
+            | BuiltinOp::Head
+            | BuiltinOp::Tail
+            | BuiltinOp::Reverse
+            | BuiltinOp::Keys
+            | BuiltinOp::Values
+            | BuiltinOp::IntToFloat
+            | BuiltinOp::FloatToInt
+            | BuiltinOp::IntToStr
+            | BuiltinOp::FloatToStr
+            | BuiltinOp::StrToInt
+            | BuiltinOp::StrToFloat
+            | BuiltinOp::TypeOf
+            | BuiltinOp::IsNull
+            | BuiltinOp::IsList
+            | BuiltinOp::Len
+            | BuiltinOp::Length
+            | BuiltinOp::Children
+            | BuiltinOp::EdgeCount
+            | BuiltinOp::Anchor
+            | BuiltinOp::ToString
+            | BuiltinOp::ParseDecimal
+            | BuiltinOp::DecimalToFloat => 1,
+            BuiltinOp::Add
+            | BuiltinOp::Sub
+            | BuiltinOp::Mul
+            | BuiltinOp::Div
+            | BuiltinOp::Mod
+            | BuiltinOp::Eq
+            | BuiltinOp::Ne
+            | BuiltinOp::Lt
+            | BuiltinOp::Lte
+            | BuiltinOp::Gt
+            | BuiltinOp::Gte
+            | BuiltinOp::And
+            | BuiltinOp::Or
+            | BuiltinOp::Concat
+            | BuiltinOp::Split
+            | BuiltinOp::Join
+            | BuiltinOp::Append
+            | BuiltinOp::Map
+            | BuiltinOp::Filter
+            | BuiltinOp::HasField
+            | BuiltinOp::MergeRecords
+            | BuiltinOp::Contains
+            | BuiltinOp::FlatMap
+            | BuiltinOp::Edge
+            | BuiltinOp::Edges
+            | BuiltinOp::HasEdge
+            | BuiltinOp::DefaultVal
+            | BuiltinOp::Range
+            | BuiltinOp::TruncateStr => 2,
+            BuiltinOp::Slice | BuiltinOp::Replace | BuiltinOp::Fold | BuiltinOp::Clamp => 3,
+        }
+    }
+
+    /// Definition: the builtin a surface identifier names: the expression
+    /// language's builtin vocabulary, with both spellings where the surface
+    /// syntax offers a `snake_case` and a `camelCase` one.
+    ///
+    /// Book anchors: `L-values-14`.
+    #[must_use]
+    pub fn builtin_named(name: &str) -> Option<BuiltinOp> {
+        Some(match name {
+            "add" => BuiltinOp::Add,
+            "sub" => BuiltinOp::Sub,
+            "mul" => BuiltinOp::Mul,
+            "abs" => BuiltinOp::Abs,
+            "floor" => BuiltinOp::Floor,
+            "ceil" => BuiltinOp::Ceil,
+            "round" => BuiltinOp::Round,
+            "concat" => BuiltinOp::Concat,
+            "len" => BuiltinOp::Len,
+            "slice" => BuiltinOp::Slice,
+            "upper" => BuiltinOp::Upper,
+            "lower" => BuiltinOp::Lower,
+            "trim" => BuiltinOp::Trim,
+            "split" => BuiltinOp::Split,
+            "join" => BuiltinOp::Join,
+            "replace" => BuiltinOp::Replace,
+            "contains" => BuiltinOp::Contains,
+            "map" => BuiltinOp::Map,
+            "filter" => BuiltinOp::Filter,
+            "fold" => BuiltinOp::Fold,
+            "append" => BuiltinOp::Append,
+            "head" => BuiltinOp::Head,
+            "tail" => BuiltinOp::Tail,
+            "reverse" => BuiltinOp::Reverse,
+            "flat_map" | "flatMap" => BuiltinOp::FlatMap,
+            "length" => BuiltinOp::Length,
+            "range" => BuiltinOp::Range,
+            "merge" | "merge_records" => BuiltinOp::MergeRecords,
+            "keys" => BuiltinOp::Keys,
+            "values" => BuiltinOp::Values,
+            "has_field" | "hasField" => BuiltinOp::HasField,
+            "default" | "default_val" | "defaultVal" => BuiltinOp::DefaultVal,
+            "clamp" => BuiltinOp::Clamp,
+            "truncate_str" | "truncateStr" => BuiltinOp::TruncateStr,
+            "int_to_float" | "intToFloat" => BuiltinOp::IntToFloat,
+            "float_to_int" | "floatToInt" => BuiltinOp::FloatToInt,
+            "int_to_str" | "intToStr" => BuiltinOp::IntToStr,
+            "float_to_str" | "floatToStr" => BuiltinOp::FloatToStr,
+            "str_to_int" | "strToInt" => BuiltinOp::StrToInt,
+            "str_to_float" | "strToFloat" => BuiltinOp::StrToFloat,
+            "type_of" | "typeOf" => BuiltinOp::TypeOf,
+            "is_null" | "isNull" => BuiltinOp::IsNull,
+            "is_list" | "isList" => BuiltinOp::IsList,
+            "edge" => BuiltinOp::Edge,
+            "children" => BuiltinOp::Children,
+            "has_edge" | "hasEdge" => BuiltinOp::HasEdge,
+            "edge_count" | "edgeCount" => BuiltinOp::EdgeCount,
+            "anchor" => BuiltinOp::Anchor,
+            "edges" => BuiltinOp::Edges,
+            "to_string" | "toString" => BuiltinOp::ToString,
+            "parse_decimal" | "parseDecimal" => BuiltinOp::ParseDecimal,
+            "decimal_to_float" | "decimalToFloat" => BuiltinOp::DecimalToFloat,
+            _ => return None,
+        })
+    }
+
+    /// The node order of a saturated call's surface arguments: the surface
+    /// names the function first (`map f xs`, `fold f z xs`), while a
+    /// builtin node holds the list first and the function last.
+    fn node_order(op: BuiltinOp, mut surface: Vec<Runtime>) -> Vec<Runtime> {
+        match op {
+            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::FlatMap => surface.swap(0, 1),
+            BuiltinOp::Fold => surface.swap(0, 2),
+            _ => {}
+        }
+        surface
+    }
+
     fn apply_runtime(function: Runtime, argument: Runtime) -> Result<Runtime, EvalError> {
-        let Runtime::Closure {
-            parameter,
-            body,
-            mut environment,
-        } = function
-        else {
-            return Err(EvalError::NotAFunction);
-        };
-        environment.insert(parameter, argument);
-        eval_runtime(&body, &environment)
+        match function {
+            Runtime::Closure {
+                parameter,
+                body,
+                mut environment,
+            } => {
+                environment.insert(parameter, argument);
+                eval_runtime(&body, &environment)
+            }
+            Runtime::Builtin { op, mut supplied } => {
+                supplied.push(argument);
+                if supplied.len() < arity(op) {
+                    Ok(Runtime::Builtin { op, supplied })
+                } else {
+                    apply_saturated(op, node_order(op, supplied))
+                }
+            }
+            Runtime::Value(_) => Err(EvalError::NotAFunction),
+        }
+    }
+
+    /// Apply a builtin to evaluated arguments in node order.
+    fn apply_saturated(op: BuiltinOp, arguments: Vec<Runtime>) -> Result<Runtime, EvalError> {
+        if is_higher_order(op) {
+            let mut arguments = arguments.into_iter();
+            let list = arguments.next().map_or(Ok(Value::Null), Runtime::value)?;
+            if !matches!(list, Value::List(_)) {
+                return Err(type_error("list", &list));
+            }
+            let initial = if op == BuiltinOp::Fold {
+                arguments.next().map(Runtime::value).transpose()?
+            } else {
+                None
+            };
+            let function = arguments.next().ok_or(EvalError::NotAFunction)?;
+            return higher_order(op, list, initial, || Ok(function.clone()));
+        }
+        arguments
+            .into_iter()
+            .map(Runtime::value)
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|values| apply_builtin(op, &values))
+            .map(Runtime::Value)
+    }
+
+    const fn is_higher_order(op: BuiltinOp) -> bool {
+        matches!(
+            op,
+            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap
+        )
     }
 
     fn match_pattern(
@@ -5623,9 +5821,17 @@ pub mod value {
     fn eval_runtime(expr: &Expr, environment: &Environment) -> Result<Runtime, EvalError> {
         match expr {
             Expr::Literal(value) => Ok(Runtime::Value(value.clone())),
+            // A binding shadows a builtin's name; a free name of a builtin
+            // denotes that builtin with no argument supplied.
             Expr::Variable(name) => environment
                 .get(name)
                 .cloned()
+                .or_else(|| {
+                    builtin_named(name).map(|op| Runtime::Builtin {
+                        op,
+                        supplied: Vec::new(),
+                    })
+                })
                 .ok_or_else(|| EvalError::UnboundVariable(name.clone())),
             Expr::Lambda(parameter, body) => Ok(Runtime::Closure {
                 parameter: parameter.clone(),
@@ -5745,10 +5951,16 @@ pub mod value {
         arguments: &[Expr],
         environment: &Environment,
     ) -> Result<Runtime, EvalError> {
-        if matches!(
-            op,
-            BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap
-        ) {
+        // An under-saturated builtin is the function of its missing
+        // arguments; the supplied ones are evaluated here, left to right.
+        if arguments.len() < arity(op) {
+            let supplied = arguments
+                .iter()
+                .map(|argument| eval_runtime(argument, environment))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Runtime::Builtin { op, supplied });
+        }
+        if is_higher_order(op) {
             return eval_higher_order(op, arguments, environment);
         }
         arguments
@@ -5759,12 +5971,15 @@ pub mod value {
             .map(Runtime::Value)
     }
 
+    /// A saturated higher-order builtin written as a node: the list first,
+    /// then a fold's initial value, and the function only when there is an
+    /// item to apply it to.
     fn eval_higher_order(
         op: BuiltinOp,
         arguments: &[Expr],
         environment: &Environment,
     ) -> Result<Runtime, EvalError> {
-        let expected = if op == BuiltinOp::Fold { 3 } else { 2 };
+        let expected = arity(op);
         if arguments.len() != expected {
             return Err(EvalError::ArityMismatch {
                 op,
@@ -5773,23 +5988,51 @@ pub mod value {
             });
         }
         let list = eval_runtime(&arguments[0], environment)?.value()?;
+        if !matches!(list, Value::List(_)) {
+            return Err(type_error("list", &list));
+        }
+        let initial = if op == BuiltinOp::Fold {
+            Some(eval_runtime(&arguments[1], environment)?.value()?)
+        } else {
+            None
+        };
+        higher_order(op, list, initial, || {
+            eval_runtime(&arguments[expected - 1], environment)
+        })
+    }
+
+    /// Map, filter, flat-map or fold `list`, obtaining the function from
+    /// `function` once, before its first application.
+    fn higher_order(
+        op: BuiltinOp,
+        list: Value,
+        initial: Option<Value>,
+        function: impl FnOnce() -> Result<Runtime, EvalError>,
+    ) -> Result<Runtime, EvalError> {
         let Value::List(items) = list else {
             return Err(type_error("list", &list));
         };
-        let function = eval_runtime(arguments.last().unwrap_or(&arguments[0]), environment)?;
+        let mut function = Some(function);
+        let mut obtained: Option<Runtime> = None;
+        let mut next = || -> Result<Runtime, EvalError> {
+            if obtained.is_none() {
+                let make = function.take().ok_or(EvalError::NotAFunction)?;
+                obtained = Some(make()?);
+            }
+            obtained.clone().ok_or(EvalError::NotAFunction)
+        };
         match op {
-            BuiltinOp::Map => items
-                .into_iter()
-                .map(|item| {
-                    apply_runtime(function.clone(), Runtime::Value(item)).and_then(Runtime::value)
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(Value::List)
-                .map(Runtime::Value),
+            BuiltinOp::Map => {
+                let mut output = Vec::with_capacity(items.len());
+                for item in items {
+                    output.push(apply_runtime(next()?, Runtime::Value(item))?.value()?);
+                }
+                Ok(Runtime::Value(Value::List(output)))
+            }
             BuiltinOp::Filter => {
                 let mut output = Vec::new();
                 for item in items {
-                    match apply_runtime(function.clone(), Runtime::Value(item.clone()))?.value()? {
+                    match apply_runtime(next()?, Runtime::Value(item.clone()))?.value()? {
                         Value::Bool(true) => output.push(item),
                         Value::Bool(false) => {}
                         other => return Err(type_error("bool", &other)),
@@ -5800,7 +6043,7 @@ pub mod value {
             BuiltinOp::FlatMap => {
                 let mut output = Vec::new();
                 for item in items {
-                    match apply_runtime(function.clone(), Runtime::Value(item))?.value()? {
+                    match apply_runtime(next()?, Runtime::Value(item))?.value()? {
                         Value::List(values) => output.extend(values),
                         other => return Err(type_error("list", &other)),
                     }
@@ -5808,34 +6051,46 @@ pub mod value {
                 Ok(Runtime::Value(Value::List(output)))
             }
             BuiltinOp::Fold => {
-                let mut accumulator = eval_runtime(&arguments[1], environment)?.value()?;
+                let mut accumulator = initial.unwrap_or(Value::Null);
                 for item in items {
-                    let partial = apply_runtime(function.clone(), Runtime::Value(accumulator))?;
+                    let partial = apply_runtime(next()?, Runtime::Value(accumulator))?;
                     accumulator = apply_runtime(partial, Runtime::Value(item))?.value()?;
                 }
                 Ok(Runtime::Value(accumulator))
             }
-            _ => unreachable!(),
+            _ => Err(EvalError::NotAFunction),
         }
     }
 
     /// Definition: Evaluate one exact-value expression in the supplied
     /// lexical environment.
     ///
+    /// Evaluation is exact. Arithmetic accepts only `Int` and `Float`; exact
+    /// decimals, big integers and temporals require an explicit conversion and
+    /// otherwise return [`EvalError::ExactArithmetic`]. A NaN produced by a
+    /// builtin is canonicalized, while a literal, variable, list member or
+    /// selected branch passes its stored NaN bits through unchanged.
+    ///
     /// A lambda evaluates to a closure over its defining environment; a
     /// `let` may bind a closure and an application may pass one, so a
     /// closure applied anywhere evaluates its body in the environment it was
-    /// written in, extended by its parameter. Every builtin returns a typed
-    /// error rather than silently changing a value's carrier, and an
-    /// expression whose result is a closure is refused with
-    /// [`EvalError::NotAFunction`], since a closure is not a value. A
-    /// builtin application takes its full arity; a free variable must be
-    /// bound by `environment`.
+    /// written in, extended by its parameter. A free variable that the
+    /// environment does not bind but that names a builtin ([`builtin_named`])
+    /// denotes that builtin curried over its surface arguments, and a
+    /// builtin node given fewer than its [`arity`] arguments evaluates them
+    /// left to right and denotes the function of the rest; a saturated call
+    /// takes its surface arguments in node order (`map f xs` is the node
+    /// `Map(xs, f)`, `fold f z xs` the node `Fold(xs, z, f)`). A higher-order
+    /// builtin evaluates its list, then a fold's initial value, and its
+    /// function only when it has an item to apply it to. An expression
+    /// whose result is a closure or a partial builtin is refused with
+    /// [`EvalError::NotAFunction`], since a function is not a value.
     ///
     /// # Errors
     ///
-    /// Returns [`EvalError`] for an unbound name, ill-typed operation,
-    /// overflow, failed conversion, or non-exhaustive pattern.
+    /// Returns a typed [`EvalError`] for an unbound name, an ill-typed or
+    /// inexact built-in operation, an overflow, a failed conversion, a
+    /// non-exhaustive pattern or a function-valued result.
     ///
     /// Book anchors: `L-values-14`.
     pub fn eval(expr: &Expr, environment: &BTreeMap<String, Value>) -> Result<Value, EvalError> {
@@ -6412,9 +6667,12 @@ pub mod value {
         }
         match (left, right) {
             (Value::Int(_), Value::Int(0)) => Err(EvalError::DivisionByZero),
-            (Value::Int(a), Value::Int(b)) => {
-                a.checked_rem(*b).map(Value::Int).ok_or(EvalError::Overflow)
-            }
+            // The truncated remainder, computed exactly in i128; its
+            // magnitude is below |b|, so it always fits i64 (the remainder
+            // of i64::MIN by -1 is 0).
+            (Value::Int(a), Value::Int(b)) => i64::try_from(i128::from(*a) % i128::from(*b))
+                .map(Value::Int)
+                .map_err(|_| EvalError::Overflow),
             (other, _) => Err(type_error("int", other)),
         }
     }
