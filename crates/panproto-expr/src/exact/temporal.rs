@@ -666,7 +666,7 @@ impl Offset {
 
     /// Seconds east of UTC; zero for local and zero-offset forms.
     #[must_use]
-    pub const fn seconds(self) -> i32 {
+    pub fn seconds(self) -> i32 {
         match self {
             Self::Fixed(m) | Self::FixedForm(m, _) => i32::from(m) * 60,
             Self::FixedSeconds(s) => s,

@@ -587,7 +587,9 @@ proptest! {
             prop_assert_eq!(
                 outcome_to_ref(&production),
                 reference,
-                "generated {op:?} disagrees for float bits {float_bits:#018x}"
+                "generated {op:?} disagrees for float bits {float_bits:#018x}",
+                op = op,
+                float_bits = float_bits,
             );
         }
 
@@ -898,7 +900,10 @@ proptest! {
         prop_assert_eq!(
             production_epoch.as_ref().ok().map(temporal_to_ref),
             reference_epoch.clone(),
-            "generated epoch conversion disagrees for {count} {production_unit:?}, instant={instant}"
+            "generated epoch conversion disagrees for {count} {production_unit:?}, instant={instant}",
+            count = count,
+            production_unit = production_unit,
+            instant = instant,
         );
         let production_back = production_epoch
             .as_ref()
@@ -910,12 +915,18 @@ proptest! {
         prop_assert_eq!(
             production_back,
             reference_back,
-            "generated epoch round trip disagrees for {count} {production_unit:?}, instant={instant}"
+            "generated epoch round trip disagrees for {count} {production_unit:?}, instant={instant}",
+            count = count,
+            production_unit = production_unit,
+            instant = instant,
         );
         prop_assert_eq!(
             production_back,
             Some(count),
-            "generated epoch count did not round trip for {count} {production_unit:?}, instant={instant}"
+            "generated epoch count did not round trip for {count} {production_unit:?}, instant={instant}",
+            count = count,
+            production_unit = production_unit,
+            instant = instant,
         );
 
         let production_instant = Temporal::from_epoch_count(count, production_unit, true)
@@ -936,42 +947,58 @@ proptest! {
         prop_assert_eq!(
             production_instant.cmp_chronological(&production_fixed),
             Some(Ordering::Equal),
-            "generated Z and +00:00 forms do not denote the same instant: {instant_text:?} and {fixed_text:?}"
+            "generated Z and +00:00 forms do not denote the same instant: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
         prop_assert_eq!(
             production_fixed.cmp_chronological(&production_instant),
             Some(Ordering::Equal),
-            "generated +00:00 and Z forms do not denote the same instant: {fixed_text:?} and {instant_text:?}"
+            "generated +00:00 and Z forms do not denote the same instant: {fixed_text:?} and {instant_text:?}",
+            fixed_text = &fixed_text,
+            instant_text = &instant_text,
         );
         prop_assert_eq!(
             rt::cmp_chronological(&reference_instant, &reference_fixed),
             Some(Ordering::Equal),
-            "reference Z and +00:00 forms do not denote the same instant: {instant_text:?} and {fixed_text:?}"
+            "reference Z and +00:00 forms do not denote the same instant: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
         prop_assert_eq!(
             rt::cmp_chronological(&reference_fixed, &reference_instant),
             Some(Ordering::Equal),
-            "reference +00:00 and Z forms do not denote the same instant: {fixed_text:?} and {instant_text:?}"
+            "reference +00:00 and Z forms do not denote the same instant: {fixed_text:?} and {instant_text:?}",
+            fixed_text = &fixed_text,
+            instant_text = &instant_text,
         );
         prop_assert_ne!(
             &production_instant,
             &production_fixed,
-            "generated Z and +00:00 representations collapsed: {instant_text:?} and {fixed_text:?}"
+            "generated Z and +00:00 representations collapsed: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
         prop_assert_ne!(
             &reference_instant,
             &reference_fixed,
-            "reference Z and +00:00 representations collapsed: {instant_text:?} and {fixed_text:?}"
+            "reference Z and +00:00 representations collapsed: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
         prop_assert_ne!(
             production_instant.canonical_bytes(),
             production_fixed.canonical_bytes(),
-            "generated Z and +00:00 canonical payloads collided: {instant_text:?} and {fixed_text:?}"
+            "generated Z and +00:00 canonical payloads collided: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
         prop_assert_ne!(
             rt::canonical_bytes(&reference_instant),
             rt::canonical_bytes(&reference_fixed),
-            "reference Z and +00:00 canonical bytes collided: {instant_text:?} and {fixed_text:?}"
+            "reference Z and +00:00 canonical bytes collided: {instant_text:?} and {fixed_text:?}",
+            instant_text = &instant_text,
+            fixed_text = &fixed_text,
         );
 
         let neighboring_count = count
@@ -991,22 +1018,36 @@ proptest! {
         prop_assert_eq!(
             temporal_to_ref(&production_neighbor),
             reference_neighbor.clone(),
-            "generated neighboring epoch conversion disagrees for {neighboring_count} {production_unit:?}, instant={instant}"
+            "generated neighboring epoch conversion disagrees for {neighboring_count} {production_unit:?}, instant={instant}",
+            neighboring_count = neighboring_count,
+            production_unit = production_unit,
+            instant = instant,
         );
         prop_assert_eq!(
             production_value.cmp_chronological(&production_neighbor),
             rt::cmp_chronological(reference_value, &reference_neighbor),
-            "generated complete epoch forms disagree in chronological order for {count} and {neighboring_count} {production_unit:?}, instant={instant}"
+            "generated complete epoch forms disagree in chronological order for {count} and {neighboring_count} {production_unit:?}, instant={instant}",
+            count = count,
+            neighboring_count = neighboring_count,
+            production_unit = production_unit,
+            instant = instant,
         );
         prop_assert_eq!(
             production_neighbor.cmp_chronological(production_value),
             rt::cmp_chronological(&reference_neighbor, reference_value),
-            "generated complete epoch forms disagree in reverse chronological order for {neighboring_count} and {count} {production_unit:?}, instant={instant}"
+            "generated complete epoch forms disagree in reverse chronological order for {neighboring_count} and {count} {production_unit:?}, instant={instant}",
+            neighboring_count = neighboring_count,
+            count = count,
+            production_unit = production_unit,
+            instant = instant,
         );
         prop_assert_eq!(
             production_value.cmp_chronological(&production_neighbor),
             Some(Ordering::Less),
-            "successive complete epoch forms are not ordered for {count} {production_unit:?}, instant={instant}"
+            "successive complete epoch forms are not ordered for {count} {production_unit:?}, instant={instant}",
+            count = count,
+            production_unit = production_unit,
+            instant = instant,
         );
 
         let production_local = Temporal::from_epoch_count(count, production_unit, false)
@@ -1029,7 +1070,8 @@ proptest! {
         prop_assert_eq!(
             temporal_to_ref(&production_unwritten),
             reference_unwritten.clone(),
-            "production and reference unwritten-Z values disagree for {local_text:?}"
+            "production and reference unwritten-Z values disagree for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert!(
             rt::unwritten_zulu(&reference_unwritten),
@@ -1037,7 +1079,7 @@ proptest! {
         );
         prop_assert_eq!(
             production_unwritten.to_string(),
-            local_text,
+            local_text.as_str(),
             "an unwritten-Z temporal did not preserve its display"
         );
         prop_assert_eq!(
@@ -1048,62 +1090,74 @@ proptest! {
         prop_assert_eq!(
             production_unwritten.cmp_chronological(&production_instant),
             Some(Ordering::Equal),
-            "an unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}"
+            "an unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_eq!(
             production_instant.cmp_chronological(&production_unwritten),
             Some(Ordering::Equal),
-            "an explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}"
+            "an explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_eq!(
             rt::cmp_chronological(&reference_unwritten, &reference_instant),
             Some(Ordering::Equal),
-            "the reference unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}"
+            "the reference unwritten-Z temporal does not equal its explicit-Z instant for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_eq!(
             rt::cmp_chronological(&reference_instant, &reference_unwritten),
             Some(Ordering::Equal),
-            "the reference explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}"
+            "the reference explicit-Z instant does not equal its unwritten-Z temporal for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             &production_unwritten,
             &production_local,
-            "an unwritten-Z temporal collapsed with its local representation for {local_text:?}"
+            "an unwritten-Z temporal collapsed with its local representation for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             &reference_unwritten,
             &reference_local,
-            "a reference unwritten-Z temporal collapsed with its local representation for {local_text:?}"
+            "a reference unwritten-Z temporal collapsed with its local representation for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             &production_unwritten,
             &production_instant,
-            "an unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}"
+            "an unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             &reference_unwritten,
             &reference_instant,
-            "a reference unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}"
+            "a reference unwritten-Z temporal collapsed with its explicit-Z representation for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             production_unwritten.canonical_bytes(),
             production_local.canonical_bytes(),
-            "an unwritten-Z canonical payload collided with its local payload for {local_text:?}"
+            "an unwritten-Z canonical payload collided with its local payload for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             rt::canonical_bytes(&reference_unwritten),
             rt::canonical_bytes(&reference_local),
-            "reference unwritten-Z canonical bytes collided with local bytes for {local_text:?}"
+            "reference unwritten-Z canonical bytes collided with local bytes for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             production_unwritten.canonical_bytes(),
             production_instant.canonical_bytes(),
-            "an unwritten-Z canonical payload collided with explicit-Z payload for {local_text:?}"
+            "an unwritten-Z canonical payload collided with explicit-Z payload for {local_text:?}",
+            local_text = &local_text,
         );
         prop_assert_ne!(
             rt::canonical_bytes(&reference_unwritten),
             rt::canonical_bytes(&reference_instant),
-            "reference unwritten-Z canonical bytes collided with explicit-Z bytes for {local_text:?}"
+            "reference unwritten-Z canonical bytes collided with explicit-Z bytes for {local_text:?}",
+            local_text = &local_text,
         );
     }
 }
