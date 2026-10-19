@@ -964,7 +964,7 @@ enum Derivability {
 /// it compares both sides. Comparing `lhs = rhs` with the reflexive equation
 /// `lhs = lhs` therefore permits renaming local `Let` and `Case` binders but
 /// does not identify two distinct free variables such as `x` and `y`.
-pub(crate) fn equal_in_context(lhs: &Term, rhs: &Term) -> bool {
+pub fn equal_in_context(lhs: &Term, rhs: &Term) -> bool {
     alpha_equivalent_equation(lhs, rhs, lhs, lhs)
 }
 

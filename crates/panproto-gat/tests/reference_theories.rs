@@ -2481,41 +2481,10 @@ mod outside_scope {
     }
 }
 
-/// Inputs outside the enumerated scopes on which production and the
-/// reference once disagreed: a free variable first met under a local
-/// binder, the refusal order of equation and directed-equation name
-/// conflicts, the name a clash reports, an equation whose sides agree under
-/// a non-terminating rule, a parameter sort that differs only in a local
-/// binder name, and the equation a commuting cocone square names.
-#[test]
-fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
-    use outside_scope::{app, directed, let_in, morphism, named, op, options, sort, theory, var};
-    let modes = [
-        r::CompositionMode::Amalgamate,
-        r::CompositionMode::ExplicitIdentity,
-    ];
-    let policies = [r::ClashPolicy::Reject, r::ClashPolicy::Freshen];
-
-    // A free variable whose correspondence is first fixed under a `Let`.
-    let with_equation = |name: &str, eq: &str, rhs: &str| {
-        let mut t = theory(
-            name,
-            vec![sort("A", vec![])],
-            vec![op("c", &[], named("A")), op("f", &[("u", "A")], named("A"))],
-        );
-        t.eqs.push(r::Equation {
-            name: eq.to_owned(),
-            lhs: let_in("n", app("c", vec![]), app("f", vec![var("x")])),
-            rhs: app("f", vec![var(rhs)]),
-        });
-        t
-    };
-    let free_under_let = r::TheoryDiagram::discrete(vec![
-        ("L".to_owned(), with_equation("L", "e1", "y")),
-        ("R".to_owned(), with_equation("R", "e2", "x")),
-    ]);
-
-    // A node equation named like a generated one, and a directed conflict.
+/// A node equation named like a generated one, beside a directed-equation
+/// name conflict.
+fn refusal_order_composition() -> r::TheoryDiagram {
+    use outside_scope::{app, directed, morphism, named, op, sort, theory};
     let rule = |imp: &str| directed("r", app("c", vec![]), app("c", vec![]), imp);
     let mut left = theory(
         "L",
@@ -2548,6 +2517,36 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
             vec![("c", r::OpImage::Term(app("d", vec![])))],
         ),
     });
+    refusal_order
+}
+
+/// The compositions of the outside-scope differential: a free variable
+/// first met under a local binder, a node equation named like a generated
+/// one beside a directed conflict, two clashes out of byte order, one edge
+/// generating two equations, and a class joined by an edge and by name.
+fn outside_scope_compositions() -> Vec<r::TheoryDiagram> {
+    use outside_scope::{app, let_in, morphism, named, op, sort, theory, var};
+
+    // A free variable whose correspondence is first fixed under a `Let`.
+    let with_equation = |name: &str, eq: &str, rhs: &str| {
+        let mut t = theory(
+            name,
+            vec![sort("A", vec![])],
+            vec![op("c", &[], named("A")), op("f", &[("u", "A")], named("A"))],
+        );
+        t.eqs.push(r::Equation {
+            name: eq.to_owned(),
+            lhs: let_in("n", app("c", vec![]), app("f", vec![var("x")])),
+            rhs: app("f", vec![var(rhs)]),
+        });
+        t
+    };
+    let free_under_let = r::TheoryDiagram::discrete(vec![
+        ("L".to_owned(), with_equation("L", "e1", "y")),
+        ("R".to_owned(), with_equation("R", "e2", "x")),
+    ]);
+
+    let refusal_order = refusal_order_composition();
 
     // Two clashing names whose class order differs from their byte order.
     let single = |label: &str, s: &str| theory(label, vec![sort(s, vec![])], Vec::new());
@@ -2615,10 +2614,29 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
             vec![("g", r::OpImage::Op("f".to_owned()))],
         ),
     });
+    vec![free_under_let, refusal_order, clash, cocone, mixed]
+}
+
+/// Inputs outside the enumerated scopes on which production and the
+/// reference once disagreed: a free variable first met under a local
+/// binder, the refusal order of equation and directed-equation name
+/// conflicts, the name a clash reports, an equation whose sides agree under
+/// a non-terminating rule, a parameter sort that differs only in a local
+/// binder name, and the equation a commuting cocone square names.
+#[test]
+fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
+    use outside_scope::{app, directed, let_in, morphism, named, op, options, sort, theory, var};
+    let modes = [
+        r::CompositionMode::Amalgamate,
+        r::CompositionMode::ExplicitIdentity,
+    ];
+    let policies = [r::ClashPolicy::Reject, r::ClashPolicy::Freshen];
+    let diagrams = outside_scope_compositions();
+    let mixed = &diagrams[4];
     assert!(
         matches!(
             r::compose(
-                &mixed,
+                mixed,
                 &options(r::CompositionMode::Amalgamate, r::ClashPolicy::Reject)
             ),
             Err(r::ComposeError::OpSignatureMismatch(_, _))
@@ -2627,7 +2645,7 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
     );
 
     let mut compared = 0;
-    for diagram in [&free_under_let, &refusal_order, &clash, &cocone, &mixed] {
+    for diagram in &diagrams {
         for mode in modes {
             for clash_policy in policies {
                 compose_agrees(diagram, &options(mode, clash_policy))

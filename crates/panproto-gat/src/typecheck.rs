@@ -286,7 +286,7 @@ fn typecheck_case(
         match &branch_sort {
             None => branch_sort = Some(body_sort),
             Some(existing) => {
-                if !sort_exprs_agree(&existing, &[], &body_sort, &[]) {
+                if !sort_exprs_agree(existing, &[], &body_sort, &[]) {
                     return Err(GatError::EquationSortMismatch {
                         equation: "case".to_string(),
                         lhs_sort: existing.to_string(),
@@ -875,7 +875,7 @@ fn typecheck_case_with_holes(
                 // Require every branch body to produce an
                 // alpha-equivalent output sort. Mirror the strict
                 // typecheck_case behaviour.
-                if !sort_exprs_agree(&existing, &[], &body_sort, &[]) {
+                if !sort_exprs_agree(existing, &[], &body_sort, &[]) {
                     return Err(GatError::EquationSortMismatch {
                         equation: "case".to_string(),
                         lhs_sort: existing.to_string(),

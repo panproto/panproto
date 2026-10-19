@@ -3599,15 +3599,7 @@ pub mod theory {
         .into_iter()
         .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
         .collect();
-        let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
-        for (name, generated) in &added {
-            let least = closing
-                .entry(generated.edge_index)
-                .or_insert_with(|| name.clone());
-            if name < least {
-                least.clone_from(name);
-            }
-        }
+        let closing = least_closing(&added);
         for (name, generated) in added {
             out.eqs.push(Equation {
                 name: name.clone(),
@@ -3670,6 +3662,20 @@ pub mod theory {
                 freshened,
             },
         })
+    }
+
+    /// For each edge that generated equations, the least of their names.
+    fn least_closing(added: &[(Name, Generated)]) -> BTreeMap<usize, Name> {
+        let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
+        for (name, generated) in added {
+            let least = closing
+                .entry(generated.edge_index)
+                .or_insert_with(|| name.clone());
+            if name < least {
+                least.clone_from(name);
+            }
+        }
+        closing
     }
 
     /// The transport check: every translated node equation, then every
