@@ -2757,9 +2757,11 @@ pub mod theory {
 
     /// Name every class of one kind: its candidate. A candidate shared by
     /// several classes, or equal to a reserved name (the name of an added
-    /// equation, held by the operation it identifies), is a clash: under
-    /// amalgamation a `NameConflict` between the class's first member and
-    /// the other class's first member or the reserved name's holder; under
+    /// equation, held by the operation it identifies), is a clash; the least
+    /// clashing name in byte order is the one a refusal reports. Under
+    /// amalgamation a clash is a `NameConflict` between the least member of
+    /// the first class holding that name and the least member of the next
+    /// one, or the reserved name's holder; under
     /// explicit identity refused as `NameClash` or freshened as
     /// `{least member label}.{candidate}`, and then every class of a name
     /// that is still shared, or still reserved, is suffixed `#1`, `#2`, ...
@@ -2774,7 +2776,12 @@ pub mod theory {
     ) -> Result<Vec<Name>, ComposeError> {
         let cands: Vec<Name> = classes.iter().map(|c| majority(c)).collect();
         let mut names = cands.clone();
-        for (i, c) in cands.iter().enumerate() {
+        // Clashes are met in ascending order of the candidate name, so a
+        // refusal reports the least clashing name.
+        let mut order: Vec<usize> = (0..cands.len()).collect();
+        order.sort_by(|a, b| cands[*a].cmp(&cands[*b]).then(a.cmp(b)));
+        for i in order {
+            let c = &cands[i];
             let sharing: Vec<usize> = (0..cands.len()).filter(|j| cands[*j] == *c).collect();
             let holder = reserved.get(c);
             if sharing.len() < 2 && holder.is_none() {
@@ -3576,14 +3583,22 @@ pub mod theory {
             .iter()
             .map(|(name, generated)| (name.clone(), generated.source.op.clone()))
             .collect();
-        out.eqs = equations(
-            &eqs,
+        // Every amalgamation name conflict among equations, directed
+        // equations and policies comes before any of them is named.
+        let eq_classes = equation_classes(&eqs, mode)?;
+        let directed = directed_classes(nodes, &res, mode)?;
+        let policy = policy_classes(nodes, mode)?;
+        out.eqs = name_items(
+            eq_classes,
             &reserved,
             mode,
             clash,
             &mut provenance,
             &mut freshened,
-        )?;
+        )?
+        .into_iter()
+        .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
+        .collect();
         let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
         for (name, generated) in &added {
             let least = closing
@@ -3602,9 +3617,28 @@ pub mod theory {
             provenance.added_eqs.insert(name, generated.source);
         }
         out.eqs.sort_by(|a, b| a.name.cmp(&b.name));
-        out.directed_eqs =
-            directed_equations(nodes, &res, mode, clash, &mut provenance, &mut freshened)?;
-        out.policies = policies(nodes, mode, clash, &mut provenance, &mut freshened)?;
+        out.directed_eqs = name_items(
+            directed,
+            &BTreeMap::new(),
+            mode,
+            clash,
+            &mut provenance,
+            &mut freshened,
+        )?
+        .into_iter()
+        .map(|(name, d)| DirectedEquation { name, ..d })
+        .collect();
+        out.policies = name_items(
+            policy,
+            &BTreeMap::new(),
+            mode,
+            clash,
+            &mut provenance,
+            &mut freshened,
+        )?
+        .into_iter()
+        .map(|(name, p)| Policy { name, ..p })
+        .collect();
         out.sorts.sort_by(|a, b| a.name.cmp(&b.name));
         out.ops.sort_by(|a, b| a.name.cmp(&b.name));
         if let Err(defects) = typecheck_signature(&out) {
@@ -4602,10 +4636,16 @@ pub mod theory {
             left_signature.3.iter().zip(&right_signature.3).enumerate()
         {
             if left_param != right_param {
+                // A sort applied to no arguments is written as the bare
+                // sort name, the one spelling of that sort expression.
+                let written = |sort: &SortExpr| match sort {
+                    SortExpr::App(name, arguments) if arguments.is_empty() => name.clone(),
+                    other => other.to_string(),
+                };
                 return SortMismatch::ParamSort {
                     index,
-                    first: left.params[index].1.to_string(),
-                    second: right.params[index].1.to_string(),
+                    first: written(&left.params[index].1),
+                    second: written(&right.params[index].1),
                 };
             }
         }
@@ -4704,6 +4744,14 @@ pub mod theory {
     /// representative item.
     type ItemClass<K, T> = (Vec<SymRef>, K, T);
 
+    /// The classes of one kind of equation-like item, before naming: each
+    /// class's members (ascending) and representative, classes ascending by
+    /// member list.
+    struct Classified<T> {
+        kind: SymKind,
+        classes: Vec<(Vec<SymRef>, T)>,
+    }
+
     /// Classify named items by content: every item joins the class of equal
     /// content, whatever its name, and a class's representative is the item
     /// of its least member. Under amalgamation a name carried by members of
@@ -4711,19 +4759,14 @@ pub mod theory {
     /// order of their member lists, and each class's members in ascending
     /// order, the first member whose name an earlier class holds conflicts
     /// with the first member seen of that name, the two in ascending order.
-    /// Classes are then named as symbols are.
-    fn classify_items<K: PartialEq, T: Clone>(
+    fn classify_items<K: PartialEq, T>(
         kind: SymKind,
-        mut items: Vec<(SymRef, Name, K, T)>,
-        reserved: &BTreeMap<Name, SymRef>,
+        mut items: Vec<(SymRef, K, T)>,
         mode: Mode,
-        clash: ClashPolicy,
-        provenance: &mut Provenance,
-        freshened: &mut Vec<Freshening>,
-    ) -> Result<Vec<(Name, T)>, ComposeError> {
+    ) -> Result<Classified<T>, ComposeError> {
         items.sort_by(|a, b| a.0.cmp(&b.0));
         let mut classes: Vec<ItemClass<K, T>> = Vec::new();
-        for (r, _, key, item) in items {
+        for (r, key, item) in items {
             match classes.iter_mut().find(|c| c.1 == key) {
                 Some(c) => c.0.push(r),
                 None => classes.push((vec![r], key, item)),
@@ -4733,11 +4776,10 @@ pub mod theory {
             c.0.sort();
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
-        let members: Vec<Vec<SymRef>> = classes.iter().map(|c| c.0.clone()).collect();
         if mode == Mode::Amalgamate {
             let mut seen: Vec<(usize, &SymRef)> = Vec::new();
-            for (i, class) in members.iter().enumerate() {
-                for m in class {
+            for (i, class) in classes.iter().enumerate() {
+                for m in &class.0 {
                     match seen.iter().find(|(_, s)| s.name == m.name) {
                         Some(&(j, s)) if j != i => {
                             let (first, second) = if s <= m { (s, m) } else { (m, s) };
@@ -4754,66 +4796,68 @@ pub mod theory {
                 }
             }
         }
-        let names = name_classes(kind, &members, reserved, mode, clash, freshened)?;
-        let mut out = Vec::new();
-        for (c, n) in classes.into_iter().zip(names) {
-            for m in &c.0 {
-                provenance.map_mut(kind).insert(m.clone(), n.clone());
-            }
-            out.push((n, c.2));
-        }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(out)
+        Ok(Classified {
+            kind,
+            classes: classes.into_iter().map(|(m, _, t)| (m, t)).collect(),
+        })
     }
 
-    /// The result equations: translations that are alpha-equivalent in either
-    /// orientation are one equation in both modes, and under amalgamation one
-    /// name carried by two different equations is a conflict.
-    fn equations(
-        eqs: &[(SymRef, Name, Term, Term)],
+    /// Name classified items as symbols are named, record every member's
+    /// result name, and return the named representatives in ascending name
+    /// order.
+    fn name_items<T>(
+        classified: Classified<T>,
         reserved: &BTreeMap<Name, SymRef>,
         mode: Mode,
         clash: ClashPolicy,
         provenance: &mut Provenance,
         freshened: &mut Vec<Freshening>,
-    ) -> Result<Vec<Equation>, ComposeError> {
+    ) -> Result<Vec<(Name, T)>, ComposeError> {
+        let kind = classified.kind;
+        let members: Vec<Vec<SymRef>> = classified.classes.iter().map(|c| c.0.clone()).collect();
+        let names = name_classes(kind, &members, reserved, mode, clash, freshened)?;
+        let mut out = Vec::new();
+        for ((class, item), n) in classified.classes.into_iter().zip(names) {
+            for m in &class {
+                provenance.map_mut(kind).insert(m.clone(), n.clone());
+            }
+            out.push((n, item));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
+    /// The equation classes: translations that are alpha-equivalent in
+    /// either orientation are one equation in both modes, and under
+    /// amalgamation one name carried by two different equations is a
+    /// conflict.
+    fn equation_classes(
+        eqs: &[(SymRef, Name, Term, Term)],
+        mode: Mode,
+    ) -> Result<Classified<(Term, Term)>, ComposeError> {
         let items = eqs
             .iter()
-            .map(|(r, name, l, rr)| {
+            .map(|(r, _, l, rr)| {
                 (
                     r.clone(),
-                    name.clone(),
                     alpha(l, rr).min(alpha(rr, l)),
                     (l.clone(), rr.clone()),
                 )
             })
             .collect();
-        Ok(classify_items(
-            SymKind::Eq,
-            items,
-            reserved,
-            mode,
-            clash,
-            provenance,
-            freshened,
-        )?
-        .into_iter()
-        .map(|(name, (lhs, rhs))| Equation { name, lhs, rhs })
-        .collect())
+        classify_items(SymKind::Eq, items, mode)
     }
 
-    /// The result directed equations: each node's directed equations with
+    /// The directed-equation classes: each node's directed equations with
     /// their operations translated along the cocone, classified as equations
-    /// are, the content being the alpha-normal sides together with the opaque
-    /// implementation, inverse, value kinds and classification.
-    fn directed_equations(
+    /// are, the content being the alpha-normal sides in their stated
+    /// orientation together with the opaque implementation, inverse, value
+    /// kinds and classification.
+    fn directed_classes(
         nodes: &[(Name, Theory)],
         res: &dyn Fn(SymKind, &str, &str) -> Name,
         mode: Mode,
-        clash: ClashPolicy,
-        provenance: &mut Provenance,
-        freshened: &mut Vec<Freshening>,
-    ) -> Result<Vec<DirectedEquation>, ComposeError> {
+    ) -> Result<Classified<DirectedEquation>, ComposeError> {
         let mut items = Vec::new();
         for (l, t) in nodes {
             let op = |n: &str| res(SymKind::Op, l, n);
@@ -4835,33 +4879,19 @@ pub mod theory {
                     node: l.clone(),
                     name: d.name.clone(),
                 };
-                items.push((r, d.name.clone(), key, translated));
+                items.push((r, key, translated));
             }
         }
-        Ok(classify_items(
-            SymKind::DirectedEq,
-            items,
-            &BTreeMap::new(),
-            mode,
-            clash,
-            provenance,
-            freshened,
-        )?
-        .into_iter()
-        .map(|(name, d)| DirectedEquation { name, ..d })
-        .collect())
+        classify_items(SymKind::DirectedEq, items, mode)
     }
 
-    /// The result policies: transported unchanged (a policy mentions no sort
+    /// The policy classes: transported unchanged (a policy mentions no sort
     /// or operation), classified by content (value kind and strategy) as
     /// equations are.
-    fn policies(
+    fn policy_classes(
         nodes: &[(Name, Theory)],
         mode: Mode,
-        clash: ClashPolicy,
-        provenance: &mut Provenance,
-        freshened: &mut Vec<Freshening>,
-    ) -> Result<Vec<Policy>, ComposeError> {
+    ) -> Result<Classified<Policy>, ComposeError> {
         let mut items = Vec::new();
         for (l, t) in nodes {
             for p in &t.policies {
@@ -4870,21 +4900,10 @@ pub mod theory {
                     name: p.name.clone(),
                 };
                 let key = (p.value_kind.clone(), p.strategy.clone());
-                items.push((r, p.name.clone(), key, p.clone()));
+                items.push((r, key, p.clone()));
             }
         }
-        Ok(classify_items(
-            SymKind::Policy,
-            items,
-            &BTreeMap::new(),
-            mode,
-            clash,
-            provenance,
-            freshened,
-        )?
-        .into_iter()
-        .map(|(name, p)| Policy { name, ..p })
-        .collect())
+        classify_items(SymKind::Policy, items, mode)
     }
 
     /// Domain separator for canonical theory identities.
