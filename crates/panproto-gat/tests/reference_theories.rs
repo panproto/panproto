@@ -2361,3 +2361,281 @@ fn randomized_theory_differential() {
         Err(TestError::Abort(reason)) => panic!("property run aborted with seed {seed}: {reason}"),
     }
 }
+
+// ─── worked counterexamples outside the enumerated scopes ──────────
+
+mod outside_scope {
+    use super::r;
+
+    pub fn var(x: &str) -> r::Term {
+        r::Term::Var(x.to_owned())
+    }
+
+    pub fn app(op: &str, args: Vec<r::Term>) -> r::Term {
+        r::Term::App(op.to_owned(), args)
+    }
+
+    pub fn let_in(x: &str, bound: r::Term, body: r::Term) -> r::Term {
+        r::Term::Let(x.to_owned(), Box::new(bound), Box::new(body))
+    }
+
+    pub fn sort(name: &str, params: Vec<(&str, r::SortExpr)>) -> r::Sort {
+        r::Sort {
+            name: name.to_owned(),
+            params: params.into_iter().map(|(p, s)| (p.to_owned(), s)).collect(),
+            kind: "structural".to_owned(),
+            constructors: None,
+        }
+    }
+
+    pub fn op(name: &str, inputs: &[(&str, &str)], output: r::SortExpr) -> r::Op {
+        r::Op {
+            name: name.to_owned(),
+            inputs: inputs
+                .iter()
+                .map(|(x, s)| {
+                    (
+                        (*x).to_owned(),
+                        r::SortExpr::Name((*s).to_owned()),
+                        r::Implicit::No,
+                    )
+                })
+                .collect(),
+            output,
+        }
+    }
+
+    pub fn named(s: &str) -> r::SortExpr {
+        r::SortExpr::Name(s.to_owned())
+    }
+
+    pub fn theory(name: &str, sorts: Vec<r::Sort>, ops: Vec<r::Op>) -> r::Theory {
+        r::Theory {
+            name: name.to_owned(),
+            sorts,
+            ops,
+            ..r::Theory::default()
+        }
+    }
+
+    pub fn directed(
+        name: &str,
+        lhs: r::Term,
+        rhs: r::Term,
+        implementation: &str,
+    ) -> r::DirectedEquation {
+        r::DirectedEquation {
+            name: name.to_owned(),
+            lhs,
+            rhs,
+            implementation: implementation.to_owned(),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: "Iso".to_owned(),
+        }
+    }
+
+    pub fn morphism(
+        domain: &str,
+        codomain: &str,
+        sorts: &[(&str, &str)],
+        ops: Vec<(&str, r::OpImage)>,
+    ) -> r::Morphism {
+        r::Morphism {
+            name: format!("{domain}_to_{codomain}"),
+            domain: domain.to_owned(),
+            codomain: codomain.to_owned(),
+            sorts: sorts
+                .iter()
+                .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+                .collect(),
+            ops: ops.into_iter().map(|(o, i)| (o.to_owned(), i)).collect(),
+        }
+    }
+
+    pub fn options(mode: r::CompositionMode, clash: r::ClashPolicy) -> r::ComposeOptions {
+        r::ComposeOptions {
+            mode,
+            result_name: "R".to_owned(),
+            clash,
+            rewrite_budget: 512,
+        }
+    }
+}
+
+/// Inputs outside the enumerated scopes on which production and the
+/// reference once disagreed: a free variable first met under a local
+/// binder, the refusal order of equation and directed-equation name
+/// conflicts, the name a clash reports, an equation whose sides agree under
+/// a non-terminating rule, a parameter sort that differs only in a local
+/// binder name, and the equation a commuting cocone square names.
+#[test]
+fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
+    use outside_scope::{app, directed, let_in, morphism, named, op, options, sort, theory, var};
+    let modes = [
+        r::CompositionMode::Amalgamate,
+        r::CompositionMode::ExplicitIdentity,
+    ];
+    let policies = [r::ClashPolicy::Reject, r::ClashPolicy::Freshen];
+
+    // A free variable whose correspondence is first fixed under a `Let`.
+    let with_equation = |name: &str, eq: &str, rhs: &str| {
+        let mut t = theory(
+            name,
+            vec![sort("A", vec![])],
+            vec![op("c", &[], named("A")), op("f", &[("u", "A")], named("A"))],
+        );
+        t.eqs.push(r::Equation {
+            name: eq.to_owned(),
+            lhs: let_in("n", app("c", vec![]), app("f", vec![var("x")])),
+            rhs: app("f", vec![var(rhs)]),
+        });
+        t
+    };
+    let free_under_let = r::TheoryDiagram::discrete(vec![
+        ("L".to_owned(), with_equation("L", "e1", "y")),
+        ("R".to_owned(), with_equation("R", "e2", "x")),
+    ]);
+
+    // A node equation named like a generated one, and a directed conflict.
+    let rule = |imp: &str| directed("r", app("c", vec![]), app("c", vec![]), imp);
+    let mut left = theory(
+        "L",
+        vec![sort("A", vec![])],
+        vec![op("c", &[], named("A")), op("d", &[], named("A"))],
+    );
+    left.eqs.push(r::Equation {
+        name: "S.c~0".to_owned(),
+        lhs: app("c", vec![]),
+        rhs: app("c", vec![]),
+    });
+    left.directed_eqs.push(rule("x"));
+    let mut other = theory("N", vec![sort("A", vec![])], vec![op("c", &[], named("A"))]);
+    other.directed_eqs.push(rule("y"));
+    let mut refusal_order = r::TheoryDiagram::discrete(vec![
+        (
+            "S".to_owned(),
+            theory("S", vec![sort("A", vec![])], vec![op("c", &[], named("A"))]),
+        ),
+        ("L".to_owned(), left),
+        ("N".to_owned(), other),
+    ]);
+    refusal_order.edges.push(r::DiagramEdge {
+        src: "S".to_owned(),
+        tgt: "L".to_owned(),
+        morphism: morphism(
+            "S",
+            "L",
+            &[("A", "A")],
+            vec![("c", r::OpImage::Term(app("d", vec![])))],
+        ),
+    });
+
+    // Two clashing names whose class order differs from their byte order.
+    let single = |label: &str, s: &str| theory(label, vec![sort(s, vec![])], Vec::new());
+    let clash = r::TheoryDiagram::discrete(vec![
+        ("a".to_owned(), single("a", "z")),
+        ("b".to_owned(), single("b", "a")),
+        ("c".to_owned(), single("c", "z")),
+        ("d".to_owned(), single("d", "a")),
+    ]);
+
+    // One edge generating two equations whose name order differs from the
+    // order of their operations.
+    let mut cocone = r::TheoryDiagram::discrete(vec![
+        (
+            "S".to_owned(),
+            theory(
+                "S",
+                vec![sort("A", vec![])],
+                vec![op("f", &[], named("A")), op("f2", &[], named("A"))],
+            ),
+        ),
+        (
+            "L".to_owned(),
+            theory("L", vec![sort("A", vec![])], vec![op("c", &[], named("A"))]),
+        ),
+    ]);
+    cocone.edges.push(r::DiagramEdge {
+        src: "S".to_owned(),
+        tgt: "L".to_owned(),
+        morphism: morphism(
+            "S",
+            "L",
+            &[("A", "A")],
+            vec![
+                ("f", r::OpImage::Term(app("c", vec![]))),
+                ("f2", r::OpImage::Term(app("c", vec![]))),
+            ],
+        ),
+    });
+
+    let mut compared = 0;
+    for diagram in [&free_under_let, &refusal_order, &clash, &cocone] {
+        for mode in modes {
+            for clash_policy in policies {
+                compose_agrees(diagram, &options(mode, clash_policy))
+                    .unwrap_or_else(|detail| panic!("{detail}"));
+                compared += 1;
+            }
+        }
+    }
+
+    // An equation whose two sides agree, into a codomain whose one directed
+    // rule does not terminate on them.
+    let h = || op("h", &[("u", "A")], named("A"));
+    let mut domain = theory("D", vec![sort("A", vec![])], vec![h()]);
+    domain.eqs.push(r::Equation {
+        name: "e".to_owned(),
+        lhs: app("h", vec![var("x")]),
+        rhs: app("h", vec![var("x")]),
+    });
+    let mut codomain = theory("C", vec![sort("A", vec![])], vec![h()]);
+    codomain.directed_eqs.push(directed(
+        "loop",
+        app("h", vec![var("x")]),
+        app("h", vec![app("h", vec![var("x")])]),
+        "x",
+    ));
+    let identity = morphism(
+        "D",
+        "C",
+        &[("A", "A")],
+        vec![("h", r::OpImage::Op("h".to_owned()))],
+    );
+    assert!(
+        morphism_agrees(&domain, &codomain, &identity),
+        "an equation whose sides agree is preserved whatever the codomain's rules"
+    );
+
+    // A parameter sort and an argument sort that differ only in the name
+    // of a local binder.
+    let local = |u: &str| let_in(u, app("a", vec![]), var(u));
+    let binders = theory(
+        "T",
+        vec![
+            sort("X", vec![]),
+            sort("Y", vec![("x", named("X"))]),
+            sort(
+                "Z",
+                vec![("w", r::SortExpr::App("Y".to_owned(), vec![local("u")]))],
+            ),
+        ],
+        vec![
+            op("a", &[], named("X")),
+            op("k", &[], r::SortExpr::App("Y".to_owned(), vec![local("v")])),
+            op(
+                "q",
+                &[],
+                r::SortExpr::App("Z".to_owned(), vec![app("k", vec![])]),
+            ),
+        ],
+    );
+    assert!(
+        typecheck_agrees(&binders),
+        "signature checking compares sorts up to the names of local binders"
+    );
+    println!("outside-scope compositions compared: {compared} (4 diagrams x 2 modes x 2 policies)");
+    assert_eq!(compared, 16);
+}

@@ -1170,6 +1170,43 @@ mod tests {
     }
 
     #[test]
+    fn alpha_eq_equation_keeps_free_correspondences_found_under_binders() {
+        // `x` is first met inside the `Let` body; its correspondence with
+        // the other side's `x` must survive the binder, so `y` cannot be
+        // matched to `x` afterwards.
+        let under = |v: &str| Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::app("f", vec![Term::var(v)])),
+        };
+        let f = |v: &str| Term::app("f", vec![Term::var(v)]);
+        assert!(!alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("x"),
+            &f("x")
+        ));
+        assert!(alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("u"),
+            &f("v")
+        ));
+        // A local binder never stands for a free variable of the other side.
+        let bound = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        let free = Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        assert!(!alpha_equivalent(&bound, &free));
+    }
+
+    #[test]
     fn alpha_eq_equation_inconsistent_bijection() {
         // Equation 1: f(x, y) = g(y)
         // Equation 2: f(a, b) = g(a)  -- inconsistent: y->b from lhs, but y->a from rhs
