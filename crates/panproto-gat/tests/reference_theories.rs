@@ -2588,8 +2588,46 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
         ),
     });
 
+    // A class joined by an edge and by the name rule whose members
+    // disagree: not formed by the name rule alone, so a tier-one refusal.
+    let two = || vec![sort("A", vec![]), sort("B", vec![])];
+    let mut mixed = r::TheoryDiagram::discrete(vec![
+        (
+            "l".to_owned(),
+            theory("l", two(), vec![op("f", &[], named("A"))]),
+        ),
+        (
+            "m".to_owned(),
+            theory("m", two(), vec![op("g", &[], named("A"))]),
+        ),
+        (
+            "r".to_owned(),
+            theory("r", two(), vec![op("f", &[], named("B"))]),
+        ),
+    ]);
+    mixed.edges.push(r::DiagramEdge {
+        src: "m".to_owned(),
+        tgt: "l".to_owned(),
+        morphism: morphism(
+            "m",
+            "l",
+            &[("A", "A"), ("B", "B")],
+            vec![("g", r::OpImage::Op("f".to_owned()))],
+        ),
+    });
+    assert!(
+        matches!(
+            r::compose(
+                &mixed,
+                &options(r::CompositionMode::Amalgamate, r::ClashPolicy::Reject)
+            ),
+            Err(r::ComposeError::OpSignatureMismatch(_, _))
+        ),
+        "a class the edges help form reports its tier-one refusal"
+    );
+
     let mut compared = 0;
-    for diagram in [&free_under_let, &refusal_order, &clash, &cocone] {
+    for diagram in [&free_under_let, &refusal_order, &clash, &cocone, &mixed] {
         for mode in modes {
             for clash_policy in policies {
                 compose_agrees(diagram, &options(mode, clash_policy))
@@ -2653,6 +2691,6 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
         typecheck_agrees(&binders),
         "signature checking compares sorts up to the names of local binders"
     );
-    println!("outside-scope compositions compared: {compared} (4 diagrams x 2 modes x 2 policies)");
-    assert_eq!(compared, 16);
+    println!("outside-scope compositions compared: {compared} (5 diagrams x 2 modes x 2 policies)");
+    assert_eq!(compared, 20);
 }

@@ -2070,13 +2070,12 @@ fn check_sort_classes(
             });
         if let Some((second, detail)) = mismatch {
             return Err(
-                name_rule_conflict(SymKind::Sort, first, second, opts, edge_uf).unwrap_or_else(
-                    || CompositionError::SortSignatureMismatch {
+                name_rule_conflict(SymKind::Sort, members, first, second, opts, edge_uf)
+                    .unwrap_or_else(|| CompositionError::SortSignatureMismatch {
                         first: first.clone(),
                         second: second.clone(),
                         detail,
-                    },
-                ),
+                    }),
             );
         }
     }
@@ -2121,27 +2120,36 @@ fn check_op_classes(
                 },
             };
             return Err(
-                name_rule_conflict(SymKind::Op, first, second, opts, edge_uf).unwrap_or(typed),
+                name_rule_conflict(SymKind::Op, members, first, second, opts, edge_uf)
+                    .unwrap_or(typed),
             );
         }
     }
     Ok(())
 }
 
-/// In [`CompositionMode::Amalgamate`], a mismatch between two same-name
-/// members that the edges alone do not relate (only the name rule joined
-/// them) is a [`CompositionError::NameConflict`].
+/// In [`CompositionMode::Amalgamate`], a class formed only by the name
+/// rule (no two of its members are related by the edges) whose members
+/// disagree is a [`CompositionError::NameConflict`], named by the first
+/// member's name.
 fn name_rule_conflict(
     kind: SymKind,
+    members: &[SymRef],
     a: &SymRef,
     b: &SymRef,
     opts: &ComposeOptions,
     edge_uf: &mut UnionFind<Key>,
 ) -> Option<CompositionError> {
-    (opts.mode == CompositionMode::Amalgamate
-        && a.name == b.name
-        && !edge_uf.same(&(kind, a.clone()), &(kind, b.clone())))
-    .then(|| CompositionError::NameConflict {
+    if opts.mode != CompositionMode::Amalgamate {
+        return None;
+    }
+    let mut roots = BTreeSet::new();
+    for m in members {
+        if !roots.insert(edge_uf.find(&(kind, m.clone()))) {
+            return None;
+        }
+    }
+    Some(CompositionError::NameConflict {
         kind,
         name: Arc::clone(&a.name),
         first: a.clone(),

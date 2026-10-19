@@ -2903,9 +2903,9 @@ pub mod theory {
     /// symbols of two nodes; (4) class checks: sort classes agree on arity,
     /// kind, closure (constructors by class) and parameter sorts by class
     /// (`SortSignatureMismatch`), operation classes on their name-free
-    /// signatures by class (`OpSignatureMismatch`), a disagreeing pair of
-    /// same-name members that only the name rule relates being `NameConflict`
-    /// in `Amalgamate` mode; (5)
+    /// signatures by class (`OpSignatureMismatch`), a disagreeing class that
+    /// the name rule alone formed (no two members related by the edges)
+    /// being `NameConflict` in `Amalgamate` mode; (5)
     /// for each edge and operation with a term image, the equation
     /// `class(o)(inputs) = translate(t)` named `"{src label}.{o}~{rank}"`, the
     /// rank of the edge in ascending (source label, target label, morphism)
@@ -4543,8 +4543,14 @@ pub mod theory {
                         })
                 });
                 if let Some((first, second)) = mismatch {
-                    let same_leg = legs.label.get(&(kind, first.clone()))
-                        == legs.label.get(&(kind, second.clone()));
+                    // A class formed only by the name rule: no two of its
+                    // members are related by the edges.
+                    let name_rule_only = {
+                        let mut labels = std::collections::BTreeSet::new();
+                        members
+                            .iter()
+                            .all(|m| labels.insert(legs.label.get(&(kind, m.clone()))))
+                    };
                     let head_signatures_match = {
                         let head_signature = |member: &SymRef| {
                             theory(&member.node)
@@ -4570,23 +4576,21 @@ pub mod theory {
                         };
                         head_signature(&first) == head_signature(&second)
                     };
-                    return Err(
-                        if mode == Mode::Amalgamate && !same_leg && first.name == second.name {
-                            ComposeError::NameConflict(kind, first.name.clone(), first, second)
-                        } else if kind == SymKind::Sort {
-                            let detail =
-                                sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
-                            ComposeError::SortSignatureMismatch(first, second, Box::new(detail))
-                        } else if head_signatures_match {
-                            ComposeError::QuotientNotRepresentable {
-                                first,
-                                second,
-                                reason: NotRepresentableReason::NeedsSortEquation,
-                            }
-                        } else {
-                            ComposeError::OpSignatureMismatch(first, second)
-                        },
-                    );
+                    return Err(if mode == Mode::Amalgamate && name_rule_only {
+                        ComposeError::NameConflict(kind, first.name.clone(), first, second)
+                    } else if kind == SymKind::Sort {
+                        let detail =
+                            sort_mismatch(nodes, cl, &first, &second, is_implicit(&second));
+                        ComposeError::SortSignatureMismatch(first, second, Box::new(detail))
+                    } else if head_signatures_match {
+                        ComposeError::QuotientNotRepresentable {
+                            first,
+                            second,
+                            reason: NotRepresentableReason::NeedsSortEquation,
+                        }
+                    } else {
+                        ComposeError::OpSignatureMismatch(first, second)
+                    });
                 }
             }
         }
