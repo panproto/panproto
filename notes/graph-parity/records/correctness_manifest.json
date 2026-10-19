@@ -823,27 +823,6 @@
           ]
         },
         {
-          "id": "values.nearest-reading-complement-round-trip",
-          "anchor": "L-values-32",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A8(b) law (2)"
-            }
-          ],
-          "references": [
-            "panproto_reference::float::nearest_reading"
-          ],
-          "due_gate": "phase3",
-          "consumers": [
-            {
-              "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "binary16_operations_agree_with_the_reference"
-            }
-          ]
-        },
-        {
           "id": "values.nearest-reading-canonical-round-trip",
           "anchor": "L-values-33",
           "contract": [
