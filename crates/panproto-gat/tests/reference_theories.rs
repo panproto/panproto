@@ -856,6 +856,22 @@ fn signature_counts() -> (u64, u64) {
     (full, bare)
 }
 
+/// The closed-form counts of the signatures with at most one operation:
+/// with at most one equation (the discrete-pair nodes) and bare (the span
+/// apexes and feet).
+fn one_operation_counts() -> (u64, u64) {
+    let shapes: [(u64, u64, bool); 4] = [(1, 0, false), (3, 1, false), (2, 2, false), (2, 1, true)];
+    let mut bare = 0;
+    let mut full = 0;
+    for (copies, simple, dependent) in shapes {
+        let (nullary, positive) = operation_split(simple, dependent);
+        bare += copies * (1 + nullary + positive);
+        full += copies
+            * (equations_count(0) + nullary * equations_count(1) + positive * equations_count(0));
+    }
+    (full, bare)
+}
+
 /// The closed-form count of `scope::raw_signatures()`: seven sort lists,
 /// each with no operation and with each of `7 + 2*7*7 + 4*7*7*7` raw
 /// operations, then five duplicate-symbol theories.
@@ -1712,13 +1728,33 @@ fn composition_agrees_with_the_reference_on_every_span() {
     let signatures = span_signatures();
     let diagrams = spans(&signatures, &signatures);
     let options = scope::option_sets();
+    let (_, one_operation_bare) = one_operation_counts();
+    assert_eq!(signatures.len() as u64, one_operation_bare);
+    // Counted apart from the span construction: an apex with `k` accepted
+    // legs into all feet has `k^2` spans.
+    let by_product: u64 = signatures
+        .iter()
+        .map(|apex| {
+            let k = signatures
+                .iter()
+                .map(|foot| {
+                    scope::morphisms(apex, foot)
+                        .iter()
+                        .filter(|m| r::check_morphism(apex, foot, m).is_ok())
+                        .count() as u64
+                })
+                .sum::<u64>();
+            k * k
+        })
+        .sum();
+    assert_eq!(diagrams.len() as u64, by_product);
     println!(
         "bound: apex and feet every bare signature with at most one operation ({}); legs every \
          total assignment the reference accepts; options: both modes x both clash policies",
         signatures.len()
     );
     println!(
-        "spans: {}; compositions: {}",
+        "spans: {} (by the leg product {by_product}); compositions: {}",
         diagrams.len(),
         diagrams.len() * options.len()
     );
@@ -1967,12 +2003,14 @@ fn discrete_diagrams() -> Vec<r::TheoryDiagram> {
 fn composition_agrees_with_the_reference_on_every_discrete_pair() {
     let diagrams = discrete_diagrams();
     let options = scope::option_sets();
+    let (nodes, _) = one_operation_counts();
     println!(
-        "bound: two nodes, each a signature with at most one operation and at most one equation; \
-         {} diagrams x {} option sets",
+        "bound: two nodes, each a signature with at most one operation and at most one equation \
+         ({nodes} by formula); {} diagrams x {} option sets",
         diagrams.len(),
         options.len()
     );
+    assert_eq!(diagrams.len() as u64, nodes * nodes);
     let compared = parallel(&diagrams, |d| {
         let mut n = 0;
         for o in &options {
