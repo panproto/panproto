@@ -228,15 +228,6 @@ fn an_offset_with_a_non_ascii_character_is_refused() {
 }
 
 #[test]
-fn truncated_values_with_offsets_a_second_apart_are_incomparable() {
-    let seconds = Temporal::parse_time("--50+00:00:30").unwrap();
-    let zulu = Temporal::parse_time("--50Z").unwrap();
-    assert_eq!(seconds.cmp_chronological(&zulu), None);
-    assert_eq!(zulu.cmp_chronological(&seconds), None);
-    assert_eq!(seconds.cmp_chronological(&seconds), Some(Ordering::Equal));
-}
-
-#[test]
 fn written_offset_forms_are_representation_distinct() {
     let texts = [
         "03:04:05+01:00",
@@ -459,7 +450,7 @@ struct ComparabilityClass {
     date_shape: Option<(bool, bool, bool)>,
     time_shape: Option<(bool, bool, bool)>,
     zoned: bool,
-    truncated_offset_seconds: Option<i32>,
+    truncated_offset_minutes: Option<i16>,
 }
 
 struct ScopedTemporal {
@@ -507,7 +498,7 @@ fn scoped_value(
             date_shape,
             time_shape,
             zoned: offset.is_zoned(),
-            truncated_offset_seconds: truncated.then(|| offset.seconds()),
+            truncated_offset_minutes: truncated.then(|| offset.minutes()),
         },
     }
 }

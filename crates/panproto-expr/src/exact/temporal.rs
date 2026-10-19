@@ -1327,12 +1327,12 @@ fn extended_order_key(value: &ExtendedTemporal) -> Option<(Vec<i128>, Fraction)>
 fn cmp_extended(left: &ExtendedTemporal, right: &ExtendedTemporal) -> Option<Ordering> {
     // An infinity lies beyond every value of its form and zoning; two finite
     // values compare within one shape, and a truncated shape is not on the
-    // UTC timeline, so its offsets must be equal to the second.
+    // UTC timeline, so its offsets must have equal minutes.
     let comparable = if left.infinity.is_some() || right.infinity.is_some() {
         left.form() == right.form()
     } else {
         extended_shape(left) == extended_shape(right)
-            && (!left.is_truncated() || left.offset.seconds() == right.offset.seconds())
+            && (!left.is_truncated() || left.offset.minutes() == right.offset.minutes())
     };
     if !comparable || left.offset.is_zoned() != right.offset.is_zoned() {
         return None;
@@ -1534,7 +1534,7 @@ impl Temporal {
     ///
     /// Two finite values compare only within one shape (form, precision and
     /// truncation), and two values of a truncated shape, which is not placed
-    /// on the UTC timeline, only when their offsets are equal to the second.
+    /// on the UTC timeline, only when their offsets have equal minutes.
     /// An infinity compares with every value of its form and zoning: the
     /// negative one below it and the positive one above.
     ///

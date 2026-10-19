@@ -4256,8 +4256,8 @@ pub mod temporal {
     /// are zoned and either (i) one of them is an infinity and both have one
     /// form, since an infinity lies beyond every value of its form and
     /// zoning, or (ii) both are finite of one shape and, for a truncated
-    /// shape, their offsets are equal to the second, since a truncated value
-    /// is not placed on the UTC timeline.
+    /// shape, their offsets have equal minutes, since a truncated value is
+    /// not placed on the UTC timeline.
     ///
     /// The relation is symmetric: each clause reads its two arguments alike,
     /// and two finite values of one shape are both truncated or neither.
@@ -4271,7 +4271,7 @@ pub mod temporal {
         if a.infinity.is_some() || b.infinity.is_some() {
             return a.form() == b.form();
         }
-        a.shape() == b.shape() && (!a.is_truncated() || a.offset.seconds() == b.offset.seconds())
+        a.shape() == b.shape() && (!a.is_truncated() || a.offset.minutes() == b.offset.minutes())
     }
 
     /// Definition: The partial chronological order: `None` for incomparable values, else
@@ -5126,19 +5126,6 @@ pub mod temporal {
                     assert_eq!(parse(kind, text), None, "{text}");
                 }
             }
-        }
-
-        #[test]
-        fn truncated_values_with_offsets_a_second_apart_are_incomparable() {
-            let seconds = parse(TemporalKind::Time, "--50+00:00:30");
-            let zulu = parse(TemporalKind::Time, "--50Z");
-            assert!(seconds.is_some() && zulu.is_some());
-            let pair = seconds.zip(zulu);
-            assert_eq!(
-                pair.as_ref()
-                    .map(|(a, b)| (cmp_chronological(a, b), cmp_chronological(b, a))),
-                Some((None, None))
-            );
         }
 
         #[test]
