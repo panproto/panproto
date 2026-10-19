@@ -1798,7 +1798,7 @@ fn sort_mismatch_span(left: Sort, right: Sort) -> TheoryDiagram {
 /// each sort-class refusal detail: arity, parameter sort, kind and closure.
 #[must_use]
 pub fn sort_mismatch_spans() -> Vec<TheoryDiagram> {
-    let open = |params, kind| Sort {
+    let open = |params, kind: &str| Sort {
         name: "W".to_owned(),
         params,
         kind: kind.to_owned(),
