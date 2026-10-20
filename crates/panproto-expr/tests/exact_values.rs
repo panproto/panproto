@@ -140,7 +140,7 @@ mod exact {
     #[test]
     fn shortest_float_decimals_read_back_as_the_float() {
         assert_eq!(DecimalValue::from_f64_shortest(0.1), Some(dec("1e-1")));
-        assert_eq!(DecimalValue::from_f64_shortest(-0.0), Some(dec("0")));
+        assert_eq!(DecimalValue::from_f64_shortest(-0.0), Some(dec("-0")));
         assert_eq!(DecimalValue::from_f64_shortest(f64::NAN), None);
         assert_eq!(DecimalValue::from_f64_shortest(f64::INFINITY), None);
         for x in [0.1, 1.0 / 3.0, 1e300, 5e-324, 123_456.789, -2.5] {

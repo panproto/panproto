@@ -1059,16 +1059,56 @@ fn check_lexeme_epoch_counts(accepted: &[AcceptedLexeme]) -> (usize, usize) {
                     item.text
                 );
                 conversions += 1;
-                counted += usize::from(production.is_some());
+                // A value read independently of the conversion that the
+                // inverse accepts converts back to itself.
+                if let Some(count) = production {
+                    assert_eq!(
+                        Temporal::from_epoch_count(count, unit, instant).as_ref(),
+                        Ok(&item.value),
+                        "{} {unit:?} instant={instant}",
+                        item.text
+                    );
+                    assert_eq!(
+                        rt::from_epoch_count(count, unit_to_ref(unit), instant).as_ref(),
+                        Some(&item.reference),
+                        "{} {unit:?} instant={instant}",
+                        item.text
+                    );
+                    counted += 1;
+                }
             }
         }
     }
     (conversions, counted)
 }
 
+/// Read every form of the descriptor-read part of the scope under its
+/// descriptor with both readers.
+fn read_forms(forms: &[(String, rt::TemporalLexicalForm)]) -> Vec<AcceptedLexeme> {
+    forms
+        .iter()
+        .map(|(text, reference_form)| {
+            let form = ref_to_descriptor(*reference_form);
+            let value = Temporal::parse_as(form, text)
+                .unwrap_or_else(|| panic!("{text} under {form:?} must parse"));
+            let reference = rt::parse_as(*reference_form, text)
+                .unwrap_or_else(|| panic!("{text} under {reference_form:?} must parse"));
+            assert!(rt::parse_display(*reference_form, text), "{text}");
+            assert!(rt::display_parse(&reference), "{text}");
+            AcceptedLexeme {
+                text: text.clone(),
+                kind: form.kind,
+                value,
+                reference,
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn temporal_lexemes_agree_with_the_reference() {
-    let lexemes = panproto_reference::enumerate::values::temporal_lexemes();
+    let (lexemes, forms) = panproto_reference::enumerate::values::chronological_scope();
+    assert_eq!(forms.len(), 12 * 11 + 14 * 11 + 4 * 8 * 11 + 2 * 5 * 2);
     // Per offset: dates 4 years x (1 + 3 months x (1 + 4 days)), times
     // 2 hours x (1 + 2 minutes x (1 + 3 seconds x 3 fractions)), and every
     // complete date (4 x 3 x 4) joined to every time; nine offsets.
@@ -1084,8 +1124,11 @@ fn temporal_lexemes_agree_with_the_reference() {
         "the lexemes are distinct"
     );
 
-    let (accepted, readings) = read_lexemes(&lexemes);
+    let (mut accepted, readings) = read_lexemes(&lexemes);
     assert_eq!(readings, KINDS.len() * bound);
+    let read_by_lexeme = accepted.len();
+    accepted.extend(read_forms(&forms));
+    assert_eq!(accepted.len(), read_by_lexeme + forms.len());
     let accepted_of = |kind| accepted.iter().filter(|item| item.kind == kind).count();
     let (dates, times, date_times) = (
         accepted_of(TemporalForm::Date),
@@ -1119,11 +1162,12 @@ fn temporal_lexemes_agree_with_the_reference() {
     let (conversions, counted) = check_lexeme_epoch_counts(&accepted);
     assert_eq!(conversions, date_times * UNITS.len() * 2);
 
-    println!("bound: lexemes={bound}");
+    println!("bound: lexemes={bound}, forms={}", forms.len());
     println!(
-        "temporal lexemes: {bound} lexemes ({dates_per_offset} dates, {times_per_offset} times, {date_times_per_offset} date-times per offset over 9 offsets), {readings} kind readings, {} accepted ({dates} dates, {times} times, {date_times} date-times), {} rejected; {pairs} ordered pairs, {comparable} comparable; {} distinct canonical byte strings for {distinct_values} distinct values; {conversions} epoch conversions, {counted} with a count; production agrees with the reference on every one",
-        accepted.len(),
-        readings - accepted.len(),
+        "temporal lexemes: {bound} lexemes ({dates_per_offset} dates, {times_per_offset} times, {date_times_per_offset} date-times per offset over 9 offsets), {readings} kind readings, {} accepted ({dates} dates, {times} times, {date_times} date-times), {} rejected; {pairs} ordered pairs, {comparable} comparable; {} distinct canonical byte strings for {distinct_values} distinct values; {} forms read under their descriptors; {conversions} epoch conversions, {counted} with a count converted back; production agrees with the reference on every one",
+        read_by_lexeme,
+        readings - read_by_lexeme,
         by_bytes.len(),
+        forms.len(),
     );
 }

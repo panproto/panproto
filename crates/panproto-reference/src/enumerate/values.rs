@@ -897,6 +897,8 @@ const DIALECT_PROBE_TEXTS: &[&str] = &[
     "sNaN",
     "Inf",
     "inf5",
+    "9223372036854775808",
+    "-0.0",
 ];
 
 /// The numeral-dialect probes as texts.
@@ -915,4 +917,53 @@ pub fn tagged_lexemes() -> Vec<String> {
     ["42", "1e2", "0.5", "abc", "true", "", "2024-01-02", "AQI="]
         .map(str::to_owned)
         .to_vec()
+}
+
+/// The scope of the chronological-order laws.
+///
+/// It is every lexeme of [`temporal_lexemes`], read under each carrier
+/// kind (19,098 lexemes, every complete and reduced shape over the order
+/// law's years, months, days, hours, minutes, seconds, fractions and nine
+/// offsets), together with every form of [`temporal_forms`] read under its
+/// exact descriptor (658 forms, which add the front-truncated shapes, the
+/// infinities, offsets with seconds and the unwritten offsets).
+#[must_use]
+pub fn chronological_scope() -> (Vec<String>, Vec<(String, TemporalLexicalForm)>) {
+    (temporal_lexemes(), temporal_forms())
+}
+
+/// The binary32 NaNs of the narrowing laws.
+///
+/// They are every binary16 NaN pattern carried to binary32 on its bits
+/// (2 x 1023) and each sign and flag with payloads at the low edge, in the
+/// middle and at the high edge of the binary32 fraction (18), less the two
+/// probes the carried NaNs already hold: 2062 NaNs.
+#[must_use]
+pub fn binary32_nans() -> Vec<u64> {
+    let mut nans: Vec<u64> = binary16_patterns()
+        .into_iter()
+        .filter(|pattern| pattern & 0x7c00 == 0x7c00 && pattern & 0x03ff != 0)
+        .filter_map(|pattern| {
+            crate::float::narrow_bits(Format::B32, widen_bits(Format::B16, pattern))
+        })
+        .collect();
+    for sign in [0_u64, 0x8000_0000] {
+        for quiet in [0_u64, 1 << 22] {
+            for payload in [0_u64, 1, 2, 0x1234, (1 << 22) - 1] {
+                if quiet != 0 || payload != 0 {
+                    nans.push(sign | 0x7f80_0000 | quiet | payload);
+                }
+            }
+        }
+    }
+    dedupe(nans)
+}
+
+/// The binary32 scope of the narrowing laws: every pattern of
+/// [`binary32_boundary_patterns`] and of [`binary32_nans`].
+#[must_use]
+pub fn binary32_scope() -> Vec<u64> {
+    let mut patterns = binary32_boundary_patterns();
+    patterns.extend(binary32_nans());
+    dedupe(patterns)
 }

@@ -849,7 +849,7 @@ Let $\mathcal T$ be the set of values `v: Temporal` with `v.well_formed()`. For 
 
 - Law ID: `values.temporal-chronological-order`
 - Reference: `panproto_reference::temporal::cmp_chronological`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
 - Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1180,7 +1180,7 @@ So `cmp_chronological(a, b)` is `None` exactly when `cmp_chronological(b, a)` is
 
 - Law ID: `values.temporal-comparability-reversal`
 - Reference: `panproto_reference::temporal::cmp_chronological`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
 - Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1239,7 +1239,7 @@ Moreover: (4) every comparable pair $a, b \in \mathcal T$ lies in a common class
 
 - Law ID: `values.temporal-comparability-total-preorder`
 - Reference: `panproto_reference::temporal::cmp_chronological`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
 - Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1296,7 +1296,7 @@ Moreover, $a \approx b$ does not imply $a = b$: two written-form variants differ
 
 - Law ID: `values.temporal-written-form-equality`
 - Reference: `panproto_reference::temporal::cmp_chronological`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
 - Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1357,7 +1357,7 @@ So the extension of the comparator to the new forms neither adds nor removes com
 
 - Law ID: `values.temporal-complete-conservativity`
 - Reference: `panproto_reference::temporal::cmp_chronological`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
 - Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1872,8 +1872,8 @@ With [Epoch counts round-trip through temporals](#L-values-28), the image of `fr
 
 - Law ID: `values.temporal-to-epoch-count-round-trip`
 - Reference: `panproto_reference::temporal::to_epoch_count`
-- Enumerator: `panproto_reference::enumerate::values::epoch_counts; bound: counts=160012`
-- Exhaustive differential test: `an_epoch_count_round_trips; command: cargo nextest run -p panproto-expr --test epoch_counts --no-tests=fail -E 'test(=an_epoch_count_round_trips)'`
+- Enumerator: `panproto_reference::enumerate::values::chronological_scope; bound: lexemes=19098, forms=658`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`

@@ -61,7 +61,7 @@
 //! | Coercion of a lexeme under a declared kind | [`coerce::coerce`] | `values.md` |
 //! | Coercion of a value | [`coerce::coerce_value`] | `values.md` |
 //! | Discriminator and numeral-dialect coercion | [`coerce::coerce_tagged`], [`coerce::coerce_dialect`] | `values.md` |
-//! | Exact decimals and integers, the GDA total order | [`exact::DecimalValue::cmp_numeric`], [`exact::Decimal::compare_total`] | `values.md` |
+//! | Exact decimals and integers, the GDA total order | [`exact::DecimalValue::cmp_numeric`], [`exact::Decimal::cmp_numeric`], [`exact::Decimal::compare_total`] | `values.md` |
 //! | Temporal parsing, order and epoch counts | [`temporal::parse_display`], [`temporal::display_parse`], [`temporal::cmp_chronological`], [`temporal::from_epoch_count`], [`temporal::to_epoch_count`] | `values.md` |
 //! | Byte-text mappings | [`bytes::latin1_encode`], [`bytes::latin1_decode`], [`bytes::encode_base64`], [`bytes::decode_base64`] | `values.md` |
 //! | Declared key equality and sort order | [`keys::key_equivalence`], [`keys::sort_order`], [`keys::key_order`] | `keys-and-registration.md` |

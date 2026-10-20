@@ -371,7 +371,7 @@ fn actual_schema_v3_manifest_loads_and_every_owned_file_exists() {
             .values()
             .map(|page| page.laws.len())
             .sum::<usize>(),
-        206
+        205
     );
     for page in loaded.pages.values() {
         for relative in &page.reference_files {

@@ -63,12 +63,12 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .values()
         .flat_map(|page| &page.laws)
         .collect();
-    assert_eq!(laws.len(), 206);
+    assert_eq!(laws.len(), 205);
     assert_eq!(
         laws.iter()
             .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Phase3)
             .count(),
-        192
+        191
     );
     assert_eq!(
         laws.iter()
@@ -78,7 +78,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        320
+        319
     );
 
     for page in manifest.pages.values().filter(|page| {
@@ -117,8 +117,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 182);
-    assert_eq!(documented.len(), 182);
+    assert_eq!(expected.len(), 183);
+    assert_eq!(documented.len(), 183);
     assert_eq!(documented, expected);
 }
 

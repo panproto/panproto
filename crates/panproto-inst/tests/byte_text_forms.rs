@@ -247,6 +247,19 @@ struct TextCounts {
 /// accepted padded spelling satisfies the padded encode-then-decode law.
 fn check_base64_text(text: &str, counts: &mut TextCounts) {
     counts.texts += 1;
+    // The URL-safe spelling of the text reads under the URL-safe forms as
+    // the text reads under the standard forms.
+    let url = url64(text);
+    assert_eq!(
+        read(&url, BytesText::Base64UrlPadded),
+        read_reference(decode_base64(text, true)),
+        "padded URL {url:?}"
+    );
+    assert_eq!(
+        read(&url, BytesText::Base64Url),
+        read_reference(decode_base64(text, false)),
+        "optional URL {url:?}"
+    );
     if let Ok(bytes) = decode_base64(text, true) {
         assert!(padded_text_encode_decode(text), "padded {text:?}");
         assert_eq!(
@@ -356,6 +369,14 @@ fn optional_padding_is_equivalent_on_every_short_unpadded_text() {
             "production {unpadded:?} {padded:?}"
         );
         assert_eq!(production, read_reference(decoding.clone()), "{unpadded:?}");
+        let url = url64(unpadded);
+        let url_production = read(&url, BytesText::Base64Url);
+        assert_eq!(
+            url_production,
+            read(&url64(&padded), BytesText::Base64Url),
+            "URL production {unpadded:?} {padded:?}"
+        );
+        assert_eq!(url_production, production, "URL {unpadded:?}");
 
         checked += 1;
         normalized += u64::from(normal.is_ok());

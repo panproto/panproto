@@ -1217,38 +1217,20 @@ fn float16_coercion_agrees_with_the_reference() {
     assert_eq!(lexemes, 2 * texts.len() as u64);
 }
 
-/// The binary32 NaNs of the scope: every binary16 NaN pattern carried to
-/// binary32 on its bits, and each sign and flag with payloads at the low
-/// edge, in the middle and at the high edge of the binary32 fraction.
-fn binary32_nans() -> Vec<u64> {
-    let mut nans: Vec<u64> = scope::binary16_patterns()
-        .into_iter()
-        .filter(|pattern| pattern & 0x7c00 == 0x7c00 && pattern & 0x03ff != 0)
-        .map(|pattern| narrow_bits(Format::B32, widen_bits(Format::B16, pattern)).unwrap())
-        .collect();
-    for sign in [0_u64, 0x8000_0000] {
-        for quiet in [0_u64, 1 << 22] {
-            for payload in [0_u64, 1, 2, 0x1234, (1 << 22) - 1] {
-                if quiet != 0 || payload != 0 {
-                    nans.push(sign | 0x7f80_0000 | quiet | payload);
-                }
-            }
-        }
-    }
-    dedupe(nans)
-}
-
-/// Every binary32 NaN of [`binary32_nans`] widens to a binary64 NaN that
-/// narrows back to it, and coercing that binary64 value under
-/// `Float { bits: 32 }` keeps its bits; the same NaN with a nonzero low
-/// binary64 fraction bit is not a binary32 NaN, and both implementations
-/// refuse it alike.
+/// Every pattern of the binary32 scope (the boundary patterns and the NaNs)
+/// widens to a binary64 value that narrows back to it, in production
+/// (`binary32_bits`) as in the reference (`narrow_bits`), and coercing that
+/// binary64 value under `Float { bits: 32 }` keeps its bits; the same value
+/// with its lowest binary64 fraction bit set is not a binary32 value, both
+/// narrowings refuse it, and both coercions refuse it alike.
 #[test]
 fn binary32_nan_bits_agree_with_the_reference() {
     let spec = ValueSpec::new(ScalarKind::Float { bits: 32 });
-    let nans = binary32_nans();
+    let patterns = scope::binary32_scope();
+    let nans = scope::binary32_nans();
+    let boundary = scope::binary32_boundary_patterns();
     let mut cases = 0_u64;
-    for &narrow in &nans {
+    for &narrow in &patterns {
         let wide = widen_bits(Format::B32, narrow);
         assert_eq!(
             narrow_bits(Format::B32, wide),
@@ -1256,6 +1238,11 @@ fn binary32_nan_bits_agree_with_the_reference() {
             "{narrow:#010x}"
         );
         for bits in [wide, wide | 1] {
+            assert_eq!(
+                panproto_expr::exact::binary32_bits(f64::from_bits(bits)).map(u64::from),
+                narrow_bits(Format::B32, bits),
+                "{bits:#018x}"
+            );
             let x = RValue::Float(bits);
             let p = from_ref(&x).unwrap();
             let reference = r::coerce_value(&x, &spec_to_ref(&spec))
@@ -1272,15 +1259,23 @@ fn binary32_nan_bits_agree_with_the_reference() {
         }
     }
     println!(
-        "binary32 NaNs: {} patterns (2046 carried from binary16 NaNs and 18 sign, flag and payload \
-         probes, less duplicates), each with a low-bit neighbour: {cases} cases, all agree",
-        nans.len()
+        "bound: patterns={}; binary32: {} boundary patterns and {} NaNs ({} shared), each with a \
+         low-bit neighbour: {cases} cases, all agree",
+        patterns.len(),
+        boundary.len(),
+        nans.len(),
+        boundary.len() + nans.len() - patterns.len()
     );
+    assert_eq!(boundary.len(), 2 * 256 * 8);
     // A binary16 NaN carries its fraction to the top ten binary32 fraction
     // bits, so of the probes only the quiet NaN with payload 0 (one of each
     // sign) is among the carried binary16 NaNs.
     assert_eq!(nans.len(), 2 * 1023 + 2 * 9 - 2);
-    assert_eq!(cases, 2 * nans.len() as u64);
+    // The boundary NaNs of each sign are those of fractions 1, 2, 2^22 - 1,
+    // 2^22, 2^22 + 1, 2^23 - 2 and 2^23 - 1; all but 2^23 - 2 are NaNs of
+    // the list.
+    assert_eq!(patterns.len(), boundary.len() + nans.len() - 2 * 6);
+    assert_eq!(cases, 2 * patterns.len() as u64);
 }
 
 // ---------------------------------------------------------------------------
@@ -1350,6 +1345,10 @@ fn dialect_coercion_agrees_with_the_reference() {
         cases,
         9 * kinds.len() as u64 * 2 * dialect_probes().len() as u64
     );
+    // The dialect table's examples, the listed malformed spellings and the
+    // grammars' edge forms, as the enumerator lists them.
+    assert_eq!(dialect_probes().len(), 92);
+    println!("bound: probes={}", dialect_probes().len());
 }
 
 /// Coercion is idempotent under every numeral dialect: a dialect reads
@@ -1367,8 +1366,7 @@ fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
         ScalarKind::BigInt,
         ScalarKind::Decimal,
     ];
-    let mut probes: Vec<&str> = dialect_probes().to_vec();
-    probes.extend(["nan", ".nan", "NaN", "1.5", "9223372036854775808", "-0.0"]);
+    let probes: Vec<&str> = dialect_probes().to_vec();
     let mut fixed = 0_u64;
     let mut cases = 0_u64;
     for dialect in std::iter::once(None).chain(DIALECTS.iter().copied().map(Some)) {
@@ -1383,6 +1381,13 @@ fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
                     let source = Value::Str((*probe).to_owned());
                     let reference_spec = spec_to_ref(&spec);
                     let first = coerce_value_to_ref(&source, &spec);
+                    // A string is source text: its coercion is the reading of
+                    // its lexeme under the specification, dialect included.
+                    assert_eq!(
+                        r::coerce_value(&to_ref(&source), &reference_spec),
+                        r::coerce(probe, &r::LexClass::String, &reference_spec),
+                        "{probe:?} under {dialect:?} {kind:?}"
+                    );
                     assert_eq!(
                         Some(first.clone()),
                         r::coerce_value(&to_ref(&source), &reference_spec),
@@ -1442,6 +1447,9 @@ fn discriminated_coercion_agrees_with_the_reference() {
         Some(""),
     ];
     let lexemes = scope::tagged_lexemes();
+    // A number, an exponent numeral, a fraction, a word, a boolean, the
+    // empty text, a date and a base64 text.
+    assert_eq!(lexemes.len(), 8);
     let mut classes = vec![
         LexClass::Number,
         LexClass::String,
@@ -1535,8 +1543,21 @@ proptest::proptest! {
         }
         let values = randomized_values();
         let x = &values[value_index % values.len()];
-        if let (Some(p), Some(reference)) = (into_production(x), r::coerce_value(x, rspec)) {
-            proptest::prop_assert_eq!(coerce_value_to_ref(&p, spec), reference, "{:?} {:?}", x, spec);
+        if let Some(p) = into_production(x) {
+            let bytes = panproto_reference::canonical::value_bytes(x);
+            let production_bytes = p.canonical_bytes();
+            proptest::prop_assert_eq!(Some(production_bytes.as_slice()), bytes.as_deref(), "{:?}", x);
+            if let Some(bytes) = bytes {
+                proptest::prop_assert_eq!(
+                    panproto_reference::canonical::decode_value(&bytes),
+                    Some(x.clone()),
+                    "{:?}",
+                    x
+                );
+            }
+            if let Some(reference) = r::coerce_value(x, rspec) {
+                proptest::prop_assert_eq!(coerce_value_to_ref(&p, spec), reference, "{:?} {:?}", x, spec);
+            }
         }
     }
 }
@@ -1764,6 +1785,25 @@ fn shortest_with_neighbours(format: Format, bits: u64) -> Vec<String> {
     out
 }
 
+/// A finite numeral accepted under the nearest reading at width `bits`
+/// reads as the reference's nearest reading of its exact value, widened to
+/// binary64.
+fn check_nearest_value(text: &str, bits: u8, production: &Result<RValue, r::FidelityReason>) {
+    let Some(rx::Decimal::Finite(decimal)) = rx::parse_decimal(text) else {
+        return;
+    };
+    let rx::Scaled::Value(value) = decimal.scaled(-400, 400) else {
+        return;
+    };
+    let format = Format::of_width(bits).unwrap();
+    let nearest = panproto_reference::float::nearest_reading(format, &value, decimal.negative);
+    assert_eq!(
+        production,
+        &Ok(RValue::Float(widen_bits(format, nearest.bits(format)))),
+        "{text} at {bits}"
+    );
+}
+
 /// Under `Float { bits: 32 }` and `Float { bits: 64 }`, with the nearest
 /// reading and, for contrast, the exact one: the closest-shortest text of
 /// every binary32 and every binary64 boundary pattern with its two
@@ -1813,6 +1853,9 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
                         continue;
                     };
                     let production = coerce_to_ref(text, &class, &spec);
+                    if reading == FloatReading::NearestKeepingLexeme {
+                        check_nearest_value(text, bits, &production);
+                    }
                     tally.record(rspec, text, "Number", &production, &reference);
                 }
             });

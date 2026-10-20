@@ -1351,6 +1351,8 @@ pub mod coerce {
     /// lexeme whose tag the table lacks is kept unchanged as `Value::Opaque {
     /// type_: tag, fields: { "value": Str(lexeme) } }` ... a lexeme with no tag
     /// is read under the spec's own kind." The lexeme keeps its own class.
+    ///
+    /// Book anchors: `L-values-22`.
     #[must_use]
     pub fn coerce_discriminated(
         text: &str,
@@ -1379,7 +1381,14 @@ pub mod coerce {
         )
     }
 
-    /// Definition: Read `lexeme` of class `class` under `spec`: the value-kind coercion, with exact numerals and canonical shortest numerals only.
+    /// Definition: Read `lexeme` of class `class` under `spec`: the value-kind
+    /// coercion.
+    ///
+    /// Under the exact float reading a numeral is accepted when it
+    /// denotes a value of the kind exactly or is the canonical shortest text
+    /// of the value it rounds to; under the nearest-keeping-lexeme reading
+    /// every finite numeral the dialect admits is read as its nearest value,
+    /// an overflow as the infinity of its sign.
     ///
     /// Under `Any`, a temporal lexeme with a calendar-date reading takes that
     /// reading; reduced-form offset readings are considered only when no date
@@ -2295,9 +2304,11 @@ pub mod coerce {
 
     /// The discriminator-driven coercion operation.
     ///
-    /// This is the manifest name for [`coerce_discriminated`]. The latter is
-    /// kept as the descriptive implementation name used by the unit tests.
-    /// Definition: This is the manifest-stable name of the referenced operation.
+    /// Definition: [`coerce_discriminated`], under the manifest's name for it:
+    /// a lexeme whose tag the table holds is read under that tag's kind, a
+    /// lexeme whose tag the table lacks is kept as an opaque value of the tag
+    /// holding the lexeme, and a lexeme with no tag is read under the
+    /// specification's own kind.
     ///
     /// Book anchors: `L-values-22`.
     pub use coerce_discriminated as coerce_tagged;
@@ -3653,7 +3664,7 @@ pub mod float {
     /// lexeme in a complement.
     /// Definition: This is the manifest-stable name of the referenced operation.
     ///
-    /// Book anchors: `L-values-31`, `L-values-32`.
+    /// Book anchors: `L-values-31`.
     pub use round_to as nearest_reading;
 
     /// The canonical quiet NaN of binary64, bits `0x7ff8000000000000`.
