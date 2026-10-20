@@ -990,18 +990,14 @@ fn refine_branch(
         })
         .collect();
 
-    // The unifier for the outside, in the branch's names. A key that is
-    // a fresh name is a constructor parameter the scrutinee's index
-    // determined; it is renamed too, and is harmless outside the branch.
+    // The unifier for the outside, with its values in the branch's names.
+    // A key that is a fresh name is a constructor parameter the
+    // scrutinee's index determined; it keeps its fresh name, which nothing
+    // outside the branch can mention. Renaming it to its binder would let
+    // a binder that shadows an outer name rewrite that outer name.
     let mut subst: FxHashMap<Arc<str>, Term> = in_fresh
         .into_iter()
-        .map(|(key, value)| {
-            let key = match to_binder.get(&key) {
-                Some(Term::Var(binder)) => Arc::clone(binder),
-                _ => key,
-            };
-            (key, value.substitute(&to_binder))
-        })
+        .map(|(key, value)| (key, value.substitute(&to_binder)))
         .collect();
 
     if let Term::Var(name) = scrutinee {
@@ -4119,6 +4115,719 @@ mod tests {
             assert!(json.get(tag).is_some(), "{json}");
             assert_eq!(&serde_json::from_value::<SignatureDefect>(json)?, defect);
         }
+        Ok(())
+    }
+
+    fn branch(constructor: &str, binders: &[&str], body: Term) -> CaseBranch {
+        CaseBranch {
+            constructor: Arc::from(constructor),
+            binders: binders.iter().map(|b| Arc::from(*b)).collect(),
+            body,
+        }
+    }
+
+    fn case(scrutinee: Term, branches: Vec<CaseBranch>) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches,
+        }
+    }
+
+    fn let_in(name: &str, bound: Term, body: Term) -> Term {
+        Term::Let {
+            name: Arc::from(name),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        }
+    }
+
+    fn hole() -> Term {
+        Term::Hole { name: None }
+    }
+
+    fn ctx_of(entries: &[(&str, SortExpr)]) -> VarContext {
+        entries
+            .iter()
+            .map(|(n, s)| (Arc::from(*n), s.clone()))
+            .collect()
+    }
+
+    /// `A` and `B` with constants `a : A`, `b : B`, `f : A -> B` and
+    /// `g : B -> A`; the closed sort `Bool` of `tt` and `ff`; the open
+    /// sort `Open`; and `wrap : (x : A) -> W`.
+    fn case_theory() -> Theory {
+        Theory::new(
+            "Cases",
+            vec![
+                Sort::simple("A"),
+                Sort::simple("B"),
+                Sort::simple("W"),
+                Sort::simple("Open"),
+                Sort::closed("Bool", vec![], ["tt", "ff"]),
+            ],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "B"),
+                Operation::unary("f", "x", "A", "B"),
+                Operation::unary("g", "x", "B", "A"),
+                Operation::nullary("tt", "Bool"),
+                Operation::nullary("ff", "Bool"),
+                Operation::unary("wrap", "x", "A", "W"),
+            ],
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn occurs_in_respects_let_and_case_binders() {
+        let x: Arc<str> = Arc::from("x");
+        assert!(occurs_in(&x, &Term::var("x")));
+        assert!(!occurs_in(&x, &Term::var("y")));
+        assert!(!occurs_in(&x, &hole()));
+        assert!(occurs_in(
+            &x,
+            &Term::app("f", vec![Term::var("y"), Term::var("x")])
+        ));
+        assert!(occurs_in(&x, &let_in("z", Term::var("x"), Term::var("w"))));
+        assert!(occurs_in(&x, &let_in("z", Term::var("w"), Term::var("x"))));
+        assert!(!occurs_in(&x, &let_in("x", Term::var("w"), Term::var("x"))));
+        assert!(!occurs_in(&x, &let_in("z", Term::var("w"), Term::var("w"))));
+        assert!(occurs_in(
+            &x,
+            &case(Term::var("x"), vec![branch("c", &[], Term::var("w"))])
+        ));
+        assert!(occurs_in(
+            &x,
+            &case(Term::var("w"), vec![branch("c", &["y"], Term::var("x"))])
+        ));
+        assert!(!occurs_in(
+            &x,
+            &case(Term::var("w"), vec![branch("c", &["x"], Term::var("x"))])
+        ));
+        assert!(!occurs_in(
+            &x,
+            &case(Term::var("w"), vec![branch("c", &["y"], Term::var("y"))])
+        ));
+    }
+
+    #[test]
+    fn term_mentions_var_respects_let_and_case_binders() {
+        let x: Arc<str> = Arc::from("x");
+        assert!(term_mentions_var(&Term::var("x"), &x));
+        assert!(!term_mentions_var(&Term::var("y"), &x));
+        assert!(!term_mentions_var(&hole(), &x));
+        assert!(!term_mentions_var(&Term::constant("c"), &x));
+        assert!(term_mentions_var(
+            &Term::app("f", vec![Term::var("y"), Term::var("x")]),
+            &x
+        ));
+        assert!(term_mentions_var(
+            &let_in("z", Term::var("x"), Term::var("w")),
+            &x
+        ));
+        assert!(term_mentions_var(
+            &let_in("z", Term::var("w"), Term::var("x")),
+            &x
+        ));
+        assert!(!term_mentions_var(
+            &let_in("x", Term::var("w"), Term::var("x")),
+            &x
+        ));
+        assert!(!term_mentions_var(
+            &let_in("z", Term::var("w"), Term::var("w")),
+            &x
+        ));
+        assert!(term_mentions_var(
+            &case(Term::var("x"), vec![branch("c", &[], Term::var("w"))]),
+            &x
+        ));
+        assert!(term_mentions_var(
+            &case(Term::var("w"), vec![branch("c", &["y"], Term::var("x"))]),
+            &x
+        ));
+        assert!(!term_mentions_var(
+            &case(Term::var("w"), vec![branch("c", &["x"], Term::var("x"))]),
+            &x
+        ));
+        assert!(!term_mentions_var(
+            &case(Term::var("w"), vec![branch("c", &["y"], Term::var("y"))]),
+            &x
+        ));
+    }
+
+    #[test]
+    fn term_contains_hole_finds_holes_anywhere() {
+        assert!(term_contains_hole(&hole()));
+        assert!(!term_contains_hole(&Term::var("x")));
+        assert!(!term_contains_hole(&Term::constant("c")));
+        assert!(term_contains_hole(&Term::app(
+            "f",
+            vec![Term::var("x"), hole()]
+        )));
+        assert!(term_contains_hole(&let_in("v", hole(), Term::var("v"))));
+        assert!(term_contains_hole(&let_in("v", Term::var("x"), hole())));
+        assert!(!term_contains_hole(&let_in(
+            "v",
+            Term::var("x"),
+            Term::var("v")
+        )));
+        assert!(term_contains_hole(&case(
+            hole(),
+            vec![branch("c", &[], Term::var("w"))]
+        )));
+        assert!(term_contains_hole(&case(
+            Term::var("w"),
+            vec![branch("c", &[], hole())]
+        )));
+        assert!(!term_contains_hole(&case(
+            Term::var("w"),
+            vec![branch("c", &[], Term::var("w"))]
+        )));
+    }
+
+    #[test]
+    fn count_holes_sums_over_every_position() {
+        assert_eq!(count_holes(&Term::var("x")), 0);
+        assert_eq!(
+            count_holes(&Term::app("f", vec![hole(), hole(), Term::var("x")])),
+            2
+        );
+        assert_eq!(
+            count_holes(&case(
+                hole(),
+                vec![
+                    branch("c", &[], hole()),
+                    branch("d", &[], Term::app("f", vec![hole(), hole()])),
+                ]
+            )),
+            4
+        );
+        assert_eq!(
+            count_holes(&case(hole(), vec![branch("c", &[], hole())])),
+            2
+        );
+        assert_eq!(count_holes(&let_in("v", hole(), hole())), 2);
+        assert_eq!(
+            count_holes(&let_in("v", Term::app("f", vec![hole(), hole()]), hole())),
+            3
+        );
+    }
+
+    #[test]
+    fn pushing_sort_constraints_requires_matching_heads_and_arities() {
+        let op: Arc<str> = Arc::from("op");
+        let mut eqs = Vec::new();
+        let fx = SortExpr::app("Fib", vec![Term::var("x")]);
+        match push_sort_expr_eqs_into(&fx, &SortExpr::from("Fib"), &op, &mut eqs) {
+            Err(GatError::ArgTypeMismatch {
+                op,
+                arg_index,
+                expected,
+                got,
+            }) => {
+                assert_eq!((op.as_str(), arg_index), ("op", 0));
+                assert_eq!((expected.as_str(), got.as_str()), ("Fib(x)", "Fib"));
+            }
+            other => panic!("expected ArgTypeMismatch, got {other:?}"),
+        }
+        assert!(matches!(
+            push_sort_expr_eqs_into(&SortExpr::from("A"), &SortExpr::from("B"), &op, &mut eqs),
+            Err(GatError::ArgTypeMismatch { .. })
+        ));
+        assert!(eqs.is_empty());
+        let fc = SortExpr::app("Fib", vec![Term::constant("c")]);
+        assert!(push_sort_expr_eqs_into(&fx, &fc, &op, &mut eqs).is_ok());
+        assert_eq!(eqs, [(Term::var("x"), Term::constant("c"))]);
+    }
+
+    #[test]
+    fn an_implicit_mentioned_only_by_the_output_is_inferrable() {
+        let n = SortExpr::from("N");
+        let only_output = Operation::with_implicit(
+            "pick",
+            vec![(Arc::from("n"), n.clone(), Implicit::Yes)],
+            SortExpr::app("Box", vec![Term::var("n")]),
+        );
+        assert!(check_implicits_inferrable(&only_output).is_ok());
+        let by_input = Operation::with_implicit(
+            "unbox",
+            vec![
+                (Arc::from("n"), n.clone(), Implicit::Yes),
+                (
+                    Arc::from("b"),
+                    SortExpr::app("Box", vec![Term::var("n")]),
+                    Implicit::No,
+                ),
+            ],
+            "N",
+        );
+        assert!(check_implicits_inferrable(&by_input).is_ok());
+        let nowhere =
+            Operation::with_implicit("lost", vec![(Arc::from("n"), n, Implicit::Yes)], "N");
+        match check_implicits_inferrable(&nowhere) {
+            Err(GatError::NonInferrableImplicit { op, param }) => {
+                assert_eq!((op.as_str(), param.as_str()), ("lost", "n"));
+            }
+            other => panic!("expected NonInferrableImplicit, got {other:?}"),
+        }
+    }
+
+    /// `N` with `z`, `s`; `Vec(n : N)`; `len : (m : N, v : Vec(m)) -> N`,
+    /// `at_zero : (v : Vec(z())) -> N`, `at_one : (v : Vec(s(z()))) -> N`,
+    /// and `size : {n : N} (v : Vec(n)) -> N`.
+    fn vec_theory() -> Theory {
+        let vec_of = |t: Term| SortExpr::app("Vec", vec![t]);
+        Theory::new(
+            "Vecs",
+            vec![
+                Sort::simple("N"),
+                Sort::dependent("Vec", vec![SortParam::new("n", "N")]),
+            ],
+            vec![
+                Operation::nullary("z", "N"),
+                Operation::unary("s", "p", "N", "N"),
+                Operation::new(
+                    "len",
+                    vec![
+                        (Arc::from("m"), SortExpr::from("N")),
+                        (Arc::from("v"), vec_of(Term::var("m"))),
+                    ],
+                    "N",
+                ),
+                Operation::unary("at_zero", "v", vec_of(Term::constant("z")), "N"),
+                Operation::unary(
+                    "at_one",
+                    "v",
+                    vec_of(Term::app("s", vec![Term::constant("z")])),
+                    "N",
+                ),
+                Operation::with_implicit(
+                    "size",
+                    vec![
+                        (Arc::from("n"), SortExpr::from("N"), Implicit::Yes),
+                        (Arc::from("v"), vec_of(Term::var("n")), Implicit::No),
+                    ],
+                    "N",
+                ),
+                Operation::new(
+                    "add",
+                    vec![
+                        (Arc::from("x"), SortExpr::from("N")),
+                        (Arc::from("y"), SortExpr::from("N")),
+                    ],
+                    "N",
+                ),
+            ],
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn inferred_variable_sorts_carry_the_unifier() -> Result<(), Box<dyn std::error::Error>> {
+        let eq = Equation::new(
+            "e",
+            Term::app("len", vec![Term::var("k"), Term::var("v")]),
+            Term::app("at_zero", vec![Term::var("v")]),
+        );
+        let ctx = infer_var_sorts(&eq, &vec_theory())?;
+        assert_eq!(
+            ctx.get("v"),
+            Some(&SortExpr::app("Vec", vec![Term::constant("z")]))
+        );
+        assert_eq!(ctx.get("k"), Some(&SortExpr::from("N")));
+        Ok(())
+    }
+
+    #[test]
+    fn each_application_of_an_implicit_operation_gets_its_own_metavariable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let eq = Equation::new(
+            "e",
+            Term::app(
+                "add",
+                vec![
+                    Term::app("size", vec![Term::var("x")]),
+                    Term::app("size", vec![Term::var("y")]),
+                ],
+            ),
+            Term::app(
+                "add",
+                vec![
+                    Term::app("at_zero", vec![Term::var("x")]),
+                    Term::app("at_one", vec![Term::var("y")]),
+                ],
+            ),
+        );
+        let ctx = infer_var_sorts(&eq, &vec_theory())?;
+        assert_eq!(
+            ctx.get("x"),
+            Some(&SortExpr::app("Vec", vec![Term::constant("z")]))
+        );
+        assert_eq!(
+            ctx.get("y"),
+            Some(&SortExpr::app(
+                "Vec",
+                vec![Term::app("s", vec![Term::constant("z")])]
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_hole_path_accepts_an_implicit_application_of_the_right_arity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = ctx_of(&[("v", SortExpr::app("Vec", vec![Term::constant("z")]))]);
+        let (sort, reports) = typecheck_term_with_holes(
+            &Term::app("size", vec![Term::var("v")]),
+            &ctx,
+            &vec_theory(),
+        )?;
+        assert_eq!(sort, SortExpr::from("N"));
+        assert!(reports.is_empty());
+        let wrong = typecheck_term_with_holes(&Term::app("size", vec![]), &ctx, &vec_theory());
+        assert!(
+            matches!(
+                wrong,
+                Err(GatError::TermArityMismatch {
+                    expected: 1,
+                    got: 0,
+                    ..
+                })
+            ),
+            "{wrong:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_hole_path_rejects_an_argument_of_the_wrong_sort() {
+        let result = typecheck_term_with_holes(
+            &Term::app("f", vec![Term::constant("b")]),
+            &VarContext::default(),
+            &case_theory(),
+        );
+        match result {
+            Err(GatError::ArgTypeMismatch {
+                op,
+                arg_index,
+                expected,
+                got,
+            }) => {
+                assert_eq!((op.as_str(), arg_index), ("f", 0));
+                assert_eq!((expected.as_str(), got.as_str()), ("A", "B"));
+            }
+            other => panic!("expected ArgTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_hole_path_checks_case_branches_against_the_motive()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let theory = case_theory();
+        let ctx = ctx_of(&[("p", SortExpr::from("Bool"))]);
+        let wrapped = |tt_body: Term, ff_body: Term| {
+            Term::app(
+                "wrap",
+                vec![case(
+                    Term::var("p"),
+                    vec![branch("tt", &[], tt_body), branch("ff", &[], ff_body)],
+                )],
+            )
+        };
+        let (sort, reports) = typecheck_term_with_holes(
+            &wrapped(
+                Term::constant("a"),
+                Term::app("g", vec![Term::constant("b")]),
+            ),
+            &ctx,
+            &theory,
+        )?;
+        assert_eq!(sort, SortExpr::from("W"));
+        assert!(reports.is_empty());
+
+        let (sort, reports) =
+            typecheck_term_with_holes(&wrapped(Term::constant("a"), hole()), &ctx, &theory)?;
+        assert_eq!(sort, SortExpr::from("W"));
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].expected, SortExpr::from("A"));
+
+        match typecheck_term_with_holes(
+            &wrapped(Term::constant("a"), Term::constant("b")),
+            &ctx,
+            &theory,
+        ) {
+            Err(GatError::CaseBranchSortMismatch {
+                constructor,
+                expected,
+                got,
+            }) => {
+                assert_eq!(constructor, "ff");
+                assert_eq!((expected.as_str(), got.as_str()), ("A", "B"));
+            }
+            other => panic!("expected CaseBranchSortMismatch, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_hole_path_checks_exhaustiveness_over_a_closed_sort() {
+        let ctx = ctx_of(&[("p", SortExpr::from("Bool"))]);
+        let partial = case(Term::var("p"), vec![branch("tt", &[], Term::constant("a"))]);
+        match typecheck_term_with_holes(&partial, &ctx, &case_theory()) {
+            Err(GatError::NonExhaustiveCase { sort, missing }) => {
+                assert_eq!(sort, "Bool");
+                assert_eq!(missing, ["ff"]);
+            }
+            other => panic!("expected NonExhaustiveCase, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_branch_whose_constructor_builds_another_sort_is_rejected() {
+        let ctx = ctx_of(&[("o", SortExpr::from("Open"))]);
+        let stray = case(Term::var("o"), vec![branch("a", &[], Term::constant("b"))]);
+        match typecheck_term_with_holes(&stray, &ctx, &case_theory()) {
+            Err(GatError::OpTypeMismatch { op, detail }) => {
+                assert_eq!(op, "a");
+                assert_eq!(
+                    detail,
+                    "constructor output sort A does not match scrutinee sort Open"
+                );
+            }
+            other => panic!("expected OpTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_listed_constructor_of_another_sort_is_not_admitted()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // `Flag` lists `up` and `a`, but `a` builds an `A`, so a case on a
+        // flag needs (and admits) only the `up` branch.
+        let theory = Theory::new(
+            "Stray",
+            vec![Sort::simple("A"), Sort::closed("Flag", vec![], ["up", "a"])],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("up", "Flag"),
+            ],
+            Vec::new(),
+        );
+        let ctx = ctx_of(&[("p", SortExpr::from("Flag"))]);
+        let only_up = case(Term::var("p"), vec![branch("up", &[], Term::constant("a"))]);
+        assert_eq!(
+            typecheck_term(&only_up, &ctx, &theory)?,
+            SortExpr::from("A")
+        );
+        Ok(())
+    }
+
+    /// An equation both of whose sides misapply an operation: `f` to the
+    /// `B` constant on the left (or inside a case scrutinee there), `g` to
+    /// the `A` constant on the right.
+    fn doubly_ill_typed(lhs_is_case: bool) -> Equation {
+        let bad_f = Term::app("f", vec![Term::constant("b")]);
+        let lhs = if lhs_is_case {
+            case(bad_f, vec![branch("tt", &[], Term::constant("a"))])
+        } else {
+            bad_f
+        };
+        Equation::new("bad", lhs, Term::app("g", vec![Term::constant("a")]))
+    }
+
+    fn mismatched_op(result: Result<(), GatError>) -> String {
+        match result {
+            Err(GatError::ArgTypeMismatch { op, .. }) => op,
+            other => panic!("expected ArgTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_equation_is_checked_from_its_non_case_side() {
+        type EquationCheck = fn(&Equation, &Theory) -> Result<(), GatError>;
+        let theory = case_theory();
+        let checks: [EquationCheck; 2] = [typecheck_equation, |eq, th| {
+            typecheck_equation_modulo_rewrites(eq, th, &[], 16)
+        }];
+        for check in checks {
+            assert_eq!(mismatched_op(check(&doubly_ill_typed(false), &theory)), "f");
+            assert_eq!(mismatched_op(check(&doubly_ill_typed(true), &theory)), "g");
+        }
+    }
+
+    #[test]
+    fn holes_in_an_equation_are_counted_on_both_sides() {
+        let eq = Equation::new(
+            "holey",
+            Term::app("f", vec![hole()]),
+            Term::app("f", vec![hole()]),
+        );
+        let theory = case_theory();
+        for result in [
+            typecheck_equation(&eq, &theory),
+            typecheck_equation_modulo_rewrites(&eq, &theory, &[], 16),
+        ] {
+            match result {
+                Err(GatError::HolesInEquation { equation, count }) => {
+                    assert_eq!((equation.as_str(), count), ("holey", 2));
+                }
+                other => panic!("expected HolesInEquation, got {other:?}"),
+            }
+        }
+    }
+
+    /// `Tm(n : N)` with `left : Tm(add(z(), s(z())))` and
+    /// `right : Tm(s(z()))`, which have one sort modulo `add(z(), y) -> y`.
+    fn indexed_constants() -> Theory {
+        let base = vec_theory();
+        Theory::new(
+            "Indexed",
+            base.sorts
+                .iter()
+                .cloned()
+                .chain([Sort::dependent("Tm", vec![SortParam::new("n", "N")])])
+                .collect(),
+            base.ops
+                .iter()
+                .cloned()
+                .chain([
+                    Operation::nullary(
+                        "left",
+                        SortExpr::app(
+                            "Tm",
+                            vec![Term::app(
+                                "add",
+                                vec![
+                                    Term::constant("z"),
+                                    Term::app("s", vec![Term::constant("z")]),
+                                ],
+                            )],
+                        ),
+                    ),
+                    Operation::nullary(
+                        "right",
+                        SortExpr::app("Tm", vec![Term::app("s", vec![Term::constant("z")])]),
+                    ),
+                    Operation::nullary("zero_tm", SortExpr::app("Tm", vec![Term::constant("z")])),
+                ])
+                .collect(),
+            Vec::new(),
+        )
+    }
+
+    fn left_unit() -> crate::eq::DirectedEquation {
+        crate::eq::DirectedEquation::new(
+            "left_unit",
+            Term::app("add", vec![Term::constant("z"), Term::var("y")]),
+            Term::var("y"),
+            panproto_expr::Expr::Var("_".into()),
+        )
+    }
+
+    #[test]
+    fn equation_sorts_are_compared_modulo_the_given_rules() {
+        let theory = indexed_constants();
+        let eq = Equation::new("lr", Term::constant("left"), Term::constant("right"));
+        assert!(typecheck_equation_modulo_rewrites(&eq, &theory, &[left_unit()], 16).is_ok());
+        assert!(typecheck_equation(&eq, &theory).is_err());
+        match typecheck_equation_modulo_rewrites(&eq, &theory, &[], 16) {
+            Err(GatError::EquationSortMismatch {
+                equation,
+                lhs_sort,
+                rhs_sort,
+            }) => {
+                assert_eq!(equation, "lr");
+                assert_eq!(lhs_sort, "Tm(add(z(), s(z())))");
+                assert_eq!(rhs_sort, "Tm(s(z()))");
+            }
+            other => panic!("expected EquationSortMismatch, got {other:?}"),
+        }
+        let unrelated = Equation::new("lz", Term::constant("left"), Term::constant("zero_tm"));
+        assert!(matches!(
+            typecheck_equation_modulo_rewrites(&unrelated, &theory, &[left_unit()], 16),
+            Err(GatError::EquationSortMismatch { .. })
+        ));
+        let same = Equation::new("rr", Term::constant("right"), Term::constant("right"));
+        assert!(typecheck_equation_modulo_rewrites(&same, &theory, &[], 16).is_ok());
+    }
+
+    #[test]
+    fn an_exhausted_sort_comparison_is_reported_as_such() {
+        let theory = indexed_constants();
+        let eq = Equation::new("lr", Term::constant("left"), Term::constant("right"));
+        let swap = crate::eq::DirectedEquation::new(
+            "swap",
+            Term::app("add", vec![Term::var("x"), Term::var("y")]),
+            Term::app("add", vec![Term::var("y"), Term::var("x")]),
+            panproto_expr::Expr::Var("_".into()),
+        );
+        match typecheck_equation_modulo_rewrites(&eq, &theory, &[swap], 8) {
+            Err(GatError::RewriteBudgetExhausted { context, limit }) => {
+                assert_eq!(context, "equation `lr` sort equality");
+                assert_eq!(limit, 8);
+            }
+            other => panic!("expected RewriteBudgetExhausted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn renaming_a_case_binder_leaves_the_motive_unchanged() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // `mk : (k : N) -> Fin(k)`; the case on `v : Fin(m)` sits where
+        // `use` expects `P(j)` for the outer `j`. A branch binder that
+        // happens to be called `j` must not change what that `j` means.
+        let theory = Theory::new(
+            "Shadow",
+            vec![
+                Sort::simple("N"),
+                Sort::closed("Fin", vec![SortParam::new("n", "N")], ["mk"]),
+                Sort::dependent("P", vec![SortParam::new("a", "N")]),
+                Sort::simple("Out"),
+            ],
+            vec![
+                Operation::unary("mk", "k", "N", SortExpr::app("Fin", vec![Term::var("k")])),
+                Operation::new(
+                    "use",
+                    vec![
+                        (Arc::from("a"), SortExpr::from("N")),
+                        (Arc::from("b"), SortExpr::app("P", vec![Term::var("a")])),
+                    ],
+                    "Out",
+                ),
+            ],
+            Vec::new(),
+        );
+        let ctx = ctx_of(&[
+            ("j", SortExpr::from("N")),
+            ("m", SortExpr::from("N")),
+            ("v", SortExpr::app("Fin", vec![Term::var("m")])),
+        ]);
+        let with_binder = |binder: &str| {
+            Term::app(
+                "use",
+                vec![
+                    Term::var("j"),
+                    case(Term::var("v"), vec![branch("mk", &[binder], hole())]),
+                ],
+            )
+        };
+        let (fresh_sort, fresh_holes) =
+            typecheck_term_with_holes(&with_binder("q"), &ctx, &theory)?;
+        let (shadow_sort, shadow_holes) =
+            typecheck_term_with_holes(&with_binder("j"), &ctx, &theory)?;
+        assert_eq!(fresh_sort, SortExpr::from("Out"));
+        assert_eq!(shadow_sort, fresh_sort, "the term's sort");
+        let expected = |holes: &[HoleReport]| -> Vec<SortExpr> {
+            holes.iter().map(|h| h.expected.clone()).collect()
+        };
+        assert_eq!(
+            expected(&fresh_holes),
+            [SortExpr::app("P", vec![Term::var("j")])]
+        );
+        assert_eq!(
+            expected(&shadow_holes),
+            expected(&fresh_holes),
+            "the hole's expected sort"
+        );
         Ok(())
     }
 }
