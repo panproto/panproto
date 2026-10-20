@@ -737,6 +737,9 @@ pub(crate) fn put_with_identity(
     policy: IdentityPolicy,
 ) -> Result<(WInstance, IdentityStatus), LensError> {
     let status = crate::identity::verify_with_identity(complement, lens, envelope, policy)?;
+    if matches!(status, IdentityStatus::Unbound) {
+        unbound_provenance(view, complement)?;
+    }
     if let Some(first) = structural_violations(lens, view, complement)
         .into_iter()
         .next()
@@ -1535,21 +1538,18 @@ fn restore_source_fans(
     Ok(fans)
 }
 
-/// The backward direction proper, once the complement's identity is
-/// accepted.
-fn reassemble(
-    lens: &Lens,
-    view: &WInstance,
-    complement: &Complement,
-) -> Result<WInstance, LensError> {
-    // `put` inverts `get` on the image of `get`, and only there. A
-    // complement that records no parent for any of the view's non-root
-    // nodes cannot have come from a `get` of a source with this shape: it
-    // is outside that image, and the reassembly below would rebuild the
-    // node set with no arcs between the nodes, which serializes to an empty
-    // record. Returning that silently is worse than refusing, because the
-    // caller cannot tell a successful reconstruction of an empty record
-    // from the total loss of a populated one.
+/// The provenance check of an unbound complement (one carrying neither an
+/// envelope nor a fingerprint, which the legacy policy accepts).
+///
+/// `put` inverts `get` on the image of `get`, and only there. A bound
+/// complement was stamped by a `get` of this lens, so its provenance is
+/// settled, and a view arc it records no parent for is a view edit. An
+/// unbound complement that records no parent for any of the view's arcs
+/// has no such evidence: reassembling from it would rebuild the node set
+/// with no arcs between the nodes, which serializes to an empty record, and
+/// the caller could not tell that from the total loss of a populated one.
+/// It is refused.
+fn unbound_provenance(view: &WInstance, complement: &Complement) -> Result<(), LensError> {
     let view_has_arcs = view.arcs.iter().any(|(_, child, _)| *child != view.root);
     if view_has_arcs
         && !view
@@ -1559,14 +1559,23 @@ fn reassemble(
     {
         return Err(LensError::ComplementMismatch {
             detail: format!(
-                "complement records no parent for any of the view's {} arcs, so it did not come \
-                 from a projection of a source with this shape; reconstructing from it would \
-                 return an empty record",
+                "an unbound complement records no parent for any of the view's {} arcs, so it \
+                 did not come from a projection of a source with this shape; reconstructing \
+                 from it would return an empty record",
                 view.arcs.len()
             ),
         });
     }
+    Ok(())
+}
 
+/// The backward direction proper, once the complement's identity is
+/// accepted.
+fn reassemble(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> Result<WInstance, LensError> {
     // Start with all nodes from the view (un-remap anchors back to source).
     // Skip nodes that were synthesized during forward eval by the
     // nest-style `expansion_path` mechanism: they exist only in the view,
@@ -2654,6 +2663,86 @@ mod tests {
     fn complement_is_empty_for_identity() {
         let complement = Complement::empty();
         assert!(complement.is_empty());
+    }
+
+    /// A child added under a lone root is written back: the complement
+    /// `get` stamped records no parent because the source had no arc, and
+    /// that is no evidence against its provenance.
+    mod lone_root {
+        use super::*;
+        use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+        fn child_edge() -> Edge {
+            Edge {
+                src: "r".into(),
+                tgt: "c".into(),
+                kind: "prop".into(),
+                name: Some("c".into()),
+            }
+        }
+
+        fn lens() -> Lens {
+            let protocol = Protocol::default();
+            let schema = SchemaBuilder::new(&protocol)
+                .vertex("r", "object", None)
+                .unwrap()
+                .vertex("c", "object", None)
+                .unwrap()
+                .edge("r", "c", "prop", Some("c"))
+                .unwrap()
+                .build()
+                .unwrap();
+            crate::tests::identity_lens(&schema)
+        }
+
+        fn lone_root() -> WInstance {
+            WInstance::new(
+                [(0, Node::new(0, "r"))].into_iter().collect(),
+                Vec::new(),
+                Vec::new(),
+                0,
+                "r".into(),
+            )
+        }
+
+        fn with_child(view: &WInstance) -> WInstance {
+            let mut nodes = view.nodes.clone();
+            nodes.insert(1, Node::new(1, "c"));
+            let mut arcs = view.arcs.clone();
+            arcs.push((0, 1, child_edge()));
+            WInstance::new(
+                nodes,
+                arcs,
+                view.fans.clone(),
+                view.root,
+                view.schema_root.clone(),
+            )
+        }
+
+        #[test]
+        fn a_child_added_under_a_lone_root_is_put_back() {
+            let lens = lens();
+            let (view, complement) = get(&lens, &lone_root()).unwrap();
+            assert!(complement.original_parent.is_empty());
+            let edited = with_child(&view);
+            assert_eq!(check_put_domain(&lens, &edited, &complement), Ok(()));
+            let restored = put(&lens, &edited, &complement).unwrap();
+            assert_eq!(restored.nodes.len(), 2);
+            assert_eq!(restored.arcs, vec![(0, 1, child_edge())]);
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(again.arcs, edited.arcs);
+        }
+
+        #[test]
+        fn an_unbound_complement_recording_no_parent_is_still_refused() {
+            let lens = lens();
+            let (view, _) = get(&lens, &lone_root()).unwrap();
+            let edited = with_child(&view);
+            assert!(matches!(
+                put(&lens, &edited, &Complement::empty()),
+                Err(LensError::ComplementMismatch { .. })
+            ));
+        }
     }
 
     /// A view edit that moves a node to another anchor survives `put`,
