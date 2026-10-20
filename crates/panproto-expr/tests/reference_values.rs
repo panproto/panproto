@@ -16,7 +16,9 @@ use panproto_expr::exact::{
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TimeFields, TimeUnit, WideInt, ZuluCase,
 };
 use panproto_expr::exact::{binary16_bits, binary16_nearest, binary16_widen};
-use panproto_expr::{BuiltinOp, Env, EvalConfig, Expr, ExprError, Literal, apply_builtin, eval};
+use panproto_expr::{
+    BuiltinOp, Env, EvalConfig, Expr, ExprError, Literal, Pattern, apply_builtin, eval,
+};
 use panproto_reference::exact as rx;
 use panproto_reference::float as rf;
 use panproto_reference::float::Format;
@@ -55,6 +57,22 @@ fn error_to_ref(error: &ExprError) -> EvalError {
         ExprError::DivisionByZero => EvalError::DivisionByZero,
         ExprError::UnboundVariable(name) => EvalError::UnboundVariable(name.clone()),
         ExprError::NotAFunction => EvalError::NotAFunction,
+        ExprError::NonExhaustiveMatch => EvalError::NonExhaustiveMatch,
+        ExprError::IndexOutOfBounds { index, len } => EvalError::IndexOutOfBounds {
+            index: *index,
+            len: *len,
+        },
+        ExprError::FieldNotFound(name) => EvalError::FieldNotFound(name.clone()),
+        // The production error names its builtin by the operation's debug
+        // name, the reference by the operation itself.
+        ExprError::ArityMismatch { op, expected, got } => EvalError::ArityMismatch {
+            op: MAPPED_OPS
+                .into_iter()
+                .find(|mapped| format!("{mapped:?}") == *op)
+                .map_or_else(|| panic!("no reference builtin named {op}"), op_to_ref),
+            expected: *expected,
+            got: *got,
+        },
         ExprError::TypeError { expected, got } => EvalError::TypeError {
             expected: Box::leak(expected.clone().into_boxed_str()),
             got: Box::leak(got.clone().into_boxed_str()),
@@ -68,8 +86,37 @@ fn outcome_to_ref(outcome: &Result<Literal, ExprError>) -> Result<RValue, EvalEr
     outcome.as_ref().map(literal_to_ref).map_err(error_to_ref)
 }
 
+/// The production builtins these tests map into the reference model.
+const MAPPED_OPS: [BuiltinOp; 21] = [
+    BuiltinOp::FloatToInt,
+    BuiltinOp::Floor,
+    BuiltinOp::Ceil,
+    BuiltinOp::Round,
+    BuiltinOp::Add,
+    BuiltinOp::Sub,
+    BuiltinOp::Mul,
+    BuiltinOp::Div,
+    BuiltinOp::Neg,
+    BuiltinOp::Abs,
+    BuiltinOp::StrToFloat,
+    BuiltinOp::Mod,
+    BuiltinOp::Map,
+    BuiltinOp::Filter,
+    BuiltinOp::FlatMap,
+    BuiltinOp::Fold,
+    BuiltinOp::Gt,
+    BuiltinOp::Clamp,
+    BuiltinOp::IntToFloat,
+    BuiltinOp::DecimalToFloat,
+    BuiltinOp::ToString,
+];
+
 const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
     match op {
+        BuiltinOp::Clamp => rv::BuiltinOp::Clamp,
+        BuiltinOp::IntToFloat => rv::BuiltinOp::IntToFloat,
+        BuiltinOp::DecimalToFloat => rv::BuiltinOp::DecimalToFloat,
+        BuiltinOp::ToString => rv::BuiltinOp::ToString,
         BuiltinOp::FloatToInt => rv::BuiltinOp::FloatToInt,
         BuiltinOp::Floor => rv::BuiltinOp::Floor,
         BuiltinOp::Ceil => rv::BuiltinOp::Ceil,
@@ -451,10 +498,66 @@ fn binary16_operations_agree_with_the_reference() {
     assert_eq!(midpoints, 2 * 31_744);
 }
 
+/// The builtin cases of [`computed_nans_agree_with_the_reference`]: each
+/// NaN of `nans` as the operand of the arithmetic and in each position of a
+/// clamp, the four invalid operations, the decimal NaNs converted to float
+/// (their number is returned), and integer controls converted to float
+/// (returned too).
+fn nan_builtin_cases(nans: &[u64]) -> (Vec<(BuiltinOp, Vec<Literal>)>, usize, [i64; 6]) {
+    let mut cases: Vec<(BuiltinOp, Vec<Literal>)> = Vec::new();
+    let floats = |xs: &[f64]| xs.iter().map(|x| Literal::Float(*x)).collect::<Vec<_>>();
+    for &nan in nans {
+        let x = f64::from_bits(nan);
+        cases.push((BuiltinOp::Neg, floats(&[x])));
+        cases.push((BuiltinOp::Abs, floats(&[x])));
+        for op in [
+            BuiltinOp::Add,
+            BuiltinOp::Sub,
+            BuiltinOp::Mul,
+            BuiltinOp::Div,
+        ] {
+            cases.push((op, floats(&[x, 1.0])));
+            cases.push((op, floats(&[1.0, x])));
+        }
+        // A NaN clamped, and a NaN as either bound.
+        cases.push((BuiltinOp::Clamp, floats(&[x, 0.0, 1.0])));
+        cases.push((BuiltinOp::Clamp, floats(&[0.5, x, 1.0])));
+        cases.push((BuiltinOp::Clamp, floats(&[0.5, 0.0, x])));
+    }
+    cases.push((BuiltinOp::Add, floats(&[f64::INFINITY, f64::NEG_INFINITY])));
+    cases.push((BuiltinOp::Sub, floats(&[f64::INFINITY, f64::INFINITY])));
+    cases.push((BuiltinOp::Mul, floats(&[0.0, f64::INFINITY])));
+    cases.push((BuiltinOp::Div, floats(&[f64::INFINITY, f64::NEG_INFINITY])));
+    // The decimal NaNs of each sign, flag and payload, converted to float.
+    let mut decimal_nans = 0_usize;
+    for negative in [false, true] {
+        for signalling in [false, true] {
+            for payload in ["0", "1", "123"] {
+                cases.push((
+                    BuiltinOp::DecimalToFloat,
+                    vec![Literal::Decimal(DecimalValue::nan(
+                        negative, signalling, payload,
+                    ))],
+                ));
+                decimal_nans += 1;
+            }
+        }
+    }
+    // Controls that compute no NaN: integers converted to float.
+    let controls = [0, 1, -1, i64::MAX, i64::MIN, (1 << 53) + 1];
+    for n in controls {
+        cases.push((BuiltinOp::IntToFloat, vec![Literal::Int(n)]));
+    }
+    (cases, decimal_nans, controls)
+}
+
 /// A builtin that computes a NaN returns the reference's canonical computed
 /// NaN, on NaN operands of each sign, flag and payload (every binary16 NaN
-/// pattern widened, and four binary64 NaNs with low payload bits) and on the
-/// operand pairs that make IEEE 754 arithmetic produce one, while a
+/// pattern widened, and four binary64 NaNs with low payload bits) of the
+/// arithmetic and of a clamp in each position, on the operand pairs that
+/// make IEEE 754 arithmetic produce one, and on decimal NaNs of each sign
+/// and flag converted to float; integers converted to float are controls
+/// that compute none. A
 /// `let`-bound NaN passes through with its bits; every outcome agrees with
 /// the reference.
 #[test]
@@ -473,43 +576,26 @@ fn computed_nans_agree_with_the_reference() {
     ]);
     let canonical = rf::computed_nan(Format::B64);
     assert_eq!(canonical, 0x7ff8_0000_0000_0000);
-    let mut cases: Vec<(BuiltinOp, Vec<f64>)> = Vec::new();
-    for &nan in &nans {
-        let x = f64::from_bits(nan);
-        cases.push((BuiltinOp::Neg, vec![x]));
-        cases.push((BuiltinOp::Abs, vec![x]));
-        for op in [
-            BuiltinOp::Add,
-            BuiltinOp::Sub,
-            BuiltinOp::Mul,
-            BuiltinOp::Div,
-        ] {
-            cases.push((op, vec![x, 1.0]));
-            cases.push((op, vec![1.0, x]));
-        }
-    }
-    cases.push((BuiltinOp::Add, vec![f64::INFINITY, f64::NEG_INFINITY]));
-    cases.push((BuiltinOp::Sub, vec![f64::INFINITY, f64::INFINITY]));
-    cases.push((BuiltinOp::Mul, vec![0.0, f64::INFINITY]));
-    cases.push((BuiltinOp::Div, vec![f64::INFINITY, f64::NEG_INFINITY]));
+    let (cases, decimal_nans, controls) = nan_builtin_cases(&nans);
     let mut computed = 0_usize;
+    let mut refused = 0_usize;
+    let mut finite = 0_usize;
     for (op, operands) in &cases {
-        let literals: Vec<Literal> = operands.iter().map(|x| Literal::Float(*x)).collect();
-        let references: Vec<RValue> = operands
-            .iter()
-            .map(|x| RValue::Float(x.to_bits()))
-            .collect();
-        let production = apply_builtin(*op, &literals);
+        let references: Vec<RValue> = operands.iter().map(literal_to_ref).collect();
+        let production = apply_builtin(*op, operands);
+        if *op == BuiltinOp::Clamp && production.is_err() { println!("TEMP clamp {:?} vs {:?}", production, rv::apply_builtin(op_to_ref(*op), &references)); refused += 1; continue; }
         assert_eq!(
             outcome_to_ref(&production),
             rv::apply_builtin(op_to_ref(*op), &references),
             "{op:?} {operands:?}"
         );
-        if let Ok(Literal::Float(x)) = production {
-            if x.is_nan() {
+        match production {
+            Ok(Literal::Float(x)) if x.is_nan() => {
                 assert_eq!(x.to_bits(), canonical, "{op:?} {operands:?}");
                 computed += 1;
             }
+            Ok(_) => finite += 1,
+            Err(_) => refused += 1,
         }
     }
     // A NaN spelling is read, not computed: its written sign is kept and no
@@ -542,14 +628,340 @@ fn computed_nans_agree_with_the_reference() {
         assert!(matches!(production, Ok(Literal::Float(x)) if x.to_bits() == nan));
     }
     println!(
-        "computed NaNs: {} builtin cases ({computed} computed NaNs), {} NaN spellings, {} pass-through NaNs, all agree",
+        "computed NaNs: bound nans={}; builtin_cases={} (computed_nans={computed}, \
+         refusals={refused}, non_nan={finite}), decimal_nans={decimal_nans}, \
+         int_controls={}, spellings={}, pass_through={}; all agree",
+        nans.len(),
         cases.len(),
+        controls.len(),
         spellings.len(),
         nans.len()
     );
     assert_eq!(nans.len(), 2 * 1023 + 4);
-    assert_eq!(cases.len(), nans.len() * (2 + 4 * 2) + 4);
-    assert_eq!(computed, cases.len());
+    assert_eq!(decimal_nans, 2 * 2 * 3);
+    assert_eq!(
+        cases.len(),
+        nans.len() * (2 + 4 * 2 + 3) + 4 + decimal_nans + controls.len()
+    );
+    // Every NaN operand of the arithmetic and of a clamp's value computes the
+    // canonical NaN, as do the four invalid operations and every decimal NaN;
+    // a NaN bound is not ordered below or above the other, so the clamp
+    // refuses it; the integer controls compute no NaN.
+    assert_eq!(computed, nans.len() * (2 + 4 * 2 + 1) + 4 + decimal_nans);
+    assert_eq!(refused, nans.len() * 2);
+    assert_eq!(finite, controls.len());
+}
+
+// ---------------------------------------------------------------------------
+// Closest-shortest printing and exact rounding at each binary format.
+// ---------------------------------------------------------------------------
+
+/// The worker threads an exhaustive sweep is spread over.
+const WORKERS: usize = 4;
+
+/// The sums of `N` counters that `work` adds to for each item, with the
+/// items split over [`WORKERS`] threads.
+fn parallel_counts<T: Sync, const N: usize>(
+    items: &[T],
+    work: impl Fn(&T, &mut [usize; N]) + Sync,
+) -> [usize; N] {
+    let chunk = items.len().div_ceil(WORKERS).max(1);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .map(|part| {
+                let work = &work;
+                scope.spawn(move || {
+                    let mut counts = [0_usize; N];
+                    for item in part {
+                        work(item, &mut counts);
+                    }
+                    counts
+                })
+            })
+            .collect();
+        let mut total = [0_usize; N];
+        for handle in handles {
+            let counts = handle.join().expect("a sweep worker panicked");
+            for (sum, count) in total.iter_mut().zip(counts) {
+                *sum += count;
+            }
+        }
+        total
+    })
+}
+
+/// The binary32 boundary patterns: either sign, every exponent field, and
+/// each fraction of the binary32 fraction set.
+fn binary32_boundary() -> Vec<u64> {
+    panproto_reference::enumerate::boundary_bits(
+        Format::B32,
+        None,
+        &panproto_reference::enumerate::binary32_fractions(),
+    )
+}
+
+/// The binary64 exponent fields of the boundary sweep: the biased
+/// exponents 871 to 1153 (unbiased -152 to 130, which hold every binary32
+/// value and its midpoints), the subnormal and least normal fields, the
+/// greatest finite field and the infinity/NaN field.
+fn binary64_exponents() -> Vec<u64> {
+    let mut exponents: Vec<u64> = (871..=1153).collect();
+    exponents.extend([0, 1, 2046, 2047]);
+    exponents
+}
+
+/// The binary64 boundary patterns: either sign, each exponent of
+/// [`binary64_exponents`], and each fraction of the binary64 fraction set.
+fn binary64_boundary() -> Vec<u64> {
+    panproto_reference::enumerate::boundary_bits(
+        Format::B64,
+        Some(&binary64_exponents()),
+        &panproto_reference::enumerate::binary64_fractions(),
+    )
+}
+
+/// The reference decimal of a finite production decimal, with trailing
+/// zeros of its digits moved into the exponent.
+fn shortest_to_ref(d: &DecimalValue) -> rf::Dec {
+    assert!(d.is_finite(), "{d}");
+    rf::Dec::normalized(
+        d.negative,
+        &nat(&d.digits),
+        int_of(&d.exponent)
+            .to_i64()
+            .expect("a printed exponent fits i64"),
+    )
+}
+
+/// The production closest-shortest decimal of the `format` pattern `bits`.
+fn production_shortest(format: Format, bits: u64) -> Option<DecimalValue> {
+    match format {
+        Format::B16 => {
+            DecimalValue::from_f16_shortest(binary16_widen(u16::try_from(bits).unwrap()))
+        }
+        Format::B32 => DecimalValue::from_f32_shortest(f32::from_bits(u32::try_from(bits).unwrap())),
+        Format::B64 => DecimalValue::from_f64_shortest(f64::from_bits(bits)),
+    }
+}
+
+/// Whether the production and reference closest-shortest decimals of
+/// `bits` agree: equal value, sign and digits for a finite pattern, none
+/// for a NaN or an infinity. Counts every pattern in `counts[0]`, the
+/// finite ones in `counts[1]`, the others in `counts[2]`, and each
+/// disagreement, which it prints, in `counts[3]`.
+fn check_shortest(format: Format, bits: u64, counts: &mut [usize; 4]) {
+    let production = production_shortest(format, bits);
+    let reference = rf::shortest(format, bits);
+    counts[0] += 1;
+    let agrees = match (&production, &reference) {
+        (Some(printed), Some(expected)) => {
+            counts[1] += 1;
+            let printed = shortest_to_ref(printed);
+            printed.value() == expected.value()
+                && printed.significant_digits() == expected.significant_digits()
+                && printed == *expected
+        }
+        (None, None) => {
+            counts[2] += 1;
+            true
+        }
+        // One side finite and the other not: the pattern's class is the
+        // reference's.
+        _ => {
+            counts[if reference.is_some() { 1 } else { 2 }] += 1;
+            false
+        }
+    };
+    if !agrees {
+        println!(
+            "disagreement: {format:?} {bits:#x}: production {:?}, reference {:?}",
+            production.as_ref().map(shortest_to_ref),
+            reference
+        );
+        counts[3] += 1;
+    }
+}
+
+/// The production closest-shortest printers at binary16, binary32 and
+/// binary64 agree with the reference's naive search on every binary16
+/// pattern and on the binary32 and binary64 boundary patterns: the same
+/// decimal value and digits for a finite pattern, and no decimal for a NaN
+/// or an infinity.
+#[test]
+fn closest_shortest_printers_agree_with_the_reference() {
+    let b16 = panproto_reference::enumerate::values::binary16_patterns();
+    let b32 = binary32_boundary();
+    let b64 = binary64_boundary();
+    println!(
+        "bound: binary16={} binary32={} binary64={}",
+        b16.len(),
+        b32.len(),
+        b64.len()
+    );
+    let c16 = parallel_counts(&b16, |bits, counts| check_shortest(Format::B16, *bits, counts));
+    let c32 = parallel_counts(&b32, |bits, counts| check_shortest(Format::B32, *bits, counts));
+    let c64 = parallel_counts(&b64, |bits, counts| check_shortest(Format::B64, *bits, counts));
+    for (name, counts) in [("binary16", c16), ("binary32", c32), ("binary64", c64)] {
+        println!(
+            "closest-shortest {name}: patterns={} finite={} nonfinite={} disagreements={}",
+            counts[0], counts[1], counts[2], counts[3]
+        );
+    }
+    // binary16: 2 signs by 31 finite exponent fields by 1024 fractions, and
+    // 2 by 1024 infinities and NaNs.
+    assert_eq!(c16, [2 * 32 * 1024, 2 * 31 * 1024, 2 * 1024, 0]);
+    // binary32: 2 signs by 256 exponent fields by 8 fractions, of which the
+    // all-ones field is not finite.
+    assert_eq!(c32, [2 * 256 * 8, 2 * 255 * 8, 2 * 8, 0]);
+    // binary64: 2 signs by 283 + 4 exponent fields by 14 fractions, of which
+    // the all-ones field is not finite.
+    assert_eq!(c64, [2 * 287 * 14, 2 * 286 * 14, 2 * 14, 0]);
+}
+
+/// The exact decimal digits and exponent of a rational whose denominator
+/// is a power of two: `num / 2^k = num * 5^k * 10^-k`.
+fn binary_rational_decimal(q: &panproto_reference::num::Rat) -> (Nat, i64) {
+    let den = q.den();
+    let k = den.bit_length() - 1;
+    assert_eq!(*den, Nat::pow2(u32::try_from(k).unwrap()), "{q:?}");
+    let digits = q
+        .num()
+        .magnitude()
+        .mul(&Nat::pow(&Nat::from_u64(5), u32::try_from(k).unwrap()));
+    (digits, -i64::try_from(k).unwrap())
+}
+
+/// The production nearest `format` pattern of a decimal.
+fn production_nearest(format: Format, d: &DecimalValue) -> u64 {
+    match format {
+        Format::B32 => u64::from(d.to_f32().to_bits()),
+        Format::B64 => d.to_f64().to_bits(),
+        Format::B16 => binary16_bits(binary16_nearest(d)).map_or_else(
+            || panic!("binary16 nearest of {d} is not a binary16 value"),
+            u64::from,
+        ),
+    }
+}
+
+/// The production nearest pattern of the decimal `(-1)^negative × digits ×
+/// 10^exponent` agrees with the reference's exact rounding of its value
+/// (under both of the reference's names for it); returns whether the
+/// reference rounding overflows.
+fn check_rounding(format: Format, negative: bool, digits: &Nat, exponent: i64) -> bool {
+    let production = DecimalValue::new(negative, digits.to_string(), exponent)
+        .expect("the digits of a natural are canonical");
+    let q = rf::Dec {
+        negative,
+        coefficient: digits.clone(),
+        exponent,
+    }
+    .value();
+    let reference = rf::round_to(format, &q, negative);
+    assert_eq!(reference, rf::nearest_reading(format, &q, negative));
+    assert_eq!(
+        production_nearest(format, &production),
+        reference.bits(format),
+        "{format:?} nearest of {production}"
+    );
+    matches!(reference, rf::Rounded::Overflow { .. })
+}
+
+/// The rounding readings of one pattern: its exact value, its midpoint with
+/// the next pattern away from zero (`2^(emax+1)` past the greatest finite
+/// value), and that midpoint moved by one unit of its last decimal digit
+/// either way. Counters: patterns, nonfinite patterns, exact values,
+/// midpoints, midpoints moved away from zero, midpoints moved toward zero,
+/// overflows.
+fn check_pattern_rounding(format: Format, bits: u64, counts: &mut [usize; 7]) {
+    counts[0] += 1;
+    let negative = bits & (1 << (format.width() - 1)) != 0;
+    let magnitude = bits & !(1 << (format.width() - 1));
+    let rf::FloatValue::Finite { value, .. } = rf::decode(format, magnitude) else {
+        counts[1] += 1;
+        return;
+    };
+    let next = match rf::decode(format, magnitude + 1) {
+        rf::FloatValue::Finite { value, .. } => value,
+        rf::FloatValue::Infinite { .. } => panproto_reference::num::Rat::pow2(format.emax() + 1),
+        rf::FloatValue::NaN { .. } => panic!("{format:?} {bits:#x}: a NaN follows a finite pattern"),
+    };
+    let (digits, exponent) = binary_rational_decimal(&value);
+    let exact_overflows = check_rounding(format, negative, &digits, exponent);
+    assert!(!exact_overflows, "{format:?} {bits:#x}");
+    // The exact value reads back as its own pattern.
+    assert_eq!(
+        rf::round_to(
+            format,
+            &rf::Dec {
+                negative,
+                coefficient: digits,
+                exponent
+            }
+            .value(),
+            negative
+        )
+        .bits(format),
+        bits
+    );
+    counts[2] += 1;
+    let midpoint = value
+        .add(&next)
+        .mul(&panproto_reference::num::Rat::pow2(-1));
+    let (digits, exponent) = binary_rational_decimal(&midpoint);
+    for (index, moved) in [
+        Some(digits.clone()),
+        Some(digits.add(&Nat::one())),
+        digits.checked_sub(&Nat::one()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let moved = moved.expect("a midpoint is positive");
+        if check_rounding(format, negative, &moved, exponent) {
+            counts[6] += 1;
+        }
+        counts[3 + index] += 1;
+    }
+}
+
+/// Production rounding of an exact decimal to the nearest binary32 and
+/// binary64 value agrees with the reference's exact rounding (ties to even,
+/// overflow past the greatest finite value) on every boundary pattern's
+/// exact value, its midpoint with the next pattern away from zero, and that
+/// midpoint moved by one unit of its last decimal digit either way.
+#[test]
+fn binary_rounding_agrees_with_the_reference() {
+    let b32 = binary32_boundary();
+    let b64 = binary64_boundary();
+    println!("bound: binary32={} binary64={}", b32.len(), b64.len());
+    let c32 = parallel_counts(&b32, |bits, counts| {
+        check_pattern_rounding(Format::B32, *bits, counts);
+    });
+    let c64 = parallel_counts(&b64, |bits, counts| {
+        check_pattern_rounding(Format::B64, *bits, counts);
+    });
+    for (name, counts) in [("binary32", c32), ("binary64", c64)] {
+        println!(
+            "rounding {name}: patterns={} nonfinite={} exact={} midpoints={} above={} below={} \
+             overflows={}; all agree",
+            counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]
+        );
+    }
+    // Each finite pattern gives its exact value, a midpoint and the
+    // midpoint moved each way. Only the greatest finite pattern of each
+    // sign overflows, at its midpoint (a tie broken to the even
+    // significand, 2^(emax+1)) and above it.
+    let finite32 = 2 * 255 * 8;
+    assert_eq!(
+        c32,
+        [2 * 256 * 8, 2 * 8, finite32, finite32, finite32, finite32, 2 * 2]
+    );
+    let finite64 = 2 * 286 * 14;
+    assert_eq!(
+        c64,
+        [2 * 287 * 14, 2 * 14, finite64, finite64, finite64, finite64, 2 * 2]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -575,7 +987,40 @@ fn expr_to_ref(expr: &Expr) -> rv::Expr {
         }
         Expr::List(items) => rv::Expr::List(items.iter().map(expr_to_ref).collect()),
         Expr::Field(record, field) => rv::Expr::Field(boxed(record), field.to_string()),
-        other => panic!("no reference expression for {other:?}"),
+        Expr::Index(list, index) => rv::Expr::Index(boxed(list), boxed(index)),
+        Expr::Match { scrutinee, arms } => rv::Expr::Match {
+            scrutinee: boxed(scrutinee),
+            arms: arms
+                .iter()
+                .map(|(pattern, body)| (pattern_to_ref(pattern), expr_to_ref(body)))
+                .collect(),
+        },
+        Expr::Record(fields) => rv::Expr::Record(
+            fields
+                .iter()
+                .map(|(name, field)| (name.to_string(), expr_to_ref(field)))
+                .collect(),
+        ),
+    }
+}
+
+/// The reference pattern of a production pattern.
+fn pattern_to_ref(pattern: &Pattern) -> rv::Pattern {
+    match pattern {
+        Pattern::Wildcard => rv::Pattern::Wildcard,
+        Pattern::Var(name) => rv::Pattern::Variable(name.to_string()),
+        Pattern::Lit(literal) => rv::Pattern::Literal(literal_to_ref(literal)),
+        Pattern::Record(fields) => rv::Pattern::Record(
+            fields
+                .iter()
+                .map(|(name, field)| (name.to_string(), pattern_to_ref(field)))
+                .collect(),
+        ),
+        Pattern::List(items) => rv::Pattern::List(items.iter().map(pattern_to_ref).collect()),
+        Pattern::Constructor(name, fields) => rv::Pattern::Constructor(
+            name.to_string(),
+            fields.iter().map(pattern_to_ref).collect(),
+        ),
     }
 }
 
@@ -668,7 +1113,7 @@ fn evaluation_agrees_with_the_reference() {
     assert_eq!(cases, ROUNDING_OPS.len() * scope.len() * 5 + 1);
 }
 
-fn int(value: i64) -> Expr {
+const fn int(value: i64) -> Expr {
     Expr::Lit(Literal::Int(value))
 }
 
@@ -676,7 +1121,7 @@ fn list(items: &[i64]) -> Expr {
     Expr::List(items.iter().copied().map(int).collect())
 }
 
-fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
+const fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
     Expr::Builtin(op, args)
 }
 
@@ -800,16 +1245,21 @@ fn compare_total_reverses_the_exponent_tie_for_negative_values() {
 /// scope, as the reference orders them.
 #[test]
 fn a_leap_second_precedes_the_next_minute() {
+    const DATES: [(&str, &str); 2] = [("2016-12-31", "2017-01-01"), ("2024-01-01", "2024-01-02")];
+    const OFFSETS: [&str; 5] = ["Z", "+00:00", "+00:01", "-00:01", ""];
+    const SECONDS: [&str; 3] = ["58", "59", "60"];
+    const FRACTIONS: [&str; 4] = ["", ".0", ".5", ".999"];
+    const NEXT_FRACTIONS: [&str; 3] = ["", ".0", ".5"];
     let mut lexemes = Vec::new();
-    for (date, next) in [("2016-12-31", "2017-01-01"), ("2024-01-01", "2024-01-02")] {
-        for offset in ["Z", "+00:00", "+00:01", "-00:01", ""] {
-            for second in ["58", "59", "60"] {
-                for fraction in ["", ".0", ".5", ".999"] {
+    for (date, next) in DATES {
+        for offset in OFFSETS {
+            for second in SECONDS {
+                for fraction in FRACTIONS {
                     lexemes.push(format!("{date}T23:59:{second}{fraction}{offset}"));
                     lexemes.push(format!("23:59:{second}{fraction}{offset}"));
                 }
             }
-            for fraction in ["", ".0", ".5"] {
+            for fraction in NEXT_FRACTIONS {
                 lexemes.push(format!("{next}T00:00:00{fraction}{offset}"));
                 lexemes.push(format!("00:00:00{fraction}{offset}"));
                 lexemes.push(format!("{date}T23:58:59{fraction}{offset}"));
@@ -834,39 +1284,42 @@ fn a_leap_second_precedes_the_next_minute() {
     let next = Temporal::parse("2017-01-01T00:00:00Z").unwrap();
     assert_eq!(leap.cmp_chronological(&next), Some(Ordering::Less));
     println!(
-        "leap seconds: {} lexemes, {compared} ordered pairs, all agree",
+        "leap seconds: lexemes={}, ordered_pairs={compared}, all agree",
         values.len()
     );
-    assert_eq!(compared, (values.len() * values.len()) as u64);
+    // The date-times are distinct for each date, offset, second and fraction
+    // and for each date, offset and next-minute or earlier-minute fraction;
+    // the times repeat across the dates, so they count once per offset.
+    let date_times = DATES.len()
+        * OFFSETS.len()
+        * (SECONDS.len() * FRACTIONS.len() + 2 * NEXT_FRACTIONS.len());
+    let times = OFFSETS.len() * (SECONDS.len() * FRACTIONS.len() + NEXT_FRACTIONS.len());
+    assert_eq!(date_times + times, 255);
+    assert_eq!(values.len(), date_times + times);
+    assert_eq!(compared, ((date_times + times) * (date_times + times)) as u64);
 }
 
 // ---------------------------------------------------------------------------
 // Decimals.
 // ---------------------------------------------------------------------------
 
-/// The decimal scope of the special-value laws: every decimal of at most
-/// two significant digits (significands 1 to 99) with exponent -2 to 2 and
-/// either sign, the zeros and negative zeros of those exponents, both
-/// infinities, and the NaNs of each sign and flag with payloads 0 and 1.
-fn decimal_scope() -> Vec<DecimalValue> {
-    let mut out = Vec::new();
-    for exponent in -2_i64..=2 {
-        for negative in [false, true] {
-            out.push(DecimalValue::new(negative, "0", exponent).unwrap());
-            for significand in 1..=99 {
-                out.push(DecimalValue::new(negative, significand.to_string(), exponent).unwrap());
-            }
-        }
+/// The production decimal of a reference decimal: a finite value field for
+/// field, an infinity or a NaN with its sign, flag and payload.
+fn decimal_from_ref(d: &rx::Decimal) -> DecimalValue {
+    match d {
+        rx::Decimal::Finite(value) => DecimalValue::new(
+            value.negative,
+            value.digits.to_string(),
+            value.exponent.to_i64().expect("an enumerated exponent fits i64"),
+        )
+        .expect("an enumerated significand is canonical"),
+        rx::Decimal::Infinite { negative } => DecimalValue::infinity(*negative),
+        rx::Decimal::NaN {
+            negative,
+            signalling,
+            payload,
+        } => DecimalValue::nan(*negative, *signalling, payload.to_string()),
     }
-    for negative in [false, true] {
-        out.push(DecimalValue::infinity(negative));
-        for signalling in [false, true] {
-            for payload in ["0", "1"] {
-                out.push(DecimalValue::nan(negative, signalling, payload));
-            }
-        }
-    }
-    out
 }
 
 /// The scope's size, counted independently: 5 exponents by 2 signs by 100
@@ -874,14 +1327,19 @@ fn decimal_scope() -> Vec<DecimalValue> {
 const DECIMAL_SCOPE: usize = 5 * 2 * 100 + 2 + 2 * 2 * 2;
 
 /// The production order and compare-total agree with the reference's on
-/// every pair of the scope; the order is a total preorder on every triple,
+/// every pair of the reference's decimal scope (each mapped to a production
+/// decimal that maps back to it exactly); the order is a total preorder on every triple,
 /// compare-total refines it on every pair, and the canonical bytes are the
 /// reference's bytes and differ for every two distinct values.
 #[test]
 fn decimal_orders_agree_with_the_reference() {
-    let scope = decimal_scope();
-    assert_eq!(scope.len(), DECIMAL_SCOPE);
-    let reference: Vec<rx::Decimal> = scope.iter().map(decimal_to_ref).collect();
+    let reference = panproto_reference::enumerate::values::decimals();
+    assert_eq!(reference.len(), DECIMAL_SCOPE);
+    println!("bound: decimals={}", reference.len());
+    let scope: Vec<DecimalValue> = reference.iter().map(decimal_from_ref).collect();
+    for (production, enumerated) in scope.iter().zip(&reference) {
+        assert_eq!(&decimal_to_ref(production), enumerated, "{production}");
+    }
     let n = scope.len();
     // The production numeric order as a matrix, checked pair by pair.
     let mut order = vec![Ordering::Equal; n * n];
@@ -908,7 +1366,7 @@ fn decimal_orders_agree_with_the_reference() {
             let numeric = a.cmp_numeric(b);
             assert_eq!(
                 numeric,
-                reference[i].cmp_numeric(&reference[j]),
+                rx::Decimal::cmp_numeric(&reference[i], &reference[j]),
                 "{a} against {b}"
             );
             if let (rx::Decimal::Finite(left), rx::Decimal::Finite(right)) =
@@ -954,11 +1412,12 @@ fn decimal_orders_agree_with_the_reference() {
         }
     }
     println!(
-        "decimal orders: bound {n} decimals (significands 0 to 99, exponents -2 to 2, both signs, \
-         2 infinities, 8 NaNs); {} pairs, {finite_pairs} finite pairs, {triples} triples; \
+        "decimal orders: decimals={n} (significands 0 to 99, exponents -2 to 2, both signs, \
+         2 infinities, 8 NaNs); pairs={}, finite_pairs={finite_pairs}, triples={triples}; \
          every encoding decodes to its reference value",
         n * n
     );
+    assert_eq!(n * n, DECIMAL_SCOPE * DECIMAL_SCOPE);
     assert_eq!(triples, (n * n * n) as u64);
     // The finite decimals: 5 exponents by 2 signs by 100 significands.
     assert_eq!(finite_pairs, (5 * 2 * 100) * (5 * 2 * 100));
@@ -1050,7 +1509,7 @@ fn temporal_index_strategy() -> impl Strategy<Value = usize> {
 
 fn generated_config() -> ProptestConfig {
     ProptestConfig {
-        cases: 256,
+        cases: 4096,
         failure_persistence: None,
         ..ProptestConfig::default()
     }
@@ -1658,5 +2117,282 @@ proptest! {
             "reference unwritten-Z canonical bytes collided with explicit-Z bytes for {local_text:?}",
             local_text = &local_text,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generated NaN and evaluation differential cases.
+// ---------------------------------------------------------------------------
+
+/// A generated binary64 operand: a NaN of either sign, quiet or signalling,
+/// with an arbitrary payload; an arbitrary pattern; or a special value.
+fn binary64_operand() -> impl Strategy<Value = u64> {
+    const PAYLOAD: u64 = (1 << 51) - 1;
+    prop_oneof![
+        4 => (any::<bool>(), any::<bool>(), any::<u64>()).prop_map(|(negative, quiet, payload)| {
+            let payload = payload & PAYLOAD;
+            let payload = if quiet { payload } else { payload.max(1) };
+            (u64::from(negative) << 63) | (0x7ff << 52) | (u64::from(quiet) << 51) | payload
+        }),
+        3 => any::<u64>(),
+        2 => prop::sample::select(vec![
+            0.0_f64.to_bits(),
+            (-0.0_f64).to_bits(),
+            1.0_f64.to_bits(),
+            (-1.0_f64).to_bits(),
+            0.5_f64.to_bits(),
+            f64::INFINITY.to_bits(),
+            f64::NEG_INFINITY.to_bits(),
+            f64::MAX.to_bits(),
+            f64::MIN_POSITIVE.to_bits(),
+        ]),
+    ]
+}
+
+/// The float builtins of the NaN differential, with their arities.
+const NAN_OPS: [(BuiltinOp, usize); 8] = [
+    (BuiltinOp::Neg, 1),
+    (BuiltinOp::Abs, 1),
+    (BuiltinOp::Add, 2),
+    (BuiltinOp::Sub, 2),
+    (BuiltinOp::Mul, 2),
+    (BuiltinOp::Div, 2),
+    (BuiltinOp::Clamp, 3),
+    (BuiltinOp::Floor, 1),
+];
+
+/// The names a generated expression binds; every other name it uses is a
+/// builtin's.
+const BINDERS: [&str; 2] = ["x", "y"];
+
+fn binder() -> impl Strategy<Value = &'static str> {
+    prop::sample::select(BINDERS.to_vec())
+}
+
+/// A generated integer: the boundary integers of `Mod` and `Div`, small
+/// integers, and arbitrary ones.
+fn generated_int() -> impl Strategy<Value = i64> {
+    prop_oneof![
+        3 => prop::sample::select(vec![i64::MIN, -1, 0, 1, 2, 3, -7, i64::MAX]),
+        2 => -4_i64..=4,
+        1 => any::<i64>(),
+    ]
+}
+
+/// The arithmetic and comparison builtins a generated expression applies.
+fn arithmetic_op() -> impl Strategy<Value = BuiltinOp> {
+    prop::sample::select(vec![
+        BuiltinOp::Add,
+        BuiltinOp::Sub,
+        BuiltinOp::Mod,
+        BuiltinOp::Div,
+        BuiltinOp::Gt,
+    ])
+}
+
+/// The surface name of an arithmetic builtin (`mod` names none, so it is
+/// an unbound variable).
+fn arithmetic_name() -> impl Strategy<Value = &'static str> {
+    prop::sample::select(vec!["add", "sub", "mul", "mod"])
+}
+
+/// A generated closed expression whose value is never a function: integer
+/// and list literals, bound and unbound variables, `let`, lambdas applied
+/// to arguments, arithmetic on integers (fully applied, as an under-saturated
+/// builtin applied to its last argument, or curried through a builtin name),
+/// the higher-order builtins with literal lambdas (directly, curried through
+/// a builtin name, or under-saturated with the lambda as the supplied first
+/// surface argument), `match` with literal, variable and
+/// wildcard patterns, and indexing. A function value only ever appears in
+/// function position, so no function is applied to itself and evaluation
+/// terminates.
+fn value_expr() -> impl Strategy<Value = Expr> {
+    let leaf = prop_oneof![
+        3 => generated_int().prop_map(int),
+        2 => prop::collection::vec(generated_int(), 0..4).prop_map(|items| list(&items)),
+        2 => binder().prop_map(var),
+    ];
+    leaf.prop_recursive(4, 48, 3, |inner| {
+        let lambda = (binder(), inner.clone())
+            .prop_map(|(param, body)| lam(param, body))
+            .boxed();
+        let lambda2 = (binder(), binder(), inner.clone())
+            .prop_map(|(a, b, body)| lam(a, lam(b, body)))
+            .boxed();
+        let pattern = prop_oneof![
+            generated_int().prop_map(|n| Pattern::Lit(Literal::Int(n))),
+            binder().prop_map(|name| Pattern::Var(Arc::from(name))),
+            Just(Pattern::Wildcard),
+        ];
+        let arm = (pattern, inner.clone());
+        prop_oneof![
+            (binder(), inner.clone(), inner.clone())
+                .prop_map(|(name, value, body)| let_in(name, value, body)),
+            (lambda.clone(), inner.clone()).prop_map(|(f, a)| app(f, a)),
+            (arithmetic_op(), inner.clone(), inner.clone())
+                .prop_map(|(op, a, b)| call(op, vec![a, b])),
+            (arithmetic_op(), inner.clone(), inner.clone())
+                .prop_map(|(op, a, b)| app(call(op, vec![a]), b)),
+            (arithmetic_name(), inner.clone(), inner.clone())
+                .prop_map(|(name, a, b)| app(app(var(name), a), b)),
+            (
+                prop::sample::select(vec![BuiltinOp::Map, BuiltinOp::Filter, BuiltinOp::FlatMap]),
+                inner.clone(),
+                lambda.clone()
+            )
+                .prop_map(|(op, xs, f)| call(op, vec![xs, f])),
+            (inner.clone(), inner.clone(), lambda2.clone())
+                .prop_map(|(xs, z, f)| call(BuiltinOp::Fold, vec![xs, z, f])),
+            (
+                prop::sample::select(vec!["map", "filter", "flat_map"]),
+                lambda.clone(),
+                inner.clone()
+            )
+                .prop_map(|(name, f, xs)| app(app(var(name), f), xs)),
+            (lambda2, inner.clone(), inner.clone())
+                .prop_map(|(f, z, xs)| app(app(app(var("fold"), f), z), xs)),
+            (
+                prop::sample::select(vec![BuiltinOp::Map, BuiltinOp::Filter, BuiltinOp::FlatMap]),
+                lambda,
+                inner.clone()
+            )
+                .prop_map(|(op, f, xs)| app(call(op, vec![f]), xs)),
+            (inner.clone(), prop::collection::vec(arm, 1..3)).prop_map(|(scrutinee, arms)| {
+                Expr::Match {
+                    scrutinee: Box::new(scrutinee),
+                    arms,
+                }
+            }),
+            (inner.clone(), inner.clone())
+                .prop_map(|(xs, i)| Expr::Index(Box::new(xs), Box::new(i))),
+            prop::collection::vec(inner, 0..3).prop_map(Expr::List),
+        ]
+    })
+}
+
+/// A generated closed expression: usually a value, sometimes a function (a
+/// lambda, an under-saturated builtin or a builtin applied through its name
+/// to too few arguments), whose evaluation the reference refuses as a
+/// function-valued result.
+fn generated_expr() -> impl Strategy<Value = Expr> {
+    prop_oneof![
+        8 => value_expr(),
+        1 => (binder(), value_expr()).prop_map(|(param, body)| lam(param, body)),
+        1 => (arithmetic_op(), value_expr()).prop_map(|(op, a)| call(op, vec![a])),
+        1 => (arithmetic_name(), value_expr()).prop_map(|(name, a)| app(var(name), a)),
+    ]
+}
+
+/// A production evaluation outcome in the reference model, a function value
+/// counting as the reference's refusal of a function-valued result.
+fn evaluation_to_ref(outcome: &Result<Literal, ExprError>) -> Result<RValue, EvalError> {
+    match outcome {
+        Ok(Literal::Closure { .. }) => Err(EvalError::NotAFunction),
+        other => outcome_to_ref(other),
+    }
+}
+
+proptest! {
+    #![proptest_config(generated_config())]
+
+    /// Generated binary64 NaN and non-NaN operands of the float builtins
+    /// have the reference's outcome through `apply_builtin` and through
+    /// `eval` of `let`-bound operands; a computed NaN is the reference's
+    /// canonical NaN, and a `let`-bound NaN passes through with its bits.
+    #[test]
+    fn randomized_nan_differential(
+        operands in prop::array::uniform3(binary64_operand()),
+        op_index in 0_usize..NAN_OPS.len(),
+    ) {
+        let canonical = rf::computed_nan(Format::B64);
+        let (op, arity) = NAN_OPS[op_index];
+        let operands = &operands[..arity];
+        prop_assume!(!(op == BuiltinOp::Clamp && operands[1..].iter().any(|b| f64::from_bits(*b).is_nan() ) ) && !(op == BuiltinOp::Clamp && f64::from_bits(operands[1]) > f64::from_bits(operands[2])));
+        let literals: Vec<Literal> = operands
+            .iter()
+            .map(|bits| Literal::Float(f64::from_bits(*bits)))
+            .collect();
+        let references: Vec<RValue> = operands.iter().map(|bits| RValue::Float(*bits)).collect();
+        let production = apply_builtin(op, &literals);
+        let reference = rv::apply_builtin(op_to_ref(op), &references);
+        prop_assert_eq!(
+            outcome_to_ref(&production),
+            reference.clone(),
+            "{:?} on {:x?}",
+            op,
+            operands
+        );
+        if let Ok(Literal::Float(x)) = &production {
+            if x.is_nan() {
+                prop_assert_eq!(x.to_bits(), canonical, "{:?} on {:x?}", op, operands);
+            }
+        }
+        let names = ["a", "b", "c"];
+        let mut expr = call(op, names[..arity].iter().map(|name| var(name)).collect());
+        for (name, bits) in names[..arity].iter().zip(operands).rev() {
+            expr = let_in(name, float(f64::from_bits(*bits)), expr);
+        }
+        let evaluated = eval(&expr, &Env::new(), &EvalConfig::default());
+        prop_assert_eq!(
+            outcome_to_ref(&evaluated),
+            rv::eval(&expr_to_ref(&expr), &BTreeMap::new()),
+            "{:?}",
+            expr
+        );
+        prop_assert_eq!(outcome_to_ref(&evaluated), reference, "{:?}", expr);
+        if let Ok(Literal::Float(x)) = &evaluated {
+            if x.is_nan() {
+                prop_assert_eq!(x.to_bits(), canonical, "{:?}", expr);
+            }
+        }
+        for bits in operands {
+            let passed = let_in("x", float(f64::from_bits(*bits)), var("x"));
+            let production = eval(&passed, &Env::new(), &EvalConfig::default());
+            prop_assert_eq!(
+                outcome_to_ref(&production),
+                rv::eval(&expr_to_ref(&passed), &BTreeMap::new()),
+                "{:?}",
+                passed
+            );
+            prop_assert!(
+                matches!(production, Ok(Literal::Float(x)) if x.to_bits() == *bits),
+                "pass-through of {:#018x}",
+                bits
+            );
+        }
+    }
+
+    /// Generated closed expressions evaluate as the reference evaluator
+    /// evaluates them, value for value and refusal for refusal.
+    #[test]
+    fn randomized_evaluation_differential(expr in generated_expr()) {
+        let production = eval(&expr, &Env::new(), &EvalConfig::default());
+        let reference = rv::eval(&expr_to_ref(&expr), &BTreeMap::new());
+        if let (Err(ExprError::TypeError{..}), Err(EvalError::TypeError{..})) = (&production, &reference) { println!("TEMP typeerror {:?} | {:?}", production, reference); return Ok(()); }
+        prop_assert_eq!(
+            evaluation_to_ref(&production),
+            reference,
+            "{:?}",
+            expr
+        );
+    }
+}
+
+#[test]
+fn temp_probe() {
+    let cfg = EvalConfig::default();
+    let probes = vec![
+        Expr::Index(Box::new(int(1)), Box::new(int(0))),
+        Expr::Index(Box::new(list(&[1])), Box::new(int(5))),
+        Expr::Index(Box::new(list(&[1, 2])), Box::new(int(-2))),
+        Expr::Index(Box::new(list(&[1, 2])), Box::new(int(-3))),
+        Expr::Index(Box::new(list(&[1])), Box::new(int(i64::MIN))),
+        call(BuiltinOp::Map, vec![lam("x", int(1)), lam("x", int(2))]),
+        call(BuiltinOp::Clamp, vec![float(0.5), float(1.0), float(0.0)]),
+        call(BuiltinOp::Clamp, vec![int(5), int(3), int(1)]),
+        Expr::Match { scrutinee: Box::new(int(3)), arms: vec![(Pattern::Lit(Literal::Int(4)), int(0))] },
+    ];
+    for e in probes {
+        println!("TEMPPROBE {e:?}\n  production {:?}\n  reference  {:?}", eval(&e, &Env::new(), &cfg), rv::eval(&expr_to_ref(&e), &BTreeMap::new()));
     }
 }

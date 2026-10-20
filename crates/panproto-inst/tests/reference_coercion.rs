@@ -1999,3 +1999,410 @@ fn randomized_values() -> &'static [RValue] {
         dedupe(out)
     })
 }
+
+// ---------------------------------------------------------------------------
+// Representation and canonical bytes.
+// ---------------------------------------------------------------------------
+
+/// The number of values of `scope::canonical_values`, summed from its parts:
+/// the decimals (five exponents by two signs by a hundred significands, two
+/// infinities and eight NaNs), the byte strings of length at most one, the
+/// temporal forms (twelve date bodies, fourteen time bodies and four dates
+/// by eight times, each under eleven offsets, and two infinities of two
+/// forms under five offsets), seven integers, two booleans and null, four
+/// strings and four tokens, two signs by five exponent fields by four
+/// fractions of binary16, three big integers, a link, a blob and an opaque
+/// value, two records, four lists and two labelled nulls.
+const fn canonical_value_count() -> usize {
+    let decimals = 5 * 2 * 100 + 2 + 2 * 2 * 2;
+    let byte_strings = 1 + 256;
+    let temporals = 12 * 11 + 14 * 11 + 4 * 8 * 11 + 2 * 5 * 2;
+    let integers = 7;
+    let booleans_and_null = 3;
+    let strings_and_tokens = 2 * 4;
+    let floats = 2 * 5 * 4;
+    let big_integers = 3;
+    let link_blob_and_opaque = 3;
+    let records = 2;
+    let lists = 4;
+    let labelled_nulls = 2;
+    decimals
+        + byte_strings
+        + temporals
+        + integers
+        + booleans_and_null
+        + strings_and_tokens
+        + floats
+        + big_integers
+        + link_blob_and_opaque
+        + records
+        + lists
+        + labelled_nulls
+}
+
+/// Every value of `scope::canonical_values` with its production preimage,
+/// which every one of them has.
+fn canonical_scope() -> Vec<(RValue, Value)> {
+    scope::canonical_values()
+        .into_iter()
+        .map(|x| {
+            let p = into_production(&x)
+                .unwrap_or_else(|| panic!("{x:?} is outside the production model"));
+            (x, p)
+        })
+        .collect()
+}
+
+/// Run `row` on every index below `rows` on [`WORKERS`] threads and sum the
+/// counts it returns.
+fn sum_over_rows<const N: usize>(rows: usize, row: impl Fn(usize) -> [u64; N] + Sync) -> [u64; N] {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut sum = [0_u64; N];
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= rows {
+                            return sum;
+                        }
+                        for (total, n) in sum.iter_mut().zip(row(i)) {
+                            *total += n;
+                        }
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("worker"))
+            .fold([0_u64; N], |mut sum, part| {
+                for (total, n) in sum.iter_mut().zip(part) {
+                    *total += n;
+                }
+                sum
+            })
+    })
+}
+
+/// On every ordered pair of the canonical values, the reference's
+/// representation equality is the equality of the production canonical
+/// bytes of the two production preimages.
+#[test]
+fn representation_is_canonical_byte_equality_on_every_pair() {
+    let started = Instant::now();
+    let scope = canonical_scope();
+    let n = scope.len();
+    let bytes: Vec<Vec<u8>> = scope.iter().map(|(_, p)| p.canonical_bytes()).collect();
+    let [equal, distinct] = sum_over_rows(n, |i| {
+        let mut counts = [0_u64; 2];
+        for j in 0..n {
+            let production_equal = bytes[i] == bytes[j];
+            assert_eq!(
+                rv::representation(&scope[i].0, &scope[j].0),
+                Some(production_equal),
+                "{:?} against {:?}",
+                scope[i].0,
+                scope[j].0
+            );
+            counts[usize::from(!production_equal)] += 1;
+        }
+        counts
+    });
+    println!(
+        "representation: bound {n} canonical values, {} ordered pairs: {equal} equal, \
+         {distinct} distinct; elapsed {:.1?}",
+        n * n,
+        started.elapsed()
+    );
+    assert_eq!(n, canonical_value_count());
+    assert_eq!(equal + distinct, (n * n) as u64);
+    // No two distinct values of the scope share a representation.
+    assert_eq!(equal, n as u64);
+}
+
+/// On every canonical value, production's canonical bytes are the
+/// reference's canonical bytes, and the reference decodes them back to the
+/// value.
+#[test]
+fn canonical_bytes_agree_with_the_reference() {
+    let started = Instant::now();
+    let scope = canonical_scope();
+    let mut by_variant: BTreeMap<String, u64> = BTreeMap::new();
+    let mut differing = 0_u64;
+    for (x, p) in &scope {
+        let reference = panproto_reference::canonical::value_bytes(x)
+            .unwrap_or_else(|| panic!("{x:?} is outside the canonical encoder"));
+        let production = p.canonical_bytes();
+        if production != reference && differing == 0 {
+            println!("canonical bytes: first difference at {x:?}");
+            println!("canonical bytes:   production {production:02x?}");
+            println!("canonical bytes:   reference  {reference:02x?}");
+        }
+        differing += u64::from(production != reference);
+        assert_eq!(
+            panproto_reference::canonical::decode_value(&reference).as_ref(),
+            Some(x),
+            "the reference decodes its own bytes of {x:?}"
+        );
+        *by_variant.entry(value_class(x)).or_default() += 1;
+    }
+    for (variant, count) in &by_variant {
+        println!("canonical bytes: {variant}: {count}");
+    }
+    println!(
+        "canonical bytes: bound {} canonical values, {differing} differ; elapsed {:.1?}",
+        scope.len(),
+        started.elapsed()
+    );
+    assert_eq!(scope.len(), canonical_value_count());
+    assert_eq!(differing, 0);
+}
+
+// ---------------------------------------------------------------------------
+// The nearest reading at binary32 and binary64.
+// ---------------------------------------------------------------------------
+
+/// The closest-shortest text of a finite pattern of `format`, and that text
+/// with its last digit moved one either way (down only from a nonzero
+/// significand); nothing for a NaN or an infinity.
+fn shortest_with_neighbours(format: Format, bits: u64) -> Vec<String> {
+    let Some(shortest) = panproto_reference::float::shortest(format, bits) else {
+        return Vec::new();
+    };
+    let text = shortest.to_scientific();
+    let (mantissa, exponent) = text.split_once('e').unwrap();
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let n: u64 = digits.parse().unwrap();
+    let point = i64::try_from(digits.len()).unwrap() - 1;
+    let exponent: i64 = exponent.parse::<i64>().unwrap() - point;
+    let sign = if shortest.negative { "-" } else { "" };
+    let mut out = vec![text.clone(), format!("{sign}{}e{exponent}", n + 1)];
+    if n > 0 {
+        out.push(format!("{sign}{}e{exponent}", n - 1));
+    }
+    out
+}
+
+/// Under `Float { bits: 32 }` and `Float { bits: 64 }`, with the nearest
+/// reading and, for contrast, the exact one: the closest-shortest text of
+/// every binary32 and every binary64 boundary pattern with its two
+/// last-digit neighbours, and every numeral of the values page, read as
+/// numbers. Every outcome agrees with the reference's.
+#[test]
+fn nearest_reading_coercion_agrees_with_the_reference() {
+    let started = Instant::now();
+    let binary32 = en::boundary_bits(Format::B32, None, &en::binary32_fractions());
+    let binary64 = en::boundary_bits(Format::B64, None, &en::binary64_fractions());
+    assert_eq!(binary32.len(), 2 * 256 * 8);
+    assert_eq!(binary64.len(), 2 * 2048 * 14);
+    let mut texts = Vec::new();
+    for &bits in &binary32 {
+        texts.extend(shortest_with_neighbours(Format::B32, bits));
+    }
+    for &bits in &binary64 {
+        texts.extend(shortest_with_neighbours(Format::B64, bits));
+    }
+    let numerals = scope::numerals();
+    assert_eq!(
+        numerals.len() as u64,
+        panproto_reference::enumerate::numerals_count(2, -1, 1)
+    );
+    texts.extend(numerals);
+    let texts = dedupe(texts);
+    println!(
+        "nearest: bound {} binary32 and {} binary64 boundary patterns, their shortest texts and \
+         last-digit neighbours, and the values-page numerals: {} distinct texts",
+        binary32.len(),
+        binary64.len(),
+        texts.len()
+    );
+    let class = LexClass::Number;
+    let rclass = class_to_ref(&class);
+    for bits in [32, 64] {
+        for reading in [FloatReading::NearestKeepingLexeme, FloatReading::Exact] {
+            let spec = ValueSpec {
+                float_reading: reading,
+                ..ValueSpec::new(ScalarKind::Float { bits })
+            };
+            let rspec = spec_to_ref(&spec);
+            let tally = over_spec_chunks(&[rspec], texts.len(), |rspec, range, tally| {
+                for text in &texts[range] {
+                    let Some(reference) = r::coerce(text, &rclass, rspec) else {
+                        tally.outside_reference += 1;
+                        continue;
+                    };
+                    let production = coerce_to_ref(text, &class, &spec);
+                    tally.record(rspec, text, "Number", &production, &reference);
+                }
+            });
+            tally.print(
+                &format!("nearest Float {{ bits: {bits} }} {reading:?}"),
+                texts.len() as u64,
+                started,
+            );
+            assert_eq!(tally.outside_reference, 0);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generated discriminator tables and dialects.
+// ---------------------------------------------------------------------------
+
+/// The tags a generated discriminator table draws from.
+const TABLE_TAGS: [&str; 4] = ["integer", "float", "text", "number"];
+
+/// The kinds a generated discriminator table maps its tags to.
+fn table_kinds() -> [ScalarKind; 4] {
+    [
+        ScalarKind::Int {
+            bits: 32,
+            signed: true,
+        },
+        ScalarKind::Float { bits: 64 },
+        ScalarKind::Str,
+        ScalarKind::Decimal,
+    ]
+}
+
+/// The lexeme classes of the generated cases.
+fn generated_classes() -> Vec<LexClass> {
+    let mut classes = vec![
+        LexClass::Number,
+        LexClass::String,
+        LexClass::Bool,
+        LexClass::Null,
+        LexClass::DateTime,
+        LexClass::Bytes,
+    ];
+    classes.extend(["int", "custom"].map(|t| LexClass::Tagged(t.into())));
+    classes
+}
+
+/// The numeric kinds, `Any` and `Str` of the generated dialect cases.
+fn dialect_kinds() -> [ScalarKind; 7] {
+    [
+        ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+        ScalarKind::BigInt,
+        ScalarKind::Float { bits: 64 },
+        ScalarKind::Float { bits: 32 },
+        ScalarKind::Decimal,
+        ScalarKind::Any,
+        ScalarKind::Str,
+    ]
+}
+
+/// A dialect probe, or a generated numeral: signed, prefixed, separated,
+/// fractional and exponent forms, special spellings and sexagesimal forms.
+fn dialect_lexeme() -> impl proptest::strategy::Strategy<Value = String> {
+    use proptest::strategy::Strategy as _;
+    proptest::prop_oneof![
+        (0..DIALECT_PROBES.len()).prop_map(|i| DIALECT_PROBES[i].to_owned()),
+        "[-+]?(0[xXoObB])?[0-9a-fA-F_]{0,5}(\\.[0-9_]{0,3})?([eE][-+]?[0-9_]{0,3})?",
+        "[-+]?\\.?(inf|Inf|INF|nan|NaN|NAN|Infinity|infinity)",
+        "[-+]?[0-9]{1,3}(:[0-9]{1,2}){1,2}(\\.[0-9]{0,2})?",
+    ]
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config {
+        failure_persistence: None,
+        ..proptest::test_runner::Config::default()
+    })]
+
+    /// A generated discriminator table (each of four tags absent or mapped
+    /// to one of four kinds), a tag of the table, outside it or none, an own
+    /// kind, a class and a lexeme over a small alphabet: production's
+    /// discriminated coercion agrees with the reference's.
+    #[test]
+    fn randomized_discriminated_differential(
+        entries in proptest::collection::vec(proptest::option::of(0_usize..4), 4),
+        tag_index in 0_usize..6,
+        own_index in 0_usize..3,
+        class_index in 0_usize..8,
+        text in "[-+0-9.eEaAtrufls:T=]{0,8}",
+    ) {
+        let kinds = table_kinds();
+        let table: BTreeMap<String, ScalarKind> = TABLE_TAGS
+            .iter()
+            .zip(&entries)
+            .filter_map(|(tag, kind)| kind.map(|k| ((*tag).to_owned(), kinds[k].clone())))
+            .collect();
+        let reference_table: BTreeMap<String, r::ScalarKind> = table
+            .iter()
+            .map(|(tag, kind)| (tag.clone(), kind_to_ref(kind)))
+            .collect();
+        let tag = match tag_index {
+            0..4 => Some(TABLE_TAGS[tag_index]),
+            4 => Some("x-unknown"),
+            _ => None,
+        };
+        let own = [ScalarKind::Any, ScalarKind::Str, ScalarKind::Decimal][own_index].clone();
+        let spec = ValueSpec {
+            discriminators: Some(table),
+            ..ValueSpec::new(own.clone())
+        };
+        let plain = ValueSpec::new(own);
+        let class = &generated_classes()[class_index];
+        let reference = r::coerce_tagged(
+            &text,
+            &class_to_ref(class),
+            tag,
+            &reference_table,
+            &spec_to_ref(&plain),
+        );
+        if let Some(reference) = reference {
+            let production = coerce_discriminated(&Lexeme::new(&text, class.clone()), tag, &spec)
+                .map(|v| to_ref(&v))
+                .map_err(|e| reason_to_ref(&e.reason));
+            proptest::prop_assert_eq!(
+                production,
+                reference,
+                "{:?} {:?} tagged {:?} under {:?}",
+                text,
+                class,
+                tag,
+                spec
+            );
+        }
+    }
+
+    /// A generated dialect (each of the eight, or none), kind, class and
+    /// lexeme (a dialect probe or a generated numeral): production's
+    /// coercion agrees with the reference's dialect reading.
+    #[test]
+    fn randomized_dialect_differential(
+        dialect_index in 0_usize..9,
+        kind_index in 0_usize..7,
+        class_index in 0_usize..3,
+        text in dialect_lexeme(),
+    ) {
+        let dialect = DIALECTS.get(dialect_index).copied();
+        let kind = dialect_kinds()[kind_index].clone();
+        let spec = ValueSpec {
+            numeral: dialect,
+            ..ValueSpec::new(kind)
+        };
+        let class = [
+            LexClass::Number,
+            LexClass::String,
+            LexClass::Tagged("x".into()),
+        ][class_index]
+            .clone();
+        if let Some(reference) = r::coerce_dialect(&text, &class_to_ref(&class), &spec_to_ref(&spec)) {
+            proptest::prop_assert_eq!(
+                coerce_to_ref(&text, &class, &spec),
+                reference,
+                "{:?} {:?} under {:?}",
+                text,
+                class,
+                spec
+            );
+        }
+    }
+}

@@ -1750,6 +1750,29 @@ fn special_nans() -> Vec<f64> {
     .to_vec()
 }
 
+/// What the reference's `coerce_value` does with the non-finite float `x`
+/// under `Float { bits }`: `Some(true)` when it keeps `x` bit for bit,
+/// `Some(false)` when it refuses it as non-finite, and `None` outside its
+/// domain. A float kind keeps exactly the NaNs and infinities its width
+/// holds, so a binary16 or binary32 kind refuses a NaN whose payload it
+/// cannot carry.
+fn reference_keeps_non_finite(x: f64, bits: u8) -> Option<bool> {
+    use panproto_reference::coerce as r;
+    use panproto_reference::value::Value as RValue;
+    let spec = r::ValueSpec::of(r::ScalarKind::Float { bits });
+    match r::coerce_value(&RValue::Float(x.to_bits()), &spec)? {
+        Ok(RValue::Float(kept)) => {
+            assert_eq!(kept, x.to_bits(), "the reference keeps a float's bits");
+            Some(true)
+        }
+        Err(r::FidelityReason::NonFinite) => Some(false),
+        other => panic!(
+            "{:#018x} under Float {{ bits: {bits} }}: the reference gives {other:?}",
+            x.to_bits()
+        ),
+    }
+}
+
 /// Laws (i) (for `coerce_value`), (ii) and the pass-through rules, on every
 /// value of [`bounded_values`] under every spec of [`specs`].
 #[test]
@@ -1773,10 +1796,9 @@ fn coerce_value_laws_hold_on_a_bounded_scope() {
             let passes = match (value, &spec.kind) {
                 (_, ScalarKind::Any)
                 | (Value::Bytes(_) | Value::List(_) | Value::LabeledNull(_), _) => Some(true),
-                (Value::Float(x), ScalarKind::Float { bits: 32 }) if !x.is_finite() => {
-                    Some(is_binary32(*x))
+                (Value::Float(x), ScalarKind::Float { bits }) if !x.is_finite() => {
+                    reference_keeps_non_finite(*x, *bits)
                 }
-                (Value::Float(x), ScalarKind::Float { .. }) if !x.is_finite() => Some(true),
                 (Value::Float(x), _) if !x.is_finite() => Some(false),
                 _ => None,
             };
