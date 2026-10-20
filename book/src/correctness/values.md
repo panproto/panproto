@@ -44,8 +44,8 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 
 - Law ID: `values.vf1-representation`
 - Reference: `panproto_reference::value::representation`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
-- Exhaustive differential test: `the_value_conversion_is_injective_on_the_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=the_value_conversion_is_injective_on_the_scope)'`
+- Enumerator: `panproto_reference::enumerate::values::canonical_values; bound: values=1997`
+- Exhaustive differential test: `representation_is_canonical_byte_equality_on_every_pair; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=representation_is_canonical_byte_equality_on_every_pair)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-inst/src/value.rs`
 - File: `crates/panproto-inst/src/identity.rs`
@@ -121,7 +121,7 @@ The production `coerce` in `crates/panproto-inst/src/value/coerce.rs` is require
 
 - Law ID: `values.vf4-lexical-mapping`
 - Reference: `panproto_reference::coerce::coerce`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::coercion_lexemes; bound: lexemes=20986`
 - Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
@@ -213,7 +213,7 @@ The production `coerce_value` in `crates/panproto-inst/src/value/coerce.rs` is r
 
 - Law ID: `values.vf6-exact-conversion`
 - Reference: `panproto_reference::coerce::coerce_value`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::coercion_values; bound: values=337876`
 - Exhaustive differential test: `coerce_value_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_value_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
@@ -283,7 +283,7 @@ The production `coerce` is required to equal this definition exactly, as the nam
 
 - Law ID: `values.coercion-lexical-fidelity`
 - Reference: `panproto_reference::coerce::coerce`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::coercion_lexemes; bound: lexemes=20986`
 - Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
@@ -339,7 +339,7 @@ Specifications that are not value-admissible (an inadmissible kind, or a float k
 
 - Law ID: `values.coercion-idempotence`
 - Reference: `panproto_reference::coerce::coerce_value`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::coercion_values; bound: values=337876`
 - Exhaustive differential test: `coerce_value_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_value_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
@@ -398,7 +398,7 @@ Specifications that are not value-admissible give `None` from `coerce_value` for
 - Law ID: `values.coercion-fixed-points`
 - Reference: `panproto_reference::coerce::coerce`
 - Reference: `panproto_reference::coerce::coerce_value`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::coercion_lexemes; bound: lexemes=20986`
 - Exhaustive differential test: `coerce_agrees_with_the_reference_over_the_values_scope; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=coerce_agrees_with_the_reference_over_the_values_scope)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
@@ -464,7 +464,7 @@ Item 2 constrains only results of the form `Ok(Value::Float(_))`; every other ou
 - Reference: `panproto_reference::float::computed_nan`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
 - Exhaustive differential test: `computed_nans_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=computed_nans_agree_with_the_reference)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_nan_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_nan_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/builtin.rs`
 - File: `crates/panproto-expr/src/eval.rs`
@@ -656,7 +656,7 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 - Law ID: `values.closest-shortest-ties-even`
 - Reference: `panproto_reference::float::shortest`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'`
+- Exhaustive differential test: `closest_shortest_printers_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=closest_shortest_printers_agree_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -718,7 +718,7 @@ Every value of the reference type `DecimalValue` is in the domain: its digits ar
 
 - Law ID: `values.decimal-numeric-order`
 - Reference: `panproto_reference::exact::DecimalValue::cmp_numeric`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -782,7 +782,7 @@ Every value of the reference type `Decimal` is in the domain: a finite payload i
 
 - Law ID: `values.decimal-total-order`
 - Reference: `panproto_reference::exact::Decimal::compare_total`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -919,8 +919,8 @@ A value with an ill-formed temporal component is outside $\mathcal{D}$: `write_t
 
 - Law ID: `values.canonical-bytes-injective`
 - Reference: `panproto_reference::canonical::decode_value`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
-- Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
+- Enumerator: `panproto_reference::enumerate::values::canonical_values; bound: values=1997`
+- Exhaustive differential test: `canonical_bytes_agree_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=canonical_bytes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-inst/src/value.rs`
 - File: `crates/panproto-inst/src/identity.rs`
@@ -1009,7 +1009,7 @@ Every expression and every environment is in the domain; each failure is one of 
 - Reference: `panproto_reference::value::eval`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
 - Exhaustive differential test: `evaluation_agrees_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=evaluation_agrees_with_the_reference)'`
-- Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
+- Property differential test: `randomized_evaluation_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_evaluation_differential)'`
 - File: `crates/panproto-expr/src/eval.rs`
 - File: `crates/panproto-expr/src/builtin.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1471,9 +1471,9 @@ The production `coerce_discriminated` in `crates/panproto-inst/src/value/coerce.
 
 - Law ID: `values.tagged-discriminator-coercion`
 - Reference: `panproto_reference::coerce::coerce_tagged`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::tagged_lexemes; bound: lexemes=8`
 - Exhaustive differential test: `discriminated_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=discriminated_coercion_agrees_with_the_reference)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_discriminated_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_discriminated_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1546,9 +1546,9 @@ Every normal form denotes, under the default reading, the number the dialect's t
 
 - Law ID: `values.numeral-dialect-agreement`
 - Reference: `panproto_reference::coerce::coerce_dialect`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::dialect_probes; bound: probes=90`
 - Exhaustive differential test: `dialect_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=dialect_coercion_agrees_with_the_reference)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_dialect_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_dialect_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1993,8 +1993,8 @@ Two facts used by later laws are part of this statement. (a) For every finite `D
 
 - Law ID: `values.nearest-reading-acceptance`
 - Reference: `panproto_reference::float::nearest_reading`
-- Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
+- Enumerator: `panproto_reference::enumerate::values::binary64_exponent_patterns; bound: patterns=57344`
+- Exhaustive differential test: `nearest_reading_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=nearest_reading_coercion_agrees_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`
@@ -2163,7 +2163,7 @@ Every value of the reference type `Decimal` is in the domain: a finite payload i
 
 - Law ID: `values.decimal-numeric-total-preorder`
 - Reference: `panproto_reference::exact::Decimal::cmp_numeric`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -2217,7 +2217,7 @@ Every value of the reference type `Decimal` is in the domain, as in [L-values-35
 
 - Law ID: `values.decimal-special-placement`
 - Reference: `panproto_reference::exact::Decimal::cmp_numeric`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -2273,7 +2273,7 @@ Every value of the reference type `Decimal` is in the domain, as in [L-values-35
 
 - Law ID: `values.decimal-compare-total-refinement`
 - Reference: `panproto_reference::exact::Decimal::compare_total`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -2329,7 +2329,7 @@ There is no input outside the domain: every value of the reference type `Decimal
 
 - Law ID: `values.decimal-special-canonical-injectivity`
 - Reference: `panproto_reference::canonical::decimal_bytes`
-- Enumerator: `panproto_reference::enumerate::values::numerals; bound: digits=2, exponents=3, numerals=600`
+- Enumerator: `panproto_reference::enumerate::values::decimals; bound: decimals=1010`
 - Exhaustive differential test: `decimal_orders_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=decimal_orders_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/decimal.rs`
@@ -2550,7 +2550,7 @@ None. The operation is total on `Format` $\times$ `Rat` $\times$ `bool`: it neve
 - Law ID: `values.exact-rounding-ties-even`
 - Reference: `panproto_reference::float::round_to`
 - Enumerator: `panproto_reference::enumerate::values::binary16_patterns; bound: patterns=65536`
-- Exhaustive differential test: `binary16_operations_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary16_operations_agree_with_the_reference)'`
+- Exhaustive differential test: `binary_rounding_agrees_with_the_reference; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=binary_rounding_agrees_with_the_reference)'`
 - Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`
