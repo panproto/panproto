@@ -4146,6 +4146,63 @@ pub mod rel {
         out
     }
 
+    /// The cones of each target table, with their cells.
+    type PiCones = BTreeMap<Name, Vec<(Vec<u32>, BTreeMap<String, Value>)>>;
+
+    /// The product checks of [`pi`] and the cones of each target table of
+    /// `i`, an instance of the kept part.
+    fn pi_cones(f: &RelFunctor, i: &Table, max_product_size: usize) -> Result<PiCones, KanError> {
+        // Every product check precedes every fresh id: the target tables in
+        // ascending name, then the relations to which nothing is carried, in
+        // ascending order, each at its source table.
+        let mut cones = PiCones::new();
+        for d in &f.tgt.tables {
+            let fibre = f.fibre(d);
+            if fibre.len() > 1 {
+                let actual = fibre
+                    .iter()
+                    .try_fold(1usize, |product, table| {
+                        product.checked_mul(
+                            i.rows
+                                .values()
+                                .filter(|(candidate, _)| candidate == table)
+                                .count(),
+                        )
+                    })
+                    .unwrap_or(usize::MAX);
+                if actual > max_product_size {
+                    return Err(KanError::ProductSizeExceeded {
+                        vertex: d.clone(),
+                        actual,
+                        limit: max_product_size,
+                    });
+                }
+            }
+            let rows = tuples(i, &fibre)
+                .into_iter()
+                .filter_map(|tuple| {
+                    joined_cells(f, i, d, &fibre, &tuple).map(|cells| (tuple, cells))
+                })
+                .collect();
+            cones.insert(d.clone(), rows);
+        }
+        for rho in &f.tgt.relations {
+            if f.relations.values().any(|img| img == rho) {
+                continue;
+            }
+            let count = |t: &Name| cones.get(t).map_or(0, Vec::len);
+            let actual = count(&rho.src).saturating_mul(count(&rho.tgt));
+            if actual > max_product_size {
+                return Err(KanError::ProductSizeExceeded {
+                    vertex: rho.src.clone(),
+                    actual,
+                    limit: max_product_size,
+                });
+            }
+        }
+        Ok(cones)
+    }
+
     /// Definition: Pi along `f`: compatible families over the comma categories.
     ///
     /// For a target table d the comma category under d holds the kept source
@@ -4190,54 +4247,7 @@ pub mod rel {
         let i = restrict_to_kept(i, f);
         let mut out = Table::default();
         let mut prov = PiProvenance::new();
-        // Every product check precedes every fresh id: the target tables in
-        // ascending name, then the relations to which nothing is carried, in
-        // ascending order, each at its source table.
-        let mut cones: BTreeMap<Name, Vec<(Vec<u32>, BTreeMap<String, Value>)>> = BTreeMap::new();
-        for d in &f.tgt.tables {
-            let fibre = f.fibre(d);
-            if fibre.len() > 1 {
-                let actual = fibre
-                    .iter()
-                    .try_fold(1usize, |product, table| {
-                        product.checked_mul(
-                            i.rows
-                                .values()
-                                .filter(|(candidate, _)| candidate == table)
-                                .count(),
-                        )
-                    })
-                    .unwrap_or(usize::MAX);
-                if actual > max_product_size {
-                    return Err(KanError::ProductSizeExceeded {
-                        vertex: d.clone(),
-                        actual,
-                        limit: max_product_size,
-                    });
-                }
-            }
-            let rows = tuples(&i, &fibre)
-                .into_iter()
-                .filter_map(|tuple| {
-                    joined_cells(f, &i, d, &fibre, &tuple).map(|cells| (tuple, cells))
-                })
-                .collect();
-            cones.insert(d.clone(), rows);
-        }
-        for rho in &f.tgt.relations {
-            if f.relations.values().any(|img| img == rho) {
-                continue;
-            }
-            let count = |t: &Name| cones.get(t).map_or(0, Vec::len);
-            let actual = count(&rho.src).saturating_mul(count(&rho.tgt));
-            if actual > max_product_size {
-                return Err(KanError::ProductSizeExceeded {
-                    vertex: rho.src.clone(),
-                    actual,
-                    limit: max_product_size,
-                });
-            }
-        }
+        let mut cones = pi_cones(f, &i, max_product_size)?;
         let mut ids: BTreeMap<(Name, Vec<u32>), u32> = BTreeMap::new();
         let mut order: Vec<(Option<Name>, Name)> = f
             .tgt
