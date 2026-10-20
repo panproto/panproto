@@ -25,7 +25,7 @@
             {
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
-              "test": "the_value_conversion_is_injective_on_the_scope"
+              "test": "representation_is_canonical_byte_equality_on_every_pair"
             },
             {
               "crate": "panproto-expr",
@@ -187,6 +187,11 @@
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "computed_nans_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_nan_differential"
             }
           ]
         },
@@ -232,9 +237,9 @@
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_coercion",
-              "test": "float16_coercion_agrees_with_the_reference"
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "closest_shortest_printers_agree_with_the_reference"
             }
           ]
         },
@@ -300,8 +305,8 @@
           "consumers": [
             {
               "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "a_leap_second_precedes_the_next_minute"
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
               "crate": "panproto-expr",
@@ -337,9 +342,9 @@
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "decimal_orders_agree_with_the_reference"
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "canonical_bytes_agree_with_the_reference"
             }
           ]
         },
@@ -365,6 +370,11 @@
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "evaluation_agrees_with_the_reference"
+            },
+            {
+              "crate": "panproto-expr",
+              "binary": "panproto-expr::reference_values",
+              "test": "randomized_evaluation_differential"
             }
           ]
         },
@@ -438,8 +448,8 @@
           "consumers": [
             {
               "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "a_leap_second_precedes_the_next_minute"
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
               "crate": "panproto-expr",
@@ -476,8 +486,8 @@
           "consumers": [
             {
               "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "a_leap_second_precedes_the_next_minute"
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
               "crate": "panproto-expr",
@@ -514,8 +524,8 @@
           "consumers": [
             {
               "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "a_leap_second_precedes_the_next_minute"
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
               "crate": "panproto-expr",
@@ -552,8 +562,8 @@
           "consumers": [
             {
               "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "a_leap_second_precedes_the_next_minute"
+              "binary": "panproto-expr::reduced_temporals",
+              "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
               "crate": "panproto-expr",
@@ -606,6 +616,11 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "discriminated_coercion_agrees_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_discriminated_differential"
             }
           ]
         },
@@ -627,6 +642,11 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "dialect_coercion_agrees_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_dialect_differential"
             }
           ]
         },
@@ -653,8 +673,8 @@
             },
             {
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_coercion",
-              "test": "randomized_coercion_differential"
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -677,12 +697,12 @@
             {
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
-              "test": "a_byte_text_form_keeps_its_bytes"
+              "test": "every_short_base64_text_reads_as_the_reference_decodes"
             },
             {
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_coercion",
-              "test": "randomized_coercion_differential"
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -704,6 +724,11 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "a_byte_text_form_keeps_its_bytes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -724,7 +749,12 @@
             {
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
-              "test": "a_byte_text_form_keeps_its_bytes"
+              "test": "optional_padding_is_equivalent_on_every_short_unpadded_text"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -998,12 +1028,12 @@
             {
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
-              "test": "a_byte_text_form_keeps_its_bytes"
+              "test": "latin1_reads_exactly_the_strings_within_u_ff"
             },
             {
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_coercion",
-              "test": "randomized_coercion_differential"
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -1030,8 +1060,8 @@
             },
             {
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_coercion",
-              "test": "randomized_coercion_differential"
+              "binary": "panproto-inst::byte_text_forms",
+              "test": "randomized_byte_text_differential"
             }
           ]
         },
@@ -1052,7 +1082,7 @@
             {
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
-              "test": "binary16_operations_agree_with_the_reference"
+              "test": "binary_rounding_agrees_with_the_reference"
             }
           ]
         }
