@@ -1768,7 +1768,19 @@
           "references": [
             "panproto_reference::rel::delta"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.sigma",
@@ -1782,7 +1794,19 @@
           "references": [
             "panproto_reference::rel::sigma"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.pi",
@@ -1796,7 +1820,19 @@
           "references": [
             "panproto_reference::rel::pi"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.sigma-delta-adjunction",
@@ -1817,7 +1853,24 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.delta-pi-adjunction",
@@ -1838,7 +1891,24 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.sigma-delta-hom-bijection",
@@ -1857,7 +1927,19 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.delta-pi-hom-bijection",
@@ -1876,7 +1958,19 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.graph-conjugation-square",
@@ -1895,7 +1989,19 @@
             "panproto_reference::encode::g_sigma",
             "panproto_reference::migration::graph_square"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.table-conjugation-square",
@@ -1909,7 +2015,19 @@
           "references": [
             "panproto_reference::migration::table_square"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.tree-conjugation-square",
@@ -1926,7 +2044,19 @@
             "panproto_reference::encode::t_sigma",
             "panproto_reference::migration::tree_square"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "bounded_family_kan_objects_agree_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_kan_hom_bijection_differential"
+            }
+          ]
         },
         {
           "id": "kan.entity-functor",
@@ -1940,7 +2070,19 @@
           "references": [
             "panproto_reference::rel::entity_functor"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "entity_functor_agrees_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_classification_and_entity_functor_differential"
+            }
+          ]
         },
         {
           "id": "kan.relation-classification",
@@ -1954,7 +2096,19 @@
           "references": [
             "panproto_reference::rel::classify"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "classification_agrees_with_the_reference"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "randomized_classification_and_entity_functor_differential"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
