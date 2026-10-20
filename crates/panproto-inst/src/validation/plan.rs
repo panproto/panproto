@@ -577,6 +577,27 @@ impl CheckSpec {
 /// | `ipv4` | [`Self::Ipv4`] | it parses as an IPv4 address |
 /// | `ipv6` | [`Self::Ipv6`] | it parses as an IPv6 address |
 /// | `did` | [`Self::Did`] | it is `did:`, a nonempty method of lowercase letters and digits, a colon and a nonempty identifier with no whitespace |
+/// | `at-identifier` | [`Self::AtIdentifier`] | it is an AT Protocol handle or DID (see `did` below the table) |
+/// | `at-uri` | [`Self::AtUri`] | it is an AT URI in the restricted Lexicon syntax: at most 8 KiB, `at://`, a handle or DID, then optionally `/` and an NSID, then optionally `/` and a record key |
+/// | `cid` | [`Self::Cid`] | it is `b` and lowercase RFC 4648 base32 of a DASL CID: version 1, codec `0x55` or `0x71`, SHA-256 (`0x12`), size `0x20`, a 32-byte digest and nothing after it |
+/// | `handle` | [`Self::Handle`] | it is an ASCII hostname of at most 253 characters, two or more labels of 1 to 63 letters, digits and inner hyphens, the last not starting with a digit |
+/// | `nsid` | [`Self::Nsid`] | it is a reversed domain authority (at most 253 characters, two or more labels, the first not starting with a digit) and a name of 1 to 63 letters and digits not starting with a digit, at most 317 characters in all |
+/// | `tid` | [`Self::Tid`] | it is 13 characters of `234567abcdefghijklmnopqrstuvwxyz`, the first one of `234567abcdefghij` |
+/// | `record-key` | [`Self::RecordKey`] | it is 1 to 512 ASCII letters, digits and `.`, `-`, `_`, `:`, `~`, and is neither `.` nor `..` |
+/// | `language` | [`Self::Language`] | it is a well-formed language tag of RFC 5646 (BCP 47), section 2.1, in any case |
+///
+/// The last eight are the string formats of the AT Protocol Lexicon
+/// (<https://atproto.com/specs/lexicon>, "String Formats"), each checked as
+/// the specification it points to defines its syntax: the handle, NSID,
+/// TID, record key and AT URI specifications, the DASL CID specification
+/// for `cid` (through the data model's "Link and CID Formats"), and RFC
+/// 5646 for `language`. The DID inside `at-identifier` and `at-uri` follows
+/// the AT Protocol DID syntax: at most 2048 characters, `did:`, a method of
+/// lowercase letters, `:`, and an identifier of letters, digits and `.`,
+/// `_`, `:`, `%`, `-` that does not end in `:` or `%`. The checks are
+/// syntactic only, as the Lexicon asks: an unsupported DID method, a
+/// reserved top-level domain or a well-formed but invalid language tag
+/// passes.
 ///
 /// A temporal value matches `date-time`, `date` or `time` when it is of
 /// that kind; any other value leaves the instance undecided
@@ -602,11 +623,27 @@ pub enum ValueFormat {
     Ipv6,
     /// `did`: `did:`, a lowercase method name, a colon and an identifier.
     Did,
+    /// `at-identifier`: an AT Protocol handle or DID.
+    AtIdentifier,
+    /// `at-uri`: an AT URI in the restricted Lexicon syntax.
+    AtUri,
+    /// `cid`: a DASL CID in its base32 string form.
+    Cid,
+    /// `handle`: an AT Protocol handle.
+    Handle,
+    /// `nsid`: a namespaced identifier.
+    Nsid,
+    /// `tid`: a timestamp identifier.
+    Tid,
+    /// `record-key`: an AT Protocol record key.
+    RecordKey,
+    /// `language`: a well-formed BCP 47 language tag.
+    Language,
 }
 
 impl ValueFormat {
     /// Every supported format, in declaration order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 16] = [
         Self::DateTime,
         Self::Date,
         Self::Time,
@@ -615,6 +652,14 @@ impl ValueFormat {
         Self::Ipv4,
         Self::Ipv6,
         Self::Did,
+        Self::AtIdentifier,
+        Self::AtUri,
+        Self::Cid,
+        Self::Handle,
+        Self::Nsid,
+        Self::Tid,
+        Self::RecordKey,
+        Self::Language,
     ];
 
     /// The format's canonical name.
@@ -629,6 +674,14 @@ impl ValueFormat {
             Self::Ipv4 => "ipv4",
             Self::Ipv6 => "ipv6",
             Self::Did => "did",
+            Self::AtIdentifier => "at-identifier",
+            Self::AtUri => "at-uri",
+            Self::Cid => "cid",
+            Self::Handle => "handle",
+            Self::Nsid => "nsid",
+            Self::Tid => "tid",
+            Self::RecordKey => "record-key",
+            Self::Language => "language",
         }
     }
 

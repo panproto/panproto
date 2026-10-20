@@ -1,0 +1,239 @@
+$ PANPROTO_SWIFT_DOCC=1 swift package generate-documentation --target PanprotoStructural --warnings-as-errors && PANPROTO_SWIFT_DOCC=1 swift package generate-documentation --target Panproto --warnings-as-errors && PANPROTO_SWIFT_DOCC=1 swift package generate-documentation --target PanprotoVcs --warnings-as-errors
+Fetching https://github.com/swiftlang/swift-docc-plugin from cache
+Fetched https://github.com/swiftlang/swift-docc-plugin from cache (0.23s)
+Computing version for https://github.com/swiftlang/swift-docc-plugin
+Computed https://github.com/swiftlang/swift-docc-plugin at 1.5.0 (0.89s)
+Fetching https://github.com/swiftlang/swift-docc-symbolkit from cache
+Fetched https://github.com/swiftlang/swift-docc-symbolkit from cache (0.39s)
+Computing version for https://github.com/swiftlang/swift-docc-symbolkit
+Computed https://github.com/swiftlang/swift-docc-symbolkit at 1.0.0 (1.05s)
+Creating working copy for https://github.com/swiftlang/swift-docc-symbolkit
+Working copy of https://github.com/swiftlang/swift-docc-symbolkit resolved at 1.0.0
+Creating working copy for https://github.com/swiftlang/swift-docc-plugin
+Working copy of https://github.com/swiftlang/swift-docc-plugin resolved at 1.5.0
+Building for debugging...
+[0/7] Write snippet-extract-tool-entitlement.plist
+[1/8] Write sources
+[4/8] Write swift-version--58304C5D6DBC2206.txt
+[6/54] Compiling SymbolKit DeclarationFragments.swift
+[7/54] Compiling SymbolKit Fragment.swift
+[8/54] Compiling SymbolKit FragmentKind.swift
+[9/54] Compiling SymbolKit FunctionParameter.swift
+[10/54] Compiling SymbolKit FunctionSignature.swift
+[11/58] Compiling SymbolKit Identifier.swift
+[12/58] Compiling SymbolKit KindIdentifier.swift
+[13/58] Compiling SymbolKit Location.swift
+[14/58] Compiling SymbolKit Mutability.swift
+[15/58] Compiling SymbolKit Relationship.swift
+[16/58] Compiling SymbolKit RelationshipKind.swift
+[17/58] Compiling SymbolKit SourceOrigin.swift
+[18/58] Compiling SymbolKit GenericConstraints.swift
+[19/58] Compiling SymbolKit Swift.swift
+[20/58] Compiling SymbolKit GenericConstraint.swift
+[21/58] Compiling SymbolKit GenericParameter.swift
+[22/58] Compiling SymbolKit Generics.swift
+[23/58] Compiling SymbolKit Namespace.swift
+[24/58] Compiling SymbolKit Mixin+Equals.swift
+[25/58] Compiling SymbolKit Mixin+Hash.swift
+[26/58] Compiling SymbolKit Mixin.swift
+[27/58] Compiling SymbolKit LineList.swift
+[28/58] Compiling SymbolKit Position.swift
+[29/58] Compiling SymbolKit SourceRange.swift
+[30/58] Compiling SymbolKit Metadata.swift
+[31/58] Compiling SymbolKit Module.swift
+[32/58] Compiling SymbolKit OperatingSystem.swift
+[33/58] Compiling SymbolKit Platform.swift
+[34/58] Compiling SymbolKit SemanticVersion.swift
+[35/58] Compiling SymbolKit AccessControl.swift
+[36/58] Compiling SymbolKit Availability.swift
+[37/58] Compiling SymbolKit AvailabilityItem.swift
+[38/58] Compiling SymbolKit Domain.swift
+[39/58] Emitting module SymbolKit
+[40/58] Compiling SymbolKit Symbol.swift
+[41/58] Compiling SymbolKit SymbolKind.swift
+[42/58] Compiling SymbolKit SymbolGraph.swift
+[43/58] Compiling SymbolKit GraphCollector.swift
+[44/58] Compiling SymbolKit Names.swift
+[45/58] Compiling SymbolKit SPI.swift
+[46/58] Compiling SymbolKit Snippet.swift
+[47/58] Compiling SymbolKit Extension.swift
+[48/58] Compiling Snippets Snippet.swift
+[49/58] Emitting module Snippets
+[50/58] Compiling Snippets SnippetParser.swift
+[51/58] Compiling Snippets SnippetLanguage.swift
+[52/58] Compiling SymbolKit UnifiedSymbol+Encodable.swift
+[53/58] Compiling SymbolKit UnifiedSymbol.swift
+[54/58] Compiling SymbolKit UnifiedSymbolGraph+Encodable.swift
+[55/58] Compiling SymbolKit UnifiedSymbolGraph.swift
+[56/62] Compiling snippet_extract SymbolGraph+Snippet.swift
+[57/62] Compiling snippet_extract SnippetBuildCommand.swift
+[58/62] Emitting module snippet_extract
+[59/62] Compiling snippet_extract URL+Status.swift
+[59/62] Write Objects.LinkFileList
+[60/62] Linking snippet-extract-tool
+[61/62] Applying snippet-extract-tool
+Build of product 'snippet-extract' complete! (3.86s)
+Building for debugging...
+[0/1] Write swift-version--58304C5D6DBC2206.txt
+[2/28] Compiling PanprotoStructural MigrationAlgebra.swift
+[3/28] Compiling PanprotoStructural Name.swift
+[4/28] Compiling PanprotoStructural ProjectAndParse.swift
+[5/28] Compiling PanprotoStructural CBORValue.swift
+[6/28] Compiling PanprotoStructural CBORValueBridges.swift
+[7/28] Compiling PanprotoStructural BuildOp.swift
+[8/30] Compiling PanprotoStructural ProtocolSpec.swift
+[9/30] Compiling PanprotoStructural Protolens.swift
+[10/30] Compiling PanprotoStructural Query.swift
+[11/30] Compiling PanprotoStructural CBORDecoder.swift
+[12/30] Compiling PanprotoStructural CBOREncoder.swift
+[13/30] Compiling PanprotoStructural CBORError.swift
+[14/30] Compiling PanprotoStructural Theory.swift
+[15/30] Compiling PanprotoStructural Value.swift
+[16/30] Compiling PanprotoStructural Hom.swift
+[17/30] Compiling PanprotoStructural Instance.swift
+[18/30] Compiling PanprotoStructural Migration.swift
+[19/30] Compiling PanprotoStructural RawStatus.swift
+[20/30] Compiling PanprotoStructural Schema.swift
+[21/30] Compiling PanprotoStructural SchemaEquivalence.swift
+[22/30] Compiling PanprotoStructural Expr.swift
+[23/30] Compiling PanprotoStructural ExprPretty.swift
+[24/30] Compiling PanprotoStructural Graph.swift
+[25/30] Compiling PanprotoStructural Complement.swift
+[26/30] Compiling PanprotoStructural Diff.swift
+[27/30] Compiling PanprotoStructural ErrorEnvelope.swift
+[28/30] Emitting module PanprotoStructural
+[29/30] Compiling PanprotoStructural Vcs.swift
+[30/30] Compiling PanprotoStructural WireSupport.swift
+Build of target: 'PanprotoStructural' complete! (2.04s)
+Extracting symbol information for 'PanprotoStructural'...
+Finished extracting symbol information for 'PanprotoStructural'. (3.65s)
+Building documentation for 'PanprotoStructural'...
+
+
+Finished building documentation for 'PanprotoStructural' (1.29s)
+Generated documentation archive at:
+  /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/swift/.build/plugins/Swift-DocC/outputs/PanprotoStructural.doccarchive
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'snippet-extract' complete! (0.28s)
+Building for debugging...
+[0/1] Write swift-version--58304C5D6DBC2206.txt
+[2/8] Compiling PanprotoFFI Raw+Theory.swift
+[3/8] Compiling PanprotoFFI Raw+Transform.swift
+[4/8] Compiling PanprotoFFI Raw+Gated.swift
+[5/8] Compiling PanprotoFFI Raw+Core.swift
+[6/8] Compiling PanprotoFFI Raw+Vcs.swift
+[7/8] Emitting module PanprotoFFI
+[8/8] Compiling PanprotoFFI Primitives.swift
+[9/29] Compiling Panproto Schema+Statements.swift
+[10/29] Compiling Panproto Schema.swift
+[11/29] Compiling Panproto Handles.swift
+[12/29] Compiling Panproto Homomorphism.swift
+[13/29] Compiling Panproto Instance.swift
+[14/29] Compiling Panproto IoRegistry.swift
+[15/29] Compiling Panproto Protocol.swift
+[16/29] Compiling Panproto ProtolensChain.swift
+[17/29] Compiling Panproto Lens.swift
+[18/29] Compiling Panproto Migration+Statements.swift
+[19/31] Compiling Panproto Expression.swift
+[20/31] Compiling Panproto Graph.swift
+[21/31] Compiling Panproto Migration.swift
+[22/31] Compiling Panproto Payload.swift
+[23/31] Emitting module Panproto
+[24/31] Compiling Panproto BuiltinProtocolCatalogue.swift
+[25/31] Compiling Panproto Check.swift
+[26/31] Compiling Panproto DataSet.swift
+[27/31] Compiling Panproto Engine.swift
+[28/31] Compiling Panproto Enriched.swift
+[29/31] Compiling Panproto Errors.swift
+[30/31] Compiling Panproto Theory+Statements.swift
+[31/31] Compiling Panproto Theory.swift
+Build of target: 'Panproto' complete! (1.45s)
+Extracting symbol information for 'Panproto'...
+Finished extracting symbol information for 'Panproto'. (1.64s)
+Building documentation for 'Panproto'...
+
+
+Finished building documentation for 'Panproto' (0.37s)
+Generated documentation archive at:
+  /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/swift/.build/plugins/Swift-DocC/outputs/Panproto.doccarchive
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'snippet-extract' complete! (0.29s)
+Building for debugging...
+[0/1] Write swift-version--58304C5D6DBC2206.txt
+[2/28] Compiling PanprotoStructural Theory.swift
+[3/28] Compiling PanprotoStructural Value.swift
+[4/30] Compiling PanprotoStructural CBORValue.swift
+[5/30] Compiling PanprotoStructural CBORValueBridges.swift
+[6/30] Compiling PanprotoStructural BuildOp.swift
+[7/30] Compiling PanprotoStructural MigrationAlgebra.swift
+[8/30] Compiling PanprotoStructural Name.swift
+[9/30] Compiling PanprotoStructural ProjectAndParse.swift
+[10/30] Compiling PanprotoStructural Expr.swift
+[11/30] Compiling PanprotoStructural ExprPretty.swift
+[12/30] Compiling PanprotoStructural Graph.swift
+[13/30] Compiling PanprotoStructural RawStatus.swift
+[14/30] Compiling PanprotoStructural Schema.swift
+[15/30] Compiling PanprotoStructural SchemaEquivalence.swift
+[16/30] Compiling PanprotoStructural Complement.swift
+[17/30] Compiling PanprotoStructural Diff.swift
+[18/30] Compiling PanprotoStructural ErrorEnvelope.swift
+[19/30] Compiling PanprotoStructural ProtocolSpec.swift
+[20/30] Compiling PanprotoStructural Protolens.swift
+[21/30] Compiling PanprotoStructural Query.swift
+[22/30] Compiling PanprotoStructural CBORDecoder.swift
+[23/30] Compiling PanprotoStructural CBOREncoder.swift
+[24/30] Compiling PanprotoStructural CBORError.swift
+[25/30] Emitting module PanprotoStructural
+[26/30] Compiling PanprotoStructural Hom.swift
+[27/30] Compiling PanprotoStructural Instance.swift
+[28/30] Compiling PanprotoStructural Migration.swift
+[29/30] Compiling PanprotoStructural Vcs.swift
+[30/30] Compiling PanprotoStructural WireSupport.swift
+[31/37] Compiling PanprotoFFI Raw+Theory.swift
+[32/37] Compiling PanprotoFFI Raw+Vcs.swift
+[33/37] Compiling PanprotoFFI Raw+Transform.swift
+[34/37] Compiling PanprotoFFI Raw+Gated.swift
+[35/37] Compiling PanprotoFFI Raw+Core.swift
+[36/37] Compiling PanprotoFFI Primitives.swift
+[37/37] Emitting module PanprotoFFI
+[38/58] Compiling Panproto Protocol.swift
+[39/58] Compiling Panproto ProtolensChain.swift
+[40/58] Compiling Panproto Instance.swift
+[41/58] Compiling Panproto IoRegistry.swift
+[42/60] Compiling Panproto Migration.swift
+[43/60] Compiling Panproto Payload.swift
+[44/60] Compiling Panproto Schema+Statements.swift
+[45/60] Compiling Panproto Schema.swift
+[46/60] Compiling Panproto Expression.swift
+[47/60] Compiling Panproto Graph.swift
+[48/60] Compiling Panproto Handles.swift
+[49/60] Compiling Panproto Homomorphism.swift
+[50/60] Compiling Panproto Lens.swift
+[51/60] Compiling Panproto Migration+Statements.swift
+[52/60] Emitting module Panproto
+[53/60] Compiling Panproto BuiltinProtocolCatalogue.swift
+[54/60] Compiling Panproto Check.swift
+[55/60] Compiling Panproto DataSet.swift
+[56/60] Compiling Panproto Engine.swift
+[57/60] Compiling Panproto Enriched.swift
+[58/60] Compiling Panproto Errors.swift
+[59/60] Compiling Panproto Theory+Statements.swift
+[60/60] Compiling Panproto Theory.swift
+[61/67] Compiling PanprotoVcs Repository+Stash.swift
+[62/67] Compiling PanprotoVcs Repository+Staging.swift
+[63/67] Compiling PanprotoVcs Repository.swift
+[64/67] Compiling PanprotoVcs Repository+Refs.swift
+[65/67] Compiling PanprotoVcs Repository+History.swift
+[66/67] Emitting module PanprotoVcs
+[67/67] Compiling PanprotoVcs CommitHistory.swift
+Build of target: 'PanprotoVcs' complete! (3.27s)
+Extracting symbol information for 'PanprotoVcs'...
+Finished extracting symbol information for 'PanprotoVcs'. (3.37s)
+Building documentation for 'PanprotoVcs'...
+
+
+Finished building documentation for 'PanprotoVcs' (0.09s)
+Generated documentation archive at:
+  /Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/bindings/swift/.build/plugins/Swift-DocC/outputs/PanprotoVcs.doccarchive

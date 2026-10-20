@@ -1,0 +1,45 @@
+# failing-first, default build (-p panproto-io, no tree-sitter), production code before the change, 2026-10-14T13:31:01Z
+   Compiling miette v7.6.0
+   Compiling regex-automata v0.4.14
+   Compiling hashbrown v0.16.1
+   Compiling toml_parser v1.1.1+spec-1.1.0
+   Compiling indexmap v2.13.0
+   Compiling panproto-gat v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-gat)
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling yaml_serde v0.10.7
+   Compiling toml v1.1.1+spec-1.1.0
+   Compiling regex v1.12.3
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.40s
+────────────
+ Nextest run ID 9e2db73f-9cd9-409b-985b-194cd4bb3647 with nextest profile: default
+    Starting 1 test across 1 binary
+        FAIL [   0.018s] (1/1) panproto-io::amr_entry_rule the_registered_amr_codec_refuses_a_schema_without_its_table
+  stdout ───
+
+    running 1 test
+    test the_registered_amr_codec_refuses_a_schema_without_its_table ... FAILED
+
+    failures:
+
+    failures:
+        the_registered_amr_codec_refuses_a_schema_without_its_table
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'the_registered_amr_codec_refuses_a_schema_without_its_table' (599476) panicked at crates/panproto-io/tests/amr_entry_rule.rs:40:5:
+    None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  Cancelling due to test failure: 
+────────────
+     Summary [   0.018s] 1 test run: 0 passed, 1 failed, 0 skipped
+        FAIL [   0.018s] (1/1) panproto-io::amr_entry_rule the_registered_amr_codec_refuses_a_schema_without_its_table
+error: test run failed

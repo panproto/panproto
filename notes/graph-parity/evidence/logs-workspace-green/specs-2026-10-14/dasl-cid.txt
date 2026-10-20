@@ -1,0 +1,56 @@
+A specification of the DASL Project.
+Content IDs (CIDs)
+date
+2026-10-14
+status
+stable
+editors
+Robin Berjon <robin@berjon.com>
+Juan Caballero <bumblefudge@learningproof.xyz>
+issues
+list, new
+abstract
+DASL CIDs are a simple structured identifier format for content addressing. They encapsulate a hash with enough metadata to be extensible (to add new hash types in the future) and to indicate whether they are pointing to raw bytes or to structured data.
+Introduction
+DASL CIDs are a simple structured identifier format for content addressing. They encapsulate a hash with enough metadata to be extensible (to add new hash types in the future) and to indicate whether they are pointing to raw bytes or to structured data. If you're simply using DASL CIDs as identifiers, you can almost certainly just use the string as an opaque ID and worry no further.
+A DASL CID can be represented as a string or as an array of bytes. If you wish to understand the internals of a CID, it has the following structure:
+	1	A b prefix (only in string form). This is an extensibility point for future CID encodings other than the current base32 to be supported. (Currently this is the only one.)
+	2	A version number, which is currently always 1.
+	3	A content codec, which is a flag indicating whether it is pointing to structured or raw data.
+	4	A hash type, that is always SHA-256 ([sha256]).
+	5	A hash size, that is always 32 (0x20).
+	6	A digest, which is the hash of the content being identified.
+Parsing CIDs
+Use the following steps to parse a string-encoded CID, i.e. translate it to a bytestring:
+	1	Accept a string CID.
+	2	Remove the first character from CID and store it in prefix.
+	3	If prefix is not equal to b, throw an error.
+	4	Decode the rest of CID using the base32 algorithm from RFC4648 with a lowercase alphabet and store the result in CID bytes ([rfc4648]).
+	5	This results in CID bytes, which can be used to decode a CID.
+Use the following steps to decode a CID:
+	1	Accept an array of bytes CID bytes.
+	2	Remove the first byte in CID bytes and store it in version.
+	3	If version is not equal to 1, throw an error.
+	4	Remove the next byte in CID bytes and store it in codec.
+	5	If codec is not equal to 0x55 (raw) or 0x71 (DRISL), throw an error ([drisl]).
+	6	Remove the next byte in CID bytes and store it in hash type.
+	7	If hash type is not equal to 0x12 (SHA-256), throw an error ([sha256]).
+	8	Read one byte from CID bytes and store it in hash size. If hash size is any value other than 32 (0x20) , throw an error.
+	9	Read 32 bytes from CID bytes and store them in digest. If there were fewer than 32 bytes left in CID bytes, throw an error.
+	10	Return version, codec, hash type, hash size, and digest.
+Relationship to IPFS
+You don't need to understand IPFS in order to use DASL. This section is for informational purposes only.
+DASL CIDs are a strict subset of IPFS CIDs with the following properties:
+	•	Only modern CIDv1 CIDs are used, not legacy CIDv0.
+	•	Only the lowercase base32 multibase encoding (the b prefix) is used for human-readable (and subdomain-usable) string encoding.
+	•	Only the raw binary multicodec (0x55) and dag-cbor multicodec (0x71), with the latter used only for [drisl]-conformant DAGs of CBOR objects.
+	•	Only SHA-256 (0x12) for the hash function .
+	•	The CID isn't the boss of anyone, but the expectation is that, regardless of size, resources should not be "chunked" into a DAG or Merkle tree (as historically done with UnixFS canonicalization in IPFS systems) but rather hashed in their entirety and content-addressed directly. That being said, a DASL CID can point to a piece of [drisl] metadata that describes this kind of chunking, if needed. (A separate specification may be added for that.)
+	•	This set of options has the added advantage that all the aforementioned single-byte prefixes require no additional varint processing or byte-fiddling.
+References
+[drisl]
+Robin Berjon & Juan Caballero. DRISL — Deterministic Representation for Interoperable Structures & Links. 2026-10-14. URL: https://dasl.ing/drisl.html
+[rfc4648]
+S. Josefsson. The Base16, Base32, and Base64 Data Encodings. October 2006. URL: https://www.rfc-editor.org/rfc/rfc4648
+[sha256]
+National Institute of Standards and Technology, Secure Hash Algorithm. NIST FIPS 180-2. August 2002.

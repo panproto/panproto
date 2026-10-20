@@ -1,0 +1,14 @@
+[package]
+name = "panproto-reference"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Executable reference semantics of panproto: deliberately naive definitions, exhaustive enumerators and a differential harness. Test-only; not published."
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true }

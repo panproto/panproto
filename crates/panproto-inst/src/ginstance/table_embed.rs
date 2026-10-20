@@ -162,7 +162,7 @@ impl TableEmbedding {
         let id = allocator
             .allocate()
             .map_err(|e| e.whole_state(IdKind::Edge))?;
-        self.next_edge = allocator.floor().ok_or(InstError::EdgeIdsExhausted)?;
+        self.next_edge = allocator.floor();
         Ok(EdgeId(id))
     }
 
@@ -575,9 +575,9 @@ impl GInstance {
         for (edge, pairs) in pairs {
             tables.insert_foreign_keys(edge.clone(), pairs)?;
         }
-        // Saturate: a graph using `EdgeId(u32::MAX)` has no floor above its
-        // edges, and the saturated floor allocates nothing.
-        embedding.next_edge = allocator.floor().unwrap_or(u32::MAX);
+        // A graph using `EdgeId(u32::MAX)` records the saturated floor, which
+        // allocates nothing.
+        embedding.next_edge = allocator.floor();
         Ok((tables, embedding))
     }
 }

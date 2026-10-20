@@ -187,9 +187,10 @@ impl ProtocolCodec for crate::annotation::conllu::ConlluCodec {}
 impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
     fn parse_functor_preserving(
         &self,
-        _schema: &Schema,
+        schema: &Schema,
         input: &[u8],
     ) -> Result<(FInstance, Option<PresentationComplement>), ParseInstanceError> {
+        self.check_parse_entry(schema)?;
         self.parse(input)
             .map(|(table, layout)| (table, Some(PresentationComplement::ByteTabular(layout))))
     }
@@ -200,6 +201,7 @@ impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
         instance: &FInstance,
         complement: Option<&PresentationComplement>,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        self.check_emit_entry(schema)?;
         match complement {
             None => self.emit_functor(schema, instance),
             Some(PresentationComplement::ByteTabular(layout)) => self.emit(instance, layout),

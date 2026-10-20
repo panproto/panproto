@@ -1,0 +1,560 @@
+# R5 descriptors: -p panproto-protocols, 2026-10-14T15:16:00Z
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.48s
+────────────
+ Nextest run ID d466a302-9ab3-48b1-bae6-01b1495df8b0 with nextest profile: default
+    Starting 550 tests across 18 binaries
+        PASS [   0.040s] (  1/550) panproto-protocols annotation::amr::tests::protocol_def
+        PASS [   0.043s] (  2/550) panproto-protocols annotation::bead::tests::parse_and_emit
+        PASS [   0.046s] (  3/550) panproto-protocols annotation::amr::tests::register_theories_works
+        PASS [   0.050s] (  4/550) panproto-protocols annotation::amr::tests::parse_and_emit
+        PASS [   0.028s] (  5/550) panproto-protocols annotation::bead::tests::protocol_def
+        PASS [   0.040s] (  6/550) panproto-protocols annotation::brat::tests::equivalence_roundtrip
+        PASS [   0.041s] (  7/550) panproto-protocols annotation::brat::tests::nested_event_arg
+        PASS [   0.063s] (  8/550) panproto-protocols annotation::bead::tests::register_theories_works
+        PASS [   0.043s] (  9/550) panproto-protocols annotation::brat::tests::normalization_targets_event
+        PASS [   0.032s] ( 10/550) panproto-protocols annotation::brat::tests::note_uses_edge_not_constraint
+        PASS [   0.036s] ( 11/550) panproto-protocols annotation::brat::tests::parse_and_emit
+        PASS [   0.034s] ( 12/550) panproto-protocols annotation::brat::tests::protocol_def
+        PASS [   0.032s] ( 13/550) panproto-protocols annotation::brat::tests::protocol_has_equivalence_kind
+        PASS [   0.035s] ( 14/550) panproto-protocols annotation::brat::tests::protocol_has_text_constraint_sort
+        PASS [   0.038s] ( 15/550) panproto-protocols annotation::brat::tests::register_theories_works
+        PASS [   0.034s] ( 16/550) panproto-protocols annotation::brat::tests::text_constraint_roundtrip
+        PASS [   0.037s] ( 17/550) panproto-protocols annotation::concrete::tests::all_constraint_sorts_present
+        PASS [   0.035s] ( 18/550) panproto-protocols annotation::concrete::tests::all_vertex_kinds_present
+        PASS [   0.030s] ( 19/550) panproto-protocols annotation::concrete::tests::edge_rules_present
+        PASS [   0.029s] ( 20/550) panproto-protocols annotation::concrete::tests::entity_set_and_situation_set_kinds
+        PASS [   0.027s] ( 21/550) panproto-protocols annotation::concrete::tests::graph_dep_edge_roundtrip
+        PASS [   0.029s] ( 22/550) panproto-protocols annotation::concrete::tests::graph_dep_is_dependency_parse_to_dependency_parse
+        PASS [   0.031s] ( 23/550) panproto-protocols annotation::concrete::tests::parse_and_emit
+        PASS [   0.031s] ( 24/550) panproto-protocols annotation::concrete::tests::parse_and_emit_with_all_constraint_sorts
+        PASS [   0.034s] ( 25/550) panproto-protocols annotation::concrete::tests::parse_child_edge_constituent_to_constituent
+        PASS [   0.033s] ( 26/550) panproto-protocols annotation::concrete::tests::parse_child_is_constituent_to_constituent
+        PASS [   0.031s] ( 27/550) panproto-protocols annotation::concrete::tests::protocol_def
+        PASS [   0.036s] ( 28/550) panproto-protocols annotation::concrete::tests::register_theories_works
+        PASS [   0.034s] ( 29/550) panproto-protocols annotation::concrete::tests::span_ref_sources_include_tagging_and_parse
+        PASS [   0.037s] ( 30/550) panproto-protocols annotation::concrete::tests::token_ref_sources_include_tagging_and_parse
+        PASS [   0.047s] ( 31/550) panproto-protocols annotation::conllu::tests::conllu_attribute_edges_are_named_by_column_role
+        PASS [   0.040s] ( 32/550) panproto-protocols annotation::conllu::tests::deprel_not_in_constraint_sorts
+        PASS [   0.039s] ( 33/550) panproto-protocols annotation::conllu::tests::empty_nodes_no_upos_xpos_lemma
+        PASS [   0.052s] ( 34/550) panproto-protocols annotation::conllu::tests::enhanced_deps_parsed
+        PASS [   0.050s] ( 35/550) panproto-protocols annotation::conllu::tests::newpar_newdoc_comments
+        PASS [   0.067s] ( 36/550) panproto-protocols annotation::conllu::tests::parse_and_emit_roundtrip
+        PASS [   0.061s] ( 37/550) panproto-protocols annotation::conllu::tests::parse_empty_input_fails
+        PASS [   0.041s] ( 38/550) panproto-protocols annotation::conllu::tests::parse_multiword_token
+        PASS [   0.049s] ( 39/550) panproto-protocols annotation::conllu::tests::protocol_def
+        PASS [   0.031s] ( 40/550) panproto-protocols annotation::conllu::tests::register_theories_works
+        PASS [   0.034s] ( 41/550) panproto-protocols annotation::conllu::tests::upos_xpos_feat_lemma_rules_word_only
+        PASS [   0.043s] ( 42/550) panproto-protocols annotation::decomp::tests::parse_and_emit
+        PASS [   0.027s] ( 43/550) panproto-protocols annotation::decomp::tests::protocol_def
+        PASS [   0.033s] ( 44/550) panproto-protocols annotation::decomp::tests::register_theories_works
+        PASS [   0.037s] ( 45/550) panproto-protocols annotation::elan::tests::abstract_annotation_kind_absent
+        PASS [   0.035s] ( 46/550) panproto-protocols annotation::elan::tests::parent_ref_tgt_concrete
+        PASS [   0.035s] ( 47/550) panproto-protocols annotation::elan::tests::parse_and_emit
+        PASS [   0.036s] ( 48/550) panproto-protocols annotation::elan::tests::praat_kinds_present
+        PASS [   0.035s] ( 49/550) panproto-protocols annotation::elan::tests::praat_text_grid_round_trip
+        PASS [   0.035s] ( 50/550) panproto-protocols annotation::elan::tests::protocol_def
+        PASS [   0.033s] ( 51/550) panproto-protocols annotation::elan::tests::ref_annotation_parent_ref_chained
+        PASS [   0.034s] ( 52/550) panproto-protocols annotation::elan::tests::register_theories_works
+        PASS [   0.031s] ( 53/550) panproto-protocols annotation::elan::tests::time_ref_src_only_alignable
+        PASS [   0.031s] ( 54/550) panproto-protocols annotation::folia::tests::all_annotation_layers_present
+        PASS [   0.034s] ( 55/550) panproto-protocols annotation::folia::tests::annotation_kinds_present
+        PASS [   0.032s] ( 56/550) panproto-protocols annotation::folia::tests::dep_edge_rules_distinct
+        PASS [   0.037s] ( 57/550) panproto-protocols annotation::folia::tests::parse_and_emit
+        PASS [   0.038s] ( 58/550) panproto-protocols annotation::folia::tests::parse_dep_with_head_and_dependent
+        PASS [   0.037s] ( 59/550) panproto-protocols annotation::folia::tests::parse_sentiment_and_semrole
+        PASS [   0.037s] ( 60/550) panproto-protocols annotation::folia::tests::processor_constraint_sort_present
+        PASS [   0.032s] ( 61/550) panproto-protocols annotation::folia::tests::protocol_def
+        PASS [   0.032s] ( 62/550) panproto-protocols annotation::folia::tests::register_theories_works
+        PASS [   0.030s] ( 63/550) panproto-protocols annotation::fovea::tests::parse_and_emit
+        PASS [   0.033s] ( 64/550) panproto-protocols annotation::fovea::tests::protocol_def
+        PASS [   0.035s] ( 65/550) panproto-protocols annotation::fovea::tests::register_theories_works
+        PASS [   0.031s] ( 66/550) panproto-protocols annotation::iso_space::tests::figure_accepts_place_and_path
+        PASS [   0.045s] ( 67/550) panproto-protocols annotation::iso_space::tests::gazref_constraint_sort_present
+        PASS [   0.039s] ( 68/550) panproto-protocols annotation::iso_space::tests::measure_link_vertex_kind_present
+        PASS [   0.037s] ( 69/550) panproto-protocols annotation::iso_space::tests::parse_and_emit
+        PASS [   0.047s] ( 70/550) panproto-protocols annotation::iso_space::tests::motion_path_role_not_midpoint
+        PASS [   0.024s] ( 71/550) panproto-protocols annotation::iso_space::tests::parse_measure_link
+        PASS [   0.026s] ( 72/550) panproto-protocols annotation::iso_space::tests::parse_motion_with_path_role
+        PASS [   0.025s] ( 73/550) panproto-protocols annotation::iso_space::tests::protocol_def
+        PASS [   0.026s] ( 74/550) panproto-protocols annotation::iso_space::tests::register_theories_works
+        PASS [   0.034s] ( 75/550) panproto-protocols annotation::laf_graf::tests::annotation_fs_and_annotates_node_are_distinct_edge_kinds
+        PASS [   0.028s] ( 76/550) panproto-protocols annotation::laf_graf::tests::no_graph_vertex_kind_in_obj_kinds
+        PASS [   0.050s] ( 77/550) panproto-protocols annotation::laf_graf::tests::multigraph_multiple_annotations_per_node
+        PASS [   0.043s] ( 78/550) panproto-protocols annotation::laf_graf::tests::parse_and_emit
+        PASS [   0.042s] ( 79/550) panproto-protocols annotation::laf_graf::tests::protocol_def
+        PASS [   0.041s] ( 80/550) panproto-protocols annotation::laf_graf::tests::register_theories_works
+        PASS [   0.044s] ( 81/550) panproto-protocols annotation::naf::tests::constituency_layer_round_trip
+        PASS [   0.047s] ( 82/550) panproto-protocols annotation::naf::tests::factuality_layer_round_trip
+        PASS [   0.055s] ( 83/550) panproto-protocols annotation::naf::tests::opinion_layer_round_trip
+        PASS [   0.054s] ( 84/550) panproto-protocols annotation::naf::tests::parse_and_emit
+        PASS [   0.045s] ( 85/550) panproto-protocols annotation::naf::tests::protocol_def
+        PASS [   0.041s] ( 86/550) panproto-protocols annotation::naf::tests::protocol_has_new_constraint_sorts
+        PASS [   0.029s] ( 87/550) panproto-protocols annotation::naf::tests::protocol_has_new_edge_kinds
+        PASS [   0.027s] ( 88/550) panproto-protocols annotation::naf::tests::protocol_has_new_obj_kinds
+        PASS [   0.028s] ( 89/550) panproto-protocols annotation::naf::tests::register_theories_works
+        PASS [   0.026s] ( 90/550) panproto-protocols annotation::naf::tests::temporal_layer_round_trip
+        PASS [   0.028s] ( 91/550) panproto-protocols annotation::nif::tests::parse_and_emit
+        PASS [   0.030s] ( 92/550) panproto-protocols annotation::nif::tests::parse_and_emit_lexical_constraints
+        PASS [   0.030s] ( 93/550) panproto-protocols annotation::nif::tests::parse_and_emit_reference_context
+        PASS [   0.033s] ( 94/550) panproto-protocols annotation::nif::tests::protocol_def
+        PASS [   0.034s] ( 95/550) panproto-protocols annotation::nif::tests::register_theories_works
+        PASS [   0.031s] ( 96/550) panproto-protocols annotation::nif::tests::section_vertex_kind
+        PASS [   0.031s] ( 97/550) panproto-protocols annotation::paula::tests::medial_relation_to_media
+        PASS [   0.028s] ( 98/550) panproto-protocols annotation::paula::tests::meta_annotation_annotates_corpus_and_document
+        PASS [   0.024s] ( 99/550) panproto-protocols annotation::paula::tests::order_relation_includes_span
+        PASS [   0.026s] (100/550) panproto-protocols annotation::paula::tests::parse_and_emit
+        PASS [   0.026s] (101/550) panproto-protocols annotation::paula::tests::parse_and_emit_with_offsets
+        PASS [   0.023s] (102/550) panproto-protocols annotation::paula::tests::parse_and_emit_with_temporal
+        PASS [   0.024s] (103/550) panproto-protocols annotation::paula::tests::points_to_includes_struct_node
+        PASS [   0.025s] (104/550) panproto-protocols annotation::paula::tests::protocol_def
+        PASS [   0.024s] (105/550) panproto-protocols annotation::paula::tests::register_theories_works
+        PASS [   0.033s] (106/550) panproto-protocols annotation::paula::tests::salt_constraint_sorts_present
+        PASS [   0.033s] (107/550) panproto-protocols annotation::paula::tests::salt_vertex_kinds_present
+        PASS [   0.032s] (108/550) panproto-protocols annotation::paula::tests::textual_relation_token_to_text
+        PASS [   0.031s] (109/550) panproto-protocols annotation::paula::tests::timeline_relation_to_timeline
+        PASS [   0.024s] (110/550) panproto-protocols annotation::tei::tests::annotation_edge_includes_entity_kinds
+        PASS [   0.026s] (111/550) panproto-protocols annotation::tei::tests::link_edge_rule_present
+        PASS [   0.027s] (112/550) panproto-protocols annotation::tei::tests::parse_and_emit
+        PASS [   0.029s] (113/550) panproto-protocols annotation::tei::tests::parse_character_tokens
+        PASS [   0.038s] (114/550) panproto-protocols annotation::tei::tests::parse_critical_apparatus
+        PASS [   0.034s] (115/550) panproto-protocols annotation::tei::tests::parse_missing_document_errors
+        PASS [   0.032s] (116/550) panproto-protocols annotation::tei::tests::parse_verse_and_drama
+        PASS [   0.037s] (117/550) panproto-protocols annotation::tei::tests::protocol_def
+        PASS [   0.034s] (118/550) panproto-protocols annotation::tei::tests::protocol_has_new_constraint_sorts
+        PASS [   0.036s] (119/550) panproto-protocols annotation::tei::tests::protocol_has_new_vertex_kinds
+        PASS [   0.033s] (120/550) panproto-protocols annotation::tei::tests::register_theories_works
+        PASS [   0.031s] (121/550) panproto-protocols annotation::tei::tests::roundtrip
+        PASS [   0.044s] (122/550) panproto-protocols annotation::tei::tests::title_stored_with_value_constraint
+        PASS [   0.048s] (123/550) panproto-protocols annotation::timeml::tests::alink_signal_of_wired
+        PASS [   0.051s] (124/550) panproto-protocols annotation::timeml::tests::links_can_target_makeinstance
+        PASS [   0.044s] (125/550) panproto-protocols annotation::timeml::tests::parse_and_emit
+        PASS [   0.034s] (126/550) panproto-protocols annotation::timeml::tests::protocol_def
+        PASS [   0.040s] (127/550) panproto-protocols annotation::timeml::tests::register_theories_works
+        PASS [   0.035s] (128/550) panproto-protocols annotation::timeml::tests::signal_of_accepts_alink
+        PASS [   0.036s] (129/550) panproto-protocols annotation::timeml::tests::timex3_mod_constraint_sort_present
+        PASS [   0.035s] (130/550) panproto-protocols annotation::timeml::tests::timex3_mod_roundtrips
+        PASS [   0.036s] (131/550) panproto-protocols annotation::timeml::tests::tlink_with_makeinstance_endpoints_roundtrips
+        PASS [   0.036s] (132/550) panproto-protocols annotation::ucca::tests::implicit_edge_any_node
+        PASS [   0.034s] (133/550) panproto-protocols annotation::ucca::tests::legacy_kind_normalised_to_node
+        PASS [   0.030s] (134/550) panproto-protocols annotation::ucca::tests::parse_and_emit
+        PASS [   0.022s] (135/550) panproto-protocols annotation::ucca::tests::protocol_def
+        PASS [   0.037s] (136/550) panproto-protocols annotation::ucca::tests::register_theories_works
+        PASS [   0.035s] (137/550) panproto-protocols annotation::uima::tests::begin_end_constraints_roundtrip
+        PASS [   0.043s] (138/550) panproto-protocols annotation::uima::tests::cas_connected_via_contains_edges
+        PASS [   0.041s] (139/550) panproto-protocols annotation::uima::tests::document_annotation_as_sofa_of_target
+        PASS [   0.030s] (140/550) panproto-protocols annotation::uima::tests::index_of_edge_on_fs_index_node
+        PASS [   0.029s] (141/550) panproto-protocols annotation::uima::tests::parse_and_emit
+        PASS [   0.037s] (142/550) panproto-protocols annotation::uima::tests::protocol_def
+        PASS [   0.034s] (143/550) panproto-protocols annotation::uima::tests::protocol_has_annotation_base_kind
+        PASS [   0.033s] (144/550) panproto-protocols annotation::uima::tests::protocol_has_begin_end_constraint_sorts
+        PASS [   0.040s] (145/550) panproto-protocols annotation::uima::tests::protocol_has_document_annotation_kind
+        PASS [   0.025s] (146/550) panproto-protocols annotation::uima::tests::protocol_has_string_list_and_integer_list_kinds
+        PASS [   0.023s] (147/550) panproto-protocols annotation::uima::tests::sofa_of_edge_direction_is_sofa_to_annotation
+        PASS [   0.037s] (148/550) panproto-protocols annotation::uima::tests::register_theories_works
+        PASS [   0.029s] (149/550) panproto-protocols annotation::uima::tests::string_list_and_integer_list_as_feature_targets
+        PASS [   0.024s] (150/550) panproto-protocols annotation::web_annotation::tests::body_value_constraint_round_trips
+        PASS [   0.027s] (151/550) panproto-protocols annotation::web_annotation::tests::choice_items_use_has_item_edge
+        PASS [   0.022s] (152/550) panproto-protocols annotation::web_annotation::tests::motivation_and_generated_constraints
+        PASS [   0.023s] (153/550) panproto-protocols annotation::web_annotation::tests::new_constraint_sorts_present
+        PASS [   0.025s] (154/550) panproto-protocols annotation::web_annotation::tests::new_vertex_kinds_present
+        PASS [   0.023s] (155/550) panproto-protocols annotation::web_annotation::tests::parse_and_emit
+        PASS [   0.028s] (156/550) panproto-protocols annotation::web_annotation::tests::protocol_def
+        PASS [   0.029s] (157/550) panproto-protocols annotation::web_annotation::tests::register_theories_works
+        PASS [   0.028s] (158/550) panproto-protocols annotation::web_annotation::tests::unknown_field_uses_has_field_edge
+        PASS [   0.030s] (159/550) panproto-protocols api::asyncapi::tests::emit_minimal
+        PASS [   0.026s] (160/550) panproto-protocols api::asyncapi::tests::parse_minimal
+        PASS [   0.023s] (161/550) panproto-protocols api::asyncapi::tests::protocol_def
+        PASS [   0.023s] (162/550) panproto-protocols api::asyncapi::tests::register_theories_works
+        PASS [   0.022s] (163/550) panproto-protocols api::asyncapi::tests::roundtrip
+        PASS [   0.028s] (164/550) panproto-protocols api::graphql::tests::emit_sdl_roundtrip
+        PASS [   0.031s] (165/550) panproto-protocols api::graphql::tests::parse_directive_definition
+        PASS [   0.031s] (166/550) panproto-protocols api::graphql::tests::parse_extend_type
+        PASS [   0.044s] (167/550) panproto-protocols api::graphql::tests::parse_schema_definition
+        PASS [   0.044s] (168/550) panproto-protocols api::graphql::tests::parse_subscription_type
+        PASS [   0.052s] (169/550) panproto-protocols api::graphql::tests::parse_sdl_with_forward_references
+        PASS [   0.066s] (170/550) panproto-protocols api::graphql::tests::protocol_creates_valid_definition
+        PASS [   0.048s] (171/550) panproto-protocols api::graphql::tests::register_theories_works
+        PASS [   0.041s] (172/550) panproto-protocols api::jsonapi::tests::emit_minimal
+        PASS [   0.049s] (173/550) panproto-protocols api::jsonapi::tests::parse_minimal
+        PASS [   0.030s] (174/550) panproto-protocols api::jsonapi::tests::protocol_def
+        PASS [   0.032s] (175/550) panproto-protocols api::jsonapi::tests::register_theories_works
+        PASS [   0.035s] (176/550) panproto-protocols api::jsonapi::tests::roundtrip
+        PASS [   0.028s] (177/550) panproto-protocols api::openapi::tests::emit_minimal
+        PASS [   0.024s] (178/550) panproto-protocols api::openapi::tests::parse_minimal
+        PASS [   0.026s] (179/550) panproto-protocols api::openapi::tests::protocol_def
+        PASS [   0.018s] (180/550) panproto-protocols api::openapi::tests::register_theories_works
+        PASS [   0.022s] (181/550) panproto-protocols api::openapi::tests::roundtrip
+        PASS [   0.025s] (182/550) panproto-protocols api::raml::tests::parse_and_emit
+        PASS [   0.029s] (183/550) panproto-protocols api::raml::tests::protocol_def
+        PASS [   0.030s] (184/550) panproto-protocols api::raml::tests::register_theories_works
+        PASS [   0.029s] (185/550) panproto-protocols api::raml::tests::roundtrip
+        PASS [   0.030s] (186/550) panproto-protocols config::ansible::tests::parse_and_emit
+        PASS [   0.025s] (187/550) panproto-protocols config::ansible::tests::protocol_def
+        PASS [   0.025s] (188/550) panproto-protocols config::ansible::tests::register_theories_works
+        PASS [   0.026s] (189/550) panproto-protocols config::cloudformation::tests::parse_and_emit
+        PASS [   0.029s] (190/550) panproto-protocols config::cloudformation::tests::protocol_def
+        PASS [   0.028s] (191/550) panproto-protocols config::cloudformation::tests::register_theories_works
+        PASS [   0.025s] (192/550) panproto-protocols config::k8s_crd::tests::parse_and_emit
+        PASS [   0.023s] (193/550) panproto-protocols config::k8s_crd::tests::protocol_def
+        PASS [   0.020s] (194/550) panproto-protocols config::k8s_crd::tests::register_theories_works
+        PASS [   0.022s] (195/550) panproto-protocols data_schema::bson::tests::parse_and_emit
+        PASS [   0.027s] (196/550) panproto-protocols data_schema::bson::tests::protocol_def
+        PASS [   0.028s] (197/550) panproto-protocols data_schema::bson::tests::register_theories_works
+        PASS [   0.027s] (198/550) panproto-protocols data_schema::cddl::tests::parse_choice
+        PASS [   0.028s] (199/550) panproto-protocols data_schema::cddl::tests::parse_simple
+        PASS [   0.026s] (200/550) panproto-protocols data_schema::cddl::tests::protocol_def
+        PASS [   0.025s] (201/550) panproto-protocols data_schema::cddl::tests::register_theories_works
+        PASS [   0.025s] (202/550) panproto-protocols data_schema::cddl::tests::roundtrip
+        PASS [   0.026s] (203/550) panproto-protocols data_schema::json_schema::tests::emit_schema_keeps_a_tuple
+        PASS [   0.026s] (204/550) panproto-protocols data_schema::json_schema::tests::emit_schema_roundtrip
+        PASS [   0.021s] (205/550) panproto-protocols data_schema::json_schema::tests::percent_escapes_decode
+        PASS [   0.028s] (206/550) panproto-protocols data_schema::json_schema::tests::parse_simple_json_schema
+        PASS [   0.022s] (207/550) panproto-protocols data_schema::json_schema::tests::protocol_creates_valid_definition
+        PASS [   0.024s] (208/550) panproto-protocols data_schema::json_schema::tests::register_theories_works
+        PASS [   0.022s] (209/550) panproto-protocols data_science::arrow::tests::emit_roundtrip
+        PASS [   0.029s] (210/550) panproto-protocols data_science::arrow::tests::parse_missing_fields_fails
+        PASS [   0.034s] (211/550) panproto-protocols data_science::arrow::tests::parse_simple_schema
+        PASS [   0.032s] (212/550) panproto-protocols data_science::arrow::tests::parse_timestamp_with_timezone
+        PASS [   0.029s] (213/550) panproto-protocols data_science::arrow::tests::parse_with_children
+        PASS [   0.027s] (214/550) panproto-protocols data_science::arrow::tests::protocol_creates_valid_definition
+        PASS [   0.022s] (215/550) panproto-protocols data_science::arrow::tests::register_theories_adds_correct_theories
+        PASS [   0.022s] (216/550) panproto-protocols data_science::dataframe::tests::emit_roundtrip
+        PASS [   0.026s] (217/550) panproto-protocols data_science::dataframe::tests::parse_missing_columns_fails
+        PASS [   0.027s] (218/550) panproto-protocols data_science::dataframe::tests::parse_simple_schema
+        PASS [   0.026s] (219/550) panproto-protocols data_science::dataframe::tests::parse_with_checks
+        PASS [   0.026s] (220/550) panproto-protocols data_science::dataframe::tests::protocol_creates_valid_definition
+        PASS [   0.027s] (221/550) panproto-protocols data_science::dataframe::tests::register_theories_adds_correct_theories
+        PASS [   0.027s] (222/550) panproto-protocols data_science::parquet::tests::emit_roundtrip
+        PASS [   0.026s] (223/550) panproto-protocols data_science::parquet::tests::parse_missing_fields_fails
+        PASS [   0.025s] (224/550) panproto-protocols data_science::parquet::tests::parse_simple_schema
+        PASS [   0.027s] (225/550) panproto-protocols data_science::parquet::tests::parse_with_group
+        PASS [   0.031s] (226/550) panproto-protocols data_science::parquet::tests::protocol_creates_valid_definition
+        PASS [   0.031s] (227/550) panproto-protocols data_science::parquet::tests::register_theories_adds_correct_theories
+        PASS [   0.032s] (228/550) panproto-protocols database::cassandra::tests::emit_roundtrip
+        PASS [   0.029s] (229/550) panproto-protocols database::cassandra::tests::parse_create_type
+        PASS [   0.027s] (230/550) panproto-protocols database::cassandra::tests::parse_empty_cql_fails
+        PASS [   0.026s] (231/550) panproto-protocols database::cassandra::tests::parse_non_ascii_table_name
+        PASS [   0.028s] (232/550) panproto-protocols database::cassandra::tests::parse_simple_create_table
+        PASS [   0.028s] (233/550) panproto-protocols database::cassandra::tests::parse_static_column
+        PASS [   0.030s] (234/550) panproto-protocols database::cassandra::tests::parse_table_name_ignores_guard_phrase_in_a_literal
+        PASS [   0.029s] (235/550) panproto-protocols database::cassandra::tests::protocol_creates_valid_definition
+        PASS [   0.028s] (236/550) panproto-protocols database::cassandra::tests::register_theories_adds_correct_theories
+        PASS [   0.028s] (237/550) panproto-protocols database::dynamodb::tests::emit_roundtrip
+        PASS [   0.027s] (238/550) panproto-protocols database::dynamodb::tests::parse_missing_table_name_fails
+        PASS [   0.026s] (239/550) panproto-protocols database::dynamodb::tests::parse_simple_table
+        PASS [   0.026s] (240/550) panproto-protocols database::dynamodb::tests::parse_with_gsi
+        PASS [   0.026s] (241/550) panproto-protocols database::dynamodb::tests::protocol_creates_valid_definition
+        PASS [   0.025s] (242/550) panproto-protocols database::dynamodb::tests::register_theories_adds_correct_theories
+        PASS [   0.026s] (243/550) panproto-protocols database::keyword::tests::find_keyword_is_case_insensitive
+        PASS [   0.027s] (244/550) panproto-protocols database::keyword::tests::name_after_keyword_ignores_a_guard_phrase_in_a_literal
+        PASS [   0.029s] (245/550) panproto-protocols database::keyword::tests::name_after_keyword_skips_guards
+        PASS [   0.032s] (246/550) panproto-protocols database::keyword::tests::non_ascii_identifiers_survive
+        PASS [   0.031s] (247/550) panproto-protocols database::keyword::tests::offsets_index_the_original_string
+        PASS [   0.028s] (248/550) panproto-protocols database::mongodb::tests::emit_minimal
+        PASS [   0.027s] (249/550) panproto-protocols database::mongodb::tests::parse_minimal
+        PASS [   0.025s] (250/550) panproto-protocols database::mongodb::tests::protocol_def
+        PASS [   0.027s] (251/550) panproto-protocols database::mongodb::tests::register_theories_works
+        PASS [   0.030s] (252/550) panproto-protocols database::mongodb::tests::roundtrip
+        PASS [   0.029s] (253/550) panproto-protocols database::neo4j::tests::emit_cypher
+        PASS [   0.027s] (254/550) panproto-protocols database::neo4j::tests::parse_constraint_property_after_non_ascii_label
+        PASS [   0.027s] (255/550) panproto-protocols database::neo4j::tests::parse_cypher
+        PASS [   0.024s] (256/550) panproto-protocols database::neo4j::tests::protocol_def
+        PASS [   0.024s] (257/550) panproto-protocols database::neo4j::tests::register_theories_works
+        PASS [   0.027s] (258/550) panproto-protocols database::redis::tests::parse_and_emit
+        PASS [   0.026s] (259/550) panproto-protocols database::redis::tests::protocol_def
+        PASS [   0.029s] (260/550) panproto-protocols database::redis::tests::register_theories_works
+        PASS [   0.030s] (261/550) panproto-protocols database::redis::tests::roundtrip
+        PASS [   0.027s] (262/550) panproto-protocols database::sql::tests::a_foreign_key_declared_before_its_table_resolves_to_its_primary_key
+        PASS [   0.030s] (263/550) panproto-protocols database::sql::tests::emit_ddl_keeps_array_and_enum_columns
+        PASS [   0.028s] (264/550) panproto-protocols database::sql::tests::emit_ddl_roundtrip
+        PASS [   0.023s] (265/550) panproto-protocols database::sql::tests::parse_alter_table_add_column
+        PASS [   0.019s] (266/550) panproto-protocols database::sql::tests::parse_drop_table
+        PASS [   0.030s] (267/550) panproto-protocols database::sql::tests::parse_empty_ddl
+        PASS [   0.032s] (268/550) panproto-protocols database::sql::tests::parse_lowercase_ddl
+        PASS [   0.037s] (269/550) panproto-protocols database::sql::tests::parse_float_double_types
+        PASS [   0.052s] (270/550) panproto-protocols database::sql::tests::parse_multiple_tables
+        PASS [   0.060s] (271/550) panproto-protocols database::sql::tests::parse_non_ascii_named_constraint
+        PASS [   0.064s] (272/550) panproto-protocols database::sql::tests::parse_simple_create_table
+        PASS [   0.065s] (273/550) panproto-protocols database::sql::tests::parse_table_level_primary_key
+        PASS [   0.078s] (274/550) panproto-protocols database::sql::tests::parse_table_name_ignores_guard_phrase_in_a_literal
+        PASS [   0.037s] (275/550) panproto-protocols database::sql::tests::protocol_creates_valid_definition
+        PASS [   0.048s] (276/550) panproto-protocols database::sql::tests::register_theories_adds_correct_theories
+        PASS [   0.061s] (277/550) panproto-protocols database::sql::tests::parse_timestamp_and_uuid_types
+        PASS [   0.022s] (278/550) panproto-protocols dispatch_tests::cross_category_calls_point_at_the_other_dispatch
+        PASS [   0.027s] (279/550) panproto-protocols dispatch_tests::document_dispatch_normalizes_underscore_to_hyphen
+        PASS [   0.024s] (280/550) panproto-protocols dispatch_tests::document_dispatch_routes_json_schema
+        PASS [   0.030s] (281/550) panproto-protocols dispatch_tests::parser_protocol_lists_have_expected_sizes
+        PASS [   0.043s] (282/550) panproto-protocols dispatch_tests::source_dispatch_routes_graphql_sql_protobuf
+        PASS [   0.035s] (283/550) panproto-protocols dispatch_tests::uima_is_accepted_under_both_names
+        PASS [   0.030s] (284/550) panproto-protocols domain::edi_x12::tests::emit_roundtrip
+        PASS [   0.028s] (285/550) panproto-protocols domain::edi_x12::tests::parse_missing_segments_fails
+        PASS [   0.020s] (286/550) panproto-protocols domain::edi_x12::tests::parse_simple_transaction_set
+        PASS [   0.024s] (287/550) panproto-protocols domain::edi_x12::tests::parse_with_composite_elements
+        PASS [   0.028s] (288/550) panproto-protocols domain::edi_x12::tests::protocol_creates_valid_definition
+        PASS [   0.031s] (289/550) panproto-protocols domain::edi_x12::tests::register_theories_adds_correct_theories
+        PASS [   0.026s] (290/550) panproto-protocols domain::fhir::tests::parse_and_emit
+        PASS [   0.025s] (291/550) panproto-protocols domain::fhir::tests::protocol_def
+        PASS [   0.026s] (292/550) panproto-protocols domain::fhir::tests::register_theories_works
+        PASS [   0.026s] (293/550) panproto-protocols domain::geojson::tests::parse_and_emit
+        PASS [   0.027s] (294/550) panproto-protocols domain::geojson::tests::protocol_def
+        PASS [   0.041s] (295/550) panproto-protocols domain::geojson::tests::register_theories_works
+        PASS [   0.049s] (296/550) panproto-protocols domain::rss_atom::tests::parse_and_emit
+        PASS [   0.048s] (297/550) panproto-protocols domain::rss_atom::tests::protocol_def
+        PASS [   0.053s] (298/550) panproto-protocols domain::rss_atom::tests::register_theories_works
+        PASS [   0.039s] (299/550) panproto-protocols domain::swift_mt::tests::parse_and_emit
+        PASS [   0.027s] (300/550) panproto-protocols domain::swift_mt::tests::protocol_def
+        PASS [   0.040s] (301/550) panproto-protocols domain::swift_mt::tests::register_theories_works
+        PASS [   0.034s] (302/550) panproto-protocols domain::vcard_ical::tests::parse_and_emit
+        PASS [   0.037s] (303/550) panproto-protocols domain::vcard_ical::tests::protocol_def
+        PASS [   0.050s] (304/550) panproto-protocols domain::vcard_ical::tests::register_theories_works
+        PASS [   0.043s] (305/550) panproto-protocols emit::tests::indent_writer_basic
+        PASS [   0.042s] (306/550) panproto-protocols raw_file::tests::mime_detection
+        PASS [   0.039s] (307/550) panproto-protocols raw_file::tests::parse_and_emit_roundtrip
+        PASS [   0.031s] (308/550) panproto-protocols raw_file::tests::parse_binary_file
+        PASS [   0.027s] (309/550) panproto-protocols raw_file::tests::parse_empty_file
+        PASS [   0.027s] (310/550) panproto-protocols raw_file::tests::parse_text_file
+        PASS [   0.030s] (311/550) panproto-protocols raw_file::tests::protocol_def
+        PASS [   0.047s] (312/550) panproto-protocols raw_file::tests::register_theories_works
+        PASS [   0.048s] (313/550) panproto-protocols semantics::tests::a_protocol_with_no_rows_keeps_its_constructor_values
+        PASS [   0.045s] (314/550) panproto-protocols semantics::tests::attach_fills_the_four_declarations_from_the_rows
+        PASS [   0.044s] (315/550) panproto-protocols semantics::tests::attach_fills_the_non_value_kinds_from_the_non_scalar_rows
+        PASS [   0.028s] (316/550) panproto-protocols semantics::tests::attach_is_idempotent
+        PASS [   0.029s] (317/550) panproto-protocols semantics::tests::attach_reads_the_rows_of_the_canonical_name
+        PASS [   0.038s] (318/550) panproto-protocols serialization::asn1::tests::a_builtin_component_is_a_vertex_of_its_kind
+        PASS [   0.038s] (319/550) panproto-protocols serialization::asn1::tests::a_choice_alternative_keeps_kind_field
+        PASS [   0.037s] (320/550) panproto-protocols serialization::asn1::tests::a_named_component_keeps_kind_field
+        PASS [   0.034s] (321/550) panproto-protocols serialization::asn1::tests::emit_minimal
+        PASS [   0.034s] (322/550) panproto-protocols serialization::asn1::tests::parse_minimal
+        PASS [   0.040s] (323/550) panproto-protocols serialization::asn1::tests::protocol_creates_valid_definition
+        PASS [   0.053s] (324/550) panproto-protocols serialization::asn1::tests::register_theories_works
+        PASS [   0.053s] (325/550) panproto-protocols serialization::asn1::tests::roundtrip
+        PASS [   0.064s] (326/550) panproto-protocols serialization::avro::tests::emit_minimal
+        PASS [   0.061s] (327/550) panproto-protocols serialization::avro::tests::parse_minimal
+        PASS [   0.054s] (328/550) panproto-protocols serialization::avro::tests::protocol_creates_valid_definition
+        PASS [   0.061s] (329/550) panproto-protocols serialization::avro::tests::register_theories_works
+        PASS [   0.051s] (330/550) panproto-protocols serialization::avro::tests::roundtrip
+        PASS [   0.045s] (331/550) panproto-protocols serialization::bond::tests::emit_minimal
+        PASS [   0.044s] (332/550) panproto-protocols serialization::bond::tests::parse_minimal
+        PASS [   0.042s] (333/550) panproto-protocols serialization::bond::tests::protocol_creates_valid_definition
+        PASS [   0.039s] (334/550) panproto-protocols serialization::bond::tests::register_theories_works
+        PASS [   0.050s] (335/550) panproto-protocols serialization::bond::tests::roundtrip
+        PASS [   0.049s] (336/550) panproto-protocols serialization::flatbuffers::tests::emit_minimal
+        PASS [   0.043s] (337/550) panproto-protocols serialization::flatbuffers::tests::parse_minimal
+        PASS [   0.042s] (338/550) panproto-protocols serialization::flatbuffers::tests::protocol_creates_valid_definition
+        PASS [   0.038s] (339/550) panproto-protocols serialization::msgpack_schema::tests::emit_minimal
+        PASS [   0.048s] (340/550) panproto-protocols serialization::flatbuffers::tests::roundtrip
+        PASS [   0.061s] (341/550) panproto-protocols serialization::flatbuffers::tests::register_theories_works
+        PASS [   0.045s] (342/550) panproto-protocols serialization::msgpack_schema::tests::parse_minimal
+        PASS [   0.055s] (343/550) panproto-protocols serialization::msgpack_schema::tests::protocol_creates_valid_definition
+        PASS [   0.055s] (344/550) panproto-protocols serialization::msgpack_schema::tests::register_theories_works
+        PASS [   0.069s] (345/550) panproto-protocols serialization::msgpack_schema::tests::roundtrip
+        PASS [   0.069s] (346/550) panproto-protocols serialization::protobuf::tests::emit_proto_keeps_an_rpcs_request_and_response_apart
+        PASS [   0.044s] (347/550) panproto-protocols serialization::protobuf::tests::emit_proto_roundtrip
+        PASS [   0.090s] (348/550) panproto-protocols serialization::protobuf::tests::parse_proto_with_map_field
+        PASS [   0.079s] (349/550) panproto-protocols serialization::protobuf::tests::parse_proto_with_service
+        PASS [   0.079s] (350/550) panproto-protocols serialization::protobuf::tests::parse_proto_with_syntax_and_package
+        PASS [   0.091s] (351/550) panproto-protocols serialization::protobuf::tests::parse_proto_with_type_of_edges
+        PASS [   0.046s] (352/550) panproto-protocols serialization::protobuf::tests::parse_simple_proto
+        PASS [   0.057s] (353/550) panproto-protocols serialization::protobuf::tests::protocol_creates_valid_definition
+        PASS [   0.045s] (354/550) panproto-protocols serialization::protobuf::tests::register_theories_works
+        PASS [   0.053s] (355/550) panproto-protocols theories::tests::a_theory_name_registered_again_with_another_composition_panics
+        PASS [   0.070s] (356/550) panproto-protocols theories::tests::a_theory_name_registered_again_with_the_same_composition_is_kept
+        PASS [   0.076s] (357/550) panproto-protocols theories::tests::every_real_building_block_typechecks_standalone
+        PASS [   0.085s] (358/550) panproto-protocols theories::tests::fan_ports_are_not_related_to_vertices
+        PASS [   0.068s] (359/550) panproto-protocols theories::tests::th_flat_typechecks_and_composes_with_its_schema_theory
+        PASS [   0.095s] (360/550) panproto-protocols theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks
+        PASS [   0.059s] (361/550) panproto-protocols theories::tests::th_functor_typechecks_and_composes_with_every_table_schema_theory
+        PASS [   0.066s] (362/550) panproto-protocols theories::tests::th_graph_instance_typechecks_and_composes_with_every_graph_schema_theory
+        PASS [   0.038s] (363/550) panproto-protocols theories::tests::wtype_theory_states_the_arc_anchor_coherence_axioms
+        PASS [   0.041s] (364/550) panproto-protocols web_document::atproto::tests::a_per_file_schema_carries_only_its_own_structure
+        PASS [   0.048s] (365/550) panproto-protocols web_document::atproto::tests::atproto_registration_failure_is_a_theory_registration_error
+        PASS [   0.041s] (366/550) panproto-protocols web_document::atproto::tests::bundle_keeps_placeholder_for_out_of_bundle_ref
+        PASS [   0.045s] (367/550) panproto-protocols web_document::atproto::tests::bundle_rejects_duplicate_lexicon_ids
+        PASS [   0.041s] (368/550) panproto-protocols web_document::atproto::tests::bundle_resolves_cross_file_refs_to_typed_defs
+        PASS [   0.053s] (369/550) panproto-protocols web_document::atproto::tests::cross_lexicon_ref_creates_placeholder
+        PASS [   0.054s] (370/550) panproto-protocols web_document::atproto::tests::emit_lexicon_roundtrip
+        PASS [   0.065s] (371/550) panproto-protocols web_document::atproto::tests::lexicon_project_partitions_by_file_and_lifts_cross_refs
+        PASS [   0.080s] (372/550) panproto-protocols web_document::atproto::tests::parse_lexicon_missing_id_fails
+        PASS [   0.074s] (373/550) panproto-protocols web_document::atproto::tests::parse_simple_lexicon
+        PASS [   0.086s] (374/550) panproto-protocols web_document::atproto::tests::protocol_creates_valid_definition
+        PASS [   0.079s] (375/550) panproto-protocols web_document::atproto::tests::ref_array_item_emits_morphism
+        PASS [   0.073s] (376/550) panproto-protocols web_document::atproto::tests::ref_property_emits_entry_and_morphism
+        PASS [   0.065s] (377/550) panproto-protocols web_document::atproto::tests::register_theories_adds_correct_theories
+        PASS [   0.055s] (378/550) panproto-protocols web_document::atproto::tests::single_document_bundle_matches_parse_lexicon
+        PASS [   0.063s] (379/550) panproto-protocols web_document::atproto::tests::single_document_leaves_cross_file_ref_opaque
+        PASS [   0.055s] (380/550) panproto-protocols web_document::atproto::tests::union_variants_emit_ref_morphisms
+        PASS [   0.054s] (381/550) panproto-protocols web_document::docx::tests::parse_and_emit
+        PASS [   0.060s] (382/550) panproto-protocols web_document::docx::tests::protocol_def
+        PASS [   0.058s] (383/550) panproto-protocols web_document::docx::tests::register_theories_works
+        PASS [   0.070s] (384/550) panproto-protocols web_document::odf::tests::parse_and_emit
+        PASS [   0.068s] (385/550) panproto-protocols web_document::odf::tests::protocol_def
+        PASS [   0.060s] (386/550) panproto-protocols web_document::odf::tests::register_theories_works
+        PASS [   0.044s] (387/550) panproto-protocols::a_lexicon_project_partitions_the_same_way_every_time one_process_answer
+        PASS [   0.044s] (388/550) panproto-protocols::a_lexicon_project_partitions_the_same_way_every_time the_first_referencing_document_keeps_the_shared_placeholder
+        PASS [   0.040s] (389/550) panproto-protocols::bundles_resolve_cross_document_refs avro::a_bundle_binds_the_fullname_to_the_defining_record
+        PASS [   0.064s] (390/550) panproto-protocols::bundles_resolve_cross_document_refs an_unregistered_protocol_names_the_ones_that_are
+        PASS [   0.066s] (391/550) panproto-protocols::bundles_resolve_cross_document_refs avro::a_fullname_outside_the_bundle_stays_unresolved
+        PASS [   0.055s] (392/550) panproto-protocols::bundles_resolve_cross_document_refs avro::a_lone_document_cannot_resolve_a_sibling_fullname
+        PASS [   0.054s] (393/550) panproto-protocols::bundles_resolve_cross_document_refs avro::a_one_document_bundle_agrees_with_the_single_document_parser
+        PASS [   0.045s] (394/550) panproto-protocols::bundles_resolve_cross_document_refs avro::entry_selection_ranges_over_the_whole_bundle
+        PASS [   0.049s] (395/550) panproto-protocols::bundles_resolve_cross_document_refs every_advertised_protocol_has_a_bundle_parser
+        PASS [   0.093s] (396/550) panproto-protocols::bundles_resolve_cross_document_refs json_schema::a_bundle_resolves_the_ref_to_the_definition_and_its_fields
+        PASS [   0.097s] (397/550) panproto-protocols::bundles_resolve_cross_document_refs json_schema::a_lone_document_leaves_the_cross_document_ref_opaque
+        PASS [   0.103s] (398/550) panproto-protocols::bundles_resolve_cross_document_refs json_schema::a_one_document_bundle_agrees_with_the_single_document_parser
+        PASS [   0.059s] (399/550) panproto-protocols::bundles_resolve_cross_document_refs json_schema::a_ref_outside_the_bundle_stays_a_placeholder
+        PASS [   0.062s] (400/550) panproto-protocols::bundles_resolve_cross_document_refs openapi::a_bundle_resolves_the_ref_to_the_component_and_its_fields
+        PASS [   0.061s] (401/550) panproto-protocols::bundles_resolve_cross_document_refs openapi::a_lone_document_leaves_the_cross_document_ref_opaque
+        PASS [   0.065s] (402/550) panproto-protocols::bundles_resolve_cross_document_refs openapi::a_one_document_bundle_agrees_with_the_single_document_parser
+        PASS [   0.066s] (403/550) panproto-protocols::bundles_resolve_cross_document_refs openapi::two_documents_declaring_one_id_are_refused
+        PASS [   0.070s] (404/550) panproto-protocols::dialect_constructs_read_as_they_mean a_bracket_after_the_column_type_is_not_an_array
+        PASS [   0.058s] (405/550) panproto-protocols::dialect_constructs_read_as_they_mean a_bracket_quoted_identifier_is_not_an_array
+        PASS [   0.056s] (406/550) panproto-protocols::dialect_constructs_read_as_they_mean a_document_with_an_identity_emits_from_its_root
+        PASS [   0.050s] (407/550) panproto-protocols::dialect_constructs_read_as_they_mean a_drop_removes_a_bracket_quoted_create_in_any_case
+        PASS [   0.054s] (408/550) panproto-protocols::dialect_constructs_read_as_they_mean a_drop_removes_its_create_whatever_the_case_of_an_unquoted_name
+        PASS [   0.061s] (409/550) panproto-protocols::dialect_constructs_read_as_they_mean a_drop_removes_its_create_whichever_side_is_qualified
+        PASS [   0.064s] (410/550) panproto-protocols::dialect_constructs_read_as_they_mean a_quote_inside_a_bracket_quoted_identifier_is_part_of_its_name
+        PASS [   0.069s] (411/550) panproto-protocols::dialect_constructs_read_as_they_mean a_ref_written_against_an_id_with_an_empty_fragment_resolves
+        PASS [   0.056s] (412/550) panproto-protocols::dialect_constructs_read_as_they_mean a_tuple_items_and_prefix_items_stay_apart
+        PASS [   0.050s] (413/550) panproto-protocols::dialect_constructs_read_as_they_mean an_array_default_and_an_odd_column_name_survive_emit_and_reparse
+        PASS [   0.058s] (414/550) panproto-protocols::dialect_constructs_read_as_they_mean an_array_of_a_multi_word_character_type_is_an_array
+        PASS [   0.056s] (415/550) panproto-protocols::dialect_constructs_read_as_they_mean an_enum_column_of_an_odd_table_survives_emit_and_reparse
+        PASS [   0.064s] (416/550) panproto-protocols::dialect_constructs_read_as_they_mean an_enum_label_reads_the_same_however_it_is_spelled
+        PASS [   0.052s] (417/550) panproto-protocols::dialect_constructs_read_as_they_mean an_enum_survives_emit_and_reparse
+        PASS [   0.048s] (418/550) panproto-protocols::dialect_constructs_read_as_they_mean an_id_outside_draft_04_is_not_the_document_identity
+        PASS [   0.044s] (419/550) panproto-protocols::dialect_constructs_read_as_they_mean an_identity_that_is_only_a_fragment_leaves_the_document_unnamed
+        PASS [   0.043s] (420/550) panproto-protocols::dialect_constructs_read_as_they_mean an_odd_table_name_survives_emit_and_reparse
+        PASS [   0.042s] (421/550) panproto-protocols::dialect_constructs_read_as_they_mean boolean_items_keep_their_meaning
+        PASS [   0.043s] (422/550) panproto-protocols::dialect_constructs_read_as_they_mean prefix_items_and_items_survive_emit
+        PASS [   0.042s] (423/550) panproto-protocols::dialect_constructs_read_as_they_mean the_draft_04_id_keyword_is_the_document_identity
+        PASS [   0.072s] (424/550) panproto-protocols::dialect_constructs_read_as_they_mean every_json_schema_fixture_emits
+        PASS [   0.038s] (425/550) panproto-protocols::endpoint_coherence_is_the_graph_instance_theory an_edge_into_a_union_may_end_at_a_variant
+        PASS [   9.755s] (426/550) panproto-protocols::endpoint_coherence_is_the_graph_instance_theory v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels
+        PASS [   9.269s] (427/550) panproto-protocols::every_constraint_sort_has_semantics conllu_values_are_annotations_that_compile_to_no_check
+        PASS [  19.386s] (428/550) panproto-protocols::endpoint_coherence_is_the_graph_instance_theory v10_endpoint_coherence_agrees_on_anchor_families
+        PASS [   0.645s] (429/550) panproto-protocols::every_constraint_sort_has_semantics constraint_semantics_rows_are_kept_one_file_per_family
+        PASS [   0.432s] (430/550) panproto-protocols::every_constraint_sort_has_semantics every_constraint_semantics_row_names_a_declared_sort
+        PASS [   0.092s] (431/550) panproto-protocols::every_constraint_sort_has_semantics external_column_rows_have_an_instance_per_row
+        PASS [   0.272s] (432/550) panproto-protocols::every_constraint_sort_has_semantics every_registered_constraint_sort_has_semantics
+        PASS [   0.137s] (433/550) panproto-protocols::every_constraint_sort_has_semantics hidden_files_beside_the_fixtures_are_not_fixtures
+        PASS [   0.096s] (434/550) panproto-protocols::every_constraint_sort_has_semantics length_units_follow_each_protocol
+        PASS [   0.283s] (435/550) panproto-protocols::every_constraint_sort_has_semantics fixture_constraints_read_under_their_semantics
+        PASS [   0.129s] (436/550) panproto-protocols::every_constraint_sort_has_semantics schema_fixtures_are_every_file_under_a_schema_directory
+        PASS [  21.086s] (437/550) panproto-protocols::a_lexicon_project_partitions_the_same_way_every_time the_partition_does_not_depend_on_the_hash_seed
+        PASS [   0.199s] (438/550) panproto-protocols::every_constraint_sort_has_semantics no_protocol_fixture_emits_a_sort_without_semantics
+        PASS [   0.083s] (439/550) panproto-protocols::every_constraint_sort_has_semantics sql_enum_labels_are_decided_outside_panproto
+        PASS [   0.068s] (440/550) panproto-protocols::every_constraint_sort_has_semantics sql_keys_references_and_defaults_compile_to_no_check
+        PASS [   0.055s] (441/550) panproto-protocols::every_constraint_sort_has_semantics sql_not_null_is_required_value
+        PASS [   0.061s] (442/550) panproto-protocols::every_emitted_vertex_kind_has_a_value_kind every_table_protocol_kind_is_classified
+        PASS [   0.109s] (443/550) panproto-protocols::every_emitted_vertex_kind_has_a_value_kind every_emitted_vertex_kind_has_a_value_kind
+        PASS [   0.135s] (444/550) panproto-protocols::every_emitted_vertex_kind_has_a_value_kind every_classified_kind_is_a_kind_of_its_protocol
+        PASS [   0.031s] (445/550) panproto-protocols::every_protocol_declares_its_shapes every_pending_theory_disagrees_with_its_declared_shape
+        PASS [   0.165s] (446/550) panproto-protocols::every_emitted_vertex_kind_has_a_value_kind the_table_protocol_list_is_every_protocol_with_a_table_shape
+        PASS [   0.135s] (447/550) panproto-protocols::every_protocol_declares_its_shapes every_instance_theory_is_the_theory_of_the_syntactic_shape
+        PASS [   0.026s] (448/550) panproto-protocols::every_protocol_declares_its_shapes every_shape_row_names_a_declared_protocol
+        PASS [   0.032s] (449/550) panproto-protocols::every_protocol_declares_its_shapes the_instance_shape_of_each_base_theory_is_its_shape
+        PASS [   0.141s] (450/550) panproto-protocols::every_protocol_declares_its_shapes every_registered_protocol_declares_both_shapes
+        PASS [   0.034s] (451/550) panproto-protocols::every_protocol_declares_its_shapes the_shape_declarations_list_every_registered_protocol_once
+        PASS [   0.039s] (452/550) panproto-protocols::every_registered_protocol_is_attached every_constraint_row_names_one_sort_of_a_protocol_once
+        PASS [   0.113s] (453/550) panproto-protocols::every_registered_protocol_is_attached every_declared_shape_reaches_its_protocol
+        PASS [   0.104s] (454/550) panproto-protocols::every_registered_protocol_is_attached every_protocol_carries_its_value_kinds
+        PASS [   0.118s] (455/550) panproto-protocols::every_registered_protocol_is_attached every_protocol_carries_its_constraint_semantics
+        PASS [   0.035s] (456/550) panproto-protocols::every_registered_protocol_is_attached every_shape_row_names_one_protocol_once
+        PASS [   0.041s] (457/550) panproto-protocols::every_registered_protocol_is_attached every_value_kind_row_names_one_vertex_kind_of_a_protocol_once
+        PASS [   0.035s] (458/550) panproto-protocols::every_repository_fixture_parses a_foreign_key_names_the_column_it_references
+        PASS [   0.051s] (459/550) panproto-protocols::every_repository_fixture_parses a_pointer_ref_lands_on_the_subschema_it_points_at
+        PASS [   0.064s] (460/550) panproto-protocols::every_repository_fixture_parses a_postgres_dump_declares_its_tables
+        PASS [   0.060s] (461/550) panproto-protocols::every_repository_fixture_parses a_quoted_table_name_is_read_whole
+        PASS [   0.050s] (462/550) panproto-protocols::every_repository_fixture_parses a_ref_spelled_against_the_documents_id_or_percent_encoded_resolves
+        PASS [   0.063s] (463/550) panproto-protocols::every_repository_fixture_parses a_ref_to_a_definition_declared_later_resolves
+        PASS [   0.043s] (464/550) panproto-protocols::every_repository_fixture_parses a_statement_after_a_comment_is_read
+        PASS [   0.254s] (465/550) panproto-protocols::every_registered_protocol_is_attached every_registered_protocol_is_attached
+        PASS [   0.044s] (466/550) panproto-protocols::every_repository_fixture_parses a_table_dropped_before_it_is_created_is_declared
+        PASS [   0.050s] (467/550) panproto-protocols::every_repository_fixture_parses an_option_value_spanning_lines_is_one_statement
+        PASS [   0.064s] (468/550) panproto-protocols::every_repository_fixture_parses an_rpc_refers_to_its_request_and_response_apart
+        PASS [   0.095s] (469/550) panproto-protocols::every_repository_fixture_parses an_untyped_schema_keeps_its_array_keywords
+        PASS [   0.095s] (470/550) panproto-protocols::every_repository_fixture_parses postgres_arrays_and_enums_keep_their_shape
+        PASS [   0.117s] (471/550) panproto-protocols::every_repository_fixture_parses every_sakila_foreign_key_names_a_column
+        PASS [   0.084s] (472/550) panproto-protocols::every_repository_fixture_parses properties_of_a_type_list_belong_to_its_object_variant
+        PASS [   0.070s] (473/550) panproto-protocols::every_repository_fixture_parses the_github_workflow_runner_list_is_an_array
+        PASS [   0.086s] (474/550) panproto-protocols::every_repository_fixture_parses the_github_workflow_schema_parses
+        PASS [   0.049s] (475/550) panproto-protocols::every_repository_fixture_parses the_package_json_schema_parses
+        PASS [   0.050s] (476/550) panproto-protocols::every_repository_fixture_parses the_postgres_sakila_schema_parses
+        PASS [   0.042s] (477/550) panproto-protocols::every_repository_fixture_parses the_protobuf_descriptor_parses
+        PASS [   0.049s] (478/550) panproto-protocols::every_repository_fixture_parses the_sakila_film_keeps_its_rating_enum_and_feature_array
+        PASS [   0.035s] (479/550) panproto-protocols::every_repository_fixture_parses the_sqlite_sakila_schema_parses
+        PASS [   0.033s] (480/550) panproto-protocols::public_parses_are_bounded a_bundle_charges_every_document_against_one_allowance
+        PASS [   0.040s] (481/550) panproto-protocols::public_parses_are_bounded a_bundle_of_too_many_documents_is_refused_by_its_shape
+        PASS [   0.067s] (482/550) panproto-protocols::every_repository_fixture_parses the_tsconfig_schema_parses
+        PASS [   0.042s] (483/550) panproto-protocols::public_parses_are_bounded an_ordinary_bundle_passes_the_default_budget
+        PASS [   0.034s] (484/550) panproto-protocols::public_parses_are_bounded an_unbounded_budget_admits_what_the_default_would_refuse
+        PASS [   0.040s] (485/550) panproto-protocols::public_parses_are_bounded an_oversized_document_is_refused_and_the_error_names_the_resource
+        PASS [   0.036s] (486/550) panproto-protocols::public_parses_are_bounded oversized_source_text_is_refused
+        PASS [   0.034s] (487/550) panproto-protocols::public_parses_are_bounded separate_parses_sharing_a_budget_share_its_allowance
+        PASS [   0.037s] (488/550) panproto-protocols::registration_equivalence a_built_in_protocol_whose_recipe_is_not_recorded_panics
+        PASS [   0.038s] (489/550) panproto-protocols::registration_equivalence a_group_helper_keeps_a_building_block_already_in_the_registry
+        PASS [   0.042s] (490/550) panproto-protocols::registration_equivalence a_protocol_that_is_not_built_in_keeps_its_recipes
+        PASS [   0.037s] (491/550) panproto-protocols::registration_equivalence atproto_registration_replaces_a_building_block_already_in_the_registry
+        PASS [   0.127s] (492/550) panproto-protocols::registration_equivalence every_registered_protocol_records_a_diagram_step
+        PASS [   0.281s] (493/550) panproto-protocols::registration_equivalence every_registered_theory_has_its_composition
+        PASS [   0.507s] (494/550) panproto-protocols::registration_equivalence a_protocol_carries_its_recipes_without_earlier_registration
+        PASS [   0.199s] (495/550) panproto-protocols::registration_equivalence recompose_of_every_registration_spec_reproduces_its_theory
+        PASS [   0.034s] (496/550) panproto-protocols::registration_equivalence registration_carries_directed_equations_and_policies_with_provenance
+        PASS [   0.052s] (497/550) panproto-protocols::registration_equivalence registration_does_not_depend_on_the_order_of_its_diagram
+        PASS [   0.244s] (498/550) panproto-protocols::registration_equivalence registration_equivalence
+        PASS [   0.032s] (499/550) panproto-protocols::registration_equivalence registration_merges_alpha_equivalent_equations_and_keeps_both_provenances
+        PASS [   0.093s] (500/550) panproto-protocols::registration_equivalence registration_provenance_is_total_for_every_source_element
+        PASS [   0.492s] (501/550) panproto-protocols::registration_equivalence the_raw_file_protocol_carries_its_recipes_in_a_fresh_process
+        PASS [   0.623s] (502/550) panproto-protocols::registration_equivalence theory_composition_fixtures_match_the_generator
+        PASS [   0.104s] (503/550) panproto-protocols::registration_equivalence theory_composition_fixtures_recompose_to_their_bytes_and_digests
+        PASS [   0.296s] (504/550) panproto-protocols::tables_classify_through_registered_protocols a_json_array_root_of_objects_is_two_tables
+        PASS [   0.124s] (505/550) panproto-protocols::tables_classify_through_registered_protocols an_sql_array_column_is_an_attribute
+        PASS [   0.154s] (506/550) panproto-protocols::tables_classify_through_registered_protocols asn1_choice_alternatives_are_tables
+        PASS [   0.171s] (507/550) panproto-protocols::tables_classify_through_registered_protocols asn1_enumerated_and_octet_string_are_attributes
+        PASS [   0.170s] (508/550) panproto-protocols::tables_classify_through_registered_protocols asn1_sequence_and_set_records_are_tables
+        PASS [   0.101s] (509/550) panproto-protocols::tables_classify_through_registered_protocols conllu_tags_are_attributes_of_the_word_table
+        PASS [   0.146s] (510/550) panproto-protocols::tables_classify_through_registered_protocols each_table_protocol_sample_builds_a_rel_schema
+        PASS [   0.146s] (511/550) panproto-protocols::the_registry_is_the_only_protocol_table a_protocol_without_schema_documents_is_refused_by_both_dispatches
+        PASS [   0.071s] (512/550) panproto-protocols::the_registry_is_the_only_protocol_table aliases_are_unique_and_do_not_shadow_a_canonical_name
+        PASS [   0.053s] (513/550) panproto-protocols::the_registry_is_the_only_protocol_table an_underscore_spelling_resolves_to_the_hyphenated_descriptor
+        PASS [   0.328s] (514/550) panproto-protocols::the_registry_is_the_only_protocol_table an_unregistered_protocol_is_refused_by_both_dispatches
+        PASS [   3.891s] (515/550) panproto-protocols::registration_equivalence every_theory_registration_inserts_has_its_composition
+        PASS [   0.344s] (516/550) panproto-protocols::the_registry_is_the_only_protocol_table canonical_names_are_unique
+        PASS [   0.273s] (517/550) panproto-protocols::the_registry_is_the_only_protocol_table every_alias_resolves
+        PASS [   0.198s] (518/550) panproto-protocols::the_registry_is_the_only_protocol_table every_bundle_parser_is_also_a_document_parser
+        PASS [   0.060s] (519/550) panproto-protocols::the_registry_is_the_only_protocol_table every_listed_name_resolves_to_its_own_descriptor
+        PASS [   0.067s] (520/550) panproto-protocols::the_registry_is_the_only_protocol_table the_bundle_listings_are_exactly_the_bundle_parsers
+        PASS [   0.074s] (521/550) panproto-protocols::the_registry_is_the_only_protocol_table the_document_listing_is_exactly_the_document_parsers
+        PASS [   0.091s] (522/550) panproto-protocols::the_registry_is_the_only_protocol_table the_source_listing_is_exactly_the_source_parsers
+        PASS [   0.331s] (523/550) panproto-protocols::the_registry_is_the_only_protocol_table every_listed_protocol_is_reachable_through_its_dispatch
+        PASS [   0.084s] (524/550) panproto-protocols::the_registry_is_the_only_protocol_table using_the_wrong_dispatch_says_which_one_to_use
+        PASS [   0.051s] (525/550) panproto-protocols::validation_fixtures a_failing_check_leaves_no_scratch_directory
+        PASS [   1.463s] (526/550) panproto-protocols::validation_fixtures a_kept_arc_moved_under_its_parent_lowers_to_a_fresh_edge
+        PASS [   1.479s] (527/550) panproto-protocols::validation_fixtures a_source_map_reaches_the_diagnostics
+        PASS [   0.144s] (528/550) panproto-protocols::validation_fixtures construction_refuses_dangling_endpoints
+        PASS [   1.615s] (529/550) panproto-protocols::validation_fixtures boundary_fixtures_replay_restrict_and_extend_for_every_shape
+        PASS [   1.517s] (530/550) panproto-protocols::validation_fixtures cycle_edits_retain_complete_whole_instance_results
+        PASS [   1.347s] (531/550) panproto-protocols::validation_fixtures each_fixture_shows_what_it_is_named_for
+        PASS [   1.548s] (532/550) panproto-protocols::validation_fixtures edit_traces_replay_to_their_outcomes
+        PASS [   1.150s] (533/550) panproto-protocols::validation_fixtures endpoint_and_cycle_breaking_directions_store_incremental_results
+        PASS [   1.001s] (534/550) panproto-protocols::validation_fixtures endpoint_ordering_and_cycle_repairs_have_replayable_incremental_witnesses
+        PASS [  11.789s] (535/550) panproto-protocols::registration_equivalence cross_process::compose_bytes_are_identical_across_processes
+        PASS [   1.704s] (536/550) panproto-protocols::validation_fixtures every_fixture_stores_an_edit_trace_of_its_shape
+        PASS [   1.946s] (537/550) panproto-protocols::validation_fixtures every_case_is_written_in_every_shape_that_can_express_it
+        PASS [   1.339s] (538/550) panproto-protocols::validation_fixtures every_graph_case_and_only_a_graph_case_has_a_node_link_form
+        PASS [   1.030s] (539/550) panproto-protocols::validation_fixtures fixture_payloads_name_what_they_check
+        PASS [   0.037s] (540/550) panproto-protocols::validation_fixtures rejected_instances_are_refused_by_decoding
+        PASS [   1.112s] (541/550) panproto-protocols::validation_fixtures incompleteness_fixtures_are_never_passed
+        PASS [   1.121s] (542/550) panproto-protocols::validation_fixtures ordering_witnesses_retain_the_complete_position_run
+        PASS [   1.183s] (543/550) panproto-protocols::validation_fixtures the_coherent_endpoint_cases_check_their_one_edge
+        PASS [   1.132s] (544/550) panproto-protocols::validation_fixtures the_probe_fails_with_five_diagnostics_naming_ids_and_declarations
+        PASS [   1.134s] (545/550) panproto-protocols::validation_fixtures train_benchmark_sequences_retain_multiplicity_and_replay_witnesses
+        PASS [   0.762s] (546/550) panproto-protocols::validation_fixtures tree_arcs_closing_a_cycle_off_the_root_leave_each_cycle_node_unreachable
+        PASS [   0.047s] (547/550) panproto-protocols::validation_sources_fit_the_formatter_width validation_sources_fit_the_formatter_width
+        PASS [   1.021s] (548/550) panproto-protocols::validation_fixtures validation_fixtures_revalidate_to_their_reports_and_witnesses
+        PASS [   1.711s] (549/550) panproto-protocols::validation_fixtures validation_fixtures_match_the_generator
+        PASS [  43.696s] (550/550) panproto-protocols::endpoint_coherence_is_the_graph_instance_theory v10_endpoint_coherence_agrees_with_the_graph_instance_theory
+────────────
+     Summary [  48.095s] 550 tests run: 550 passed, 0 skipped

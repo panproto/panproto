@@ -1,0 +1,6 @@
+$ cabal v2-update 'hackage.haskell.org,2025-12-15T03:18:40Z'  (restores the index-state this host had before C1)
+Downloading the latest package list from hackage.haskell.org
+Package list of hackage.haskell.org is up to date.
+The index-state is set to 2025-12-15T03:18:40Z.
+To revert to previous state run:
+    cabal v2-update 'hackage.haskell.org,2026-10-14T14:33:44Z'

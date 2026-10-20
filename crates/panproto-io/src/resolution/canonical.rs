@@ -19,7 +19,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use panproto_inst::resolution_complement::ResolutionComplement;
 use panproto_inst::wtype_check::is_reserved_edge_kind;
 use panproto_inst::{
-    AnyInstance, EdgeId, GInstance, Node, NodeShape, SynthIndex, ViewRef, WInstance,
+    AnyInstance, EdgeId, GInstance, IdAllocator, IdRange, Node, NodeShape, SynthIndex, ViewRef,
+    WInstance,
 };
 use panproto_schema::{Edge, ResolveMode};
 
@@ -333,19 +334,9 @@ impl Resolution {
             kept_fans,
             holder_edges,
         } = self.plan_tree(graph, discovered, tree_arcs, fan_nodes)?;
-        let mut next_id = discovered
-            .iter()
-            .max()
-            .and_then(|max| max.checked_add(1))
-            .ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::segment::IdKind::Node,
-            })?;
+        let holder_ids = holder_ids_above(discovered, holder_edges.len())?;
         let mut holders = Vec::new();
-        for (parent, key) in holder_edges {
-            let id = next_id;
-            next_id = next_id.checked_add(1).ok_or(ResolveError::IdExhausted {
-                kind: panproto_inst::segment::IdKind::Node,
-            })?;
+        for ((parent, key), id) in holder_edges.into_iter().zip(holder_ids) {
             holders.push((key.2, id, key.1));
             children
                 .entry(parent)
@@ -572,5 +563,76 @@ impl Resolution {
                     reference: writer.reference.id.clone(),
                 })
             })
+    }
+}
+
+/// The node ids of `count` redirect holders, upward from one above every
+/// discovered node; the id `u32::MAX` is never handed out, so a graph
+/// holding it needs no holder id to read back.
+fn holder_ids_above(discovered: &BTreeSet<u32>, count: usize) -> Result<Vec<u32>, ResolveError> {
+    let mut ids = IdAllocator::from_source(IdRange::FULL, discovered.iter().copied());
+    (0..count)
+        .map(|_| {
+            ids.allocate().map_err(|_| ResolveError::IdExhausted {
+                kind: panproto_inst::segment::IdKind::Node,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use panproto_inst::segment::IdKind;
+
+    use super::holder_ids_above;
+    use crate::resolution::error::ResolveError;
+
+    const TOP: u32 = u32::MAX;
+
+    fn exhausted<T>(result: &Result<T, ResolveError>) -> bool {
+        matches!(
+            result,
+            Err(ResolveError::IdExhausted { kind: IdKind::Node })
+        )
+    }
+
+    #[test]
+    fn holder_ids_withhold_the_top_id() {
+        let below = BTreeSet::from([0, TOP - 2]);
+        assert_eq!(holder_ids_above(&below, 1).ok(), Some(vec![TOP - 1]));
+        assert!(exhausted(&holder_ids_above(&below, 2)));
+        assert!(exhausted(&holder_ids_above(
+            &BTreeSet::from([0, TOP - 1]),
+            1
+        )));
+    }
+
+    /// At every floor in the last four ids (the largest discovered node
+    /// one below it), `count` holders take the ids from the floor up when
+    /// they all lie below `u32::MAX`.
+    #[test]
+    fn holder_ids_are_exhaustive_at_the_top() {
+        for floor in (TOP - 3)..=TOP {
+            let discovered = BTreeSet::from([0, floor - 1]);
+            for count in 0..=4_u32 {
+                let ids = holder_ids_above(&discovered, usize::try_from(count).unwrap_or(0));
+                if count <= TOP - floor {
+                    assert_eq!(ids.ok(), Some((floor..floor + count).collect()));
+                } else {
+                    assert!(exhausted(&ids), "{count} holders at floor {floor}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_graph_holding_the_top_id_needs_no_holder_id() {
+        // The source records the floor `u32::MAX`; only an allocation fails.
+        let top = BTreeSet::from([0, TOP]);
+        assert_eq!(holder_ids_above(&top, 0).ok(), Some(Vec::new()));
+        assert!(exhausted(&holder_ids_above(&top, 1)));
+        assert_eq!(holder_ids_above(&BTreeSet::new(), 0).ok(), Some(Vec::new()));
     }
 }

@@ -1,0 +1,1 @@
+$ swift format lint -r --strict Sources Tests Examples Scripts Package.swift

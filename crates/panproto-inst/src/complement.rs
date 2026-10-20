@@ -361,16 +361,19 @@ fn chain_of(key: &SynthKey) -> (SynthKey, u16) {
 /// next node id above them, so this is the embedding's `next_node` and the
 /// graph's own floor.
 ///
+/// The floor saturates at `u32::MAX`: a tree holding the node id
+/// `u32::MAX` records the floor `u32::MAX`.
+///
 /// # Errors
 ///
-/// Returns [`InstError::NodeIdsExhausted`] when the floor does not fit in a
-/// `u32`.
+/// Returns [`InstError::NodeIdsExhausted`] when no node id below `u32::MAX`
+/// is left for some fan.
 pub fn tree_id_floor(tree: &WInstance) -> Result<u32, InstError> {
     let mut nodes = IdAllocator::from_source(IdRange::FULL, tree.nodes.keys().copied());
     for _ in &tree.fans {
         nodes.allocate().map_err(|e| e.whole_state(IdKind::Node))?;
     }
-    nodes.floor().ok_or(InstError::NodeIdsExhausted)
+    Ok(nodes.floor())
 }
 
 /// A node id for a node added to `view`, a view of a source whose
@@ -435,12 +438,7 @@ pub fn fresh_view_node_id(view: &WInstance, complement: &Complement) -> Result<u
     } else {
         allocator.fresh(taken)
     };
-    match result.map_err(|e| e.whole_state(IdKind::Node))? {
-        // The floor after `u32::MAX` cannot be stored, so, as for the
-        // counters of the tree's graph form, that id is never handed out.
-        u32::MAX => Err(InstError::NodeIdsExhausted),
-        id => Ok(id),
-    }
+    result.map_err(|e| e.whole_state(IdKind::Node))
 }
 
 impl IdentityCarrier for Complement {

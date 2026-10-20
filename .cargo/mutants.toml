@@ -1,0 +1,30 @@
+# cargo-mutants configuration for the workspace.
+#
+# Every run is scoped with `-p <crate>` and `--file <law-bearing file>`. A
+# mutant proven equivalent on a correctness page of the book gains one anchored
+# `exclude_re` entry below, appended with a comment naming the page anchor.
+
+test_tool = "nextest"
+timeout_multiplier = 3.0
+build_timeout_multiplier = 3.0
+minimum_test_timeout = 120
+
+exclude_globs = [
+    "crates/panproto-grammars*/**",
+    "crates/*/build.rs",
+    "crates/panproto-gat-macros/**",
+    "crates/book-doctest-stub/**",
+    "xtask/**",
+    "crates/*/tests/**",
+    "crates/*/benches/**",
+    "tests/**",
+    "fuzz/**",
+    "crates/panproto-py/**",
+    "crates/panproto-c/**",
+    "crates/panproto-wasm/**",
+    "crates/panproto-cli/**",
+]
+
+exclude_re = [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for ",
+]

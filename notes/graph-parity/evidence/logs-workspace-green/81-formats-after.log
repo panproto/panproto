@@ -1,0 +1,156 @@
+# after: 37625289f2db7e8560082a5adbdaf647dda95a95, 2026-10-14T14:14:06Z
+   Compiling panproto-schema v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-schema)
+   Compiling panproto-inst v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-inst)
+   Compiling panproto-mig v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-mig)
+   Compiling panproto-protocols v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-protocols)
+   Compiling panproto-lens v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens)
+   Compiling panproto-check v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-check)
+   Compiling panproto-lens-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-lens-dsl)
+   Compiling panproto-theory-dsl v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-theory-dsl)
+   Compiling panproto-vcs v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-vcs)
+   Compiling panproto-io v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-io)
+   Compiling panproto-core v0.74.4 (/Users/awhite48/Projects/phrom/.claude/worktrees/lane-workspace-green/crates/panproto-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.26s
+────────────
+ Nextest run ID e9ce0453-b8d5-4b88-aa3c-13bb8971e406 with nextest profile: default
+    Starting 138 tests across 3 binaries
+        PASS [   0.024s] (  1/138) panproto-inst::lexicon_formats a_format_reads_the_whole_lexeme
+        PASS [   0.025s] (  2/138) panproto-core::atproto_records_validate every_committed_post_carries_langs
+        PASS [   0.025s] (  3/138) panproto-core::atproto_records_validate a_post_with_a_malformed_language_tag_fails_and_is_refused
+        PASS [   0.017s] (  4/138) panproto-inst::lexicon_formats at_identifier_examples_of_the_lexicon_and_did_specifications
+        PASS [   0.020s] (  5/138) panproto-inst::lexicon_formats at_uri_examples_of_the_at_uri_specification
+        PASS [   0.022s] (  6/138) panproto-inst::lexicon_formats at_identifier_interop_vectors
+        PASS [   0.058s] (  7/138) panproto-core::atproto_records_validate real_posts_with_langs_validate_and_lift
+        PASS [   0.015s] (  8/138) panproto-inst::lexicon_formats at_uri_limits
+        PASS [   0.016s] (  9/138) panproto-inst::lexicon_formats cid_dasl_steps
+        PASS [   0.027s] ( 10/138) panproto-inst::lexicon_formats at_uri_interop_vectors
+        PASS [   0.016s] ( 11/138) panproto-inst::lexicon_formats cid_examples_of_the_data_model_and_dasl_specifications
+        PASS [   0.020s] ( 12/138) panproto-inst::lexicon_formats cid_interop_vectors
+        PASS [   0.021s] ( 13/138) panproto-inst::lexicon_formats cid_structure
+        PASS [   0.019s] ( 14/138) panproto-inst::lexicon_formats handle_examples_of_the_handle_specification
+        PASS [   0.017s] ( 15/138) panproto-inst::lexicon_formats handle_limits
+        PASS [   0.031s] ( 16/138) panproto-inst::lexicon_formats handle_interop_vectors
+        PASS [   0.025s] ( 17/138) panproto-inst::lexicon_formats language_examples_of_the_lexicon_specification_and_rfc_5646
+        PASS [   0.023s] ( 18/138) panproto-inst::lexicon_formats language_interop_vectors
+        PASS [   0.018s] ( 19/138) panproto-inst::lexicon_formats language_limits
+        PASS [   0.015s] ( 20/138) panproto-inst::lexicon_formats language_tags_that_are_well_formed_but_not_valid_pass
+        PASS [   0.017s] ( 21/138) panproto-inst::lexicon_formats nsid_examples_of_the_nsid_specification
+        PASS [   0.026s] ( 22/138) panproto-inst::lexicon_formats nsid_interop_vectors
+        PASS [   0.022s] ( 23/138) panproto-inst::lexicon_formats nsid_limits
+        PASS [   0.025s] ( 24/138) panproto-inst::lexicon_formats record_key_examples_of_the_record_key_specification
+        PASS [   0.026s] ( 25/138) panproto-inst::lexicon_formats record_key_interop_vectors
+        PASS [   0.017s] ( 26/138) panproto-inst::lexicon_formats record_key_limits
+        PASS [   0.021s] ( 27/138) panproto-inst::lexicon_formats the_lexicon_formats_are_listed_by_their_lexicon_names
+        PASS [   0.023s] ( 28/138) panproto-inst::lexicon_formats tid_examples_of_the_tid_specification
+        PASS [   0.022s] ( 29/138) panproto-inst::lexicon_formats tid_interop_vectors
+        PASS [   0.032s] ( 30/138) panproto-inst::validation a_budget_cuts_a_suffix_in_check_instance_order
+        PASS [   0.030s] ( 31/138) panproto-inst::validation a_cached_plan_validates_like_the_schema_taking_call
+        PASS [   0.030s] ( 32/138) panproto-inst::validation a_fan_of_an_undeclared_hyper_edge_is_one_malformed_fan_in_every_shape
+        PASS [   0.029s] ( 33/138) panproto-inst::validation a_foreign_edge_at_a_fan_node_is_a_non_fan_edge_in_either_direction
+        PASS [   0.023s] ( 34/138) panproto-inst::validation a_format_family_does_not_change_validation
+        PASS [   0.028s] ( 35/138) panproto-inst::validation a_key_scoped_within_an_ancestor_is_unique_per_ancestor
+        PASS [   0.026s] ( 36/138) panproto-inst::validation a_label_less_fan_of_an_undeclared_hyper_edge_leaves_the_fan_domain
+        PASS [   0.028s] ( 37/138) panproto-inst::validation a_pair_outside_its_edges_tables_is_rejected_by_construction
+        PASS [   0.027s] ( 38/138) panproto-inst::validation a_pattern_with_lookahead_is_ill_formed
+        PASS [   0.027s] ( 39/138) panproto-inst::validation a_plan_has_one_check_key_per_compiled_check
+        PASS [   0.027s] ( 40/138) panproto-inst::validation a_reference_compiles_to_reference_resolves_when_the_shapes_agree
+        PASS [   0.026s] ( 41/138) panproto-inst::validation a_required_edge_is_met_only_by_an_edge_to_its_target
+        PASS [   0.025s] ( 42/138) panproto-inst::validation a_schema_problem_is_incomplete_never_failed
+        PASS [   0.027s] ( 43/138) panproto-inst::validation a_sibling_variant_is_not_an_endpoint_of_its_siblings_edge
+        PASS [   0.032s] ( 44/138) panproto-inst::validation a_source_map_does_not_change_the_schema_digest
+        PASS [   0.030s] ( 45/138) panproto-inst::validation a_sql_table_signature_must_equal_its_columns
+        PASS [   0.030s] ( 46/138) panproto-inst::validation a_tree_fan_of_an_undeclared_hyper_edge_is_malformed
+        PASS [   0.028s] ( 47/138) panproto-inst::validation a_tree_fan_of_an_undeclared_hyper_edge_with_no_labels_is_a_malformed_fan
+        PASS [   0.022s] ( 48/138) panproto-inst::validation a_tree_fan_with_an_absent_child_is_missing_child
+        PASS [   0.024s] ( 49/138) panproto-inst::validation a_tree_node_of_the_fan_shape_anchored_at_a_declared_vertex_has_a_known_anchor
+        PASS [   0.025s] ( 50/138) panproto-inst::validation a_tree_node_of_the_fan_shape_anchored_at_a_hyper_edge_has_an_unknown_anchor
+        PASS [   0.025s] ( 51/138) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_attributes
+        PASS [   0.026s] ( 52/138) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_out_degree
+        PASS [   0.027s] ( 53/138) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_required_edges
+        PASS [   0.027s] ( 54/138) panproto-inst::validation a_tree_node_of_the_fan_shape_is_checked_for_its_value
+        PASS [   0.027s] ( 55/138) panproto-inst::validation a_valid_tree_passes
+        PASS [   0.026s] ( 56/138) panproto-inst::validation acyclic_rejects_two_cycles_long_cycles_and_self_loops
+        PASS [   0.025s] ( 57/138) panproto-inst::validation advisory_entries_are_listed_and_never_change_the_status
+        PASS [   0.026s] ( 58/138) panproto-inst::validation an_incomplete_check_without_subject_covers_every_instance
+        PASS [   0.032s] ( 59/138) panproto-inst::validation an_undeclared_edge_label_is_reported_by_validate_graph
+        PASS [   0.028s] ( 60/138) panproto-inst::validation an_unknown_anchor_suppresses_value_checks_but_not_edge_checks
+        PASS [   0.030s] ( 61/138) panproto-inst::validation an_unknown_fan_label_needs_a_schema
+        PASS [   0.031s] ( 62/138) panproto-inst::validation an_unlisted_format_is_unsupported
+        PASS [   0.027s] ( 63/138) panproto-inst::validation an_unregistered_sort_is_unsupported
+        PASS [   0.031s] ( 64/138) panproto-inst::validation an_untyped_element_is_an_unknown_anchor
+        PASS [   0.032s] ( 65/138) panproto-inst::validation anchor_families_satisfy_edge_endpoints_in_trees
+        PASS [   0.029s] ( 66/138) panproto-inst::validation annotation_and_value_parameter_compile_to_no_check
+        PASS [   0.028s] ( 67/138) panproto-inst::validation attribute_validation_agrees_on_a_tree_and_its_graph
+        PASS [   0.029s] ( 68/138) panproto-inst::validation bounds_compare_exact_values_exactly
+        PASS [   0.026s] ( 69/138) panproto-inst::validation check_class_serde_names_are_the_contract_names
+        PASS [   0.026s] ( 70/138) panproto-inst::validation check_kind_class_is_the_contract_table
+        PASS [   0.026s] ( 71/138) panproto-inst::validation check_kind_order_is_the_contract_order
+        PASS [   0.026s] ( 72/138) panproto-inst::validation check_kinds_compile_only_for_their_shapes
+        PASS [   0.026s] ( 73/138) panproto-inst::validation check_spec_locality_is_the_contract_table
+        PASS [   0.025s] ( 74/138) panproto-inst::validation dangling_endpoints_are_rejected_by_construction_and_decode
+        PASS [   0.024s] ( 75/138) panproto-inst::validation declaration_interpretable_reports_each_listed_defect
+        PASS [   0.025s] ( 76/138) panproto-inst::validation decoding_a_report_with_a_wrong_status_is_rejected
+        PASS [   0.019s] ( 77/138) panproto-inst::validation decoding_a_report_with_unordered_entries_is_rejected
+        PASS [   0.020s] ( 78/138) panproto-inst::validation decoding_a_report_with_unordered_incomplete_checks_is_rejected
+        PASS [   0.018s] ( 79/138) panproto-inst::validation default_validation_budget_is_unlimited
+        PASS [   0.017s] ( 80/138) panproto-inst::validation default_validation_options_are_empty
+        PASS [   0.017s] ( 81/138) panproto-inst::validation degree_bounds_count_non_fan_out_edges_and_fk_pairs
+        PASS [   0.019s] ( 82/138) panproto-inst::validation duplicate_positions_are_reported_and_none_is_allowed
+        PASS [   0.017s] ( 83/138) panproto-inst::validation enum_and_const_members_compare_by_kind
+        PASS [   0.015s] ( 84/138) panproto-inst::validation equal_tree_fans_give_one_diagnostic_per_reason
+        PASS [   0.015s] ( 85/138) panproto-inst::validation error_detail_validation_round_trips
+        PASS [   0.126s] ( 86/138) panproto-inst::validation coverage_counts_sum_to_instances
+        PASS [   0.015s] ( 87/138) panproto-inst::validation evaluation_and_budget_follow_check_instance_order
+        PASS [   0.015s] ( 88/138) panproto-inst::validation every_public_validator_returns_a_validation_report
+        PASS [   0.017s] ( 89/138) panproto-inst::validation every_tree_fan_reason_reaches_the_report
+        PASS [   0.016s] ( 90/138) panproto-inst::validation every_violation_renders_a_nonempty_message
+        PASS [   0.017s] ( 91/138) panproto-inst::validation external_verdicts_missing_and_rejected
+        PASS [   0.117s] ( 92/138) panproto-inst::validation diagnostic_elements_are_ascending_and_cover_the_violation
+        PASS [   0.022s] ( 93/138) panproto-inst::validation fan_edges_are_checked_against_hyper_edges_not_schema_edges
+        PASS [   0.016s] ( 94/138) panproto-inst::validation fan_record_order_is_the_canonical_fan_record_order
+        PASS [   0.018s] ( 95/138) panproto-inst::validation graph_fans_are_checked_by_fan_well_formed_only
+        PASS [   0.018s] ( 96/138) panproto-inst::validation incomplete_reason_round_trips_every_variant
+        PASS [   0.017s] ( 97/138) panproto-inst::validation keys_compile_to_key_unique_and_primary_parts_to_required_value
+        PASS [   0.019s] ( 98/138) panproto-inst::validation legacy_invariants_map_to_typed_violations
+        PASS [   0.016s] ( 99/138) panproto-inst::validation length_units_count_chars_bytes_and_graphemes
+        PASS [   0.014s] (100/138) panproto-inst::validation malformed_fan_bytes_and_messages_name_the_fan
+        PASS [   0.097s] (101/138) panproto-inst::validation fan_domain_reports_the_first_fan_violation_the_validator_reports
+        PASS [   0.016s] (102/138) panproto-inst::validation max_length_abc_is_ill_formed
+        PASS [   0.019s] (103/138) panproto-inst::validation non_string_keyed_maps_round_trip_in_four_encodings
+        PASS [   0.018s] (104/138) panproto-inst::validation parallel_edges_and_self_loops_count_toward_degree_and_keys
+        PASS [   0.020s] (105/138) panproto-inst::validation plan_digest_changes_with_schema_semantics_or_options
+        PASS [   0.019s] (106/138) panproto-inst::validation plan_digest_covers_every_protocol_field_compilation_reads
+        PASS [   0.019s] (107/138) panproto-inst::validation plan_digest_keeps_edge_rule_kind_order_and_repeats
+        PASS [   0.018s] (108/138) panproto-inst::validation plans_for_different_schemas_have_different_digests
+        PASS [   0.019s] (109/138) panproto-inst::validation references_compile_to_reference_resolves_with_the_declared_requirement
+        PASS [   0.017s] (110/138) panproto-inst::validation report_canonical_bytes_are_pinned
+        PASS [   0.016s] (111/138) panproto-inst::validation report_scope_round_trips_every_variant
+        PASS [   0.016s] (112/138) panproto-inst::validation requirement_defaults_to_required
+        PASS [   0.016s] (113/138) panproto-inst::validation schema_ref_round_trips_every_variant_in_every_encoding
+        PASS [   0.015s] (114/138) panproto-inst::validation schema_well_formed_reports_p4_key_defects
+        PASS [   0.018s] (115/138) panproto-inst::validation semantic_references_compile_to_degree_and_required_edge_checks
+        PASS [   0.021s] (116/138) panproto-inst::validation static_findings_appear_in_every_report_of_the_plan
+        PASS [   0.019s] (117/138) panproto-inst::validation status_is_passed_iff_no_required_failure_or_incomplete
+        PASS [   0.017s] (118/138) panproto-inst::validation tables_report_unknown_tables_and_undeclared_fk_edges
+        PASS [   0.016s] (119/138) panproto-inst::validation the_listed_formats_are_public_and_each_is_evaluated
+        PASS [   0.017s] (120/138) panproto-inst::validation the_probe_instance_fails_with_five_diagnostics
+        PASS [   0.014s] (121/138) panproto-inst::validation tree_fan_diagnostics_at_an_absent_parent_name_the_fan
+        PASS [   0.015s] (122/138) panproto-inst::validation tree_fan_diagnostics_name_children_the_tree_does_not_hold
+        PASS [   0.014s] (123/138) panproto-inst::validation tree_fan_diagnostics_name_the_fan_they_concern
+        PASS [   0.015s] (124/138) panproto-inst::validation tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_hyper_edge
+        PASS [   0.015s] (125/138) panproto-inst::validation tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_label_assignment
+        PASS [   0.147s] (126/138) panproto-inst::validation report_entries_are_sorted
+        PASS [   0.015s] (127/138) panproto-inst::validation tree_validation_reports_each_tree_kind
+        PASS [   0.018s] (128/138) panproto-inst::validation trigger_table_is_the_rustdoc_table_restricted_to_compiled_kinds
+        PASS [   0.022s] (129/138) panproto-inst::validation v1_status_soundness_over_random_verdict_sets
+        PASS [   0.016s] (130/138) panproto-inst::validation validate_attributes_is_the_tree_attribute_projection
+        PASS [   0.016s] (131/138) panproto-inst::validation validate_graph_reports_every_fan_violation
+        PASS [   0.014s] (132/138) panproto-inst::validation validate_wtype_reports_reserved_vocabulary
+        PASS [   0.015s] (133/138) panproto-inst::validation validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses
+        PASS [   0.016s] (134/138) panproto-inst::validation value_constraints_apply_to_node_values_and_table_cells
+        PASS [   0.016s] (135/138) panproto-inst::validation violation_serde_tags_are_the_contract_tags_in_order
+        PASS [   0.014s] (136/138) panproto-inst::validation whole_instance_checks_have_no_subject
+        PASS [   0.141s] (137/138) panproto-inst::validation v7_finite_budget_never_passes_where_unlimited_does_not
+        PASS [   0.535s] (138/138) panproto-inst::validation equal_plan_digests_give_equal_reports
+────────────
+     Summary [   1.079s] 138 tests run: 138 passed, 0 skipped

@@ -1,0 +1,4 @@
+# CI run on b31c8862dea3652aef0d8c0190540d5f059861ad, started 2026-10-14T15:23:55Z
+# env: CARGO_TARGET_DIR=/Users/awhite48/Projects/phrom/target-lanes/workspace-green CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_INCREMENTAL=0 RUSTFLAGS='-D warnings'
+91-fmt exit=0 secs=5 disk=43Gi System-wide memory free percentage: 68%
+mem free 68% swap used 0.00M disk 43Gi

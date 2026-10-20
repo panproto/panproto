@@ -164,6 +164,7 @@ const TABLE_PROTOCOLS: &[&str] = &[
     "asn1",
     "cassandra",
     "conllu",
+    "csv",
     "dataframe",
     "dynamodb",
     "edi-x12",

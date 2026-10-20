@@ -18,6 +18,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::complement::Complement;
 use crate::identity::IdentityCarrier;
 use crate::metadata::Node;
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
     CompiledMigration, TransformContext, WInstance, apply_field_transforms,
@@ -473,7 +474,10 @@ pub fn fiber_at_node(
 /// # Errors
 ///
 /// Returns [`InstError::NodeNotFound`](crate::error::InstError::NodeNotFound)
-/// if an enrichment references a base node ID that does not exist.
+/// if an enrichment references a base node ID that does not exist, and
+/// [`InstError::NodeIdsExhausted`](crate::error::InstError::NodeIdsExhausted)
+/// when no node id below `u32::MAX` above every base node is left for an
+/// enrichment node.
 pub fn section(
     base: &WInstance,
     projection: &CompiledMigration,
@@ -488,7 +492,7 @@ pub fn section(
 
     // Step 1: copy base nodes, remapping anchors back to source schema
     let mut nodes: HashMap<u32, Node> = HashMap::new();
-    let mut next_id: u32 = base.nodes.keys().max().copied().unwrap_or(0) + 1;
+    let mut fresh = IdAllocator::from_source(IdRange::FULL, base.nodes.keys().copied());
 
     for (&id, node) in &base.nodes {
         let mut new_node = node.clone();
@@ -524,8 +528,7 @@ pub fn section(
             ));
         }
 
-        let enrichment_id = next_id;
-        next_id += 1;
+        let enrichment_id = fresh.allocate().map_err(|e| e.whole_state(IdKind::Node))?;
 
         let mut new_node = Node::new(enrichment_id, enrichment.anchor.clone());
         if let Some(value) = enrichment.value {
