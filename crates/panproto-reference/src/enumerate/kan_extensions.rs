@@ -3498,8 +3498,8 @@ mod tests {
         node
     }
 
-    fn present(value: Value) -> Option<Presence> {
-        Some(Presence::Present(value))
+    const fn present(value: Value) -> Presence {
+        Presence::Present(value)
     }
 
     fn gedge(src: u32, tgt: u32, label: SEdge, position: Option<u32>) -> GEdge {
@@ -3886,7 +3886,7 @@ mod tests {
     #[test]
     fn spec_graphs_lay_out_ids_in_the_documented_order() {
         let f = prop_edge("a", "b", "f");
-        let plain = |id, anchor| node(id, anchor, None);
+        let plain = |id: u32, anchor: &str| node(id, anchor, None);
         let expected = vec![
             graph(vec![], vec![]),
             graph(vec![plain(0, "b")], vec![]),
@@ -3907,7 +3907,7 @@ mod tests {
             graph(
                 vec![
                     plain(owner, table),
-                    node(1, &format!("{table}.x"), present(Value::Int(value))),
+                    node(1, &format!("{table}.x"), Some(present(Value::Int(value)))),
                 ],
                 vec![(0, gedge(0, 1, GraphSpec::column_edge(table, "x"), None))],
             )
@@ -3946,8 +3946,8 @@ mod tests {
                 node(0, "a", None),
                 node(1, "b", None),
                 node(2, "a.x", None),
-                node(3, "a.x.item", present(Value::Int(0))),
-                node(4, "a.x.item", present(Value::Int(1))),
+                node(3, "a.x.item", Some(present(Value::Int(0)))),
+                node(4, "a.x.item", Some(present(Value::Int(1)))),
             ],
             vec![
                 (0, gedge(0, 2, GraphSpec::column_edge("a", "x"), None)),
@@ -3964,13 +3964,16 @@ mod tests {
         assert_eq!(record.edges[&1], gedge(2, 3, k, None));
         assert_eq!(
             record.nodes[&3],
-            node(3, "a.x.k", present(Value::Str("s".to_owned())))
+            node(3, "a.x.k", Some(present(Value::Str("s".to_owned()))))
         );
         assert_eq!(record.edges.len(), 2);
         // Missing counts, choices and masks default to zero; a choice wraps
         // around the forms; extra counts are ignored.
         let leaf = graph(
-            vec![node(0, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![
+                node(0, "a", None),
+                node(1, "a.x", Some(present(Value::Int(0)))),
+            ],
             vec![(0, gedge(0, 1, GraphSpec::column_edge("a", "x"), None))],
         );
         assert_eq!(spec_graph(&spec, &[1], &forms, &[], &[]), leaf);
@@ -4054,12 +4057,18 @@ mod tests {
         let all = o7_encoding_presentations(1);
         let column = GraphSpec::column_edge("a", "x");
         let plain = graph(
-            vec![node(0, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![
+                node(0, "a", None),
+                node(1, "a.x", Some(present(Value::Int(0)))),
+            ],
             vec![(0, gedge(0, 1, column.clone(), None))],
         );
         // Spread: node n to 3 (1 - n) + 1, edge e to 5 (0 - e) + 2.
         let spread = graph(
-            vec![node(4, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![
+                node(4, "a", None),
+                node(1, "a.x", Some(present(Value::Int(0)))),
+            ],
             vec![(2, gedge(4, 1, column, None))],
         );
         let decorate = |g: &Graph, edge_position: u32| {
@@ -4306,17 +4315,20 @@ mod tests {
         // Pick 3 wraps the next node round to node 0.
         let back = prop_edge("a.x.k", "a", "nowhere");
         assert_eq!(m(3, 3), with(vec![], vec![(3, gedge(3, 0, back, None))]));
-        let f = prop_edge("a", "b", "f");
-        assert_eq!(m(4, 0), with(vec![], vec![(3, gedge(1, 0, f, None))]));
+        let reversed = prop_edge("a", "b", "f");
+        assert_eq!(
+            m(4, 0),
+            with(vec![], vec![(3, gedge(1, 0, reversed, None))])
+        );
         assert_eq!(m(5, 1), with(vec![], vec![(3, g.edges[&1].clone())]));
-        let five = || vec![node(4, "a.x", present(Value::Int(5)))];
-        let x = prop_edge("a", "a.x", "x");
-        assert_eq!(m(8, 0), with(five(), vec![(3, gedge(0, 4, x, None))]));
+        let five = || vec![node(4, "a.x", Some(present(Value::Int(5))))];
+        let column = prop_edge("a", "a.x", "x");
+        assert_eq!(m(8, 0), with(five(), vec![(3, gedge(0, 4, column, None))]));
         assert_eq!(m(8, 1), g);
         assert_eq!(m(10, 1), with(five(), vec![]));
-        let t = vec![node(4, "a.x.k", present(Value::Str("t".to_owned())))];
-        let k = prop_edge("a.x", "a.x.k", "k");
-        assert_eq!(m(17, 2), with(t, vec![(3, gedge(2, 4, k, None))]));
+        let second = vec![node(4, "a.x.k", Some(present(Value::Str("t".to_owned()))))];
+        let field = prop_edge("a.x", "a.x.k", "k");
+        assert_eq!(m(17, 2), with(second, vec![(3, gedge(2, 4, field, None))]));
         assert_eq!(m(17, 0), g);
         // On the empty graph only the kinds that need no node or edge act.
         let empty = Graph::default();
@@ -4326,7 +4338,7 @@ mod tests {
                 2 => assert_eq!(out, graph(vec![node(0, "outside", None)], vec![])),
                 10 => assert_eq!(
                     out,
-                    graph(vec![node(0, "a.x", present(Value::Int(5)))], vec![])
+                    graph(vec![node(0, "a.x", Some(present(Value::Int(5))))], vec![])
                 ),
                 _ => assert_eq!(out, empty, "kind {kind}"),
             }
@@ -4383,11 +4395,14 @@ mod tests {
         // Node 0 holds no value, so clearing it is a no-op.
         assert_eq!(m(11, 0), g);
         assert_eq!(m(12, 2), set_value(&g, 2, Some(Presence::Absent)));
-        assert_eq!(m(13, 2), set_value(&g, 2, present(Value::Int(0))));
+        assert_eq!(m(13, 2), set_value(&g, 2, Some(present(Value::Int(0)))));
         assert_eq!(m(14, 0), edit_edge(&g, 0, &|e| e.position = Some(7)));
         let nested = Value::List(vec![Value::LabeledNull(3)]);
-        assert_eq!(m(15, 3), set_value(&g, 3, present(nested)));
-        assert_eq!(m(16, 0), set_value(&g, 0, present(Value::LabeledNull(3))));
+        assert_eq!(m(15, 3), set_value(&g, 3, Some(present(nested))));
+        assert_eq!(
+            m(16, 0),
+            set_value(&g, 0, Some(present(Value::LabeledNull(3))))
+        );
         // Every label of the record graph is distinct, so kind 9 has no
         // edge to move onto; the list graph's two item edges do.
         let list = list_graph();
@@ -4499,7 +4514,10 @@ mod tests {
             &[("s0", &["c0", "c1"]), ("s1", &["c0"]), ("s2", &[])],
             &[e.clone(), fk_edge("s2", "s2", "l")],
         );
-        let tgt = table_side(&[("d0", &["c0", "c1"]), ("d1", &["c1"])], &[g.clone()]);
+        let tgt = table_side(
+            &[("d0", &["c0", "c1"]), ("d1", &["c1"])],
+            std::slice::from_ref(&g),
+        );
         let tgt_schema = Schema::default()
             .vertex("d0", "table")
             .vertex("d1", "table")
