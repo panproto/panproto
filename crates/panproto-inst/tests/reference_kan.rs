@@ -1184,6 +1184,41 @@ fn production_read_back(graph: &GInstance, schema: &Schema) -> ReadBack {
     }
 }
 
+/// The variant name of a Debug rendering: its text up to the first space,
+/// brace or parenthesis.
+fn variant_name(debug: &str) -> &str {
+    debug.split([' ', '{', '(']).next().unwrap_or(debug)
+}
+
+/// The input conversion of a decoded graph that is no tree, on both sides:
+/// a root count other than one must be production's root count exactly;
+/// otherwise the label pairs the reference `NotATree` reason with the
+/// production reason, so that the census records the correspondence of the
+/// two vocabularies.
+fn input_refusal_agrees(
+    graph: &model::Graph,
+    production_graph: &GInstance,
+    schema: &Schema,
+) -> String {
+    let roots = graph_roots(graph);
+    let production = production_read_back(production_graph, schema);
+    if let [root] = roots[..] {
+        let reason = encode::graph_to_tree(graph, root, &encode::schema_parent_name(None))
+            .expect_err("a graph the input conversion refuses");
+        let ReadBack::NotATree(ours) = &production else {
+            panic!("reference NotATree({reason:?}), production {production:?}");
+        };
+        format!(
+            "input NotATree({} / {})",
+            variant_name(&format!("{reason:?}")),
+            variant_name(ours)
+        )
+    } else {
+        assert_eq!(production, ReadBack::RootCount(roots.len()), "{graph:?}");
+        format!("input RootCount({})", roots.len())
+    }
+}
+
 /// One tree route of the bounded family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TreeRoute {
@@ -1349,28 +1384,27 @@ fn check_tree_route(
             "Ok".to_owned()
         }
         (Ok(out), Err(encode::TreeKanError::RootCount { count })) => {
-            assert!(
-                !matches!(production_read_back(out, schema), ReadBack::Tree(_)),
-                "{route:?} of {tree:?}: production reads a tree"
-            );
             assert_eq!(
-                graph_roots(&ref_graph(out)).len(),
-                *count,
+                production_read_back(out, schema),
+                ReadBack::RootCount(*count),
                 "{route:?} of {tree:?}"
             );
             format!("RootCount({count})")
         }
         (Ok(out), Err(encode::TreeKanError::NotATree(reason))) => {
-            assert!(
-                !matches!(production_read_back(out, schema), ReadBack::Tree(_)),
-                "{route:?} of {tree:?}: production reads a tree"
-            );
+            let ReadBack::NotATree(ours) = production_read_back(out, schema) else {
+                panic!("{route:?} of {tree:?}: production reads no NotATree reason");
+            };
             assert_eq!(
                 graph_roots(&ref_graph(out)).len(),
                 1,
                 "{route:?} of {tree:?}"
             );
-            format!("NotATree({reason:?})")
+            format!(
+                "NotATree({} / {})",
+                variant_name(&format!("{reason:?}")),
+                variant_name(&ours)
+            )
         }
         (Err(ours), Err(encode::TreeKanError::Graph(theirs))) => {
             graph_errors_agree(ours, theirs, &(route, tree));
@@ -1726,6 +1760,10 @@ fn check_source_trees(
                 !matches!(shape, TreeShapeReport::Tree { .. }),
                 "production reads a tree the reference does not: {input:?}"
             );
+            census.add(
+                input_refusal_agrees(graph, production_graph, &family.functors.source_schema),
+                1,
+            );
         }
         (Some(_), shape) => panic!("the reference reads a tree, production {shape:?}: {input:?}"),
     }
@@ -1819,10 +1857,16 @@ fn check_target_object(family: &FamilyCase, input: &model::Table) -> Census {
             census.add(format!("tree Delta {outcome}"), 1);
             census.add("target trees", 1);
         }
-        (None, shape) => assert!(
-            !matches!(shape, TreeShapeReport::Tree { .. }),
-            "production reads a tree the reference does not: {input:?}"
-        ),
+        (None, shape) => {
+            assert!(
+                !matches!(shape, TreeShapeReport::Tree { .. }),
+                "production reads a tree the reference does not: {input:?}"
+            );
+            census.add(
+                input_refusal_agrees(&graph, &production_graph, &family.functors.target_schema),
+                1,
+            );
+        }
         (Some(_), shape) => panic!("the reference reads a tree, production {shape:?}: {input:?}"),
     }
     census.add("target objects", 1);
@@ -2044,6 +2088,47 @@ fn pair_target(functors: &Functors, target: model::Table, weight: u64) -> PairTa
         production_pi_delta,
         production_pi_unit,
     }
+}
+
+/// Production's units and counits of both adjunctions, at both product
+/// bounds for Pi, on every labelled object of the bounded family, equal to
+/// the reference's exactly (refusals by their typed reason): the object-level
+/// half of the profile quotient, executed literally on all 248,552 objects
+/// rather than on profile representatives only.
+#[test]
+fn every_labelled_object_has_the_reference_units_and_counits() {
+    let independent = scope::case_object_counts(3, 6);
+    let mut objects = 0u64;
+    for (index, case) in scope::family().into_iter().enumerate() {
+        let functors = Functors::new(
+            &case.source_schema(),
+            &case.target_schema(),
+            &case.migration(),
+            &family_kinds(),
+        );
+        let sources = scope::instances(&case.source, 3, 6, &case.cells);
+        let targets = scope::instances(&case.target, 3, 6, &case.cells);
+        assert_eq!(
+            (sources.len() as u64, targets.len() as u64),
+            independent[index],
+            "{}",
+            case.name
+        );
+        objects += par_sum(&sources, |input| {
+            pair_source(&functors, input.clone(), 1);
+            1u64
+        });
+        objects += par_sum(&targets, |target| {
+            pair_target(&functors, target.clone(), 1);
+            1u64
+        });
+    }
+    println!(
+        "units and counits: {objects} labelled objects (independent count {})",
+        scope::objects_count(3, 6)
+    );
+    assert_eq!(objects, 248_552);
+    assert_eq!(objects, scope::objects_count(3, 6));
 }
 
 /// One case of the bounded family with its representatives.
@@ -4609,11 +4694,12 @@ fn generated_case_agrees(seed: u64) {
 
 /// The seeds whose cases shrank a failure of the generated table laws in
 /// the past, run before any random seed.
-const REGRESSION_SEEDS: [u64; 4] = [
+const REGRESSION_SEEDS: [u64; 5] = [
     251_554_501_479_628_105,
     886_779_333_262_700_799,
     5_467_035_014_510_298_700,
     7_302_257_756_398_127_275,
+    7_616_280_956_025_220_712,
 ];
 
 #[test]
@@ -4778,6 +4864,34 @@ fn classifications_agree(
         }
         (ours, theirs) => panic!("{schema:?}: production {ours:?}, reference {theirs:?}"),
     }
+}
+
+/// Two column names repeated in one table, the larger met first in edge
+/// order: both sides refuse with the least `(table, column)`, here `(t, a)`.
+#[test]
+fn classification_reports_the_least_duplicate_column() {
+    let schema = panproto_reference::schema::Schema::default()
+        .vertex("t", "t")
+        .vertex("v1", "v")
+        .vertex("v2", "v")
+        .vertex("v3", "v")
+        .vertex("v4", "v")
+        .edge("t", "v1", "prop", Some("z"))
+        .edge("t", "v2", "prop", Some("a"))
+        .edge("t", "v3", "prop", Some("z"))
+        .edge("t", "v4", "prop", Some("a"));
+    let partition = (kinds(&["v"]), kinds(&["t"]));
+    assert_eq!(
+        classifications_agree(&schema, &partition),
+        "DuplicateColumn"
+    );
+    assert_eq!(
+        rel::classify(&schema, &partition.0, &partition.1),
+        Err(rel::RelSchemaError::DuplicateColumn {
+            table: "t".to_owned(),
+            column: "a".to_owned(),
+        })
+    );
 }
 
 /// Strict classification of every schema of the classification scope
