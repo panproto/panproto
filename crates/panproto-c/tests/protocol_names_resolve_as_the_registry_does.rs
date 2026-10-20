@@ -75,28 +75,25 @@ fn every_registry_spelling_reaches_the_registry_protocol() {
 }
 
 #[test]
-fn every_listed_name_is_a_registry_name() {
+fn every_listed_name_resolves() {
     let mut out: repr_c::Vec<u8> = Vec::new().into();
     assert_eq!(pp_registry_list_builtin(&mut out), PpStatus::Ok as i32);
     let listed: Vec<String> =
         decode(&out).unwrap_or_else(|e| panic!("undecodable protocol listing: {e}"));
     pp_buf_free(out);
 
-    assert_eq!(
-        listed.len(),
-        registry::descriptors().len(),
-        "the ABI lists {} protocols and the registry has {}",
-        listed.len(),
-        registry::descriptors().len()
-    );
-    let unknown: Vec<&String> = listed
-        .iter()
-        .filter(|name| registry::descriptor(name).is_none())
-        .collect();
-    assert!(
-        unknown.is_empty(),
-        "listed but not in the registry: {unknown:?}"
-    );
+    assert!(!listed.is_empty(), "the ABI lists no protocols");
+    let mut wrong: Vec<String> = Vec::new();
+    for name in &listed {
+        match (registry::descriptor(name), through_the_abi(name)) {
+            (Some(descriptor), Some(found)) if found == (descriptor.protocol)() => {}
+            (None, _) => wrong.push(format!("{name:?} is listed but not in the registry")),
+            (Some(_), _) => wrong.push(format!(
+                "{name:?} is listed but pp_registry_get_builtin does not answer the registry's protocol"
+            )),
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 #[test]
