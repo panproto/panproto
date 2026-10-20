@@ -5762,3 +5762,1189 @@ pub use self::encode::{
 };
 pub use self::migration::{graph_square, table_square, tree_square};
 pub use self::rel::{delta, homs, pi, sigma};
+
+#[cfg(test)]
+mod tests {
+    //! Worked examples for the restricted Kan extensions, the entity
+    //! category and its presheaves, and the action of the Kan extensions on
+    //! homomorphisms. Every expected value is computed by hand from the
+    //! definitions on the page.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::encode::{GraphSide, NotEncodable, encode_graph, restrict_graph};
+    use super::migration::Migration;
+    use super::rel::{
+        self, Conformance, EntityArrow, EntityInstance, EntityObject, FunctorError, Hom, KanError,
+        NonConforming, RelFunctor, RelSchema, SigmaProvenance,
+    };
+    use crate::model::{GEdge, Graph, Node, SEdge, Table};
+    use crate::value::{Presence, Value};
+
+    fn names(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    fn relation(src: &str, tgt: &str, name: &str) -> SEdge {
+        SEdge::new(src, tgt, "ref", Some(name))
+    }
+
+    fn arrow(src: &str, tgt: &str, name: &str) -> SEdge {
+        SEdge::new(src, tgt, "prop", Some(name))
+    }
+
+    fn e() -> SEdge {
+        relation("A", "B", "e")
+    }
+
+    fn e2() -> SEdge {
+        relation("A", "B", "e2")
+    }
+
+    fn rho() -> SEdge {
+        relation("D", "D", "rho")
+    }
+
+    fn columns(entries: &[(&str, &[SEdge])]) -> BTreeMap<String, BTreeMap<String, SEdge>> {
+        entries
+            .iter()
+            .map(|(table, arrows)| {
+                let named = arrows
+                    .iter()
+                    .map(|a| (a.column().to_owned(), a.clone()))
+                    .collect();
+                ((*table).to_owned(), named)
+            })
+            .collect()
+    }
+
+    fn kinds(tables: &[&str], values: &[&str]) -> BTreeMap<String, String> {
+        let tables = tables
+            .iter()
+            .map(|t| ((*t).to_owned(), "record".to_owned()));
+        let values = values.iter().map(|v| ((*v).to_owned(), "int".to_owned()));
+        tables.chain(values).collect()
+    }
+
+    /// Tables `A`, `B`, `C`; `A` has columns `x`, `x2`, `x3`, `B` has `y`,
+    /// `C` has `z`; two parallel relations `e`, `e2` from `A` to `B` and a
+    /// relation `g` from `C` to `A`; the value at `x` has an inner child
+    /// `k`, as does the value at `x2`.
+    fn source() -> RelSchema {
+        let values = ["va", "va2", "va3", "va_in", "va2_in", "vb", "vc"];
+        RelSchema {
+            tables: names(&["A", "B", "C"]),
+            relations: BTreeSet::from([e(), e2(), relation("C", "A", "g")]),
+            columns: columns(&[
+                (
+                    "A",
+                    &[
+                        arrow("A", "va", "x"),
+                        arrow("A", "va2", "x2"),
+                        arrow("A", "va3", "x3"),
+                    ],
+                ),
+                ("B", &[arrow("B", "vb", "y")]),
+                ("C", &[arrow("C", "vc", "z")]),
+            ]),
+            value_vertices: names(&values),
+            inner_edges: BTreeSet::from([arrow("va", "va_in", "k"), arrow("va2", "va2_in", "k")]),
+            kinds: kinds(&["A", "B", "C"], &values),
+        }
+    }
+
+    /// Tables `D` (column `w`, and `n` when `with_fresh`) and `E` (no
+    /// column), and a loop relation `rho` on `D`.
+    fn target(with_fresh: bool) -> RelSchema {
+        let mut d = vec![arrow("D", "vw", "w")];
+        if with_fresh {
+            d.push(arrow("D", "vn", "n"));
+        }
+        RelSchema {
+            tables: names(&["D", "E"]),
+            relations: BTreeSet::from([rho()]),
+            columns: columns(&[("D", &d), ("E", &[])]),
+            value_vertices: names(&["vn", "vw"]),
+            inner_edges: BTreeSet::new(),
+            kinds: kinds(&["D", "E"], &["vn", "vw"]),
+        }
+    }
+
+    /// `A` and `B` merge into `D`, `C` is dropped; `e` and `e2` both go to
+    /// the loop `rho`; `x`, `x3` and `y` go to `w`, `x2` is dropped. With
+    /// `with_fresh` the target column `n` has no preimage; `E` is outside
+    /// the image either way.
+    fn functor(with_fresh: bool) -> RelFunctor {
+        let key = |t: &str, c: &str| (t.to_owned(), c.to_owned());
+        RelFunctor {
+            src: source(),
+            tgt: target(with_fresh),
+            tables: BTreeMap::from([
+                ("A".to_owned(), "D".to_owned()),
+                ("B".to_owned(), "D".to_owned()),
+            ]),
+            relations: BTreeMap::from([(e(), rho()), (e2(), rho())]),
+            columns: BTreeMap::from([
+                (key("A", "x"), "w".to_owned()),
+                (key("A", "x3"), "w".to_owned()),
+                (key("B", "y"), "w".to_owned()),
+            ]),
+            inner_edges: BTreeMap::new(),
+            value_vertices: BTreeMap::new(),
+        }
+    }
+
+    type Row<'a> = (u32, &'a str, &'a [(&'a str, Value)]);
+
+    fn instance(rows: &[Row<'_>], pairs: &[(SEdge, u32, u32)]) -> Table {
+        Table {
+            rows: rows
+                .iter()
+                .map(|(id, table, cells)| {
+                    let cells = cells
+                        .iter()
+                        .map(|(column, value)| ((*column).to_owned(), value.clone()))
+                        .collect();
+                    (*id, ((*table).to_owned(), cells))
+                })
+                .collect(),
+            pairs: pairs.iter().cloned().collect(),
+        }
+    }
+
+    fn null(id: u64) -> Value {
+        Value::LabeledNull(id)
+    }
+
+    fn non_conforming(row: u32, column: Option<&str>, reason: Conformance) -> KanError {
+        KanError::NonConforming(Box::new(NonConforming {
+            row,
+            column: column.map(str::to_owned),
+            reason,
+        }))
+    }
+
+    fn node(id: u32, anchor: &str) -> Node {
+        Node::new(id, anchor)
+    }
+
+    fn leaf(id: u32, anchor: &str, value: Value) -> Node {
+        Node {
+            value: Some(Presence::Present(value)),
+            ..Node::new(id, anchor)
+        }
+    }
+
+    fn gedge(src: u32, tgt: u32, label: SEdge) -> GEdge {
+        GEdge {
+            src,
+            tgt,
+            label,
+            position: None,
+        }
+    }
+
+    fn graph(nodes: Vec<Node>, edges: Vec<(u32, GEdge)>) -> Graph {
+        Graph {
+            nodes: nodes.into_iter().map(|n| (n.id, n)).collect(),
+            edges: edges.into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn kan_extensions_restrict_graph_keeps_the_kept_nodes_and_edges_only() {
+        let positioned = GEdge {
+            position: Some(2),
+            ..gedge(1, 9, arrow("A", "va3", "x3"))
+        };
+        let g = graph(
+            vec![
+                node(1, "A"),
+                node(2, "B"),
+                node(3, "C"),
+                node(4, "va"),
+                leaf(5, "va2", Value::Int(0)),
+                leaf(6, "va_in", Value::Int(5)),
+                leaf(7, "va2_in", Value::Int(6)),
+                leaf(8, "vb", Value::Int(1)),
+                leaf(9, "va3", Value::Int(7)),
+            ],
+            vec![
+                (20, gedge(1, 2, e())),
+                (21, gedge(3, 1, relation("C", "A", "g"))),
+                (22, gedge(1, 4, arrow("A", "va", "x"))),
+                (23, gedge(1, 5, arrow("A", "va2", "x2"))),
+                (24, gedge(4, 6, arrow("va", "va_in", "k"))),
+                (25, gedge(5, 7, arrow("va2", "va2_in", "k"))),
+                (26, gedge(2, 8, arrow("B", "vb", "y"))),
+                // A label outside the side between two kept nodes.
+                (27, gedge(1, 2, relation("A", "B", "bogus"))),
+                // Kept labels with a dropped source, then a dropped target.
+                (28, gedge(3, 2, e())),
+                (29, gedge(2, 3, e2())),
+                (30, positioned.clone()),
+                // A dropped column's label between two kept nodes.
+                (31, gedge(1, 4, arrow("A", "va2", "x2"))),
+            ],
+        );
+        let side = GraphSide::kept(&functor(false));
+        // Kept: the rows at A and B and the values below x, x3 and y, with
+        // the relation e, the arrows x, x3, y and the inner edge below x.
+        let expected = Graph {
+            nodes: [1, 2, 4, 6, 8, 9]
+                .into_iter()
+                .map(|id| (id, g.nodes[&id].clone()))
+                .collect(),
+            edges: [20, 22, 24, 26, 30]
+                .into_iter()
+                .map(|id| (id, g.edges[&id].clone()))
+                .collect(),
+        };
+        assert_eq!(restrict_graph(&g, &side), expected);
+        assert_eq!(restrict_graph(&g, &side).edges[&30], positioned);
+        assert_eq!(restrict_graph(&g, &GraphSide::default()), Graph::default());
+        assert_eq!(restrict_graph(&Graph::default(), &side), Graph::default());
+        // The whole source keeps every node and every edge whose label is in
+        // the source schema.
+        let whole = GraphSide::whole(&source());
+        let mut all = g.clone();
+        all.edges.remove(&27);
+        assert_eq!(restrict_graph(&g, &whole), all);
+    }
+
+    #[test]
+    fn kan_extensions_encode_graph_roots_values_through_inner_edges_only() {
+        let side = GraphSide::kept(&functor(false));
+        let chain = graph(
+            vec![
+                node(1, "A"),
+                node(4, "va"),
+                leaf(6, "va_in", Value::Int(5)),
+                leaf(9, "va3", Value::Int(7)),
+            ],
+            vec![
+                (22, gedge(1, 4, arrow("A", "va", "x"))),
+                (24, gedge(4, 6, arrow("va", "va_in", "k"))),
+                (30, gedge(1, 9, arrow("A", "va3", "x3"))),
+            ],
+        );
+        // Node 6 is rooted two levels down: 6 <- 4 <- 1, a row at A.
+        let Ok((table, _)) = encode_graph(&chain, &side) else {
+            panic!("a rooted chain encodes");
+        };
+        let record = Value::Unknown(BTreeMap::from([("k".to_owned(), Value::Int(5))]));
+        let expected = instance(&[(1, "A", &[("x", record), ("x3", Value::Int(7))])], &[]);
+        assert_eq!(table, expected);
+
+        let cycle_side = GraphSide {
+            value_vertices: names(&["p", "q"]),
+            inner_edges: BTreeSet::from([arrow("p", "q", "to_q"), arrow("q", "p", "to_p")]),
+            ..GraphSide::default()
+        };
+        // 1 -> 2 -> 1: each node has one in-edge, and the walk up from 1
+        // returns to 1 without meeting a table.
+        let cycle = graph(
+            vec![node(1, "p"), node(2, "q")],
+            vec![
+                (10, gedge(1, 2, arrow("p", "q", "to_q"))),
+                (11, gedge(2, 1, arrow("q", "p", "to_p"))),
+            ],
+        );
+        assert_eq!(
+            encode_graph(&cycle, &cycle_side).map(|(t, _)| t),
+            Err(NotEncodable::UnrootedValue { node: 1 })
+        );
+        let orphan = graph(vec![leaf(1, "p", Value::Int(1))], Vec::new());
+        assert_eq!(
+            encode_graph(&orphan, &cycle_side).map(|(t, _)| t),
+            Err(NotEncodable::UnrootedValue { node: 1 })
+        );
+    }
+
+    #[test]
+    fn kan_extensions_sigma_restricted_merges_tables_relations_and_null_classes() {
+        let f = functor(true);
+        let input = instance(
+            &[
+                (0, "A", &[("x", Value::Int(1)), ("x3", null(9))]),
+                (1, "B", &[("y", null(9))]),
+                (2, "B", &[("y", Value::Str("b".to_owned()))]),
+            ],
+            &[(e(), 0, 1), (e2(), 0, 1), (e2(), 0, 2)],
+        );
+        // Every row lands at D with its id. Slot (0, w) joins 1 and null 9,
+        // so slot (1, w), which holds null 9, is 1 too. Column n has no
+        // preimage: fresh nulls from max null 9 + 1, in (row, column) order.
+        // The pairs at e and e2 from 0 to 1 become one pair at rho.
+        let expected = instance(
+            &[
+                (0, "D", &[("n", null(10)), ("w", Value::Int(1))]),
+                (1, "D", &[("n", null(11)), ("w", Value::Int(1))]),
+                (
+                    2,
+                    "D",
+                    &[("n", null(12)), ("w", Value::Str("b".to_owned()))],
+                ),
+            ],
+            &[(rho(), 0, 1), (rho(), 0, 2)],
+        );
+        let provenance = SigmaProvenance {
+            fresh: BTreeMap::from([
+                (10, (0, "n".to_owned())),
+                (11, (1, "n".to_owned())),
+                (12, (2, "n".to_owned())),
+            ]),
+            merged: BTreeMap::from([(9, Value::Int(1))]),
+        };
+        assert_eq!(
+            rel::sigma_restricted(&f, &input),
+            Ok((expected, provenance))
+        );
+        // Sigma along the whole source reads conformance against S, where A
+        // also has the dropped column x2.
+        assert_eq!(
+            rel::sigma(&f, &input),
+            Err(non_conforming(0, Some("x2"), Conformance::MissingCell))
+        );
+        assert_eq!(
+            rel::sigma_restricted(&f, &Table::default()),
+            Ok((Table::default(), SigmaProvenance::default()))
+        );
+    }
+
+    #[test]
+    fn kan_extensions_sigma_restricted_refuses_outside_the_kept_part_and_on_a_clash() {
+        let f = functor(false);
+        // C is a table of S but not of S'.
+        let at_dropped = instance(
+            &[
+                (0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(1))]),
+                (3, "C", &[("z", Value::Int(1))]),
+            ],
+            &[],
+        );
+        assert_eq!(
+            rel::sigma_restricted(&f, &at_dropped),
+            Err(non_conforming(3, None, Conformance::TableOutside))
+        );
+        // Null 9 is joined with 1 at row 0, then row 1 joins its slot with
+        // 2 and finally with the class of null 9, which holds 1.
+        let clash = instance(
+            &[
+                (0, "A", &[("x", Value::Int(1)), ("x3", null(9))]),
+                (1, "A", &[("x", Value::Int(2)), ("x3", null(9))]),
+            ],
+            &[],
+        );
+        assert_eq!(
+            rel::sigma_restricted(&f, &clash),
+            Err(KanError::SigmaConstantClash {
+                row: 1,
+                column: "w".to_owned(),
+                left: Box::new(Value::Int(2)),
+                right: Box::new(Value::Int(1)),
+            })
+        );
+    }
+
+    fn pi_input() -> Table {
+        instance(
+            &[
+                (0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(1))]),
+                (1, "B", &[("y", Value::Int(1))]),
+                (2, "B", &[("y", Value::Int(2))]),
+                (3, "A", &[("x", Value::Int(2)), ("x3", Value::Int(2))]),
+            ],
+            &[(e(), 0, 1), (e2(), 0, 1), (e(), 3, 2)],
+        )
+    }
+
+    #[test]
+    fn kan_extensions_pi_restricted_joins_the_fibre_and_carries_both_relations() {
+        let f = functor(false);
+        // D's fibre is [A, B]: of the four tuples, [0, 1] agrees on w = 1 and
+        // [3, 2] on w = 2; they take fresh ids 4 and 5 above row 3. E is
+        // outside the image: one empty tuple, id 6. A pair at rho needs both
+        // e and e2 between the A and B components: only ([0, 1], [0, 1]).
+        let expected = instance(
+            &[
+                (4, "D", &[("w", Value::Int(1))]),
+                (5, "D", &[("w", Value::Int(2))]),
+                (6, "E", &[]),
+            ],
+            &[(rho(), 4, 4)],
+        );
+        let provenance = BTreeMap::from([
+            (4, ("D".to_owned(), vec![0, 1])),
+            (5, ("D".to_owned(), vec![3, 2])),
+            (6, ("E".to_owned(), Vec::new())),
+        ]);
+        // The product |A| * |B| = 2 * 2 is exactly at the bound 4.
+        assert_eq!(
+            rel::pi_restricted(&f, &pi_input(), 4),
+            Ok((expected, provenance))
+        );
+        assert_eq!(
+            rel::pi_restricted(&f, &pi_input(), 3),
+            Err(KanError::ProductSizeExceeded {
+                vertex: "D".to_owned(),
+                actual: 4,
+                limit: 3,
+            })
+        );
+        assert_eq!(
+            rel::pi(&f, &pi_input(), 4),
+            Err(non_conforming(0, Some("x2"), Conformance::MissingCell))
+        );
+        // The empty instance: D has no tuple, E its one empty tuple, id 0.
+        let empty = instance(&[(0, "E", &[])], &[]);
+        let empty_provenance = BTreeMap::from([(0, ("E".to_owned(), Vec::new()))]);
+        assert_eq!(
+            rel::pi_restricted(&f, &Table::default(), 0),
+            Ok((empty, empty_provenance))
+        );
+    }
+
+    #[test]
+    fn kan_extensions_pi_restricted_refusals() {
+        let at_dropped = instance(&[(3, "C", &[("z", Value::Int(1))])], &[]);
+        assert_eq!(
+            rel::pi_restricted(&functor(false), &at_dropped, 8),
+            Err(non_conforming(3, None, Conformance::TableOutside))
+        );
+        // Column n of D is the image of no kept column.
+        assert_eq!(
+            rel::pi_restricted(&functor(true), &pi_input(), 8),
+            Err(KanError::AttributeOutsideImage {
+                table: "D".to_owned(),
+                column: "n".to_owned(),
+            })
+        );
+    }
+
+    fn table_object(name: &str) -> EntityObject {
+        EntityObject::Table(name.to_owned())
+    }
+
+    #[test]
+    fn kan_extensions_entity_arrow_domains_and_codomains() {
+        let a = table_object("A");
+        let rel_e = EntityObject::Relation(e());
+        assert_eq!(EntityArrow::Id(a.clone()).dom(), a);
+        assert_eq!(EntityArrow::Id(a.clone()).cod(), a);
+        assert_eq!(EntityArrow::Id(rel_e.clone()).dom(), rel_e);
+        assert_eq!(EntityArrow::Id(rel_e.clone()).cod(), rel_e);
+        assert_eq!(EntityArrow::Src(e()).dom(), rel_e);
+        assert_eq!(EntityArrow::Tgt(e()).dom(), rel_e);
+        assert_eq!(EntityArrow::Src(e()).cod(), a);
+        assert_eq!(EntityArrow::Tgt(e()).cod(), table_object("B"));
+    }
+
+    #[test]
+    fn kan_extensions_entity_compose_identities_and_undefined_composites() {
+        let id_a = EntityArrow::Id(table_object("A"));
+        let id_e = EntityArrow::Id(EntityObject::Relation(e()));
+        let src = EntityArrow::Src(e());
+        let tgt = EntityArrow::Tgt(e());
+        assert_eq!(rel::entity_compose(&id_a, &src), Some(src.clone()));
+        assert_eq!(rel::entity_compose(&src, &id_e), Some(src.clone()));
+        assert_eq!(rel::entity_compose(&tgt, &id_e), Some(tgt.clone()));
+        assert_eq!(rel::entity_compose(&id_a, &id_a), Some(id_a.clone()));
+        assert_eq!(rel::entity_compose(&id_e, &id_e), Some(id_e.clone()));
+        // cod Src(e) = A, not B.
+        let id_b = EntityArrow::Id(table_object("B"));
+        assert_eq!(rel::entity_compose(&id_b, &src), None);
+        assert_eq!(rel::entity_compose(&id_a, &id_b), None);
+        // cod Src(e) = A is not dom Src(e) = e.
+        assert_eq!(rel::entity_compose(&src, &src), None);
+        assert_eq!(rel::entity_compose(&src, &id_a), None);
+        assert_eq!(rel::entity_compose(&id_e, &src), None);
+    }
+
+    #[test]
+    fn kan_extensions_entity_category_lists_and_category_laws() {
+        let tables = names(&["D", "E"]);
+        let relations = BTreeSet::from([rho()]);
+        let (objects, arrows) = rel::entity_category(&tables, &relations);
+        let rel_rho = EntityObject::Relation(rho());
+        assert_eq!(
+            objects,
+            vec![table_object("D"), table_object("E"), rel_rho.clone()]
+        );
+        assert_eq!(
+            arrows,
+            vec![
+                EntityArrow::Id(table_object("D")),
+                EntityArrow::Id(table_object("E")),
+                EntityArrow::Id(rel_rho),
+                EntityArrow::Src(rho()),
+                EntityArrow::Tgt(rho()),
+            ]
+        );
+        assert_eq!(
+            rel::entity_category(&BTreeSet::new(), &BTreeSet::new()),
+            (Vec::new(), Vec::new())
+        );
+        // Composites are defined exactly on composable pairs, identities are
+        // units, and composition is associative where defined.
+        let (objects, arrows) =
+            rel::entity_category(&names(&["A", "B"]), &BTreeSet::from([e(), e2()]));
+        assert_eq!(objects.len(), 4);
+        assert_eq!(arrows.len(), 8);
+        for first in &arrows {
+            let left = EntityArrow::Id(first.cod());
+            let right = EntityArrow::Id(first.dom());
+            assert_eq!(rel::entity_compose(&left, first).as_ref(), Some(first));
+            assert_eq!(rel::entity_compose(first, &right).as_ref(), Some(first));
+            for after in &arrows {
+                let composite = rel::entity_compose(after, first);
+                assert_eq!(composite.is_some(), first.cod() == after.dom());
+                if let Some(composite) = &composite {
+                    assert!(arrows.contains(composite));
+                    assert_eq!(composite.dom(), first.dom());
+                    assert_eq!(composite.cod(), after.cod());
+                }
+                for last in &arrows {
+                    let one = composite
+                        .as_ref()
+                        .and_then(|c| rel::entity_compose(last, c));
+                    let two = rel::entity_compose(last, after)
+                        .and_then(|c| rel::entity_compose(&c, first));
+                    assert_eq!(one, two);
+                }
+            }
+        }
+    }
+
+    /// Nodes 1 at A, 2 and 3 at B, 4 at Z (no table of the side) and 5 at a
+    /// value vertex; edges 10 and 11 parallel at e from 1 to 2, 12 at e2
+    /// from 1 to 3, and 13 a column edge.
+    fn entity_graph() -> Graph {
+        graph(
+            vec![
+                node(1, "A"),
+                node(2, "B"),
+                node(3, "B"),
+                node(4, "Z"),
+                leaf(5, "va", Value::Int(0)),
+            ],
+            vec![
+                (10, gedge(1, 2, e())),
+                (11, gedge(1, 2, e())),
+                (12, gedge(1, 3, e2())),
+                (13, gedge(1, 5, arrow("A", "va", "x"))),
+            ],
+        )
+    }
+
+    fn entity_graph_instance() -> EntityInstance {
+        let set = |items: &[usize]| items.iter().copied().collect::<BTreeSet<usize>>();
+        EntityInstance {
+            sets: BTreeMap::from([
+                (table_object("A"), set(&[1])),
+                (table_object("B"), set(&[2, 3])),
+                (table_object("C"), set(&[])),
+                (EntityObject::Relation(e()), set(&[10, 11])),
+                (EntityObject::Relation(e2()), set(&[12])),
+            ]),
+            legs: BTreeMap::from([
+                ((EntityArrow::Src(e()), 10), 1),
+                ((EntityArrow::Tgt(e()), 10), 2),
+                ((EntityArrow::Src(e()), 11), 1),
+                ((EntityArrow::Tgt(e()), 11), 2),
+                ((EntityArrow::Src(e2()), 12), 1),
+                ((EntityArrow::Tgt(e2()), 12), 3),
+            ]),
+        }
+    }
+
+    #[test]
+    fn kan_extensions_entity_instance_of_a_graph_and_its_action() {
+        let instance = rel::entity_instance(
+            &entity_graph(),
+            &names(&["A", "B", "C"]),
+            &BTreeSet::from([e(), e2()]),
+        );
+        assert_eq!(instance, entity_graph_instance());
+        assert_eq!(
+            rel::entity_instance(&Graph::default(), &BTreeSet::new(), &BTreeSet::new()),
+            EntityInstance::default()
+        );
+        // The identity returns its argument whatever it is.
+        assert_eq!(
+            instance.act(&EntityArrow::Id(table_object("A")), 99),
+            Some(99)
+        );
+        assert_eq!(instance.act(&EntityArrow::Src(e()), 11), Some(1));
+        assert_eq!(instance.act(&EntityArrow::Tgt(e2()), 12), Some(3));
+        assert_eq!(instance.act(&EntityArrow::Tgt(e2()), 10), None);
+        // Functoriality: acting by a composite is acting twice.
+        let id_e = EntityArrow::Id(EntityObject::Relation(e()));
+        let src = EntityArrow::Src(e());
+        for x in [10, 11] {
+            let Some(composite) = rel::entity_compose(&src, &id_e) else {
+                panic!("Src(e) . id(e) is defined");
+            };
+            assert_eq!(
+                instance.act(&composite, x),
+                instance.act(&id_e, x).and_then(|y| instance.act(&src, y))
+            );
+        }
+    }
+
+    #[test]
+    fn kan_extensions_separated_and_unseparated_endpoint_pairs() {
+        let instance = entity_graph_instance();
+        let relations = BTreeSet::from([e(), e2()]);
+        // Edges 10 and 11 have the same endpoints (1, 2): the separated
+        // reflection identifies them, the multiset keeps both.
+        let separated = BTreeMap::from([
+            (e(), BTreeMap::from([((1, 2), 1)])),
+            (e2(), BTreeMap::from([((1, 3), 1)])),
+        ]);
+        let unseparated = BTreeMap::from([
+            (e(), BTreeMap::from([((1, 2), 2)])),
+            (e2(), BTreeMap::from([((1, 3), 1)])),
+        ]);
+        assert_eq!(
+            rel::separated_pairs(&instance, &relations),
+            Some((separated, 1))
+        );
+        assert_eq!(
+            rel::unseparated_pairs(&instance, &relations),
+            Some(unseparated)
+        );
+        assert_eq!(
+            rel::separated_pairs(&instance, &BTreeSet::new()),
+            Some((BTreeMap::new(), 0))
+        );
+        assert_eq!(
+            rel::unseparated_pairs(&instance, &BTreeSet::new()),
+            Some(BTreeMap::new())
+        );
+        // A relation without a set.
+        let missing = BTreeSet::from([relation("A", "B", "absent")]);
+        assert_eq!(rel::separated_pairs(&instance, &missing), None);
+        assert_eq!(rel::unseparated_pairs(&instance, &missing), None);
+        // An element without a target leg.
+        let mut legless = instance;
+        legless.legs.remove(&(EntityArrow::Tgt(e2()), 12));
+        assert_eq!(rel::separated_pairs(&legless, &relations), None);
+        assert_eq!(rel::unseparated_pairs(&legless, &relations), None);
+    }
+
+    /// The entity part of [`functor`]'s source restricted to its kept
+    /// tables and relations: [`entity_graph_instance`] without table C.
+    fn kept_entity_instance() -> EntityInstance {
+        let mut instance = entity_graph_instance();
+        instance.sets.remove(&table_object("C"));
+        instance
+    }
+
+    #[test]
+    fn kan_extensions_presheaf_left_kan_worked_example() {
+        let f = functor(false);
+        let target_tables = names(&["D", "E"]);
+        let target_relations = BTreeSet::from([rho()]);
+        // At D the comma objects are (A, id), (B, id), (e, Src), (e, Tgt),
+        // (e2, Src), (e2, Tgt); the elements in that order are numbered
+        // 0: 1 | 1: 2, 2: 3 | 3: 10, 4: 11 | 5: 10, 6: 11 | 7: 12 | 8: 12.
+        // Src(e) joins 3, 4 with 0; Tgt(e) joins 5, 6 with 1; Src(e2) joins
+        // 7 with 0; Tgt(e2) joins 8 with 2. Classes: 0, 1, 2. E receives
+        // nothing (rho is a loop on D). At rho the comma objects are
+        // (e, id) and (e2, id) with no source arrow between them: elements
+        // 0: 10, 1: 11, 2: 12, each its own class.
+        let set = |items: &[usize]| items.iter().copied().collect::<BTreeSet<usize>>();
+        let expected = EntityInstance {
+            sets: BTreeMap::from([
+                (table_object("D"), set(&[0, 1, 2])),
+                (table_object("E"), set(&[])),
+                (EntityObject::Relation(rho()), set(&[0, 1, 2])),
+            ]),
+            // Src(rho) sends class k at (e, id) to the class of (e, Src):
+            // all three land on class 0 (the node 1 at A). Tgt(rho) lands on
+            // the class of node 2 for the edges 10, 11, of node 3 for 12.
+            legs: BTreeMap::from([
+                ((EntityArrow::Src(rho()), 0), 0),
+                ((EntityArrow::Src(rho()), 1), 0),
+                ((EntityArrow::Src(rho()), 2), 0),
+                ((EntityArrow::Tgt(rho()), 0), 1),
+                ((EntityArrow::Tgt(rho()), 1), 1),
+                ((EntityArrow::Tgt(rho()), 2), 2),
+            ]),
+        };
+        let Some(sigma) = rel::presheaf_left_kan(
+            &kept_entity_instance(),
+            &f,
+            &target_tables,
+            &target_relations,
+        ) else {
+            panic!("the worked example has a left Kan extension");
+        };
+        assert_eq!(sigma, expected);
+        // The parallel images 10 and 11 stay apart until the separated
+        // reflection identifies them.
+        assert_eq!(
+            rel::separated_pairs(&sigma, &target_relations),
+            Some((
+                BTreeMap::from([(rho(), BTreeMap::from([((0, 1), 1), ((0, 2), 1)]))]),
+                1
+            ))
+        );
+        assert_eq!(
+            rel::unseparated_pairs(&sigma, &target_relations),
+            Some(BTreeMap::from([(
+                rho(),
+                BTreeMap::from([((0, 1), 2), ((0, 2), 1)])
+            )]))
+        );
+    }
+
+    #[test]
+    fn kan_extensions_presheaf_left_kan_empty_and_refusals() {
+        let f = functor(false);
+        let target_tables = names(&["D", "E"]);
+        let target_relations = BTreeSet::from([rho()]);
+        let empty = EntityInstance {
+            sets: [
+                table_object("A"),
+                table_object("B"),
+                EntityObject::Relation(e()),
+                EntityObject::Relation(e2()),
+            ]
+            .into_iter()
+            .map(|object| (object, BTreeSet::new()))
+            .collect(),
+            legs: BTreeMap::new(),
+        };
+        let expected = EntityInstance {
+            sets: [
+                table_object("D"),
+                table_object("E"),
+                EntityObject::Relation(rho()),
+            ]
+            .into_iter()
+            .map(|object| (object, BTreeSet::new()))
+            .collect(),
+            legs: BTreeMap::new(),
+        };
+        assert_eq!(
+            rel::presheaf_left_kan(&empty, &f, &target_tables, &target_relations),
+            Some(expected)
+        );
+        // The instance lacks the source object B.
+        let mut lacking = kept_entity_instance();
+        lacking.sets.remove(&table_object("B"));
+        assert_eq!(
+            rel::presheaf_left_kan(&lacking, &f, &target_tables, &target_relations),
+            None
+        );
+        // A leg image is missing.
+        let mut legless = kept_entity_instance();
+        legless.legs.remove(&(EntityArrow::Src(e()), 11));
+        assert_eq!(
+            rel::presheaf_left_kan(&legless, &f, &target_tables, &target_relations),
+            None
+        );
+        // D, the image of A, is not an object of the target.
+        assert_eq!(
+            rel::presheaf_left_kan(
+                &kept_entity_instance(),
+                &f,
+                &names(&["E"]),
+                &BTreeSet::new()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn kan_extensions_sigma_values_clash_closes_equations_across_rows() {
+        let f = functor(false);
+        let clash = |rows: &[Row<'_>]| rel::sigma_values_clash(&instance(rows, &[]), &f);
+        assert_eq!(rel::sigma_values_clash(&Table::default(), &f), Some(false));
+        // A null equated with a constant, then reused at another table.
+        assert_eq!(
+            clash(&[
+                (0, "A", &[("x", Value::Int(1)), ("x3", null(9))]),
+                (1, "B", &[("y", null(9))]),
+            ]),
+            Some(false)
+        );
+        // The same constant twice in one class.
+        assert_eq!(
+            clash(&[(0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(1))])]),
+            Some(false)
+        );
+        // Two constants in one row.
+        assert_eq!(
+            clash(&[(0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(2))])]),
+            Some(true)
+        );
+        // 1 = null 8 = null 9 = 2, through three rows.
+        assert_eq!(
+            clash(&[
+                (0, "A", &[("x", Value::Int(1)), ("x3", null(8))]),
+                (1, "A", &[("x", null(8)), ("x3", null(9))]),
+                (2, "A", &[("x", null(9)), ("x3", Value::Int(2))]),
+            ]),
+            Some(true)
+        );
+        // Dropped columns and dropped tables contribute no equation, so
+        // their cells are never read.
+        let ill_formed = Value::Temporal(crate::temporal::Temporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: crate::temporal::Offset::Local,
+            infinity: None,
+        });
+        assert_eq!(
+            clash(&[
+                (
+                    0,
+                    "A",
+                    &[
+                        ("x", Value::Int(1)),
+                        ("x2", Value::Int(2)),
+                        ("x3", Value::Int(1))
+                    ]
+                ),
+                (1, "C", &[("z", ill_formed.clone())]),
+                (
+                    2,
+                    "A",
+                    &[
+                        ("x", Value::Int(1)),
+                        ("x2", ill_formed.clone()),
+                        ("x3", Value::Int(1))
+                    ]
+                ),
+            ]),
+            Some(false)
+        );
+        // A kept cell without canonical bytes.
+        assert_eq!(
+            clash(&[(0, "A", &[("x", ill_formed), ("x3", Value::Int(1))])]),
+            None
+        );
+    }
+
+    fn hom(rows: &[(u32, u32)], nulls: &[(u64, Value)]) -> Hom {
+        Hom {
+            rows: rows.iter().copied().collect(),
+            nulls: nulls.iter().cloned().collect(),
+        }
+    }
+
+    #[test]
+    fn kan_extensions_sigma_on_hom_forces_the_null_map() {
+        let f = functor(false);
+        let domain = instance(
+            &[
+                (0, "A", &[("x", null(4)), ("x3", null(4))]),
+                (1, "B", &[("y", null(4))]),
+                (2, "B", &[("y", Value::Int(3))]),
+            ],
+            &[(e(), 0, 1)],
+        );
+        let codomain = instance(
+            &[
+                (10, "A", &[("x", Value::Int(1)), ("x3", Value::Int(1))]),
+                (11, "B", &[("y", Value::Int(1))]),
+                (12, "B", &[("y", Value::Int(3))]),
+            ],
+            &[(e(), 10, 11)],
+        );
+        let h = hom(&[(0, 10), (1, 11), (2, 12)], &[(4, Value::Int(1))]);
+        // Sigma keeps row ids: rows 0 and 1 hold null 4 at w, row 2 holds 3;
+        // the null meets 1 first, at row 0, and again at row 1.
+        assert_eq!(
+            rel::sigma_on_hom(&f, &domain, &codomain, &h),
+            Some(hom(&[(0, 10), (1, 11), (2, 12)], &[(4, Value::Int(1))]))
+        );
+        // Row 2 to row 11 disagrees on y.
+        let wrong = hom(&[(0, 10), (1, 11), (2, 11)], &[(4, Value::Int(1))]);
+        assert_eq!(rel::sigma_on_hom(&f, &domain, &codomain, &wrong), None);
+        // The pair at e2 is not preserved, though Sigma merges e2 with e.
+        let mut parallel = domain.clone();
+        parallel.pairs = BTreeSet::from([(e2(), 0, 1)]);
+        assert_eq!(rel::sigma_on_hom(&f, &parallel, &codomain, &h), None);
+        // Sigma refuses the domain, then the codomain.
+        let clash = instance(
+            &[(0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(2))])],
+            &[],
+        );
+        assert_eq!(rel::sigma_on_hom(&f, &clash, &codomain, &h), None);
+        assert_eq!(rel::sigma_on_hom(&f, &domain, &clash, &h), None);
+        // The identity of the empty instance.
+        assert_eq!(
+            rel::sigma_on_hom(&f, &Table::default(), &Table::default(), &Hom::default()),
+            Some(Hom::default())
+        );
+    }
+
+    #[test]
+    fn kan_extensions_delta_on_hom_follows_the_copies() {
+        let f = functor(false);
+        let domain = instance(
+            &[
+                (0, "D", &[("w", null(7))]),
+                (1, "D", &[("w", Value::Int(2))]),
+                (5, "E", &[]),
+            ],
+            &[(rho(), 0, 1)],
+        );
+        let codomain = instance(
+            &[(20, "D", &[("w", Value::Int(2))]), (25, "E", &[])],
+            &[(rho(), 20, 20)],
+        );
+        let h = hom(&[(0, 20), (1, 20), (5, 25)], &[(7, Value::Int(2))]);
+        // Delta(domain): copies at A keep ids 0, 1; copies at B take 6, 7
+        // above row 5. Delta(codomain): 20 at A, 26 at B above row 25. The
+        // E rows have no copy.
+        assert_eq!(
+            rel::delta_on_hom(&f, &domain, &codomain, &h),
+            Some(hom(
+                &[(0, 20), (1, 20), (6, 26), (7, 26)],
+                &[(7, Value::Int(2))]
+            ))
+        );
+        // Row 5 at E to row 20 at D: no homomorphism, though Delta forgets E.
+        let anchor = hom(&[(0, 20), (1, 20), (5, 20)], &[(7, Value::Int(2))]);
+        assert_eq!(rel::delta_on_hom(&f, &domain, &codomain, &anchor), None);
+        // Delta refuses an instance at a table outside the target.
+        let outside = instance(&[(0, "Z", &[])], &[]);
+        assert_eq!(rel::delta_on_hom(&f, &outside, &codomain, &h), None);
+        assert_eq!(rel::delta_on_hom(&f, &domain, &outside, &h), None);
+    }
+
+    fn pi_codomain() -> Table {
+        instance(
+            &[
+                (10, "A", &[("x", Value::Int(1)), ("x3", Value::Int(1))]),
+                (11, "B", &[("y", Value::Int(1))]),
+                (12, "B", &[("y", Value::Int(2))]),
+                (13, "A", &[("x", Value::Int(2)), ("x3", Value::Int(2))]),
+            ],
+            &[(e(), 10, 11), (e2(), 10, 11), (e(), 13, 12), (e2(), 13, 12)],
+        )
+    }
+
+    #[test]
+    fn kan_extensions_pi_on_hom_maps_tuples_componentwise() {
+        let f = functor(false);
+        let h = hom(&[(0, 10), (1, 11), (2, 12), (3, 13)], &[]);
+        // Pi(domain): 4 = [0, 1], 5 = [3, 2], 6 = E's empty tuple. Pi of the
+        // codomain: 14 = [10, 11], 15 = [13, 12], 16 = E's empty tuple.
+        assert_eq!(
+            rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 4),
+            Some(hom(&[(4, 14), (5, 15), (6, 16)], &[]))
+        );
+        // One under the products 2 * 2.
+        assert_eq!(rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 3), None);
+        // Row 8 joins no tuple, so Pi forgets it; its image disagrees on y.
+        let mut extra = pi_input();
+        extra.rows.insert(
+            8,
+            (
+                "B".to_owned(),
+                BTreeMap::from([("y".to_owned(), Value::Int(8))]),
+            ),
+        );
+        let forgetful = hom(&[(0, 10), (1, 11), (2, 12), (3, 13), (8, 11)], &[]);
+        assert_eq!(
+            rel::pi_on_hom(&f, &extra, &pi_codomain(), &forgetful, 6),
+            None
+        );
+        // The same with row 8 at a row that agrees: 2 * 3 = 6 at the bound.
+        let mut extra_codomain = pi_codomain();
+        extra_codomain.rows.insert(
+            18,
+            (
+                "B".to_owned(),
+                BTreeMap::from([("y".to_owned(), Value::Int(8))]),
+            ),
+        );
+        let total = hom(&[(0, 10), (1, 11), (2, 12), (3, 13), (8, 18)], &[]);
+        // Pi(extra): fresh ids 9, 10, 11 above row 8. Pi(extra codomain):
+        // 19, 20, 21 above row 18.
+        assert_eq!(
+            rel::pi_on_hom(&f, &extra, &extra_codomain, &total, 6),
+            Some(hom(&[(9, 19), (10, 20), (11, 21)], &[]))
+        );
+    }
+
+    /// Value vertices `v`, `w` with the inner edge `v -child-> w`, `w`
+    /// of kind `w_kind`.
+    fn value_source(w_kind: &str) -> RelSchema {
+        RelSchema {
+            value_vertices: names(&["v", "w"]),
+            inner_edges: BTreeSet::from([SEdge::new("v", "w", "item", Some("child"))]),
+            kinds: BTreeMap::from([
+                ("v".to_owned(), "value".to_owned()),
+                ("w".to_owned(), w_kind.to_owned()),
+            ]),
+            ..RelSchema::default()
+        }
+    }
+
+    /// Value vertices `v2`, `w2` (kind value) and `v3`, `w3` (kind other)
+    /// with the given inner edges.
+    fn value_target(inner: &[SEdge]) -> RelSchema {
+        RelSchema {
+            value_vertices: names(&["v2", "v3", "w2", "w3"]),
+            inner_edges: inner.iter().cloned().collect(),
+            kinds: BTreeMap::from([
+                ("v2".to_owned(), "value".to_owned()),
+                ("v3".to_owned(), "other".to_owned()),
+                ("w2".to_owned(), "value".to_owned()),
+                ("w3".to_owned(), "other".to_owned()),
+            ]),
+            ..RelSchema::default()
+        }
+    }
+
+    fn into_kan(
+        w_kind: &str,
+        inner: &[SEdge],
+        vertices: &[(&str, &str)],
+        image: &SEdge,
+    ) -> Result<RelFunctor, FunctorError> {
+        let migration = Migration {
+            vertex_remap: vertices
+                .iter()
+                .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+                .collect(),
+            edge_remap: BTreeMap::from([(
+                SEdge::new("v", "w", "item", Some("child")),
+                image.clone(),
+            )]),
+            ..Migration::default()
+        };
+        let Ok(entity) =
+            rel::entity_functor(&value_source(w_kind), &value_target(inner), &migration)
+        else {
+            panic!("a value-only migration has an entity functor");
+        };
+        entity.into_kan()
+    }
+
+    #[test]
+    fn kan_extensions_into_kan_reads_endpoint_kinds_through_the_remap() {
+        let inner = SEdge::new("v", "w", "item", Some("child"));
+        let image = SEdge::new("v2", "w2", "item", Some("child"));
+        let refused = Err(FunctorError::ValueStructureRemap {
+            edge: Box::new(inner.clone()),
+        });
+        let Ok(both) = into_kan(
+            "value",
+            &[image.clone()],
+            &[("v", "v2"), ("w", "w2")],
+            &image,
+        ) else {
+            panic!("a kind-preserving remap keeps value structure");
+        };
+        assert_eq!(both.inner_edges, BTreeMap::from([(inner, image.clone())]));
+        assert_eq!(
+            both.value_vertices,
+            BTreeMap::from([
+                ("v".to_owned(), "v2".to_owned()),
+                ("w".to_owned(), "w2".to_owned()),
+            ])
+        );
+        // w is remapped to w3 of kind other, but the image ends at w2.
+        assert_eq!(
+            into_kan(
+                "value",
+                &[image.clone()],
+                &[("v", "v2"), ("w", "w3")],
+                &image
+            ),
+            refused
+        );
+        // Without a remap entry an endpoint keeps its own kind.
+        let Ok(only_v) = into_kan("value", &[image.clone()], &[("v", "v2")], &image) else {
+            panic!("w keeps its kind value at w2");
+        };
+        assert_eq!(
+            only_v.value_vertices,
+            BTreeMap::from([("v".to_owned(), "v2".to_owned())])
+        );
+        assert!(into_kan("value", &[image.clone()], &[("w", "w2")], &image).is_ok());
+        assert_eq!(
+            into_kan("other", &[image.clone()], &[("v", "v2")], &image),
+            refused
+        );
+        // The image is no inner edge of the target.
+        assert_eq!(into_kan("value", &[], &[("v", "v2")], &image), refused);
+        // The image changes the kind, the name, or its source's kind.
+        let listed = SEdge::new("v2", "w2", "list", Some("child"));
+        assert_eq!(
+            into_kan("value", &[listed.clone()], &[("v", "v2")], &listed),
+            refused
+        );
+        let renamed = SEdge::new("v2", "w2", "item", Some("renamed"));
+        assert_eq!(
+            into_kan("value", &[renamed.clone()], &[("v", "v2")], &renamed),
+            refused
+        );
+        let moved = SEdge::new("v3", "w2", "item", Some("child"));
+        assert_eq!(
+            into_kan(
+                "value",
+                &[moved.clone()],
+                &[("v", "v2"), ("w", "w2")],
+                &moved
+            ),
+            refused
+        );
+    }
+
+    #[test]
+    fn kan_extensions_graph_sigma_restricted_credits_every_equated_cell() {
+        let g = graph(
+            vec![
+                node(1, "A"),
+                node(2, "B"),
+                leaf(4, "va", Value::Int(1)),
+                leaf(8, "vb", Value::Int(1)),
+                leaf(9, "va3", Value::Int(1)),
+            ],
+            vec![
+                (20, gedge(1, 2, e())),
+                (22, gedge(1, 4, arrow("A", "va", "x"))),
+                (26, gedge(2, 8, arrow("B", "vb", "y"))),
+                (30, gedge(1, 9, arrow("A", "va3", "x3"))),
+            ],
+        );
+        let Ok((_, provenance)) =
+            super::encode::g_sigma_restricted_with_provenance(&functor(false), &g)
+        else {
+            panic!("graph Sigma of a kept-part graph succeeds");
+        };
+        // Slot (1, w) is equated with the cells of row 1 at x and x3, slot
+        // (2, w) with row 2's cell at y. The output cell of row 1 reuses the
+        // value node 4 and the arrow 22 of its first source; the relation
+        // edge has two possible sources (e and e2 both go to rho), so it is
+        // a fresh edge, 31, above every input edge id.
+        assert_eq!(
+            provenance.nodes,
+            BTreeMap::from([
+                (1, BTreeSet::from([1])),
+                (2, BTreeSet::from([2])),
+                (4, BTreeSet::from([4, 9])),
+                (8, BTreeSet::from([8])),
+            ])
+        );
+        assert_eq!(
+            provenance.edges,
+            BTreeMap::from([
+                (22, BTreeSet::from([22, 30])),
+                (26, BTreeSet::from([26])),
+                (31, BTreeSet::from([20])),
+            ])
+        );
+        assert_eq!(provenance.table, SigmaProvenance::default());
+    }
+}
