@@ -105,6 +105,8 @@ pub fn parse_avsc(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
 /// Returns [`ProtocolError`] if any document cannot be parsed as valid
 /// Avro, or if schema construction fails.
 pub fn parse_avsc_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::all_in_key_order(docs);
+    let docs = ordered.as_ref();
     let proto_def = protocol();
     let mut builder = SchemaBuilder::new(&proto_def);
     let mut vertex_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
