@@ -19,7 +19,8 @@ use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_
 use crate::graph_complement::GraphComplement;
 use crate::metadata::{Node, NodeShape};
 use crate::restrict_boundary::{
-    BoundaryProtocols, BoundarySide, boundary_plan, require_passed, require_schema, unlimited,
+    BoundaryProtocols, BoundarySide, boundary_plan, output_plan, require_passed, require_schema,
+    unlimited,
 };
 use crate::restrict_plan::{
     EdgeFate, RestrictPlan, ReverseAnchors, allocate_synthesized, exhaustion_key, floor_above,
@@ -719,7 +720,7 @@ pub fn graph_restrict_with_complement(
     )?;
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, migration, protocols)?;
     let restricted = graph_restrict_with_plan(instance, &plan)?;
-    let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
+    let tgt_plan = output_plan(&src_plan, tgt_schema, &plan.tgt_schema, protocols);
     require_passed(
         tgt_plan.validate_graph(&restricted.0, &budget, &external),
         BoundarySide::Output,
@@ -815,8 +816,8 @@ pub fn graph_extend(
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
     require_total_graph_elements(instance, tgt_schema, &total)?;
     let src_validation = boundary_plan(src_schema, protocols.src);
-    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    let tgt_validation = output_plan(&src_validation, tgt_schema, &plan.tgt_schema, protocols);
     graph_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 
@@ -883,8 +884,8 @@ pub fn graph_extend_partial(
 ) -> Result<(GInstance, Vec<ViewRef>), RestrictError> {
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
     let src_validation = boundary_plan(src_schema, protocols.src);
-    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    let tgt_validation = output_plan(&src_validation, tgt_schema, &plan.tgt_schema, protocols);
     let (budget, external) = unlimited();
     require_passed(
         src_validation.validate_graph(instance, &budget, &external),

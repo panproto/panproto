@@ -26,7 +26,8 @@ use crate::functor::{FInstance, Row, same_value};
 use crate::metadata::Node;
 use crate::rel_schema::RelSchema;
 use crate::restrict_boundary::{
-    BoundaryProtocols, BoundarySide, boundary_plan, require_passed, require_schema, unlimited,
+    BoundaryProtocols, BoundarySide, boundary_plan, output_plan, require_passed, require_schema,
+    unlimited,
 };
 use crate::restrict_plan::{EdgeFate, RestrictPlan, ReverseAnchors, floor_above};
 use crate::table_complement::{DroppedRow, TableComplement};
@@ -398,7 +399,7 @@ pub fn functor_restrict_with_complement(
     )?;
     let plan = RestrictPlan::compile_for_tables(src_schema, tgt_schema, migration, protocols)?;
     let restricted = functor_restrict_with_plan(instance, &plan)?;
-    let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
+    let tgt_plan = output_plan(&src_plan, tgt_schema, &plan.tgt_schema, protocols);
     require_passed(
         tgt_plan.validate_table(&restricted.0, &budget, &external),
         BoundarySide::Output,
@@ -491,9 +492,9 @@ pub fn functor_extend(
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
     require_total_table_elements(instance, tgt_schema, &total)?;
     let src_validation = boundary_plan(src_schema, protocols.src);
-    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
     let plan =
         RestrictPlan::compile_for_table_extension(src_schema, tgt_schema, &total, protocols)?;
+    let tgt_validation = output_plan(&src_validation, tgt_schema, &plan.tgt_schema, protocols);
     functor_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 
@@ -564,9 +565,9 @@ pub fn functor_extend_partial(
 ) -> Result<(FInstance, Vec<crate::ViewRef>), RestrictError> {
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
     let src_validation = boundary_plan(src_schema, protocols.src);
-    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
     let plan =
         RestrictPlan::compile_for_table_extension(src_schema, tgt_schema, &total, protocols)?;
+    let tgt_validation = output_plan(&src_validation, tgt_schema, &plan.tgt_schema, protocols);
     let (budget, external) = unlimited();
     require_passed(
         src_validation.validate_table(instance, &budget, &external),
