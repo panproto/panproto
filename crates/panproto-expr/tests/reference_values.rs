@@ -583,7 +583,15 @@ fn computed_nans_agree_with_the_reference() {
     for (op, operands) in &cases {
         let references: Vec<RValue> = operands.iter().map(literal_to_ref).collect();
         let production = apply_builtin(*op, operands);
-        if *op == BuiltinOp::Clamp && production.is_err() { println!("TEMP clamp {:?} vs {:?}", production, rv::apply_builtin(op_to_ref(*op), &references)); refused += 1; continue; }
+        if *op == BuiltinOp::Clamp && production.is_err() {
+            println!(
+                "TEMP clamp {:?} vs {:?}",
+                production,
+                rv::apply_builtin(op_to_ref(*op), &references)
+            );
+            refused += 1;
+            continue;
+        }
         assert_eq!(
             outcome_to_ref(&production),
             rv::apply_builtin(op_to_ref(*op), &references),
@@ -691,36 +699,6 @@ fn parallel_counts<T: Sync, const N: usize>(
     })
 }
 
-/// The binary32 boundary patterns: either sign, every exponent field, and
-/// each fraction of the binary32 fraction set.
-fn binary32_boundary() -> Vec<u64> {
-    panproto_reference::enumerate::boundary_bits(
-        Format::B32,
-        None,
-        &panproto_reference::enumerate::binary32_fractions(),
-    )
-}
-
-/// The binary64 exponent fields of the boundary sweep: the biased
-/// exponents 871 to 1153 (unbiased -152 to 130, which hold every binary32
-/// value and its midpoints), the subnormal and least normal fields, the
-/// greatest finite field and the infinity/NaN field.
-fn binary64_exponents() -> Vec<u64> {
-    let mut exponents: Vec<u64> = (871..=1153).collect();
-    exponents.extend([0, 1, 2046, 2047]);
-    exponents
-}
-
-/// The binary64 boundary patterns: either sign, each exponent of
-/// [`binary64_exponents`], and each fraction of the binary64 fraction set.
-fn binary64_boundary() -> Vec<u64> {
-    panproto_reference::enumerate::boundary_bits(
-        Format::B64,
-        Some(&binary64_exponents()),
-        &panproto_reference::enumerate::binary64_fractions(),
-    )
-}
-
 /// The reference decimal of a finite production decimal, with trailing
 /// zeros of its digits moved into the exponent.
 fn shortest_to_ref(d: &DecimalValue) -> rf::Dec {
@@ -740,7 +718,9 @@ fn production_shortest(format: Format, bits: u64) -> Option<DecimalValue> {
         Format::B16 => {
             DecimalValue::from_f16_shortest(binary16_widen(u16::try_from(bits).unwrap()))
         }
-        Format::B32 => DecimalValue::from_f32_shortest(f32::from_bits(u32::try_from(bits).unwrap())),
+        Format::B32 => {
+            DecimalValue::from_f32_shortest(f32::from_bits(u32::try_from(bits).unwrap()))
+        }
         Format::B64 => DecimalValue::from_f64_shortest(f64::from_bits(bits)),
     }
 }
@@ -791,17 +771,23 @@ fn check_shortest(format: Format, bits: u64, counts: &mut [usize; 4]) {
 #[test]
 fn closest_shortest_printers_agree_with_the_reference() {
     let b16 = panproto_reference::enumerate::values::binary16_patterns();
-    let b32 = binary32_boundary();
-    let b64 = binary64_boundary();
+    let b32 = panproto_reference::enumerate::values::binary32_boundary_patterns();
+    let b64 = panproto_reference::enumerate::values::binary64_boundary_patterns();
     println!(
         "bound: binary16={} binary32={} binary64={}",
         b16.len(),
         b32.len(),
         b64.len()
     );
-    let c16 = parallel_counts(&b16, |bits, counts| check_shortest(Format::B16, *bits, counts));
-    let c32 = parallel_counts(&b32, |bits, counts| check_shortest(Format::B32, *bits, counts));
-    let c64 = parallel_counts(&b64, |bits, counts| check_shortest(Format::B64, *bits, counts));
+    let c16 = parallel_counts(&b16, |bits, counts| {
+        check_shortest(Format::B16, *bits, counts)
+    });
+    let c32 = parallel_counts(&b32, |bits, counts| {
+        check_shortest(Format::B32, *bits, counts)
+    });
+    let c64 = parallel_counts(&b64, |bits, counts| {
+        check_shortest(Format::B64, *bits, counts)
+    });
     for (name, counts) in [("binary16", c16), ("binary32", c32), ("binary64", c64)] {
         println!(
             "closest-shortest {name}: patterns={} finite={} nonfinite={} disagreements={}",
@@ -884,7 +870,9 @@ fn check_pattern_rounding(format: Format, bits: u64, counts: &mut [usize; 7]) {
     let next = match rf::decode(format, magnitude + 1) {
         rf::FloatValue::Finite { value, .. } => value,
         rf::FloatValue::Infinite { .. } => panproto_reference::num::Rat::pow2(format.emax() + 1),
-        rf::FloatValue::NaN { .. } => panic!("{format:?} {bits:#x}: a NaN follows a finite pattern"),
+        rf::FloatValue::NaN { .. } => {
+            panic!("{format:?} {bits:#x}: a NaN follows a finite pattern")
+        }
     };
     let (digits, exponent) = binary_rational_decimal(&value);
     let exact_overflows = check_rounding(format, negative, &digits, exponent);
@@ -932,16 +920,25 @@ fn check_pattern_rounding(format: Format, bits: u64, counts: &mut [usize; 7]) {
 /// midpoint moved by one unit of its last decimal digit either way.
 #[test]
 fn binary_rounding_agrees_with_the_reference() {
-    let b32 = binary32_boundary();
-    let b64 = binary64_boundary();
-    println!("bound: binary32={} binary64={}", b32.len(), b64.len());
+    let b16 = panproto_reference::enumerate::values::binary16_patterns();
+    let b32 = panproto_reference::enumerate::values::binary32_boundary_patterns();
+    let b64 = panproto_reference::enumerate::values::binary64_boundary_patterns();
+    println!(
+        "bound: binary16={} binary32={} binary64={}",
+        b16.len(),
+        b32.len(),
+        b64.len()
+    );
+    let c16 = parallel_counts(&b16, |bits, counts| {
+        check_pattern_rounding(Format::B16, *bits, counts);
+    });
     let c32 = parallel_counts(&b32, |bits, counts| {
         check_pattern_rounding(Format::B32, *bits, counts);
     });
     let c64 = parallel_counts(&b64, |bits, counts| {
         check_pattern_rounding(Format::B64, *bits, counts);
     });
-    for (name, counts) in [("binary32", c32), ("binary64", c64)] {
+    for (name, counts) in [("binary16", c16), ("binary32", c32), ("binary64", c64)] {
         println!(
             "rounding {name}: patterns={} nonfinite={} exact={} midpoints={} above={} below={} \
              overflows={}; all agree",
@@ -952,15 +949,44 @@ fn binary_rounding_agrees_with_the_reference() {
     // midpoint moved each way. Only the greatest finite pattern of each
     // sign overflows, at its midpoint (a tie broken to the even
     // significand, 2^(emax+1)) and above it.
+    let finite16 = 2 * 31 * 1024;
+    assert_eq!(
+        c16,
+        [
+            2 * 32 * 1024,
+            2 * 1024,
+            finite16,
+            finite16,
+            finite16,
+            finite16,
+            2 * 2
+        ]
+    );
     let finite32 = 2 * 255 * 8;
     assert_eq!(
         c32,
-        [2 * 256 * 8, 2 * 8, finite32, finite32, finite32, finite32, 2 * 2]
+        [
+            2 * 256 * 8,
+            2 * 8,
+            finite32,
+            finite32,
+            finite32,
+            finite32,
+            2 * 2
+        ]
     );
     let finite64 = 2 * 286 * 14;
     assert_eq!(
         c64,
-        [2 * 287 * 14, 2 * 14, finite64, finite64, finite64, finite64, 2 * 2]
+        [
+            2 * 287 * 14,
+            2 * 14,
+            finite64,
+            finite64,
+            finite64,
+            finite64,
+            2 * 2
+        ]
     );
 }
 
@@ -1290,13 +1316,15 @@ fn a_leap_second_precedes_the_next_minute() {
     // The date-times are distinct for each date, offset, second and fraction
     // and for each date, offset and next-minute or earlier-minute fraction;
     // the times repeat across the dates, so they count once per offset.
-    let date_times = DATES.len()
-        * OFFSETS.len()
-        * (SECONDS.len() * FRACTIONS.len() + 2 * NEXT_FRACTIONS.len());
+    let date_times =
+        DATES.len() * OFFSETS.len() * (SECONDS.len() * FRACTIONS.len() + 2 * NEXT_FRACTIONS.len());
     let times = OFFSETS.len() * (SECONDS.len() * FRACTIONS.len() + NEXT_FRACTIONS.len());
     assert_eq!(date_times + times, 255);
     assert_eq!(values.len(), date_times + times);
-    assert_eq!(compared, ((date_times + times) * (date_times + times)) as u64);
+    assert_eq!(
+        compared,
+        ((date_times + times) * (date_times + times)) as u64
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,7 +1338,10 @@ fn decimal_from_ref(d: &rx::Decimal) -> DecimalValue {
         rx::Decimal::Finite(value) => DecimalValue::new(
             value.negative,
             value.digits.to_string(),
-            value.exponent.to_i64().expect("an enumerated exponent fits i64"),
+            value
+                .exponent
+                .to_i64()
+                .expect("an enumerated exponent fits i64"),
         )
         .expect("an enumerated significand is canonical"),
         rx::Decimal::Infinite { negative } => DecimalValue::infinity(*negative),
@@ -2390,9 +2421,16 @@ fn temp_probe() {
         call(BuiltinOp::Map, vec![lam("x", int(1)), lam("x", int(2))]),
         call(BuiltinOp::Clamp, vec![float(0.5), float(1.0), float(0.0)]),
         call(BuiltinOp::Clamp, vec![int(5), int(3), int(1)]),
-        Expr::Match { scrutinee: Box::new(int(3)), arms: vec![(Pattern::Lit(Literal::Int(4)), int(0))] },
+        Expr::Match {
+            scrutinee: Box::new(int(3)),
+            arms: vec![(Pattern::Lit(Literal::Int(4)), int(0))],
+        },
     ];
     for e in probes {
-        println!("TEMPPROBE {e:?}\n  production {:?}\n  reference  {:?}", eval(&e, &Env::new(), &cfg), rv::eval(&expr_to_ref(&e), &BTreeMap::new()));
+        println!(
+            "TEMPPROBE {e:?}\n  production {:?}\n  reference  {:?}",
+            eval(&e, &Env::new(), &cfg),
+            rv::eval(&expr_to_ref(&e), &BTreeMap::new())
+        );
     }
 }

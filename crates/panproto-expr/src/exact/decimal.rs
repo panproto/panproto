@@ -736,7 +736,11 @@ pub(super) fn closest_shortest(
     let all: String = mantissa.chars().filter(char::is_ascii_digit).collect();
     let exact = all.trim_end_matches('0');
     if exact.is_empty() {
-        return DecimalValue::from_i64(0);
+        // A zero keeps its sign.
+        return DecimalValue {
+            negative,
+            ..DecimalValue::from_i64(0)
+        };
     }
     // The candidate of n digits that the rule takes, if either reads back,
     // as its digits and the exponent of its last digit.

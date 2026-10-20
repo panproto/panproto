@@ -720,222 +720,6 @@ fn class_to_ref(c: &LexClass) -> r::LexClass {
 // The scope.
 // ---------------------------------------------------------------------------
 
-/// Every reference spec of the scope: each scalar kind, with the integer
-/// widths 8 to 64 either signed or not, the float widths 16, 32 and 64
-/// under both readings, the decimal facets, the offset requirements, the
-/// integer-width overrides, and each numeral dialect over the numeric
-/// kinds. Production holds only some of them.
-fn specs() -> Vec<r::ValueSpec> {
-    use r::ScalarKind as K;
-    let of = r::ValueSpec::of;
-    let mut out = vec![
-        of(K::Any),
-        of(K::Bool),
-        of(K::BigInt),
-        of(K::Str),
-        of(K::Token),
-    ];
-    for bits in [8, 16, 32, 64] {
-        for signed in [true, false] {
-            out.push(of(K::Int { bits, signed }));
-        }
-    }
-    for int_bits in [Some(8), Some(16)] {
-        for unsigned in [false, true] {
-            out.push(r::ValueSpec {
-                int_bits,
-                unsigned,
-                ..of(K::Int {
-                    bits: 64,
-                    signed: true,
-                })
-            });
-        }
-    }
-    out.push(r::ValueSpec {
-        unsigned: true,
-        ..of(K::Int {
-            bits: 64,
-            signed: true,
-        })
-    });
-    for bits in [16, 32, 64] {
-        out.push(of(K::Float { bits }));
-        out.push(r::ValueSpec {
-            float_reading: r::FloatReading::NearestKeepingLexeme,
-            ..of(K::Float { bits })
-        });
-    }
-    for precision in [None, Some(1), Some(2)] {
-        for scale in [None, Some(0), Some(1)] {
-            out.push(r::ValueSpec {
-                precision,
-                scale,
-                ..of(K::Decimal)
-            });
-        }
-    }
-    for text in [
-        r::BytesText::Base64,
-        r::BytesText::Base64Url,
-        r::BytesText::Hex,
-        r::BytesText::Raw,
-        r::BytesText::Base64Padded,
-        r::BytesText::Base64UrlPadded,
-        r::BytesText::Latin1,
-    ] {
-        out.push(of(K::Bytes(text)));
-    }
-    for kind in [K::Date, K::Time, K::DateTime] {
-        for with_time_zone in [None, Some(true), Some(false)] {
-            out.push(r::ValueSpec {
-                with_time_zone,
-                ..of(kind)
-            });
-        }
-    }
-    for numeral in [
-        r::NumeralDialect::Json,
-        r::NumeralDialect::Toml,
-        r::NumeralDialect::Yaml12,
-        r::NumeralDialect::Yaml11,
-        r::NumeralDialect::Xsd,
-        r::NumeralDialect::Java,
-        r::NumeralDialect::ProtoJson,
-        r::NumeralDialect::Sql,
-    ] {
-        for kind in [
-            K::Int {
-                bits: 64,
-                signed: true,
-            },
-            K::BigInt,
-            K::Float { bits: 64 },
-            K::Decimal,
-        ] {
-            out.push(r::ValueSpec {
-                numeral: Some(numeral),
-                ..of(kind)
-            });
-        }
-    }
-    out
-}
-
-/// The NaN, infinity and signalling spellings, and decimal edge numerals
-/// at the float boundaries.
-const SPELLINGS: &[&str] = &[
-    "NaN",
-    "-NaN",
-    "nan",
-    "+nan",
-    ".nan",
-    "-.nan",
-    "NAN",
-    "sNaN",
-    "-sNaN",
-    "NaN5",
-    "sNaN7",
-    "inf",
-    "-inf",
-    "+inf",
-    "Infinity",
-    "-Infinity",
-    "INF",
-    ".inf",
-    "-.inf",
-    "+.inf",
-    "infinity",
-];
-
-const EDGE_NUMERALS: &[&str] = &[
-    "0",
-    "-0",
-    "0.0",
-    "-0.0",
-    "0e5",
-    "-0e-5",
-    "0.00",
-    "0.10",
-    "0.1",
-    "1.50",
-    "-1.5",
-    "65504",
-    "65505",
-    "65519",
-    "65519.99",
-    "65520",
-    "-65520",
-    "6.103515625e-5",
-    "5.960464477539063e-8",
-    "2.98023223876953125e-8",
-    "2.9802322387695312e-8",
-    "16777216",
-    "16777217",
-    "16777217.0",
-    "3.4028235e38",
-    "3.4028235677973366e38",
-    "3.4028236e38",
-    "1.401298464324817e-45",
-    "7.006492321624085e-46",
-    "1e308",
-    "1.7976931348623157e308",
-    "1.7976931348623158e308",
-    "1.7976931348623159e308",
-    "1e309",
-    "4.9e-324",
-    "5e-324",
-    "2.4703282292062328e-324",
-    "2.4703282292062327e-324",
-    "1e-400",
-    "1e400",
-    "1e401",
-    "-1e401",
-    "1e-401",
-    "9007199254740992",
-    "9007199254740993",
-    "1125899906842624.2",
-    "1125899906842624.3",
-    "52401.312",
-    "52401.313",
-    "127",
-    "128",
-    "-128",
-    "-129",
-    "255",
-    "256",
-    "32767",
-    "32768",
-    "-32768",
-    "-32769",
-    "65535",
-    "65536",
-    "2147483647",
-    "2147483648",
-    "-2147483648",
-    "-2147483649",
-    "4294967295",
-    "4294967296",
-    "9223372036854775807",
-    "9223372036854775808",
-    "-9223372036854775808",
-    "-9223372036854775809",
-    "18446744073709551615",
-    "18446744073709551616",
-    "1e20",
-    "1e4097",
-    "-1e20",
-    "1.5e1",
-    "1.25e1",
-    "12.5",
-    "0.5e1",
-];
-
-const WORDS: &[&str] = &[
-    "true", "false", "TRUE", "False", "yes", "null", "", " ", "x", "abc", "\u{e9}", "\u{100}", "T",
-    "Z", "00:00", "+04:00",
-];
-
 const TAGS: &[&str] = &[
     "int",
     "!!float",
@@ -955,131 +739,12 @@ const TAGS: &[&str] = &[
     "!!custom",
 ];
 
-/// The byte texts of `b`: padded and unpadded base64, URL-safe base64, both
-/// hex cases and the Latin-1 text.
-fn byte_texts(b: &[u8]) -> Vec<String> {
-    let padded = encode_base64(b);
-    let unpadded = padded.trim_end_matches('=').to_owned();
-    let url = padded.replace('+', "-").replace('/', "_");
-    let lower: String = b.iter().fold(String::new(), |mut out, x| {
-        let _ = write!(out, "{x:02x}");
-        out
-    });
-    vec![
-        unpadded,
-        url.trim_end_matches('=').to_owned(),
-        url,
-        lower.to_uppercase(),
-        lower,
-        padded,
-        latin1_decode(b),
-    ]
-}
-
-/// Every lexeme of the scope: the values-page numerals, the spellings, the
-/// edge numerals, the words, every temporal lexeme, and every byte text of
-/// the byte strings up to the given length.
-fn lexemes(byte_text_len: usize) -> Vec<String> {
-    let mut out: Vec<String> = scope::numerals();
-    out.extend(SPELLINGS.iter().map(|s| (*s).to_owned()));
-    out.extend(EDGE_NUMERALS.iter().map(|s| (*s).to_owned()));
-    out.extend(WORDS.iter().map(|s| (*s).to_owned()));
-    out.extend(scope::temporal_lexemes());
-    for b in scope::byte_strings().expect("bounded") {
-        if b.len() <= byte_text_len {
-            out.extend(byte_texts(&b));
-        }
-    }
-    dedupe(out)
-}
-
 fn dedupe<T: Clone + Eq + std::hash::Hash>(items: Vec<T>) -> Vec<T> {
     let mut seen = HashSet::new();
     items
         .into_iter()
         .filter(|x| seen.insert(x.clone()))
         .collect()
-}
-
-/// Every reference value of the scope.
-///
-/// Floats: every binary16 pattern widened and its two binary64
-/// neighbours; the binary64 boundary patterns of the binary32 narrowing
-/// (every exponent field from 871 to 1153 and 0, 1, 2046, 2047, by the
-/// boundary fractions); every binary32 boundary pattern widened and its
-/// neighbours. Numbers: each lexeme read under `Any`, `BigInt`, `Decimal`,
-/// the three float widths and `Int`, wherever the reference accepts it.
-/// Temporals: each temporal lexeme read under the three temporal kinds.
-/// Strings and tokens of every lexeme; bytes of every byte string up to
-/// length two; booleans, null and one value of each structured variant.
-fn values() -> Vec<RValue> {
-    use r::ScalarKind as K;
-    let mut out = Vec::new();
-    let around = |w: u64| [w, w.wrapping_sub(1), w.wrapping_add(1)];
-    for b in scope::binary16_patterns() {
-        out.extend(around(widen_bits(Format::B16, b)).map(RValue::Float));
-    }
-    let exps: Vec<u64> = (871..=1153).chain([0, 1, 2046, 2047]).collect();
-    out.extend(
-        en::boundary_bits(Format::B64, Some(&exps), &en::binary64_fractions())
-            .into_iter()
-            .map(RValue::Float),
-    );
-    for b in en::boundary_bits(Format::B32, None, &en::binary32_fractions()) {
-        out.extend(around(widen_bits(Format::B32, b)).map(RValue::Float));
-    }
-    let numeric = [
-        K::Any,
-        K::BigInt,
-        K::Decimal,
-        K::Float { bits: 16 },
-        K::Float { bits: 32 },
-        K::Float { bits: 64 },
-        K::Int {
-            bits: 64,
-            signed: true,
-        },
-    ];
-    let lexemes = lexemes(1);
-    for t in &lexemes {
-        for kind in numeric {
-            if let Some(Ok(v)) = r::coerce(t, &r::LexClass::Number, &r::ValueSpec::of(kind)) {
-                out.push(v);
-            }
-        }
-        for kind in [K::Date, K::Time, K::DateTime] {
-            if let Some(Ok(v)) = r::coerce(t, &r::LexClass::DateTime, &r::ValueSpec::of(kind)) {
-                out.push(v);
-            }
-        }
-        out.push(RValue::Str(t.clone()));
-        out.push(RValue::Token(t.clone()));
-    }
-    for i in [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX] {
-        out.push(RValue::Int(i));
-    }
-    out.extend(scope::byte_strings().expect("bounded").map(RValue::Bytes));
-    out.extend([
-        RValue::Bool(true),
-        RValue::Bool(false),
-        RValue::Null,
-        RValue::CidLink("bafy".to_owned()),
-        RValue::Blob {
-            ref_: "bafy".to_owned(),
-            mime: "text/plain".to_owned(),
-            size: 3,
-        },
-        RValue::Opaque {
-            type_: "custom".to_owned(),
-            fields: std::iter::once(("value".to_owned(), RValue::Str("1".to_owned()))).collect(),
-        },
-        RValue::Unknown(std::iter::once(("a".to_owned(), RValue::Int(1))).collect()),
-        RValue::List(vec![]),
-        RValue::List(vec![RValue::Int(1), RValue::Float(f64::NAN.to_bits())]),
-        RValue::LabeledNull(0),
-        RValue::LabeledNull(u64::MAX),
-    ]);
-    dedupe(out)
 }
 
 /// The label of a result, for the counts.
@@ -1187,7 +852,7 @@ impl Tally {
 
 #[test]
 fn the_value_conversion_is_injective_on_the_scope() {
-    let values = values();
+    let values = scope::coercion_values();
     let mut images = HashSet::new();
     let mut held = 0u64;
     let mut represented = 0u64;
@@ -1221,7 +886,7 @@ fn the_value_conversion_is_injective_on_the_scope() {
             previous = Some((x, bytes));
         }
     }
-    let specs = specs();
+    let specs = scope::coercion_specs();
     let mut held_specs = 0u64;
     for s in &specs {
         if let Some(p) = spec_into_production(s) {
@@ -1378,8 +1043,8 @@ fn merge_tallies(tallies: Vec<Tally>) -> Tally {
 #[test]
 fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
     let started = Instant::now();
-    let values = values();
-    let specs = specs();
+    let values = scope::coercion_values();
+    let specs = scope::coercion_specs();
     let held: Vec<(&RValue, Option<Value>)> =
         values.iter().map(|x| (x, into_production(x))).collect();
     let total = (values.len() * specs.len()) as u64;
@@ -1414,8 +1079,8 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
 #[test]
 fn coerce_agrees_with_the_reference_over_the_values_scope() {
     let started = Instant::now();
-    let lexemes = lexemes(1);
-    let specs = specs();
+    let lexemes = scope::coercion_lexemes();
+    let specs = scope::coercion_specs();
     let mut classes = vec![
         LexClass::Number,
         LexClass::String,
@@ -1528,7 +1193,7 @@ fn float16_coercion_agrees_with_the_reference() {
         }
     }
     texts.extend(scope::numerals());
-    texts.extend(EDGE_NUMERALS.iter().map(|t| (*t).to_owned()));
+    texts.extend(scope::edge_numerals());
     let texts = dedupe(texts);
     let mut lexemes = 0_u64;
     for text in &texts {
@@ -1624,102 +1289,18 @@ fn binary32_nan_bits_agree_with_the_reference() {
 // Numeral dialects and discriminators.
 // ---------------------------------------------------------------------------
 
-/// The dialect probes: every example of the dialect table, the listed
-/// malformed spellings, and further forms at each grammar's edges.
-const DIALECT_PROBES: &[&str] = &[
-    "1_000",
-    "0x1F",
-    "0x1f",
-    "0X1F",
-    "+inf",
-    "-inf",
-    "inf",
-    "nan",
-    "+nan",
-    "-nan",
-    "1__0",
-    "_1",
-    "1_",
-    "017",
-    "0o17",
-    "0o",
-    "0b101",
-    "0b2",
-    "22:30",
-    "190:20:30",
-    "1:60",
-    "0:30",
-    "1e3",
-    "1e+3",
-    "1.0e3",
-    "1.e+3",
-    ".5",
-    "0.",
-    "5.",
-    "+12e03",
-    "-2E+05",
-    "INF",
-    "+INF",
-    "-INF",
-    "NaN",
-    "-NaN",
-    "+NaN",
-    "Infinity",
-    "-Infinity",
-    "+Infinity",
-    "infinity",
-    ".inf",
-    "-.inf",
-    "+.inf",
-    ".Inf",
-    ".INF",
-    ".nan",
-    ".NaN",
-    ".NAN",
-    "-.nan",
-    "+.nan",
-    "+1",
-    "-1",
-    "-0",
-    "00",
-    "01",
-    "1",
-    "1.5",
-    "0x",
-    "+0x1",
-    "-0x1F",
-    "0x_1F",
-    "0x1_F",
-    "685.230_15e+03",
-    "685_230.15",
-    "190:20:30.15",
-    "9.0e+999",
-    "-9.0e+999",
-    "0.1000000000000000055",
-    "12345678901234567170.0",
-    "1e2",
-    "1.5e1",
-    "0b1010_0111",
-    "02472256",
-    "08",
-    "0_",
-    "-0b11",
-    "+0o17",
-    "1_000.5",
-    "1_000e1",
-    "1.5_5",
-    "12e",
-    "",
-    "-",
-    "+",
-    ".",
-    "abc",
-    "sNaN",
-    "Inf",
-    "inf5",
-];
+/// The numeral-dialect probes of the reference enumerator, as texts.
+fn dialect_probes() -> &'static [&'static str] {
+    static PROBES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    PROBES.get_or_init(|| {
+        scope::dialect_probes()
+            .into_iter()
+            .map(|text| &*Box::leak(text.into_boxed_str()))
+            .collect()
+    })
+}
 
-/// Each dialect, and none, over every probe of [`DIALECT_PROBES`] as a
+/// Each dialect, and none, over every probe of [`dialect_probes`] as a
 /// number and as a string, under the numeric kinds, `Any` and `Str`, agrees
 /// with the reference.
 #[test]
@@ -1748,7 +1329,7 @@ fn dialect_coercion_agrees_with_the_reference() {
                 ..ValueSpec::new(kind.clone())
             };
             for class in [LexClass::Number, LexClass::String] {
-                for probe in DIALECT_PROBES {
+                for probe in dialect_probes() {
                     let reference =
                         r::coerce_dialect(probe, &class_to_ref(&class), &spec_to_ref(&spec))
                             .unwrap();
@@ -1765,11 +1346,11 @@ fn dialect_coercion_agrees_with_the_reference() {
     println!(
         "dialects: bound 9 dialects (8 and none) by {} kinds by 2 classes by {} probes: {cases} cases",
         kinds.len(),
-        DIALECT_PROBES.len()
+        dialect_probes().len()
     );
     assert_eq!(
         cases,
-        9 * kinds.len() as u64 * 2 * DIALECT_PROBES.len() as u64
+        9 * kinds.len() as u64 * 2 * dialect_probes().len() as u64
     );
 }
 
@@ -1788,7 +1369,7 @@ fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
         ScalarKind::BigInt,
         ScalarKind::Decimal,
     ];
-    let mut probes: Vec<&str> = DIALECT_PROBES.to_vec();
+    let mut probes: Vec<&str> = dialect_probes().to_vec();
     probes.extend(["nan", ".nan", "NaN", "1.5", "9223372036854775808", "-0.0"]);
     let mut fixed = 0_u64;
     let mut cases = 0_u64;
@@ -1862,7 +1443,7 @@ fn discriminated_coercion_agrees_with_the_reference() {
         Some("x-custom"),
         Some(""),
     ];
-    let lexemes = ["42", "1e2", "0.5", "abc", "true", "", "2024-01-02", "AQI="];
+    let lexemes = scope::tagged_lexemes();
     let mut classes = vec![
         LexClass::Number,
         LexClass::String,
@@ -1881,7 +1462,7 @@ fn discriminated_coercion_agrees_with_the_reference() {
         let plain = ValueSpec::new(own.clone());
         for tag in tags {
             for class in &classes {
-                for text in lexemes {
+                for text in &lexemes {
                     let production =
                         coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
                             .map(|v| to_ref(&v))
@@ -1936,7 +1517,7 @@ proptest::proptest! {
         spec_index in 0_usize..1000,
         value_index in 0_usize..100_000,
     ) {
-        let specs: Vec<(r::ValueSpec, ValueSpec)> = specs()
+        let specs: Vec<(r::ValueSpec, ValueSpec)> = scope::coercion_specs()
             .into_iter()
             .filter_map(|s| spec_into_production(&s).map(|p| (s, p)))
             .collect();
@@ -1970,7 +1551,7 @@ fn randomized_values() -> &'static [RValue] {
     VALUES.get_or_init(|| {
         use r::ScalarKind as K;
         let mut out = Vec::new();
-        for t in lexemes(0) {
+        for t in scope::coercion_words() {
             for kind in [
                 K::Any,
                 K::BigInt,
@@ -2193,8 +1774,8 @@ fn shortest_with_neighbours(format: Format, bits: u64) -> Vec<String> {
 #[test]
 fn nearest_reading_coercion_agrees_with_the_reference() {
     let started = Instant::now();
-    let binary32 = en::boundary_bits(Format::B32, None, &en::binary32_fractions());
-    let binary64 = en::boundary_bits(Format::B64, None, &en::binary64_fractions());
+    let binary32 = scope::binary32_boundary_patterns();
+    let binary64 = scope::binary64_exponent_patterns();
     assert_eq!(binary32.len(), 2 * 256 * 8);
     assert_eq!(binary64.len(), 2 * 2048 * 14);
     let mut texts = Vec::new();
@@ -2302,7 +1883,7 @@ fn dialect_kinds() -> [ScalarKind; 7] {
 fn dialect_lexeme() -> impl proptest::strategy::Strategy<Value = String> {
     use proptest::strategy::Strategy as _;
     proptest::prop_oneof![
-        (0..DIALECT_PROBES.len()).prop_map(|i| DIALECT_PROBES[i].to_owned()),
+        (0..dialect_probes().len()).prop_map(|i| dialect_probes()[i].to_owned()),
         "[-+]?(0[xXoObB])?[0-9a-fA-F_]{0,5}(\\.[0-9_]{0,3})?([eE][-+]?[0-9_]{0,3})?",
         "[-+]?\\.?(inf|Inf|INF|nan|NaN|NAN|Infinity|infinity)",
         "[-+]?[0-9]{1,3}(:[0-9]{1,2}){1,2}(\\.[0-9]{0,2})?",

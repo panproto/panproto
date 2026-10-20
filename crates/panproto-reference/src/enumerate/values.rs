@@ -552,7 +552,9 @@ fn lexemes_with_byte_texts(byte_text_len: usize) -> Vec<String> {
     dedupe(out)
 }
 
-/// Every reference spec of the coercion scope: each scalar kind, the integer
+/// Every reference spec of the coercion scope.
+///
+/// They are each scalar kind, the integer
 /// widths 8 to 64 either signed or not, the float widths 16, 32 and 64 under
 /// both readings, the decimal facets, the byte-text forms, the offset
 /// requirements, the integer-width overrides, and each numeral dialect over
@@ -655,7 +657,9 @@ pub fn coercion_specs() -> Vec<crate::coerce::ValueSpec> {
     out
 }
 
-/// Every reference value of the coercion scope: every binary16 pattern
+/// Every reference value of the coercion scope.
+///
+/// They are every binary16 pattern
 /// widened with its two binary64 neighbours; the binary64 boundary patterns
 /// of the binary32 narrowing; every binary32 boundary pattern widened with
 /// its neighbours; each lexeme of [`coercion_lexemes`] read under the numeric
@@ -741,6 +745,23 @@ pub fn coercion_values() -> Vec<Value> {
     dedupe(out)
 }
 
+/// The decimal edge numerals of the coercion scope, at the float, integer
+/// and rounding boundaries.
+#[must_use]
+pub fn edge_numerals() -> Vec<String> {
+    EDGE_NUMERALS
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect()
+}
+
+/// The lexemes of the coercion scope without byte texts beyond those of the
+/// empty byte string, the alphabet of the generated coercion cases.
+#[must_use]
+pub fn coercion_words() -> Vec<String> {
+    lexemes_with_byte_texts(0)
+}
+
 /// Every lexeme of the coercion scope: the numerals, the special spellings,
 /// the edge numerals, the words, every temporal lexeme, and every byte text
 /// of the byte strings of length at most one.
@@ -755,4 +776,142 @@ fn dedupe<T: Clone + Eq + std::hash::Hash>(items: Vec<T>) -> Vec<T> {
         .into_iter()
         .filter(|x| seen.insert(x.clone()))
         .collect()
+}
+
+/// Every binary32 boundary pattern: either sign, every exponent field, and
+/// each fraction of the binary32 boundary fractions: 2 x 256 x 8 = 4096.
+#[must_use]
+pub fn binary32_boundary_patterns() -> Vec<u64> {
+    super::boundary_bits(Format::B32, None, &super::binary32_fractions())
+}
+
+/// The binary64 boundary patterns of the binary32 and binary64 sweeps:
+/// either sign, the biased exponent fields 871 to 1153 (which hold every
+/// binary32 value and its midpoints) and 0, 1, 2046, 2047, and each
+/// fraction of the binary64 boundary fractions: 2 x 287 x 14 = 8036.
+#[must_use]
+pub fn binary64_boundary_patterns() -> Vec<u64> {
+    let mut exponents: Vec<u64> = (871..=1153).collect();
+    exponents.extend([0, 1, 2046, 2047]);
+    super::boundary_bits(Format::B64, Some(&exponents), &super::binary64_fractions())
+}
+
+/// Every binary64 exponent field with each boundary fraction, of either
+/// sign: 2 x 2048 x 14 = 57,344 patterns.
+#[must_use]
+pub fn binary64_exponent_patterns() -> Vec<u64> {
+    super::boundary_bits(Format::B64, None, &super::binary64_fractions())
+}
+
+/// The numeral-dialect probes: every example of the dialect table, the
+/// listed malformed spellings, and further forms at each grammar's edges.
+const DIALECT_PROBE_TEXTS: &[&str] = &[
+    "1_000",
+    "0x1F",
+    "0x1f",
+    "0X1F",
+    "+inf",
+    "-inf",
+    "inf",
+    "nan",
+    "+nan",
+    "-nan",
+    "1__0",
+    "_1",
+    "1_",
+    "017",
+    "0o17",
+    "0o",
+    "0b101",
+    "0b2",
+    "22:30",
+    "190:20:30",
+    "1:60",
+    "0:30",
+    "1e3",
+    "1e+3",
+    "1.0e3",
+    "1.e+3",
+    ".5",
+    "0.",
+    "5.",
+    "+12e03",
+    "-2E+05",
+    "INF",
+    "+INF",
+    "-INF",
+    "NaN",
+    "-NaN",
+    "+NaN",
+    "Infinity",
+    "-Infinity",
+    "+Infinity",
+    "infinity",
+    ".inf",
+    "-.inf",
+    "+.inf",
+    ".Inf",
+    ".INF",
+    ".nan",
+    ".NaN",
+    ".NAN",
+    "-.nan",
+    "+.nan",
+    "+1",
+    "-1",
+    "-0",
+    "00",
+    "01",
+    "1",
+    "1.5",
+    "0x",
+    "+0x1",
+    "-0x1F",
+    "0x_1F",
+    "0x1_F",
+    "685.230_15e+03",
+    "685_230.15",
+    "190:20:30.15",
+    "9.0e+999",
+    "-9.0e+999",
+    "0.1000000000000000055",
+    "12345678901234567170.0",
+    "1e2",
+    "1.5e1",
+    "0b1010_0111",
+    "02472256",
+    "08",
+    "0_",
+    "-0b11",
+    "+0o17",
+    "1_000.5",
+    "1_000e1",
+    "1.5_5",
+    "12e",
+    "",
+    "-",
+    "+",
+    ".",
+    "abc",
+    "sNaN",
+    "Inf",
+    "inf5",
+];
+
+/// The numeral-dialect probes as texts.
+#[must_use]
+pub fn dialect_probes() -> Vec<String> {
+    DIALECT_PROBE_TEXTS
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect()
+}
+
+/// The lexemes of the discriminator laws: a number, an exponent numeral, a
+/// fraction, a word, a boolean, the empty text, a date and a base64 text.
+#[must_use]
+pub fn tagged_lexemes() -> Vec<String> {
+    ["42", "1e2", "0.5", "abc", "true", "", "2024-01-02", "AQI="]
+        .map(str::to_owned)
+        .to_vec()
 }

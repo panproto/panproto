@@ -2240,8 +2240,9 @@ pub mod coerce {
     /// zero keeps its sign), else `Overflow` or `PrecisionExceeded`; a special
     /// decimal is refused with `NonFinite`; and any other value with a scalar
     /// lexeme (a string, token, boolean, temporal or null) is read through
-    /// [`coerce`] of that lexeme under the float kind alone, with no dialect
-    /// or reading. Under `BigInt` a special decimal is refused with
+    /// [`coerce`] of that lexeme under the float kind, with the
+    /// specification's dialect for a string or a token and no dialect
+    /// otherwise. Under `BigInt` a special decimal is refused with
     /// `NonFinite`. Under any other non-`Any` kind a
     /// non-finite `Float` is refused with `NonFinite`, a value with a scalar
     /// lexeme is read through [`coerce`] (under the specification's numeral
@@ -2263,7 +2264,7 @@ pub mod coerce {
             if spec.float_reading == FloatReading::NearestKeepingLexeme {
                 return None;
             }
-            return Some(coerce_into_float(v, format));
+            return Some(coerce_into_float(v, format, spec.numeral));
         }
         if let Value::Float(bits) = v
             && !matches!(decode(Format::B64, *bits), FloatValue::Finite { .. })
@@ -2301,7 +2302,13 @@ pub mod coerce {
     /// Book anchors: `L-values-22`.
     pub use coerce_discriminated as coerce_tagged;
 
-    fn coerce_into_float(v: &Value, format: Format) -> Result<Value, FidelityReason> {
+    /// `numeral` is the specification's dialect, which reads the lexeme of a
+    /// string or a token (source text) and no other lexeme.
+    fn coerce_into_float(
+        v: &Value,
+        format: Format,
+        numeral: Option<NumeralDialect>,
+    ) -> Result<Value, FidelityReason> {
         let reject = |q: &Rat, negative: bool| match round_to(format, q, negative) {
             Rounded::Overflow { .. } => FidelityReason::Overflow,
             Rounded::Finite(_) => FidelityReason::PrecisionExceeded {
@@ -2345,9 +2352,13 @@ pub mod coerce {
                     Some((text, class)) => coerce(
                         &text,
                         &class,
-                        &ValueSpec::of(ScalarKind::Float {
-                            bits: u8::try_from(format.width()).unwrap_or(64),
-                        }),
+                        &ValueSpec {
+                            numeral: numeral
+                                .filter(|_| matches!(v, Value::Str(_) | Value::Token(_))),
+                            ..ValueSpec::of(ScalarKind::Float {
+                                bits: u8::try_from(format.width()).unwrap_or(64),
+                            })
+                        },
                     )
                     .unwrap_or(Err(FidelityReason::NotANumber)),
                     None => Ok(v.clone()),

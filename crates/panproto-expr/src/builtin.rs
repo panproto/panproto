@@ -182,19 +182,21 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         BuiltinOp::Sub => numeric_binop(&args[0], &args[1], i64::checked_sub, |a, b| a - b),
         BuiltinOp::Mul => numeric_binop(&args[0], &args[1], i64::checked_mul, |a, b| a * b),
         BuiltinOp::Div => {
-            let is_zero = match (&args[0], &args[1]) {
-                (_, Literal::Int(0)) => true,
-                (_, Literal::Float(b)) if *b == 0.0 => true,
-                _ => false,
-            };
+            // An ill-typed operand is refused before a zero divisor is: only
+            // a division of two numbers can divide by zero.
+            let numeric = |x: &Literal| matches!(x, Literal::Int(_) | Literal::Float(_));
+            let is_zero = numeric(&args[0])
+                && match &args[1] {
+                    Literal::Int(0) => true,
+                    Literal::Float(b) => *b == 0.0,
+                    _ => false,
+                };
             if is_zero {
                 Err(ExprError::DivisionByZero)
             } else {
                 numeric_binop(&args[0], &args[1], i64::checked_div, |a, b| a / b)
             }
         }
-        // `i64::MIN % -1` overflows, so the remainder is taken through
-        // `checked_rem` like every other integer operation here.
         BuiltinOp::Mod => match (&args[0], &args[1]) {
             (Literal::Int(_), Literal::Int(0)) => Err(ExprError::DivisionByZero),
             // The truncated remainder is below |b| in magnitude, so it is
