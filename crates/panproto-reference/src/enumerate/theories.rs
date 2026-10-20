@@ -310,7 +310,7 @@ pub fn raw_operations() -> Vec<Op> {
     let binders = ["x", "y"];
     let mut out = Vec::new();
     let mut frontier: Vec<Vec<(String, SortExpr, Implicit)>> = vec![Vec::new()];
-    for arity in 0..=2 {
+    for _ in 0..=2 {
         let mut next = Vec::new();
         for inputs in &frontier {
             for output in &exprs {
@@ -320,13 +320,11 @@ pub fn raw_operations() -> Vec<Op> {
                     output: output.clone(),
                 });
             }
-            if arity < 2 {
-                for binder in binders {
-                    for sort in &exprs {
-                        let mut grown = inputs.clone();
-                        grown.push((binder.to_owned(), sort.clone(), Implicit::No));
-                        next.push(grown);
-                    }
+            for binder in binders {
+                for sort in &exprs {
+                    let mut grown = inputs.clone();
+                    grown.push((binder.to_owned(), sort.clone(), Implicit::No));
+                    next.push(grown);
                 }
             }
         }
@@ -1121,12 +1119,6 @@ struct ClassOpForm {
     output: ClassSortForm,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum ClassSortSyntax<'a> {
-    Name(&'a str),
-    App(&'a str, &'a [Term]),
-}
-
 fn class_bound_positions(prefix: &[ClassSortForm]) -> Vec<usize> {
     prefix
         .iter()
@@ -1467,37 +1459,6 @@ fn scoped_binder_operations() -> Vec<Op> {
     out
 }
 
-fn class_sort_syntax(sort: &SortExpr) -> ClassSortSyntax<'_> {
-    match sort {
-        SortExpr::Name(name) => ClassSortSyntax::Name(name),
-        SortExpr::App(name, arguments) => ClassSortSyntax::App(name, arguments),
-    }
-}
-
-fn assert_class_operations_are_unique(operations: &[Op]) {
-    let syntax = operations
-        .iter()
-        .map(|operation| {
-            (
-                operation.name.as_str(),
-                operation
-                    .inputs
-                    .iter()
-                    .map(|(name, sort, implicit)| {
-                        (name.as_str(), class_sort_syntax(sort), *implicit)
-                    })
-                    .collect::<Vec<_>>(),
-                class_sort_syntax(&operation.output),
-            )
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        syntax.len(),
-        operations.len(),
-        "the operation class-agreement carrier contains duplicate syntax"
-    );
-}
-
 /// Every well-formed operation signature of the class-comparison scope.
 ///
 /// The base product has arity at most two, prefix-scoped dependencies, both
@@ -1510,8 +1471,7 @@ fn assert_class_operations_are_unique(operations: &[Op]) {
 /// # Panics
 ///
 /// Panics when the scope's length differs from its independently computed
-/// count or two of its signatures share a syntax key, either of which is a
-/// defect of this enumerator.
+/// count, which is a defect of this enumerator.
 #[must_use]
 pub fn class_operation_scope() -> Vec<Op> {
     let mut out = base_class_operation_scope();
@@ -1519,7 +1479,6 @@ pub fn class_operation_scope() -> Vec<Op> {
     assert_eq!(scoped.len(), SCOPED_BINDER_OPERATION_LEN);
     out.extend(scoped);
     assert_eq!(out.len(), CLASS_OPERATION_SCOPE_LEN);
-    assert_class_operations_are_unique(&out);
     out
 }
 
@@ -1674,28 +1633,6 @@ pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 4] {
     ]
 }
 
-fn assert_class_sorts_are_unique(sorts: &[Sort]) {
-    let syntax = sorts
-        .iter()
-        .map(|sort| {
-            (
-                sort.name.as_str(),
-                sort.params
-                    .iter()
-                    .map(|(name, expression)| (name.as_str(), class_sort_syntax(expression)))
-                    .collect::<Vec<_>>(),
-                sort.kind.as_str(),
-                sort.constructors.as_deref(),
-            )
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        syntax.len(),
-        sorts.len(),
-        "the sort class-agreement carrier contains duplicate syntax"
-    );
-}
-
 /// Every well-formed sort declaration of the class-comparison scope.
 ///
 /// The base product crosses prefix-scoped parameters with structural/value kind,
@@ -1707,8 +1644,7 @@ fn assert_class_sorts_are_unique(sorts: &[Sort]) {
 /// # Panics
 ///
 /// Panics when the scope's length differs from its independently computed
-/// count or two of its declarations share a syntax key, either of which is a
-/// defect of this enumerator.
+/// count, which is a defect of this enumerator.
 #[must_use]
 pub fn class_sort_scope() -> Vec<Sort> {
     let mut out = base_class_sort_scope();
@@ -1716,7 +1652,6 @@ pub fn class_sort_scope() -> Vec<Sort> {
     assert_eq!(scoped.len(), SCOPED_BINDER_SORT_LEN);
     out.extend(scoped);
     assert_eq!(out.len(), CLASS_SORT_SCOPE_LEN);
-    assert_class_sorts_are_unique(&out);
     out
 }
 
@@ -1922,4 +1857,884 @@ pub fn sort_mismatch_spans() -> Vec<TheoryDiagram> {
             },
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    //! Every scope's size against a closed form derived from its definition,
+    //! and its whole content against a recorded digest.
+
+    use std::collections::BTreeSet;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    use super::*;
+    use crate::theory::{
+        Defect, MorphismError, Site, check_morphism, compose, typecheck_signature,
+    };
+
+    /// The BLAKE3 digest, as lowercase hex, of the debug rendering of every
+    /// item, one per line.
+    fn digest<T: std::fmt::Debug>(items: impl IntoIterator<Item = T>) -> String {
+        let mut hasher =
+            crate::blake3_ref::Hasher::new_derive_key("panproto-reference theory scope digest");
+        for item in items {
+            hasher.update(format!("{item:?}\n").as_bytes());
+        }
+        hasher
+            .finalize()
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = std::fmt::Write::write_fmt(&mut hex, format_args!("{byte:02x}"));
+                hex
+            })
+    }
+
+    /// Run `work` on a worker thread and return its result, failing when it
+    /// has not returned after `seconds`.
+    fn within<T: Send + 'static>(seconds: u64, work: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("bounded".to_owned())
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let _ = sender.send(work());
+            })
+            .unwrap_or_else(|error| panic!("spawn the bounded worker: {error}"));
+        match receiver.recv_timeout(Duration::from_secs(seconds)) {
+            Ok(value) => value,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the bounded work did not end within {seconds} s")
+            }
+            Err(RecvTimeoutError::Disconnected) => panic!("the bounded work panicked"),
+        }
+    }
+
+    fn assert_digest<T: std::fmt::Debug>(
+        what: &str,
+        items: impl IntoIterator<Item = T>,
+        expected: &str,
+    ) {
+        assert_eq!(digest(items), expected, "content digest of {what}");
+    }
+
+    #[test]
+    fn a_sortless_or_cyclic_signature_is_checked_in_bounded_time() {
+        let cyclic = Theory {
+            name: THEORY_NAME.to_owned(),
+            sorts: raw_sort_lists()[4].clone(),
+            ..Theory::default()
+        };
+        let (empty, cycle) = within(10, move || {
+            (
+                typecheck_signature(&Theory::default()),
+                typecheck_signature(&cyclic),
+            )
+        });
+        assert_eq!(empty, Ok(()), "a theory without sorts is well formed");
+        assert_eq!(
+            cycle,
+            Err(vec![
+                Defect::UndeclaredSort(Site::SortParam("A".to_owned(), 0), "B".to_owned()),
+                Defect::UndeclaredSort(Site::SortParam("B".to_owned(), 0), "A".to_owned()),
+            ]),
+            "a dependency cycle leaves both parameter sorts undeclared"
+        );
+    }
+
+    #[test]
+    fn a_looping_rewrite_system_exhausts_the_morphism_budget_in_bounded_time() {
+        let unary = |name: &str| operation(name, vec![("x", simple("A"))], simple("A"));
+        let applied = |name: &str| app(name, vec![var("x")]);
+        let equation = |name: &str, lhs: &str, rhs: &str| Equation {
+            name: name.to_owned(),
+            lhs: applied(lhs),
+            rhs: applied(rhs),
+        };
+        let with = |name: &str, eqs: Vec<Equation>| Theory {
+            name: name.to_owned(),
+            sorts: vec![declare("A", Vec::new(), None)],
+            ops: vec![unary("f"), unary("g"), unary("h")],
+            eqs,
+            ..Theory::default()
+        };
+        let domain = with("D", vec![equation("e", "f", "g")]);
+        let codomain = with(
+            "C",
+            vec![equation("e1", "f", "h"), equation("e2", "h", "g")],
+        );
+        let identity = Morphism {
+            name: "m".to_owned(),
+            domain: "D".to_owned(),
+            codomain: "C".to_owned(),
+            sorts: [("A".to_owned(), "A".to_owned())].into(),
+            ops: ["f", "g", "h"]
+                .into_iter()
+                .map(|name| (name.to_owned(), OpImage::Op(name.to_owned())))
+                .collect(),
+        };
+        let outcome = within(10, move || check_morphism(&domain, &codomain, &identity));
+        assert_eq!(
+            outcome,
+            Err(MorphismError::EquationPreservationUnknown {
+                equation: "e".to_owned(),
+                steps: 512,
+            }),
+            "rewriting f(x) and h(x) into each other spends the whole budget of 512 steps"
+        );
+    }
+
+    #[test]
+    fn composition_names_its_classes_in_bounded_time() {
+        let node = |label: &str| {
+            (
+                label.to_owned(),
+                Theory {
+                    name: format!("T{label}"),
+                    sorts: vec![declare("A", Vec::new(), None)],
+                    ..Theory::default()
+                },
+            )
+        };
+        let diagram = TheoryDiagram::discrete(vec![node("L"), node("R")]);
+        let names = within(10, move || {
+            option_sets()
+                .iter()
+                .map(|options| {
+                    compose(&diagram, options).map(|composition| {
+                        composition
+                            .theory
+                            .sorts
+                            .iter()
+                            .map(|sort| sort.name.clone())
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let rejected = Err(crate::theory::ComposeError::NameClash(
+            crate::theory::SymKind::Sort,
+            "A".to_owned(),
+            Box::new(vec![
+                vec![crate::theory::SymRef {
+                    node: "L".to_owned(),
+                    name: "A".to_owned(),
+                }],
+                vec![crate::theory::SymRef {
+                    node: "R".to_owned(),
+                    name: "A".to_owned(),
+                }],
+            ]),
+        ));
+        assert_eq!(
+            names,
+            vec![
+                Ok(vec!["A".to_owned()]),
+                Ok(vec!["A".to_owned()]),
+                Ok(vec!["L.A".to_owned(), "R.A".to_owned()]),
+                rejected,
+            ],
+            "amalgamation joins the two `A`s; explicit identity freshens or refuses them"
+        );
+    }
+
+    #[test]
+    fn small_alphabets_match_their_closed_form_counts() {
+        assert_eq!(
+            schemas().len(),
+            5,
+            "one kind on two objects and at most one of the 2^2 * 1 candidate edges: 1 * (1 + 4)"
+        );
+        assert_digest(
+            "schemas",
+            schemas(),
+            "beb38302a6fc30b91bc6ba44935ce23e7e0cbf93eb1450c8468b2e8443ae9265",
+        );
+        let alphabet = ['p', 'q', 'r'];
+        assert_eq!(
+            sequences(&alphabet).len(),
+            13,
+            "words of length at most two over three letters: 1 + 3 + 9"
+        );
+        assert_digest(
+            "sequences",
+            sequences(&alphabet),
+            "65408ae82d92a8150600d778a1a8c08bd2793334570928ba81bf93d442215987",
+        );
+        assert_eq!(
+            subsets(&alphabet).len(),
+            7,
+            "subsets of size at most two of three items: 1 + 3 + 3"
+        );
+        assert_digest(
+            "subsets",
+            subsets(&alphabet),
+            "b225a9d3519f07a363e1f1488b20facb12500b13adc7510e63f1aedf2fb788ac",
+        );
+    }
+
+    #[test]
+    fn sort_shapes_and_their_operations_match_their_closed_form_counts() {
+        let shapes = SortShape::all();
+        assert_eq!(
+            shapes.len(),
+            8,
+            "none, three `A`-only shapes, four with `B`"
+        );
+        assert_digest(
+            "sort shapes",
+            &shapes,
+            "663373c0d7b28e1b36ea867cd37b485bc83c67d11eb37a1bef8f89db5d999f38",
+        );
+        // `A` only: one expression at every arity, 1 + 1 + 1 operations;
+        // simple `B`: two expressions everywhere, 2 + 2 * 2 + 4 * 2; the
+        // dependent `B`: 1 + 2 + (3 + 2), the second input's choices adding
+        // `B(x)` and `B(y)` as `x` and `y` have sort `A`.
+        let operation_counts: Vec<usize> = shapes
+            .iter()
+            .map(|shape| shape.operations("f").len())
+            .collect();
+        assert_eq!(operation_counts, [0, 3, 3, 3, 14, 14, 8, 8]);
+        for (shape, n) in shapes.iter().zip(&operation_counts) {
+            assert_eq!(
+                operation_lists(*shape).len(),
+                1 + n + n * n,
+                "no operation, [f] and [f, g] for {shape:?}"
+            );
+        }
+        assert_digest(
+            "operations",
+            shapes.iter().map(|shape| shape.operations("g")),
+            "59f4ec69588c58e8f11062b601dbfd445722465a91b838569c7e9d8ec6bc9c5d",
+        );
+        assert_digest(
+            "operation lists",
+            shapes.iter().map(|shape| operation_lists(*shape)),
+            "0e149ae6d4f0b5b5230ced606961fb39682238451b3bec5a31a838c6137adc40",
+        );
+    }
+
+    #[test]
+    fn signatures_match_their_closed_form_counts() {
+        let bare = bare_signatures();
+        assert_eq!(
+            bare.len(),
+            608,
+            "1 + 3 * (1 + 3 + 3^2) + 2 * (1 + 14 + 14^2) + 2 * (1 + 8 + 8^2)"
+        );
+        assert_digest(
+            "bare signatures",
+            &bare,
+            "bbda54d42974da95158181d3d7c550056d5879b4f9e8c453adf4369e3e5584f2",
+        );
+        // A list with c constants has (2 + c)^2 equations. Per shape with n
+        // operations of which k are constants, the lists contribute
+        // 5 + (10k + 5(n - k)) + (17k^2 + 20k(n - k) + 5(n - k)^2): 5 for no
+        // sort, 102 for each `A`-only shape (n = 3, k = 1), 1353 for each
+        // simple `B` (n = 14, k = 2) and 452 for each dependent `B` (n = 8,
+        // k = 1).
+        let all = signatures();
+        assert_eq!(all.len(), 5 + 3 * 102 + 2 * 1353 + 2 * 452);
+        assert_digest(
+            "signatures",
+            &all,
+            "0424effcc1f186a1ca2605a94d5732e9fa6b0aa961b00d2b3e4268e077ba89ac",
+        );
+        let terms: Vec<Vec<Term>> = bare
+            .iter()
+            .map(|theory| shallow_terms(&theory.ops))
+            .collect();
+        assert_eq!(
+            terms.iter().map(Vec::len).sum::<usize>(),
+            bare.iter()
+                .map(|theory| { 2 + theory.ops.iter().filter(|op| op.inputs.is_empty()).count() })
+                .sum::<usize>(),
+            "the two variables and one term per constant"
+        );
+        assert_digest(
+            "shallow terms",
+            &terms,
+            "becd9f03e5d53bbc97a559f7d093d4ccdc026074281f8e83437343e52c807124",
+        );
+    }
+
+    #[test]
+    fn the_raw_family_matches_its_closed_form_counts() {
+        assert_eq!(raw_sort_expressions().len(), 7);
+        assert_digest(
+            "raw sort expressions",
+            raw_sort_expressions(),
+            "511304d91d1c789a019fb86dce321838d9db5f33ff559cf5772d2fb5b7cbb64c",
+        );
+        assert_eq!(raw_sort_lists().len(), 7);
+        assert_digest(
+            "raw sort lists",
+            raw_sort_lists(),
+            "371f77139a3ca187a827efcb00325258453b20a75ee1e0c65ee67075e8e17f35",
+        );
+        // Seven outputs per input list; 2 * 7 = 14 choices per input.
+        assert_eq!(raw_operations().len(), 7 * (1 + 14 + 14 * 14));
+        assert_digest(
+            "raw operations",
+            raw_operations(),
+            "f05900b25f88a872ffe555a71e0adbc5657842161fc9c7fab92214ae7f695e3c",
+        );
+        assert_eq!(
+            raw_signatures().len(),
+            7 * (1 + 1477) + 5,
+            "each sort list bare and with each raw operation, then the five duplicates"
+        );
+        assert_digest(
+            "raw signatures",
+            raw_signatures(),
+            "2db971c098107b0b782e8578166a5867fb27e4b274e642da9b44b278f2c9180f",
+        );
+    }
+
+    /// The bare signatures with at most one operation.
+    fn small_signatures() -> Vec<Theory> {
+        bare_signatures()
+            .into_iter()
+            .filter(|theory| theory.ops.len() <= 1)
+            .collect()
+    }
+
+    #[test]
+    fn morphism_families_match_their_closed_form_counts() {
+        let small = small_signatures();
+        assert_eq!(small.len(), 8 + 3 * 3 + 2 * 14 + 2 * 8);
+        let mut images = Vec::new();
+        let mut total = Vec::new();
+        let mut partial = Vec::new();
+        for domain in &small {
+            for codomain in &small {
+                let constants = codomain
+                    .ops
+                    .iter()
+                    .filter(|op| op.inputs.is_empty())
+                    .count();
+                let mut expected = codomain.sorts.len().pow(
+                    u32::try_from(domain.sorts.len())
+                        .unwrap_or_else(|error| panic!("two sorts at most: {error}")),
+                );
+                for op in &domain.ops {
+                    let these = operation_images(op, codomain);
+                    assert_eq!(
+                        these.len(),
+                        codomain.ops.len() + op.inputs.len() + constants,
+                        "renames, inputs and constants"
+                    );
+                    expected *= these.len();
+                    images.push(these);
+                }
+                let morphisms = morphisms(domain, codomain);
+                assert_eq!(
+                    morphisms.len(),
+                    expected,
+                    "|sorts|^|sorts| times the images of each operation"
+                );
+                total.push(morphisms);
+                let partials = partial_morphisms(domain, codomain);
+                assert_eq!(
+                    partials.len(),
+                    2 * (domain.sorts.len() + domain.ops.len()),
+                    "each symbol left out and sent to an undeclared name"
+                );
+                partial.push(partials);
+            }
+        }
+        assert_digest(
+            "operation images",
+            &images,
+            "8f4e348ad1fc1cba1c49b3bd82abe8115d4c6b9a3d118341c7cc0c838f803dba",
+        );
+        assert_digest(
+            "morphisms",
+            &total,
+            "180867d2283e464458c1d32e32c3c156bdf6c5cd6d81569a147616afaef6b1db",
+        );
+        assert_digest(
+            "partial morphisms",
+            &partial,
+            "20a9cc17e4ded3baf83db065d1cb2a3ffa2345ce5dcf3af2e0f645cdf31b0b28",
+        );
+    }
+
+    #[test]
+    fn options_identifications_and_recipes_match_their_closed_form_counts() {
+        assert_eq!(option_sets().len(), 4, "two modes times two clash policies");
+        assert_digest(
+            "option sets",
+            option_sets(),
+            "a1910bec13f2debfc60a3ffc7f693e4ba58d352be58cae6acbd88a7e7df2b297",
+        );
+        for (size, max_len) in [(0, 2), (1, 2), (2, 1), (3, 2)] {
+            let pairs: usize = (size + 1) * (size + 1);
+            let expected: usize = (0..=max_len)
+                .scan(1, |power, _| {
+                    let this = *power;
+                    *power *= pairs;
+                    Some(this)
+                })
+                .sum();
+            assert_eq!(
+                identifications(size, max_len).len(),
+                expected,
+                "words of length at most {max_len} over the {pairs} pairs of 0..={size}"
+            );
+        }
+        assert_digest(
+            "identifications",
+            [identifications(1, 2), identifications(3, 2)],
+            "39a462cefcf985daf982fa384c947664f0198aa08fd20cf185475702283891ff",
+        );
+        let small = small_signatures();
+        let mut all = Vec::new();
+        for left in &small {
+            for right in &small {
+                let names = |theory: &Theory, sorts: bool| -> BTreeSet<String> {
+                    if sorts {
+                        theory.sorts.iter().map(|sort| sort.name.clone()).collect()
+                    } else {
+                        theory.ops.iter().map(|op| op.name.clone()).collect()
+                    }
+                };
+                let common = names(left, true).intersection(&names(right, true)).count()
+                    + names(left, false)
+                        .intersection(&names(right, false))
+                        .count();
+                let these = recipes(left, right);
+                assert_eq!(
+                    these.len(),
+                    13 + (2 << common),
+                    "three bases, 2 * (2^common + 1) colimits, eight diagram steps"
+                );
+                all.push(these);
+            }
+        }
+        assert_digest(
+            "recipes",
+            &all,
+            "af8ed5c411f51701834d0ff4ac8c26d637d977fc1812d39af9f9d87f503a81f3",
+        );
+    }
+
+    #[test]
+    fn the_action_families_have_their_stated_sizes() {
+        let whole = whole_action_scope();
+        assert_eq!(
+            whole.domains.len(),
+            6,
+            "two `p` arguments times three `r` outputs"
+        );
+        assert_eq!(
+            whole.codomains.len(),
+            6,
+            "three closures times two `Z` arguments"
+        );
+        assert_eq!(whole.legs.len(), 4 * 3 * 5 * 3 * 2 * 5 * 4);
+        assert_eq!(whole.probes.len(), 3);
+        assert_digest(
+            "whole action domains",
+            &whole.domains,
+            "a26a3be7b5498cd3f0ed5b10dcef6033de951d69bf2d1aed0d97694171d807fa",
+        );
+        assert_digest(
+            "whole action codomains",
+            &whole.codomains,
+            "495080fd94457b0966beae4591848e7d9723845a73eeda8cd58fc058f27ee669",
+        );
+        assert_digest(
+            "whole action legs",
+            &whole.legs,
+            "dfc02aa6b87f78a5ed6430cc6e1354cc0d2bef0290f8d8f573f9bd2628c4f784",
+        );
+        assert_digest(
+            "whole action probes",
+            &whole.probes,
+            "feb7c1b9f844a5637f3fd79e60a27bd9b7489dec5f40160883a231f6834c4a28",
+        );
+        let constructors = constructor_scope();
+        assert_eq!(constructors.domains.len(), 3);
+        assert_eq!(constructors.codomains.len(), 4);
+        assert_eq!(
+            constructors.legs.len(),
+            2 + 3 * (1 + 3) + 2,
+            "two renames, k1 and k over the three leaves, two ill-formed images"
+        );
+        assert_eq!(constructors.probes.len(), 3);
+        assert_digest(
+            "constructor scope",
+            [constructors],
+            "ae2ca591c8ae8881c1a5c7c589675aab5c185ba616ede73b9d7fbe7058df0b82",
+        );
+    }
+
+    #[test]
+    fn fibre_spans_are_pinned() {
+        assert_eq!(fibre_spans().len(), 4, "two image choices per leg");
+        assert_digest(
+            "fibre spans",
+            fibre_spans(),
+            "dccfa53a20e8742b67a28dd51a5a56bab7c77d7801cf4ae0f24db9d516adec17",
+        );
+        assert_digest(
+            "a renamed fibre span",
+            [fibre_span("k", ["u", "v", "w"], [false, true])],
+            "f57fa22e342ab62ea53e8ed8bd9e06b54f3d9e4e42ff147a7ec0b906a05d1dde",
+        );
+    }
+
+    fn operation_prefixes() -> Vec<Vec<(ClassSortForm, Implicit)>> {
+        let mut out = vec![Vec::new()];
+        let mut frontier: Vec<Vec<(ClassSortForm, Implicit)>> = vec![Vec::new()];
+        for _ in 0..2 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                let sorts: Vec<ClassSortForm> =
+                    prefix.iter().map(|(sort, _)| sort.clone()).collect();
+                for sort in class_sort_forms(&class_bound_positions(&sorts), false) {
+                    for implicit in [Implicit::No, Implicit::Yes] {
+                        let mut grown = prefix.clone();
+                        grown.push((sort.clone(), implicit));
+                        next.push(grown);
+                    }
+                }
+            }
+            out.extend(next.iter().cloned());
+            frontier = next;
+        }
+        out
+    }
+
+    fn sort_prefixes() -> Vec<Vec<ClassSortForm>> {
+        let mut out = vec![Vec::new()];
+        let mut frontier: Vec<Vec<ClassSortForm>> = vec![Vec::new()];
+        for _ in 0..2 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for sort in class_sort_forms(&class_bound_positions(prefix), false) {
+                    let mut grown = prefix.clone();
+                    grown.push(sort);
+                    next.push(grown);
+                }
+            }
+            out.extend(next.iter().cloned());
+            frontier = next;
+        }
+        out
+    }
+
+    fn x_profile<'a>(sorts: impl Iterator<Item = &'a ClassSortForm>) -> (usize, bool) {
+        let xs: Vec<&ClassSortForm> = sorts.filter(|sort| sort.head == "X").collect();
+        let bare = xs.iter().any(|sort| sort.args.is_none());
+        (xs.len(), bare)
+    }
+
+    /// The distinct operations rendered, under both `X` spellings, from
+    /// every operation form extending `prefix`.
+    fn rendered_operations(prefix: &[(ClassSortForm, Implicit)]) -> usize {
+        let mut forms = Vec::new();
+        extend_class_operations(&mut prefix.to_vec(), &mut forms);
+        let mut rendered = BTreeSet::new();
+        for form in &forms {
+            for names in class_names(form.inputs.len()) {
+                for empty_app in [false, true] {
+                    rendered.insert(format!(
+                        "{:?}",
+                        render_class_operation(form, &names, empty_app)
+                    ));
+                }
+            }
+        }
+        rendered.len()
+    }
+
+    /// The distinct sort declarations rendered from every parameter list
+    /// extending `prefix`.
+    fn rendered_sorts(prefix: &[ClassSortForm]) -> usize {
+        let mut forms = Vec::new();
+        extend_class_sorts(&mut prefix.to_vec(), &mut forms);
+        let mut rendered = BTreeSet::new();
+        for params in &forms {
+            for names in class_names(params.len()) {
+                for empty_app in [false, true] {
+                    for value_kind in [false, true] {
+                        for closed in [false, true] {
+                            rendered.insert(format!(
+                                "{:?}",
+                                render_class_sort_declaration(
+                                    params, &names, empty_app, value_kind, closed
+                                )
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        rendered.len()
+    }
+
+    #[test]
+    fn class_recurrences_agree_with_the_materialized_prefix_scopes() {
+        let operation_prefixes = operation_prefixes();
+        assert_eq!(
+            operation_prefixes.len(),
+            1 + 8 + (2 * 5 * 2 + 6 * 4 * 2),
+            "the empty prefix, four forms by two flags, and their prefix-valid extensions"
+        );
+        for prefix in &operation_prefixes {
+            let (x_bound, has_bare_x) = x_profile(prefix.iter().map(|(sort, _)| sort));
+            assert_eq!(
+                class_operation_count(prefix.len(), x_bound, has_bare_x),
+                rendered_operations(prefix),
+                "operations extending {prefix:?}"
+            );
+        }
+        let sort_prefixes = sort_prefixes();
+        assert_eq!(sort_prefixes.len(), 1 + 4 + (5 + 3 * 4));
+        for prefix in &sort_prefixes {
+            let (x_bound, has_bare_x) = x_profile(prefix.iter());
+            assert_eq!(
+                class_sort_count(prefix.len(), x_bound, has_bare_x),
+                rendered_sorts(prefix),
+                "sort declarations extending {prefix:?}"
+            );
+        }
+    }
+
+    /// Output forms over `x` bound `X` inputs: `X`, `Y`, `Y` of each of the
+    /// `2 + x` atoms and `H` of each pair of atoms.
+    const fn class_outputs(x: usize) -> usize {
+        2 + (2 + x) + (2 + x) * (2 + x)
+    }
+
+    /// Renderings per output form list: both spellings of every output when
+    /// an input already spells `X`, else one more for the bare `X` output.
+    const fn class_spellings(x: usize, bare: bool) -> usize {
+        if bare {
+            2 * class_outputs(x)
+        } else {
+            class_outputs(x) + 1
+        }
+    }
+
+    /// The operation count unrolled over the three depths: a depth-two
+    /// prefix has two namings; a shallower one adds two implicit flags times
+    /// the `X` input and the `3 + x` other input forms.
+    fn operation_closed_form(depth: usize, x: usize, bare: bool) -> usize {
+        let two = |x: usize, bare: bool| 2 * class_spellings(x, bare);
+        let one = |x: usize, bare: bool| {
+            2 * class_spellings(x, bare) + 2 * two(x + 1, true) + 2 * (3 + x) * two(x, bare)
+        };
+        match depth {
+            0 => class_spellings(x, bare) + 2 * one(x + 1, true) + 2 * (3 + x) * one(x, bare),
+            1 => one(x, bare),
+            _ => two(x, bare),
+        }
+    }
+
+    /// The sort count unrolled likewise: four kind and closure choices,
+    /// doubled for a bare `X` parameter, times the namings.
+    fn sort_closed_form(depth: usize, x: usize, bare: bool) -> usize {
+        let spellings = |bare: bool| if bare { 2 } else { 1 };
+        let two = |bare: bool| 8 * spellings(bare);
+        let one = |x: usize, bare: bool| 8 * spellings(bare) + two(true) + (3 + x) * two(bare);
+        match depth {
+            0 => 4 * spellings(bare) + one(x + 1, true) + (3 + x) * one(x, bare),
+            1 => one(x, bare),
+            _ => two(bare),
+        }
+    }
+
+    #[test]
+    fn class_recurrences_match_their_closed_forms() {
+        for depth in 0..=2 {
+            for x in 0..=3 {
+                for bare in [false, true] {
+                    assert_eq!(
+                        class_operation_count(depth, x, bare),
+                        operation_closed_form(depth, x, bare),
+                        "operations at depth {depth}, {x} bound, bare {bare}"
+                    );
+                    assert_eq!(
+                        class_sort_count(depth, x, bare),
+                        sort_closed_form(depth, x, bare),
+                        "sorts at depth {depth}, {x} bound, bare {bare}"
+                    );
+                }
+            }
+        }
+        assert_eq!(class_operation_count(2, 0, false), 2 * (8 + 1));
+        assert_eq!(class_operation_count(2, 1, true), 2 * 2 * 14);
+        assert_eq!(class_operation_count(2, 2, true), 2 * 2 * 22);
+        assert_eq!(class_sort_count(2, 0, false), 8);
+        assert_eq!(class_sort_count(2, 1, true), 16);
+    }
+
+    #[test]
+    fn class_scopes_match_their_closed_form_counts_and_are_syntactically_unique() {
+        let operations = class_operation_scope();
+        assert_eq!(
+            operations.len(),
+            (8 + 1) + (2 * 2 * 2 * 14 + 3 * 2 * 2 * 9) + (352 + 896 + 672 + 648) + 18,
+            "arity 0: 8 outputs and the second X spelling; arity 1: an X input \
+             (2 flags, 2 names, both spellings of 14 outputs) and three others \
+             (2 flags, 2 names, 9); arity 2: X then X (2 * 2 * 2 * 2 * 22), X then \
+             one of four others (2 * 4 * 2 * 2 * 2 * 14), one of three then X \
+             (3 * 2 * 2 * 2 * 2 * 14), one of three then one of three \
+             (3 * 2 * 3 * 2 * 2 * 9); then the eighteen scoped signatures"
+        );
+        assert_digest(
+            "class operation scope",
+            &operations,
+            "71fbc8dbec52266a56fda703fca8abc357cdfab8ecabdcdc2a507e3e7ef1b8b4",
+        );
+        let operation_syntax: BTreeSet<String> =
+            operations.iter().map(|op| format!("{op:?}")).collect();
+        assert_eq!(
+            operation_syntax.len(),
+            operations.len(),
+            "no two operations share a rendering"
+        );
+        let sorts = class_sort_scope();
+        assert_eq!(
+            sorts.len(),
+            4 + (2 * 4 * 2 + 3 * 2 * 4) + (5 * 2 * 4 * 2 + 3 * (2 * 4 * 2 + 3 * 2 * 4)) + 16,
+            "four kind and closure choices per rendering: no parameter; an X \
+             parameter (two names, both spellings) or three others; X then any \
+             of five, or one of three then X or one of three; then the sixteen \
+             scoped declarations"
+        );
+        assert_digest(
+            "class sort scope",
+            &sorts,
+            "6bffcc1739aafbffe69d14780f6135ba048095fd88b35b5d2d68afbfff098217",
+        );
+        let sort_syntax: BTreeSet<String> = sorts.iter().map(|sort| format!("{sort:?}")).collect();
+        assert_eq!(
+            sort_syntax.len(),
+            sorts.len(),
+            "no two sorts share a rendering"
+        );
+        assert_digest(
+            "capture witnesses",
+            [format!(
+                "{:?}{:?}",
+                class_operation_capture_witnesses(),
+                class_sort_capture_witnesses()
+            )],
+            "8840ef67155ddc9dadc5a6c71b40d29a08f0ad6626b2f94f93ed8eb2e4362a9e",
+        );
+    }
+
+    fn form(head: &'static str, args: Option<Vec<ClassTermForm>>) -> ClassSortForm {
+        ClassSortForm { head, args }
+    }
+
+    #[test]
+    fn class_form_helpers_are_pinned() {
+        let x = || form("X", None);
+        let y = || form("Y", None);
+        assert_eq!(class_bound_positions(&[x(), y(), x()]), [0, 2]);
+        assert_eq!(class_bound_positions(&[y(), x()]), [1]);
+        assert_eq!(class_bound_positions(&[y()]), Vec::<usize>::new());
+        assert!(class_sort_form_has_bare_x(&x()));
+        assert!(!class_sort_form_has_bare_x(&form("X", Some(Vec::new()))));
+        assert!(!class_sort_form_has_bare_x(&y()));
+        let op = |inputs: Vec<ClassSortForm>, output| ClassOpForm {
+            inputs: inputs
+                .into_iter()
+                .map(|sort| (sort, Implicit::No))
+                .collect(),
+            output,
+        };
+        assert!(class_operation_has_bare_x(&op(vec![y()], x())));
+        assert!(class_operation_has_bare_x(&op(vec![x()], y())));
+        assert!(!class_operation_has_bare_x(&op(vec![y()], y())));
+        assert_eq!(class_names(0), [Vec::<&str>::new()]);
+        assert_eq!(class_names(1), [["x"], ["y"]]);
+        assert_eq!(class_names(2), [["x", "y"], ["y", "x"]]);
+        assert_eq!(
+            format!("{:?}", render_class_sort(&x(), &[], true)),
+            "App(\"X\", [])"
+        );
+        assert_eq!(
+            format!("{:?}", render_class_sort(&x(), &[], false)),
+            "Name(\"X\")"
+        );
+        assert_eq!(
+            format!("{:?}", render_class_sort(&y(), &[], true)),
+            "Name(\"Y\")"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                render_class_sort(
+                    &form("Y", Some(vec![ClassTermForm::Bound(0)])),
+                    &["u"],
+                    true
+                )
+            ),
+            "App(\"Y\", [Var(\"u\")])"
+        );
+        assert_eq!(class_sort_forms(&[], false).len(), 4);
+        assert_eq!(class_sort_forms(&[0], true).len(), 2 + 3 + 3 * 3);
+    }
+
+    #[test]
+    fn connector_diagrams_are_pinned() {
+        let operations = class_operation_scope();
+        let sorts = class_sort_scope();
+        let operation_pairs: Vec<TheoryDiagram> = operations
+            .iter()
+            .step_by(151)
+            .flat_map(|left| {
+                operations
+                    .iter()
+                    .step_by(157)
+                    .map(move |right| operation_class_pair(left, right))
+            })
+            .collect();
+        assert_eq!(
+            operation_pairs.len(),
+            19 * 18,
+            "every 151st against every 157th of the 2815 operations"
+        );
+        assert_digest(
+            "operation class pairs",
+            &operation_pairs,
+            "38771f3c80bcffabf9d2eedba9af7f0293a83adcd0b056dbd14bc975c34ae411",
+        );
+        let sort_pairs: Vec<TheoryDiagram> = sorts
+            .iter()
+            .step_by(7)
+            .flat_map(|left| {
+                sorts
+                    .iter()
+                    .step_by(11)
+                    .map(move |right| sort_class_pair(left, right))
+            })
+            .collect();
+        assert_eq!(
+            sort_pairs.len(),
+            38 * 24,
+            "every 7th against every 11th of the 260 sorts"
+        );
+        assert_digest(
+            "sort class pairs",
+            &sort_pairs,
+            "6472b63af000fa17d6836dd653e4488fa27363da75fef9717f5863aaf4bff429",
+        );
+        assert_eq!(
+            sort_mismatch_spans().len(),
+            4,
+            "arity, parameter, kind, closure"
+        );
+        assert_digest(
+            "sort mismatch spans",
+            sort_mismatch_spans(),
+            "a04e8523218469755ec4a5afa8b9c17a00527f225c66e5c8a1dc9bde04ca1b61",
+        );
+    }
 }

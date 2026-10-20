@@ -337,10 +337,6 @@ pub mod theory {
         right: &SortExpr,
         right_binders: &[Name],
     ) -> bool {
-        if left.head() != right.head() || sort_arguments(left).len() != sort_arguments(right).len()
-        {
-            return false;
-        }
         let id = |name: &str| name.to_owned();
         name_free_sort(left_binders, left, &id, &id)
             == name_free_sort(right_binders, right, &id, &id)
@@ -513,11 +509,6 @@ pub mod theory {
     }
 
     fn constructor_admitted(operation: &Op, scrutinee_sort: &SortExpr) -> bool {
-        if operation.output.head() != scrutinee_sort.head()
-            || sort_arguments(&operation.output).len() != sort_arguments(scrutinee_sort).len()
-        {
-            return false;
-        }
         let output = substitute_sort_map(&operation.output, &constructor_rename_apart(operation));
         unify_sorts(&output, scrutinee_sort).is_ok()
     }
@@ -3281,10 +3272,7 @@ pub mod theory {
             .get(right)
             .cloned()
             .ok_or_else(|| RecomposeError::TheoryNotFound(right.to_owned()))?;
-        let mut interface = Theory {
-            name: format!("{step_name}.interface"),
-            ..Theory::default()
-        };
+        let mut interface = Theory::default();
         for name in shared_sorts {
             let sort = left_theory
                 .sorts
@@ -3666,16 +3654,17 @@ pub mod theory {
 
     /// For each edge that generated equations, the least of their names.
     fn least_closing(added: &[(Name, Generated)]) -> BTreeMap<usize, Name> {
-        let mut closing: BTreeMap<usize, Name> = BTreeMap::new();
+        let mut names: BTreeMap<usize, BTreeSet<Name>> = BTreeMap::new();
         for (name, generated) in added {
-            let least = closing
+            names
                 .entry(generated.edge_index)
-                .or_insert_with(|| name.clone());
-            if name < least {
-                least.clone_from(name);
-            }
+                .or_default()
+                .insert(name.clone());
         }
-        closing
+        names
+            .into_iter()
+            .filter_map(|(edge, set)| set.into_iter().next().map(|least| (edge, least)))
+            .collect()
     }
 
     /// The transport check: every translated node equation, then every
@@ -4021,14 +4010,11 @@ pub mod theory {
                             .push((source, image));
                     }
                     by_name.into_values().all(|entries| {
-                        entries
-                            .iter()
-                            .enumerate()
-                            .all(|(index, (left, left_image))| {
-                                entries[index + 1..].iter().all(|(right, right_image)| {
-                                    left.node == right.node || left_image == right_image
-                                })
+                        entries.iter().all(|(left, left_image)| {
+                            entries.iter().all(|(right, right_image)| {
+                                left.node == right.node || left_image == right_image
                             })
+                        })
                     })
                 })
     }
@@ -5668,6 +5654,1662 @@ pub mod theory {
                     second: sym("r", "r"),
                     reason: NotRepresentableReason::NeedsSortEquation,
                 })
+            );
+        }
+
+        /// The BLAKE3 digest, as lowercase hex, of the debug rendering of
+        /// every item, one per line.
+        fn digest<T: std::fmt::Debug>(items: impl IntoIterator<Item = T>) -> String {
+            let mut hasher = crate::blake3_ref::Hasher::new_derive_key(
+                "panproto-reference theory outcome digest",
+            );
+            for item in items {
+                hasher.update(format!("{item:?}\n").as_bytes());
+            }
+            hasher
+                .finalize()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    let _ = std::fmt::Write::write_fmt(&mut hex, format_args!("{byte:02x}"));
+                    hex
+                })
+        }
+
+        fn assert_digest<T: std::fmt::Debug>(
+            what: &str,
+            items: impl IntoIterator<Item = T>,
+            expected: &str,
+        ) {
+            assert_eq!(digest(items), expected, "outcome digest of {what}");
+        }
+
+        fn name(head: &str) -> SortExpr {
+            SortExpr::Name(head.to_owned())
+        }
+
+        fn sort_app(head: &str, args: Vec<Term>) -> SortExpr {
+            SortExpr::App(head.to_owned(), args)
+        }
+
+        fn constant(op: &str) -> Term {
+            Term::App(op.to_owned(), Vec::new())
+        }
+
+        fn branch(constructor: &str, binders: &[&str], body: Term) -> CaseBranch {
+            CaseBranch {
+                constructor: constructor.to_owned(),
+                binders: binders.iter().map(|binder| (*binder).to_owned()).collect(),
+                body,
+            }
+        }
+
+        fn case(scrutinee: Term, branches: Vec<CaseBranch>) -> Term {
+            Term::Case(Box::new(scrutinee), branches)
+        }
+
+        fn local(binder: &str, bound: Term, body: Term) -> Term {
+            Term::Let(binder.to_owned(), Box::new(bound), Box::new(body))
+        }
+
+        fn operation(name: &str, inputs: &[(&str, SortExpr, Implicit)], output: SortExpr) -> Op {
+            Op {
+                name: name.to_owned(),
+                inputs: inputs
+                    .iter()
+                    .map(|(input, sort, implicit)| ((*input).to_owned(), sort.clone(), *implicit))
+                    .collect(),
+                output,
+            }
+        }
+
+        fn explicit(input: &str, sort: SortExpr) -> (&str, SortExpr, Implicit) {
+            (input, sort, Implicit::No)
+        }
+
+        fn implicit(input: &str, sort: SortExpr) -> (&str, SortExpr, Implicit) {
+            (input, sort, Implicit::Yes)
+        }
+
+        fn dependent(sort: &str, params: &[(&str, SortExpr)]) -> Sort {
+            Sort {
+                params: params
+                    .iter()
+                    .map(|(param, expr)| ((*param).to_owned(), expr.clone()))
+                    .collect(),
+                ..simple(sort)
+            }
+        }
+
+        fn theory(name: &str, sorts: Vec<Sort>, ops: Vec<Op>) -> Theory {
+            Theory {
+                name: name.to_owned(),
+                sorts,
+                ops,
+                ..Theory::default()
+            }
+        }
+
+        fn identity_on(domain: &Theory, codomain: &Theory) -> Morphism {
+            Morphism {
+                name: "id".to_owned(),
+                domain: domain.name.clone(),
+                codomain: codomain.name.clone(),
+                sorts: domain
+                    .sorts
+                    .iter()
+                    .map(|sort| (sort.name.clone(), sort.name.clone()))
+                    .collect(),
+                ops: domain
+                    .ops
+                    .iter()
+                    .map(|op| (op.name.clone(), OpImage::Op(op.name.clone())))
+                    .collect(),
+            }
+        }
+
+        #[test]
+        fn terms_and_sort_expressions_display_in_their_written_form() {
+            let probe = case(
+                var("b"),
+                vec![
+                    branch("t", &[], constant("f")),
+                    branch("pair", &["p", "q"], app("m", vec![var("p"), var("q")])),
+                    branch("one", &["u"], var("u")),
+                ],
+            );
+            assert_eq!(
+                probe.to_string(),
+                "case b of t() => f() | pair(p, q) => m(p, q) | one(u) => u end"
+            );
+            assert_eq!(app("f", vec![var("x")]).to_string(), "f(x)");
+            assert_eq!(
+                app("q", vec![constant("d"), app("r", vec![var("x"), var("y")])]).to_string(),
+                "q(d(), r(x, y))"
+            );
+            assert_eq!(Term::Hole(Some("h".to_owned())).to_string(), "?h");
+            assert_eq!(Term::Hole(None).to_string(), "?");
+            assert_eq!(
+                local("n", constant("c"), app("q", vec![var("n"), constant("d")])).to_string(),
+                "let n = c() in q(n, d())"
+            );
+            assert_eq!(name("A").to_string(), "A");
+            assert_eq!(sort_app("X", Vec::new()).to_string(), "X()");
+            assert_eq!(sort_app("Y", vec![var("x")]).to_string(), "Y(x)");
+            assert_eq!(
+                sort_app("H", vec![var("x"), constant("c"), var("y")]).to_string(),
+                "H(x, c(), y)"
+            );
+        }
+
+        #[test]
+        fn sort_expressions_hash_and_order_by_head_then_arguments() {
+            use std::hash::{Hash, Hasher};
+            let hash = |sort: &SortExpr| {
+                let mut state = std::collections::hash_map::DefaultHasher::new();
+                sort.hash(&mut state);
+                state.finish()
+            };
+            assert_eq!(hash(&name("A")), hash(&sort_app("A", Vec::new())));
+            assert_ne!(hash(&name("A")), hash(&name("B")));
+            assert_ne!(
+                hash(&sort_app("B", vec![var("x")])),
+                hash(&sort_app("B", vec![var("y")]))
+            );
+            assert_eq!(
+                name("A").partial_cmp(&name("B")),
+                Some(std::cmp::Ordering::Less)
+            );
+            assert_eq!(
+                sort_app("B", vec![var("x")]).partial_cmp(&name("B")),
+                Some(std::cmp::Ordering::Greater)
+            );
+            assert!(name("A") < sort_app("A", vec![var("x")]));
+        }
+
+        #[test]
+        fn occurrence_respects_local_and_branch_binders() {
+            let x = || var("x");
+            let c = || constant("c");
+            assert!(occurs_in("x", &app("f", vec![c(), x()])));
+            assert!(!occurs_in("x", &Term::Hole(Some("x".to_owned()))));
+            assert!(occurs_in("x", &local("y", x(), c())), "in the bound term");
+            assert!(occurs_in("x", &local("y", c(), x())), "in the body");
+            assert!(
+                !occurs_in("x", &local("x", c(), x())),
+                "shadowed in the body"
+            );
+            assert!(!occurs_in("x", &local("y", c(), c())), "absent");
+            assert!(occurs_in("x", &case(x(), Vec::new())), "in the scrutinee");
+            assert!(
+                occurs_in("x", &case(c(), vec![branch("k", &["p"], x())])),
+                "free in a branch"
+            );
+            assert!(
+                !occurs_in("x", &case(c(), vec![branch("k", &["x"], x())])),
+                "bound by the branch"
+            );
+            assert!(
+                !occurs_in("x", &case(c(), vec![branch("k", &["p"], c())])),
+                "absent from the branch"
+            );
+        }
+
+        #[test]
+        fn unification_solves_variables_and_refuses_clashes() {
+            let x = || var("x");
+            assert_eq!(unify_terms(vec![(x(), x())]), Ok(BTreeMap::new()));
+            assert_eq!(
+                unify_terms(vec![(
+                    app("f", vec![x(), constant("c")]),
+                    app("f", vec![constant("d"), var("y")])
+                )]),
+                Ok(BTreeMap::from([
+                    ("x".to_owned(), constant("d")),
+                    ("y".to_owned(), constant("c")),
+                ]))
+            );
+            assert_eq!(
+                unify_terms(vec![(app("f", vec![x()]), app("g", vec![x()]))]),
+                Err("cannot unify f(x) with g(x)".to_owned())
+            );
+            assert_eq!(
+                unify_terms(vec![(app("f", vec![x()]), app("f", vec![x(), var("y")]))]),
+                Err("cannot unify f(x) with f(x, y)".to_owned())
+            );
+            assert_eq!(
+                unify_terms(vec![(x(), app("f", vec![x()]))]),
+                Err("occurs check failed: x in f(x)".to_owned())
+            );
+            assert_eq!(
+                unify_sorts(
+                    &sort_app("B", vec![x()]),
+                    &sort_app("B", vec![x(), var("y")])
+                ),
+                Err("cannot unify B(x) with B(x, y)".to_owned())
+            );
+            assert_eq!(
+                unify_sorts(&name("A"), &name("B")),
+                Err("cannot unify A with B".to_owned())
+            );
+            assert_eq!(
+                unify_sorts(
+                    &sort_app("B", vec![x()]),
+                    &sort_app("B", vec![constant("c")])
+                ),
+                Ok(BTreeMap::from([("x".to_owned(), constant("c"))]))
+            );
+        }
+
+        /// Sorts `A`, `B`, `N`, `W(n : N)` and `U(m : N)`; operations
+        /// `a : A`, `z : N`, `g(x : A, y : B) : A`, `k({n : N}, w : W(n)) : N`
+        /// and `u : U(z())`.
+        fn application_theory() -> Theory {
+            let n = || name("N");
+            theory(
+                "T",
+                vec![
+                    simple("A"),
+                    simple("B"),
+                    simple("N"),
+                    dependent("W", &[("n", n())]),
+                    dependent("U", &[("m", n())]),
+                ],
+                vec![
+                    operation("a", &[], name("A")),
+                    operation("z", &[], n()),
+                    operation(
+                        "g",
+                        &[explicit("x", name("A")), explicit("y", name("B"))],
+                        name("A"),
+                    ),
+                    operation(
+                        "k",
+                        &[
+                            implicit("n", n()),
+                            explicit("w", sort_app("W", vec![var("n")])),
+                        ],
+                        n(),
+                    ),
+                    operation("u", &[], sort_app("U", vec![constant("z")])),
+                ],
+            )
+        }
+
+        #[test]
+        fn applications_are_typed_argument_by_argument() {
+            let t = application_theory();
+            let op = |name: &str| {
+                find_op(&t, name).unwrap_or_else(|| panic!("the theory declares {name}"))
+            };
+            assert_eq!(
+                application_sort(&t, &[], op("g"), &[constant("a"), constant("a")]),
+                Err("type mismatch for g argument 1: expected B, got A".to_owned())
+            );
+            assert_eq!(
+                application_sort(&t, &[], op("g"), &[constant("a")]),
+                Err("arity mismatch for operation g: expected 2 args, got 1".to_owned())
+            );
+            assert_eq!(
+                application_sort(&t, &[], op("k"), &[constant("u")]),
+                Err("type mismatch for k argument 0: expected W(?n_0), got U(z())".to_owned())
+            );
+            let context = [("w".to_owned(), sort_app("W", vec![constant("z")]))];
+            assert_eq!(
+                format!("{:?}", application_sort(&t, &context, op("k"), &[var("w")])),
+                "Ok(Name(\"N\"))"
+            );
+        }
+
+        #[test]
+        fn a_branch_refinement_is_stated_over_the_branch_binders() {
+            let cons = operation(
+                "cons",
+                &[explicit("n", name("N"))],
+                sort_app("V", vec![app("s", vec![var("n")])]),
+            );
+            let refinement = branch_refinement(
+                &cons,
+                &["j".to_owned()],
+                &var("xs"),
+                &sort_app("V", vec![app("s", vec![var("k")])]),
+            )
+            .unwrap_or_else(|error| panic!("the constructor's output unifies: {error}"));
+            assert_eq!(
+                refinement.substitution,
+                BTreeMap::from([
+                    ("j".to_owned(), var("k")),
+                    ("xs".to_owned(), app("cons", vec![var("j")])),
+                ])
+            );
+            assert_eq!(
+                format!("{:?}", refinement.binder_sorts),
+                "[(\"j\", Name(\"N\"))]"
+            );
+        }
+
+        #[test]
+        fn equation_typing_reports_the_first_failing_side() {
+            let t = theory(
+                "T",
+                vec![simple("A"), simple("B")],
+                vec![
+                    operation("f", &[explicit("x", name("A"))], name("A")),
+                    operation("g", &[explicit("x", name("B"))], name("A")),
+                ],
+            );
+            let x = || var("x");
+            assert_eq!(equation_well_typed(&t, &app("f", vec![x()]), &x()), Ok(()));
+            assert_eq!(
+                equation_well_typed(&t, &app("f", vec![x()]), &app("g", vec![x()])),
+                Err("variable x is constrained at both Name(\"A\") and Name(\"B\")".to_owned())
+            );
+            assert_eq!(
+                equation_well_typed(&t, &x(), &var("y")),
+                Err("the left side is not well typed: unbound variable: x".to_owned())
+            );
+            assert_eq!(
+                equation_well_typed(&t, &case(var("w"), Vec::new()), &var("y")),
+                Err("the right side is not well typed: unbound variable: y".to_owned())
+            );
+        }
+
+        #[test]
+        fn an_implicit_input_must_be_mentioned_by_an_explicit_input_or_the_output() {
+            let with = |op: Op| {
+                theory(
+                    "T",
+                    vec![
+                        simple("A"),
+                        simple("N"),
+                        dependent("V", &[("n", name("N"))]),
+                    ],
+                    vec![operation("z", &[], name("N")), op],
+                )
+            };
+            let v = || sort_app("V", vec![var("n")]);
+            assert_eq!(
+                typecheck_theory_body(&with(operation(
+                    "len",
+                    &[implicit("n", name("N")), explicit("v", v())],
+                    name("N"),
+                ))),
+                Ok(())
+            );
+            assert_eq!(
+                typecheck_theory_body(&with(operation("out", &[implicit("n", name("N"))], v()))),
+                Ok(())
+            );
+            assert_eq!(
+                typecheck_theory_body(&with(operation(
+                    "bad",
+                    &[implicit("n", name("N")), implicit("m", v())],
+                    name("N"),
+                ))),
+                Err("implicit parameter n of operation bad cannot be inferred".to_owned())
+            );
+            assert_eq!(
+                typecheck_theory_body(&with(operation(
+                    "bad",
+                    &[implicit("n", name("N")), explicit("x", name("A"))],
+                    name("A"),
+                ))),
+                Err("implicit parameter n of operation bad cannot be inferred".to_owned())
+            );
+        }
+
+        #[test]
+        fn substitution_renames_capturing_binders_apart() {
+            let avoid = BTreeSet::from(["x".to_owned(), "x'".to_owned()]);
+            assert_eq!(fresh_binder("x", &avoid), "x''");
+            assert_eq!(fresh_binder("y", &avoid), "y");
+            let substitute = |term: &Term, binder: &str, argument: Term| {
+                subst_term(term, &[(binder.to_owned(), name(""))], &[argument])
+            };
+            assert_eq!(
+                substitute(
+                    &local("y", constant("c"), app("f", vec![var("x"), var("y")])),
+                    "x",
+                    var("y")
+                ),
+                local("y'", constant("c"), app("f", vec![var("y"), var("y'")]))
+            );
+            assert_eq!(
+                substitute(&local("z", constant("c"), var("y")), "y", constant("d")),
+                local("z", constant("c"), constant("d"))
+            );
+            assert_eq!(
+                substitute(
+                    &case(
+                        var("x"),
+                        vec![branch("k", &["y"], app("f", vec![var("x"), var("y")]))]
+                    ),
+                    "x",
+                    var("y")
+                ),
+                case(
+                    var("y"),
+                    vec![branch("k", &["y'"], app("f", vec![var("y"), var("y'")]))]
+                )
+            );
+            assert_eq!(
+                substitute(&local("x", var("x"), var("x")), "x", constant("d")),
+                local("x", constant("d"), var("x"))
+            );
+        }
+
+        #[test]
+        fn the_first_unbound_variable_respects_local_and_branch_binders() {
+            let context = [("x".to_owned(), name("A"))];
+            let unbound_in = |term: &Term| unbound(&context, term);
+            assert_eq!(unbound_in(&var("z")), Some("z".to_owned()));
+            assert_eq!(unbound_in(&app("f", vec![var("x")])), None);
+            assert_eq!(unbound_in(&local("y", var("x"), var("y"))), None);
+            assert_eq!(
+                unbound_in(&local("y", var("x"), var("w"))),
+                Some("w".to_owned())
+            );
+            assert_eq!(
+                unbound_in(&case(var("x"), vec![branch("k", &["b"], var("b"))])),
+                None
+            );
+            assert_eq!(
+                unbound_in(&case(var("x"), vec![branch("k", &["b"], var("w"))])),
+                Some("w".to_owned())
+            );
+            assert_eq!(
+                unbound_in(&app("f", vec![var("v"), var("w")])),
+                Some("v".to_owned())
+            );
+        }
+
+        #[test]
+        fn a_parameter_argument_of_a_typeable_wrong_sort_is_ill_typed() {
+            let t = theory(
+                "T",
+                vec![simple("A"), dependent("B", &[("p", name("A"))])],
+                vec![operation(
+                    "f",
+                    &[explicit("x", name("B"))],
+                    sort_app("B", vec![var("x")]),
+                )],
+            );
+            assert_eq!(
+                typecheck_signature(&t),
+                Err(vec![Defect::ParamIllTyped(
+                    Site::OpOutput("f".to_owned()),
+                    "B".to_owned(),
+                    0,
+                    "A".to_owned(),
+                    "B".to_owned(),
+                )])
+            );
+        }
+
+        #[test]
+        fn dependency_order_admits_chains_through_undeclared_and_later_sorts() {
+            let chain = theory(
+                "T",
+                vec![
+                    dependent("B", &[("p", name("C"))]),
+                    dependent("D", &[("q", name("B"))]),
+                ],
+                Vec::new(),
+            );
+            assert_eq!(
+                sorts_in_dependency_order(&chain),
+                BTreeSet::from(["B".to_owned(), "D".to_owned()])
+            );
+            let later = theory(
+                "T",
+                vec![dependent("D", &[("q", name("B"))]), simple("B")],
+                Vec::new(),
+            );
+            assert_eq!(
+                sorts_in_dependency_order(&later),
+                BTreeSet::from(["B".to_owned(), "D".to_owned()])
+            );
+            assert_eq!(
+                typecheck_signature(&chain),
+                Err(vec![Defect::UndeclaredSort(
+                    Site::SortParam("B".to_owned(), 0),
+                    "C".to_owned()
+                )])
+            );
+        }
+
+        #[test]
+        fn rewrite_rules_match_up_to_bound_names_holes_and_branches() {
+            let matches = |pattern: &Term, value: &Term| {
+                let mut substitution = BTreeMap::new();
+                let matched = match_rule(pattern, value, &mut substitution);
+                (matched, substitution)
+            };
+            let a = || constant("a");
+            let none = BTreeMap::new;
+            assert_eq!(
+                matches(&local("u", a(), var("u")), &local("v", a(), var("v"))),
+                (true, none())
+            );
+            assert!(!matches(&local("u", a(), var("u")), &local("v", a(), var("w"))).0);
+            assert!(
+                !matches(
+                    &local("u", a(), var("u")),
+                    &local("v", constant("b"), var("v"))
+                )
+                .0
+            );
+            assert_eq!(
+                matches(
+                    &app("f", vec![var("x"), var("x")]),
+                    &app("f", vec![a(), a()])
+                ),
+                (true, BTreeMap::from([("x".to_owned(), a())]))
+            );
+            assert!(
+                !matches(
+                    &app("f", vec![var("x"), var("x")]),
+                    &app("f", vec![a(), constant("b")])
+                )
+                .0
+            );
+            assert!(!matches(&app("f", vec![var("x")]), &app("g", vec![a()])).0);
+            assert!(!matches(&app("f", vec![var("x")]), &app("f", vec![a(), a()])).0);
+            let hole = |name: Option<&str>| Term::Hole(name.map(str::to_owned));
+            assert_eq!(matches(&hole(Some("h")), &hole(Some("h"))), (true, none()));
+            assert!(!matches(&hole(None), &hole(Some("h"))).0);
+            let identity_case = |scrutinee: Term, constructor: &str, binder: &str| {
+                case(scrutinee, vec![branch(constructor, &[binder], var(binder))])
+            };
+            assert_eq!(
+                matches(
+                    &identity_case(constant("c"), "k", "p"),
+                    &identity_case(constant("c"), "k", "q")
+                ),
+                (true, none())
+            );
+            assert!(
+                !matches(
+                    &identity_case(constant("c"), "k", "p"),
+                    &identity_case(constant("d"), "k", "q")
+                )
+                .0
+            );
+            assert!(
+                !matches(
+                    &identity_case(constant("c"), "k", "p"),
+                    &identity_case(constant("c"), "m", "q")
+                )
+                .0
+            );
+            assert!(
+                !matches(
+                    &case(var("x"), vec![branch("k", &[], a())]),
+                    &case(var("y"), vec![branch("k", &[], a()), branch("m", &[], a())])
+                )
+                .0
+            );
+            assert!(
+                !matches(
+                    &case(constant("c"), vec![branch("k", &["p"], a())]),
+                    &case(constant("c"), vec![branch("k", &[], a())])
+                )
+                .0
+            );
+        }
+
+        #[test]
+        fn term_depth_counts_every_constructor_level() {
+            assert_eq!(term_depth(&var("x")), 1);
+            assert_eq!(term_depth(&Term::Hole(None)), 1);
+            assert_eq!(term_depth(&constant("c")), 1);
+            assert_eq!(term_depth(&app("f", vec![var("x")])), 2);
+            assert_eq!(
+                term_depth(&app("f", vec![var("x"), app("g", vec![var("y")])])),
+                3
+            );
+            assert_eq!(
+                term_depth(&local("n", var("x"), app("f", vec![var("n")]))),
+                3
+            );
+            assert_eq!(
+                term_depth(&case(
+                    var("x"),
+                    vec![branch("k", &[], app("f", vec![var("x")]))]
+                )),
+                3
+            );
+            assert_eq!(term_depth(&case(app("f", vec![var("x")]), Vec::new())), 3);
+        }
+
+        #[test]
+        fn bounded_normalization_reduces_and_stops_at_its_bounds() {
+            let x = || var("x");
+            let growth = vec![(app("g", vec![x()]), app("g", vec![app("f", vec![x()])]))];
+            assert_eq!(
+                normalize_bounded(&app("g", vec![constant("a")]), &growth, 512),
+                Err(66),
+                "g(f^k(a())) has depth k + 2, refused once it exceeds 3 + 64"
+            );
+            assert_eq!(
+                normalize_bounded(&app("g", vec![constant("a")]), &growth, 10),
+                Err(10)
+            );
+            assert_eq!(
+                normalize_bounded(
+                    &case(
+                        app("c", vec![constant("a")]),
+                        vec![branch("c", &["p"], var("p"))]
+                    ),
+                    &[],
+                    8
+                ),
+                Ok(constant("a"))
+            );
+            assert_eq!(
+                normalize_bounded(
+                    &case(
+                        constant("d"),
+                        vec![branch("c", &[], x()), branch("d", &[], var("y"))]
+                    ),
+                    &[],
+                    8
+                ),
+                Ok(var("y"))
+            );
+            let stuck = case(constant("e"), vec![branch("c", &[], x())]);
+            assert_eq!(normalize_bounded(&stuck, &[], 8), Ok(stuck.clone()));
+            assert_eq!(
+                normalize_bounded(&local("n", constant("a"), app("f", vec![var("n")])), &[], 8),
+                Ok(app("f", vec![constant("a")]))
+            );
+        }
+
+        /// Sort `A`, `f : A -> A`, and the given equations and directed
+        /// equations.
+        fn unary_theory(
+            name: &str,
+            eqs: Vec<Equation>,
+            directed_eqs: Vec<DirectedEquation>,
+        ) -> Theory {
+            Theory {
+                eqs,
+                directed_eqs,
+                ..theory(name, vec![simple("A")], vec![unary("f")])
+            }
+        }
+
+        fn directed(name: &str, lhs: Term, rhs: Term) -> DirectedEquation {
+            DirectedEquation {
+                name: name.to_owned(),
+                lhs,
+                rhs,
+                implementation: "impl".to_owned(),
+                inverse: None,
+                source_kind: None,
+                target_kind: None,
+                coercion_class: "Iso".to_owned(),
+            }
+        }
+
+        #[test]
+        fn bounded_equation_preservation_accepts_stated_images_and_refuses_missing_ones() {
+            let fx = || app("f", vec![var("x")]);
+            let e = || Equation {
+                name: "e".to_owned(),
+                lhs: fx(),
+                rhs: var("x"),
+            };
+            let source = unary_theory("S", vec![e()], Vec::new());
+            let stated = unary_theory("T", vec![e()], Vec::new());
+            let bare = unary_theory("T", Vec::new(), Vec::new());
+            assert_eq!(
+                equations_preserved_within(&source, &stated, &identity_on(&source, &stated), 64),
+                Ok(true)
+            );
+            assert_eq!(
+                equations_preserved_within(&source, &bare, &identity_on(&source, &bare), 64),
+                Ok(false)
+            );
+            let d = || directed("d", fx(), var("x"));
+            let directed_source = unary_theory("S", Vec::new(), vec![d()]);
+            let directed_target = unary_theory("T", Vec::new(), vec![d()]);
+            assert_eq!(
+                equations_preserved_within(
+                    &directed_source,
+                    &directed_target,
+                    &identity_on(&directed_source, &directed_target),
+                    64
+                ),
+                Ok(true)
+            );
+            assert_eq!(
+                equations_preserved_within(
+                    &directed_source,
+                    &bare,
+                    &identity_on(&directed_source, &bare),
+                    64
+                ),
+                Ok(false)
+            );
+        }
+
+        #[test]
+        fn class_naming_reports_conflicts_and_freshens_clashes() {
+            let classes = vec![vec![sym("l", "a")], vec![sym("r", "a")]];
+            let mut freshened = Vec::new();
+            assert_eq!(
+                name_classes(
+                    SymKind::Op,
+                    &classes,
+                    &BTreeMap::new(),
+                    CompositionMode::Amalgamate,
+                    ClashPolicy::Freshen,
+                    &mut freshened
+                ),
+                Err(ComposeError::NameConflict(
+                    SymKind::Op,
+                    "a".to_owned(),
+                    sym("l", "a"),
+                    sym("r", "a")
+                ))
+            );
+            assert_eq!(
+                name_classes(
+                    SymKind::Op,
+                    &classes,
+                    &BTreeMap::new(),
+                    CompositionMode::ExplicitIdentity,
+                    ClashPolicy::Reject,
+                    &mut freshened
+                ),
+                Err(ComposeError::NameClash(
+                    SymKind::Op,
+                    "a".to_owned(),
+                    Box::new(classes.clone())
+                ))
+            );
+            assert!(freshened.is_empty());
+            let majority = vec![
+                vec![sym("l", "a")],
+                vec![sym("l", "b"), sym("m", "a"), sym("n", "a")],
+            ];
+            assert_eq!(
+                name_classes(
+                    SymKind::Op,
+                    &majority,
+                    &BTreeMap::new(),
+                    CompositionMode::ExplicitIdentity,
+                    ClashPolicy::Freshen,
+                    &mut freshened
+                ),
+                Ok(vec!["l.a#1".to_owned(), "l.a#2".to_owned()])
+            );
+            assert_eq!(
+                freshened,
+                vec![
+                    Freshening {
+                        kind: SymKind::Op,
+                        members: majority[0].clone(),
+                        candidate: "a".to_owned(),
+                        result: "l.a#1".to_owned(),
+                    },
+                    Freshening {
+                        kind: SymKind::Op,
+                        members: majority[1].clone(),
+                        candidate: "a".to_owned(),
+                        result: "l.a#2".to_owned(),
+                    },
+                ]
+            );
+            let reserved = BTreeMap::from([
+                ("x".to_owned(), sym("h", "x")),
+                ("l.x".to_owned(), sym("h", "y")),
+            ]);
+            assert_eq!(
+                name_classes(
+                    SymKind::Eq,
+                    &[vec![sym("l", "x")]],
+                    &reserved,
+                    CompositionMode::ExplicitIdentity,
+                    ClashPolicy::Freshen,
+                    &mut Vec::new()
+                ),
+                Ok(vec!["l.x#1".to_owned()])
+            );
+        }
+
+        #[test]
+        fn alpha_normal_forms_number_free_variables_by_first_occurrence() {
+            let x = || var("x");
+            assert_eq!(
+                alpha(&app("f", vec![x(), x()]), &var("y")),
+                (app("f", vec![var("#0"), var("#0")]), var("#1"))
+            );
+            assert_eq!(
+                alpha(&local("y", x(), var("y")), &x()),
+                (local("", var("#0"), var("#1")), var("#0"))
+            );
+        }
+
+        #[test]
+        fn each_edge_closes_its_square_by_its_least_generated_equation() {
+            let generated = |name: &str, edge_index: usize| {
+                (
+                    name.to_owned(),
+                    Generated {
+                        lhs: constant("c"),
+                        rhs: constant("c"),
+                        source: AddedEquation {
+                            edge: edge_index,
+                            op: sym("S", "c"),
+                        },
+                        edge_index,
+                    },
+                )
+            };
+            assert_eq!(
+                least_closing(&[
+                    generated("S.f~0", 0),
+                    generated("S.f2~0", 0),
+                    generated("T.g~1", 1),
+                ]),
+                BTreeMap::from([(0, "S.f2~0".to_owned()), (1, "T.g~1".to_owned())])
+            );
+            assert_eq!(least_closing(&[]), BTreeMap::new());
+        }
+
+        #[test]
+        fn equation_like_items_with_one_name_and_two_contents_conflict_under_amalgamation() {
+            let items = || vec![(sym("R", "e"), 2, "right"), (sym("L", "e"), 1, "left")];
+            let Err(conflict) = classify_items(SymKind::Eq, items(), CompositionMode::Amalgamate)
+            else {
+                panic!("one name carried by two contents conflicts");
+            };
+            assert_eq!(
+                conflict,
+                ComposeError::NameConflict(
+                    SymKind::Eq,
+                    "e".to_owned(),
+                    sym("L", "e"),
+                    sym("R", "e")
+                )
+            );
+            let classified =
+                classify_items(SymKind::Eq, items(), CompositionMode::ExplicitIdentity)
+                    .unwrap_or_else(|error| panic!("explicit identity keeps both: {error:?}"));
+            assert_eq!(
+                classified.classes,
+                vec![
+                    (vec![sym("L", "e")], "left"),
+                    (vec![sym("R", "e")], "right")
+                ]
+            );
+            let same = vec![(sym("R", "e"), 1, "right"), (sym("L", "e"), 1, "left")];
+            let joined = classify_items(SymKind::Eq, same, CompositionMode::Amalgamate)
+                .unwrap_or_else(|error| panic!("one content is one class: {error:?}"));
+            assert_eq!(
+                joined.classes,
+                vec![(vec![sym("L", "e"), sym("R", "e")], "left")]
+            );
+        }
+
+        #[test]
+        fn canonical_bytes_read_an_empty_application_as_the_bare_sort() {
+            let with_output = |output: SortExpr| {
+                canonical_theory_bytes(&theory(
+                    "T",
+                    vec![simple("A"), dependent("B", &[("p", name("A"))])],
+                    vec![operation("k", &[explicit("x", name("A"))], output)],
+                ))
+            };
+            assert_eq!(
+                with_output(sort_app("A", Vec::new())),
+                with_output(name("A"))
+            );
+            assert_ne!(
+                with_output(sort_app("B", vec![var("x")])),
+                with_output(name("B"))
+            );
+        }
+
+        fn constant_op(name: &str) -> Op {
+            operation(name, &[], name_a())
+        }
+
+        fn name_a() -> SortExpr {
+            name("A")
+        }
+
+        fn leg(domain: &str, codomain: &str, ops: &[(&str, OpImage)]) -> Morphism {
+            Morphism {
+                name: format!("{domain}_to_{codomain}"),
+                domain: domain.to_owned(),
+                codomain: codomain.to_owned(),
+                sorts: sort_map(),
+                ops: ops
+                    .iter()
+                    .map(|(op, image)| ((*op).to_owned(), image.clone()))
+                    .collect(),
+            }
+        }
+
+        fn rename(op: &str) -> OpImage {
+            OpImage::Op(op.to_owned())
+        }
+
+        /// The span `L <- S -> R` whose left leg sends `S.c` to the derived
+        /// term `d()`, its right leg renaming `c` to itself.
+        fn derived_span() -> TheoryDiagram {
+            TheoryDiagram::span(
+                (
+                    "S".to_owned(),
+                    theory("TS", vec![simple("A")], vec![constant_op("c")]),
+                ),
+                (
+                    "L".to_owned(),
+                    theory("TL", vec![simple("A")], vec![constant_op("d")]),
+                ),
+                (
+                    "R".to_owned(),
+                    theory("TR", vec![simple("A")], vec![constant_op("c")]),
+                ),
+                leg("TS", "TL", &[("c", OpImage::Term(constant("d")))]),
+                leg("TS", "TR", &[("c", rename("c"))]),
+            )
+        }
+
+        /// A diagram's labelled nodes and its edges by endpoint labels.
+        type Parts = (Vec<(Name, Theory)>, Vec<(Name, Name, Morphism)>);
+
+        fn parts(diagram: &TheoryDiagram) -> Parts {
+            (
+                diagram
+                    .nodes
+                    .iter()
+                    .map(|node| (node.label.clone(), node.theory.clone()))
+                    .collect(),
+                diagram
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.src.clone(), edge.tgt.clone(), edge.morphism.clone()))
+                    .collect(),
+            )
+        }
+
+        #[test]
+        fn universal_verification_checks_legs_squares_and_the_mediator_separately() {
+            let diagram = derived_span();
+            let composition = compose(&diagram, &options(CompositionMode::ExplicitIdentity))
+                .unwrap_or_else(|error| panic!("the derived span composes: {error:?}"));
+            assert_eq!(
+                composition.theory.eqs,
+                vec![Equation {
+                    name: "S.c~0".to_owned(),
+                    lhs: constant("c"),
+                    rhs: constant("d"),
+                }]
+            );
+            let (nodes, edges) = parts(&diagram);
+            let target = theory(
+                "Q",
+                vec![simple("A")],
+                vec![constant_op("p"), constant_op("q")],
+            );
+            let legs = vec![
+                leg("TS", "Q", &[("c", rename("p"))]),
+                leg("TL", "Q", &[("d", rename("q"))]),
+                leg("TR", "Q", &[("c", rename("p"))]),
+            ];
+            let input = |legs| UniversalInput {
+                nodes: &nodes,
+                target: &target,
+                legs,
+                positions: nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (label, _))| (label.as_str(), index))
+                    .collect(),
+                rewrite_budget: 64,
+            };
+            let class = vec![sym("R", "c"), sym("S", "c")];
+            assert_eq!(cocone_class(&composition, SymKind::Op, "S", "c"), class);
+            assert_eq!(
+                cocone_class(&composition, SymKind::Op, "S", "missing"),
+                Vec::<SymRef>::new()
+            );
+            assert_eq!(verify_cocone_legs(&input(&legs)), Ok(None));
+            assert_eq!(
+                verify_cocone_legs(&input(&legs[..2])),
+                Err(ComposeError::NotACocone(Vec::new()))
+            );
+            let unknown = [
+                legs[0].clone(),
+                leg("TL", "Q", &[("d", rename("zz"))]),
+                legs[2].clone(),
+            ];
+            assert_eq!(
+                verify_cocone_legs(&input(&unknown)),
+                Err(ComposeError::NotACocone(Vec::new()))
+            );
+            let mut exhausted = None;
+            assert_eq!(
+                verify_cocone_edges(&composition, &input(&legs), &edges, &mut exhausted),
+                Err(ComposeError::NotACocone(class.clone()))
+            );
+            let agreeing = [
+                legs[0].clone(),
+                leg("TL", "Q", &[("d", rename("p"))]),
+                legs[2].clone(),
+            ];
+            assert_eq!(
+                verify_cocone_edges(&composition, &input(&agreeing), &edges, &mut exhausted),
+                Ok(())
+            );
+            let mediator = |d: &str| Morphism {
+                sorts: sort_map(),
+                ops: BTreeMap::from([("c".to_owned(), rename("p")), ("d".to_owned(), rename(d))]),
+                ..Morphism::default()
+            };
+            assert_eq!(
+                verify_mediator(&composition, &input(&legs), &mediator("q"), &mut exhausted),
+                Err(ComposeError::NotACocone(class))
+            );
+            assert_eq!(
+                verify_mediator(
+                    &composition,
+                    &input(&agreeing),
+                    &mediator("p"),
+                    &mut exhausted
+                ),
+                Ok(())
+            );
+            assert_eq!(exhausted, None);
+            let (found, report) = composition
+                .verify_universal(&diagram, &target, &agreeing)
+                .unwrap_or_else(|error| panic!("the agreeing legs form a cocone: {error:?}"));
+            assert_eq!(found, mediator("p"));
+            assert_eq!(report.status, CheckStatus::Incomplete);
+            assert!(report.checks.contains(&CheckRecord {
+                check: CompositionCheckKind::EquationEntailed,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Inapplicable {
+                    reason: InapplicableReason::NoEquations,
+                },
+            }));
+        }
+
+        #[test]
+        fn a_cocone_leg_whose_equation_check_runs_out_of_budget_is_recorded() {
+            let unary_on = |name: &str| unary(name);
+            let equation = |name: &str, lhs: &str, rhs: &str| Equation {
+                name: name.to_owned(),
+                lhs: app(lhs, vec![var("x")]),
+                rhs: app(rhs, vec![var("x")]),
+            };
+            let source = Theory {
+                eqs: vec![equation("e", "f", "g")],
+                ..theory(
+                    "S",
+                    vec![simple("A")],
+                    vec![unary_on("f"), unary_on("g"), unary_on("h")],
+                )
+            };
+            let target = Theory {
+                eqs: vec![equation("e1", "f", "h"), equation("e2", "h", "g")],
+                ..theory(
+                    "Q",
+                    vec![simple("A")],
+                    vec![unary_on("f"), unary_on("g"), unary_on("h")],
+                )
+            };
+            let nodes = vec![("S".to_owned(), source.clone())];
+            let legs = vec![identity_on(&source, &target)];
+            let input = UniversalInput {
+                nodes: &nodes,
+                target: &target,
+                legs: &legs,
+                positions: BTreeMap::from([("S", 0)]),
+                rewrite_budget: 8,
+            };
+            assert_eq!(verify_cocone_legs(&input), Ok(Some(8)));
+        }
+
+        #[test]
+        fn the_universal_report_marks_targets_without_any_equation() {
+            let base = CompositionReport {
+                mode: CompositionMode::Amalgamate,
+                status: CheckStatus::Passed,
+                name_clash_free: true,
+                checks: Vec::new(),
+                freshened: Vec::new(),
+            };
+            let entailed = |target: &Theory, exhausted| {
+                universal_report(&base, target, exhausted)
+                    .checks
+                    .into_iter()
+                    .map(|record| record.outcome)
+                    .collect::<Vec<_>>()
+            };
+            let fx = || app("f", vec![var("x")]);
+            let directed_only = unary_theory("Q", Vec::new(), vec![directed("d", fx(), var("x"))]);
+            assert_eq!(
+                entailed(&directed_only, None),
+                [CheckOutcome::Passed, CheckOutcome::Passed]
+            );
+            assert_eq!(
+                entailed(&unary_theory("Q", Vec::new(), Vec::new()), None),
+                [
+                    CheckOutcome::Inapplicable {
+                        reason: InapplicableReason::NoEquations,
+                    },
+                    CheckOutcome::Passed,
+                ]
+            );
+            let exhausted = |equation: &str| CheckOutcome::Incomplete {
+                reason: CompositionIncomplete::RewriteBudgetExhausted {
+                    equation: equation.to_owned(),
+                    steps: 3,
+                },
+            };
+            assert_eq!(
+                entailed(&directed_only, Some(3)),
+                [exhausted("mediator"), exhausted("cocone")]
+            );
+        }
+
+        fn discrete(nodes: Vec<(&str, Theory)>) -> TheoryDiagram {
+            TheoryDiagram::discrete(
+                nodes
+                    .into_iter()
+                    .map(|(label, theory)| (label.to_owned(), theory))
+                    .collect(),
+            )
+        }
+
+        #[test]
+        fn node_labels_must_be_nonempty_and_free_of_separators() {
+            for label in ["", "a.b", "a#b", "#", "."] {
+                let diagram = discrete(vec![(label, theory("T", vec![simple("A")], Vec::new()))]);
+                assert_eq!(
+                    compose(&diagram, &options(CompositionMode::Amalgamate)).err(),
+                    Some(ComposeError::InvalidNodeLabel(label.to_owned())),
+                    "label {label:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn an_undeclared_sort_may_map_to_a_declared_target_sort() {
+            let k = |output: &str| operation("k", &[], name(output));
+            let mut diagram = discrete(vec![
+                ("a", theory("TA", Vec::new(), vec![k("S")])),
+                ("b", theory("TB", vec![simple("T")], vec![k("T")])),
+            ]);
+            diagram.edges.push(DiagramEdge {
+                src: "a".to_owned(),
+                tgt: "b".to_owned(),
+                morphism: Morphism {
+                    name: "a_to_b".to_owned(),
+                    domain: "TA".to_owned(),
+                    codomain: "TB".to_owned(),
+                    sorts: BTreeMap::from([("S".to_owned(), "T".to_owned())]),
+                    ops: BTreeMap::from([("k".to_owned(), rename("k"))]),
+                },
+            });
+            let composition = compose(&diagram, &options(CompositionMode::Amalgamate))
+                .unwrap_or_else(|error| panic!("`S` reaches the declared `T`: {error:?}"));
+            assert_eq!(composition.theory.ops, vec![operation("k", &[], name("S"))]);
+        }
+
+        #[test]
+        fn names_of_different_kinds_or_different_names_never_clash() {
+            let report = |right: Theory| {
+                let diagram = discrete(vec![
+                    ("L", theory("TL", vec![simple("A")], Vec::new())),
+                    ("R", right),
+                ]);
+                compose(&diagram, &options(CompositionMode::Amalgamate))
+                    .unwrap_or_else(|error| panic!("the two nodes compose: {error:?}"))
+                    .report
+                    .name_clash_free
+            };
+            assert!(report(theory(
+                "TR",
+                vec![simple("X")],
+                vec![operation("A", &[], name("X"))]
+            )));
+            assert!(report(theory("TR", vec![simple("B")], Vec::new())));
+            assert!(!report(theory("TR", vec![simple("A")], Vec::new())));
+        }
+
+        #[test]
+        fn a_derived_image_generates_its_equation_over_the_operation_inputs() {
+            let node =
+                |name: &str| theory(name, vec![simple("A")], vec![constant_op("c"), unary("r")]);
+            let diagram = TheoryDiagram::span(
+                ("S".to_owned(), node("TS")),
+                ("L".to_owned(), node("TL")),
+                ("R".to_owned(), node("TR")),
+                leg(
+                    "TS",
+                    "TL",
+                    &[
+                        ("c", rename("c")),
+                        ("r", OpImage::Term(app("r", vec![var("x")]))),
+                    ],
+                ),
+                leg("TS", "TR", &[("c", rename("c")), ("r", rename("r"))]),
+            );
+            let composition = compose(&diagram, &options(CompositionMode::Amalgamate))
+                .unwrap_or_else(|error| panic!("the derived image is well typed: {error:?}"));
+            assert_eq!(
+                composition.theory.eqs,
+                vec![Equation {
+                    name: "S.r~0".to_owned(),
+                    lhs: app("r", vec![var("x")]),
+                    rhs: app("r", vec![var("x")]),
+                }]
+            );
+        }
+
+        #[test]
+        fn freshened_directed_equations_are_stated_in_result_names() {
+            let fc = || constant("f");
+            let left = Theory {
+                directed_eqs: vec![directed("d", fc(), fc())],
+                ..theory("TL", vec![simple("A")], vec![constant_op("f")])
+            };
+            let right = theory("TR", vec![simple("A")], vec![constant_op("f")]);
+            let diagram = discrete(vec![("L", left), ("R", right)]);
+            let composition = compose(
+                &diagram,
+                &ComposeOptions {
+                    clash: ClashPolicy::Freshen,
+                    ..options(CompositionMode::ExplicitIdentity)
+                },
+            )
+            .unwrap_or_else(|error| panic!("freshening separates the clash: {error:?}"));
+            assert_eq!(
+                composition.theory.directed_eqs,
+                vec![directed("d", constant("L.f"), constant("L.f"))]
+            );
+        }
+
+        use crate::enumerate::theories as scope;
+
+        /// The bare signatures with at most one operation.
+        fn small_signatures() -> Vec<Theory> {
+            scope::bare_signatures()
+                .into_iter()
+                .filter(|theory| theory.ops.len() <= 1)
+                .collect()
+        }
+
+        #[test]
+        fn signature_checking_is_pinned_on_the_whole_signature_scopes() {
+            let signatures = scope::signatures();
+            assert_digest(
+                "signature verdicts",
+                signatures.iter().map(typecheck_signature),
+                "64363fdc6bd1bd3f7c961741476f30e5ca9f1f76fb61818ac465145bbef65ce2",
+            );
+            assert_digest(
+                "theory body verdicts",
+                signatures.iter().map(typecheck_theory_body),
+                "a1d71560d2b7f5559d7a3c28272ac2af96cc0fedfe3c9f1a06833b4a1a1b6c89",
+            );
+            assert_digest(
+                "raw signature verdicts",
+                scope::raw_signatures().iter().map(typecheck_signature),
+                "0e3a52ee52f8080164f0575ab9367620a989483a742dd39f72431fd90eb702d8",
+            );
+        }
+
+        #[test]
+        fn morphism_checks_are_pinned_on_every_small_signature_pair() {
+            let small = small_signatures();
+            let mut verdicts = Vec::new();
+            for domain in &small {
+                for codomain in &small {
+                    for morphism in scope::morphisms(domain, codomain)
+                        .iter()
+                        .chain(&scope::partial_morphisms(domain, codomain))
+                    {
+                        verdicts.push(check_morphism(domain, codomain, morphism));
+                    }
+                }
+            }
+            assert_digest(
+                "small morphism verdicts",
+                &verdicts,
+                "feb03b75da2e1b626e5c73e9d0eef363403d5088bf1a559a9afc30f1adfd91f0",
+            );
+        }
+
+        #[test]
+        fn morphism_checks_are_pinned_on_a_sample_of_signatures_with_equations() {
+            let signatures = scope::signatures();
+            let mut verdicts = Vec::new();
+            for domain in signatures.iter().filter(|t| !t.eqs.is_empty()).step_by(53) {
+                for codomain in signatures.iter().step_by(59) {
+                    for morphism in scope::morphisms(domain, codomain) {
+                        verdicts.push(check_morphism(domain, codomain, &morphism));
+                    }
+                }
+            }
+            assert_digest(
+                "verdicts on every 53rd signature with an equation against every 59th signature",
+                &verdicts,
+                "42ee418e2d9f6e4260eccddad3bd6440ac9ad70dd6e14790ce4b1f2b9e2981c1",
+            );
+        }
+
+        #[test]
+        fn the_whole_action_and_constructor_families_are_pinned() {
+            let whole = scope::whole_action_scope();
+            let mut translations = Vec::new();
+            for domain in &whole.domains {
+                for morphism in whole.legs.iter().step_by(11) {
+                    for probe in &whole.probes {
+                        translations.push(apply_morphism(domain, morphism, probe));
+                    }
+                }
+            }
+            assert_digest(
+                "probe translations along every 11th whole-action leg",
+                &translations,
+                "86bbf2beb3b9807b37f315b5f303a7ff10b797053f2b30b29c56a65869616f94",
+            );
+            let mut verdicts = Vec::new();
+            for domain in &whole.domains {
+                for codomain in &whole.codomains {
+                    for morphism in whole.legs.iter().step_by(97) {
+                        verdicts.push(check_morphism(domain, codomain, morphism));
+                    }
+                }
+            }
+            assert_digest(
+                "every 97th whole-action leg verdict",
+                &verdicts,
+                "613b2a8e02fad201696840cf3f83998b8c789932711e7b0146d513a9a25752e7",
+            );
+            let constructors = scope::constructor_scope();
+            let mut outcomes = Vec::new();
+            for domain in &constructors.domains {
+                for codomain in &constructors.codomains {
+                    for morphism in &constructors.legs {
+                        outcomes.push(format!("{:?}", check_morphism(domain, codomain, morphism)));
+                    }
+                }
+                for morphism in &constructors.legs {
+                    for probe in &constructors.probes {
+                        outcomes.push(apply_morphism(domain, morphism, probe).to_string());
+                    }
+                }
+            }
+            assert_digest(
+                "constructor family outcomes",
+                &outcomes,
+                "308b9833234a9aecbe152196e5cf0e7535ae66f8cd8e7ddd48b2f881d360b382",
+            );
+        }
+
+        /// A composition's outcome with its canonical bytes and its universal
+        /// verification against its own inclusions.
+        fn composition_outcome(diagram: &TheoryDiagram, options: &ComposeOptions) -> String {
+            match compose(diagram, options) {
+                Ok(composition) => {
+                    let universal = composition.verify_universal(
+                        diagram,
+                        &composition.theory,
+                        &composition.inclusions,
+                    );
+                    format!(
+                        "{composition:?}\n{:?}\n{universal:?}",
+                        canonical_composition_bytes(&composition)
+                    )
+                }
+                Err(error) => format!("{error:?}"),
+            }
+        }
+
+        fn outcomes_in_every_option_set(diagrams: &[TheoryDiagram]) -> Vec<String> {
+            let mut out = Vec::new();
+            for diagram in diagrams {
+                for options in scope::option_sets() {
+                    out.push(composition_outcome(diagram, &options));
+                }
+            }
+            out
+        }
+
+        #[test]
+        fn compositions_of_small_signature_pairs_are_pinned() {
+            let small = small_signatures();
+            let mut discrete = Vec::new();
+            let mut spans = Vec::new();
+            let interface = theory("I", vec![simple("A")], Vec::new());
+            for left in small.iter().step_by(3) {
+                for right in small.iter().step_by(4) {
+                    discrete.push(TheoryDiagram::discrete(vec![
+                        ("L".to_owned(), left.clone()),
+                        ("R".to_owned(), right.clone()),
+                    ]));
+                    spans.push(TheoryDiagram::by_name(
+                        ("S".to_owned(), interface.clone()),
+                        ("L".to_owned(), left.clone()),
+                        ("R".to_owned(), right.clone()),
+                    ));
+                }
+            }
+            assert_eq!(discrete.len(), 21 * 16, "every 3rd against every 4th of 61");
+            assert_digest(
+                "discrete pair compositions",
+                outcomes_in_every_option_set(&discrete),
+                "1b7c187c94bba7ae304b244f575b7f97676cd73ae4028fe5e6108d87c5244c79",
+            );
+            let built: Vec<TheoryDiagram> =
+                spans.iter().filter_map(|span| span.clone().ok()).collect();
+            assert_digest(
+                "by-name span compositions",
+                spans
+                    .iter()
+                    .map(|span| span.as_ref().err().map(|error| format!("{error:?}")))
+                    .chain(outcomes_in_every_option_set(&built).into_iter().map(Some)),
+                "b1d480b1f0bd9aa64902f9e773203275f07b727d96d57c0fd4fc2594d7a2c2c2",
+            );
+        }
+
+        #[test]
+        fn compositions_of_connector_and_fibre_diagrams_are_pinned() {
+            let operations = scope::class_operation_scope();
+            let operation_pairs: Vec<String> = operations
+                .iter()
+                .step_by(101)
+                .flat_map(|left| {
+                    operations.iter().step_by(103).map(move |right| {
+                        composition_outcome(
+                            &scope::operation_class_pair(left, right),
+                            &options(CompositionMode::Amalgamate),
+                        )
+                    })
+                })
+                .collect();
+            assert_eq!(
+                operation_pairs.len(),
+                28 * 28,
+                "every 101st against every 103rd"
+            );
+            assert_digest(
+                "operation class pair compositions",
+                &operation_pairs,
+                "36b285147881bc7fc2524170d915912f06e880b6eb9623bf65c9857aa604e59e",
+            );
+            let sorts = scope::class_sort_scope();
+            let sort_pairs: Vec<String> = sorts
+                .iter()
+                .step_by(9)
+                .flat_map(|left| {
+                    sorts.iter().step_by(13).map(move |right| {
+                        composition_outcome(
+                            &scope::sort_class_pair(left, right),
+                            &options(CompositionMode::Amalgamate),
+                        )
+                    })
+                })
+                .collect();
+            assert_eq!(sort_pairs.len(), 29 * 20, "every 9th against every 13th");
+            assert_digest(
+                "sort class pair compositions",
+                &sort_pairs,
+                "85f9eaff858d5526927d88727d042629bda932e719fde4ea652d8dcd69614b9c",
+            );
+            assert_digest(
+                "sort mismatch span compositions",
+                outcomes_in_every_option_set(&scope::sort_mismatch_spans()),
+                "7ef5371f9dcfe302d05ffcafdf293007aadfe35a8501ad2bd3f38b82cbb0af43",
+            );
+            assert_digest(
+                "fibre span compositions",
+                outcomes_in_every_option_set(&scope::fibre_spans()),
+                "11dd3a4d08dfd71ca3ac4689a4629e912f8e171aed78e050a47a094f7602942b",
+            );
+            assert_digest(
+                "derived span compositions",
+                outcomes_in_every_option_set(&[derived_span()]),
+                "bf2d22f6bd19b2b538b397ce9cf7847f746818b962ffa05299454937774a2ee5",
+            );
+        }
+
+        #[test]
+        fn sort_classes_report_their_first_difference() {
+            let details: Vec<Option<ComposeError>> = scope::sort_mismatch_spans()
+                .iter()
+                .map(|span| compose(span, &options(CompositionMode::Amalgamate)).err())
+                .collect();
+            let mismatch = |detail: SortMismatch| {
+                Some(ComposeError::SortSignatureMismatch(
+                    sym("L", "W"),
+                    sym("R", "W"),
+                    Box::new(detail),
+                ))
+            };
+            assert_eq!(
+                details,
+                vec![
+                    mismatch(SortMismatch::Arity {
+                        first: 0,
+                        second: 1
+                    }),
+                    mismatch(SortMismatch::ParamSort {
+                        index: 0,
+                        first: "X".to_owned(),
+                        second: "Y(a())".to_owned(),
+                    }),
+                    mismatch(SortMismatch::Kind),
+                    mismatch(SortMismatch::Closure),
+                ]
+            );
+        }
+
+        #[test]
+        fn an_empty_parameter_application_is_reported_as_the_bare_sort() {
+            let declaration = |param: SortExpr| Sort {
+                name: "W".to_owned(),
+                params: vec![("x".to_owned(), param)],
+                kind: "structural".to_owned(),
+                constructors: None,
+            };
+            let diagram = scope::sort_class_pair(
+                &declaration(sort_app("X", Vec::new())),
+                &declaration(name("Y")),
+            );
+            assert_eq!(
+                compose(&diagram, &options(CompositionMode::Amalgamate)).err(),
+                Some(ComposeError::SortSignatureMismatch(
+                    sym("l", "lead"),
+                    sym("r", "W"),
+                    Box::new(SortMismatch::ParamSort {
+                        index: 0,
+                        first: "X".to_owned(),
+                        second: "Y".to_owned(),
+                    })
+                ))
+            );
+        }
+
+        #[test]
+        fn same_named_operations_of_two_signatures_conflict_under_amalgamation() {
+            let node = |name: &str, op: Op| theory(name, vec![simple("A")], vec![op]);
+            let diagram = discrete(vec![
+                ("L", node("TL", constant_op("f"))),
+                ("R", node("TR", unary("f"))),
+            ]);
+            assert_eq!(
+                compose(&diagram, &options(CompositionMode::Amalgamate)).err(),
+                Some(ComposeError::NameConflict(
+                    SymKind::Op,
+                    "f".to_owned(),
+                    sym("L", "f"),
+                    sym("R", "f")
+                ))
+            );
+        }
+
+        #[test]
+        fn quotients_are_pinned_on_every_short_identification_list() {
+            assert_eq!(quotient(3, &[(2, 1), (1, 0)]), Some(vec![0, 0, 0]));
+            assert_eq!(quotient(4, &[(3, 1)]), Some(vec![0, 1, 2, 1]));
+            assert_eq!(quotient(2, &[(0, 2)]), None);
+            let mut out = Vec::new();
+            for size in 0..=3 {
+                for identifications in scope::identifications(size, 2) {
+                    out.push(quotient(size, &identifications));
+                    out.push(quotient(size + 1, &identifications));
+                }
+            }
+            assert_digest(
+                "quotients",
+                &out,
+                "635f67de025794ec2ad64926d6729c5b7699fd790381cbdd17fd3a9a6aaa3491",
+            );
+        }
+
+        #[test]
+        fn recipe_replay_is_pinned_on_small_signature_pairs() {
+            let small = small_signatures();
+            let mut out = Vec::new();
+            for left in small.iter().step_by(4) {
+                for right in small.iter().step_by(5) {
+                    let registry = BTreeMap::from([
+                        (
+                            "L".to_owned(),
+                            Theory {
+                                name: "L".to_owned(),
+                                ..left.clone()
+                            },
+                        ),
+                        (
+                            "R".to_owned(),
+                            Theory {
+                                name: "R".to_owned(),
+                                ..right.clone()
+                            },
+                        ),
+                    ]);
+                    for spec in scope::recipes(left, right) {
+                        out.push(format!(
+                            "{:?}\n{:?}",
+                            recompose(&spec, &registry),
+                            canonical_composition_spec_bytes(&spec)
+                        ));
+                    }
+                }
+            }
+            assert_digest(
+                "replays of every 4th against every 5th pair",
+                &out,
+                "f7865f7b431183d4130f9654a234bca1e13f1e23265c45103f9716f1f59fdda1",
             );
         }
     }
