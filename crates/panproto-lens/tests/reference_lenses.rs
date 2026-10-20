@@ -767,6 +767,85 @@ fn assert_agree(result: Result<u64, Disagreement>) -> u64 {
     }
 }
 
+/// [`agree`] on every case of every unit, spread over the machine's threads.
+///
+/// Each thread builds its own context once (the lens pairs hold value
+/// layers that are not shared between threads), then repeatedly claims the
+/// next block of units, expands each unit into its cases and runs [`agree`]
+/// on them, so a disagreement is reported with its own case. Every thread
+/// stops at the first disagreement any thread finds; of the disagreements
+/// found, the one at the lowest unit is returned. Otherwise the result is
+/// the number of cases compared, which is independent of the thread count.
+fn agree_in_parallel<'a, U, C, I, P, R>(
+    bound: &str,
+    units: &'a [U],
+    context: impl Fn() -> C + Sync,
+    expand: impl Fn(&C, &'a U) -> Vec<I> + Sync,
+    production: impl Fn(&C, &I) -> P + Sync,
+    reference: impl Fn(&C, &I) -> R + Sync,
+    eq: impl Fn(&P, &R) -> bool + Sync,
+) -> Result<u64, Disagreement>
+where
+    U: Sync,
+    I: std::fmt::Debug,
+    P: std::fmt::Debug,
+    R: std::fmt::Debug,
+{
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    const BLOCK: usize = 32;
+    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let outcomes: Vec<Result<u64, (usize, Disagreement)>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let context = context();
+                    let mut compared = 0_u64;
+                    loop {
+                        let start = next.fetch_add(BLOCK, Ordering::Relaxed);
+                        if start >= units.len() || stop.load(Ordering::Relaxed) {
+                            return Ok(compared);
+                        }
+                        for (offset, unit) in units[start..].iter().take(BLOCK).enumerate() {
+                            match agree(
+                                bound,
+                                expand(&context, unit),
+                                |case| production(&context, case),
+                                |case| reference(&context, case),
+                                &eq,
+                            ) {
+                                Ok(count) => compared += count,
+                                Err(disagreement) => {
+                                    stop.store(true, Ordering::Relaxed);
+                                    return Err((start + offset, disagreement));
+                                }
+                            }
+                        }
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("a comparison thread panicked"))
+            .collect()
+    });
+    let mut compared = 0_u64;
+    let mut first: Option<(usize, Disagreement)> = None;
+    for outcome in outcomes {
+        match outcome {
+            Ok(count) => compared += count,
+            Err((unit, disagreement)) => {
+                if first.as_ref().is_none_or(|(at, _)| unit < *at) {
+                    first = Some((unit, disagreement));
+                }
+            }
+        }
+    }
+    first.map_or(Ok(compared), |(_, disagreement)| Err(disagreement))
+}
+
 // ---------------------------------------------------------------------------
 // GF5: the Delta-fragment cascade (L.4) on its exact finite scope
 // ---------------------------------------------------------------------------
@@ -1192,13 +1271,10 @@ fn fixture_pair(fixture: &TableFixture) -> TablePair {
     )
 }
 
-#[test]
-fn table_get_and_put_agree_with_the_reference_on_the_fixture_scope() {
-    let certificate = table_fixture_count_certificate();
-    let mut fixtures = Vec::new();
-    for_each_table_fixture(|fixture| fixtures.push(fixture));
-    assert_eq!(fixtures.len(), certificate.total);
-    let pairs: Vec<Vec<TablePair>> = (0..=2_usize)
+/// The table lens of every fixture shape, indexed by column count and
+/// retained-column mask.
+fn table_pairs() -> Vec<Vec<TablePair>> {
+    (0..=2_usize)
         .map(|columns| {
             (0..(1_usize << columns))
                 .map(|retained| {
@@ -1210,18 +1286,33 @@ fn table_get_and_put_agree_with_the_reference_on_the_fixture_scope() {
                 })
                 .collect()
         })
-        .collect();
+        .collect()
+}
+
+#[test]
+fn table_get_and_put_agree_with_the_reference_on_the_fixture_scope() {
+    let certificate = table_fixture_count_certificate();
+    let mut fixtures = Vec::new();
+    for_each_table_fixture(|fixture| fixtures.push(fixture));
+    assert_eq!(fixtures.len(), certificate.total);
+    let pairs = table_pairs();
     let pair_of = |fixture: &TableFixture| &pairs[fixture.columns][fixture.retained];
     let bound = format!(
         "table fixtures: rows<=2, columns<=2, cell alphabet=7 (absence included), lenses=7, source/lens cases={}",
         certificate.total
     );
     println!("{bound}");
-    let gets = assert_agree(agree(
+    let gets = assert_agree(agree_in_parallel(
         &bound,
-        fixtures.iter(),
-        |fixture| production_table_get(pair_of(fixture), &fixture.source),
-        |fixture| reference_table_get(pair_of(fixture), &fixture.source),
+        &fixtures,
+        table_pairs,
+        |_, fixture| vec![fixture],
+        |pairs, fixture| {
+            production_table_get(&pairs[fixture.columns][fixture.retained], &fixture.source)
+        },
+        |pairs, fixture| {
+            reference_table_get(&pairs[fixture.columns][fixture.retained], &fixture.source)
+        },
         |production, reference| production == reference,
     ));
     assert_eq!(gets, u64::try_from(certificate.total).unwrap());
@@ -1249,11 +1340,25 @@ fn table_get_and_put_agree_with_the_reference_on_the_fixture_scope() {
         certificate.total
     );
     println!("{bound}");
-    let puts = assert_agree(agree(
+    let puts = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |(fixture, edited)| production_table_put(pair_of(fixture), &fixture.source, edited),
-        |(fixture, edited)| reference_table_put(pair_of(fixture), &fixture.source, edited),
+        &cases,
+        table_pairs,
+        |_, case| vec![case],
+        |pairs, (fixture, edited)| {
+            production_table_put(
+                &pairs[fixture.columns][fixture.retained],
+                &fixture.source,
+                edited,
+            )
+        },
+        |pairs, (fixture, edited)| {
+            reference_table_put(
+                &pairs[fixture.columns][fixture.retained],
+                &fixture.source,
+                edited,
+            )
+        },
         |production, reference| production == reference,
     ));
     assert_eq!(puts, u64::try_from(cases.len()).unwrap());
@@ -1627,11 +1732,11 @@ fn c11_sources(stage: &C11Stage) -> Vec<RefGraph> {
 
 /// One case of the C11 graph scope: the get of a stage on a state, or the
 /// put of one view (unedited or one-step edited) against that get's
-/// complement.
+/// complement. States are named by their index among the stage's sources.
 #[derive(Debug)]
-enum GraphCase {
-    Get(usize, RefGraph),
-    Put(usize, RefGraph, RefGraph),
+enum GraphCase<'a> {
+    Get(usize, &'a RefGraph),
+    Put(usize, &'a RefGraph, RefGraph),
 }
 
 /// The outcome of one graph case: a get outcome, or a put outcome on both
@@ -1642,34 +1747,50 @@ enum GraphCaseOutcome {
     Put(Option<PutOutcome>),
 }
 
-/// Every C11 graph case, in stage order, state order, and the unedited view
-/// before its one-step edits. Also returns the total edit count from the
-/// independent per-view formula.
-fn c11_graph_cases(stages: &[C11Stage], pairs: &[Pair]) -> (Vec<GraphCase>, usize, usize) {
+/// The source states of every stage, each checked against its independent
+/// count.
+fn c11_stage_sources(stages: &[C11Stage]) -> Vec<Vec<RefGraph>> {
+    stages
+        .iter()
+        .map(|stage| {
+            let sources = c11_sources(stage);
+            let certified = if stage.source == c11_fan_schema() {
+                c11_fan_state_count()
+            } else {
+                c11_graph_state_count(&stage.source)
+            };
+            assert_eq!(sources.len(), certified, "stage {}", stage.name);
+            sources
+        })
+        .collect()
+}
+
+/// The cases of one `(stage, state)` unit: the unedited view and its
+/// one-step edits (when the reference get succeeds), then the get.
+fn c11_graph_unit_cases<'a>(
+    pairs: &[Pair],
+    stages: &[C11Stage],
+    stage: usize,
+    source: &'a RefGraph,
+) -> Vec<GraphCase<'a>> {
     let mut cases = Vec::new();
-    let mut counted = 0_usize;
-    let mut states = 0_usize;
-    for (index, stage) in stages.iter().enumerate() {
-        let sources = c11_sources(stage);
-        let certified = if stage.source == c11_fan_schema() {
-            c11_fan_state_count()
-        } else {
-            c11_graph_state_count(&stage.source)
-        };
-        assert_eq!(sources.len(), certified, "stage {}", stage.name);
-        for source in sources {
-            states += 1;
-            if let Ok((view, complement)) = reference_get(&pairs[index], &source) {
-                counted += c11_graph_edit_count(&view, &stage.target, &complement);
-                cases.push(GraphCase::Put(index, source.clone(), view.clone()));
-                for edit in c11_graph_edits(&view, &stage.target, &complement) {
-                    cases.push(GraphCase::Put(index, source.clone(), edit.view));
-                }
-            }
-            cases.push(GraphCase::Get(index, source));
-        }
+    if let Ok((view, complement)) = reference_get(&pairs[stage], source) {
+        let edits = c11_graph_edits(&view, &stages[stage].target, &complement);
+        assert_eq!(
+            edits.len(),
+            c11_graph_edit_count(&view, &stages[stage].target, &complement),
+            "the per-view edit formula at stage {}",
+            stages[stage].name
+        );
+        cases.push(GraphCase::Put(stage, source, view));
+        cases.extend(
+            edits
+                .into_iter()
+                .map(|edit| GraphCase::Put(stage, source, edit.view)),
+        );
     }
-    (cases, states, counted)
+    cases.push(GraphCase::Get(stage, source));
+    cases
 }
 
 #[test]
@@ -1678,30 +1799,42 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
     let schemas = sigma2_schemas();
     assert_eq!(schemas.len(), sigma2_count());
     let stages = c11_stages();
-    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
-    let (cases, states, counted_edits) = c11_graph_cases(&stages, &pairs);
     let certificate = c11_path_count_certificate();
     assert_eq!(stages.len(), certificate.stages);
-    assert_eq!(states, certificate.single_stage_states);
-    let puts = cases
+    let sources = c11_stage_sources(&stages);
+    let units: Vec<(usize, usize)> = sources
         .iter()
-        .filter(|case| matches!(case, GraphCase::Put(..)))
-        .count();
-    let gets = cases.len() - puts;
-    assert_eq!(gets, states);
-    assert_eq!(puts - gets_with_view(&cases), counted_edits);
+        .enumerate()
+        .flat_map(|(stage, states)| (0..states.len()).map(move |state| (stage, state)))
+        .collect();
+    assert_eq!(units.len(), certificate.single_stage_states);
     let bound = format!(
-        "C11 graph scope: schemas={}, stages={}, states={states}, unedited views={}, one-step edits={counted_edits}, cases={}",
+        "C11 graph scope: schemas={}, stages={}, states={}",
         schemas.len(),
         stages.len(),
-        gets_with_view(&cases),
-        cases.len()
+        units.len(),
     );
     println!("{bound}");
-    let compared = assert_agree(agree(
+    // Unedited views (one per state whose reference get succeeds) and
+    // one-step edits, tallied as the units expand; each unit's edit count is
+    // checked against the per-view formula.
+    let views = std::sync::atomic::AtomicUsize::new(0);
+    let edits = std::sync::atomic::AtomicUsize::new(0);
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |case| match case {
+        &units,
+        || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
+        |pairs, (stage, state)| {
+            let cases = c11_graph_unit_cases(pairs, &stages, *stage, &sources[*stage][*state]);
+            let viewed = usize::from(cases.len() > 1);
+            views.fetch_add(viewed, std::sync::atomic::Ordering::Relaxed);
+            edits.fetch_add(
+                cases.len() - 1 - viewed,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            cases
+        },
+        |pairs, case| match case {
             GraphCase::Get(stage, source) => {
                 GraphCaseOutcome::Get(production_get(&pairs[*stage], source))
             }
@@ -1709,7 +1842,7 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
                 GraphCaseOutcome::Put(production_put(&pairs[*stage], source, view))
             }
         },
-        |case| match case {
+        |pairs, case| match case {
             GraphCase::Get(stage, source) => {
                 GraphCaseOutcome::Get(reference_get(&pairs[*stage], source))
             }
@@ -1725,18 +1858,13 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
         },
         |production, reference| production == reference,
     ));
-    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
-}
-
-/// The number of unedited views among the cases: one per state whose get
-/// succeeded.
-fn gets_with_view(cases: &[GraphCase]) -> usize {
-    cases
-        .windows(2)
-        .filter(|pair| {
-            matches!(pair[1], GraphCase::Get(..)) && matches!(pair[0], GraphCase::Put(..))
-        })
-        .count()
+    let (views, edits) = (views.into_inner(), edits.into_inner());
+    let total = units.len() + views + edits;
+    println!(
+        "C11 graph cases: gets={}, unedited views={views}, one-step edits={edits}, cases={total}",
+        units.len()
+    );
+    assert_eq!(compared, u64::try_from(total).unwrap());
 }
 
 // ---------------------------------------------------------------------------
@@ -1946,17 +2074,18 @@ fn tree_lens_agrees_with_the_reference_exhaustively() {
     }
     assert_eq!(cases.len(), certified);
     assert_eq!(certified, certificate.stage_tree_states);
-    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let bound = format!(
         "C11 tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
         certificate.tree_stages,
         cases.len()
     );
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |(stage, tree)| {
+        &cases,
+        || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
+        |_, case| vec![case],
+        |pairs, (stage, tree)| {
             let inside = reference_tree_case(&pairs[*stage], tree).is_some();
             (
                 production_tree_case(&pairs[*stage], tree, inside),
@@ -1969,7 +2098,7 @@ fn tree_lens_agrees_with_the_reference_exhaustively() {
                 }),
             )
         },
-        |(stage, tree)| {
+        |pairs, (stage, tree)| {
             let outcome = reference_tree_case(&pairs[*stage], tree);
             let laws = outcome.as_ref().map(|_| {
                 pairs[*stage].with_reference(|lens| {
@@ -2233,10 +2362,10 @@ fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
 fn lens_paths_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
     let certificate = c11_path_count_certificate();
-    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let all = words(stages.len());
     assert_eq!(all.len(), certificate.words());
-    let mut composable = Vec::new();
+    let mut composable_words = Vec::new();
+    let mut composable_by_length = [0_usize; 3];
     for word in &all {
         let production = production_word(&stages, word);
         let reference = reference_word(&stages, word);
@@ -2247,10 +2376,22 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
         );
         if let (Ok(production), Ok(reference)) = (production, reference) {
             assert_eq!(production.len(), reference.len());
+            composable_by_length[word.len() - 1] += 1;
+            composable_words.push(word.clone());
+        }
+    }
+    assert_eq!(composable_by_length, certificate.composable_by_length);
+    // Each composable word, then the word composed with the identity on
+    // either side, on both sides of the differential (the unit laws,
+    // behaviourally). Built once per thread: the composites hold value
+    // layers that are not shared between threads.
+    let composites = || -> (Vec<Pair>, Vec<(Vec<usize>, LensPath, RefLensPath<usize>)>) {
+        let mut out = Vec::new();
+        for word in &composable_words {
+            let production = production_word(&stages, word).unwrap();
+            let reference = reference_word(&stages, word).unwrap();
             let first = &stages[word[0]];
             let last = &stages[word[word.len() - 1]];
-            // The word composed with the identity on either side, on both
-            // sides of the differential (the unit laws, behaviourally).
             let left = (
                 LensPath::identity(&prod_schema(&first.source))
                     .then(&production)
@@ -2263,47 +2404,55 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
                     .unwrap(),
                 RefLensPath::then(&reference, &RefLensPath::identity(&last.target)).unwrap(),
             );
-            composable.push((word.clone(), production, reference));
-            composable.push((word.clone(), left.0, left.1));
-            composable.push((word.clone(), right.0, right.1));
+            out.push((word.clone(), production, reference));
+            out.push((word.clone(), left.0, left.1));
+            out.push((word.clone(), right.0, right.1));
         }
-    }
-    assert_eq!(composable.len() / 3, certificate.composable());
-    let mut cases = Vec::new();
-    for (index, (word, _, _)) in composable.iter().enumerate() {
-        for source in c11_sources(&stages[word[0]]) {
-            cases.push((index, source));
-        }
-    }
+        (stages.iter().map(Pair::from_stage).collect(), out)
+    };
+    let sources = c11_stage_sources(&stages);
+    let units: Vec<(usize, usize)> = (0..3 * composable_words.len())
+        .flat_map(|index| {
+            let first = composable_words[index / 3][0];
+            (0..sources[first].len()).map(move |state| (index, state))
+        })
+        .collect();
     let bound = format!(
         "C11 paths: stages={}, words by length={:?}, words={}, composable by length={:?}, composable={}, with both identity composites={}, word-state pairs={}, evaluated path-state cases={}",
         stages.len(),
         certificate.words_by_length,
         all.len(),
-        certificate.composable_by_length,
-        composable.len() / 3,
-        composable.len(),
+        composable_by_length,
+        composable_words.len(),
+        3 * composable_words.len(),
         certificate.word_states(),
-        cases.len()
+        units.len()
     );
-    assert_eq!(cases.len(), 3 * certificate.word_states());
+    assert_eq!(composable_words.len(), certificate.composable());
+    assert_eq!(units.len(), 3 * certificate.word_states());
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |(index, source)| {
-            let (word, path, reference) = &composable[*index];
-            let edits = edits_of_reference_view(&pairs, &stages, word, reference, source);
+        &units,
+        composites,
+        |(_, composites), (index, state)| {
+            let word = composites[*index].0.clone();
+            let source = &sources[word[0]][*state];
+            vec![(*index, word, source)]
+        },
+        |(pairs, composites), (index, word, source)| {
+            let (_, path, reference) = &composites[*index];
+            let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
             production_path_outcome(path, source, &edits)
         },
-        |(index, source)| {
-            let (word, _, reference) = &composable[*index];
-            let edits = edits_of_reference_view(&pairs, &stages, word, reference, source);
-            reference_path_outcome(&pairs, reference, source, &edits)
+        |(pairs, composites), (index, word, source)| {
+            let (_, _, reference) = &composites[*index];
+            let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
+            reference_path_outcome(pairs, reference, source, &edits)
         },
         path_outcomes_agree,
     ));
-    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+    assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
 /// The one-step edits of a path's final view: the C11 edits of the last
@@ -2441,12 +2590,16 @@ struct Leg {
     put: Option<Result<RefGraph, String>>,
 }
 
-/// A square in reference coordinates: both legs, and whether they commute.
+/// A square in reference coordinates: both legs, whether they commute, and
+/// (on the reference side) whether a route is outside the exact common
+/// domain. The production side cannot tell: its fast leg is the dispatcher,
+/// which runs the graph route wherever the tree or table route refuses.
 #[derive(Debug, PartialEq, Eq)]
 struct SquareOutcome {
     graph: Leg,
     fast: Option<Leg>,
     commutes: bool,
+    outside: bool,
 }
 
 fn reference_leg(route: &SquareRouteObservation) -> Leg {
@@ -2481,13 +2634,28 @@ fn legs_agree(production: &Leg, reference: &Leg) -> bool {
     get && put
 }
 
+/// Whether a production fast leg is the dispatcher's fallback to the graph
+/// route: the same get as the graph leg, and either no put (the dispatcher
+/// declined the put) or the graph leg's put.
+fn falls_back_to_the_graph_route(fast: &Leg, graph: &Leg) -> bool {
+    fast.get == graph.get && (fast.put.is_none() || fast.put == graph.put)
+}
+
+/// Two squares agree when their graph legs agree and their commutation
+/// verdicts are equal, and on the fast legs: inside the exact common domain
+/// the two fast legs agree; outside it (the reference refuses a route) the
+/// law makes no comparison, and the production dispatcher must instead
+/// decline or fall back to the graph route.
 fn squares_agree(production: &SquareOutcome, reference: &SquareOutcome) -> bool {
-    legs_agree(&production.graph, &reference.graph)
-        && match (&production.fast, &reference.fast) {
-            (Some(a), Some(b)) => legs_agree(a, b),
-            (None, _) => !reference.commutes,
-            (Some(_), None) => false,
+    let fast = match (&production.fast, &reference.fast) {
+        (Some(a), Some(b)) if legs_agree(a, b) => true,
+        (None, _) => !reference.commutes,
+        (Some(a), _) => {
+            reference.outside && falls_back_to_the_graph_route(a, &production.graph)
         }
+    };
+    legs_agree(&production.graph, &reference.graph)
+        && fast
         && production.commutes == reference.commutes
 }
 
@@ -2514,6 +2682,7 @@ fn reference_square<O>(result: &SquareResult<O>, legs: impl Fn(&O) -> (Leg, Leg)
         graph,
         fast: Some(fast),
         commutes: result.commutes(),
+        outside: matches!(result, SquareResult::Refused(_)),
     }
 }
 
@@ -2532,10 +2701,12 @@ fn table_square_agrees_with_the_reference_on_the_fixture_scope() {
         certificate.total
     );
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        fixtures.iter(),
-        |fixture| {
+        &fixtures,
+        || (),
+        |(), fixture| vec![fixture],
+        |(), fixture| {
             let pair = fixture_pair(fixture);
             let (graph, _) = GInstance::from_finstance(&prod_table(&fixture.source)).unwrap();
             let graph_leg = production_graph_leg(&pair.production, &graph);
@@ -2547,9 +2718,10 @@ fn table_square_agrees_with_the_reference_on_the_fixture_scope() {
                 graph: graph_leg,
                 fast,
                 commutes,
+                outside: false,
             }
         },
-        |fixture| {
+        |(), fixture| {
             let pair = fixture_pair(fixture);
             let graph_pair = table_square_pair_graph(&pair);
             graph_pair.with_reference(|graph_lens| {
@@ -2622,7 +2794,6 @@ fn graph_lens_via_tree(lens: &Lens, graph: &GInstance) -> Option<Leg> {
 #[ignore = "the amended C11 census awaits build verification"]
 fn graph_square_agrees_with_the_reference_exhaustively() {
     let stages = c11_stages();
-    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let mut cases = Vec::new();
     for (index, stage) in stages.iter().enumerate() {
         if stage.source == c11_fan_schema() {
@@ -2634,10 +2805,12 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
     }
     let bound = format!("C11 graph square: (stage, tree) cases={}", cases.len());
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |(stage, tree)| {
+        &cases,
+        || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
+        |_, case| vec![case],
+        |pairs, (stage, tree)| {
             let lens = &pairs[*stage].production;
             let graph = GInstance::from_wtype(&prod_tree(tree)).unwrap();
             let graph_leg = production_graph_leg(lens, &graph);
@@ -2649,11 +2822,26 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
                 graph: graph_leg,
                 fast,
                 commutes,
+                outside: false,
             }
         },
-        |(stage, tree)| {
+        |pairs, (stage, tree)| {
             pairs[*stage].with_reference(|lens| {
-                let lens = lens.expect("stage plans compile");
+                // A plan that does not compile refuses both routes' get.
+                let lens = match lens {
+                    Ok(lens) => lens,
+                    Err(reason) => {
+                        return SquareOutcome {
+                            graph: Leg {
+                                get: Err(reason),
+                                put: None,
+                            },
+                            fast: None,
+                            commutes: false,
+                            outside: true,
+                        };
+                    }
+                };
                 let result = panproto_reference::lens::graph_square(lens, tree);
                 reference_square(&result, |observation| {
                     (
@@ -2675,38 +2863,26 @@ fn table_laws_agree_with_the_reference_on_the_fixture_scope() {
     for_each_table_fixture(|fixture| fixtures.push(fixture));
     assert_eq!(fixtures.len(), certificate.total);
     assert_eq!(certificate.total, 9_921);
-    let pairs: Vec<Vec<TablePair>> = (0..=2_usize)
-        .map(|columns| {
-            (0..(1_usize << columns))
-                .map(|retained| {
-                    fixture_pair(&TableFixture {
-                        columns,
-                        retained,
-                        source: RefTable::default(),
-                    })
-                })
-                .collect()
-        })
-        .collect();
-    let pair_of = |fixture: &TableFixture| &pairs[fixture.columns][fixture.retained];
     let bound = format!(
         "table law reports: rows<=2, columns<=2, cell alphabet=7, lenses=7, source/lens cases={}",
         certificate.total
     );
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        fixtures.iter(),
-        |fixture| {
-            let pair = pair_of(fixture);
+        &fixtures,
+        table_pairs,
+        |_, fixture| vec![fixture],
+        |pairs, fixture| {
+            let pair = &pairs[fixture.columns][fixture.retained];
             production_law_outcome(&table_lens::check_laws(
                 &pair.production,
                 &prod_table(&fixture.source),
                 pair.protocols(),
             ))
         },
-        |fixture| {
-            pair_of(fixture).with_reference(|lens, _| {
+        |pairs, fixture| {
+            pairs[fixture.columns][fixture.retained].with_reference(|lens, _| {
                 reference_law_outcome(&panproto_reference::lens::check_table_laws(
                     lens,
                     &fixture.source,
@@ -2822,33 +2998,42 @@ enum ProtolensOutcome {
 #[test]
 #[ignore = "the amended C11 census awaits build verification"]
 fn protolens_transforms_agree_with_the_reference_exhaustively() {
-    let protocol = Protocol::default();
     let alphabet = protolens_alphabet();
     let schemas = sigma2_schemas();
-    let mut cases = Vec::new();
-    for (index, _) in alphabet.iter().enumerate() {
-        for schema in &schemas {
-            for source in c11_graph_states(schema) {
-                cases.push((index, schema.clone(), source));
-            }
-        }
-    }
+    let states: Vec<Vec<RefGraph>> = schemas.iter().map(c11_graph_states).collect();
+    let units: Vec<(usize, usize, usize)> = (0..alphabet.len())
+        .flat_map(|index| {
+            states.iter().enumerate().flat_map(move |(schema, sources)| {
+                (0..sources.len()).map(move |state| (index, schema, state))
+            })
+        })
+        .collect();
+    assert_eq!(
+        units.len(),
+        alphabet.len()
+            * schemas
+                .iter()
+                .map(c11_graph_state_count)
+                .sum::<usize>()
+    );
     let bound = format!(
         "C11 protolenses: protolenses={}, schemas={}, (protolens, schema, state) cases={}",
         alphabet.len(),
         schemas.len(),
-        cases.len()
+        units.len()
     );
     println!("{bound}");
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |(index, schema, source)| {
+        &units,
+        || (Protocol::default(), protolens_alphabet()),
+        |_, (index, schema, state)| vec![(*index, &schemas[*schema], &states[*schema][*state])],
+        |(protocol, alphabet), (index, schema, source)| {
             let schema = prod_schema(schema);
             match panproto_lens::graph_protolens::apply(
                 &alphabet[*index],
                 &schema,
-                &protocol,
+                protocol,
                 &prod_graph(source),
             ) {
                 Ok(applied) => ProtolensOutcome::Applied(
@@ -2861,7 +3046,7 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
                 Err(error) => ProtolensOutcome::Refused(format!("{:?}", lens_reason(&error))),
             }
         },
-        |(index, schema, source)| {
+        |(protocol, alphabet), (index, schema, source)| {
             let production_schema = prod_schema(schema);
             let protolens = &alphabet[*index];
             // The reference protolens at this schema: its precondition is
@@ -2869,7 +3054,7 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
             // (`Exact` when it holds, an unsatisfiable vertex requirement
             // otherwise), its target and migration the production
             // instantiation's.
-            let Ok(lens) = protolens.instantiate(&production_schema, &protocol) else {
+            let Ok(lens) = protolens.instantiate(&production_schema, protocol) else {
                 return ProtolensOutcome::Inapplicable;
             };
             let target = ref_schema(&lens.tgt_schema);
@@ -2890,7 +3075,7 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
                 instantiated.as_ref().map(|lens| lens.source().clone()).ok(),
                 protolens
                     .applicable_to(&production_schema)
-                    .then(|| schema.clone())
+                    .then(|| (*schema).clone())
                     .filter(|_| instantiated.is_ok()),
                 "an instantiated reference protolens is bound to exactly its schema"
             );
@@ -2912,7 +3097,7 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
         },
         |production, reference| production == reference,
     ));
-    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+    assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
 /// The law-report case families of the L.8 scope.
@@ -2928,20 +3113,12 @@ enum LawCase {
 #[ignore = "the amended C11 census awaits build verification"]
 fn lens_laws_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
-    let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
-    let table_pairs: Vec<Vec<TablePair>> = (0..=2_usize)
-        .map(|columns| {
-            (0..(1_usize << columns))
-                .map(|retained| {
-                    fixture_pair(&TableFixture {
-                        columns,
-                        retained,
-                        source: RefTable::default(),
-                    })
-                })
-                .collect()
-        })
-        .collect();
+    // The lens pairs of every family, built once per thread: they hold
+    // value layers that are not shared between threads.
+    let context = || {
+        let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+        (pairs, table_pairs(), empty_lens())
+    };
     let mut cases = Vec::new();
     for_each_partial_lens(|lens| {
         for source in 0..2_u8 {
@@ -2969,13 +3146,14 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         cases.len()
     );
     println!("{bound}");
-    let carrier = empty_lens();
-    let compared = assert_agree(agree(
+    let compared = assert_agree(agree_in_parallel(
         &bound,
-        cases.iter(),
-        |case| match case {
+        &cases,
+        context,
+        |_, case| vec![case],
+        |(pairs, table_pairs, carrier), case| match case {
             LawCase::Partial(lens, source) => production_law_outcome(
-                &panproto_lens::laws::check_laws_report::<PartialShape>(&carrier, source, lens),
+                &panproto_lens::laws::check_laws_report::<PartialShape>(carrier, source, lens),
             ),
             LawCase::Table(fixture) => {
                 let pair = &table_pairs[fixture.columns][fixture.retained];
@@ -2997,7 +3175,7 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
                 ),
             ),
         },
-        |case| match case {
+        |(pairs, table_pairs, _), case| match case {
             LawCase::Partial(lens, source) => {
                 reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source)))
             }
@@ -3261,6 +3439,7 @@ fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
                     graph: graph_leg,
                     fast,
                     commutes,
+                    outside: false,
                 }
             };
             let reference_square_outcome = pair.with_reference(|lens| {
@@ -3363,6 +3542,7 @@ fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
                 graph: graph_leg,
                 fast,
                 commutes,
+                outside: false,
             };
             let graph_pair = table_square_pair_graph(&pair);
             let reference = graph_pair.with_reference(|graph_lens| {
