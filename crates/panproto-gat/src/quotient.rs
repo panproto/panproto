@@ -1023,4 +1023,28 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn identifying_a_sort_with_an_operation_is_incompatible() {
+        let theory = two_sort_theory();
+        for (a, b) in [("A", "f"), ("f", "A"), ("B", "nope"), ("nope", "g")] {
+            let result = quotient(&theory, &[(Arc::from(a), Arc::from(b))]);
+            match result {
+                Err(GatError::QuotientIncompatible {
+                    name_a,
+                    name_b,
+                    detail,
+                }) => {
+                    assert_eq!((name_a.as_str(), name_b.as_str()), (a, b));
+                    assert_eq!(
+                        detail,
+                        "names are not both sorts or both operations in the theory"
+                    );
+                }
+                other => {
+                    panic!("identifying {a} with {b}: expected QuotientIncompatible, got {other:?}")
+                }
+            }
+        }
+    }
 }

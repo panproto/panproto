@@ -14,16 +14,25 @@
 //! through the public production and reference `compose` functions by the
 //! `reference_theories` adapter. This file retains the contract pin whose
 //! body is fixed by P5-O909.
+//!
+//! It also holds deadline guards: each runs a fixpoint computation
+//! (class naming in `compose`, the free model's quotient, `quotient`'s
+//! union-find, the signature check's sort ordering) on a worker thread and
+//! requires its exact result within a few seconds, so a computation that
+//! stops terminating fails here quickly rather than hanging the suite.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use panproto_gat::{
     ClashPolicy, ComposeOptions, CompositionError, CompositionMode, DEFAULT_VERIFY_BUDGET,
-    NotRepresentableReason, OpAssignment, Operation, Sort, SortExpr, SortParam, SymRef, Term,
-    Theory, TheoryDiagram, TheoryMorphism, compose,
+    Equation, FreeModelConfig, ModelValue, NotRepresentableReason, OpAssignment, Operation,
+    SignatureDefect, SignatureSite, Sort, SortExpr, SortParam, SymRef, Term, Theory, TheoryDiagram,
+    TheoryMorphism, compose, free_model, quotient, typecheck_signature,
 };
 
 /// A theory with `X`, `Y(x : X)`, a constant `constant : X` and a
@@ -113,4 +122,232 @@ fn tier1_refuses_agreement_that_holds_only_modulo_term_equations() {
             || (over_a.contains(&second) && first == over_b),
         "the refused pair is a member over a and the member over b: {first}, {second}"
     );
+}
+
+/// Run `work` on a worker thread and return its result, failing if it
+/// does not finish within the deadline.
+fn within_deadline<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the computation finishes within five seconds")
+}
+
+fn simple_theory(name: &str, sorts: &[&str], ops: Vec<Operation>, eqs: Vec<Equation>) -> Theory {
+    Theory::new(
+        name,
+        sorts.iter().map(|s| Sort::simple(*s)).collect(),
+        ops,
+        eqs,
+    )
+}
+
+fn renaming(dom: &str, cod: &str, sorts: &[(&str, &str)]) -> TheoryMorphism {
+    TheoryMorphism::new(
+        format!("{dom}_to_{cod}"),
+        dom,
+        cod,
+        sorts
+            .iter()
+            .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+            .collect(),
+        HashMap::<Arc<str>, Arc<str>>::new(),
+    )
+}
+
+#[test]
+fn compose_names_its_classes_within_the_deadline() {
+    let (sorts, ops) = within_deadline(|| {
+        let diagram = TheoryDiagram::span(
+            ("Sh", simple_theory("Sh", &["S"], vec![], vec![])),
+            (
+                "T1",
+                simple_theory(
+                    "T1",
+                    &["S", "X"],
+                    vec![Operation::unary("f", "s", "S", "X")],
+                    vec![],
+                ),
+            ),
+            ("T2", simple_theory("T2", &["S", "Y"], vec![], vec![])),
+            renaming("Sh", "T1", &[("S", "S")]),
+            renaming("Sh", "T2", &[("S", "S")]),
+        );
+        let composition = compose(&diagram, &options()).expect("the span composes");
+        let mut sorts: Vec<String> = composition
+            .theory
+            .sorts
+            .iter()
+            .map(|s| s.name.to_string())
+            .collect();
+        sorts.sort();
+        let ops: Vec<String> = composition
+            .theory
+            .ops
+            .iter()
+            .map(|o| o.name.to_string())
+            .collect();
+        (sorts, ops)
+    });
+    assert_eq!(sorts, ["S", "X", "Y"]);
+    assert_eq!(ops, ["f"]);
+}
+
+/// The carrier of `sort` in the free model of `theory` to `depth`, as
+/// sorted strings.
+fn free_carrier(theory: &Theory, depth: usize, sort: &str) -> Vec<String> {
+    let result = free_model(
+        theory,
+        &FreeModelConfig {
+            max_depth: depth,
+            max_terms_per_sort: 1000,
+        },
+    )
+    .expect("the free model is built");
+    let mut values: Vec<String> = result.model.sort_interp[sort]
+        .iter()
+        .map(|v| match v {
+            ModelValue::Str(s) => s.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    values.sort();
+    values
+}
+
+#[test]
+fn the_free_model_quotient_reaches_its_fixpoint_within_the_deadline() {
+    let (retract, alternating) = within_deadline(|| {
+        let retract = simple_theory(
+            "Retract",
+            &["A"],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::unary("f", "x", "A", "A"),
+            ],
+            vec![Equation::new(
+                "retract",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let alternating = simple_theory(
+            "Alternating",
+            &["A", "B"],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::unary("f", "x", "A", "B"),
+                Operation::unary("g", "y", "B", "A"),
+            ],
+            vec![Equation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        );
+        (
+            free_carrier(&retract, 2, "A"),
+            free_carrier(&alternating, 2, "A"),
+        )
+    });
+    assert_eq!(retract, ["a()", "b()"]);
+    assert_eq!(alternating, ["a()", "g(f(a()))"]);
+}
+
+#[test]
+fn quotient_merges_classes_within_the_deadline() {
+    let sorts = within_deadline(|| {
+        let theory = simple_theory(
+            "Three",
+            &["C", "B", "A"],
+            vec![Operation::unary("f", "x", "B", "C")],
+            vec![],
+        );
+        let merged = quotient(
+            &theory,
+            &[
+                (Arc::from("C"), Arc::from("B")),
+                (Arc::from("B"), Arc::from("A")),
+            ],
+        )
+        .expect("the quotient is defined");
+        let ops: Vec<(String, String, String)> = merged
+            .ops
+            .iter()
+            .map(|o| {
+                (
+                    o.name.to_string(),
+                    o.inputs[0].1.to_string(),
+                    o.output.to_string(),
+                )
+            })
+            .collect();
+        let sorts: Vec<String> = merged.sorts.iter().map(|s| s.name.to_string()).collect();
+        (sorts, ops)
+    });
+    assert_eq!(
+        sorts,
+        (
+            vec!["A".to_owned()],
+            vec![("f".to_owned(), "A".to_owned(), "A".to_owned())]
+        )
+    );
+}
+
+#[test]
+fn signature_checking_orders_sorts_within_the_deadline() {
+    let (chain, cycle, empty) = within_deadline(|| {
+        // Declared against dependency order: `C` over `B` over `A`.
+        let chain = Theory::new(
+            "Chain",
+            vec![
+                Sort::dependent("C", vec![SortParam::new("y", "B")]),
+                Sort::dependent("B", vec![SortParam::new("x", "A")]),
+                Sort::simple("A"),
+            ],
+            vec![],
+            vec![],
+        );
+        let cycle = Theory::new(
+            "Cycle",
+            vec![
+                Sort::dependent("P", vec![SortParam::new("x", "Q")]),
+                Sort::dependent("Q", vec![SortParam::new("y", "P")]),
+            ],
+            vec![],
+            vec![],
+        );
+        let empty = Theory::new("Empty", vec![], vec![], vec![]);
+        (
+            typecheck_signature(&chain),
+            typecheck_signature(&cycle),
+            typecheck_signature(&empty),
+        )
+    });
+    assert_eq!(chain, Ok(()));
+    assert_eq!(
+        cycle,
+        Err(vec![
+            SignatureDefect::UndeclaredSort {
+                site: SignatureSite::SortParam {
+                    sort: Arc::from("P"),
+                    index: 0,
+                },
+                sort: Arc::from("Q"),
+            },
+            SignatureDefect::UndeclaredSort {
+                site: SignatureSite::SortParam {
+                    sort: Arc::from("Q"),
+                    index: 0,
+                },
+                sort: Arc::from("P"),
+            },
+        ])
+    );
+    assert_eq!(empty, Ok(()));
 }

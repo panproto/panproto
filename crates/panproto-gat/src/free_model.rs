@@ -217,15 +217,14 @@ fn generate_terms(
     // itself complete. Every fiber is therefore keyed by its index terms'
     // representatives under the theory's ground congruence.
     //
-    // A theory whose sort expressions carry no argument terms has nothing
-    // to index, and a theory with no equations identifies nothing, so
-    // neither pays for the quotient this needs.
+    // A theory with no equations identifies nothing, so it does not pay
+    // for the quotient this needs.
+    let track_congruence = !theory.eqs.is_empty();
     let mut canonical = FxHashMap::default();
-    if theory_has_indexed_fibers(theory) && !theory.eqs.is_empty() {
+    if track_congruence {
         canonical = ground_congruence(theory, &terms_by_fiber)?;
         terms_by_fiber = rekey_by_canonical_fiber(terms_by_fiber, &canonical);
     }
-    let track_congruence = theory_has_indexed_fibers(theory) && !theory.eqs.is_empty();
 
     let mut last_depth_added = false;
     for _depth in 1..=config.max_depth {
@@ -271,17 +270,6 @@ fn generate_terms(
     Ok((terms_by_fiber, is_complete))
 }
 
-/// Whether any of the theory's operations mentions a sort expression with
-/// argument terms.
-///
-/// Only such a theory has fibers an equation could re-index, so only such
-/// a theory pays for the ground congruence the keying needs.
-fn theory_has_indexed_fibers(theory: &Theory) -> bool {
-    theory.ops.iter().any(|op| {
-        !op.output.args().is_empty() || op.inputs.iter().any(|(_, sort, _)| !sort.args().is_empty())
-    })
-}
-
 /// The theory's ground congruence over the closed terms generated so far,
 /// as a map sending each term that is not its class's representative to
 /// the representative.
@@ -290,7 +278,8 @@ fn theory_has_indexed_fibers(theory: &Theory) -> bool {
 /// that fiber indices can be keyed by it. Representatives are chosen by
 /// smallest global index, and global indices are assigned in sort-name
 /// order over a deterministic term order, so the choice is stable across
-/// runs.
+/// runs. The terms are visited in that same order, so the first member
+/// of a class to be visited is its smallest-indexed one.
 fn ground_congruence(
     theory: &Theory,
     terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
@@ -305,20 +294,15 @@ fn ground_congruence(
     let mut sorts: Vec<&Arc<str>> = terms_by_sort.keys().collect();
     sorts.sort();
 
-    // Pass 1: the smallest-indexed member of each class.
-    let mut representative: FxHashMap<usize, (usize, Term)> = FxHashMap::default();
+    // Pass 1: the smallest-indexed member of each class, which is the
+    // first visited.
+    let mut representative: FxHashMap<usize, Term> = FxHashMap::default();
     for sort in &sorts {
         let terms = &terms_by_sort[*sort];
         let indices = &term_to_global[*sort];
         for (i, term) in terms.iter().enumerate() {
-            let global = indices[i];
-            let class = uf.find(&global);
-            match representative.get(&class) {
-                Some((best, _)) if *best <= global => {}
-                _ => {
-                    representative.insert(class, (global, term.clone()));
-                }
-            }
+            let class = uf.find(&indices[i]);
+            representative.entry(class).or_insert_with(|| term.clone());
         }
     }
 
@@ -329,7 +313,7 @@ fn ground_congruence(
         let indices = &term_to_global[*sort];
         for (i, term) in terms.iter().enumerate() {
             let class = uf.find(&indices[i]);
-            if let Some((_, rep)) = representative.get(&class) {
+            if let Some(rep) = representative.get(&class) {
                 if rep != term {
                     canonical.insert(term.clone(), rep.clone());
                 }
@@ -344,7 +328,7 @@ fn ground_congruence(
 /// whole term.
 fn canonicalize_term(term: &Term, canonical: &FxHashMap<Term, Term>) -> Term {
     let rebuilt = match term {
-        Term::App { op, args } if !args.is_empty() => Term::app(
+        Term::App { op, args } => Term::app(
             Arc::clone(op),
             args.iter()
                 .map(|arg| canonicalize_term(arg, canonical))
@@ -357,9 +341,6 @@ fn canonicalize_term(term: &Term, canonical: &FxHashMap<Term, Term>) -> Term {
 
 /// Key a fiber by its index terms' representatives.
 fn canonicalize_fiber(fiber: &SortExpr, canonical: &FxHashMap<Term, Term>) -> SortExpr {
-    if canonical.is_empty() || fiber.args().is_empty() {
-        return fiber.clone();
-    }
     SortExpr::app(
         Arc::clone(fiber.head()),
         fiber
@@ -544,36 +525,30 @@ fn quotient_by_equations(
     // This allows efficient congruence closure propagation.
     let congruence_entries = build_congruence_index(terms_by_sort, term_to_global, &term_index);
 
-    // Fixpoint loop: keep merging until no new merges occur.
-    loop {
-        let mut merged = false;
-
-        // Pass 1: equation substitution instances.
-        for (eq, vars, var_sorts) in &eq_info {
-            if vars.is_empty() {
-                merged |= merge_constant_eq(eq, &term_index, &mut uf);
-                continue;
-            }
-
-            // Non-empty vars always carry inferred sorts here: the
-            // precompute loop propagated any inference failure as an
-            // error, so `var_sorts` is `Some` for every equation with
-            // free variables.
-            let Some(vs) = var_sorts else {
-                continue;
-            };
-
-            merged |= merge_by_equation(eq, vars, vs, terms_by_sort, &term_index, &mut uf);
+    // Pass 1: equation substitution instances. Which generated terms an
+    // instance relates does not depend on the classes, so one pass makes
+    // every identification the equations state directly.
+    for (eq, vars, var_sorts) in &eq_info {
+        if vars.is_empty() {
+            merge_constant_eq(eq, &term_index, &mut uf);
+            continue;
         }
 
-        // Pass 2: congruence closure. If t1 ~ t2, then f(..., t1, ...) ~ f(..., t2, ...)
-        // for all operations f where both compound terms exist.
-        merged |= congruence_closure_pass(&congruence_entries, &mut uf);
+        // Non-empty vars always carry inferred sorts here: the
+        // precompute loop propagated any inference failure as an
+        // error, so `var_sorts` is `Some` for every equation with
+        // free variables.
+        let Some(vs) = var_sorts else {
+            continue;
+        };
 
-        if !merged {
-            break;
-        }
+        merge_by_equation(eq, vars, vs, terms_by_sort, &term_index, &mut uf);
     }
+
+    // Pass 2: congruence closure to a fixpoint. If t1 ~ t2, then
+    // f(..., t1, ...) ~ f(..., t2, ...) for all operations f where both
+    // compound terms exist.
+    while congruence_closure_pass(&congruence_entries, &mut uf) {}
 
     Ok(uf)
 }
@@ -671,7 +646,6 @@ fn is_app_only(term: &Term) -> bool {
 fn term_to_string(term: &Term) -> String {
     match term {
         Term::Var(name) => name.to_string(),
-        Term::App { op, args } if args.is_empty() => format!("{op}()"),
         Term::App { op, args } => {
             let arg_strs: Vec<String> = args.iter().map(term_to_string).collect();
             format!("{op}({})", arg_strs.join(", "))
@@ -811,16 +785,13 @@ fn build_model(
 }
 
 /// Merge terms identified by a constants-only equation.
-///
-/// Returns whether two distinct classes were merged.
 fn merge_constant_eq(
     eq: &crate::eq::Equation,
     term_index: &FxHashMap<Term, usize>,
     uf: &mut UnionFind<usize>,
-) -> bool {
-    match (term_index.get(&eq.lhs), term_index.get(&eq.rhs)) {
-        (Some(l), Some(r)) => uf.union(l, r),
-        _ => false,
+) {
+    if let (Some(l), Some(r)) = (term_index.get(&eq.lhs), term_index.get(&eq.rhs)) {
+        uf.union(l, r);
     }
 }
 
@@ -848,8 +819,6 @@ fn build_term_index(
 }
 
 /// Enumerate substitutions and merge LHS/RHS when both match generated terms.
-///
-/// Returns whether any two distinct classes were merged.
 fn merge_by_equation(
     eq: &crate::eq::Equation,
     vars: &[Arc<str>],
@@ -857,7 +826,7 @@ fn merge_by_equation(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_index: &FxHashMap<Term, usize>,
     uf: &mut UnionFind<usize>,
-) -> bool {
+) {
     let var_terms: Vec<(&Arc<str>, &Vec<Term>)> = vars
         .iter()
         .filter_map(|v| {
@@ -868,10 +837,9 @@ fn merge_by_equation(
         .collect();
 
     if var_terms.len() != vars.len() || var_terms.iter().any(|(_, terms)| terms.is_empty()) {
-        return false;
+        return;
     }
 
-    let mut merged = false;
     let mut indices = vec![0usize; var_terms.len()];
 
     loop {
@@ -884,7 +852,7 @@ fn merge_by_equation(
         let rhs = eq.rhs.substitute(&subst);
 
         if let (Some(l), Some(r)) = (term_index.get(&lhs), term_index.get(&rhs)) {
-            merged |= uf.union(l, r);
+            uf.union(l, r);
         }
 
         let mut carry = true;
@@ -902,7 +870,6 @@ fn merge_by_equation(
             break;
         }
     }
-    merged
 }
 
 #[cfg(test)]
@@ -1570,6 +1537,271 @@ mod tests {
             result.is_complete,
             "a saturated free model must report is_complete = true"
         );
+        Ok(())
+    }
+
+    /// The carrier of `sort` as rendered strings, sorted.
+    fn carrier(result: &FreeModelResult, sort: &str) -> Vec<String> {
+        let mut values: Vec<String> = result.model.sort_interp[sort]
+            .iter()
+            .map(|v| match v {
+                ModelValue::Str(s) => s.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        values.sort();
+        values
+    }
+
+    fn depth(max_depth: usize) -> FreeModelConfig {
+        FreeModelConfig {
+            max_depth,
+            max_terms_per_sort: 1000,
+        }
+    }
+
+    #[test]
+    fn carriers_render_each_term_with_its_arguments() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = Theory::new(
+            "Pairs",
+            vec![Sort::simple("A"), Sort::simple("P")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::new(
+                    "pair",
+                    vec![
+                        (Arc::from("x"), SortExpr::from("A")),
+                        (Arc::from("y"), SortExpr::from("A")),
+                    ],
+                    "P",
+                ),
+            ],
+            Vec::new(),
+        );
+        let result = free_model(&theory, &depth(1))?;
+        assert_eq!(carrier(&result, "A"), ["a()", "b()"]);
+        assert_eq!(
+            carrier(&result, "P"),
+            [
+                "pair(a(), a())",
+                "pair(a(), b())",
+                "pair(b(), a())",
+                "pair(b(), b())"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_cyclic_sort_dependency_names_only_the_cyclic_sorts() {
+        use crate::sort::SortParam;
+        let theory = Theory::new(
+            "Cyclic",
+            vec![
+                Sort::dependent("A", vec![SortParam::new("x", "B")]),
+                Sort::dependent("B", vec![SortParam::new("y", "A")]),
+                Sort::simple("C"),
+            ],
+            vec![],
+            vec![],
+        );
+        match free_model(&theory, &FreeModelConfig::default()) {
+            Err(GatError::CyclicSortDependency(sorts)) => assert_eq!(sorts, ["A", "B"]),
+            other => panic!("expected CyclicSortDependency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_aliased_fiber_is_reachable_at_the_first_depth() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let result = free_model(&aliased_fiber_theory(), &depth(1))?;
+        assert_eq!(carrier(&result, "Out"), ["use(elem())"]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_saturated_fibered_model_with_equations_is_complete()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let result = free_model(&aliased_fiber_theory(), &FreeModelConfig::default())?;
+        assert!(result.is_complete);
+        assert_eq!(carrier(&result, "Index"), ["pt1()"]);
+        assert_eq!(carrier(&result, "Fib"), ["elem()"]);
+        assert_eq!(carrier(&result, "Out"), ["use(elem())"]);
+        Ok(())
+    }
+
+    #[test]
+    fn an_identification_deep_in_a_fiber_index_aliases_the_fiber()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // `pt1() = pt2()` makes `Fib(s(pt2()))` the fiber `Fib(s(pt1()))`
+        // before `s(pt2())` is ever generated.
+        let theory = Theory::new(
+            "NestedAlias",
+            vec![
+                Sort::simple("Index"),
+                Sort::dependent("Fib", vec![crate::sort::SortParam::new("p", "Index")]),
+                Sort::simple("Out"),
+            ],
+            vec![
+                Operation::nullary("pt1", "Index"),
+                Operation::nullary("pt2", "Index"),
+                Operation::unary("s", "i", "Index", "Index"),
+                Operation::nullary(
+                    "elem",
+                    SortExpr::app("Fib", vec![Term::app("s", vec![Term::constant("pt2")])]),
+                ),
+                Operation::unary(
+                    "use",
+                    "x",
+                    SortExpr::app("Fib", vec![Term::app("s", vec![Term::constant("pt1")])]),
+                    "Out",
+                ),
+            ],
+            vec![Equation::new(
+                "points_agree",
+                Term::constant("pt1"),
+                Term::constant("pt2"),
+            )],
+        );
+        let result = free_model(&theory, &depth(1))?;
+        assert_eq!(carrier(&result, "Out"), ["use(elem())"]);
+        Ok(())
+    }
+
+    #[test]
+    fn an_identification_made_by_generated_terms_opens_its_fiber_at_the_next_depth()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // `s(a()) = b()` only fires once `s(a())` is generated at depth 1,
+        // and only then is `mk : Fib(s(a()))` in the fiber `use` reads.
+        let theory = Theory::new(
+            "LateAlias",
+            vec![
+                Sort::simple("Index"),
+                Sort::dependent("Fib", vec![crate::sort::SortParam::new("p", "Index")]),
+                Sort::simple("Out"),
+            ],
+            vec![
+                Operation::nullary("a", "Index"),
+                Operation::nullary("b", "Index"),
+                Operation::unary("s", "i", "Index", "Index"),
+                Operation::nullary(
+                    "mk",
+                    SortExpr::app("Fib", vec![Term::app("s", vec![Term::constant("a")])]),
+                ),
+                Operation::unary(
+                    "use",
+                    "x",
+                    SortExpr::app("Fib", vec![Term::constant("b")]),
+                    "Out",
+                ),
+            ],
+            vec![Equation::new(
+                "late",
+                Term::app("s", vec![Term::constant("a")]),
+                Term::constant("b"),
+            )],
+        );
+        let shallow = free_model(&theory, &depth(1))?;
+        assert!(carrier(&shallow, "Out").is_empty());
+        assert!(!shallow.is_complete);
+        let deeper = free_model(&theory, &depth(2))?;
+        assert_eq!(carrier(&deeper, "Out"), ["use(mk())"]);
+        Ok(())
+    }
+
+    #[test]
+    fn congruence_closes_a_chain_needing_several_passes() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // `a = b` propagates through alternating `f : A -> B` and
+        // `g : B -> A` six levels deep.
+        let theory = Theory::new(
+            "Alternating",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::unary("f", "x", "A", "B"),
+                Operation::unary("g", "y", "B", "A"),
+            ],
+            vec![Equation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        );
+        let result = free_model(&theory, &depth(6))?;
+        assert_eq!(
+            carrier(&result, "A"),
+            [
+                "a()",
+                "g(f(a()))",
+                "g(f(g(f(a()))))",
+                "g(f(g(f(g(f(a()))))))",
+            ]
+        );
+        assert_eq!(
+            carrier(&result, "B"),
+            ["f(a())", "f(g(f(a())))", "f(g(f(g(f(a())))))"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_equation_with_a_variable_merges_every_instance() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let theory = Theory::new(
+            "Retract",
+            vec![Sort::simple("A")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::unary("f", "x", "A", "A"),
+            ],
+            vec![Equation::new(
+                "retract",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let result = free_model(&theory, &depth(1))?;
+        assert_eq!(carrier(&result, "A"), ["a()", "b()"]);
+        let single = Theory::new(
+            "RetractOne",
+            vec![Sort::simple("A")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::unary("f", "x", "A", "A"),
+            ],
+            vec![Equation::new(
+                "retract",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let result = free_model(&single, &depth(0))?;
+        assert_eq!(carrier(&result, "A"), ["a()"]);
+        Ok(())
+    }
+
+    #[test]
+    fn an_equation_over_an_empty_sort_merges_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = Theory::new(
+            "EmptyDomain",
+            vec![Sort::simple("E"), Sort::simple("T")],
+            vec![
+                Operation::nullary("c", "T"),
+                Operation::unary("p", "x", "E", "T"),
+            ],
+            vec![Equation::new(
+                "collapse",
+                Term::app("p", vec![Term::var("x")]),
+                Term::constant("c"),
+            )],
+        );
+        let result = free_model(&theory, &depth(2))?;
+        assert!(carrier(&result, "E").is_empty());
+        assert_eq!(carrier(&result, "T"), ["c()"]);
         Ok(())
     }
 }

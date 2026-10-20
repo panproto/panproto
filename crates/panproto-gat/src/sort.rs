@@ -501,7 +501,6 @@ impl std::fmt::Display for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Var(n) => f.write_str(n),
-            Self::App { op, args } if args.is_empty() => write!(f, "{op}()"),
             Self::App { op, args } => {
                 write!(f, "{op}(")?;
                 for (i, a) in args.iter().enumerate() {
@@ -697,9 +696,9 @@ impl CoercionClass {
     /// The returned slice is the authoritative iteration order for
     /// exhaustiveness-sensitive consumers (sample-based law checkers,
     /// regression tests that must run once per class, breaking-change
-    /// migration tables). A dummy `match` below forces a compile
-    /// error when a new variant is added upstream: extend both the
-    /// match arms and the returned slice together.
+    /// migration tables). The exhaustive `match` that returns the slice
+    /// forces a compile error when a new variant is added upstream:
+    /// extend both the match arms and the slice together.
     ///
     /// `CoercionClass` is `#[non_exhaustive]`; callers outside this
     /// crate cannot write a `match` that panics on unknown variants
@@ -707,24 +706,17 @@ impl CoercionClass {
     /// with the enum anyway.
     #[must_use]
     pub const fn all() -> &'static [Self] {
-        // Exhaustiveness guard: adding a new variant to
-        // `CoercionClass` breaks this match and forces an update to
-        // `ALL` below.
-        const fn _exhaustiveness_witness(c: CoercionClass) {
-            match c {
-                CoercionClass::Iso
-                | CoercionClass::Retraction
-                | CoercionClass::Projection
-                | CoercionClass::Opaque => {}
-            }
-        }
         const ALL: &[CoercionClass] = &[
             CoercionClass::Iso,
             CoercionClass::Retraction,
             CoercionClass::Projection,
             CoercionClass::Opaque,
         ];
-        ALL
+        // Exhaustiveness guard: adding a new variant to `CoercionClass`
+        // breaks this match and forces an update to `ALL` above.
+        match ALL[0] {
+            Self::Iso | Self::Retraction | Self::Projection | Self::Opaque => ALL,
+        }
     }
 }
 
@@ -855,29 +847,10 @@ impl ValueKind {
     /// Consumers that need to iterate every value kind (sample
     /// registries, coverage regression tests, kind-indexed tables)
     /// should use this rather than hand-written slice literals; the
-    /// dummy `match` below turns a silent omission into a compile
-    /// error when a new variant is added.
+    /// exhaustive `match` that returns the slice turns a silent omission
+    /// into a compile error when a new variant is added.
     #[must_use]
     pub const fn all() -> &'static [Self] {
-        // Exhaustiveness guard: adding a new variant to `ValueKind`
-        // breaks this match and forces an update to `ALL` below.
-        const fn _exhaustiveness_witness(k: ValueKind) {
-            match k {
-                ValueKind::Bool
-                | ValueKind::Int
-                | ValueKind::Float
-                | ValueKind::Str
-                | ValueKind::Bytes
-                | ValueKind::Token
-                | ValueKind::Null
-                | ValueKind::DateTime
-                | ValueKind::Date
-                | ValueKind::Time
-                | ValueKind::Decimal
-                | ValueKind::Uuid
-                | ValueKind::Any => {}
-            }
-        }
         const ALL: &[ValueKind] = &[
             ValueKind::Bool,
             ValueKind::Int,
@@ -893,7 +866,23 @@ impl ValueKind {
             ValueKind::Uuid,
             ValueKind::Any,
         ];
-        ALL
+        // Exhaustiveness guard: adding a new variant to `ValueKind`
+        // breaks this match and forces an update to `ALL` above.
+        match ALL[0] {
+            Self::Bool
+            | Self::Int
+            | Self::Float
+            | Self::Str
+            | Self::Bytes
+            | Self::Token
+            | Self::Null
+            | Self::DateTime
+            | Self::Date
+            | Self::Time
+            | Self::Decimal
+            | Self::Uuid
+            | Self::Any => ALL,
+        }
     }
 }
 
@@ -2056,5 +2045,175 @@ mod tests {
         let (equal, exhausted) = s1.alpha_eq_modulo_rewrites_status(&s2, &[rule], 100);
         assert!(equal, "add(zero, a) normalizes to a");
         assert!(!exhausted);
+    }
+
+    fn branch(constructor: &str, binders: &[&str], body: Term) -> crate::eq::CaseBranch {
+        crate::eq::CaseBranch {
+            constructor: Arc::from(constructor),
+            binders: binders.iter().map(|b| Arc::from(*b)).collect(),
+            body,
+        }
+    }
+
+    fn hash_of(expr: &SortExpr) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        expr.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn sort_expr_equality_compares_heads_and_arguments() {
+        assert_eq!(SortExpr::from("A"), SortExpr::from("A"));
+        assert_ne!(SortExpr::from("A"), SortExpr::from("B"));
+        let fa = SortExpr::app("F", vec![Term::constant("a")]);
+        let fb = SortExpr::app("F", vec![Term::constant("b")]);
+        let ga = SortExpr::app("G", vec![Term::constant("a")]);
+        assert_eq!(fa, SortExpr::app("F", vec![Term::constant("a")]));
+        assert_ne!(fa, fb, "same head, different arguments");
+        assert_ne!(fa, ga, "same arguments, different heads");
+        assert_ne!(fa, SortExpr::from("F"), "different argument counts");
+        let unnormalized = SortExpr::App {
+            name: Arc::from("A"),
+            args: Vec::new(),
+        };
+        assert_eq!(unnormalized, SortExpr::from("A"));
+    }
+
+    #[test]
+    fn sort_expr_hash_separates_distinct_expressions_and_joins_spellings() {
+        assert_ne!(hash_of(&SortExpr::from("A")), hash_of(&SortExpr::from("B")));
+        assert_ne!(
+            hash_of(&SortExpr::app("F", vec![Term::constant("a")])),
+            hash_of(&SortExpr::app("F", vec![Term::constant("b")]))
+        );
+        let unnormalized = SortExpr::App {
+            name: Arc::from("A"),
+            args: Vec::new(),
+        };
+        assert_eq!(hash_of(&unnormalized), hash_of(&SortExpr::from("A")));
+    }
+
+    #[test]
+    fn alpha_eq_modulo_rewrites_requires_equal_heads() {
+        assert!(!SortExpr::from("A").alpha_eq_modulo_rewrites(&SortExpr::from("B"), &[], 10));
+        assert_eq!(
+            SortExpr::from("A").alpha_eq_modulo_rewrites_status(&SortExpr::from("B"), &[], 10),
+            (false, false)
+        );
+        let fa = SortExpr::app("F", vec![Term::constant("a")]);
+        let ga = SortExpr::app("G", vec![Term::constant("a")]);
+        assert_eq!(
+            fa.alpha_eq_modulo_rewrites_status(&ga, &[], 10),
+            (false, false),
+            "different heads with equal arguments"
+        );
+        assert!(fa.alpha_eq_modulo_rewrites(&fa.clone(), &[], 10));
+        assert!(!fa.alpha_eq_modulo_rewrites(
+            &SortExpr::app("F", vec![Term::constant("b")]),
+            &[],
+            10
+        ));
+    }
+
+    #[test]
+    fn term_display_separates_arguments_branches_and_binders() {
+        assert_eq!(Term::constant("c").to_string(), "c()");
+        assert_eq!(
+            Term::app(
+                "f",
+                vec![Term::var("x"), Term::constant("c"), Term::var("y")]
+            )
+            .to_string(),
+            "f(x, c(), y)"
+        );
+        let case = Term::Case {
+            scrutinee: Box::new(Term::var("p")),
+            branches: vec![
+                branch("pair", &["a", "b"], Term::var("a")),
+                branch("triple", &["c", "d", "e"], Term::var("e")),
+                branch("unit", &[], Term::constant("u")),
+            ],
+        };
+        assert_eq!(
+            case.to_string(),
+            "case p of pair(a, b) => a | triple(c, d, e) => e | unit() => u() end"
+        );
+        let single = Term::Case {
+            scrutinee: Box::new(Term::var("p")),
+            branches: vec![branch("one", &["a"], Term::var("a"))],
+        };
+        assert_eq!(single.to_string(), "case p of one(a) => a end");
+    }
+
+    #[test]
+    fn only_iso_is_lossless() {
+        assert!(CoercionClass::Iso.is_lossless());
+        assert!(!CoercionClass::Retraction.is_lossless());
+        assert!(!CoercionClass::Projection.is_lossless());
+        assert!(!CoercionClass::Opaque.is_lossless());
+    }
+
+    #[test]
+    fn coercion_classes_order_by_increasing_lossiness() {
+        use std::cmp::Ordering;
+        let order = [
+            CoercionClass::Iso,
+            CoercionClass::Retraction,
+            CoercionClass::Projection,
+            CoercionClass::Opaque,
+        ];
+        for (i, a) in order.iter().enumerate() {
+            for (j, b) in order.iter().enumerate() {
+                assert_eq!(a.cmp(b), i.cmp(&j), "{a:?} against {b:?}");
+                assert_eq!(a.partial_cmp(b), Some(i.cmp(&j)), "{a:?} against {b:?}");
+            }
+        }
+        assert_eq!(
+            CoercionClass::Opaque.cmp(&CoercionClass::Iso),
+            Ordering::Greater
+        );
+        let mut shuffled = vec![
+            CoercionClass::Opaque,
+            CoercionClass::Iso,
+            CoercionClass::Projection,
+            CoercionClass::Retraction,
+        ];
+        shuffled.sort();
+        assert_eq!(shuffled, order);
+    }
+
+    #[test]
+    fn all_lists_every_variant_once_in_declaration_order() {
+        assert_eq!(
+            CoercionClass::all(),
+            [
+                CoercionClass::Iso,
+                CoercionClass::Retraction,
+                CoercionClass::Projection,
+                CoercionClass::Opaque,
+            ]
+        );
+        assert_eq!(
+            ValueKind::all()
+                .iter()
+                .map(ValueKind::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "boolean",
+                "integer",
+                "number",
+                "string",
+                "bytes",
+                "token",
+                "null",
+                "date-time",
+                "date",
+                "time",
+                "decimal",
+                "uuid",
+                "any",
+            ]
+        );
     }
 }

@@ -3013,4 +3013,206 @@ mod tests {
             "{result:?}"
         );
     }
+
+    fn rule(name: &str, lhs: Term, rhs: Term) -> crate::eq::DirectedEquation {
+        crate::eq::DirectedEquation::new(name, lhs, rhs, panproto_expr::Expr::Var("_".into()))
+    }
+
+    /// Sort `A` with constants `a`, `b`, `c` and unary `s`, `g`, `h`,
+    /// carrying the given equations and directed equations.
+    fn chain_codomain(eqs: Vec<Equation>, directed: Vec<crate::eq::DirectedEquation>) -> Theory {
+        Theory::full(
+            "Chain",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::nullary("c", "A"),
+                Operation::unary("s", "x", "A", "A"),
+                Operation::unary("g", "x", "A", "A"),
+                Operation::unary("h", "x", "A", "A"),
+            ],
+            eqs,
+            directed,
+            Vec::new(),
+        )
+    }
+
+    fn nested(op: &str, depth: usize, base: Term) -> Term {
+        (0..depth).fold(base, |t, _| Term::app(op, vec![t]))
+    }
+
+    #[test]
+    fn op_assignment_accessors_and_display() {
+        let rename = OpAssignment::op("g");
+        let derived = OpAssignment::Term(Term::app("g", vec![Term::var("x"), Term::constant("c")]));
+        assert!(rename.is_op());
+        assert!(!derived.is_op());
+        assert_eq!(rename.as_op().map(AsRef::as_ref), Some("g"));
+        assert_eq!(derived.as_op(), None);
+        assert_eq!(rename.as_term(), None);
+        assert_eq!(
+            derived.as_term(),
+            Some(&Term::app("g", vec![Term::var("x"), Term::constant("c")]))
+        );
+        assert_eq!(rename.to_string(), "g");
+        assert_eq!(derived.to_string(), "g(x, c())");
+    }
+
+    #[test]
+    fn term_depth_counts_nesting_levels() {
+        assert_eq!(term_depth(&Term::var("x")), 1);
+        assert_eq!(term_depth(&Term::Hole { name: None }), 1);
+        assert_eq!(term_depth(&Term::constant("c")), 1);
+        assert_eq!(term_depth(&Term::app("f", vec![Term::var("x")])), 2);
+        assert_eq!(
+            term_depth(&Term::app(
+                "f",
+                vec![Term::var("y"), Term::app("g", vec![Term::constant("c")])]
+            )),
+            3
+        );
+        let case = Term::Case {
+            scrutinee: Box::new(nested("s", 3, Term::var("n"))),
+            branches: vec![
+                crate::eq::CaseBranch {
+                    constructor: Arc::from("z"),
+                    binders: Vec::new(),
+                    body: nested("s", 1, Term::var("m")),
+                },
+                crate::eq::CaseBranch {
+                    constructor: Arc::from("s"),
+                    binders: vec![Arc::from("p")],
+                    body: Term::var("p"),
+                },
+            ],
+        };
+        assert_eq!(term_depth(&case), 5);
+        let deep_branch = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![crate::eq::CaseBranch {
+                constructor: Arc::from("s"),
+                binders: vec![Arc::from("p")],
+                body: nested("s", 5, Term::var("p")),
+            }],
+        };
+        assert_eq!(term_depth(&deep_branch), 7);
+        let let_term = Term::Let {
+            name: Arc::from("v"),
+            bound: Box::new(nested("s", 2, Term::var("x"))),
+            body: Box::new(Term::var("v")),
+        };
+        assert_eq!(term_depth(&let_term), 4);
+        let let_body = Term::Let {
+            name: Arc::from("v"),
+            bound: Box::new(Term::var("x")),
+            body: Box::new(nested("s", 4, Term::var("v"))),
+        };
+        assert_eq!(term_depth(&let_body), 6);
+    }
+
+    #[test]
+    fn normalize_bounded_gives_up_one_level_past_the_headroom() {
+        // `g(x) -> g(h(x))` deepens `g(c())` by one level per step; the
+        // deeper of the term and the rule sides is 3, so rewriting stops
+        // at the first term deeper than 3 + 64.
+        let grow = rule(
+            "grow",
+            Term::app("g", vec![Term::var("x")]),
+            Term::app("g", vec![Term::app("h", vec![Term::var("x")])]),
+        );
+        let start = Term::app("g", vec![Term::constant("c")]);
+        let (result, exhausted) = normalize_bounded(&start, &[grow], 1000);
+        assert!(exhausted);
+        assert_eq!(term_depth(&result), 3 + REWRITE_DEPTH_HEADROOM + 1);
+        assert_eq!(
+            result,
+            Term::app("g", vec![nested("h", 66, Term::constant("c"))])
+        );
+    }
+
+    /// `g(s(x)) -> g(x)`: one root rewrite per step, since its redex is
+    /// always the whole term.
+    fn peel() -> crate::eq::DirectedEquation {
+        rule(
+            "peel",
+            Term::app("g", vec![Term::app("s", vec![Term::var("x")])]),
+            Term::app("g", vec![Term::var("x")]),
+        )
+    }
+
+    fn peeled(depth: usize) -> Term {
+        Term::app("g", vec![nested("s", depth, Term::constant("c"))])
+    }
+
+    #[test]
+    fn normalize_bounded_reports_a_spent_budget_even_on_a_normal_form() {
+        let normal = Term::app("g", vec![Term::constant("c")]);
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 3);
+        assert_eq!(result, normal);
+        assert!(exhausted, "the third step spends the budget");
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 4);
+        assert_eq!(result, normal);
+        assert!(!exhausted);
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 2);
+        assert_eq!(result, peeled(1));
+        assert!(exhausted);
+    }
+
+    #[test]
+    fn a_side_whose_normalization_spends_the_budget_is_undecided() {
+        // `g(s^512(c()))` reaches `g(c())` on the last step the budget
+        // allows, so its normalization reports exhaustion even though the
+        // other side is that same normal form.
+        let codomain = chain_codomain(Vec::new(), vec![peel()]);
+        let normal = peeled(0);
+        assert!(matches!(
+            equation_image_derivable(&peeled(512), &normal, &codomain),
+            Derivability::Unknown
+        ));
+        assert!(matches!(
+            equation_image_derivable(&normal, &peeled(512), &codomain),
+            Derivability::Unknown
+        ));
+        assert!(matches!(
+            equation_image_derivable(&peeled(511), &normal, &codomain),
+            Derivability::Derivable
+        ));
+    }
+
+    #[test]
+    fn preservation_witness_chains_directed_normal_forms_and_trusts_the_rest() {
+        // `b -> c` is directed; `a = b` is an undirected axiom, so `a = c`
+        // holds only through the equation and `b = c` through the rule.
+        let codomain = chain_codomain(
+            vec![Equation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+            vec![rule("bc", Term::constant("b"), Term::constant("c"))],
+        );
+        let directed = preservation_witness(&Term::constant("b"), &Term::constant("c"), &codomain);
+        assert!(
+            matches!(
+                directed.justification,
+                WitnessJustification::Transitivity(..)
+            ),
+            "{directed:?}"
+        );
+        let trusted = preservation_witness(&Term::constant("a"), &Term::constant("c"), &codomain);
+        assert!(
+            matches!(
+                trusted.justification,
+                WitnessJustification::RuntimeChecked { .. }
+            ),
+            "{trusted:?}"
+        );
+        let axiom = preservation_witness(&Term::constant("a"), &Term::constant("b"), &codomain);
+        assert!(
+            matches!(&axiom.justification, WitnessJustification::Axiom(name) if &**name == "ab"),
+            "{axiom:?}"
+        );
+    }
 }

@@ -2864,17 +2864,14 @@ impl Cocone<'_> {
             records.push(record(
                 CompositionCheckKind::EquationImage,
                 CheckSubject::Node(Arc::clone(&node.label)),
-                self.lost_equation(&node.label, info)
-                    .map_or(CheckOutcome::Passed, |detail| CheckOutcome::Failed {
-                        detail,
-                    }),
+                self.equation_image(&node.label, info),
             ));
         }
     }
 
-    /// The first equation or directed equation of a node without an image
-    /// in the result, described.
-    fn lost_equation(&self, label: &Arc<str>, info: &NodeInfo<'_>) -> Option<String> {
+    /// `Passed` when every equation and directed equation of a node has
+    /// its image in the result, else `Failed` naming the first without one.
+    fn equation_image(&self, label: &Arc<str>, info: &NodeInfo<'_>) -> CheckOutcome {
         let ops = self.symbols.maps.ops_of(label);
         for eq in &info.theory.eqs {
             let source = SymRef::new(Arc::clone(label), Arc::clone(&eq.name));
@@ -2888,7 +2885,9 @@ impl Cocone<'_> {
                         || alpha_equivalent_equation(&img.lhs, &img.rhs, &renamed.rhs, &renamed.lhs)
                 });
             if !present {
-                return Some(format!("equation {source} has no image"));
+                return CheckOutcome::Failed {
+                    detail: format!("equation {source} has no image"),
+                };
             }
         }
         for de in &info.theory.directed_eqs {
@@ -2902,10 +2901,12 @@ impl Cocone<'_> {
                     alpha_equivalent_equation(&img.lhs, &img.rhs, &renamed.lhs, &renamed.rhs)
                 });
             if !present {
-                return Some(format!("directed equation {source} has no image"));
+                return CheckOutcome::Failed {
+                    detail: format!("directed equation {source} has no image"),
+                };
             }
         }
-        None
+        CheckOutcome::Passed
     }
 
     /// Record `UniversalIdentity`: the canonical cocone factors through the
@@ -2972,8 +2973,8 @@ fn name_clash_free(
         }
     }
     for ((kind, _), refs) in &symbols {
-        for (i, a) in refs.iter().enumerate() {
-            for b in &refs[i + 1..] {
+        for a in refs {
+            for b in refs {
                 if a.node != b.node && !edge_uf.same(&(*kind, a.clone()), &(*kind, b.clone())) {
                     return false;
                 }
@@ -2989,8 +2990,8 @@ fn name_clash_free(
                 .push((source, image));
         }
         for entries in by_name.into_values() {
-            for (i, (a, ai)) in entries.iter().enumerate() {
-                for (b, bi) in &entries[i + 1..] {
+            for (a, ai) in &entries {
+                for (b, bi) in &entries {
                     if a.node != b.node && ai != bi {
                         return false;
                     }
@@ -6178,5 +6179,326 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn symbol_kinds_and_references_render_their_names() {
+        let kinds = [
+            (SymKind::Sort, "sort"),
+            (SymKind::Op, "op"),
+            (SymKind::Eq, "eq"),
+            (SymKind::DirectedEq, "directed_eq"),
+            (SymKind::Policy, "policy"),
+        ];
+        for (kind, name) in kinds {
+            assert_eq!(kind.as_str(), name);
+            assert_eq!(kind.to_string(), name);
+        }
+        assert_eq!(sym("T1", "f").to_string(), "T1.f");
+    }
+
+    #[test]
+    fn composition_errors_join_their_items_with_semicolons() {
+        let class = |members: &[(&str, &str)]| CompositionError::NotACocone {
+            class: members.iter().map(|(n, s)| sym(n, s)).collect(),
+        };
+        assert_eq!(
+            class(&[]).to_string(),
+            "the legs are not a cocone: they send the members of {} to different images"
+        );
+        assert_eq!(
+            class(&[("A", "f")]).to_string(),
+            "the legs are not a cocone: they send the members of {A.f} to different images"
+        );
+        assert_eq!(
+            class(&[("A", "f"), ("B", "g"), ("C", "h")]).to_string(),
+            "the legs are not a cocone: they send the members of {A.f; B.g; C.h} to \
+             different images"
+        );
+        assert_eq!(
+            CompositionError::NameConflict {
+                kind: SymKind::DirectedEq,
+                name: "r".into(),
+                first: sym("A", "r"),
+                second: sym("B", "r"),
+            }
+            .to_string(),
+            "directed_eq `r` is declared incompatibly by A.r and B.r"
+        );
+    }
+
+    /// `s` as its little-endian `u64` length followed by its bytes.
+    fn prefixed(out: &mut Vec<u8>, s: &str) {
+        out.extend_from_slice(&(s.len() as u64).to_le_bytes());
+        out.extend_from_slice(s.as_bytes());
+    }
+
+    fn counted(out: &mut Vec<u8>, n: u64) {
+        out.extend_from_slice(&n.to_le_bytes());
+    }
+
+    #[test]
+    fn morphism_bytes_prefix_every_string_and_tag_every_term() {
+        let derived = Term::Let {
+            name: "v".into(),
+            bound: Box::new(Term::Hole {
+                name: Some("h".into()),
+            }),
+            body: Box::new(Term::Case {
+                scrutinee: Box::new(Term::var("v")),
+                branches: vec![crate::eq::CaseBranch {
+                    constructor: "pair".into(),
+                    binders: vec!["a".into(), "b".into()],
+                    body: Term::app("k", vec![Term::var("a"), Term::Hole { name: None }]),
+                }],
+            }),
+        };
+        let m = TheoryMorphism::new(
+            "m",
+            "Dom",
+            "Cod",
+            HashMap::from([
+                (Arc::from("S"), Arc::from("T")),
+                (Arc::from("R"), Arc::from("U")),
+            ]),
+            HashMap::from([
+                (Arc::from("g"), OpAssignment::Term(derived)),
+                (Arc::from("f"), OpAssignment::op("f2")),
+            ]),
+        );
+        let mut expected = Vec::new();
+        prefixed(&mut expected, "m");
+        prefixed(&mut expected, "Dom");
+        prefixed(&mut expected, "Cod");
+        counted(&mut expected, 2);
+        for s in ["R", "U", "S", "T"] {
+            prefixed(&mut expected, s);
+        }
+        counted(&mut expected, 2);
+        prefixed(&mut expected, "f");
+        expected.push(0);
+        prefixed(&mut expected, "f2");
+        prefixed(&mut expected, "g");
+        expected.push(1);
+        // let v = ?h in case v of pair(a, b) => k(a, ?)
+        expected.push(4);
+        prefixed(&mut expected, "v");
+        expected.extend_from_slice(&[3, 1]);
+        prefixed(&mut expected, "h");
+        expected.push(2);
+        expected.push(0);
+        prefixed(&mut expected, "v");
+        counted(&mut expected, 1);
+        prefixed(&mut expected, "pair");
+        counted(&mut expected, 2);
+        prefixed(&mut expected, "a");
+        prefixed(&mut expected, "b");
+        expected.push(1);
+        prefixed(&mut expected, "k");
+        counted(&mut expected, 2);
+        expected.push(0);
+        prefixed(&mut expected, "a");
+        expected.extend_from_slice(&[3, 0]);
+        assert_eq!(morphism_bytes(&m), expected);
+    }
+
+    #[test]
+    fn a_sort_map_entry_naming_no_source_sort_identifies_nothing() -> TestResult {
+        let mut to_t1 = leg("Sh", "T1", &[("S", "S")], &[]);
+        to_t1.sort_map.insert("Ghost".into(), "X".into());
+        let d = TheoryDiagram::span(
+            ("Sh", th("Sh", &["S"], &[], vec![])),
+            ("T1", th("T1", &["S", "X"], &[], vec![])),
+            ("T2", th("T2", &["S", "Y"], &[], vec![])),
+            to_t1,
+            leg("Sh", "T2", &[("S", "S")], &[]),
+        );
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(c.provenance.members(SymKind::Sort, "X"), [sym("T1", "X")]);
+        assert_eq!(
+            c.provenance.members(SymKind::Sort, "S"),
+            [sym("Sh", "S"), sym("T1", "S"), sym("T2", "S")]
+        );
+        assert_eq!(
+            c.report.status,
+            CheckStatus::Passed,
+            "{:?}",
+            c.report.checks
+        );
+        Ok(())
+    }
+
+    /// A one-node composition of `T` (sort `A`, unary `s`, `f`, `g`, `h`)
+    /// with the given equations, and the identity-named leg into `q`.
+    fn entailment_against(
+        eqs: Vec<Equation>,
+        q: &Theory,
+    ) -> Result<CheckOutcome, Box<dyn std::error::Error>> {
+        let unary = |name: &'static str| (name, &["A"][..], "A");
+        let t = th(
+            "T",
+            &["A"],
+            &[unary("s"), unary("f"), unary("g"), unary("h")],
+            eqs,
+        );
+        let d = TheoryDiagram::discrete(vec![("T", t)]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let legs = [leg(
+            "T",
+            "Q",
+            &[("A", "A")],
+            &[("s", "s"), ("f", "f"), ("g", "g"), ("h", "h")],
+        )];
+        let (_, report) = c.verify_universal_within(&d, q, &legs, 16)?;
+        let outcomes: Vec<CheckOutcome> = report
+            .records(CompositionCheckKind::EquationEntailed)
+            .map(|r| r.outcome.clone())
+            .collect();
+        match &outcomes[..] {
+            [only] => Ok(only.clone()),
+            _ => Err(format!("expected one EquationEntailed record, got {outcomes:?}").into()),
+        }
+    }
+
+    /// `Q` over the signature of [`entailment_against`]'s `T`, with the
+    /// looping axiom `k : f(x) = g(x)` and the given directed equations.
+    fn looping_target(directed: Vec<DirectedEquation>) -> Theory {
+        let base = th(
+            "Q",
+            &["A"],
+            &[
+                ("s", &["A"], "A"),
+                ("f", &["A"], "A"),
+                ("g", &["A"], "A"),
+                ("h", &["A"], "A"),
+            ],
+            vec![Equation::new(
+                "k",
+                Term::app("f", vec![Term::var("x")]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+        Theory::full(
+            "Q",
+            Vec::new(),
+            base.sorts.clone(),
+            base.ops.clone(),
+            base.eqs,
+            directed,
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn equality_shown_by_directed_rewriting_needs_no_undirected_axiom() -> TestResult {
+        let q = looping_target(vec![rule(
+            "drop_s",
+            Term::app("s", vec![Term::var("y")]),
+            Term::var("y"),
+        )]);
+        let e = Equation::new(
+            "e",
+            Term::app("s", vec![Term::app("f", vec![Term::var("x")])]),
+            Term::app("f", vec![Term::var("x")]),
+        );
+        assert_eq!(entailment_against(vec![e], &q)?, CheckOutcome::Passed);
+        Ok(())
+    }
+
+    #[test]
+    fn one_side_exhausting_the_budget_leaves_equality_undecided() -> TestResult {
+        let q = looping_target(Vec::new());
+        let e = Equation::new(
+            "e",
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("h", vec![Term::var("x")]),
+        );
+        assert_eq!(
+            entailment_against(vec![e], &q)?,
+            CheckOutcome::Incomplete {
+                reason: CompositionIncomplete::RewriteBudgetExhausted {
+                    equation: "e".into(),
+                    steps: 16,
+                },
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn verify_universal_needs_one_leg_per_node() -> TestResult {
+        let d = TheoryDiagram::discrete(vec![
+            ("T", th("T", &["A"], &[], vec![])),
+            ("E", th("E", &[], &[], vec![])),
+        ]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let q = th("Q", &["A"], &[], vec![]);
+        let one_leg = [leg("T", "Q", &[("A", "A")], &[])];
+        assert_eq!(
+            c.verify_universal(&d, &q, &one_leg).err(),
+            Some(CompositionError::NotACocone { class: Vec::new() })
+        );
+        let both = [one_leg[0].clone(), leg("E", "Q", &[], &[])];
+        c.verify_universal(&d, &q, &both)?;
+        Ok(())
+    }
+
+    #[test]
+    fn verify_universal_keeps_the_composition_checks() -> TestResult {
+        let d = graph_constraint();
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let (_, report) = c.verify_universal(&d, &larger(), &larger_legs("Vertex"))?;
+        let construction = |r: &&CheckRecord| {
+            !matches!(
+                r.check,
+                CompositionCheckKind::EquationEntailed | CompositionCheckKind::UniversalAgainst
+            )
+        };
+        let original: Vec<&CheckRecord> = c.report.checks.iter().filter(construction).collect();
+        let kept: Vec<&CheckRecord> = report.checks.iter().filter(construction).collect();
+        assert!(!original.is_empty());
+        assert_eq!(kept, original);
+        Ok(())
+    }
+
+    #[test]
+    fn every_declared_sort_needs_an_image_under_its_leg() -> TestResult {
+        let d = graph_constraint();
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let mut legs = larger_legs("Vertex");
+        legs[1].sort_map.remove("Edge");
+        assert_eq!(
+            c.verify_universal(&d, &larger(), &legs).err(),
+            Some(CompositionError::NotACocone {
+                class: vec![sym("G", "Edge")]
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_undeclared_sort_needs_no_image_under_its_leg() -> TestResult {
+        let open = th(
+            "Open",
+            &["Node"],
+            &[("anchor", &["Node"], "Vertex")],
+            vec![],
+        );
+        let d = TheoryDiagram::discrete(vec![("O", open)]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let q = th(
+            "Q",
+            &["Node", "Vertex"],
+            &[("anchor", &["Node"], "Vertex")],
+            vec![],
+        );
+        let legs = [leg("O", "Q", &[("Node", "Node")], &[("anchor", "anchor")])];
+        let (mediator, _) = c.verify_universal(&d, &q, &legs)?;
+        assert_eq!(
+            mediator.sort_map.get("Node").map(AsRef::as_ref),
+            Some("Node")
+        );
+        assert_eq!(mediator.sort_map.get("Vertex"), None);
+        Ok(())
     }
 }

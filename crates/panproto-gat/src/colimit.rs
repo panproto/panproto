@@ -1905,4 +1905,167 @@ mod tests {
             }
         }
     }
+
+    /// The pushout of `ThGraph` (`Vertex`, `Edge`, `src`) and
+    /// `ThConstraint` (`Vertex`, `Constraint`, `target`) over `Vertex`,
+    /// a target theory `Q` with every pushout symbol plus `Extra`, and
+    /// the identity-named legs into `Q`.
+    fn graph_constraint_cocone() -> (ColimitResult, Theory, TheoryMorphism, TheoryMorphism) {
+        let shared = Theory::new(
+            "ThVertex",
+            vec![Sort::simple("Vertex")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let th_graph = Theory::new(
+            "ThGraph",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![Operation::unary("src", "e", "Edge", "Vertex")],
+            Vec::new(),
+        );
+        let th_constraint = Theory::new(
+            "ThConstraint",
+            vec![Sort::simple("Vertex"), Sort::simple("Constraint")],
+            vec![Operation::unary("target", "c", "Constraint", "Vertex")],
+            Vec::new(),
+        );
+        let pushout = pushout_by_name(&th_graph, &th_constraint, &shared).unwrap();
+        let q = Theory::new(
+            "Q",
+            vec![
+                Sort::simple("Vertex"),
+                Sort::simple("Edge"),
+                Sort::simple("Constraint"),
+                Sort::simple("Extra"),
+            ],
+            vec![
+                Operation::unary("src", "e", "Edge", "Vertex"),
+                Operation::unary("target", "c", "Constraint", "Vertex"),
+            ],
+            Vec::new(),
+        );
+        let k1 = cocone_leg(
+            "k1",
+            "ThGraph",
+            &[("Vertex", "Vertex"), ("Edge", "Edge")],
+            &[("src", "src")],
+        );
+        let k2 = cocone_leg(
+            "k2",
+            "ThConstraint",
+            &[("Vertex", "Vertex"), ("Constraint", "Constraint")],
+            &[("target", "target")],
+        );
+        (pushout, q, k1, k2)
+    }
+
+    fn cocone_leg(
+        name: &str,
+        domain: &str,
+        sorts: &[(&str, &str)],
+        ops: &[(&str, &str)],
+    ) -> TheoryMorphism {
+        TheoryMorphism::new(
+            name,
+            domain,
+            "Q",
+            sorts
+                .iter()
+                .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+                .collect(),
+            ops.iter()
+                .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+                .collect::<HashMap<Arc<str>, Arc<str>>>(),
+        )
+    }
+
+    fn not_preserved(result: Result<TheoryMorphism, GatError>) -> (String, String) {
+        match result {
+            Err(GatError::EquationNotPreserved { equation, detail }) => (equation, detail),
+            other => panic!("expected EquationNotPreserved, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_cocone_rejects_legs_that_disagree_on_a_shared_sort() {
+        let shared = Theory::new("S", vec![Sort::simple("V")], Vec::new(), Vec::new());
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("V"), Sort::simple("E")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("V"), Sort::simple("C")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let leg = |cod: &str, image: &str| {
+            TheoryMorphism::new(
+                format!("S_to_{cod}"),
+                "S",
+                cod,
+                HashMap::from([(Arc::from("V"), Arc::from(image))]),
+                HashMap::<Arc<str>, Arc<str>>::new(),
+            )
+        };
+        let (i1, i2) = (leg("T1", "V"), leg("T2", "V"));
+        let result = colimit(&shared, &t1, &t2, &i1, &i2).unwrap();
+        result.verify_cocone(&i1, &i2, &shared, &t1, &t2).unwrap();
+        let skewed = leg("T2", "C");
+        match result.verify_cocone(&i1, &skewed, &shared, &t1, &t2) {
+            Err(GatError::EquationNotPreserved { equation, detail }) => {
+                assert_eq!(equation, "cocone sort V");
+                assert_eq!(detail, "j1∘i1 maps to V, j2∘i2 maps to C");
+            }
+            other => panic!("expected EquationNotPreserved, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_universal_requires_both_legs_into_the_target() {
+        let (pushout, q, k1, mut k2) = graph_constraint_cocone();
+        k2.codomain = Arc::from("Elsewhere");
+        let (equation, detail) = not_preserved(pushout.verify_universal(&q, &k1, &k2));
+        assert_eq!(equation, "universal property");
+        assert_eq!(
+            detail,
+            "alternative cocone codomain mismatch: k1=Q, k2=Elsewhere, q=Q"
+        );
+    }
+
+    #[test]
+    fn verify_universal_requires_the_mediator_to_reproduce_each_leg_op_map() {
+        let (pushout, q, k1, k2) = graph_constraint_cocone();
+        pushout.verify_universal(&q, &k1, &k2).unwrap();
+
+        let mut k1_extra = k1.clone();
+        k1_extra
+            .op_map
+            .insert(Arc::from("ghost"), crate::morphism::OpAssignment::op("src"));
+        let (equation, _) = not_preserved(pushout.verify_universal(&q, &k1_extra, &k2));
+        assert_eq!(equation, "universal property: m ∘ j1 = k1");
+
+        let mut k2_extra = k2;
+        k2_extra.op_map.insert(
+            Arc::from("ghost"),
+            crate::morphism::OpAssignment::op("target"),
+        );
+        let (equation, _) = not_preserved(pushout.verify_universal(&q, &k1, &k2_extra));
+        assert_eq!(equation, "universal property: m ∘ j2 = k2");
+    }
+
+    #[test]
+    fn verify_universal_names_the_identified_sort_the_legs_split() {
+        let (pushout, q, k1, mut k2) = graph_constraint_cocone();
+        k2.sort_map.insert(Arc::from("Vertex"), Arc::from("Extra"));
+        let (equation, detail) = not_preserved(pushout.verify_universal(&q, &k1, &k2));
+        assert_eq!(equation, "universal property sort Vertex");
+        assert_eq!(
+            detail,
+            "two T-preimages of `Vertex` map to distinct Q-images under k2: `Vertex` vs \
+             `Extra`; the alternative cocone is not commutative"
+        );
+    }
 }
