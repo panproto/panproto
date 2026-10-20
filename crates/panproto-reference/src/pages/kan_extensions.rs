@@ -2977,7 +2977,8 @@ pub mod rel {
     /// of a non-value kind; relations are the edges between tables; attribute
     /// arrows are the edges from a table to a value vertex, named by the edge
     /// name else the target, a repeated name in one table being
-    /// `DuplicateColumn`; edges out of value vertices are inner edges.
+    /// `DuplicateColumn` (the least such table and column); edges out of
+    /// value vertices are inner edges.
     ///
     /// # Errors
     ///
@@ -3060,6 +3061,9 @@ pub mod rel {
             .collect();
         let mut relations = BTreeSet::new();
         let mut inner_edges = BTreeSet::new();
+        // Every (table, column) two attribute arrows name; the least is the
+        // refusal.
+        let mut duplicates: BTreeSet<(Name, String)> = BTreeSet::new();
         for e in &schema.edges {
             if tables.contains(&e.src) && tables.contains(&e.tgt) {
                 relations.insert(e.clone());
@@ -3067,14 +3071,14 @@ pub mod rel {
                 let cols = columns.entry(e.src.clone()).or_default();
                 let name = e.column().to_owned();
                 if cols.insert(name.clone(), e.clone()).is_some() {
-                    return Err(RelSchemaError::DuplicateColumn {
-                        table: e.src.clone(),
-                        column: name,
-                    });
+                    duplicates.insert((e.src.clone(), name));
                 }
             } else if values.contains(&e.src) {
                 inner_edges.insert(e.clone());
             }
+        }
+        if let Some((table, column)) = duplicates.into_iter().next() {
+            return Err(RelSchemaError::DuplicateColumn { table, column });
         }
         Ok(RelSchema {
             tables,
@@ -4166,9 +4170,13 @@ pub mod rel {
     /// # Errors
     ///
     /// [`KanError::AttributeOutsideImage`] or [`KanError::NonConforming`];
-    /// [`KanError::ProductSizeExceeded`] before enumerating a product of two
-    /// or more table fibres or the pair product of an uncarried relation; or
-    /// [`KanError::RowIdsExhausted`] when a fresh id would pass `u32::MAX`.
+    /// [`KanError::ProductSizeExceeded`] for the first target table, by
+    /// ascending name, whose fibre of two or more tables has a row-count
+    /// product above the bound, else for the first relation, ascending, to
+    /// which nothing is carried and whose two ends hold more than the bound
+    /// in pairs of rows (named by its source table); every product check
+    /// precedes every fresh id; then [`KanError::RowIdsExhausted`] when a
+    /// fresh id would pass `u32::MAX`.
     ///
     /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
     pub fn pi(
@@ -4182,21 +4190,12 @@ pub mod rel {
         let i = restrict_to_kept(i, f);
         let mut out = Table::default();
         let mut prov = PiProvenance::new();
-        let mut ids: BTreeMap<(Name, Vec<u32>), u32> = BTreeMap::new();
-        let mut order: Vec<(Option<Name>, Name)> = f
-            .tgt
-            .tables
-            .iter()
-            .map(|d| (f.fibre(d).first().cloned(), d.clone()))
-            .collect();
-        order.sort_by(|(fa, da), (fb, db)| match (fa, fb) {
-            (Some(x), Some(y)) => x.cmp(y),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => da.cmp(db),
-        });
-        for (_, d) in order {
-            let fibre = f.fibre(&d);
+        // Every product check precedes every fresh id: the target tables in
+        // ascending name, then the relations to which nothing is carried, in
+        // ascending order, each at its source table.
+        let mut cones: BTreeMap<Name, Vec<(Vec<u32>, BTreeMap<String, Value>)>> = BTreeMap::new();
+        for d in &f.tgt.tables {
+            let fibre = f.fibre(d);
             if fibre.len() > 1 {
                 let actual = fibre
                     .iter()
@@ -4211,16 +4210,49 @@ pub mod rel {
                     .unwrap_or(usize::MAX);
                 if actual > max_product_size {
                     return Err(KanError::ProductSizeExceeded {
-                        vertex: d,
+                        vertex: d.clone(),
                         actual,
                         limit: max_product_size,
                     });
                 }
             }
-            for tuple in tuples(&i, &fibre) {
-                let Some(cells) = joined_cells(f, &i, &d, &fibre, &tuple) else {
-                    continue;
-                };
+            let rows = tuples(&i, &fibre)
+                .into_iter()
+                .filter_map(|tuple| {
+                    joined_cells(f, &i, d, &fibre, &tuple).map(|cells| (tuple, cells))
+                })
+                .collect();
+            cones.insert(d.clone(), rows);
+        }
+        for rho in &f.tgt.relations {
+            if f.relations.values().any(|img| img == rho) {
+                continue;
+            }
+            let count = |t: &Name| cones.get(t).map_or(0, Vec::len);
+            let actual = count(&rho.src).saturating_mul(count(&rho.tgt));
+            if actual > max_product_size {
+                return Err(KanError::ProductSizeExceeded {
+                    vertex: rho.src.clone(),
+                    actual,
+                    limit: max_product_size,
+                });
+            }
+        }
+        let mut ids: BTreeMap<(Name, Vec<u32>), u32> = BTreeMap::new();
+        let mut order: Vec<(Option<Name>, Name)> = f
+            .tgt
+            .tables
+            .iter()
+            .map(|d| (f.fibre(d).first().cloned(), d.clone()))
+            .collect();
+        order.sort_by(|(fa, da), (fb, db)| match (fa, fb) {
+            (Some(x), Some(y)) => x.cmp(y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => da.cmp(db),
+        });
+        for (_, d) in order {
+            for (tuple, cells) in cones.remove(&d).unwrap_or_default() {
                 let id = match tuple.as_slice() {
                     [only] => *only,
                     _ => fresh.take().ok_or(KanError::RowIdsExhausted)?,
@@ -4246,16 +4278,6 @@ pub mod rel {
             };
             let source_rows = rows_at(&rho.src);
             let target_rows = rows_at(&rho.tgt);
-            if carried.is_empty() {
-                let actual = source_rows.len().saturating_mul(target_rows.len());
-                if actual > max_product_size {
-                    return Err(KanError::ProductSizeExceeded {
-                        vertex: rho.src.clone(),
-                        actual,
-                        limit: max_product_size,
-                    });
-                }
-            }
             for (u, uid) in source_rows {
                 for (v, vid) in &target_rows {
                     let ok = carried.iter().all(|x| {
@@ -5771,6 +5793,7 @@ mod tests {
     //! definitions on the page.
 
     use std::collections::{BTreeMap, BTreeSet};
+    use std::slice::from_ref;
 
     use super::encode::{GraphSide, NotEncodable, encode_graph, restrict_graph};
     use super::migration::Migration;
@@ -6556,6 +6579,16 @@ mod tests {
             ),
             None
         );
+        // rho, the image of e and e2, is not an object of the target.
+        assert_eq!(
+            rel::presheaf_left_kan(
+                &kept_entity_instance(),
+                &f,
+                &target_tables,
+                &BTreeSet::new()
+            ),
+            None
+        );
     }
 
     #[test]
@@ -6839,7 +6872,7 @@ mod tests {
         });
         let Ok(both) = into_kan(
             "value",
-            &[image.clone()],
+            from_ref(&image),
             &[("v", "v2"), ("w", "w2")],
             &image,
         ) else {
@@ -6857,23 +6890,23 @@ mod tests {
         assert_eq!(
             into_kan(
                 "value",
-                &[image.clone()],
+                from_ref(&image),
                 &[("v", "v2"), ("w", "w3")],
                 &image
             ),
             refused
         );
         // Without a remap entry an endpoint keeps its own kind.
-        let Ok(only_v) = into_kan("value", &[image.clone()], &[("v", "v2")], &image) else {
+        let Ok(only_v) = into_kan("value", from_ref(&image), &[("v", "v2")], &image) else {
             panic!("w keeps its kind value at w2");
         };
         assert_eq!(
             only_v.value_vertices,
             BTreeMap::from([("v".to_owned(), "v2".to_owned())])
         );
-        assert!(into_kan("value", &[image.clone()], &[("w", "w2")], &image).is_ok());
+        assert!(into_kan("value", from_ref(&image), &[("w", "w2")], &image).is_ok());
         assert_eq!(
-            into_kan("other", &[image.clone()], &[("v", "v2")], &image),
+            into_kan("other", from_ref(&image), &[("v", "v2")], &image),
             refused
         );
         // The image is no inner edge of the target.
@@ -6881,19 +6914,19 @@ mod tests {
         // The image changes the kind, the name, or its source's kind.
         let listed = SEdge::new("v2", "w2", "list", Some("child"));
         assert_eq!(
-            into_kan("value", &[listed.clone()], &[("v", "v2")], &listed),
+            into_kan("value", from_ref(&listed), &[("v", "v2")], &listed),
             refused
         );
         let renamed = SEdge::new("v2", "w2", "item", Some("renamed"));
         assert_eq!(
-            into_kan("value", &[renamed.clone()], &[("v", "v2")], &renamed),
+            into_kan("value", from_ref(&renamed), &[("v", "v2")], &renamed),
             refused
         );
         let moved = SEdge::new("v3", "w2", "item", Some("child"));
         assert_eq!(
             into_kan(
                 "value",
-                &[moved.clone()],
+                from_ref(&moved),
                 &[("v", "v2"), ("w", "w2")],
                 &moved
             ),
@@ -6924,10 +6957,12 @@ mod tests {
             panic!("graph Sigma of a kept-part graph succeeds");
         };
         // Slot (1, w) is equated with the cells of row 1 at x and x3, slot
-        // (2, w) with row 2's cell at y. The output cell of row 1 reuses the
-        // value node 4 and the arrow 22 of its first source; the relation
-        // edge has two possible sources (e and e2 both go to rho), so it is
-        // a fresh edge, 31, above every input edge id.
+        // (2, w) with row 2's cell at y: the sources of a slot are the cells
+        // of its own row, so the equal constant 1 at another row is no
+        // source. The output cell of row 1 reuses the value node 4 and the
+        // arrow 22 of its first source; the relation edge has two possible
+        // sources (e and e2 both go to rho), so it is a fresh edge, 31, above
+        // every input edge id.
         assert_eq!(
             provenance.nodes,
             BTreeMap::from([
