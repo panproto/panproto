@@ -1875,8 +1875,8 @@ fn spec_assemble(
 /// The table nodes carry the ids `0..n` in table order, every cell takes
 /// every form `forms(table, column)` lists, and every relation takes every
 /// subset of the pairs between its tables' nodes (by ascending bit mask over
-/// [`spec_possible_pairs`] order). Value nodes and edges take ids in order
-/// after them. Two graphs that differ only in their ids are distinct
+/// the pairs ordered by source node, then target node). Value nodes and
+/// edges take ids in order after them. Two graphs that differ only in their ids are distinct
 /// labelled objects.
 #[must_use]
 pub fn spec_graphs(

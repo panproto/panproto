@@ -1393,12 +1393,18 @@ fn check_tree_route(
             "Ok".to_owned()
         }
         (Ok(out), Err(encode::TreeKanError::RootCount { count })) => {
-            assert_eq!(
-                production_read_back(out, schema),
-                ReadBack::RootCount(*count),
-                "{route:?} of {tree:?}"
-            );
-            format!("RootCount({count})")
+            // Production checks the tree conditions before it counts roots;
+            // where it reports a count, the count is the reference's.
+            match production_read_back(out, schema) {
+                ReadBack::RootCount(ours) => {
+                    assert_eq!(ours, *count, "{route:?} of {tree:?}");
+                    format!("RootCount({count})")
+                }
+                ReadBack::NotATree(ours) => {
+                    format!("RootCount({count}) / {}", variant_name(&ours))
+                }
+                ReadBack::Tree(_) => panic!("{route:?} of {tree:?}: production reads a tree"),
+            }
         }
         (Ok(out), Err(encode::TreeKanError::NotATree(reason))) => {
             let ReadBack::NotATree(ours) = production_read_back(out, schema) else {
@@ -4703,11 +4709,12 @@ fn generated_case_agrees(seed: u64) {
 
 /// The seeds whose cases shrank a failure of the generated table laws in
 /// the past, run before any random seed.
-const REGRESSION_SEEDS: [u64; 6] = [
+const REGRESSION_SEEDS: [u64; 7] = [
     251_554_501_479_628_105,
     886_779_333_262_700_799,
     3_813_398_718_165_345_424,
     5_467_035_014_510_298_700,
+    6_728_873_730_499_536_765,
     7_302_257_756_398_127_275,
     7_616_280_956_025_220_712,
 ];
