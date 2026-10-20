@@ -86,7 +86,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Write as _;
 use std::time::Instant;
 
 use panproto_inst::Value;
@@ -96,9 +95,8 @@ use panproto_inst::value::{
     ExtendedTemporal, FidelityReason, Fraction, Offset, OffsetForm, Temporal, TemporalForm,
     TemporalInfinity, TemporalYear, TimeFields, ValueSite, WideInt, ZuluCase,
 };
-use panproto_reference::bytes::{encode_base64, latin1_decode};
 use panproto_reference::coerce as r;
-use panproto_reference::enumerate::{self as en, values as scope};
+use panproto_reference::enumerate::values as scope;
 use panproto_reference::exact as rx;
 use panproto_reference::float::{Format, narrow_bits, widen_bits};
 use panproto_reference::num::{Int, Nat};
@@ -1836,7 +1834,7 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
 const TABLE_TAGS: [&str; 4] = ["integer", "float", "text", "number"];
 
 /// The kinds a generated discriminator table maps its tags to.
-fn table_kinds() -> [ScalarKind; 4] {
+const fn table_kinds() -> [ScalarKind; 4] {
     [
         ScalarKind::Int {
             bits: 32,
@@ -1863,7 +1861,7 @@ fn generated_classes() -> Vec<LexClass> {
 }
 
 /// The numeric kinds, `Any` and `Str` of the generated dialect cases.
-fn dialect_kinds() -> [ScalarKind; 7] {
+const fn dialect_kinds() -> [ScalarKind; 7] {
     [
         ScalarKind::Int {
             bits: 64,

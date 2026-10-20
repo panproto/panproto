@@ -503,7 +503,11 @@ fn binary16_operations_agree_with_the_reference() {
 /// clamp, the four invalid operations, the decimal NaNs converted to float
 /// (their number is returned), and integer controls converted to float
 /// (returned too).
-fn nan_builtin_cases(nans: &[u64]) -> (Vec<(BuiltinOp, Vec<Literal>)>, usize, [i64; 6]) {
+/// The builtin cases of the computed-NaN test, the number of computed
+/// NaNs among them, and the integer controls.
+type NanCases = (Vec<(BuiltinOp, Vec<Literal>)>, usize, [i64; 6]);
+
+fn nan_builtin_cases(nans: &[u64]) -> NanCases {
     let mut cases: Vec<(BuiltinOp, Vec<Literal>)> = Vec::new();
     let floats = |xs: &[f64]| xs.iter().map(|x| Literal::Float(*x)).collect::<Vec<_>>();
     for &nan in nans {
@@ -780,13 +784,13 @@ fn closest_shortest_printers_agree_with_the_reference() {
         b64.len()
     );
     let c16 = parallel_counts(&b16, |bits, counts| {
-        check_shortest(Format::B16, *bits, counts)
+        check_shortest(Format::B16, *bits, counts);
     });
     let c32 = parallel_counts(&b32, |bits, counts| {
-        check_shortest(Format::B32, *bits, counts)
+        check_shortest(Format::B32, *bits, counts);
     });
     let c64 = parallel_counts(&b64, |bits, counts| {
-        check_shortest(Format::B64, *bits, counts)
+        check_shortest(Format::B64, *bits, counts);
     });
     for (name, counts) in [("binary16", c16), ("binary32", c32), ("binary64", c64)] {
         println!(
@@ -2338,7 +2342,9 @@ proptest! {
         let canonical = rf::computed_nan(Format::B64);
         let (op, arity) = NAN_OPS[op_index];
         let operands = &operands[..arity];
-        prop_assume!(!(op == BuiltinOp::Clamp && operands[1..].iter().any(|b| f64::from_bits(*b).is_nan() ) ) && !(op == BuiltinOp::Clamp && f64::from_bits(operands[1]) > f64::from_bits(operands[2])));
+        let unordered_bounds = operands[1..].iter().any(|b| f64::from_bits(*b).is_nan())
+            || f64::from_bits(operands[1]) > f64::from_bits(operands[2]);
+        prop_assume!(op != BuiltinOp::Clamp || !unordered_bounds);
         let literals: Vec<Literal> = operands
             .iter()
             .map(|bits| Literal::Float(f64::from_bits(*bits)))
@@ -2346,9 +2352,10 @@ proptest! {
         let references: Vec<RValue> = operands.iter().map(|bits| RValue::Float(*bits)).collect();
         let production = apply_builtin(op, &literals);
         let reference = rv::apply_builtin(op_to_ref(op), &references);
+        let production_image = outcome_to_ref(&production);
         prop_assert_eq!(
-            outcome_to_ref(&production),
-            reference.clone(),
+            production_image.as_ref(),
+            reference.as_ref(),
             "{:?} on {:x?}",
             op,
             operands
@@ -2399,7 +2406,6 @@ proptest! {
     fn randomized_evaluation_differential(expr in generated_expr()) {
         let production = eval(&expr, &Env::new(), &EvalConfig::default());
         let reference = rv::eval(&expr_to_ref(&expr), &BTreeMap::new());
-        if let (Err(ExprError::TypeError{..}), Err(EvalError::TypeError{..})) = (&production, &reference) { println!("TEMP typeerror {:?} | {:?}", production, reference); return Ok(()); }
         prop_assert_eq!(
             evaluation_to_ref(&production),
             reference,

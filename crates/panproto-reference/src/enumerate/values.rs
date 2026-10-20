@@ -785,8 +785,9 @@ pub fn binary32_boundary_patterns() -> Vec<u64> {
     super::boundary_bits(Format::B32, None, &super::binary32_fractions())
 }
 
-/// The binary64 boundary patterns of the binary32 and binary64 sweeps:
-/// either sign, the biased exponent fields 871 to 1153 (which hold every
+/// The binary64 boundary patterns of the binary32 and binary64 sweeps.
+///
+/// They are either sign, the biased exponent fields 871 to 1153 (which hold every
 /// binary32 value and its midpoints) and 0, 1, 2046, 2047, and each
 /// fraction of the binary64 boundary fractions: 2 x 287 x 14 = 8036.
 #[must_use]

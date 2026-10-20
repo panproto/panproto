@@ -75,12 +75,12 @@ fn check_latin1() -> u64 {
 }
 
 /// The padded and optional base64 forms on one byte string.
-fn check_base64_bytes(bytes: Vec<u8>) {
-    let standard = encode_base64(&bytes);
+fn check_base64_bytes(bytes: &[u8]) {
+    let standard = encode_base64(bytes);
     let standard_unpadded = standard.trim_end_matches('=');
     let url = url64(&standard);
     let url_unpadded = url.trim_end_matches('=');
-    assert!(padded_bytes_decode_encode(&bytes), "{bytes:?}");
+    assert!(padded_bytes_decode_encode(bytes), "{bytes:?}");
     assert!(padded_text_encode_decode(&standard), "{standard}");
     assert_eq!(
         optional(standard_unpadded).as_deref(),
@@ -94,7 +94,7 @@ fn check_base64_bytes(bytes: Vec<u8>) {
         read(standard_unpadded, BytesText::Base64),
         read_reference(decode_base64(standard_unpadded, false))
     );
-    let expected = Ok(Value::Bytes(bytes.clone()));
+    let expected = Ok(Value::Bytes(bytes.to_vec()));
 
     assert_eq!(
         read(&standard, BytesText::Base64Padded),
@@ -139,7 +139,7 @@ fn check_base64() -> (u64, u64) {
             .skip(worker)
             .step_by(WORKERS)
         {
-            check_base64_bytes(bytes);
+            check_base64_bytes(&bytes);
             base64_cases += 1;
             padded_cases += 2;
         }
@@ -247,24 +247,21 @@ struct TextCounts {
 /// accepted padded spelling satisfies the padded encode-then-decode law.
 fn check_base64_text(text: &str, counts: &mut TextCounts) {
     counts.texts += 1;
-    match decode_base64(text, true) {
-        Ok(bytes) => {
-            assert!(padded_text_encode_decode(text), "padded {text:?}");
-            assert_eq!(
-                read(text, BytesText::Base64Padded),
-                Ok(Value::Bytes(bytes)),
-                "padded {text:?}"
-            );
-            counts.padded += 1;
-        }
-        Err(_) => {
-            assert!(!padded_text_encode_decode(text), "padded {text:?}");
-            assert_eq!(
-                read(text, BytesText::Base64Padded),
-                Err(FidelityReason::InvalidEncoding),
-                "padded {text:?}"
-            );
-        }
+    if let Ok(bytes) = decode_base64(text, true) {
+        assert!(padded_text_encode_decode(text), "padded {text:?}");
+        assert_eq!(
+            read(text, BytesText::Base64Padded),
+            Ok(Value::Bytes(bytes)),
+            "padded {text:?}"
+        );
+        counts.padded += 1;
+    } else {
+        assert!(!padded_text_encode_decode(text), "padded {text:?}");
+        assert_eq!(
+            read(text, BytesText::Base64Padded),
+            Err(FidelityReason::InvalidEncoding),
+            "padded {text:?}"
+        );
     }
     match decode_base64(text, false) {
         Ok(bytes) => {
