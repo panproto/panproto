@@ -1,6 +1,9 @@
 //! Complete finite scopes for the value-law page.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
+
+use crate::bytes::{encode_base64, latin1_decode};
 
 use crate::exact::{BigIntValue, Decimal, DecimalValue};
 use crate::float::{Format, widen_bits};
@@ -398,4 +401,358 @@ pub fn canonical_values() -> Vec<Value> {
     out.push(Value::LabeledNull(0));
     out.push(Value::LabeledNull(u64::MAX));
     out
+}
+
+// The coercion scope.
+
+const SPELLINGS: &[&str] = &[
+    "NaN",
+    "-NaN",
+    "nan",
+    "+nan",
+    ".nan",
+    "-.nan",
+    "NAN",
+    "sNaN",
+    "-sNaN",
+    "NaN5",
+    "sNaN7",
+    "inf",
+    "-inf",
+    "+inf",
+    "Infinity",
+    "-Infinity",
+    "INF",
+    ".inf",
+    "-.inf",
+    "+.inf",
+    "infinity",
+];
+
+const EDGE_NUMERALS: &[&str] = &[
+    "0",
+    "-0",
+    "0.0",
+    "-0.0",
+    "0e5",
+    "-0e-5",
+    "0.00",
+    "0.10",
+    "0.1",
+    "1.50",
+    "-1.5",
+    "65504",
+    "65505",
+    "65519",
+    "65519.99",
+    "65520",
+    "-65520",
+    "6.103515625e-5",
+    "5.960464477539063e-8",
+    "2.98023223876953125e-8",
+    "2.9802322387695312e-8",
+    "16777216",
+    "16777217",
+    "16777217.0",
+    "3.4028235e38",
+    "3.4028235677973366e38",
+    "3.4028236e38",
+    "1.401298464324817e-45",
+    "7.006492321624085e-46",
+    "1e308",
+    "1.7976931348623157e308",
+    "1.7976931348623158e308",
+    "1.7976931348623159e308",
+    "1e309",
+    "4.9e-324",
+    "5e-324",
+    "2.4703282292062328e-324",
+    "2.4703282292062327e-324",
+    "1e-400",
+    "1e400",
+    "1e401",
+    "-1e401",
+    "1e-401",
+    "9007199254740992",
+    "9007199254740993",
+    "1125899906842624.2",
+    "1125899906842624.3",
+    "52401.312",
+    "52401.313",
+    "127",
+    "128",
+    "-128",
+    "-129",
+    "255",
+    "256",
+    "32767",
+    "32768",
+    "-32768",
+    "-32769",
+    "65535",
+    "65536",
+    "2147483647",
+    "2147483648",
+    "-2147483648",
+    "-2147483649",
+    "4294967295",
+    "4294967296",
+    "9223372036854775807",
+    "9223372036854775808",
+    "-9223372036854775808",
+    "-9223372036854775809",
+    "18446744073709551615",
+    "18446744073709551616",
+    "1e20",
+    "1e4097",
+    "-1e20",
+    "1.5e1",
+    "1.25e1",
+    "12.5",
+    "0.5e1",
+];
+
+const WORDS: &[&str] = &[
+    "true", "false", "TRUE", "False", "yes", "null", "", " ", "x", "abc", "\u{e9}", "\u{100}", "T",
+    "Z", "00:00", "+04:00",
+];
+
+/// The byte texts of `b`: padded and unpadded base64, URL-safe base64, both
+/// hex cases and the Latin-1 text.
+fn byte_texts(b: &[u8]) -> Vec<String> {
+    let padded = encode_base64(b);
+    let unpadded = padded.trim_end_matches('=').to_owned();
+    let url = padded.replace('+', "-").replace('/', "_");
+    let lower: String = b.iter().fold(String::new(), |mut out, x| {
+        let _ = write!(out, "{x:02x}");
+        out
+    });
+    vec![
+        unpadded,
+        url.trim_end_matches('=').to_owned(),
+        url,
+        lower.to_uppercase(),
+        lower,
+        padded,
+        latin1_decode(b),
+    ]
+}
+
+fn lexemes_with_byte_texts(byte_text_len: usize) -> Vec<String> {
+    let mut out: Vec<String> = numerals();
+    out.extend(SPELLINGS.iter().map(|s| (*s).to_owned()));
+    out.extend(EDGE_NUMERALS.iter().map(|s| (*s).to_owned()));
+    out.extend(WORDS.iter().map(|s| (*s).to_owned()));
+    out.extend(temporal_lexemes());
+    for b in byte_strings().into_iter().flatten() {
+        if b.len() <= byte_text_len {
+            out.extend(byte_texts(&b));
+        }
+    }
+    dedupe(out)
+}
+
+/// Every reference spec of the coercion scope: each scalar kind, the integer
+/// widths 8 to 64 either signed or not, the float widths 16, 32 and 64 under
+/// both readings, the decimal facets, the byte-text forms, the offset
+/// requirements, the integer-width overrides, and each numeral dialect over
+/// the numeric kinds.
+#[must_use]
+pub fn coercion_specs() -> Vec<crate::coerce::ValueSpec> {
+    use crate::coerce::ScalarKind as K;
+    let of = crate::coerce::ValueSpec::of;
+    let mut out = vec![
+        of(K::Any),
+        of(K::Bool),
+        of(K::BigInt),
+        of(K::Str),
+        of(K::Token),
+    ];
+    for bits in [8, 16, 32, 64] {
+        for signed in [true, false] {
+            out.push(of(K::Int { bits, signed }));
+        }
+    }
+    for int_bits in [Some(8), Some(16)] {
+        for unsigned in [false, true] {
+            out.push(crate::coerce::ValueSpec {
+                int_bits,
+                unsigned,
+                ..of(K::Int {
+                    bits: 64,
+                    signed: true,
+                })
+            });
+        }
+    }
+    out.push(crate::coerce::ValueSpec {
+        unsigned: true,
+        ..of(K::Int {
+            bits: 64,
+            signed: true,
+        })
+    });
+    for bits in [16, 32, 64] {
+        out.push(of(K::Float { bits }));
+        out.push(crate::coerce::ValueSpec {
+            float_reading: crate::coerce::FloatReading::NearestKeepingLexeme,
+            ..of(K::Float { bits })
+        });
+    }
+    for precision in [None, Some(1), Some(2)] {
+        for scale in [None, Some(0), Some(1)] {
+            out.push(crate::coerce::ValueSpec {
+                precision,
+                scale,
+                ..of(K::Decimal)
+            });
+        }
+    }
+    for text in [
+        crate::coerce::BytesText::Base64,
+        crate::coerce::BytesText::Base64Url,
+        crate::coerce::BytesText::Hex,
+        crate::coerce::BytesText::Raw,
+        crate::coerce::BytesText::Base64Padded,
+        crate::coerce::BytesText::Base64UrlPadded,
+        crate::coerce::BytesText::Latin1,
+    ] {
+        out.push(of(K::Bytes(text)));
+    }
+    for kind in [K::Date, K::Time, K::DateTime] {
+        for with_time_zone in [None, Some(true), Some(false)] {
+            out.push(crate::coerce::ValueSpec {
+                with_time_zone,
+                ..of(kind)
+            });
+        }
+    }
+    for numeral in [
+        crate::coerce::NumeralDialect::Json,
+        crate::coerce::NumeralDialect::Toml,
+        crate::coerce::NumeralDialect::Yaml12,
+        crate::coerce::NumeralDialect::Yaml11,
+        crate::coerce::NumeralDialect::Xsd,
+        crate::coerce::NumeralDialect::Java,
+        crate::coerce::NumeralDialect::ProtoJson,
+        crate::coerce::NumeralDialect::Sql,
+    ] {
+        for kind in [
+            K::Int {
+                bits: 64,
+                signed: true,
+            },
+            K::BigInt,
+            K::Float { bits: 64 },
+            K::Decimal,
+        ] {
+            out.push(crate::coerce::ValueSpec {
+                numeral: Some(numeral),
+                ..of(kind)
+            });
+        }
+    }
+    out
+}
+
+/// Every reference value of the coercion scope: every binary16 pattern
+/// widened with its two binary64 neighbours; the binary64 boundary patterns
+/// of the binary32 narrowing; every binary32 boundary pattern widened with
+/// its neighbours; each lexeme of [`coercion_lexemes`] read under the numeric
+/// and temporal kinds wherever the reference accepts it, and as a string and
+/// a token; the integer extremes; every byte string of length at most two;
+/// booleans, null and one value of each structured variant.
+#[must_use]
+pub fn coercion_values() -> Vec<Value> {
+    use crate::coerce::ScalarKind as K;
+    let mut out = Vec::new();
+    let around = |w: u64| [w, w.wrapping_sub(1), w.wrapping_add(1)];
+    for b in binary16_patterns() {
+        out.extend(around(widen_bits(Format::B16, b)).map(Value::Float));
+    }
+    let exps: Vec<u64> = (871..=1153).chain([0, 1, 2046, 2047]).collect();
+    out.extend(
+        super::boundary_bits(Format::B64, Some(&exps), &super::binary64_fractions())
+            .into_iter()
+            .map(Value::Float),
+    );
+    for b in super::boundary_bits(Format::B32, None, &super::binary32_fractions()) {
+        out.extend(around(widen_bits(Format::B32, b)).map(Value::Float));
+    }
+    let numeric = [
+        K::Any,
+        K::BigInt,
+        K::Decimal,
+        K::Float { bits: 16 },
+        K::Float { bits: 32 },
+        K::Float { bits: 64 },
+        K::Int {
+            bits: 64,
+            signed: true,
+        },
+    ];
+    let lexemes = coercion_lexemes();
+    for t in &lexemes {
+        for kind in numeric {
+            if let Some(Ok(v)) = crate::coerce::coerce(
+                t,
+                &crate::coerce::LexClass::Number,
+                &crate::coerce::ValueSpec::of(kind),
+            ) {
+                out.push(v);
+            }
+        }
+        for kind in [K::Date, K::Time, K::DateTime] {
+            if let Some(Ok(v)) = crate::coerce::coerce(
+                t,
+                &crate::coerce::LexClass::DateTime,
+                &crate::coerce::ValueSpec::of(kind),
+            ) {
+                out.push(v);
+            }
+        }
+        out.push(Value::Str(t.clone()));
+        out.push(Value::Token(t.clone()));
+    }
+    for i in [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX] {
+        out.push(Value::Int(i));
+    }
+    out.extend(byte_strings().into_iter().flatten().map(Value::Bytes));
+    out.extend([
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Null,
+        Value::CidLink("bafy".to_owned()),
+        Value::Blob {
+            ref_: "bafy".to_owned(),
+            mime: "text/plain".to_owned(),
+            size: 3,
+        },
+        Value::Opaque {
+            type_: "custom".to_owned(),
+            fields: std::iter::once(("value".to_owned(), Value::Str("1".to_owned()))).collect(),
+        },
+        Value::Unknown(std::iter::once(("a".to_owned(), Value::Int(1))).collect()),
+        Value::List(vec![]),
+        Value::List(vec![Value::Int(1), Value::Float(f64::NAN.to_bits())]),
+        Value::LabeledNull(0),
+        Value::LabeledNull(u64::MAX),
+    ]);
+    dedupe(out)
+}
+
+/// Every lexeme of the coercion scope: the numerals, the special spellings,
+/// the edge numerals, the words, every temporal lexeme, and every byte text
+/// of the byte strings of length at most one.
+#[must_use]
+pub fn coercion_lexemes() -> Vec<String> {
+    lexemes_with_byte_texts(1)
+}
+
+fn dedupe<T: Clone + Eq + std::hash::Hash>(items: Vec<T>) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|x| seen.insert(x.clone()))
+        .collect()
 }

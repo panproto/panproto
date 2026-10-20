@@ -850,7 +850,7 @@ Let $\mathcal T$ be the set of values `v: Temporal` with `v.well_formed()`. For 
 - Law ID: `values.temporal-chronological-order`
 - Reference: `panproto_reference::temporal::cmp_chronological`
 - Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
-- Exhaustive differential test: `a_leap_second_precedes_the_next_minute; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=a_leap_second_precedes_the_next_minute)'`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1067,7 +1067,7 @@ Hence `parse_display(F, text)` is true exactly when `parse_as(F, text)` is `Some
 
 - Law ID: `values.temporal-parse-display`
 - Reference: `panproto_reference::temporal::parse_display`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::temporal_forms; bound: forms=658`
 - Exhaustive differential test: `sql_temporal_forms; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=sql_temporal_forms)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1121,7 +1121,7 @@ For every value `v: Temporal` with `v.well_formed()`, `v.lexical_form()` is `Som
 
 - Law ID: `values.temporal-display-parse`
 - Reference: `panproto_reference::temporal::display_parse`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::temporal_forms; bound: forms=658`
 - Exhaustive differential test: `sql_temporal_forms; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=sql_temporal_forms)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1180,7 +1180,7 @@ So `cmp_chronological(a, b)` is `None` exactly when `cmp_chronological(b, a)` is
 - Law ID: `values.temporal-comparability-reversal`
 - Reference: `panproto_reference::temporal::cmp_chronological`
 - Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
-- Exhaustive differential test: `a_leap_second_precedes_the_next_minute; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=a_leap_second_precedes_the_next_minute)'`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1239,7 +1239,7 @@ Moreover: (4) every comparable pair $a, b \in \mathcal T$ lies in a common class
 - Law ID: `values.temporal-comparability-total-preorder`
 - Reference: `panproto_reference::temporal::cmp_chronological`
 - Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
-- Exhaustive differential test: `a_leap_second_precedes_the_next_minute; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=a_leap_second_precedes_the_next_minute)'`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1296,7 +1296,7 @@ Moreover, $a \approx b$ does not imply $a = b$: two written-form variants differ
 - Law ID: `values.temporal-written-form-equality`
 - Reference: `panproto_reference::temporal::cmp_chronological`
 - Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
-- Exhaustive differential test: `a_leap_second_precedes_the_next_minute; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=a_leap_second_precedes_the_next_minute)'`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1357,7 +1357,7 @@ So the extension of the comparator to the new forms neither adds nor removes com
 - Law ID: `values.temporal-complete-conservativity`
 - Reference: `panproto_reference::temporal::cmp_chronological`
 - Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
-- Exhaustive differential test: `a_leap_second_precedes_the_next_minute; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=a_leap_second_precedes_the_next_minute)'`
+- Exhaustive differential test: `temporal_lexemes_agree_with_the_reference; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=temporal_lexemes_agree_with_the_reference)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
@@ -1412,7 +1412,7 @@ So canonical bytes are injective on the whole carrier: on reduced, truncated, in
 
 - Law ID: `values.temporal-new-form-byte-injectivity`
 - Reference: `panproto_reference::temporal::canonical_bytes`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::temporal_forms; bound: forms=658`
 - Exhaustive differential test: `sql_temporal_forms; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=sql_temporal_forms)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1601,7 +1601,7 @@ The domain is every byte string, so no input lies outside it. The only refusal `
 - Reference: `panproto_reference::bytes::latin1_decode_encode`
 - Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
 - Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1659,9 +1659,9 @@ The domain is the set of texts that `decode_base64(·, true)` accepts; on every 
 - Reference: `panproto_reference::bytes::decode_base64`
 - Reference: `panproto_reference::bytes::encode_base64`
 - Reference: `panproto_reference::bytes::padded_text_encode_decode`
-- Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Enumerator: `panproto_reference::enumerate::values::base64_texts; bound: texts=19266655`
+- Exhaustive differential test: `every_short_base64_text_reads_as_the_reference_decodes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=every_short_base64_text_reads_as_the_reference_decodes)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1713,9 +1713,9 @@ The domain is every byte string, and the texts read are $t$ and $t^{\circ}$, so 
 
 - Law ID: `values.optional-byte-text-decode-encode`
 - Reference: `panproto_reference::bytes::optional`
-- Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
+- Enumerator: `panproto_reference::enumerate::values::byte_strings_up_to_three; bound: max_len=3, strings=16843009`
 - Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1766,9 +1766,9 @@ Two cases fall outside the domain. First, when $|u| \bmod 4 = 1$ no padding comp
 
 - Law ID: `values.optional-byte-text-padding-equivalence`
 - Reference: `panproto_reference::bytes::optional`
-- Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Enumerator: `panproto_reference::enumerate::values::unpadded_texts; bound: texts=278851`
+- Exhaustive differential test: `optional_padding_is_equivalent_on_every_short_unpadded_text; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=optional_padding_is_equivalent_on_every_short_unpadded_text)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -1819,7 +1819,7 @@ For every count $c$ (`i128`), unit $u$ (`TimeUnit`) and flag `instant`, let $d_u
 
 - Law ID: `values.epoch-count-to-temporal-round-trip`
 - Reference: `panproto_reference::temporal::from_epoch_count`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::epoch_counts; bound: counts=160012`
 - Exhaustive differential test: `an_epoch_count_round_trips; command: cargo nextest run -p panproto-expr --test epoch_counts --no-tests=fail -E 'test(=an_epoch_count_round_trips)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -1871,7 +1871,7 @@ With [Epoch counts round-trip through temporals](#L-values-28), the image of `fr
 
 - Law ID: `values.temporal-to-epoch-count-round-trip`
 - Reference: `panproto_reference::temporal::to_epoch_count`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::epoch_counts; bound: counts=160012`
 - Exhaustive differential test: `an_epoch_count_round_trips; command: cargo nextest run -p panproto-expr --test epoch_counts --no-tests=fail -E 'test(=an_epoch_count_round_trips)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -2393,7 +2393,7 @@ The derived `Hash` of `Temporal` reads the same fields as `==`, so it is consist
 
 - Law ID: `values.yaml-unwritten-zulu-representation`
 - Reference: `panproto_reference::temporal::unwritten_zulu`
-- Enumerator: `panproto_reference::enumerate::values::temporal_lexemes; bound: lexemes=19098`
+- Enumerator: `panproto_reference::enumerate::values::temporal_forms; bound: forms=658`
 - Exhaustive differential test: `sql_temporal_forms; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=sql_temporal_forms)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
@@ -2446,9 +2446,9 @@ A string that is not admitted contains a character whose code point exceeds U+00
 - Reference: `panproto_reference::bytes::latin1_decode`
 - Reference: `panproto_reference::bytes::latin1_encode`
 - Reference: `panproto_reference::bytes::latin1_encode_decode`
-- Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
-- Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Enumerator: `panproto_reference::enumerate::values::latin1_strings; bound: strings=67341`
+- Exhaustive differential test: `latin1_reads_exactly_the_strings_within_u_ff; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=latin1_reads_exactly_the_strings_within_u_ff)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
@@ -2498,9 +2498,9 @@ The domain is every byte string, so no input lies outside it. No refusal can ari
 - Reference: `panproto_reference::bytes::decode_base64`
 - Reference: `panproto_reference::bytes::encode_base64`
 - Reference: `panproto_reference::bytes::padded_bytes_decode_encode`
-- Enumerator: `panproto_reference::enumerate::values::byte_strings; bound: max_len=2, strings=65793`
+- Enumerator: `panproto_reference::enumerate::values::byte_strings_up_to_three; bound: max_len=3, strings=16843009`
 - Exhaustive differential test: `a_byte_text_form_keeps_its_bytes; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=a_byte_text_form_keeps_its_bytes)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Property differential test: `randomized_byte_text_differential; command: cargo nextest run -p panproto-inst --test byte_text_forms --no-tests=fail -E 'test(=randomized_byte_text_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
