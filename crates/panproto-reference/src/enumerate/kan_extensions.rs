@@ -1270,6 +1270,50 @@ pub fn tables() -> Vec<Table> {
         .collect()
 }
 
+/// Every map from the rows of `a` to the rows of `b` that keeps each row's
+/// table.
+///
+/// These are the candidate row maps of the homomorphisms `a -> b`: each row
+/// of `a`, ascending, chooses among the rows of its table in `b`, ascending,
+/// the first row varying slowest.
+#[must_use]
+pub fn table_row_maps(a: &Table, b: &Table) -> Vec<BTreeMap<u32, u32>> {
+    let rows: Vec<u32> = a.rows.keys().copied().collect();
+    let choices: Vec<Vec<u32>> = a
+        .rows
+        .values()
+        .map(|(table, _)| {
+            b.rows
+                .iter()
+                .filter(|(_, (other, _))| other == table)
+                .map(|(id, _)| *id)
+                .collect()
+        })
+        .collect();
+    product(&choices)
+        .into_iter()
+        .map(|images| rows.iter().copied().zip(images).collect())
+        .collect()
+}
+
+/// The count of [`table_row_maps`] by its closed formula.
+///
+/// It is the product, over the tables of `a`, of the row count of that table
+/// in `b` raised to its row count in `a`.
+#[must_use]
+pub fn table_row_maps_count(a: &Table, b: &Table) -> u64 {
+    let mut in_a: BTreeMap<&str, u32> = BTreeMap::new();
+    for (table, _) in a.rows.values() {
+        *in_a.entry(table.as_str()).or_default() += 1;
+    }
+    in_a.into_iter()
+        .map(|(table, count)| {
+            let in_b = b.rows.values().filter(|(other, _)| other == table).count() as u64;
+            in_b.pow(count)
+        })
+        .product()
+}
+
 /// A graph cell presentation in the O7 encoding scope.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellForm {
@@ -1869,6 +1913,51 @@ pub fn spec_graphs(
         }
     }
     out
+}
+
+/// One labelled graph of `spec`, for sampling beyond the exhaustive bound.
+///
+/// `counts[i]` gives the node count of the `i`th table (missing entries
+/// count zero); the `k`th cell slot, in [`spec_graphs`] slot order, takes
+/// `forms[choices[k] % forms.len()]` (the first form when `choices` is
+/// short); relation `r` takes the subset of its possible pairs whose bits
+/// are set in `masks[r]` (none when `masks` is short). Ids are laid out as
+/// [`spec_graphs`] lays them, so every graph `spec_graphs` lists at the same
+/// counts is one of these.
+#[must_use]
+pub fn spec_graph(
+    spec: &GraphSpec,
+    counts: &[usize],
+    forms: &[CellForm],
+    choices: &[usize],
+    masks: &[u64],
+) -> Graph {
+    let counts: Vec<usize> = (0..spec.tables.len())
+        .map(|i| counts.get(i).copied().unwrap_or(0))
+        .collect();
+    let layout = spec_layout(spec, &counts);
+    let (slots, owners, _) = &layout;
+    let cells: Vec<CellForm> = (0..slots.len())
+        .map(|k| {
+            let choice = choices.get(k).copied().unwrap_or(0);
+            forms[choice % forms.len()].clone()
+        })
+        .collect();
+    let pairs: Vec<Vec<(u32, u32)>> = spec
+        .relations
+        .iter()
+        .enumerate()
+        .map(|(r, relation)| {
+            let mask = masks.get(r).copied().unwrap_or(0);
+            spec_possible_pairs(relation, owners)
+                .into_iter()
+                .enumerate()
+                .filter(|(k, _)| *k < 64 && mask & (1u64 << k) != 0)
+                .map(|(_, pair)| pair)
+                .collect()
+        })
+        .collect();
+    spec_assemble(spec, &layout, &cells, &pairs)
 }
 
 /// The labelled count of [`spec_graphs`] by its closed formula.
@@ -3381,4 +3470,1609 @@ pub fn entity_migrations_count(src: &Schema, tgt: &Schema) -> u64 {
     let (n, m) = (count(src.vertices.len()), count(tgt.vertices.len()));
     let (e, f) = (count(src.edges.len()), count(tgt.edges.len()));
     (u64::from(m) + 1).pow(n) * (u64::from(f) + 1).pow(e) * 2u64.pow(m) * 2u64.pow(f)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Whether no two items share a debug rendering.
+    fn distinct<T: std::fmt::Debug>(items: &[T]) -> bool {
+        let keys: BTreeSet<String> = items.iter().map(|item| format!("{item:?}")).collect();
+        keys.len() == items.len()
+    }
+
+    fn row_table(entries: &[(u32, &str)]) -> Table {
+        Table {
+            rows: entries
+                .iter()
+                .map(|(id, table)| (*id, ((*table).to_owned(), BTreeMap::new())))
+                .collect(),
+            pairs: BTreeSet::new(),
+        }
+    }
+
+    fn node(id: u32, anchor: &str, value: Option<Presence>) -> Node {
+        let mut node = Node::new(id, anchor);
+        node.value = value;
+        node
+    }
+
+    fn present(value: Value) -> Option<Presence> {
+        Some(Presence::Present(value))
+    }
+
+    fn gedge(src: u32, tgt: u32, label: SEdge, position: Option<u32>) -> GEdge {
+        GEdge {
+            src,
+            tgt,
+            label,
+            position,
+        }
+    }
+
+    fn graph(nodes: Vec<Node>, edges: Vec<(u32, GEdge)>) -> Graph {
+        Graph {
+            nodes: nodes.into_iter().map(|node| (node.id, node)).collect(),
+            edges: edges.into_iter().collect(),
+        }
+    }
+
+    fn names(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    fn cell(value: &Value) -> String {
+        match value {
+            Value::Int(n) => n.to_string(),
+            Value::LabeledNull(n) => format!("_{n}"),
+            Value::Float(bits) => format!("f{bits:x}"),
+            Value::List(items) => {
+                format!("[{}]", items.iter().map(cell).collect::<Vec<_>>().join(","))
+            }
+            other => format!("{other:?}"),
+        }
+    }
+
+    fn render_table(table: &Table) -> String {
+        let rows = table
+            .rows
+            .iter()
+            .map(|(id, (owner, cells))| {
+                let cells = cells
+                    .iter()
+                    .map(|(column, value)| format!("{column}={}", cell(value)))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{id}:{owner}{{{cells}}}")
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let pairs = table
+            .pairs
+            .iter()
+            .map(|(edge, a, b)| format!("{}:{a}>{b}", edge.name.as_deref().unwrap_or("")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{rows} / {pairs}")
+    }
+
+    fn render_side(side: &TableSide) -> String {
+        let tables = side
+            .tables
+            .iter()
+            .map(|(table, columns)| {
+                format!(
+                    "{table}[{}]",
+                    columns.iter().cloned().collect::<Vec<_>>().join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let relations = side
+            .relations
+            .iter()
+            .map(|edge| {
+                let name = edge.name.as_deref().unwrap_or("");
+                format!("{}>{}:{name}", edge.src, edge.tgt)
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{tables} / {relations}")
+    }
+
+    fn render_case(case: &GeneratedCase) -> Vec<String> {
+        let spec = &case.spec;
+        let join = |items: Vec<String>| items.join(" ");
+        let name = |edge: &SEdge| edge.name.clone().unwrap_or_default();
+        vec![
+            format!("src {}", render_side(&spec.src)),
+            format!("tgt {}", render_side(&spec.tgt)),
+            format!(
+                "tables {}",
+                join(
+                    spec.tables
+                        .iter()
+                        .map(|(a, b)| format!("{a}>{b}"))
+                        .collect()
+                )
+            ),
+            format!(
+                "rels {}",
+                join(
+                    spec.relations
+                        .iter()
+                        .map(|(a, b)| format!("{}>{}", name(a), name(b)))
+                        .collect()
+                )
+            ),
+            format!(
+                "cols {}",
+                join(
+                    spec.columns
+                        .iter()
+                        .map(|((t, c), image)| format!("{t}.{c}>{image}"))
+                        .collect()
+                )
+            ),
+            format!("x {}", render_table(&case.x)),
+            format!("j {}", render_table(&case.j)),
+            format!("max {}", case.max),
+            format!("state {:x}", case.rng.0),
+        ]
+    }
+
+    #[test]
+    fn table_row_maps_keep_each_row_table_and_match_their_count() {
+        let a = row_table(&[(0, "a"), (1, "a"), (2, "b")]);
+        let b = row_table(&[(5, "a"), (7, "a"), (9, "b"), (10, "c")]);
+        // Rows 0 and 1 choose among 5 and 7, the first varying slowest, and
+        // row 2 must choose 9: 2^2 * 1^1 = 4 maps.
+        let expected: Vec<BTreeMap<u32, u32>> = [(5, 5), (5, 7), (7, 5), (7, 7)]
+            .into_iter()
+            .map(|(x, y)| BTreeMap::from([(0, x), (1, y), (2, 9)]))
+            .collect();
+        assert_eq!(table_row_maps(&a, &b), expected);
+        assert_eq!(table_row_maps_count(&a, &b), 4);
+        // Table `c` has a row in `b` and none in `a`: no map back.
+        assert!(table_row_maps(&b, &a).is_empty());
+        assert_eq!(table_row_maps_count(&b, &a), 0);
+        let empty = Table::default();
+        assert_eq!(table_row_maps(&empty, &b), vec![BTreeMap::new()]);
+        assert_eq!(table_row_maps_count(&empty, &b), 1);
+        assert_eq!(table_row_maps_count(&b, &empty), 0);
+        // Three `a` rows and two `b` rows into themselves: 3^3 * 2^2 = 108.
+        let mixed = row_table(&[(0, "a"), (1, "a"), (2, "a"), (3, "b"), (4, "b")]);
+        let maps = table_row_maps(&mixed, &mixed);
+        assert_eq!(table_row_maps_count(&mixed, &mixed), 108);
+        assert_eq!(maps.len(), 108);
+        assert!(distinct(&maps));
+        for map in &maps {
+            assert_eq!(map.keys().copied().collect::<Vec<_>>(), [0, 1, 2, 3, 4]);
+            for (row, image) in map {
+                assert_eq!(mixed.rows[row].0, mixed.rows[image].0);
+            }
+        }
+        assert_eq!(
+            maps.last(),
+            Some(&BTreeMap::from([(0, 2), (1, 2), (2, 2), (3, 4), (4, 4)]))
+        );
+    }
+
+    #[test]
+    fn graph_spec_builds_its_schema_edges_and_names() {
+        assert_eq!(
+            prop_edge("a", "b", "f"),
+            SEdge::new("a", "b", "prop", Some("f"))
+        );
+        assert_eq!(
+            inner_prop_edge("a", "b", ""),
+            SEdge::new("a", "b", "prop", None)
+        );
+        assert_eq!(
+            inner_prop_edge("a", "b", "k"),
+            SEdge::new("a", "b", "prop", Some("k"))
+        );
+        assert_eq!(
+            fk_edge("a", "b", "f"),
+            SEdge::new("a", "b", "fk", Some("f"))
+        );
+        assert_eq!(
+            GraphSpec::column_edge("t", "c"),
+            SEdge::new("t", "t.c", "prop", Some("c"))
+        );
+        let spec = o7_encoding_spec();
+        assert_eq!(
+            spec.inner_edges(),
+            vec![
+                SEdge::new("a.x", "a.x.k", "prop", Some("k")),
+                SEdge::new("a.x", "a.x.item", "prop", Some("item")),
+            ]
+        );
+        let expected = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("a.x", "value")
+            .vertex("a.x.k", "str")
+            .vertex("a.x.item", "int")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("a", "b", "prop", Some("f"))
+            .edge("a.x", "a.x.k", "prop", Some("k"))
+            .edge("a.x", "a.x.item", "prop", Some("item"));
+        assert_eq!(spec.schema(), expected);
+        assert_eq!(spec.table_names(), names(&["a", "b"]));
+        assert_eq!(
+            spec.relation_set(),
+            BTreeSet::from([prop_edge("a", "b", "f")])
+        );
+        assert_eq!(spec.table_index("b"), Some(1));
+        assert_eq!(spec.table_index("a.x"), None);
+        // An inner edge into a column vertex keeps the column's kind.
+        let overlap = GraphSpec {
+            tables: vec![("p", vec![("x", "value"), ("y", "int")])],
+            relations: vec![],
+            inner: vec![("p.x", "p.y", "", "str")],
+        };
+        let expected = Schema::default()
+            .vertex("p", "record")
+            .vertex("p.x", "value")
+            .vertex("p.y", "int")
+            .edge("p", "p.x", "prop", Some("x"))
+            .edge("p", "p.y", "prop", Some("y"))
+            .edge("p.x", "p.y", "prop", None);
+        assert_eq!(overlap.schema(), expected);
+        assert_eq!(GraphSpec::default().schema(), Schema::default());
+        assert!(GraphSpec::default().table_names().is_empty());
+        assert!(GraphSpec::default().inner_edges().is_empty());
+    }
+
+    #[test]
+    fn named_specs_and_alphabets_are_as_written() {
+        let relation = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "prop", Some("f"));
+        assert_eq!(relation_spec().schema(), relation);
+        let shared = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("a.x", "int")
+            .vertex("b.x", "int")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("b", "b.x", "prop", Some("x"));
+        assert_eq!(shared_column_spec().schema(), shared);
+        let record = Schema::default()
+            .vertex("p", "record")
+            .vertex("p.x", "value")
+            .vertex("p.x.k", "str")
+            .edge("p", "p.x", "prop", Some("x"))
+            .edge("p.x", "p.x.k", "prop", Some("k"));
+        assert_eq!(record_spec().schema(), record);
+        let unnamed = Schema::default()
+            .vertex("a", "record")
+            .vertex("a.x", "value")
+            .vertex("a.x.k", "str")
+            .vertex("a.x.item", "int")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("a.x", "a.x.k", "prop", None)
+            .edge("a.x", "a.x.item", "prop", None);
+        assert_eq!(unnamed_inner_spec().schema(), unnamed);
+        let s = || Value::Str("s".to_owned());
+        assert_eq!(
+            record_value(),
+            Value::Unknown(BTreeMap::from([("k".to_owned(), s())]))
+        );
+        let small = [Value::Int(0), Value::Int(1), Value::LabeledNull(0)];
+        for count in 0..=4 {
+            assert_eq!(small_cells(count), small[..count.min(3)].to_vec());
+        }
+        assert_eq!(
+            leaf_forms(&small),
+            small
+                .iter()
+                .map(|value| CellForm::Leaf(Presence::Present(value.clone())))
+                .collect::<Vec<_>>()
+        );
+        assert!(leaf_forms(&[]).is_empty());
+        assert_eq!(o7_encoding_forms(), encoding_forms());
+        assert_eq!(o7_encoding_forms().len(), 7);
+        assert!(distinct(&o7_encoding_forms()));
+        let cells = o7_table_cells();
+        assert_eq!(cells.len(), 5);
+        assert!(distinct(&cells));
+        assert_eq!(cells[0], CellForm::Leaf(Presence::Present(Value::Int(0))));
+        assert_eq!(cells[1], CellForm::Leaf(Presence::Null));
+        assert_eq!(cells[2], CellForm::Leaf(Presence::Present(record_value())));
+        assert_eq!(
+            cells[4],
+            CellForm::Leaf(Presence::Present(Value::LabeledNull(0)))
+        );
+        let forms = unnamed_inner_forms();
+        assert_eq!(forms.len(), 4);
+        assert!(distinct(&forms));
+        assert_eq!(
+            forms[1],
+            CellForm::Record(vec![
+                ("", "a.x.k", s()),
+                ("", "a.x.k", Value::Str("t".to_owned())),
+            ])
+        );
+        assert_eq!(forms[3], CellForm::Leaf(Presence::Present(Value::Int(0))));
+    }
+
+    /// Enumerate `spec`, compare with the count and a hand-computed number,
+    /// and check every graph is distinct, well formed and inside the schema.
+    fn check_scope(
+        spec: &GraphSpec,
+        forms: &dyn Fn(&str, &str) -> Vec<CellForm>,
+        max: usize,
+        expected: u64,
+    ) {
+        let graphs = spec_graphs(spec, forms, max);
+        let count = spec_graphs_count(spec, &|t, c| forms(t, c).len() as u64, max);
+        assert_eq!((graphs.len() as u64, count), (expected, expected));
+        assert!(distinct(&graphs));
+        let schema = spec.schema();
+        for graph in &graphs {
+            assert!(graph.well_formed());
+            assert!(
+                graph
+                    .nodes
+                    .values()
+                    .all(|n| schema.vertices.contains_key(&n.anchor))
+            );
+            assert!(
+                graph
+                    .edges
+                    .values()
+                    .all(|e| schema.edges.contains(&e.label))
+            );
+            let tables = graph
+                .nodes
+                .values()
+                .filter(|n| spec.table_index(&n.anchor).is_some())
+                .count();
+            assert!(tables <= max);
+        }
+    }
+
+    #[test]
+    fn spec_graphs_agree_with_their_count_and_hand_counts() {
+        let none = |_: &str, _: &str| Vec::new();
+        let two = |_: &str, _: &str| leaf_forms(&small_cells(2));
+        // Relation spec: the sum over a + b <= max of 2^(a b).
+        for (max, expected) in [(0, 1), (1, 3), (2, 7), (3, 17)] {
+            check_scope(&relation_spec(), &none, max, expected);
+        }
+        // Shared column, two cells: the sum over a + b <= max of 2^(a + b).
+        for (max, expected) in [(0, 1), (1, 5), (2, 17), (3, 49)] {
+            check_scope(&shared_column_spec(), &two, max, expected);
+        }
+        // Two columns of 2 and 3 forms: 1 + 6 + 36.
+        let columns = GraphSpec {
+            tables: vec![("t", vec![("x", "int"), ("y", "int")])],
+            relations: vec![],
+            inner: vec![],
+        };
+        let by_column =
+            |_: &str, column: &str| leaf_forms(&small_cells(if column == "x" { 2 } else { 3 }));
+        check_scope(&columns, &by_column, 2, 43);
+        // A loop: the sum over a <= max of 2^(a^2), 1 + 2 + 16 + 512.
+        let looped = GraphSpec {
+            tables: vec![("a", vec![])],
+            relations: vec![prop_edge("a", "a", "l")],
+            inner: vec![],
+        };
+        check_scope(&looped, &none, 3, 531);
+        // A relation into a vertex that is no table has no pairs.
+        let dangling = GraphSpec {
+            tables: vec![("a", vec![])],
+            relations: vec![prop_edge("a", "zz", "l")],
+            inner: vec![],
+        };
+        check_scope(&dangling, &none, 3, 4);
+        // The encoding spec: the sum over a + b <= max of 7^a 2^(a b).
+        let seven = |_: &str, _: &str| o7_encoding_forms();
+        check_scope(&o7_encoding_spec(), &seven, 1, 9);
+        check_scope(&o7_encoding_spec(), &seven, 2, 73);
+        check_scope(&unnamed_inner_spec(), &|_, _| unnamed_inner_forms(), 2, 21);
+        // Counts alone beyond the enumerated sizes: 5 + 105 + 1029 + 3087 + 2401.
+        assert_eq!(spec_graphs_count(&o7_encoding_spec(), &|_, _| 7, 4), 6627);
+        // 1 + 2 + 4 + 10 + 34.
+        assert_eq!(spec_graphs_count(&relation_spec(), &|_, _| 0, 4), 51);
+        assert_eq!(spec_graphs_count(&GraphSpec::default(), &|_, _| 3, 5), 1);
+    }
+
+    #[test]
+    fn spec_graphs_lay_out_ids_in_the_documented_order() {
+        let f = prop_edge("a", "b", "f");
+        let plain = |id, anchor| node(id, anchor, None);
+        let expected = vec![
+            graph(vec![], vec![]),
+            graph(vec![plain(0, "b")], vec![]),
+            graph(vec![plain(0, "b"), plain(1, "b")], vec![]),
+            graph(vec![plain(0, "a")], vec![]),
+            graph(vec![plain(0, "a"), plain(1, "b")], vec![]),
+            graph(
+                vec![plain(0, "a"), plain(1, "b")],
+                vec![(0, gedge(0, 1, f, None))],
+            ),
+            graph(vec![plain(0, "a"), plain(1, "a")], vec![]),
+        ];
+        assert_eq!(
+            spec_graphs(&relation_spec(), &|_, _| Vec::new(), 2),
+            expected
+        );
+        let cell = |owner: u32, table: &str, value: i64| {
+            graph(
+                vec![
+                    plain(owner, table),
+                    node(1, &format!("{table}.x"), present(Value::Int(value))),
+                ],
+                vec![(0, gedge(0, 1, GraphSpec::column_edge(table, "x"), None))],
+            )
+        };
+        let expected = vec![
+            graph(vec![], vec![]),
+            cell(0, "b", 0),
+            cell(0, "b", 1),
+            cell(0, "a", 0),
+            cell(0, "a", 1),
+        ];
+        let forms = leaf_forms(&small_cells(2));
+        assert_eq!(
+            spec_graphs(&shared_column_spec(), &|_, _| forms.clone(), 1),
+            expected
+        );
+    }
+
+    /// The encoding-spec graph with one `a` row holding the list form and
+    /// one `b` row it relates to.
+    fn list_graph() -> Graph {
+        spec_graph(
+            &o7_encoding_spec(),
+            &[1, 1],
+            &o7_encoding_forms(),
+            &[4],
+            &[1],
+        )
+    }
+
+    #[test]
+    fn spec_graph_places_cells_children_and_pairs() {
+        let item = inner_prop_edge("a.x", "a.x.item", "item");
+        let expected = graph(
+            vec![
+                node(0, "a", None),
+                node(1, "b", None),
+                node(2, "a.x", None),
+                node(3, "a.x.item", present(Value::Int(0))),
+                node(4, "a.x.item", present(Value::Int(1))),
+            ],
+            vec![
+                (0, gedge(0, 2, GraphSpec::column_edge("a", "x"), None)),
+                (1, gedge(2, 3, item.clone(), Some(0))),
+                (2, gedge(2, 4, item, Some(1))),
+                (3, gedge(0, 1, prop_edge("a", "b", "f"), None)),
+            ],
+        );
+        assert_eq!(list_graph(), expected);
+        let forms = o7_encoding_forms();
+        let spec = o7_encoding_spec();
+        let record = spec_graph(&spec, &[1, 1], &forms, &[3], &[0]);
+        let k = inner_prop_edge("a.x", "a.x.k", "k");
+        assert_eq!(record.edges[&1], gedge(2, 3, k, None));
+        assert_eq!(
+            record.nodes[&3],
+            node(3, "a.x.k", present(Value::Str("s".to_owned())))
+        );
+        assert_eq!(record.edges.len(), 2);
+        // Missing counts, choices and masks default to zero; a choice wraps
+        // around the forms; extra counts are ignored.
+        let leaf = graph(
+            vec![node(0, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![(0, gedge(0, 1, GraphSpec::column_edge("a", "x"), None))],
+        );
+        assert_eq!(spec_graph(&spec, &[1], &forms, &[], &[]), leaf);
+        assert_eq!(spec_graph(&spec, &[1, 0, 5], &forms, &[7], &[0]), leaf);
+        // Only the first 64 of 72 possible pairs can be chosen by a mask.
+        let wide = spec_graph(&relation_spec(), &[9, 8], &[], &[], &[u64::MAX]);
+        assert_eq!(wide.nodes.len(), 17);
+        assert_eq!(wide.edges.len(), 64);
+        assert_eq!(
+            wide.edges[&63],
+            gedge(7, 16, prop_edge("a", "b", "f"), None)
+        );
+        // Every graph `spec_graphs` lists is the `spec_graph` of its counts,
+        // choices and mask, in that order.
+        let mut rebuilt = Vec::new();
+        for (a, b) in [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (2, 0)] {
+            let choices: Vec<Vec<usize>> = match a {
+                0 => vec![vec![]],
+                1 => (0..7).map(|c| vec![c]).collect(),
+                _ => (0..49).map(|c| vec![c / 7, c % 7]).collect(),
+            };
+            for choice in &choices {
+                for mask in 0..(1u64 << (a * b)) {
+                    rebuilt.push(spec_graph(&spec, &[a, b], &forms, choice, &[mask]));
+                }
+            }
+        }
+        assert_eq!(rebuilt, spec_graphs(&spec, &|_, _| forms.clone(), 2));
+    }
+
+    #[test]
+    fn relabelling_and_decoration_touch_exactly_what_they_name() {
+        let base = list_graph();
+        let moved = relabel_spec_graph(&base, &|n| n + 5, &|e| 2 * e + 1);
+        assert_eq!(
+            moved.nodes.keys().copied().collect::<Vec<_>>(),
+            [5, 6, 7, 8, 9]
+        );
+        assert_eq!(
+            moved.edges.keys().copied().collect::<Vec<_>>(),
+            [1, 3, 5, 7]
+        );
+        assert!(moved.well_formed());
+        assert_eq!(moved.nodes[&7].anchor, "a.x");
+        assert_eq!((moved.edges[&3].src, moved.edges[&3].tgt), (7, 8));
+        assert_eq!(moved.edges[&3].position, Some(0));
+        let spec = o7_encoding_spec();
+        let decorated = decorate_spec_graph(&moved, &spec);
+        for (id, n) in &decorated.nodes {
+            assert_eq!(n.discriminator.as_ref(), Some(&n.anchor));
+            assert_eq!(n.position, Some(id - 5));
+            assert_eq!(n.annotations["seen"], Value::Int(i64::from(*id)));
+            assert_eq!(n.fields["note"], Value::Str(format!("n{id}")));
+            assert_eq!(
+                (&n.value, &n.anchor),
+                (&moved.nodes[id].value, &moved.nodes[id].anchor)
+            );
+        }
+        // Inner edges keep their list positions; the others take id + 2.
+        let positions: Vec<Option<u32>> = decorated.edges.values().map(|e| e.position).collect();
+        assert_eq!(positions, [Some(3), Some(0), Some(1), Some(9)]);
+        let plain = decorate_spec_graph(&base, &spec);
+        let node_positions: Vec<Option<u32>> = plain.nodes.values().map(|n| n.position).collect();
+        assert_eq!(
+            node_positions,
+            [Some(0), Some(1), Some(2), Some(3), Some(4)]
+        );
+    }
+
+    #[test]
+    fn encoding_presentations_list_four_forms_of_each_graph() {
+        // Four times 1, 9, 73: the sum over a + b <= max of 7^a 2^(a b).
+        for (max, bound, expected) in [(0, 0, 4), (1, 1, 36), (2, 2, 292)] {
+            let presentations = o7_encoding_presentations(max);
+            assert_eq!(o7_encoding_presentations_count(bound), expected);
+            assert_eq!(presentations.len() as u64, expected);
+            assert!(presentations.iter().all(Graph::well_formed));
+        }
+        assert_eq!(o7_encoding_presentations_count(4), 4 * 6627);
+        // The third graph at bound 1 is one `a` row holding the constant.
+        let all = o7_encoding_presentations(1);
+        let column = GraphSpec::column_edge("a", "x");
+        let plain = graph(
+            vec![node(0, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![(0, gedge(0, 1, column.clone(), None))],
+        );
+        // Spread: node n to 3 (1 - n) + 1, edge e to 5 (0 - e) + 2.
+        let spread = graph(
+            vec![node(4, "a", None), node(1, "a.x", present(Value::Int(0)))],
+            vec![(2, gedge(4, 1, column, None))],
+        );
+        let decorate = |g: &Graph, edge_position: u32| {
+            let mut out = g.clone();
+            for (id, n) in &mut out.nodes {
+                n.discriminator = Some(n.anchor.clone());
+                n.position = Some(*id);
+                n.annotations
+                    .insert("seen".to_owned(), Value::Int(i64::from(*id)));
+                n.fields
+                    .insert("note".to_owned(), Value::Str(format!("n{id}")));
+            }
+            for e in out.edges.values_mut() {
+                e.position = Some(edge_position);
+            }
+            out
+        };
+        assert_eq!(all[8], decorate(&plain, 2));
+        assert_eq!(all[9], decorate(&spread, 4));
+        assert_eq!(all[10], plain);
+        assert_eq!(all[11], spread);
+        assert!(all[..4].iter().all(|g| *g == Graph::default()));
+    }
+
+    #[test]
+    fn hom_families_and_their_scopes() {
+        let families = hom_families();
+        let labels: Vec<&str> = families.iter().map(|(name, _, _)| *name).collect();
+        assert_eq!(
+            labels,
+            [
+                "constant and null",
+                "two nulls",
+                "constant and record subtree",
+                "record subtree and record leaf",
+                "relation",
+            ]
+        );
+        let null = |n| CellForm::Leaf(Presence::Present(Value::LabeledNull(n)));
+        let constant = CellForm::Leaf(Presence::Present(Value::Int(0)));
+        let subtree = CellForm::Record(vec![("k", "p.x.k", Value::Str("s".to_owned()))]);
+        let leaf = CellForm::Leaf(Presence::Present(record_value()));
+        let forms: Vec<Vec<CellForm>> = families.iter().map(|(_, _, f)| f.clone()).collect();
+        assert_eq!(
+            forms,
+            [
+                vec![constant.clone(), null(0)],
+                vec![null(0), null(1)],
+                vec![constant, subtree.clone()],
+                vec![subtree, leaf],
+                vec![],
+            ]
+        );
+        for (name, spec, forms) in &families {
+            let expected = if *name == "relation" {
+                assert_eq!(*spec, relation_spec());
+                51
+            } else {
+                assert_eq!(*spec, record_spec());
+                // The sum over a <= 4 of 2^a.
+                31
+            };
+            check_scope(spec, &|_, _| forms.clone(), 4, expected);
+        }
+    }
+
+    #[test]
+    fn reflection_family_lists_its_cases_in_order() {
+        let family = reflection_family();
+        let labels: Vec<&str> = family.iter().map(|case| case.name).collect();
+        assert_eq!(
+            labels,
+            [
+                "a merge with a shared column",
+                "a merge with a shared column over a null",
+                "a merge of tables carrying two relations to one",
+                "two parallel relations merged",
+                "a target column outside the image",
+                "two columns sent to one",
+                "a source table and column outside the kept part",
+                "two parallel relations and a third merged across a merge of tables",
+                "two parallel loops merged",
+                "a merge with a shared column whose relations merge",
+            ]
+        );
+        let mut joined = o7_adjunction_family();
+        assert_eq!(joined.len(), 7);
+        let merges = relation_merge_cases();
+        assert_eq!(merges.len(), 3);
+        joined.extend(merges);
+        assert_eq!(joined, family);
+        let null_cells = vec![Value::Int(0), Value::LabeledNull(0)];
+        for (index, case) in family.iter().enumerate() {
+            let cells = if matches!(index, 1 | 9) {
+                null_cells.clone()
+            } else {
+                small_cells(2)
+            };
+            assert_eq!(case.cells, cells, "{}", case.name);
+            assert_eq!(case.pi, index != 4, "{}", case.name);
+            assert_eq!(case.bound, if index == 8 { 2 } else { 4 }, "{}", case.name);
+            assert_eq!(case.kept == case.source, index != 6, "{}", case.name);
+            assert!(case.source.inner.is_empty() && case.target.inner.is_empty());
+        }
+        let dropped = Schema::default()
+            .vertex("a", "record")
+            .vertex("a.x", "int")
+            .vertex("a.w", "int")
+            .vertex("q", "record")
+            .edge("a", "a.x", "prop", Some("x"))
+            .edge("a", "a.w", "prop", Some("w"));
+        assert_eq!(family[6].source.schema(), dropped);
+        let three = &family[7];
+        assert_eq!(
+            three.target.schema(),
+            Schema::default()
+                .vertex("A", "record")
+                .vertex("B", "record")
+                .edge("A", "B", "prop", Some("g"))
+        );
+    }
+
+    fn renames(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn graph_kan_case_migrations_state_the_functor() {
+        let family = reflection_family();
+        let col = GraphSpec::column_edge;
+        let merge = Migration {
+            vertex_remap: renames(&[("a", "t"), ("a.x", "t.x"), ("b", "t"), ("b.x", "t.x")]),
+            edge_remap: BTreeMap::from([
+                (col("a", "x"), col("t", "x")),
+                (col("b", "x"), col("t", "x")),
+            ]),
+            ..Migration::default()
+        };
+        assert_eq!(family[0].migration(), merge);
+        let g = prop_edge("A", "C", "g");
+        let relations = Migration {
+            vertex_remap: renames(&[("a", "A"), ("b", "A"), ("c", "C")]),
+            edge_remap: BTreeMap::from([
+                (prop_edge("a", "c", "f"), g.clone()),
+                (prop_edge("b", "c", "h"), g),
+            ]),
+            ..Migration::default()
+        };
+        assert_eq!(family[2].migration(), relations);
+        let columns = Migration {
+            vertex_remap: renames(&[("t", "t"), ("t.x", "t.z"), ("t.y", "t.z")]),
+            edge_remap: BTreeMap::from([
+                (col("t", "x"), col("t", "z")),
+                (col("t", "y"), col("t", "z")),
+            ]),
+            ..Migration::default()
+        };
+        assert_eq!(family[5].migration(), columns);
+        // A column of a table outside the table map is skipped.
+        let mut stray = family[0].clone();
+        stray.columns.push(("zz", "x", "x"));
+        assert_eq!(stray.migration(), merge);
+    }
+
+    #[test]
+    fn graph_kan_case_graphs_match_their_counts() {
+        // Each entry is the sum, over the node-count vectors within the
+        // bound, of |cells|^(cell slots) 2^(pair slots), evaluated by hand
+        // for (source, kept, target): e.g. the shared-column merge has
+        // sum_{n <= 4} (n + 1) 2^n = 129 sources and sum_{a <= 4} 2^a = 31
+        // targets, and the loops have 1 + 2^2 + 2^8 = 261 sources.
+        let expected: [[u64; 3]; 10] = [
+            [129, 129, 31],
+            [129, 129, 31],
+            [139, 139, 51],
+            [429, 429, 51],
+            [31, 31, 341],
+            [341, 341, 31],
+            [453, 31, 31],
+            [601, 601, 51],
+            [261, 261, 19],
+            [685, 685, 207],
+        ];
+        for (case, expected) in reflection_family().iter().zip(expected) {
+            for (spec, want) in [&case.source, &case.kept, &case.target]
+                .into_iter()
+                .zip(expected)
+            {
+                let graphs = case.graphs(spec);
+                assert_eq!(case.graphs_count(spec), want, "{}", case.name);
+                assert_eq!(graphs.len() as u64, want, "{}", case.name);
+                assert!(distinct(&graphs));
+                for value in graphs.iter().flat_map(|g| g.nodes.values()) {
+                    match &value.value {
+                        Some(Presence::Present(cell)) => assert!(case.cells.contains(cell)),
+                        other => assert_eq!(*other, None),
+                    }
+                }
+            }
+        }
+    }
+
+    /// The encoding-spec graph with one `a` row holding the record form and
+    /// one `b` row it relates to: nodes `0 a`, `1 b`, `2 a.x`, `3 a.x.k`;
+    /// edges `0: 0 -> 2`, `1: 2 -> 3`, `2: 0 -> 1`.
+    fn record_graph() -> Graph {
+        spec_graph(
+            &o7_encoding_spec(),
+            &[1, 1],
+            &o7_encoding_forms(),
+            &[3],
+            &[1],
+        )
+    }
+
+    #[test]
+    fn encoding_mutations_that_add_nodes_or_edges() {
+        let g = record_graph();
+        let with = |nodes: Vec<Node>, edges: Vec<(u32, GEdge)>| {
+            let mut out = g.clone();
+            out.nodes.extend(nodes.into_iter().map(|n| (n.id, n)));
+            out.edges.extend(edges);
+            out
+        };
+        let m = |kind, pick| encoding_mutation(&g, kind, pick);
+        let fan = |src: &str| SEdge::new(src, "a", "hyper_parent", None);
+        // Pick 0 reads node 0, the next node 1 and edge 0; the fresh ids
+        // are node 4 and edge 3.
+        let fresh_a = || vec![node(4, "a", None)];
+        assert_eq!(
+            m(1, 0),
+            with(fresh_a(), vec![(3, gedge(0, 4, fan("a"), None))])
+        );
+        assert_eq!(
+            m(1, 2),
+            with(fresh_a(), vec![(3, gedge(2, 4, fan("a.x"), None))])
+        );
+        assert_eq!(m(2, 0), with(vec![node(4, "outside", None)], vec![]));
+        let nowhere = prop_edge("a", "b", "nowhere");
+        assert_eq!(m(3, 0), with(vec![], vec![(3, gedge(0, 1, nowhere, None))]));
+        // Pick 3 wraps the next node round to node 0.
+        let back = prop_edge("a.x.k", "a", "nowhere");
+        assert_eq!(m(3, 3), with(vec![], vec![(3, gedge(3, 0, back, None))]));
+        let f = prop_edge("a", "b", "f");
+        assert_eq!(m(4, 0), with(vec![], vec![(3, gedge(1, 0, f, None))]));
+        assert_eq!(m(5, 1), with(vec![], vec![(3, g.edges[&1].clone())]));
+        let five = || vec![node(4, "a.x", present(Value::Int(5)))];
+        let x = prop_edge("a", "a.x", "x");
+        assert_eq!(m(8, 0), with(five(), vec![(3, gedge(0, 4, x, None))]));
+        assert_eq!(m(8, 1), g);
+        assert_eq!(m(10, 1), with(five(), vec![]));
+        let t = vec![node(4, "a.x.k", present(Value::Str("t".to_owned())))];
+        let k = prop_edge("a.x", "a.x.k", "k");
+        assert_eq!(m(17, 2), with(t, vec![(3, gedge(2, 4, k, None))]));
+        assert_eq!(m(17, 0), g);
+        // On the empty graph only the kinds that need no node or edge act.
+        let empty = Graph::default();
+        for kind in 0..ENCODING_MUTATIONS {
+            let out = encoding_mutation(&empty, kind, 0);
+            match kind {
+                2 => assert_eq!(out, graph(vec![node(0, "outside", None)], vec![])),
+                10 => assert_eq!(
+                    out,
+                    graph(vec![node(0, "a.x", present(Value::Int(5)))], vec![])
+                ),
+                _ => assert_eq!(out, empty, "kind {kind}"),
+            }
+        }
+    }
+
+    fn set_value(g: &Graph, id: u32, value: Option<Presence>) -> Graph {
+        let mut out = g.clone();
+        if let Some(n) = out.nodes.get_mut(&id) {
+            n.value = value;
+        }
+        out
+    }
+
+    fn set_shape(g: &Graph, id: u32) -> Graph {
+        let mut out = g.clone();
+        if let Some(n) = out.nodes.get_mut(&id) {
+            n.shape = NodeShape::HyperEdge;
+        }
+        out
+    }
+
+    fn edit_edge(g: &Graph, id: u32, edit: &dyn Fn(&mut GEdge)) -> Graph {
+        let mut out = g.clone();
+        if let Some(e) = out.edges.get_mut(&id) {
+            edit(e);
+        }
+        out
+    }
+
+    fn drop_edge(g: &Graph, id: u32, field: Option<(u32, &str)>) -> Graph {
+        let mut out = g.clone();
+        out.edges.remove(&id);
+        if let Some((owner, name)) = field {
+            if let Some(n) = out.nodes.get_mut(&owner) {
+                n.fields.insert(name.to_owned(), Value::Int(9));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn encoding_mutations_that_change_what_is_there() {
+        let g = record_graph();
+        let m = |kind, pick| encoding_mutation(&g, kind, pick);
+        assert_eq!(m(0, 1), set_shape(&g, 1));
+        // Pick 6 selects node 6 mod 4 = 2 and edge 6 mod 3 = 0.
+        assert_eq!(m(0, 6), set_shape(&g, 2));
+        assert_eq!(m(6, 2), drop_edge(&g, 2, None));
+        assert_eq!(m(6, 5), drop_edge(&g, 2, None));
+        assert_eq!(m(7, 0), drop_edge(&g, 0, Some((0, "x"))));
+        assert_eq!(m(7, 1), drop_edge(&g, 1, Some((2, "k"))));
+        assert_eq!(m(11, 3), set_value(&g, 3, None));
+        // Node 0 holds no value, so clearing it is a no-op.
+        assert_eq!(m(11, 0), g);
+        assert_eq!(m(12, 2), set_value(&g, 2, Some(Presence::Absent)));
+        assert_eq!(m(13, 2), set_value(&g, 2, present(Value::Int(0))));
+        assert_eq!(m(14, 0), edit_edge(&g, 0, &|e| e.position = Some(7)));
+        let nested = Value::List(vec![Value::LabeledNull(3)]);
+        assert_eq!(m(15, 3), set_value(&g, 3, present(nested)));
+        assert_eq!(m(16, 0), set_value(&g, 0, present(Value::LabeledNull(3))));
+        // Every label of the record graph is distinct, so kind 9 has no
+        // edge to move onto; the list graph's two item edges do.
+        let list = list_graph();
+        for pick in 0..6 {
+            assert_eq!(m(9, pick), g);
+        }
+        assert_eq!(
+            encoding_mutation(&list, 9, 1),
+            edit_edge(&list, 1, &|e| e.tgt = 4)
+        );
+        assert_eq!(
+            encoding_mutation(&list, 14, 1),
+            edit_edge(&list, 1, &|e| e.position = None)
+        );
+        let two = spec_graph(
+            &o7_encoding_spec(),
+            &[2],
+            &o7_encoding_forms(),
+            &[0, 0],
+            &[],
+        );
+        assert_eq!(
+            encoding_mutation(&two, 9, 0),
+            edit_edge(&two, 0, &|e| e.tgt = 3)
+        );
+        assert_eq!(
+            encoding_mutation(&two, 9, 1),
+            edit_edge(&two, 1, &|e| e.tgt = 2)
+        );
+        // An unnamed edge leaves a field with the empty name.
+        let unnamed = spec_graph(
+            &unnamed_inner_spec(),
+            &[1],
+            &unnamed_inner_forms(),
+            &[0],
+            &[],
+        );
+        assert_eq!(
+            encoding_mutation(&unnamed, 7, 1),
+            drop_edge(&unnamed, 1, Some((1, "")))
+        );
+        // Every kind changes the record graph (kind 9 the list graph) at
+        // some pick; kinds past the last are no-ops.
+        for kind in 0..ENCODING_MUTATIONS {
+            let base = if kind == 9 { &list } else { &g };
+            assert!((0..8).any(|pick| encoding_mutation(base, kind, pick) != *base));
+        }
+        for kind in [ENCODING_MUTATIONS, 40, u8::MAX] {
+            assert!((0..8).all(|pick| encoding_mutation(&list, kind, pick) == list));
+        }
+    }
+
+    #[test]
+    fn splitmix_matches_the_reference_sequence() {
+        // The published splitmix64 outputs from state 0.
+        let mut rng = SplitMix(0);
+        assert_eq!(rng.next_u64(), 0xe220_a839_7b1d_cdaf);
+        assert_eq!(rng.next_u64(), 0x6e78_9e6a_a1b9_65f4);
+        assert_eq!(rng.next_u64(), 0x06c4_5d18_8009_454f);
+        assert_eq!(rng, SplitMix(0x9E37_79B9_7F4A_7C15u64.wrapping_mul(3)));
+        // These values come from an independent splitmix64 transcription.
+        let mut rng = SplitMix(42);
+        assert_eq!(
+            [1, 2, 3, 10, 100, 7].map(|n| rng.below(n)),
+            [0, 1, 0, 4, 50, 4]
+        );
+        let mut rng = SplitMix(7);
+        let draws = [50; 8].map(|p| rng.chance(p));
+        assert_eq!(draws, [false, true, true, true, false, true, false, false]);
+        // An empty range or slice consumes nothing.
+        let mut rng = SplitMix(5);
+        assert_eq!(rng.below(0), 0);
+        assert_eq!(rng.pick::<u8>(&[]), None);
+        assert_eq!(rng, SplitMix(5));
+        // At seed 9 the hundredth draw of chance(0) is a zero.
+        let mut rng = SplitMix(9);
+        for _ in 0..200 {
+            assert!(!rng.chance(0));
+            assert!(rng.chance(100));
+        }
+        let items = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+        let (mut x, mut y) = (SplitMix(11), SplitMix(11));
+        for _ in 0..50 {
+            assert_eq!(x.pick(&items), items.get(y.below(7)));
+        }
+    }
+
+    fn table_side(tables: &[(&str, &[&str])], relations: &[SEdge]) -> TableSide {
+        TableSide {
+            tables: tables
+                .iter()
+                .map(|(table, columns)| ((*table).to_owned(), names(columns)))
+                .collect(),
+            relations: relations.iter().cloned().collect(),
+        }
+    }
+
+    fn column_map(entries: &[(&str, &str, &str)]) -> BTreeMap<(String, String), String> {
+        entries
+            .iter()
+            .map(|(t, c, i)| (((*t).to_owned(), (*c).to_owned()), (*i).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn table_spec_states_its_functor() {
+        let (e, g) = (fk_edge("s0", "s1", "e"), fk_edge("d0", "d1", "g"));
+        let src = table_side(
+            &[("s0", &["c0", "c1"]), ("s1", &["c0"]), ("s2", &[])],
+            &[e.clone(), fk_edge("s2", "s2", "l")],
+        );
+        let tgt = table_side(&[("d0", &["c0", "c1"]), ("d1", &["c1"])], &[g.clone()]);
+        let tgt_schema = Schema::default()
+            .vertex("d0", "table")
+            .vertex("d1", "table")
+            .vertex("d0.c0", "integer")
+            .vertex("d0.c1", "integer")
+            .vertex("d1.c1", "integer")
+            .edge("d0", "d0.c0", "prop", Some("c0"))
+            .edge("d0", "d0.c1", "prop", Some("c1"))
+            .edge("d1", "d1.c1", "prop", Some("c1"))
+            .edge("d0", "d1", "fk", Some("g"));
+        assert_eq!(tgt.schema(), tgt_schema);
+        assert_eq!(TableSide::default().schema(), Schema::default());
+        let mut spec = TableSpec {
+            src,
+            tgt,
+            tables: renames(&[("s0", "d0"), ("s1", "d1")]),
+            relations: BTreeMap::from([(e.clone(), g.clone())]),
+            columns: column_map(&[
+                ("s0", "c0", "c0"),
+                ("s0", "c1", "c0"),
+                ("s1", "c0", "c1"),
+                ("s2", "c9", "c0"),
+            ]),
+        };
+        let attr = |t: &str, c: &str| SEdge::new(t, &format!("{t}.{c}"), "prop", Some(c));
+        let expected = Migration {
+            vertex_remap: renames(&[
+                ("s0", "d0"),
+                ("s1", "d1"),
+                ("s0.c0", "d0.c0"),
+                ("s0.c1", "d0.c0"),
+                ("s1.c0", "d1.c1"),
+            ]),
+            edge_remap: BTreeMap::from([
+                (attr("s0", "c0"), attr("d0", "c0")),
+                (attr("s0", "c1"), attr("d0", "c0")),
+                (attr("s1", "c0"), attr("d1", "c1")),
+                (e.clone(), g),
+            ]),
+            ..Migration::default()
+        };
+        assert_eq!(spec.migration(), expected);
+        assert_eq!(
+            spec.missing_column(),
+            Some(("d0".to_owned(), "c1".to_owned()))
+        );
+        let kept = table_side(&[("s0", &["c0", "c1"]), ("s1", &["c0"])], &[e]);
+        assert_eq!(spec.kept(), kept);
+        // `c1` of `d1` has a namesake image in `d0`'s fibre, which does not
+        // reach it.
+        spec.columns = column_map(&[("s0", "c0", "c0"), ("s0", "c1", "c1")]);
+        assert_eq!(
+            spec.missing_column(),
+            Some(("d1".to_owned(), "c1".to_owned()))
+        );
+        spec.columns
+            .insert(("s1".to_owned(), "c0".to_owned()), "c1".to_owned());
+        assert_eq!(spec.missing_column(), None);
+        assert_eq!(TableSpec::default().missing_column(), None);
+        assert_eq!(TableSpec::default().kept(), TableSide::default());
+    }
+
+    #[test]
+    fn generated_cases_reproduce_an_independent_transcription() {
+        // Each line was computed by an independent transcription of the
+        // generator (splitmix64, the side, spec and instance draws in their
+        // documented order) and is rendered here the same way.
+        let pinned: [(u64, [&str; 9]); 4] = [
+            (
+                0,
+                [
+                    "src s0[] s1[c0,c1,c2] s2[] s3[c0,c1,c2] / ",
+                    "tgt d0[] d1[c0,c1,c2] / ",
+                    "tables s0>d0 s1>d1 s2>d1 s3>d0",
+                    "rels ",
+                    "cols s1.c2>c0",
+                    "x 0:s2{} 1:s2{} 2:s3{c0=_2,c1=_0,c2=f8000000000000000} 3:s3{c0=f8000000000000000,c1=1,c2=_2} / ",
+                    "j 3:d0{} 4:d1{c0=f8000000000000000,c1=f8000000000000000,c2=_1} 5:d1{c0=f0,c1=_1,c2=_1} 6:d1{c0=1,c1=f7ff8000000000000,c2=0} / ",
+                    "max 4",
+                    "state 489e4c815d41c005",
+                ],
+            ),
+            (
+                1,
+                [
+                    "src s0[c0,c1,c2] s1[c0,c1] / ",
+                    "tgt d0[] d1[c0] / d0>d0:de0 d0>d0:de2 d1>d0:de1",
+                    "tables s0>d1 s1>d1",
+                    "rels ",
+                    "cols s0.c0>c0 s0.c1>c0 s1.c0>c0 s1.c1>c0",
+                    "x 0:s0{c0=f0,c1=f7ff8000000000000,c2=0} 1:s0{c0=1,c1=f0,c2=f8000000000000000} 2:s0{c0=_0,c1=_0,c2=_1} / ",
+                    "j 4:d0{} 5:d0{} 6:d1{c0=f7ff8000000000000} 7:d1{c0=f0} 8:d1{c0=f7ff8000000000000} / de0:5>4 de0:5>5 de2:4>4 de1:7>5",
+                    "max 4",
+                    "state 15008779d57514ed",
+                ],
+            ),
+            (
+                2,
+                [
+                    "src s0[c0,c1] s1[c0,c1,c2] s2[] / s0>s2:se0 s1>s2:se3 s2>s0:se1 s2>s2:se2",
+                    "tgt d0[c0,c1,c2] d1[c0] d2[c0,c1] / d2>d2:dk2 d2>d2:dk3",
+                    "tables s0>d2 s1>d2 s2>d2",
+                    "rels se2>dk3",
+                    "cols s0.c1>c1 s1.c0>c1 s1.c1>c1 s1.c2>c0",
+                    "x 0:s0{c0=f7ff8000000000000,c1=f7ff8000000000000} 1:s0{c0=_2,c1=_1} 2:s0{c0=f8000000000000000,c1=_0} 3:s1{c0=f0,c1=f7ff8000000000000,c2=0} 4:s2{} / se1:4>1",
+                    "j 0:d2{c0=0,c1=f8000000000000000} 1:d2{c0=f7ff8000000000000,c1=f8000000000000000} 2:d2{c0=ffff8000000000000,c1=0} / dk2:0>0 dk2:1>0 dk2:2>2 dk3:0>1 dk3:2>1",
+                    "max 4",
+                    "state dbefbea9bec4978e",
+                ],
+            ),
+            (
+                3,
+                [
+                    "src s0[c0] s1[c0] / s0>s0:se1 s0>s1:se0",
+                    "tgt d0[c0,c1] d1[] d2[c0,c1,c2] / d0>d1:de1 d1>d1:de0 d2>d2:dk0 d2>d2:dk1",
+                    "tables s0>d2 s1>d2",
+                    "rels se0>dk1",
+                    "cols s0.c0>c2 s1.c0>c2",
+                    "x 0:s0{c0=f8000000000000000} / ",
+                    "j 2:d0{c0=_2,c1=ffff8000000000000} 3:d0{c0=_1,c1=f8000000000000000} 4:d0{c0=_1,c1=0} / ",
+                    "max 81",
+                    "state 6df7df54df624bc9",
+                ],
+            ),
+        ];
+        for (seed, lines) in pinned {
+            assert_eq!(render_case(&generated_case(seed)), lines, "seed {seed}");
+        }
+        assert_eq!(
+            generated_case(0).spec.missing_column(),
+            Some(("d1".to_owned(), "c1".to_owned()))
+        );
+        assert_eq!(generated_case(1).spec.missing_column(), None);
+        assert_eq!(
+            generated_case(2).spec.missing_column(),
+            Some(("d0".to_owned(), "c0".to_owned()))
+        );
+        assert_eq!(generated_cells().len(), 9);
+        assert!(distinct(&generated_cells()));
+    }
+
+    #[test]
+    fn derived_instances_reproduce_an_independent_transcription() {
+        // Growth, a homomorphism out and two corruptions drawn, in that
+        // order, from each case's generator, by the same transcription.
+        let pinned: [(u64, [&str; 5], (u64, Value)); 2] = [
+            (
+                1,
+                [
+                    "0:s0{c0=f0,c1=f7ff8000000000000,c2=0} 1:s0{c0=1,c1=f0,c2=f8000000000000000} 2:s0{c0=_0,c1=_0,c2=_1} / ",
+                    "0:s0{c0=f0,c1=f7ff8000000000000,c2=0} 1:s0{c0=1,c1=f0,c2=f8000000000000000} 2:s0{c0=_0,c1=_0,c2=1} 6:s1{c0=ffff8000000000000,c1=ffff8000000000000} / ",
+                    "0:s0{c0=f0,c1=f7ff8000000000000,c2=0} 1:s0{c0=1,c1=f0,c2=f8000000000000000} 2:s0{c0=_0,c1=_0,c2=_1,zz-stray=0} / ",
+                    "4:d0{} 5:d0{} 6:d1{c0=f7ff8000000000000} 7:d1{} 8:d1{c0=f7ff8000000000000} / de0:5>4 de0:5>5 de2:4>4 de1:7>5",
+                    "54cda58fbbee87e1",
+                ],
+                (1, Value::Int(1)),
+            ),
+            (
+                2,
+                [
+                    "0:s0{c0=f7ff8000000000000,c1=f7ff8000000000000} 1:s0{c0=_2,c1=_1} 2:s0{c0=f8000000000000000,c1=_0} 3:s1{c0=f0,c1=f7ff8000000000000,c2=0} 4:s2{} / se0:1>4 se1:4>1 se1:4>2",
+                    "0:s0{c0=f7ff8000000000000,c1=f7ff8000000000000} 1:s0{c0=ffff8000000000000,c1=_1} 2:s0{c0=f8000000000000000,c1=_0} 3:s1{c0=f0,c1=f7ff8000000000000,c2=0} 4:s2{} 9:s1{c0=_2,c1=_1,c2=f8000000000000000} / se1:4>0 se1:4>1 se2:4>4",
+                    "0:s0{c0=f7ff8000000000000,c1=f7ff8000000000000} 1:s0{c0=_2,c1=_1} 2:s0{c0=f8000000000000000,c1=_0} 3:s1{c0=f0,c1=f7ff8000000000000,c2=0} 4:s2{zz-stray=0} / se1:4>1",
+                    "0:d2{c0=0,c1=f8000000000000000} 1:d2{c0=f7ff8000000000000,c1=f8000000000000000} 2:d2{c0=ffff8000000000000,c1=[_9]} / dk2:0>0 dk2:1>0 dk2:2>2 dk3:0>1 dk3:2>1",
+                    "abb024451edc673f",
+                ],
+                (2, Value::Float(0xfff8_0000_0000_0000)),
+            ),
+        ];
+        for (seed, lines, null) in pinned {
+            let case = generated_case(seed);
+            let mut rng = case.rng.clone();
+            let grown = generated_growth(&mut rng, &case.spec.src, &case.x);
+            let (b, hom) = generated_hom_out(&mut rng, &case.spec.src, &case.x);
+            let x = generated_corruption(&mut rng, &case.x);
+            let j = generated_corruption(&mut rng, &case.j);
+            let state = format!("{:x}", rng.0);
+            let got = [grown, b, x, j].map(|t| render_table(&t));
+            assert_eq!(got, lines[..4], "seed {seed}");
+            assert_eq!(state, lines[4], "seed {seed}");
+            assert_eq!(hom.nulls, BTreeMap::from([null]));
+            assert!(hom.rows.iter().all(|(a, b)| a == b));
+            assert_eq!(hom.rows.len(), case.x.rows.len());
+        }
+        let mut rng = SplitMix(3);
+        assert_eq!(
+            generated_corruption(&mut rng, &Table::default()),
+            Table::default()
+        );
+        assert_eq!(rng, SplitMix(3));
+    }
+
+    /// A generated side's shape: tables `prefix0..` with at most three of
+    /// the columns `c0, c1, c2`, at most four relations between them.
+    fn check_side(side: &TableSide, prefix: &str) {
+        assert!((1..=4).contains(&side.tables.len()));
+        for (k, (table, columns)) in side.tables.iter().enumerate() {
+            assert_eq!(*table, format!("{prefix}{k}"));
+            assert!(
+                columns
+                    .iter()
+                    .all(|c| ["c0", "c1", "c2"].contains(&c.as_str()))
+            );
+        }
+        assert!(side.relations.len() <= 4);
+        for edge in &side.relations {
+            assert!(side.tables.contains_key(&edge.src) && side.tables.contains_key(&edge.tgt));
+            assert_eq!(edge.kind, "fk");
+        }
+    }
+
+    /// An instance of `side`: at most three rows per table and six in all,
+    /// the side's columns on every row, cells from the alphabet, and pairs
+    /// of the side's relations between rows of their tables.
+    fn check_instance(table: &Table, side: &TableSide) {
+        let cells = generated_cells();
+        assert!(table.rows.len() <= 6);
+        for (owner, columns) in &side.tables {
+            let rows: Vec<_> = table.rows.values().filter(|(t, _)| t == owner).collect();
+            assert!(rows.len() <= 3);
+            for (_, row) in rows {
+                assert!(row.keys().eq(columns.iter()));
+                assert!(row.values().all(|v| cells.contains(v)));
+            }
+        }
+        assert!(
+            table
+                .rows
+                .values()
+                .all(|(t, _)| side.tables.contains_key(t))
+        );
+        for (edge, a, b) in &table.pairs {
+            assert!(side.relations.contains(edge));
+            assert_eq!(table.rows[a].0, edge.src);
+            assert_eq!(table.rows[b].0, edge.tgt);
+        }
+    }
+
+    fn check_spec(spec: &TableSpec) {
+        check_side(&spec.src, "s");
+        check_side(&spec.tgt, "d");
+        for (source, target) in &spec.tables {
+            assert!(spec.src.tables.contains_key(source));
+            assert!(spec.tgt.tables.contains_key(target));
+        }
+        for (edge, image) in &spec.relations {
+            assert!(spec.src.relations.contains(edge));
+            assert!(spec.tgt.relations.contains(image));
+            assert_eq!(image.src, spec.tables[&edge.src]);
+            assert_eq!(image.tgt, spec.tables[&edge.tgt]);
+        }
+        for ((source, column), image) in &spec.columns {
+            assert!(spec.src.tables[source].contains(column));
+            assert!(spec.tgt.tables[&spec.tables[source]].contains(image));
+        }
+        let kept = spec.kept();
+        assert!(kept.tables.keys().eq(spec.tables.keys()));
+        assert!(kept.relations.iter().eq(spec.relations.keys()));
+    }
+
+    #[test]
+    fn generated_cases_respect_their_bounds() {
+        let (mut maxes, mut missing, mut corrupted) = (BTreeSet::new(), [0, 0], 0);
+        for seed in 0..300 {
+            let case = generated_case(seed);
+            check_spec(&case.spec);
+            check_instance(&case.x, &case.spec.src);
+            check_instance(&case.j, &case.spec.tgt);
+            for (offset, id) in (0..).zip(case.x.rows.keys()) {
+                assert_eq!(offset, *id);
+            }
+            let first = case.j.rows.keys().next().copied().unwrap_or(0);
+            assert!(first < 8);
+            for (offset, id) in (first..).zip(case.j.rows.keys()) {
+                assert_eq!(offset, *id);
+            }
+            assert!(PRODUCT_BOUNDS.contains(&case.max));
+            maxes.insert(case.max);
+            missing[usize::from(case.spec.missing_column().is_some())] += 1;
+            let mut rng = case.rng.clone();
+            let big = generated_growth(&mut rng, &case.spec.src, &case.x);
+            check_instance(&big, &case.spec.src);
+            assert!(
+                case.x
+                    .rows
+                    .iter()
+                    .all(|(id, row)| big.rows.get(id) == Some(row))
+            );
+            assert!(case.x.pairs.is_subset(&big.pairs));
+            assert!(big.rows.len() <= case.x.rows.len() + 2);
+            let (b, hom) = generated_hom_out(&mut rng, &case.spec.src, &case.x);
+            check_instance(&b, &case.spec.src);
+            assert_eq!(hom.check(&case.x, &b), Ok(()));
+            assert!(hom.nulls.len() <= 1);
+            let bad = generated_corruption(&mut rng, &case.x);
+            let changed = case
+                .x
+                .rows
+                .iter()
+                .filter(|(id, row)| bad.rows[*id] != **row)
+                .count();
+            assert_eq!(changed, usize::from(!case.x.rows.is_empty()));
+            assert_eq!(bad.pairs, case.x.pairs);
+            corrupted += changed;
+        }
+        assert_eq!(maxes, BTreeSet::from(PRODUCT_BOUNDS));
+        assert!(missing[0] > 0 && missing[1] > 0);
+        assert!(corrupted > 200);
+    }
+
+    fn render_pi(case: &PiJoinCase) -> String {
+        let tables = case
+            .spec
+            .src
+            .tables
+            .iter()
+            .map(|(t, columns)| {
+                format!(
+                    "{t}[{}]",
+                    columns.iter().cloned().collect::<Vec<_>>().join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let d = case.spec.tgt.tables["d"]
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows = render_table(&case.instance);
+        let rows = rows.trim_end_matches(" / ");
+        format!(
+            "{tables} | d[{d}] | {rows} | max {} | cyclic {}",
+            case.max, case.cyclic
+        )
+    }
+
+    #[test]
+    fn pi_join_cases_reproduce_an_independent_transcription() {
+        let cases = pi_join_cases();
+        assert_eq!(cases.len(), 3000);
+        // Rendered from an independent transcription of the xorshift
+        // sequence and the draws in their documented order.
+        let pinned = [
+            (
+                0,
+                "a0[p,q] a1[q,r] a2[p,r] a3[p,r,s] a4[q] | d[p,q,r,s] | 1:a0{p=1,q=1} 2:a1{q=0,r=1} 3:a1{q=2,r=0} 4:a1{q=2,r=0} 5:a2{p=2,r=2} 6:a2{p=1,r=1} 7:a4{q=1} 8:a4{q=0} | max 4 | cyclic true",
+            ),
+            (
+                1,
+                "a0[r,s] a1[p,q,s] a2[s] | d[p,q,r,s] | 1:a0{r=0,s=0} 2:a0{r=1,s=1} 3:a0{r=1,s=0} 4:a0{r=2,s=2} 5:a0{r=0,s=0} 6:a2{s=2} | max 1 | cyclic false",
+            ),
+            (
+                2,
+                "a0[q] a1[p,q,s] a2[p,s] | d[p,q,s] | 1:a0{q=2} 2:a0{q=0} 3:a0{q=0} 4:a1{p=0,q=1,s=1} 5:a1{p=2,q=1,s=0} 6:a2{p=0,s=0} 7:a2{p=0,s=0} | max 1 | cyclic false",
+            ),
+            (
+                2999,
+                "a0[p,r,s] a1[p,r,s] a2[p,r,s] | d[p,r,s] | 1:a1{p=1,r=2,s=2} 2:a1{p=2,r=2,s=0} | max 1 | cyclic false",
+            ),
+        ];
+        for (index, line) in pinned {
+            assert_eq!(render_pi(&cases[index]), line, "case {index}");
+        }
+        let count = |f: &dyn Fn(&PiJoinCase) -> usize| cases.iter().map(f).sum::<usize>();
+        assert_eq!(count(&|c| usize::from(c.cyclic)), 750);
+        assert_eq!(count(&|c| usize::from(c.max == 1)), 962);
+        assert_eq!(count(&|c| usize::from(c.max == 4)), 1044);
+        assert_eq!(count(&|c| usize::from(c.max == 81)), 994);
+        assert_eq!(count(&|c| c.instance.rows.len()), 22_415);
+        assert_eq!(count(&|c| c.spec.src.tables.len()), 9014);
+        let empty = |c: &PiJoinCase| c.spec.src.tables.values().filter(|s| s.is_empty()).count();
+        assert_eq!(count(&empty), 421);
+        let cell_sum = |c: &PiJoinCase| -> usize {
+            let values = c.instance.rows.values().flat_map(|(_, row)| row.values());
+            values
+                .map(|v| {
+                    if let Value::Int(n) = v {
+                        usize::try_from(*n).unwrap_or(99)
+                    } else {
+                        99
+                    }
+                })
+                .sum()
+        };
+        assert_eq!(count(&cell_sum), 44_472);
+    }
+
+    #[test]
+    fn pi_join_cases_are_fibres_over_one_table() {
+        let triangle = [names(&["p", "q"]), names(&["q", "r"]), names(&["p", "r"])];
+        for (index, case) in pi_join_cases().iter().enumerate() {
+            let spec = &case.spec;
+            assert_eq!(case.cyclic, index % 4 == 0);
+            let tables = spec.src.tables.len();
+            assert!(if case.cyclic {
+                (4..=5).contains(&tables)
+            } else {
+                (1..=4).contains(&tables)
+            });
+            if case.cyclic {
+                assert!(spec.src.tables.values().take(3).eq(triangle.iter()));
+            }
+            let used: BTreeSet<String> = spec.src.tables.values().flatten().cloned().collect();
+            assert_eq!(spec.tgt.tables, BTreeMap::from([("d".to_owned(), used)]));
+            assert!(spec.tables.values().all(|t| t == "d"));
+            assert!(spec.tables.keys().eq(spec.src.tables.keys()));
+            for (table, columns) in &spec.src.tables {
+                for column in columns {
+                    let key = (table.clone(), column.clone());
+                    assert_eq!(spec.columns.get(&key), Some(column));
+                }
+            }
+            assert_eq!(
+                spec.columns.len(),
+                spec.src.tables.values().map(BTreeSet::len).sum::<usize>()
+            );
+            assert_eq!(spec.missing_column(), None);
+            assert!([1, 4, 81].contains(&case.max));
+            for (offset, (id, (table, row))) in (1..).zip(&case.instance.rows) {
+                assert_eq!(offset, *id);
+                assert!(row.keys().eq(spec.src.tables[table].iter()));
+                assert!(row.values().all(|v| matches!(v, Value::Int(0..=2))));
+            }
+            for table in spec.src.tables.keys() {
+                let rows = case
+                    .instance
+                    .rows
+                    .values()
+                    .filter(|(t, _)| t == table)
+                    .count();
+                assert!(rows <= 5);
+            }
+            assert!(case.instance.pairs.is_empty());
+        }
+    }
+
+    fn key() -> crate::schema::Key {
+        crate::schema::Key {
+            id: "k".to_owned(),
+            parts: Vec::new(),
+            role: crate::schema::KeyRole::Primary,
+            scope: crate::schema::KeyScope::Document,
+            equality: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn classification_scope_matches_its_count() {
+        assert_eq!(
+            classification_partitions(),
+            vec![
+                (names(&["v"]), names(&["t"])),
+                (names(&["v", "b"]), names(&["t", "b"])),
+            ]
+        );
+        // 4^3 kind assignments, 1 + 9 + 36 sets of at most two of the nine
+        // candidate edges, and 2^3 key subsets: 64 * 46 * 8.
+        assert_eq!(classification_schemas_count(), 23_552);
+        let schemas = classification_schemas();
+        assert_eq!(schemas.len(), 23_552);
+        assert!(distinct(&schemas));
+        let first = Schema::default()
+            .vertex("v0", "t")
+            .vertex("v1", "t")
+            .vertex("v2", "t");
+        assert_eq!(schemas[0], first);
+        let mut keyed = first;
+        keyed.keys.insert("v0".to_owned(), vec![key()]);
+        assert_eq!(schemas[1], keyed);
+        let mut last = Schema::default()
+            .vertex("v0", "b")
+            .vertex("v1", "b")
+            .vertex("v2", "b")
+            .edge("v2", "v1", "prop", Some("a"))
+            .edge("v2", "v2", "prop", Some("a"));
+        for vertex in ["v0", "v1", "v2"] {
+            last.keys.insert(vertex.to_owned(), vec![key()]);
+        }
+        assert_eq!(schemas.last(), Some(&last));
+        for schema in &schemas {
+            assert_eq!(schema.vertices.len(), 3);
+            assert!(schema.edges.len() <= 2);
+            assert!(
+                schema
+                    .vertices
+                    .values()
+                    .all(|k| CLASSIFICATION_KINDS.contains(&k.as_str()))
+            );
+            assert!(schema.keys.keys().all(|v| schema.vertices.contains_key(v)));
+        }
+    }
+
+    #[test]
+    fn entity_scope_migrations_match_their_count() {
+        let schemas = entity_schemas();
+        let sizes: Vec<(usize, usize)> = schemas
+            .iter()
+            .map(|s| (s.vertices.len(), s.edges.len()))
+            .collect();
+        assert_eq!(sizes, [(1, 0), (2, 1), (2, 1), (3, 2), (3, 2), (1, 1)]);
+        assert!(distinct(&schemas));
+        assert_eq!(
+            schemas[5],
+            Schema::default()
+                .vertex("a", "record")
+                .edge("a", "a", "fk", Some("l"))
+        );
+        assert!(
+            schemas[4]
+                .edges
+                .contains(&SEdge::new("a.x", "a.x.k", "inner", Some("k")))
+        );
+        for src in &schemas {
+            for tgt in &schemas {
+                let all = entity_migrations(src, tgt);
+                assert_eq!(all.len() as u64, entity_migrations_count(src, tgt));
+            }
+        }
+        // (m + 1)^n (f + 1)^e 2^m 2^f by hand.
+        let count = |i: usize, j: usize| entity_migrations_count(&schemas[i], &schemas[j]);
+        assert_eq!(count(0, 0), 2 * 2);
+        assert_eq!(count(1, 2), 9 * 2 * 4 * 2);
+        assert_eq!(count(3, 4), 64 * 9 * 8 * 4);
+        assert_eq!(count(5, 5), 2 * 2 * 2 * 2);
+        assert_eq!(count(5, 0), 2 * 2);
+        let some = entity_migrations(&schemas[1], &schemas[3]);
+        assert_eq!(some.len(), 16 * 3 * 8 * 4);
+        assert!(distinct(&some));
+        for migration in &some {
+            assert!(
+                migration
+                    .vertex_remap
+                    .iter()
+                    .all(|(a, b)| schemas[1].vertices.contains_key(a)
+                        && schemas[3].vertices.contains_key(b))
+            );
+            assert!(
+                migration
+                    .edge_remap
+                    .iter()
+                    .all(|(a, b)| schemas[1].edges.contains(a) && schemas[3].edges.contains(b))
+            );
+            assert!(
+                migration
+                    .surviving_verts
+                    .iter()
+                    .all(|v| schemas[3].vertices.contains_key(v))
+            );
+            assert!(migration.surviving_edges.is_subset(&schemas[3].edges));
+        }
+        let a = || "a".to_owned();
+        let survives = Migration {
+            surviving_verts: BTreeSet::from([a()]),
+            ..Migration::default()
+        };
+        let mapped = Migration {
+            vertex_remap: BTreeMap::from([(a(), a())]),
+            ..Migration::default()
+        };
+        let both = Migration {
+            vertex_remap: mapped.vertex_remap.clone(),
+            ..survives.clone()
+        };
+        assert_eq!(
+            entity_migrations(&schemas[0], &schemas[0]),
+            vec![Migration::default(), survives, mapped, both]
+        );
+        // A schema without edges has the single empty edge map.
+        assert!(
+            entity_migrations(&schemas[5], &schemas[0])
+                .iter()
+                .all(|m| m.edge_remap.is_empty())
+        );
+    }
 }

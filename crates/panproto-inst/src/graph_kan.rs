@@ -955,11 +955,15 @@ fn decode_with_trace(
         }
     }
 
-    for (table, rows) in tables.tables() {
-        let columns = side.columns.get(table).cloned().unwrap_or_default();
-        for row in rows.ids() {
-            let values = tables.row(row).cloned().unwrap_or_default();
-            for (column, arrow) in &columns {
+    // Cells are decoded in ascending `(RowId, column)` order, which fixes
+    // the order in which fresh value-node and attribute-edge ids are taken.
+    for row in tables.row_ids() {
+        let Some(table) = tables.table_of(row) else {
+            continue;
+        };
+        let values = tables.row(row).cloned().unwrap_or_default();
+        if let Some(columns) = side.columns.get(table) {
+            for (column, arrow) in columns {
                 let value = values.get(column).ok_or_else(|| {
                     GraphKanError::Adjunction(AdjunctionError::NonConforming {
                         row,

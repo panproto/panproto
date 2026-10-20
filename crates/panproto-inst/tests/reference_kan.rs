@@ -1458,60 +1458,63 @@ impl FamilyCase {
     }
 }
 
-/// The schema-taking graph Sigma (`bound` is `None`) or Pi at one graph,
-/// production against the reference.
-fn schema_taking_graph_kan_agree(
+/// The schema-taking graph Sigma at one graph, production against the
+/// reference.
+fn schema_taking_graph_sigma_agree(
     functors: &Functors,
     graph: &model::Graph,
     production_graph: &GInstance,
-    bound: Option<usize>,
 ) {
-    let (ours, theirs) = match bound {
-        None => (
-            panproto_inst::g_sigma(
-                production_graph,
-                &functors.source_schema,
-                &functors.protocol,
-                &functors.target_schema,
-                &functors.protocol,
-                &functors.migration,
-            ),
-            encode::g_sigma(
-                graph,
-                &functors.reference_source,
-                &functors.partition,
-                &functors.reference_target,
-                &functors.partition,
-                &functors.reference_migration,
-            ),
-        ),
-        Some(bound) => (
-            panproto_inst::g_pi(
-                production_graph,
-                &functors.source_schema,
-                &functors.protocol,
-                &functors.target_schema,
-                &functors.protocol,
-                &functors.migration,
-                bound,
-            ),
-            encode::g_pi(
-                graph,
-                &functors.reference_source,
-                &functors.partition,
-                &functors.reference_target,
-                &functors.partition,
-                &functors.reference_migration,
-                bound,
-            ),
-        ),
-    };
-    graph_results_agree(&ours, &theirs, &("schema-taking graph Kan", bound, graph));
+    let ours = panproto_inst::g_sigma(
+        production_graph,
+        &functors.source_schema,
+        &functors.protocol,
+        &functors.target_schema,
+        &functors.protocol,
+        &functors.migration,
+    );
+    let theirs = encode::g_sigma(
+        graph,
+        &functors.reference_source,
+        &functors.partition,
+        &functors.reference_target,
+        &functors.partition,
+        &functors.reference_migration,
+    );
+    graph_results_agree(&ours, &theirs, &("schema-taking graph Sigma", graph));
+}
+
+/// The schema-taking graph Pi at one graph and product bound, production
+/// against the reference.
+fn schema_taking_graph_pi_agree(
+    functors: &Functors,
+    graph: &model::Graph,
+    production_graph: &GInstance,
+    bound: usize,
+) {
+    let ours = panproto_inst::g_pi(
+        production_graph,
+        &functors.source_schema,
+        &functors.protocol,
+        &functors.target_schema,
+        &functors.protocol,
+        &functors.migration,
+        bound,
+    );
+    let theirs = encode::g_pi(
+        graph,
+        &functors.reference_source,
+        &functors.partition,
+        &functors.reference_target,
+        &functors.partition,
+        &functors.reference_migration,
+        bound,
+    );
+    graph_results_agree(&ours, &theirs, &("schema-taking graph Pi", bound, graph));
 }
 
 /// The table, graph and tree Sigma and Pi of one source object.
 fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
-    let f = &family.functors.reference;
     let fp = &family.functors.production;
     let production_input = prod_table(input);
     let mut census = Census::default();
@@ -1528,12 +1531,37 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
     .unwrap();
     assert_eq!(ref_graph(&decoded), graph, "the decoded input");
 
-    // Sigma: table, graph, square.
+    census += check_source_sigma(family, input, &production_input, &graph, &production_graph);
+    for bound in scope::PRODUCT_BOUNDS {
+        census += check_source_pi(
+            family,
+            input,
+            &production_input,
+            (&graph, &production_graph),
+            bound,
+        );
+    }
+    census += check_source_trees(family, input, &graph, &production_graph);
+    census.add("source objects", 1);
+    census
+}
+
+/// Table, graph and schema-taking Sigma of one source object and their
+/// squares, production against the reference.
+fn check_source_sigma(
+    family: &FamilyCase,
+    input: &model::Table,
+    production_input: &FInstance,
+    graph: &model::Graph,
+    production_graph: &GInstance,
+) -> Census {
+    let f = &family.functors.reference;
+    let fp = &family.functors.production;
+    let mut census = Census::default();
     let table_sigma = rel::sigma(f, input);
-    let production_sigma = panproto_inst::f_sigma_with_provenance(&production_input, fp);
-    let graph_sigma = encode::g_sigma_along_with_provenance(f, &graph);
-    let production_graph_sigma =
-        panproto_inst::g_sigma_along_with_provenance(&production_graph, fp);
+    let production_sigma = panproto_inst::f_sigma_with_provenance(production_input, fp);
+    let graph_sigma = encode::g_sigma_along_with_provenance(f, graph);
+    let production_graph_sigma = panproto_inst::g_sigma_along_with_provenance(production_graph, fp);
     match (&table_sigma, &production_sigma) {
         (Ok((out, provenance)), Ok((ours, our_provenance))) => {
             assert_eq!(&ref_table(ours), out, "Sigma of {input:?}");
@@ -1542,9 +1570,10 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
             let (production_out, production_provenance) = production_graph_sigma.as_ref().unwrap();
             assert!(
                 panproto_reference::migration::graph_square(&ref_graph(production_out), graph_out),
-                "graph Sigma of {input:?}"
+                "graph Sigma of {input:?}: production {:?}, reference {graph_out:?}",
+                ref_graph(production_out)
             );
-            schema_taking_graph_kan_agree(&family.functors, &graph, &production_graph, None);
+            schema_taking_graph_sigma_agree(&family.functors, graph, production_graph);
             assert_eq!(
                 &ref_sigma_provenance(&production_provenance.table),
                 &graph_provenance.table
@@ -1581,79 +1610,80 @@ fn check_source_object(family: &FamilyCase, input: &model::Table) -> Census {
         }
         other => panic!("Sigma of {input:?}: {other:?}"),
     }
+    census
+}
 
-    // Pi at both bounds: table, graph, square.
-    for bound in scope::PRODUCT_BOUNDS {
-        let table_pi = rel::pi(f, input, bound);
-        let production_pi =
-            panproto_inst::functor_pi_along_with_provenance(&production_input, fp, bound);
-        let graph_pi = encode::g_pi_along_with_provenance(f, &graph, bound);
-        let production_graph_pi =
-            panproto_inst::g_pi_along_with_provenance(&production_graph, fp, bound);
-        match (&table_pi, &production_pi) {
-            (Ok((out, provenance)), Ok((ours, our_provenance))) => {
-                assert_eq!(&ref_table(ours), out, "Pi({bound}) of {input:?}");
-                assert_eq!(&ref_pi_provenance(our_provenance), provenance);
-                let (graph_out, graph_provenance) = graph_pi.as_ref().unwrap();
-                let (production_out, production_provenance) = production_graph_pi.as_ref().unwrap();
-                assert!(
-                    panproto_reference::migration::graph_square(
-                        &ref_graph(production_out),
-                        graph_out
-                    ),
-                    "graph Pi of {input:?}"
-                );
-                schema_taking_graph_kan_agree(
-                    &family.functors,
-                    &graph,
-                    &production_graph,
-                    Some(bound),
-                );
-                assert_eq!(
-                    &ref_pi_provenance(&production_provenance.table),
-                    &graph_provenance.table
-                );
-                assert_eq!(
-                    ref_contributors(&production_provenance.nodes, &production_provenance.edges),
-                    (
-                        graph_provenance.nodes.clone(),
-                        graph_provenance.edges.clone()
-                    )
-                );
-                let (square, _) =
-                    panproto_inst::encode_graph(production_out, EncodingSide::Whole(fp.target()))
-                        .unwrap();
-                assert!(panproto_reference::migration::table_square(
-                    out,
-                    &ref_table(&square)
-                ));
-                assert_eq!(
-                    encode::encode_graph(graph_out, &family.target_side)
-                        .unwrap()
-                        .0,
-                    ref_table(&square)
-                );
-                census.add(format!("Pi({bound}) ok"), 1);
-            }
-            (Err(error), Err(ours)) => {
-                kan_refusals_agree(ours, error, &("Pi", bound, input));
-                match (&graph_pi, &production_graph_pi) {
-                    (Err(theirs), Err(ours)) => graph_errors_agree(ours, theirs, &input),
-                    other => panic!("graph Pi of {input:?}: {other:?}"),
-                }
-                let kind = match error {
-                    rel::KanError::ProductSizeExceeded { .. } => "over-bound",
-                    rel::KanError::AttributeOutsideImage { .. } => "outside-image",
-                    other => panic!("Pi of {input:?}: {other:?}"),
-                };
-                census.add(format!("Pi({bound}) {kind}"), 1);
-            }
-            other => panic!("Pi({bound}) of {input:?}: {other:?}"),
+/// Table, graph and schema-taking Pi of one source object at one product
+/// bound and their squares, production against the reference.
+fn check_source_pi(
+    family: &FamilyCase,
+    input: &model::Table,
+    production_input: &FInstance,
+    (graph, production_graph): (&model::Graph, &GInstance),
+    bound: usize,
+) -> Census {
+    let f = &family.functors.reference;
+    let fp = &family.functors.production;
+    let mut census = Census::default();
+    let table_pi = rel::pi(f, input, bound);
+    let production_pi =
+        panproto_inst::functor_pi_along_with_provenance(production_input, fp, bound);
+    let graph_pi = encode::g_pi_along_with_provenance(f, graph, bound);
+    let production_graph_pi =
+        panproto_inst::g_pi_along_with_provenance(production_graph, fp, bound);
+    match (&table_pi, &production_pi) {
+        (Ok((out, provenance)), Ok((ours, our_provenance))) => {
+            assert_eq!(&ref_table(ours), out, "Pi({bound}) of {input:?}");
+            assert_eq!(&ref_pi_provenance(our_provenance), provenance);
+            let (graph_out, graph_provenance) = graph_pi.as_ref().unwrap();
+            let (production_out, production_provenance) = production_graph_pi.as_ref().unwrap();
+            assert!(
+                panproto_reference::migration::graph_square(&ref_graph(production_out), graph_out),
+                "graph Pi of {input:?}: production {:?}, reference {graph_out:?}",
+                ref_graph(production_out)
+            );
+            schema_taking_graph_pi_agree(&family.functors, graph, production_graph, bound);
+            assert_eq!(
+                &ref_pi_provenance(&production_provenance.table),
+                &graph_provenance.table
+            );
+            assert_eq!(
+                ref_contributors(&production_provenance.nodes, &production_provenance.edges),
+                (
+                    graph_provenance.nodes.clone(),
+                    graph_provenance.edges.clone()
+                )
+            );
+            let (square, _) =
+                panproto_inst::encode_graph(production_out, EncodingSide::Whole(fp.target()))
+                    .unwrap();
+            assert!(panproto_reference::migration::table_square(
+                out,
+                &ref_table(&square)
+            ));
+            assert_eq!(
+                encode::encode_graph(graph_out, &family.target_side)
+                    .unwrap()
+                    .0,
+                ref_table(&square)
+            );
+            census.add(format!("Pi({bound}) ok"), 1);
         }
+        (Err(error), Err(ours)) => {
+            kan_refusals_agree(ours, error, &("Pi", bound, input));
+            match (&graph_pi, &production_graph_pi) {
+                (Err(theirs), Err(ours)) => graph_errors_agree(ours, theirs, &input),
+                other => panic!("graph Pi of {input:?}: {other:?}"),
+            }
+            let kind = match error {
+                rel::KanError::ProductSizeExceeded { .. } => "over-bound",
+                rel::KanError::AttributeOutsideImage { .. } => "outside-image",
+                other => panic!("Pi of {input:?}: {other:?}"),
+            };
+            census.add(format!("Pi({bound}) {kind}"), 1);
+        }
+        other => panic!("Pi({bound}) of {input:?}: {other:?}"),
     }
-
-    census += check_source_trees(family, input, &graph, &production_graph);
-    census.add("source objects", 1);
     census
 }
 
@@ -2191,8 +2221,6 @@ fn check_pi_pair(
     let right_keys: BTreeSet<HomKey> = right.iter().map(|h| hom_key(h, &target.target)).collect();
     let left_keys: BTreeSet<HomKey> = left.iter().map(|h| hom_key(h, &target.delta)).collect();
     let unit = target.production_pi_unit[slot].as_ref();
-    let counit = source.production_pi_counit[slot].as_ref().unwrap();
-    let production_pi = source.production_pi[slot].as_ref().unwrap();
     let mut refusals = 0u64;
     for hom in &left {
         let production_hom = prod_hom(hom);
@@ -2244,7 +2272,26 @@ fn check_pi_pair(
             refusals += 1;
         }
     }
-    for hom in &right {
+    check_pi_inverse_transposes(functors, (target, source), pi, slot, (&left_keys, &right));
+    (u64::try_from(left.len()).unwrap(), refusals)
+}
+
+/// The inverse half of [`check_pi_pair`]: every `k` in `Hom(J, Pi I)`
+/// transposes to a homomorphism of `Hom(Delta J, I)` as the reference's,
+/// back to `k`, and as `Delta(k) ; counit_I`.
+fn check_pi_inverse_transposes(
+    functors: &Functors,
+    (target, source): (&PairTarget, &PairSource),
+    pi: &model::Table,
+    slot: usize,
+    (left_keys, right): (&BTreeSet<HomKey>, &[rel::Hom]),
+) {
+    let (f, fp) = (&functors.reference, &functors.production);
+    let bound = scope::PRODUCT_BOUNDS[slot];
+    let input = &source.input;
+    let counit = source.production_pi_counit[slot].as_ref().unwrap();
+    let production_pi = source.production_pi[slot].as_ref().unwrap();
+    for hom in right {
         let production_hom = prod_hom(hom);
         let image = panproto_inst::f_pi_transpose_right(
             &production_hom,
@@ -2282,7 +2329,6 @@ fn check_pi_pair(
             "Delta(k) ; counit"
         );
     }
-    (u64::try_from(left.len()).unwrap(), refusals)
 }
 
 /// Both adjunctions at one representative pair.
@@ -3138,12 +3184,24 @@ fn graph_adjunctions_at_source(
     g: &model::Graph,
     targets: &[(model::Graph, GInstance, model::Table)],
 ) -> Census {
-    let (f, fp) = (&case.functors.reference, &case.functors.production);
     let production_g = prod_graph(g);
     let g_table = encoded(g, &case.kept);
     let mut census = Census::default();
+    census += graph_sigma_adjunction_at_source(case, (g, &production_g, &g_table), targets);
+    census += graph_pi_adjunction_at_source(case, (g, &production_g, &g_table), targets);
+    census
+}
+
+/// The graph Sigma -| Delta half of [`graph_adjunctions_at_source`].
+fn graph_sigma_adjunction_at_source(
+    case: &GraphCase,
+    (g, production_g, g_table): (&model::Graph, &GInstance, &model::Table),
+    targets: &[(model::Graph, GInstance, model::Table)],
+) -> Census {
+    let (f, fp) = (&case.functors.reference, &case.functors.production);
+    let mut census = Census::default();
     let sigma = encode::g_sigma_restricted_with_provenance(f, g);
-    let production_sigma = panproto_inst::g_sigma_restricted_with_provenance(&production_g, fp);
+    let production_sigma = panproto_inst::g_sigma_restricted_with_provenance(production_g, fp);
     match (&production_sigma, &sigma) {
         (Ok((ours, our_provenance)), Ok((theirs, provenance))) => {
             assert_eq!(&ref_graph(ours), theirs, "Sigma of {g:?}");
@@ -3160,9 +3218,9 @@ fn graph_adjunctions_at_source(
         (ours, theirs) => panic!("Sigma of {g:?}: production {ours:?}, reference {theirs:?}"),
     }
     graph_homs_agree(
-        &panproto_inst::g_unit(&production_g, fp),
+        &panproto_inst::g_unit(production_g, fp),
         &encode::g_unit(g, f),
-        &g_table,
+        g_table,
         &("unit", g),
     );
     if let Ok((sigma, _)) = &sigma {
@@ -3170,12 +3228,12 @@ fn graph_adjunctions_at_source(
         for (h, production_h, h_table) in targets {
             let delta_table = encoded(&encode::g_delta_along(f, h).unwrap(), &case.kept);
             let left = rel::homs(&sigma_table, h_table);
-            let right = rel::homs(&g_table, &delta_table);
+            let right = rel::homs(g_table, &delta_table);
             assert_eq!(left.len(), right.len(), "{}", case.case.name);
             for hom in &left {
                 let ours = panproto_inst::g_transpose_left(
                     &prod_graph_hom(hom),
-                    &production_g,
+                    production_g,
                     production_h,
                     fp,
                 );
@@ -3188,10 +3246,10 @@ fn graph_adjunctions_at_source(
                     h,
                     f,
                 );
-                graph_homs_agree(&ours, &theirs, &g_table, &("Sigma transpose", g, h));
+                graph_homs_agree(&ours, &theirs, g_table, &("Sigma transpose", g, h));
                 let back = panproto_inst::g_transpose_right(
                     &ours.unwrap(),
-                    &production_g,
+                    production_g,
                     production_h,
                     fp,
                 )
@@ -3201,7 +3259,7 @@ fn graph_adjunctions_at_source(
             for hom in &right {
                 let ours = panproto_inst::g_transpose_right(
                     &prod_graph_hom(hom),
-                    &production_g,
+                    production_g,
                     production_h,
                     fp,
                 );
@@ -3220,14 +3278,10 @@ fn graph_adjunctions_at_source(
                     &sigma_table,
                     &("Sigma inverse transpose", g, h),
                 );
-                let back = panproto_inst::g_transpose_left(
-                    &ours.unwrap(),
-                    &production_g,
-                    production_h,
-                    fp,
-                )
-                .unwrap();
-                assert!(ref_graph_hom(&back).same_as(hom, &g_table));
+                let back =
+                    panproto_inst::g_transpose_left(&ours.unwrap(), production_g, production_h, fp)
+                        .unwrap();
+                assert!(ref_graph_hom(&back).same_as(hom, g_table));
             }
             census.add("Sigma homs", left.len() as u64);
         }
@@ -3236,17 +3290,28 @@ fn graph_adjunctions_at_source(
         for (h, _, _) in targets {
             let delta_table = encoded(&encode::g_delta_along(f, h).unwrap(), &case.kept);
             assert!(
-                rel::homs(&g_table, &delta_table).is_empty(),
+                rel::homs(g_table, &delta_table).is_empty(),
                 "a clash has no homs into Delta"
             );
         }
         census.add("Sigma refused", 1);
     }
+    census
+}
+
+/// The graph Delta -| Pi half of [`graph_adjunctions_at_source`].
+fn graph_pi_adjunction_at_source(
+    case: &GraphCase,
+    (g, production_g, g_table): (&model::Graph, &GInstance, &model::Table),
+    targets: &[(model::Graph, GInstance, model::Table)],
+) -> Census {
+    let (f, fp) = (&case.functors.reference, &case.functors.production);
+    let mut census = Census::default();
     let pi = encode::g_pi_restricted(f, g, 81);
-    let production_pi = panproto_inst::g_pi_restricted(&production_g, fp, 81);
+    let production_pi = panproto_inst::g_pi_restricted(production_g, fp, 81);
     graph_results_agree(&production_pi, &pi, &("Pi", g));
     graph_homs_agree(
-        &panproto_inst::g_pi_counit(&production_g, fp, 81),
+        &panproto_inst::g_pi_counit(production_g, fp, 81),
         &encode::g_pi_counit(g, f, 81),
         &pi.as_ref()
             .map(|p| encoded(&encode::g_delta_along(f, p).unwrap(), &case.kept))
@@ -3257,14 +3322,14 @@ fn graph_adjunctions_at_source(
         let pi_table = encoded(pi, &case.target);
         for (h, production_h, h_table) in targets {
             let delta_table = encoded(&encode::g_delta_along(f, h).unwrap(), &case.kept);
-            let left = rel::homs(&delta_table, &g_table);
+            let left = rel::homs(&delta_table, g_table);
             let right = rel::homs(h_table, &pi_table);
             assert_eq!(left.len(), right.len(), "{}", case.case.name);
             for hom in &left {
                 let ours = panproto_inst::g_pi_transpose_left(
                     &prod_graph_hom(hom),
                     production_h,
-                    &production_g,
+                    production_g,
                     fp,
                     81,
                 );
@@ -3282,7 +3347,7 @@ fn graph_adjunctions_at_source(
                 let back = panproto_inst::g_pi_transpose_right(
                     &ours.unwrap(),
                     production_h,
-                    &production_g,
+                    production_g,
                     fp,
                     81,
                 )
@@ -3293,7 +3358,7 @@ fn graph_adjunctions_at_source(
                 let ours = panproto_inst::g_pi_transpose_right(
                     &prod_graph_hom(hom),
                     production_h,
-                    &production_g,
+                    production_g,
                     fp,
                     81,
                 );
@@ -3316,7 +3381,7 @@ fn graph_adjunctions_at_source(
                 let back = panproto_inst::g_pi_transpose_left(
                     &ours.unwrap(),
                     production_h,
-                    &production_g,
+                    production_g,
                     fp,
                     81,
                 )
@@ -3822,6 +3887,58 @@ fn an_extend_agrees_with_the_reference_sigma_and_its_presheaf() {
     assert!(total.get("table refused") > 0 && total.get("graph refused") > 0);
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Graph Sigma is the separated reflection of the reference presheaf
+    /// Sigma on sampled graphs of every case of the reflection family with
+    /// up to six table nodes, above the exhaustive bound of four: `counts`
+    /// gives each table's node count, `cells` each cell's leaf, and `masks`
+    /// each relation's subset of the possible pairs.
+    #[test]
+    fn g_sigma_is_the_separated_reflection_on_sampled_graphs(
+        index in 0usize..10,
+        counts in proptest::collection::vec(0usize..=3, 3),
+        cells in proptest::collection::vec(0usize..3, 12),
+        masks in proptest::collection::vec(any::<u64>(), 3),
+    ) {
+        static CASES: std::sync::OnceLock<Vec<GraphCase>> = std::sync::OnceLock::new();
+        let cases = CASES.get_or_init(|| {
+            scope::reflection_family().into_iter().map(GraphCase::new).collect()
+        });
+        prop_assert_eq!(cases.len(), 10);
+        let case = &cases[index];
+        let counts = &counts[..case.case.source.tables.len()];
+        prop_assume!(counts.iter().sum::<usize>() <= 6);
+        let forms = scope::leaf_forms(&case.case.cells);
+        let graph = scope::spec_graph(&case.case.source, counts, &forms, &cells, &masks);
+        let census = sigma_reflection_at(case, &graph);
+        prop_assert_eq!(census.get("compared") + census.get("refused"), 6);
+    }
+
+    /// The five-pass encoding domain, both halves: a presentation of O7's
+    /// encoding spec with at most three table nodes, changed by up to three
+    /// mutations (most of which leave the domain), is encoded by production
+    /// exactly as by the reference: the same table and layout, or the same
+    /// refusal with its payload.
+    #[test]
+    fn encoding_accepts_exactly_the_five_pass_domain(
+        base in any::<proptest::sample::Index>(),
+        mutations in proptest::collection::vec((0..scope::ENCODING_MUTATIONS, 0usize..16), 0..=3),
+    ) {
+        static BASES: std::sync::OnceLock<Vec<model::Graph>> = std::sync::OnceLock::new();
+        let bases = BASES.get_or_init(|| scope::o7_encoding_presentations(3));
+        let mut graph = bases[base.index(bases.len())].clone();
+        for (kind, pick) in mutations {
+            graph = scope::encoding_mutation(&graph, kind, pick);
+        }
+        let spec = scope::o7_encoding_spec();
+        let (reference, production) = spec_rel(&spec);
+        let side = encode::GraphSide::whole(&reference);
+        let _ = encodings_agree(&graph, &side, &production);
+    }
+}
+
 /// A hand-computed Pi fibre product: along the merge of `a{x}` and `b{x}`
 /// into `t{x}`, Pi of `a#0{x=0}, a#1{x=1}, b#2{x=0}, b#3{x=0}` holds one `t`
 /// row per pair `(a row, b row)` that agrees on `x`, that is `(0, 2)` and
@@ -4078,6 +4195,12 @@ fn table_kan_agree(
 /// union-find, and a clash of constants.
 #[test]
 fn hand_built_table_kan_cases_agree_with_the_reference() {
+    hand_built_renames_and_drops_agree();
+    hand_built_fresh_nulls_and_equations_agree();
+}
+
+/// The column rename both ways and Delta dropping cells outside the image.
+fn hand_built_renames_and_drops_agree() {
     let rename = spec_functors(&rename_spec());
     let (_, _, delta) = table_kan_agree(
         &rename,
@@ -4116,7 +4239,11 @@ fn hand_built_table_kan_cases_agree_with_the_reference() {
         delta.unwrap().unwrap().0,
         one_table("post", &[(0, &[("title", int(1))])])
     );
+}
 
+/// A fresh null for a column outside the image, columns equated by
+/// union-find, and a clash of constants.
+fn hand_built_fresh_nulls_and_equations_agree() {
     let widening = spec_functors(&widening_spec());
     let (sigma, _, _) = table_kan_agree(
         &widening,
@@ -4269,8 +4396,15 @@ fn fresh_null_ids_agree_with_the_reference() {
 /// payloads as distinct values, against the reference.
 #[test]
 fn table_kan_refusals_and_float_cells_agree_with_the_reference() {
+    conformance_refusals_agree();
+    merge_provenance_agrees();
+    float_cells_agree();
+}
+
+/// Every conformance refusal of Sigma, Pi and Delta, with its row, column
+/// and reason, and the cells conformance admits.
+fn conformance_refusals_agree() {
     let identity = spec_functors(&identity_on_a());
-    let equating = spec_functors(&equating_spec());
     for (input, row, column, reason) in [
         (
             one_table(
@@ -4350,7 +4484,10 @@ fn table_kan_refusals_and_float_cells_agree_with_the_reference() {
         true,
         100,
     );
+}
 
+/// Delta's copies along a merge of two tables and Pi of the copies.
+fn merge_provenance_agrees() {
     let merge = spec_functors(&table_spec(
         table_side(&[("a", &["x"]), ("b", &["y"])], &[]),
         table_side(&[("m", &["x", "y"])], &[]),
@@ -4381,7 +4518,12 @@ fn table_kan_refusals_and_float_cells_agree_with_the_reference() {
     );
     let (_, pi, _) = table_kan_agree(&merge, &delta, true, 100);
     assert_eq!(pi.unwrap().unwrap().0.rows.len(), 4);
+}
 
+/// Float cells equal by their bits: zeros of both signs and NaNs of both
+/// signs and payloads clash, and a NaN maps only to the same NaN.
+fn float_cells_agree() {
+    let equating = spec_functors(&equating_spec());
     let float = |bits: u64| rvalue::Value::Float(bits);
     let nan = 0x7ff8_0000_0000_0000;
     for (a, b) in [(0, 1u64 << 63), (nan, nan | (1 << 63)), (nan, nan | 1)] {
@@ -4467,8 +4609,9 @@ fn generated_case_agrees(seed: u64) {
 
 /// The seeds whose cases shrank a failure of the generated table laws in
 /// the past, run before any random seed.
-const REGRESSION_SEEDS: [u64; 3] = [
+const REGRESSION_SEEDS: [u64; 4] = [
     251_554_501_479_628_105,
+    886_779_333_262_700_799,
     5_467_035_014_510_298_700,
     7_302_257_756_398_127_275,
 ];

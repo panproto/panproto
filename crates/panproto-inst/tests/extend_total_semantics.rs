@@ -4,10 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_inst::{
-    BoundaryProtocols, CompiledMigration, EdgeId, FInstance, GInstance, MigrationFunctor, Node,
-    RestrictError, RowId, ViewRef, WInstance, f_sigma, functor_extend, functor_extend_partial,
-    graph_extend, graph_extend_partial, wtype_extend, wtype_extend_partial,
+    BoundaryProtocols, CompiledMigration, EdgeId, FInstance, GInstance, Node, RestrictError, RowId,
+    ViewRef, WInstance, functor_extend, functor_extend_partial, graph_extend, graph_extend_partial,
+    wtype_extend, wtype_extend_partial,
 };
+use panproto_reference::{model, rel};
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
 use proptest::prelude::*;
 
@@ -61,6 +62,66 @@ fn migration(vertices: &[(&str, &str)], edges: &[(Edge, Edge)]) -> CompiledMigra
     }
 }
 
+fn ref_edge(edge: &Edge) -> model::SEdge {
+    model::SEdge::new(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+}
+
+/// The reference table of an instance whose rows hold no cells: its rows
+/// by id and table, and its pairs.
+fn ref_table(instance: &FInstance) -> model::Table {
+    let mut out = model::Table::default();
+    for id in instance.row_ids() {
+        assert!(
+            instance.row(id).unwrap().is_empty(),
+            "row {id:?} holds cells"
+        );
+        let table = instance.table_of(id).unwrap().to_string();
+        out.rows.insert(id.0, (table, BTreeMap::new()));
+    }
+    for (edge, pairs) in instance.foreign_keys() {
+        for (source, target) in pairs {
+            out.pairs.insert((ref_edge(edge), source.0, target.0));
+        }
+    }
+    out
+}
+
+/// The reference Sigma along the relation-preserving rename of `a -r-> b`
+/// to `A -R-> B`: both schemas classified with `record` the table kind, and
+/// the entity functor of the same migration.
+fn reference_sigma(source: &Edge, target: &Edge, table: &model::Table) -> model::Table {
+    let schema = |vertices: [&str; 2], edge: &Edge| {
+        panproto_reference::schema::Schema::default()
+            .vertex(vertices[0], "record")
+            .vertex(vertices[1], "record")
+            .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+    };
+    let values = BTreeSet::new();
+    let non_values = BTreeSet::from(["record".to_owned()]);
+    let classify = |schema: &panproto_reference::schema::Schema| {
+        rel::classify(schema, &values, &non_values).unwrap()
+    };
+    let mut migration = panproto_reference::migration::Migration::default();
+    for (from, to) in [("a", "A"), ("b", "B")] {
+        migration.surviving_verts.insert(to.to_owned());
+        migration
+            .vertex_remap
+            .insert(from.to_owned(), to.to_owned());
+    }
+    migration
+        .edge_remap
+        .insert(ref_edge(source), ref_edge(target));
+    let functor = rel::entity_functor(
+        &classify(&schema(["a", "b"], source)),
+        &classify(&schema(["A", "B"], target)),
+        &migration,
+    )
+    .unwrap()
+    .into_kan()
+    .unwrap();
+    rel::sigma(&functor, table).unwrap().0
+}
+
 fn assert_exact_agreement(first: u32, second: u32) {
     let source_edge = edge("a", "b", "r");
     let target_edge = edge("A", "B", "R");
@@ -68,7 +129,7 @@ fn assert_exact_agreement(first: u32, second: u32) {
     let target_schema = schema(&["A", "B"], std::slice::from_ref(&target_edge));
     let migration = migration(
         &[("a", "A"), ("b", "B")],
-        &[(source_edge.clone(), target_edge)],
+        &[(source_edge.clone(), target_edge.clone())],
     );
     let protocol = protocol();
     let protocols = BoundaryProtocols {
@@ -113,22 +174,10 @@ fn assert_exact_agreement(first: u32, second: u32) {
         protocols,
     )
     .unwrap();
-    let table_sigma = f_sigma(
-        &table,
-        &MigrationFunctor::new(
-            &source_schema,
-            &protocol,
-            &target_schema,
-            &protocol,
-            &migration,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-
+    let table_sigma = reference_sigma(&source_edge, &target_edge, &ref_table(&table));
     let tree_graph = GInstance::from_wtype_under(&tree_result, &tree_embedding, None).unwrap();
     let (table_graph, _) = GInstance::from_finstance(&table_result).unwrap();
-    assert_eq!(table_result, table_sigma);
+    assert_eq!(ref_table(&table_result), table_sigma);
     assert!(GInstance::identical(&tree_graph, &graph_result));
     assert!(GInstance::identical(&table_graph, &graph_result));
 }
