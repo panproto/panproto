@@ -1189,19 +1189,25 @@ fn read_back_features(graph: &model::Graph) -> ReadBack {
         .keys()
         .map(|node| (*node, BTreeSet::new()))
         .collect::<BTreeMap<_, _>>();
+    let mut incoming = graph
+        .nodes
+        .keys()
+        .map(|node| (*node, 0usize))
+        .collect::<BTreeMap<_, _>>();
     for edge in graph.edges.values() {
         parents.get_mut(&edge.tgt).unwrap().insert(edge.src);
+        *incoming.get_mut(&edge.tgt).unwrap() += 1;
     }
-    let roots = parents
+    let roots = incoming
         .iter()
-        .filter_map(|(node, parents)| parents.is_empty().then_some(*node))
+        .filter_map(|(node, count)| (*count == 0).then_some(*node))
         .collect::<Vec<_>>();
     let [root] = roots.as_slice() else {
         return ReadBack::RootCount(roots.len());
     };
-    let second_parent = parents
+    let second_parent = incoming
         .iter()
-        .filter_map(|(node, parents)| (parents.len() >= 2).then_some(*node))
+        .filter_map(|(node, count)| (*count >= 2).then_some(*node))
         .collect::<BTreeSet<_>>();
     if !second_parent.is_empty() {
         return ReadBack::SecondParent(second_parent);
@@ -1341,6 +1347,17 @@ fn read_back_features_keep_every_semantic_payload() {
     assert_eq!(
         production_read_back(&prod_graph(&unreached), &Schema::default()),
         ReadBack::Unreached(BTreeSet::from([1, 2, 3])),
+    );
+}
+
+#[test]
+fn parallel_edges_are_a_second_parent_feature() {
+    let graph = leaf_graph([0, 1, 2], &[(0, 0, 1), (1, 0, 1), (2, 0, 2)]);
+    let expected = ReadBack::SecondParent(BTreeSet::from([1]));
+    assert_eq!(read_back_features(&graph), expected);
+    assert_eq!(
+        production_read_back(&prod_graph(&graph), &Schema::default()),
+        expected,
     );
 }
 
@@ -4877,10 +4894,11 @@ fn generated_case_agrees(seed: u64) {
 
 /// The seeds whose cases shrank a failure of the generated table laws in
 /// the past, run before any random seed.
-const REGRESSION_SEEDS: [u64; 7] = [
+const REGRESSION_SEEDS: [u64; 8] = [
     251_554_501_479_628_105,
     886_779_333_262_700_799,
     3_813_398_718_165_345_424,
+    4_251_358_019_239_136_670,
     5_467_035_014_510_298_700,
     6_728_873_730_499_536_765,
     7_302_257_756_398_127_275,
