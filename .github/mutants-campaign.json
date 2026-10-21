@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "campaign": "compose-core-final-ref-788489cb",
+  "lane": "compose-final-ref",
+  "lane_commit": "788489cb93b67beb47bed4e26ba7851a3e54fcb1",
+  "package": "panproto-reference",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 20,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "32",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "groups": [
+    {
+      "name": "theories-reference",
+      "files": [
+        "crates/panproto-reference/src/pages/theories.rs",
+        "crates/panproto-reference/src/enumerate/theories.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=theories",
+        "--test=schema_v2",
+        "--test=o16_core_paths",
+        "--test=manifest_paths"
+      ],
+      "test_args": []
+    }
+  ],
+  "_scope": "compose-core final rerun: the theories reference page and its enumerator, whole files through --file at the survivor-remediation commit; the selection is the reference crate library tests and every integration binary that reads the theory module.",
+  "_selection_note": "Package-scoped: only panproto-reference tests run against these mutants."
+}
