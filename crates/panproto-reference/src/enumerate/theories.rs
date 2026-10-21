@@ -211,12 +211,11 @@ pub fn shallow_terms(ops: &[Op]) -> Vec<Term> {
     out
 }
 
-fn theory(shape: SortShape, ops: Vec<Op>, eqs: Vec<Equation>) -> Theory {
+fn theory(shape: SortShape, ops: Vec<Op>) -> Theory {
     Theory {
         name: THEORY_NAME.to_owned(),
         sorts: shape.sorts(&ops),
         ops,
-        eqs,
         ..Theory::default()
     }
 }
@@ -227,7 +226,7 @@ pub fn bare_signatures() -> Vec<Theory> {
     let mut out = Vec::new();
     for shape in SortShape::all() {
         for ops in operation_lists(shape) {
-            out.push(theory(shape, ops, Vec::new()));
+            out.push(theory(shape, ops));
         }
     }
     out

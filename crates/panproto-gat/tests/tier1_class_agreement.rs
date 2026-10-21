@@ -194,6 +194,27 @@ fn compose_names_its_classes_within_the_deadline() {
     });
     assert_eq!(sorts, ["S", "X", "Y"]);
     assert_eq!(ops, ["f"]);
+
+    // Two unrelated sorts named `S` clash and are freshened by node label;
+    // a third node's own `a.S` then collides with one of them and both
+    // take a suffix.
+    let freshened = within_deadline(|| {
+        let diagram = TheoryDiagram::discrete(vec![
+            ("a", simple_theory("A", &["S"], vec![], vec![])),
+            ("b", simple_theory("B", &["S"], vec![], vec![])),
+            ("c", simple_theory("C", &["a.S"], vec![], vec![])),
+        ]);
+        let composition = compose(&diagram, &options()).expect("the clash is freshened");
+        let mut sorts: Vec<String> = composition
+            .theory
+            .sorts
+            .iter()
+            .map(|s| s.name.to_string())
+            .collect();
+        sorts.sort();
+        sorts
+    });
+    assert_eq!(freshened, ["a.S#1", "a.S#2", "b.S"]);
 }
 
 /// The carrier of `sort` in the free model of `theory` to `depth`, as

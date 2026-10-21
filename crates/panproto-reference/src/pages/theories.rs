@@ -6120,6 +6120,26 @@ pub mod theory {
                 unbound_in(&app("f", vec![var("v"), var("w")])),
                 Some("v".to_owned())
             );
+            // A name bound locally before it occurs free is reported at its
+            // first free occurrence, after an earlier free variable.
+            assert_eq!(
+                unbound_in(&app(
+                    "f",
+                    vec![local("y", var("x"), var("y")), var("w"), var("y")]
+                )),
+                Some("w".to_owned())
+            );
+            assert_eq!(
+                unbound_in(&app(
+                    "f",
+                    vec![
+                        case(var("x"), vec![branch("k", &["y"], var("y"))]),
+                        var("w"),
+                        var("y")
+                    ]
+                )),
+                Some("w".to_owned())
+            );
         }
 
         #[test]
