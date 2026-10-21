@@ -10,13 +10,13 @@ use panproto_reference::coerce::{
 };
 use panproto_reference::edit;
 use panproto_reference::encode;
-use panproto_reference::enumerate::{self as en};
+use panproto_reference::enumerate::{self as en, values as value_scope};
 use panproto_reference::float::{self, Format};
 use panproto_reference::migration::Migration;
 use panproto_reference::model::{Graph, Node, NodeShape, SEdge};
 use panproto_reference::restrict::{self, HYPER_LABEL, HYPER_PARENT};
 use panproto_reference::schema::{HyperEdge, Schema};
-use panproto_reference::temporal::{self, TemporalKind};
+use panproto_reference::temporal::{self, Offset, OffsetForm, TemporalKind, ZuluCase};
 use panproto_reference::validation;
 use panproto_reference::value::Value;
 
@@ -687,6 +687,112 @@ fn enumerate_temporal_lexemes_and_check_display_and_order() {
             );
         }
     }
+}
+
+#[test]
+fn enumerate_every_unwritten_zulu_replacement_offset() {
+    let law_scope = value_scope::unwritten_zulu_temporal_scope();
+    assert_eq!(law_scope.forms.len(), 658);
+    assert_eq!(
+        law_scope
+            .forms
+            .iter()
+            .filter(|(_, form)| form.offset == Offset::Zulu(ZuluCase::Unwritten))
+            .count(),
+        62
+    );
+    let scope = law_scope.offsets;
+    assert_eq!(scope.len(), 16);
+    assert_eq!(
+        scope,
+        [
+            ("", Offset::Zulu(ZuluCase::Unwritten)),
+            ("", Offset::Local),
+            ("Z", Offset::Zulu(ZuluCase::Upper)),
+            ("z", Offset::Zulu(ZuluCase::Lower)),
+            ("+00:00", Offset::Fixed(0, OffsetForm::Extended)),
+            ("+0000", Offset::Fixed(0, OffsetForm::Basic)),
+            ("+00", Offset::Fixed(0, OffsetForm::HourOnly)),
+            ("+00:00:00", Offset::Fixed(0, OffsetForm::ExtendedSeconds),),
+            ("-00:00", Offset::NegZero(OffsetForm::Extended)),
+            ("-0000", Offset::NegZero(OffsetForm::Basic)),
+            ("-00", Offset::NegZero(OffsetForm::HourOnly)),
+            ("-00:00:00", Offset::NegZero(OffsetForm::ExtendedSeconds),),
+            ("", Offset::Fixed(0, OffsetForm::Unwritten)),
+            ("+05:30:00", Offset::Fixed(330, OffsetForm::ExtendedSeconds),),
+            ("-04:56:02", Offset::FixedSeconds(-17_762)),
+            ("", Offset::Fixed(330, OffsetForm::Unwritten)),
+        ],
+        "the law's marker, replacements and controls are present in their declared order"
+    );
+    assert_eq!(
+        scope
+            .iter()
+            .map(|(_, offset)| *offset)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        16,
+        "every scoped offset is representation-distinct"
+    );
+    for (suffix, offset) in scope {
+        assert_eq!(suffix, offset.to_string(), "{offset:?}");
+    }
+
+    let written_zero = scope
+        .into_iter()
+        .filter(|(_, offset)| {
+            matches!(
+                *offset,
+                Offset::Zulu(ZuluCase::Upper | ZuluCase::Lower)
+                    | Offset::Fixed(
+                        0,
+                        OffsetForm::Extended
+                            | OffsetForm::Basic
+                            | OffsetForm::HourOnly
+                            | OffsetForm::ExtendedSeconds
+                    )
+                    | Offset::NegZero(
+                        OffsetForm::Extended
+                            | OffsetForm::Basic
+                            | OffsetForm::HourOnly
+                            | OffsetForm::ExtendedSeconds
+                    )
+            )
+        })
+        .count();
+    let unwritten_zulu = scope
+        .into_iter()
+        .filter(|(_, offset)| *offset == Offset::Zulu(ZuluCase::Unwritten))
+        .count();
+    let unwritten_fixed_zero = scope
+        .into_iter()
+        .filter(|(_, offset)| *offset == Offset::Fixed(0, OffsetForm::Unwritten))
+        .count();
+    let local = scope
+        .into_iter()
+        .filter(|(_, offset)| *offset == Offset::Local)
+        .count();
+    assert_eq!(written_zero, 10);
+    assert_eq!(unwritten_zulu, 1);
+    assert_eq!(unwritten_fixed_zero, 1);
+    assert_eq!(local, 1);
+    assert_eq!(
+        scope.len() - written_zero - unwritten_zulu - unwritten_fixed_zero - local,
+        3
+    );
+}
+
+#[test]
+fn enumerate_the_nan_narrowing_scope() {
+    let scope = value_scope::nan_narrowing_scope();
+    assert_eq!(scope.binary16.len(), 65_536);
+    assert_eq!(scope.binary32.len(), 6_146);
+    assert_eq!(scope.binary64.len(), 8_036);
+    assert!(
+        value_scope::binary32_nans()
+            .into_iter()
+            .all(|bits| scope.binary32.contains(&bits))
+    );
 }
 
 #[test]

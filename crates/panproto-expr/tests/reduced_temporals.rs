@@ -115,71 +115,424 @@ fn exact_descriptors_recover_colliding_lexemes() {
     assert_ne!(offset_value, Temporal::parse_date("1973-06").unwrap());
 }
 
+const fn is_written_zero_offset(offset: rt::Offset) -> bool {
+    match offset {
+        rt::Offset::Zulu(rt::ZuluCase::Upper | rt::ZuluCase::Lower) => true,
+        rt::Offset::Fixed(0, form) | rt::Offset::NegZero(form) => matches!(
+            form,
+            rt::OffsetForm::Extended
+                | rt::OffsetForm::Basic
+                | rt::OffsetForm::HourOnly
+                | rt::OffsetForm::ExtendedSeconds
+        ),
+        _ => false,
+    }
+}
+
+const fn is_unwritten_zulu_replacement(offset: rt::Offset) -> bool {
+    is_written_zero_offset(offset)
+        || matches!(
+            offset,
+            rt::Offset::Local | rt::Offset::Fixed(0, rt::OffsetForm::Unwritten)
+        )
+}
+
+fn assert_no_standard_unwritten_zulu(
+    production_kind: TemporalForm,
+    reference_kind: rt::TemporalForm,
+    text: &str,
+) {
+    for value in [
+        production_read(production_kind, text),
+        Temporal::parse(text).ok(),
+        Temporal::parse_union(text).ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        assert_ne!(
+            value.lexical_form().map(|form| form.offset),
+            Some(Offset::Zulu(ZuluCase::Unwritten)),
+            "standard production reading of {text}"
+        );
+    }
+    for value in [
+        rt::parse(reference_kind, text),
+        rt::parse_union(text).ok(),
+        rt::parse_any(text),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        assert!(
+            !rt::unwritten_zulu(&value),
+            "standard reference reading of {text}"
+        );
+    }
+}
+
+fn check_unwritten_zulu_order(
+    value: &Temporal,
+    reference: &rt::Temporal,
+    replacement: &Temporal,
+    replacement_reference: &rt::Temporal,
+    replacement_offset: rt::Offset,
+    competitors: &[(&Temporal, &rt::Temporal)],
+) -> usize {
+    if replacement_offset == rt::Offset::Local {
+        assert_eq!(value.cmp_chronological(replacement), None);
+        assert_eq!(replacement.cmp_chronological(value), None);
+        assert_eq!(
+            rt::cmp_chronological(reference, replacement_reference),
+            None
+        );
+        assert_eq!(
+            rt::cmp_chronological(replacement_reference, reference),
+            None
+        );
+        return 0;
+    }
+
+    assert_eq!(replacement_offset.seconds(), Some(0));
+    assert_eq!(value.cmp_chronological(replacement), Some(Ordering::Equal));
+    assert_eq!(replacement.cmp_chronological(value), Some(Ordering::Equal));
+    assert_eq!(
+        rt::cmp_chronological(reference, replacement_reference),
+        Some(Ordering::Equal)
+    );
+    for (other, other_reference) in competitors {
+        assert_eq!(
+            value.cmp_chronological(other),
+            replacement.cmp_chronological(other)
+        );
+        assert_eq!(
+            other.cmp_chronological(value),
+            other.cmp_chronological(replacement)
+        );
+        assert_eq!(
+            rt::cmp_chronological(reference, other_reference),
+            rt::cmp_chronological(replacement_reference, other_reference)
+        );
+        assert_eq!(
+            rt::cmp_chronological(other_reference, reference),
+            rt::cmp_chronological(other_reference, replacement_reference)
+        );
+    }
+    competitors.len()
+}
+
+fn check_unwritten_zulu_representation(
+    text: &str,
+    suffix: &str,
+    forms: (TemporalLexicalForm, rt::TemporalLexicalForm),
+    baseline: (&Temporal, &rt::Temporal),
+    replacement_pair: (&Temporal, &rt::Temporal),
+) {
+    let (form, reference_form) = forms;
+    let (value, reference) = baseline;
+    let (replacement, replacement_reference) = replacement_pair;
+    assert!(rt::unwritten_zulu(reference));
+    assert_eq!(form.offset, Offset::Zulu(ZuluCase::Unwritten));
+    assert!(!rt::unwritten_zulu(replacement_reference));
+    assert_ne!(
+        replacement.lexical_form().map(|item| item.offset),
+        Some(form.offset)
+    );
+
+    assert_ne!(value, replacement);
+    assert_ne!(value.lexical_form(), replacement.lexical_form());
+    let value_bytes = value.canonical_bytes();
+    let replacement_bytes = replacement.canonical_bytes();
+    assert_ne!(value_bytes, replacement_bytes);
+    assert_ne!(reference, replacement_reference);
+    let reference_bytes = rt::canonical_bytes(reference).unwrap();
+    let replacement_reference_bytes = rt::canonical_bytes(replacement_reference).unwrap();
+    assert_ne!(reference_bytes, replacement_reference_bytes);
+
+    let expected_layout_tag = match (form.kind, form.infinity) {
+        (TemporalForm::Date, None) => 3,
+        (TemporalForm::Time, None) => 4,
+        (TemporalForm::DateTime, None) => 5,
+        (TemporalForm::Date, Some(_)) => 6,
+        (TemporalForm::DateTime, Some(_)) => 7,
+        (TemporalForm::Time, Some(_)) => panic!("a time infinity is outside the carrier"),
+    };
+    assert_eq!(value_bytes.first(), Some(&expected_layout_tag));
+    assert_eq!(reference_bytes.first(), Some(&15));
+    assert_eq!(reference_bytes.get(1), Some(&expected_layout_tag));
+    assert!(value_bytes.ends_with(&[1, 2]));
+    assert!(reference_bytes.ends_with(&[1, 2]));
+
+    let replacement_text = if form.infinity.is_some() {
+        text.to_owned()
+    } else {
+        format!("{text}{suffix}")
+    };
+    assert_eq!(value.to_string(), text);
+    assert_eq!(reference.to_string(), text);
+    assert_eq!(replacement.to_string(), replacement_text);
+    assert_eq!(replacement_reference.to_string(), replacement_text);
+
+    assert_eq!(Temporal::parse_as(form, text).as_ref(), Some(value));
+    assert_eq!(rt::parse_as(reference_form, text).as_ref(), Some(reference));
+    assert_eq!(
+        Temporal::parse_as(replacement.lexical_form().unwrap(), &replacement_text).as_ref(),
+        Some(replacement)
+    );
+    assert_eq!(
+        rt::parse_as(
+            replacement_reference.lexical_form().unwrap(),
+            &replacement_text
+        )
+        .as_ref(),
+        Some(replacement_reference)
+    );
+    assert_no_standard_unwritten_zulu(form.kind, reference_form.kind, &replacement_text);
+}
+
+fn check_unwritten_zulu_baseline(
+    text: &str,
+    reference_form: rt::TemporalLexicalForm,
+    replacements: &[(&str, rt::Offset)],
+    competitors: &[(&Temporal, &rt::Temporal)],
+) -> (usize, usize) {
+    let form = ref_to_descriptor(reference_form);
+    let value = Temporal::parse_as(form, text).unwrap();
+    let reference = rt::parse_as(reference_form, text).unwrap();
+    assert!(value.well_formed() && reference.well_formed());
+
+    let local_reference_form = rt::TemporalLexicalForm {
+        offset: rt::Offset::Local,
+        ..reference_form
+    };
+    let local_form = ref_to_descriptor(local_reference_form);
+    let local = Temporal::parse_as(local_form, text).unwrap();
+    let local_reference = rt::parse_as(local_reference_form, text).unwrap();
+    assert_eq!(local.to_string(), value.to_string());
+    assert_eq!(local_reference.to_string(), reference.to_string());
+
+    let mut zero_comparisons = 0_usize;
+    for (suffix, replacement_offset) in replacements {
+        let replacement_reference_form = rt::TemporalLexicalForm {
+            offset: *replacement_offset,
+            ..reference_form
+        };
+        let replacement_form = ref_to_descriptor(replacement_reference_form);
+        let replacement_text = if reference_form.infinity.is_some() {
+            text.to_owned()
+        } else {
+            format!("{text}{suffix}")
+        };
+        let replacement = Temporal::parse_as(replacement_form, &replacement_text).unwrap();
+        let replacement_reference =
+            rt::parse_as(replacement_reference_form, &replacement_text).unwrap();
+        assert!(replacement.well_formed() && replacement_reference.well_formed());
+        zero_comparisons += check_unwritten_zulu_order(
+            &value,
+            &reference,
+            &replacement,
+            &replacement_reference,
+            *replacement_offset,
+            competitors,
+        );
+        check_unwritten_zulu_representation(
+            text,
+            suffix,
+            (form, reference_form),
+            (&value, &reference),
+            (&replacement, &replacement_reference),
+        );
+        assert_eq!(
+            Temporal::parse_as(local_form, text).as_ref(),
+            Some(&local),
+            "local descriptor for {text}"
+        );
+        assert_eq!(
+            rt::parse_as(local_reference_form, text).as_ref(),
+            Some(&local_reference),
+            "reference local descriptor for {text}"
+        );
+    }
+    (replacements.len(), zero_comparisons)
+}
+
+type ReferenceTemporalForm = (String, rt::TemporalLexicalForm);
+type ScopedOffset = (&'static str, rt::Offset);
+
+struct UnwrittenZuluPartition<'a> {
+    replacements: Vec<ScopedOffset>,
+    baselines: Vec<&'a ReferenceTemporalForm>,
+}
+
+fn partition_unwritten_zulu_scope<'a>(
+    forms: &'a [ReferenceTemporalForm],
+    offset_scope: &[ScopedOffset; 16],
+) -> UnwrittenZuluPartition<'a> {
+    let replacements: Vec<_> = offset_scope
+        .iter()
+        .copied()
+        .filter(|(_, offset)| is_unwritten_zulu_replacement(*offset))
+        .collect();
+    let unrelated: Vec<_> = offset_scope
+        .iter()
+        .copied()
+        .filter(|(_, offset)| {
+            *offset != rt::Offset::Zulu(rt::ZuluCase::Unwritten)
+                && !is_unwritten_zulu_replacement(*offset)
+        })
+        .collect();
+    assert_eq!(offset_scope.len(), 16);
+    assert_eq!(replacements.len(), 12);
+    assert_eq!(
+        replacements
+            .iter()
+            .filter(|(_, offset)| is_written_zero_offset(*offset))
+            .count(),
+        10
+    );
+    assert_eq!(
+        unrelated,
+        vec![
+            (
+                "+05:30:00",
+                rt::Offset::Fixed(330, rt::OffsetForm::ExtendedSeconds),
+            ),
+            ("-04:56:02", rt::Offset::FixedSeconds(-17_762)),
+            ("", rt::Offset::Fixed(330, rt::OffsetForm::Unwritten)),
+        ]
+    );
+    for (_, offset) in &unrelated {
+        assert!(
+            forms
+                .iter()
+                .any(|(_, form)| form.infinity.is_none() && form.offset == *offset)
+        );
+    }
+    for (text, form) in forms {
+        assert_no_standard_unwritten_zulu(ref_to_descriptor(*form).kind, form.kind, text);
+    }
+    let baselines: Vec<_> = forms
+        .iter()
+        .filter(|(_, form)| form.offset == rt::Offset::Zulu(rt::ZuluCase::Unwritten))
+        .collect();
+    assert_eq!(baselines.len(), 62);
+    assert_eq!(
+        baselines
+            .iter()
+            .map(|(text, form)| {
+                rt::canonical_bytes(&rt::parse_as(*form, text).unwrap()).unwrap()
+            })
+            .collect::<HashSet<_>>()
+            .len(),
+        62,
+        "every unwritten-Zulu baseline is representation-distinct"
+    );
+    UnwrittenZuluPartition {
+        replacements,
+        baselines,
+    }
+}
+
+#[derive(Default)]
+struct UnwrittenZuluCounts {
+    cases: usize,
+    zero_comparisons: usize,
+    finite_dates: usize,
+    finite_times: usize,
+    finite_date_times: usize,
+    date_shapes: HashSet<Option<(bool, bool, bool)>>,
+    negative_date_infinities: usize,
+    positive_date_infinities: usize,
+    time_infinities: usize,
+    negative_date_time_infinities: usize,
+    positive_date_time_infinities: usize,
+}
+
+fn check_all_unwritten_zulu_baselines(
+    baselines: Vec<&ReferenceTemporalForm>,
+    replacements: &[ScopedOffset],
+    competitors: &[(&Temporal, &rt::Temporal)],
+) -> UnwrittenZuluCounts {
+    let mut counts = UnwrittenZuluCounts::default();
+    for (text, reference_form) in baselines {
+        match (reference_form.kind, reference_form.infinity) {
+            (rt::TemporalForm::Date, None) => {
+                counts.finite_dates += 1;
+                counts.date_shapes.insert(reference_form.date_shape);
+            }
+            (rt::TemporalForm::Time, None) => counts.finite_times += 1,
+            (rt::TemporalForm::DateTime, None) => counts.finite_date_times += 1,
+            (rt::TemporalForm::Date, Some(rt::TemporalInfinity::Negative)) => {
+                counts.negative_date_infinities += 1;
+            }
+            (rt::TemporalForm::Date, Some(rt::TemporalInfinity::Positive)) => {
+                counts.positive_date_infinities += 1;
+            }
+            (rt::TemporalForm::Time, Some(_)) => counts.time_infinities += 1,
+            (rt::TemporalForm::DateTime, Some(rt::TemporalInfinity::Negative)) => {
+                counts.negative_date_time_infinities += 1;
+            }
+            (rt::TemporalForm::DateTime, Some(rt::TemporalInfinity::Positive)) => {
+                counts.positive_date_time_infinities += 1;
+            }
+        }
+        let (baseline_cases, baseline_comparisons) =
+            check_unwritten_zulu_baseline(text, *reference_form, replacements, competitors);
+        counts.cases += baseline_cases;
+        counts.zero_comparisons += baseline_comparisons;
+    }
+    counts
+}
+
 #[test]
 fn unwritten_offsets_and_infinities_remain_distinct() {
-    let local = Temporal::parse_date_time("2024-01-02T03:04:05").unwrap();
-    let mut unwritten = local.lexical_form().unwrap();
-    unwritten.offset = Offset::Zulu(ZuluCase::Unwritten);
-    let utc = Temporal::parse_as(unwritten, "2024-01-02T03:04:05").unwrap();
-    assert_eq!(utc.to_string(), local.to_string());
-    assert_ne!(utc, local);
-    assert_ne!(utc.canonical_bytes(), local.canonical_bytes());
-    assert_eq!(utc.cmp_chronological(&local), None);
+    let scope = panproto_reference::enumerate::values::unwritten_zulu_temporal_scope();
+    let partition = partition_unwritten_zulu_scope(&scope.forms, &scope.offsets);
 
-    for (kind, finite_text, date_shape, time_shape, separator) in [
-        (
-            TemporalForm::Date,
-            "2000-01-02",
+    let (scope, infinities) = reference_scope();
+    let competitors: Vec<_> = scope
+        .iter()
+        .map(|item| (&item.value, &item.reference))
+        .chain(infinities.iter().map(|item| (&item.value, &item.reference)))
+        .collect();
+    assert_eq!(competitors.len(), 658);
+    let counts = check_all_unwritten_zulu_baselines(
+        partition.baselines,
+        &partition.replacements,
+        &competitors,
+    );
+    assert_eq!(counts.cases, 62 * 12);
+    assert_eq!(counts.cases, 744);
+    assert_eq!(counts.zero_comparisons, 62 * 11 * 658);
+    assert_eq!(counts.zero_comparisons, 448_756);
+    assert_eq!(counts.finite_dates, 12);
+    assert_eq!(counts.finite_times, 14);
+    assert_eq!(counts.finite_date_times, 4 * 8);
+    assert_eq!(
+        counts.date_shapes,
+        [
+            Some((true, false, false)),
+            Some((true, true, false)),
             Some((true, true, true)),
-            None,
-            None,
-        ),
-        (
-            TemporalForm::DateTime,
-            "2000-01-02T03:04:05",
-            Some((true, true, true)),
-            Some((true, true, true)),
-            Some(DateTimeSeparator::Upper),
-        ),
-    ] {
-        for offset in [
-            Offset::Local,
-            Offset::FixedForm(5 * 60 + 30, OffsetForm::Unwritten),
-        ] {
-            let finite_form = TemporalLexicalForm {
-                kind,
-                date_shape,
-                time_shape,
-                separator,
-                offset,
-                infinity: None,
-            };
-            let finite = Temporal::parse_as(finite_form, finite_text).unwrap();
-            let negative_form = TemporalLexicalForm {
-                kind,
-                date_shape: None,
-                time_shape: None,
-                separator: None,
-                offset,
-                infinity: Some(TemporalInfinity::Negative),
-            };
-            let positive_form = TemporalLexicalForm {
-                infinity: Some(TemporalInfinity::Positive),
-                ..negative_form
-            };
-            let negative = Temporal::parse_as(negative_form, "-infinity").unwrap();
-            let positive = Temporal::parse_as(positive_form, "infinity").unwrap();
-            assert_eq!(negative.cmp_chronological(&finite), Some(Ordering::Less));
-            assert_eq!(finite.cmp_chronological(&positive), Some(Ordering::Less));
-            assert_eq!(negative.cmp_chronological(&positive), Some(Ordering::Less));
-            let bytes = [
-                negative.canonical_bytes(),
-                finite.canonical_bytes(),
-                positive.canonical_bytes(),
-            ];
-            assert_eq!(bytes.into_iter().collect::<HashSet<_>>().len(), 3);
-        }
-    }
+            Some((false, true, false)),
+            Some((false, true, true)),
+            Some((false, false, true)),
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(counts.negative_date_infinities, 1);
+    assert_eq!(counts.positive_date_infinities, 1);
+    assert_eq!(counts.time_infinities, 0);
+    assert_eq!(counts.negative_date_time_infinities, 1);
+    assert_eq!(counts.positive_date_time_infinities, 1);
+    println!(
+        "unwritten Zulu replacements: 16 scoped offsets (12 replacements, 10 written zero forms, 3 unrelated controls); {} replacement cases over 58 finite bodies and 4 infinities; {} zero-offset/competitor pairs; 658 standard-reading checks; {} finite dates over {} shapes",
+        counts.cases,
+        counts.zero_comparisons,
+        counts.finite_dates,
+        counts.date_shapes.len()
+    );
 }
 
 #[test]

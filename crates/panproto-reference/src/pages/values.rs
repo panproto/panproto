@@ -2537,17 +2537,10 @@ pub mod exact {
         BelowLo,
     }
 
-    /// `10^k` exactly, for every integer `k`: directly when `k` fits `i64`,
-    /// and otherwise as `(10^h)^2 * 10^r` with `k = 2h + r`, `h` truncated
-    /// toward zero and `r` in `{-1, 0, 1}`, whose `|h|` is below `|k|`.
-    fn pow10_exact(k: &Int) -> Rat {
-        if let Some(small) = k.to_i64() {
-            return Rat::pow10(small);
-        }
-        let Some((half, rest)) = k.magnitude().div_rem(&Nat::from_u64(2)) else {
-            return Rat::pow10(0);
-        };
-        let half = pow10_exact(&Int::new(k.is_negative(), half));
+    /// Split `k = 2h + r`, with `h` truncated toward zero and `r` in
+    /// `{-1, 0, 1}` of the same sign as `k`.
+    fn halve_exponent(k: &Int) -> Option<(Int, i64)> {
+        let (half, rest) = k.magnitude().div_rem(&Nat::from_u64(2))?;
         let rest = if rest.is_zero() {
             0
         } else if k.is_negative() {
@@ -2555,6 +2548,29 @@ pub mod exact {
         } else {
             1
         };
+        Some((Int::new(k.is_negative(), half), rest))
+    }
+
+    /// `10^k` exactly whenever the resulting rational is representable and
+    /// its allocation succeeds.
+    fn pow10_exact(k: &Int) -> Rat {
+        pow10_exact_with_limit(k, u64::MAX)
+    }
+
+    /// `10^k` exactly: directly when `k` fits `i64` and its magnitude is at
+    /// most `direct_limit`, and otherwise by the decomposition from
+    /// [`halve_exponent`]. The limit lets tests force every recursive branch
+    /// without constructing an infeasibly large power.
+    fn pow10_exact_with_limit(k: &Int, direct_limit: u64) -> Rat {
+        if let Some(small) = k.to_i64() {
+            if small.unsigned_abs() <= direct_limit {
+                return Rat::pow10(small);
+            }
+        }
+        let Some((half, rest)) = halve_exponent(k) else {
+            return Rat::pow10(0);
+        };
+        let half = pow10_exact_with_limit(&half, direct_limit);
         half.mul(&half).mul(&Rat::pow10(rest))
     }
     /// A finite exact decimal `(-1)^negative x digits x 10^exponent` with an unbounded integer
@@ -2869,6 +2885,35 @@ pub mod exact {
                 big.map(|d| d.scale().to_string()),
                 Some("3000000001".into())
             );
+        }
+
+        #[test]
+        fn exact_powers_of_ten_follow_every_halving_branch() {
+            for k in -130..=130_i64 {
+                let exponent = Int::from_i64(k);
+                for limit in 0..=8 {
+                    assert_eq!(
+                        pow10_exact_with_limit(&exponent, limit),
+                        Rat::pow10(k),
+                        "10^{k} under direct limit {limit}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn unbounded_power_exponents_split_without_narrowing() {
+            for (text, half, rest) in [
+                ("9223372036854775808", "4611686018427387904", 0),
+                ("9223372036854775809", "4611686018427387904", 1),
+                ("-9223372036854775809", "-4611686018427387904", -1),
+                ("-18446744073709551616", "-9223372036854775808", 0),
+            ] {
+                let exponent = Int::parse(text).unwrap_or_else(Int::zero);
+                let split = halve_exponent(&exponent)
+                    .map(|(quotient, remainder)| (quotient.to_string(), remainder));
+                assert_eq!(split, Some((half.to_owned(), rest)), "split {text}");
+            }
         }
 
         #[test]

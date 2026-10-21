@@ -223,6 +223,58 @@ const INFINITY_OFFSETS: [Offset; 5] = [
     Offset::FixedSeconds(-17_762),
 ];
 
+/// The offset scope of the unwritten-UTC representation law.
+///
+/// The first thirteen entries are the unwritten Zulu marker, the twelve
+/// replacements named by the law (ten written zero forms, unwritten fixed
+/// zero and local), followed by three nonzero controls: a written
+/// minute-resolution offset with a seconds field, a genuine second-resolution
+/// offset and an unwritten fixed offset.
+#[must_use]
+pub const fn unwritten_zulu_offset_scope() -> [(&'static str, Offset); 16] {
+    [
+        ("", Offset::Zulu(ZuluCase::Unwritten)),
+        ("", Offset::Local),
+        ("Z", Offset::Zulu(ZuluCase::Upper)),
+        ("z", Offset::Zulu(ZuluCase::Lower)),
+        ("+00:00", Offset::Fixed(0, OffsetForm::Extended)),
+        ("+0000", Offset::Fixed(0, OffsetForm::Basic)),
+        ("+00", Offset::Fixed(0, OffsetForm::HourOnly)),
+        ("+00:00:00", Offset::Fixed(0, OffsetForm::ExtendedSeconds)),
+        ("-00:00", Offset::NegZero(OffsetForm::Extended)),
+        ("-0000", Offset::NegZero(OffsetForm::Basic)),
+        ("-00", Offset::NegZero(OffsetForm::HourOnly)),
+        ("-00:00:00", Offset::NegZero(OffsetForm::ExtendedSeconds)),
+        ("", Offset::Fixed(0, OffsetForm::Unwritten)),
+        ("+05:30:00", Offset::Fixed(330, OffsetForm::ExtendedSeconds)),
+        ("-04:56:02", Offset::FixedSeconds(-17_762)),
+        ("", Offset::Fixed(330, OffsetForm::Unwritten)),
+    ]
+}
+
+/// The complete finite scope of the unwritten-Zulu representation law.
+///
+/// The forms contain all 658 temporal forms, including the 62 unwritten-Zulu
+/// baselines. The offsets contain the marker, its twelve representation
+/// replacements and three unrelated controls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnwrittenZuluTemporalScope {
+    /// Every written temporal form in the values-page scope.
+    pub forms: Vec<(String, TemporalLexicalForm)>,
+    /// The marker, its replacements and the unrelated offset controls.
+    pub offsets: [(&'static str, Offset); 16],
+}
+
+/// Construct the complete finite scope of the unwritten-Zulu representation
+/// law.
+#[must_use]
+pub fn unwritten_zulu_temporal_scope() -> UnwrittenZuluTemporalScope {
+    UnwrittenZuluTemporalScope {
+        forms: temporal_forms(),
+        offsets: unwritten_zulu_offset_scope(),
+    }
+}
+
 /// The written temporal forms with their exact descriptors.
 ///
 /// Every date body (12), time body (14) and date-time pairing (4 x 8) of reduced,
@@ -993,6 +1045,32 @@ pub fn binary_rounding_scope() -> (Vec<u64>, Vec<u64>, Vec<u64>) {
         binary32_boundary_patterns(),
         binary64_boundary_patterns(),
     )
+}
+
+/// The three pattern scopes used by the NaN narrowing law.
+///
+/// Binary16 is exhaustive. Binary32 contains every rounding-boundary pattern
+/// and every NaN required by the narrowing partition. Binary64 contains every
+/// exponent/fraction boundary pattern used to establish the carrier-width
+/// identities.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NanNarrowingScope {
+    /// Every binary16 pattern.
+    pub binary16: Vec<u64>,
+    /// Every binary32 boundary pattern and scoped NaN.
+    pub binary32: Vec<u64>,
+    /// Every binary64 boundary pattern.
+    pub binary64: Vec<u64>,
+}
+
+/// Construct the three pattern scopes used by the NaN narrowing law.
+#[must_use]
+pub fn nan_narrowing_scope() -> NanNarrowingScope {
+    NanNarrowingScope {
+        binary16: binary16_patterns(),
+        binary32: binary32_scope(),
+        binary64: binary64_boundary_patterns(),
+    }
 }
 
 /// The expressions of the expression-evaluation scope.

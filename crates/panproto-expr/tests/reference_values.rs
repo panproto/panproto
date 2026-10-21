@@ -15,7 +15,7 @@ use panproto_expr::exact::{
     CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass, DecimalValue, Offset,
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TimeFields, TimeUnit, WideInt, ZuluCase,
 };
-use panproto_expr::exact::{binary16_bits, binary16_nearest, binary16_widen};
+use panproto_expr::exact::{binary16_bits, binary16_nearest, binary16_widen, binary32_bits};
 use panproto_expr::{
     BuiltinOp, Env, EvalConfig, Expr, ExprError, Literal, Pattern, apply_builtin, eval,
 };
@@ -608,6 +608,253 @@ fn binary16_operations_agree_with_the_reference() {
     assert_eq!(midpoints, 2 * 31_744);
 }
 
+/// Production's exposed exact narrowing operation at a reduced width.
+fn production_narrow_bits(format: Format, bits: u64) -> Option<u64> {
+    let value = f64::from_bits(bits);
+    match format {
+        Format::B16 => binary16_bits(value).map(u64::from),
+        Format::B32 => binary32_bits(value).map(u64::from),
+        Format::B64 => unreachable!("binary64 has no distinct production narrowing operation"),
+    }
+}
+
+/// Carry a binary32 special pattern into production's binary64 carrier on
+/// its bits. A Rust `f32`-to-`f64` cast cannot serve as this operation because
+/// it quiets signalling NaNs. Production exposes the inverse operation,
+/// [`binary32_bits`], and stores the resulting datum in an `f64`; this helper
+/// independently spells the only bit-preserving embedding into that carrier.
+fn binary32_widen_special_bits(bits: u64) -> u64 {
+    let bits = u32::try_from(bits).expect("a binary32 pattern fits u32");
+    let sign = u64::from(bits >> 31) << 63;
+    let exponent = (bits >> 23) & 0xff;
+    let fraction = u64::from(bits & 0x007f_ffff);
+    assert_eq!(exponent, 0xff, "the bit embedding is for specials only");
+    sign | (0x7ff_u64 << 52) | (fraction << 29)
+}
+
+/// The independently constructed binary64 carrier pattern of a binary16 or
+/// binary32 NaN or infinity. Binary16 uses production's actual widening
+/// operation. Binary32 uses the raw carrier embedding above, independently
+/// of the reference implementation.
+fn carrier_special_widen_bits(format: Format, bits: u64) -> u64 {
+    match format {
+        Format::B16 => {
+            binary16_widen(u16::try_from(bits).expect("a binary16 pattern fits u16")).to_bits()
+        }
+        Format::B32 => binary32_widen_special_bits(bits),
+        Format::B64 => unreachable!("binary64 is already the production carrier"),
+    }
+}
+
+/// The infinity pattern of `format` and `negative` sign, constructed without
+/// the reference widening or narrowing operations.
+const fn infinity_pattern(format: Format, negative: bool) -> u64 {
+    match (format, negative) {
+        (Format::B16, false) => 0x7c00,
+        (Format::B16, true) => 0xfc00,
+        (Format::B32, false) => 0x7f80_0000,
+        (Format::B32, true) => 0xff80_0000,
+        (Format::B64, false) => 0x7ff0_0000_0000_0000,
+        (Format::B64, true) => 0xfff0_0000_0000_0000,
+    }
+}
+
+/// Check one reduced-width NaN partition. Returns the admitted and rejected
+/// case counts.
+fn check_reduced_nan_partition(format: Format, patterns: &[u64], expected: usize) -> [usize; 2] {
+    assert_eq!(patterns.len(), expected, "{format:?} NaN partition");
+    for &narrow in patterns {
+        let wide = carrier_special_widen_bits(format, narrow);
+        assert_eq!(
+            rf::widen_bits(format, narrow),
+            wide,
+            "{format:?} production or independent carrier widening of {narrow:#x}"
+        );
+        assert_eq!(
+            rf::narrow_bits(format, wide),
+            Some(narrow),
+            "{format:?} {narrow:#x}"
+        );
+        assert_eq!(
+            production_narrow_bits(format, wide),
+            Some(narrow),
+            "{format:?} {narrow:#x}"
+        );
+        let low_bit = wide | 1;
+        assert_eq!(
+            rf::narrow_bits(format, low_bit),
+            None,
+            "{format:?} {low_bit:#018x}"
+        );
+        assert_eq!(
+            production_narrow_bits(format, low_bit),
+            None,
+            "{format:?} {low_bit:#018x}"
+        );
+    }
+    [patterns.len(), patterns.len()]
+}
+
+/// Check both signs of infinity at production's two reduced widths.
+fn check_reduced_infinity_round_trips() -> usize {
+    let mut checked = 0;
+    for format in [Format::B16, Format::B32] {
+        for negative in [false, true] {
+            let narrow = infinity_pattern(format, negative);
+            let wide = carrier_special_widen_bits(format, narrow);
+            assert_eq!(rf::widen_bits(format, narrow), wide, "{format:?}");
+            assert_eq!(rf::narrow_bits(format, wide), Some(narrow), "{format:?}");
+            assert_eq!(
+                production_narrow_bits(format, wide),
+                Some(narrow),
+                "{format:?}"
+            );
+            checked += 1;
+        }
+    }
+    checked
+}
+
+/// Check the reference's zero-shift binary64 identities and return the NaN
+/// count in the boundary partition.
+fn check_binary64_reference_identities(patterns: &[u64]) -> usize {
+    let mut nans = 0;
+    for &bits in patterns {
+        nans += usize::from(matches!(
+            rf::decode(Format::B64, bits),
+            rf::FloatValue::NaN { .. }
+        ));
+        assert_eq!(rf::widen_bits(Format::B64, bits), bits, "{bits:#018x}");
+        assert_eq!(
+            rf::narrow_bits(Format::B64, bits),
+            Some(bits),
+            "{bits:#018x}"
+        );
+    }
+    for negative in [false, true] {
+        let bits = infinity_pattern(Format::B64, negative);
+        assert_eq!(rf::widen_bits(Format::B64, bits), bits);
+        assert_eq!(rf::narrow_bits(Format::B64, bits), Some(bits));
+    }
+    nans
+}
+
+/// NaN bit narrowing agrees at the two reduced widths production exposes.
+/// Binary16 widening uses production itself; binary32 widening is constructed
+/// independently on the bits. The binary16 scope is exhaustive. The binary32
+/// scope contains every widened binary16 NaN and representatives at each sign,
+/// quiet-bit and payload boundary. Infinities of both signs are explicit
+/// controls. At binary64 there is no separate production widening or
+/// narrowing operation: the carrier is already `f64`, so the reference's
+/// zero-shift identities are checked on the full boundary partition without
+/// presenting a test-local identity as production evidence.
+#[test]
+fn nan_narrowing_agrees_at_every_supported_width() {
+    let scope = panproto_reference::enumerate::values::nan_narrowing_scope();
+    let b16: Vec<u64> = scope
+        .binary16
+        .into_iter()
+        .filter(|bits| matches!(rf::decode(Format::B16, *bits), rf::FloatValue::NaN { .. }))
+        .collect();
+    let b32: Vec<u64> = scope
+        .binary32
+        .into_iter()
+        .filter(|bits| matches!(rf::decode(Format::B32, *bits), rf::FloatValue::NaN { .. }))
+        .collect();
+    let [admitted16, rejected16] = check_reduced_nan_partition(Format::B16, &b16, 2 * 1023);
+    let [admitted32, rejected32] = check_reduced_nan_partition(Format::B32, &b32, 2 * 1023 + 2 * 9);
+    let production_admitted = admitted16 + admitted32;
+    let rejected_low_bit = rejected16 + rejected32;
+    let production_infinities = check_reduced_infinity_round_trips();
+    let b64_nans = check_binary64_reference_identities(&scope.binary64);
+    assert_eq!(b64_nans, 2 * (14 - 1), "binary64 NaN partition");
+    println!(
+        "NaN narrowing: binary16={} exhaustive NaNs, binary32={} boundary-partition NaNs, \
+         production-admitted={production_admitted}, low-bit refusals={rejected_low_bit}, \
+         production infinity round-trips={production_infinities}; binary64 reference-only \
+         boundary partition={} patterns, including {} NaNs",
+        b16.len(),
+        b32.len(),
+        scope.binary64.len(),
+        b64_nans
+    );
+    assert_eq!(production_admitted, b16.len() + b32.len());
+    assert_eq!(rejected_low_bit, b16.len() + b32.len());
+    assert_eq!(production_infinities, 2 * 2);
+    assert_eq!(scope.binary64.len(), 2 * 287 * 14);
+}
+
+/// Whether production holds the finite binary64 datum exactly at `format`.
+/// Binary64 is the carrier format, so each finite datum is exact there.
+fn production_exact_reading(format: Format, bits: u64) -> bool {
+    let value = f64::from_bits(bits);
+    match format {
+        Format::B16 => binary16_bits(value).is_some(),
+        Format::B32 => binary32_bits(value).is_some(),
+        Format::B64 => value.is_finite(),
+    }
+}
+
+/// On every binary64 exponent field and each fraction boundary used by the
+/// narrowing proof, production membership at binary16, binary32 and
+/// binary64 agrees with exact rational membership in the reference. This
+/// claim is deliberately scoped to rationals decoded from finite `f64`
+/// patterns, the carrier on which production exposes these membership
+/// operations.
+#[test]
+fn exact_float_reading_corresponds_on_decoded_binary64_rationals() {
+    let patterns = panproto_reference::enumerate::values::binary64_exponent_patterns();
+    assert_eq!(patterns.len(), 2 * 2048 * 14);
+    let mut finite = 0_usize;
+    let mut checks = 0_usize;
+    for bits in patterns {
+        let Some((_, value)) = finite_rational(bits) else {
+            continue;
+        };
+        finite += 1;
+        for format in [Format::B16, Format::B32, Format::B64] {
+            assert_eq!(
+                production_exact_reading(format, bits),
+                rf::exact_reading(format, &value),
+                "{format:?} exact reading of {bits:#018x}"
+            );
+            checks += 1;
+        }
+    }
+    println!(
+        "exact readings: {finite} finite binary64 boundary-partition patterns by 3 formats: \
+         {checks} agreements"
+    );
+    assert_eq!(finite, 2 * 2047 * 14);
+    assert_eq!(checks, finite * 3);
+}
+
+proptest! {
+    /// Generated finite binary64 data have exactly the production membership
+    /// that the reference exact-reading predicate assigns to their decoded
+    /// rational values at each supported width.
+    #[test]
+    fn randomized_exact_reading_differential(
+        format_index in 0_usize..3,
+        negative in any::<bool>(),
+        exponent in 0_u16..0x07ff_u16,
+        fraction in 0_u64..(1_u64 << 52),
+    ) {
+        let format = [Format::B16, Format::B32, Format::B64][format_index];
+        let bits = (u64::from(negative) << 63)
+            | (u64::from(exponent) << 52)
+            | fraction;
+        let (_, value) = finite_rational(bits).expect("the generated exponent is finite");
+        prop_assert_eq!(
+            production_exact_reading(format, bits),
+            panproto_reference::float::exact_reading(format, &value),
+            "{:?} exact reading of {:#018x}",
+            format,
+            bits,
+        );
+    }
+}
+
 /// The builtin cases of [`computed_nans_agree_with_the_reference`]: each
 /// NaN of `nans` as the operand of the arithmetic and in each position of a
 /// clamp, the four invalid operations, the decimal NaNs converted to float
@@ -842,7 +1089,17 @@ fn check_shortest(format: Format, bits: u64, counts: &mut [usize; 4]) {
     let agrees = match (&production, &reference) {
         (Some(printed), Some(expected)) => {
             counts[1] += 1;
+            assert_eq!(
+                production_nearest(format, printed),
+                bits,
+                "production {format:?} closest-shortest readback of {bits:#x}"
+            );
             let printed = shortest_to_ref(printed);
+            assert_eq!(
+                rf::round_to(format, &printed.value(), printed.negative).bits(format),
+                bits,
+                "reference {format:?} closest-shortest readback of {bits:#x}"
+            );
             printed.value() == expected.value()
                 && printed.significant_digits() == expected.significant_digits()
                 && printed == *expected
@@ -872,7 +1129,8 @@ fn check_shortest(format: Format, bits: u64, counts: &mut [usize; 4]) {
 /// binary64 agree with the reference's naive search on every binary16
 /// pattern and on the binary32 and binary64 boundary patterns: the same
 /// decimal value and digits for a finite pattern, and no decimal for a NaN
-/// or an infinity.
+/// or an infinity. Every production and reference finite decimal also reads
+/// back by nearest rounding to the exact source pattern.
 #[test]
 fn closest_shortest_printers_agree_with_the_reference() {
     let b16 = panproto_reference::enumerate::values::binary16_patterns();
@@ -1773,6 +2031,59 @@ fn temporal_index_strategy() -> impl Strategy<Value = usize> {
     0..temporal_lexemes().len()
 }
 
+/// A reference-admitted temporal-to-count case: source lexeme, production
+/// unit, reference unit and instant/wall-clock interpretation. Selecting the
+/// domain through the independent reference avoids deriving the premise of
+/// the round-trip property from production itself.
+type EpochRoundTripCase = (String, TimeUnit, rt::TimeUnit, bool);
+
+fn epoch_round_trip_cases() -> &'static [EpochRoundTripCase] {
+    static CASES: OnceLock<Vec<EpochRoundTripCase>> = OnceLock::new();
+    CASES
+        .get_or_init(|| {
+            let units = [
+                (TimeUnit::Seconds, rt::TimeUnit::Seconds),
+                (TimeUnit::Millis, rt::TimeUnit::Millis),
+                (TimeUnit::Micros, rt::TimeUnit::Micros),
+                (TimeUnit::Nanos, rt::TimeUnit::Nanos),
+            ];
+            assert_eq!(temporal_lexemes().len(), 19_098);
+            let mut cases = Vec::new();
+            let mut source_candidates = 0_usize;
+            let mut by_unit_and_mode = [[0_usize; 2]; 4];
+            for text in temporal_lexemes() {
+                source_candidates += units.len() * 2;
+                let Some(reference) = rt::parse_any(text) else {
+                    continue;
+                };
+                for (unit_index, (production_unit, reference_unit)) in units.into_iter().enumerate()
+                {
+                    for instant in [false, true] {
+                        if rt::to_epoch_count(&reference, reference_unit, instant).is_some() {
+                            by_unit_and_mode[unit_index][usize::from(instant)] += 1;
+                            cases.push((text.clone(), production_unit, reference_unit, instant));
+                        }
+                    }
+                }
+            }
+            // The source scope has 42 valid full dates. At second precision
+            // it has 2 hours x 2 minutes x 2 non-leap seconds = 8 complete
+            // times without a fraction. Exactly one written offset is local
+            // and exactly one is upper-case Z, giving 42 x 8 = 336 admitted
+            // values in each mode. No source fraction has the 3, 6 or 9
+            // digits required by the other units.
+            assert_eq!(
+                by_unit_and_mode,
+                [[336, 336], [0, 0], [0, 0], [0, 0]],
+                "reference-admitted temporal/count cases by [unit][wall, instant]"
+            );
+            assert_eq!(cases.len(), 672);
+            assert_eq!(source_candidates, 19_098 * 4 * 2);
+            cases
+        })
+        .as_slice()
+}
+
 fn generated_config() -> ProptestConfig {
     ProptestConfig {
         cases: 4096,
@@ -1782,6 +2093,48 @@ fn generated_config() -> ProptestConfig {
 
 proptest! {
     #![proptest_config(generated_config())]
+
+    /// A temporal selected independently from the reference's admitted
+    /// temporal-to-count domain returns to the identical representation
+    /// through its count. The case enumerator pins every unit/mode partition:
+    /// this lexical scope admits second-precision cases in both modes and no
+    /// higher-precision case because it has no 3-, 6- or 9-digit fraction.
+    #[test]
+    fn randomized_temporal_to_epoch_count_round_trip(
+        case_index in 0..epoch_round_trip_cases().len(),
+    ) {
+        let (text, production_unit, reference_unit, instant) =
+            &epoch_round_trip_cases()[case_index];
+        let production = Temporal::parse_union(text)
+            .unwrap_or_else(|error| {
+                panic!("production refused reference epoch case {text:?}: {error:?}")
+            });
+        let reference = rt::parse_any(text)
+            .unwrap_or_else(|| panic!("reference epoch case no longer parses: {text:?}"));
+        let production_count = production.to_epoch_count(*production_unit, *instant);
+        let reference_count = rt::to_epoch_count(&reference, *reference_unit, *instant);
+        prop_assert_eq!(
+            production_count,
+            reference_count,
+            "temporal-to-count disagreement for {:?} at {:?}, instant={}",
+            text,
+            production_unit,
+            instant,
+        );
+        let count = reference_count.expect("the strategy contains only admitted reference cases");
+        prop_assert_eq!(
+            Temporal::from_epoch_count(count, *production_unit, *instant),
+            Ok(production),
+            "production temporal-to-count-to-temporal failed for {:?}",
+            text,
+        );
+        prop_assert_eq!(
+            rt::from_epoch_count(count, *reference_unit, *instant),
+            Some(reference),
+            "reference temporal-to-count-to-temporal failed for {:?}",
+            text,
+        );
+    }
 
     /// Generated float bits, exact decimals, enumerated temporal lexemes and
     /// epoch counts have the production outcomes and laws of the reference.

@@ -714,6 +714,18 @@ fn class_to_ref(c: &LexClass) -> r::LexClass {
     }
 }
 
+fn class_from_ref(c: &r::LexClass) -> LexClass {
+    match c {
+        r::LexClass::Number => LexClass::Number,
+        r::LexClass::String => LexClass::String,
+        r::LexClass::Bool => LexClass::Bool,
+        r::LexClass::Null => LexClass::Null,
+        r::LexClass::DateTime => LexClass::DateTime,
+        r::LexClass::Bytes => LexClass::Bytes,
+        r::LexClass::Tagged(tag) => LexClass::Tagged(tag.as_str().into()),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The scope.
 // ---------------------------------------------------------------------------
@@ -1048,20 +1060,22 @@ fn check_fixed_point(
     x: &RValue,
     spec: &r::ValueSpec,
     reference: &Result<RValue, r::FidelityReason>,
-) {
+) -> Option<(String, r::LexClass)> {
     if matches!(spec.kind, r::ScalarKind::Any | r::ScalarKind::Float { .. }) {
-        return;
+        return None;
     }
     let fixed = reference.as_ref() == Ok(x);
     let plain = r::ValueSpec {
         numeral: None,
         ..*spec
     };
-    let expected = match r::lexeme_of(x, spec.kind) {
-        Some((text, class)) => r::coerce(&text, &class, &plain).as_ref() == Some(&Ok(x.clone())),
+    let own_lexeme = r::lexeme_of(x, spec.kind);
+    let expected = match &own_lexeme {
+        Some((text, class)) => r::coerce(text, class, &plain).as_ref() == Some(&Ok(x.clone())),
         None => !matches!(x, RValue::Float(bits) if !f64::from_bits(*bits).is_finite()),
     };
     assert_eq!(fixed, expected, "fixed point of {x:?} under {spec:?}");
+    own_lexeme.filter(|_| fixed)
 }
 
 #[test]
@@ -1095,8 +1109,25 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
                 tally.outside_reference += 1;
                 continue;
             };
-            check_fixed_point(x, spec, &reference);
-            let production = coerce_value(p, &production_spec, ValueSite::unknown())
+            let own_lexeme = check_fixed_point(x, spec, &reference);
+            let production = coerce_value(p, &production_spec, ValueSite::unknown());
+            assert_eq!(
+                production.as_ref().is_ok_and(|value| same(value, p)),
+                reference.as_ref() == Ok(x),
+                "production fixed point of {x:?} under {production_spec:?}"
+            );
+            if let Some((text, class)) = own_lexeme {
+                let plain = ValueSpec {
+                    numeral: None,
+                    ..production_spec.clone()
+                };
+                let direct = coerce(&Lexeme::new(&text, class_from_ref(&class)), &plain);
+                assert!(
+                    direct.as_ref().is_ok_and(|value| same(value, p)),
+                    "direct coercion of fixed point {x:?} under {plain:?}: {direct:?}"
+                );
+            }
+            let production = production
                 .map(|v| to_ref(&v))
                 .map_err(|e| reason_to_ref(&e.reason));
             tally.record(spec, x, || value_class(x), &production, &reference);
@@ -1178,11 +1209,41 @@ fn coerce_value_to_ref(value: &Value, spec: &ValueSpec) -> Result<RValue, r::Fid
         .map_err(|e| reason_to_ref(&e.reason))
 }
 
+/// Every spelling accepted by the non-finite float grammar: each ASCII case
+/// of `nan`, `inf` and `infinity`, with each optional sign and optional YAML
+/// dot. The product has `(2^3 + 2^3 + 2^8) * 3 * 2 = 1632` members.
+fn non_finite_float_spellings() -> Vec<String> {
+    let mut out = Vec::new();
+    for body in ["nan", "inf", "infinity"] {
+        for mask in 0..(1_usize << body.len()) {
+            let variant: String = body
+                .bytes()
+                .enumerate()
+                .map(|(index, byte)| {
+                    char::from(if mask & (1 << index) == 0 {
+                        byte
+                    } else {
+                        byte.to_ascii_uppercase()
+                    })
+                })
+                .collect();
+            for sign in ["", "+", "-"] {
+                for dot in ["", "."] {
+                    out.push(format!("{sign}{dot}{variant}"));
+                }
+            }
+        }
+    }
+    assert_eq!(out.len(), (8 + 8 + 256) * 3 * 2);
+    out
+}
+
 /// Under `Float { bits: 16 }`, with each reading: every binary16 pattern,
 /// widened, and its two binary64 neighbours are coerced as values; and the
 /// closest-shortest text of every finite pattern, that text with its last
-/// digit moved one either way, and every numeral of the values page are read
-/// as lexemes. Every outcome agrees with the reference's.
+/// digit moved one either way, every numeral of the values page, and every
+/// spelling of NaN and infinity are read from both the number and string
+/// lexical classes. Every outcome agrees with the reference's.
 #[test]
 fn float16_coercion_agrees_with_the_reference() {
     let mut values = 0_u64;
@@ -1225,29 +1286,35 @@ fn float16_coercion_agrees_with_the_reference() {
     }
     texts.extend(scope::numerals());
     texts.extend(scope::edge_numerals());
+    texts.extend(non_finite_float_spellings());
     let texts = dedupe(texts);
+    assert_eq!(texts.len(), 155_305 + 1_632);
     let mut lexemes = 0_u64;
     for text in &texts {
-        for reading in [FloatReading::Exact, FloatReading::NearestKeepingLexeme] {
-            let spec = ValueSpec {
-                float_reading: reading,
-                ..ValueSpec::new(ScalarKind::Float { bits: 16 })
-            };
-            let reference = r::coerce(text, &r::LexClass::Number, &spec_to_ref(&spec)).unwrap();
-            assert_eq!(
-                coerce_to_ref(text, &LexClass::Number, &spec),
-                reference,
-                "{text} {reading:?}"
-            );
-            lexemes += 1;
+        for class in [LexClass::Number, LexClass::String] {
+            for reading in [FloatReading::Exact, FloatReading::NearestKeepingLexeme] {
+                let spec = ValueSpec {
+                    float_reading: reading,
+                    ..ValueSpec::new(ScalarKind::Float { bits: 16 })
+                };
+                let reference =
+                    r::coerce(text, &class_to_ref(&class), &spec_to_ref(&spec)).unwrap();
+                assert_eq!(
+                    coerce_to_ref(text, &class, &spec),
+                    reference,
+                    "{text} {class:?} {reading:?}"
+                );
+                lexemes += 1;
+            }
         }
     }
     println!(
         "binary16: bound 65536 patterns with 2 neighbours each under 2 readings: {values} value cases; \
-         {} lexemes under 2 readings: {lexemes} lexeme cases",
+         {} finite and non-finite texts under 2 classes and 2 readings: {lexemes} lexeme cases",
         texts.len()
     );
-    assert_eq!(lexemes, 2 * texts.len() as u64);
+    assert_eq!(lexemes, 2 * 2 * texts.len() as u64);
+    assert_eq!(lexemes, 627_748);
 }
 
 /// Every pattern of the binary32 scope (the boundary patterns and the NaNs)
@@ -1792,6 +1859,58 @@ fn canonical_bytes_agree_with_the_reference() {
     assert_eq!(differing, 0);
 }
 
+/// A production `Value::Decimal` writes the complete value encoding, tag
+/// included, exactly as the reference does. The scope contains every finite
+/// decimal of the order sweep and every sign/flag/payload special value;
+/// distinct reference values have distinct production byte strings, and
+/// the reference decoder recovers each value from production's bytes.
+#[test]
+fn decimal_value_canonical_bytes_agree_with_the_full_reference_encoding() {
+    let decimals = scope::decimals();
+    assert_eq!(decimals.len(), 5 * 2 * 100 + 2 + 2 * 2 * 2);
+    let mut encodings = HashSet::new();
+    let mut finite = 0_usize;
+    let mut infinite = 0_usize;
+    let mut nan = 0_usize;
+    for decimal in decimals {
+        match &decimal {
+            rx::Decimal::Finite(_) => finite += 1,
+            rx::Decimal::Infinite { .. } => infinite += 1,
+            rx::Decimal::NaN { .. } => nan += 1,
+        }
+        let reference_value = RValue::Decimal(decimal.clone());
+        let Some(Value::Decimal(production_decimal)) = from_ref(&reference_value) else {
+            panic!("decimal is outside the production model: {decimal:?}");
+        };
+        let production = Value::Decimal(production_decimal).canonical_bytes();
+        let reference = panproto_reference::canonical::decimal_bytes(&decimal)
+            .unwrap_or_else(|| panic!("decimal has no reference encoding: {decimal:?}"));
+        assert_eq!(production.first(), Some(&13), "{decimal:?}");
+        assert_eq!(
+            production, reference,
+            "full decimal encoding of {decimal:?}"
+        );
+        assert_eq!(
+            panproto_reference::canonical::decode_value(&production),
+            Some(reference_value),
+            "full decimal decoding of {decimal:?}"
+        );
+        assert!(
+            encodings.insert(production),
+            "two decimal representations share bytes at {decimal:?}"
+        );
+    }
+    println!(
+        "decimal canonical bytes: finite={finite}, infinite={infinite}, NaN={nan}, \
+         distinct encodings={}",
+        encodings.len()
+    );
+    assert_eq!(finite, 5 * 2 * 100);
+    assert_eq!(infinite, 2);
+    assert_eq!(nan, 2 * 2 * 2);
+    assert_eq!(encodings.len(), finite + infinite + nan);
+}
+
 // ---------------------------------------------------------------------------
 // The nearest reading at binary32 and binary64.
 // ---------------------------------------------------------------------------
@@ -1817,6 +1936,38 @@ fn shortest_with_neighbours(format: Format, bits: u64) -> Vec<String> {
     out
 }
 
+/// Production's closest-shortest decimal for a pattern of `format`.
+fn production_shortest(format: Format, bits: u64) -> Option<DecimalValue> {
+    match format {
+        Format::B16 => DecimalValue::from_f16_shortest(panproto_expr::exact::binary16_widen(
+            u16::try_from(bits).expect("a binary16 pattern fits u16"),
+        )),
+        Format::B32 => DecimalValue::from_f32_shortest(f32::from_bits(
+            u32::try_from(bits).expect("a binary32 pattern fits u32"),
+        )),
+        Format::B64 => DecimalValue::from_f64_shortest(f64::from_bits(bits)),
+    }
+}
+
+/// The scientific numeral denoted by a finite production decimal, in the
+/// syntax the closest-shortest reference printer uses.
+fn production_scientific(decimal: &DecimalValue) -> String {
+    assert!(decimal.is_finite(), "{decimal}");
+    let sign = if decimal.negative { "-" } else { "" };
+    let digits = decimal.digits.as_str();
+    let exponent = decimal
+        .exponent
+        .to_i64()
+        .expect("a closest-shortest exponent fits i64")
+        + i64::try_from(digits.len()).expect("a closest-shortest length fits i64")
+        - 1;
+    if digits.len() == 1 {
+        format!("{sign}{digits}e{exponent}")
+    } else {
+        format!("{sign}{}.{}e{exponent}", &digits[..1], &digits[1..])
+    }
+}
+
 /// A finite numeral accepted under the nearest reading at width `bits`
 /// reads as the reference's nearest reading of its exact value, widened to
 /// binary64.
@@ -1839,8 +1990,9 @@ fn check_nearest_value(text: &str, bits: u8, production: &Result<RValue, r::Fide
 /// Under `Float { bits: 32 }` and `Float { bits: 64 }`, with the nearest
 /// reading and, for contrast, the exact one: the closest-shortest text of
 /// every binary32 and every binary64 boundary pattern with its two
-/// last-digit neighbours, and every numeral of the values page, read as
-/// numbers. Every outcome agrees with the reference's.
+/// last-digit neighbours, every numeral of the values page and every
+/// spelling of NaN and infinity, read as both numbers and strings. Every
+/// outcome agrees with the reference's.
 #[test]
 fn nearest_reading_coercion_agrees_with_the_reference() {
     let started = Instant::now();
@@ -1866,7 +2018,9 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
         numerals.len()
     );
     texts.extend(numerals);
+    texts.extend(non_finite_float_spellings());
     let texts = dedupe(texts);
+    assert_eq!(texts.len(), 179_176 + 1_632);
     println!(
         "nearest: bound {} binary32 and {} binary64 boundary patterns, their shortest texts and \
          last-digit neighbours, and the values-page numerals: {} distinct texts",
@@ -1874,34 +2028,192 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
         binary64.len(),
         texts.len()
     );
-    let class = LexClass::Number;
-    let rclass = class_to_ref(&class);
-    for bits in [32, 64] {
-        for reading in [FloatReading::NearestKeepingLexeme, FloatReading::Exact] {
-            let spec = ValueSpec {
-                float_reading: reading,
-                ..ValueSpec::new(ScalarKind::Float { bits })
-            };
-            let rspec = spec_to_ref(&spec);
-            let tally = over_spec_chunks(&[rspec], texts.len(), |rspec, range, tally| {
-                for text in &texts[range] {
-                    let Some(reference) = r::coerce(text, &rclass, rspec) else {
-                        tally.outside_reference += 1;
-                        continue;
-                    };
-                    let production = coerce_to_ref(text, &class, &spec);
-                    if reading == FloatReading::NearestKeepingLexeme {
-                        check_nearest_value(text, bits, &production);
+    let mut cases = 0_u64;
+    for class in [LexClass::Number, LexClass::String] {
+        let rclass = class_to_ref(&class);
+        for bits in [32, 64] {
+            for reading in [FloatReading::NearestKeepingLexeme, FloatReading::Exact] {
+                let spec = ValueSpec {
+                    float_reading: reading,
+                    ..ValueSpec::new(ScalarKind::Float { bits })
+                };
+                let rspec = spec_to_ref(&spec);
+                let tally = over_spec_chunks(&[rspec], texts.len(), |rspec, range, tally| {
+                    for text in &texts[range] {
+                        let Some(reference) = r::coerce(text, &rclass, rspec) else {
+                            tally.outside_reference += 1;
+                            continue;
+                        };
+                        let production = coerce_to_ref(text, &class, &spec);
+                        if reading == FloatReading::NearestKeepingLexeme {
+                            check_nearest_value(text, bits, &production);
+                        }
+                        tally.record(
+                            rspec,
+                            text,
+                            || format!("{class:?}"),
+                            &production,
+                            &reference,
+                        );
                     }
-                    tally.record(rspec, text, || "Number".to_owned(), &production, &reference);
-                }
-            });
-            tally.print(
-                &format!("nearest Float {{ bits: {bits} }} {reading:?}"),
-                texts.len() as u64,
-                started,
+                });
+                tally.print(
+                    &format!("nearest {class:?} Float {{ bits: {bits} }} {reading:?}"),
+                    texts.len() as u64,
+                    started,
+                );
+                assert_eq!(tally.outside_reference, 0);
+                cases += texts.len() as u64;
+            }
+        }
+    }
+    assert_eq!(cases, 2 * 2 * 2 * texts.len() as u64);
+    assert_eq!(cases, 1_446_464);
+}
+
+/// The closest-shortest text of every finite binary16 pattern and every
+/// finite binary32 and binary64 boundary pattern reads back under the
+/// nearest reading to the exact source pattern, from both the number and
+/// string lexical classes. These are the exhaustive binary16 scope and the
+/// finite exponent/fraction boundary partitions used by the printer test.
+#[test]
+fn closest_shortest_text_reads_back_in_both_lexical_classes() {
+    let scopes = [
+        (
+            Format::B16,
+            scope::binary16_patterns(),
+            2 * 32 * 1024,
+            2 * 31 * 1024,
+        ),
+        (
+            Format::B32,
+            scope::binary32_boundary_patterns(),
+            2 * 256 * 8,
+            2 * 255 * 8,
+        ),
+        (
+            Format::B64,
+            scope::binary64_boundary_patterns(),
+            2 * 287 * 14,
+            2 * 286 * 14,
+        ),
+    ];
+    let mut patterns = 0_usize;
+    let mut finite = 0_usize;
+    let mut readbacks = 0_usize;
+    for (format, source, expected_patterns, expected_finite) in scopes {
+        assert_eq!(source.len(), expected_patterns, "{format:?} pattern scope");
+        let width = match format {
+            Format::B16 => 16,
+            Format::B32 => 32,
+            Format::B64 => 64,
+        };
+        let spec = ValueSpec {
+            float_reading: FloatReading::NearestKeepingLexeme,
+            ..ValueSpec::new(ScalarKind::Float { bits: width })
+        };
+        let reference_spec = spec_to_ref(&spec);
+        let mut format_finite = 0_usize;
+        for bits in source {
+            patterns += 1;
+            let Some(shortest) = panproto_reference::float::shortest(format, bits) else {
+                assert_eq!(
+                    production_shortest(format, bits),
+                    None,
+                    "{format:?} {bits:#x}"
+                );
+                continue;
+            };
+            format_finite += 1;
+            finite += 1;
+            let production_decimal = production_shortest(format, bits)
+                .unwrap_or_else(|| panic!("production omitted finite {format:?} {bits:#x}"));
+            let text = production_scientific(&production_decimal);
+            assert_eq!(
+                text,
+                shortest.to_scientific(),
+                "closest-shortest text of {format:?} {bits:#x}"
             );
-            assert_eq!(tally.outside_reference, 0);
+            let expected = Ok(RValue::Float(widen_bits(format, bits)));
+            for class in [LexClass::Number, LexClass::String] {
+                assert_eq!(
+                    coerce_to_ref(&text, &class, &spec),
+                    expected,
+                    "production {format:?} {bits:#x} from {class:?} {text:?}"
+                );
+                assert_eq!(
+                    r::coerce(&text, &class_to_ref(&class), &reference_spec),
+                    Some(expected.clone()),
+                    "reference {format:?} {bits:#x} from {class:?} {text:?}"
+                );
+                readbacks += 1;
+            }
+        }
+        assert_eq!(format_finite, expected_finite, "{format:?} finite scope");
+    }
+    println!(
+        "closest-shortest readback: patterns={patterns}, finite={finite}, classes=2, \
+         readbacks={readbacks}; all recover their source pattern"
+    );
+    assert_eq!(patterns, 2 * 32 * 1024 + 2 * 256 * 8 + 2 * 287 * 14);
+    assert_eq!(finite, 2 * 31 * 1024 + 2 * 255 * 8 + 2 * 286 * 14);
+    assert_eq!(readbacks, 2 * finite);
+}
+
+proptest::proptest! {
+    /// Generated patterns at all three widths have the same closest-shortest
+    /// production and reference text. Every finite result reads back through
+    /// both production lexical classes to the exact source pattern.
+    #[test]
+    fn randomized_closest_shortest_readback_differential(
+        format_index in 0_u8..3,
+        raw_bits in proptest::prelude::any::<u64>(),
+    ) {
+        let (format, width, bits) = match format_index {
+            0 => (Format::B16, 16, raw_bits & 0xffff),
+            1 => (Format::B32, 32, raw_bits & 0xffff_ffff),
+            _ => (Format::B64, 64, raw_bits),
+        };
+        let reference = panproto_reference::float::shortest(format, bits);
+        let production = production_shortest(format, bits);
+        match (reference, production) {
+            (None, None) => {}
+            (Some(reference), Some(production)) => {
+                let text = production_scientific(&production);
+                let reference_text = reference.to_scientific();
+                proptest::prop_assert_eq!(
+                    &text,
+                    &reference_text,
+                    "{:?} closest-shortest text of {:#x}",
+                    format,
+                    bits,
+                );
+                let spec = ValueSpec {
+                    float_reading: FloatReading::NearestKeepingLexeme,
+                    ..ValueSpec::new(ScalarKind::Float { bits: width })
+                };
+                let expected: Result<RValue, r::FidelityReason> =
+                    Ok(RValue::Float(widen_bits(format, bits)));
+                for class in [LexClass::Number, LexClass::String] {
+                    proptest::prop_assert_eq!(
+                        coerce_to_ref(&text, &class, &spec),
+                        expected.clone(),
+                        "{:?} {:#x} from {:?} {:?}",
+                        format,
+                        bits,
+                        class,
+                        text,
+                    );
+                }
+            }
+            (reference, production) => proptest::prop_assert!(
+                false,
+                "{:?} {:#x}: reference={:?}, production={:?}",
+                format,
+                bits,
+                reference,
+                production,
+            ),
         }
     }
 }

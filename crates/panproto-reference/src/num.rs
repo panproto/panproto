@@ -721,14 +721,21 @@ impl Rat {
         }
     }
 
-    /// `10^k` for an integer exponent `k` (negative allowed).
+    /// `10^k` exactly (negative exponents allowed), provided the resulting
+    /// natural power is representable and its allocation succeeds.
     #[must_use]
     pub fn pow10(k: i64) -> Self {
-        let up = usize::try_from(k.max(0)).unwrap_or(usize::MAX);
-        let down = usize::try_from(k.min(0).unsigned_abs()).unwrap_or(usize::MAX);
-        Self {
-            num: Int::new(false, Nat::pow10(up)),
-            den: Nat::pow10(down),
+        let power = pow10_wide(k.unsigned_abs());
+        if k < 0 {
+            Self {
+                num: Int::new(false, Nat::one()),
+                den: power,
+            }
+        } else {
+            Self {
+                num: Int::new(false, power),
+                den: Nat::one(),
+            }
         }
     }
 
@@ -785,6 +792,36 @@ fn pow2_by_halving(m: u64, limit: u64) -> Nat {
     } else {
         square
     }
+}
+
+/// `10^m` exactly without narrowing `m` through the target pointer width,
+/// provided the resulting natural power is representable and allocated.
+fn pow10_wide(m: u64) -> Nat {
+    let limit = u64::try_from(usize::MAX).unwrap_or(u64::MAX);
+    pow10_by_halving(m, limit)
+}
+
+/// `10^m` exactly: directly when `m <= limit` and `m` fits `usize`, and
+/// otherwise as `(10^h)^2 * 10^r` with `m = 2h + r` and `r` in `{0, 1}`.
+/// The explicit limit lets tests exercise the target-width branch without
+/// constructing a power too large to hold in memory.
+fn pow10_by_halving(m: u64, limit: u64) -> Nat {
+    if let Some(small) = pow10_direct_exponent(m, limit) {
+        return Nat::pow10(small);
+    }
+    let half = pow10_by_halving(m / 2, limit);
+    let square = half.mul(&half);
+    if m % 2 == 1 {
+        square.mul(&Nat::from_u64(10))
+    } else {
+        square
+    }
+}
+
+/// The direct exponent when `m` fits both an explicit target-width limit and
+/// this build's `usize`; otherwise the caller must use the halving path.
+fn pow10_direct_exponent(m: u64, limit: u64) -> Option<usize> {
+    (m <= limit).then(|| usize::try_from(m).ok()).flatten()
 }
 
 /// `floor(log2(q))` for a positive rational `q`, by one exact comparison
@@ -883,6 +920,41 @@ mod tests {
             Rat::new(Int::from_i64(1), Nat::from_u64(8)).unwrap_or_else(Rat::zero)
         );
         assert_eq!(Rat::pow2(0), Rat::pow10(0));
+    }
+
+    #[test]
+    fn halving_powers_of_ten_are_exact_at_every_split() {
+        // A small artificial target limit exercises the same decomposition
+        // used when an i64 exponent is wider than usize on the real target.
+        for m in 0..=130_u64 {
+            let direct = Nat::pow10(usize::try_from(m).unwrap_or(0));
+            for limit in 0..=8 {
+                assert_eq!(
+                    pow10_by_halving(m, limit),
+                    direct,
+                    "10^{m} under limit {limit}"
+                );
+            }
+            assert_eq!(pow10_wide(m), direct);
+        }
+        assert_eq!(
+            Rat::pow10(3),
+            Rat::new(Int::from_i64(1_000), Nat::one()).unwrap_or_else(Rat::zero)
+        );
+        assert_eq!(
+            Rat::pow10(-3),
+            Rat::new(Int::from_i64(1), Nat::from_u64(1_000)).unwrap_or_else(Rat::zero)
+        );
+
+        // Exercise the actual wasm32 width boundary without materializing a
+        // multi-gigabyte power. The next exponent must take the halving path
+        // even when this test itself runs on a 64-bit host.
+        let wasm32_max = u64::from(u32::MAX);
+        assert_eq!(
+            pow10_direct_exponent(wasm32_max, wasm32_max),
+            usize::try_from(wasm32_max).ok()
+        );
+        assert_eq!(pow10_direct_exponent(wasm32_max + 1, wasm32_max), None);
     }
 
     #[test]
