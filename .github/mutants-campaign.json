@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "campaign": "compose-core-final-gat-788489cb",
+  "lane": "compose-final-gat",
+  "lane_commit": "788489cb93b67beb47bed4e26ba7851a3e54fcb1",
+  "package": "panproto-gat",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 40,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "32",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "groups": [
+    {
+      "name": "theories",
+      "files": [
+        "crates/panproto-gat/src/compose.rs",
+        "crates/panproto-gat/src/colimit.rs",
+        "crates/panproto-gat/src/composition.rs",
+        "crates/panproto-gat/src/typecheck.rs",
+        "crates/panproto-gat/src/morphism.rs",
+        "crates/panproto-gat/src/sort.rs",
+        "crates/panproto-gat/src/free_model.rs",
+        "crates/panproto-gat/src/quotient.rs",
+        "crates/panproto-gat/src/check_status.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=defined_into_closed_sort",
+        "--test=definitional_equality",
+        "--test=dependent_motive",
+        "--test=indexed_case",
+        "--test=let_polymorphism",
+        "--test=morphism_whole_action",
+        "--test=name_free_comparison",
+        "--test=reference_theories",
+        "--test=signature_binders",
+        "--test=tier1_class_agreement",
+        "--test=typed_holes",
+        "--test=verification_status"
+      ],
+      "test_args": [
+        "--filterset=not (test(=composition_agrees_on_every_class_signature_pair) | test(=composition_agrees_with_the_reference_on_every_discrete_pair) | test(=composition_agrees_with_the_reference_on_every_span))"
+      ]
+    }
+  ],
+  "priority_binaries": [
+    "tier1_class_agreement",
+    "name_free_comparison",
+    "signature_binders",
+    "morphism_whole_action",
+    "verification_status",
+    "typed_holes",
+    "definitional_equality",
+    "dependent_motive",
+    "indexed_case",
+    "let_polymorphism",
+    "defined_into_closed_sort"
+  ],
+  "_scope": "compose-core final rerun: every production file the theories page names (nine files of panproto-gat), whole-file mutation through --file, never --in-diff, at the survivor-remediation commit; the selection is the package's library unit tests and every integration test binary of panproto-gat, including the reference_theories differential adapter and its class-agreement sweep.",
+  "_priority": "The fast integration binaries are scheduled first so that a mutant they kill ends the run before the long differential sweeps of reference_theories start.",
+  "_selection_note": "The three longest reference_theories sweeps (class-agreement pairs, 61.5M discrete pairs, 3.8M spans; 47-62 min each in release) are left out of every mutant run so that a surviving mutant fits the shard limit; every other test of the package runs, and a mutant only those sweeps would kill is closed by a focused test."
+}
