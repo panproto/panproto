@@ -148,6 +148,8 @@ fn edge_kind_for_field(field_name: &str, src_kind: &str) -> &'static str {
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_web_annotation_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

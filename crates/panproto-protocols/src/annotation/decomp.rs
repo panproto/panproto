@@ -222,6 +222,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON structure cannot be parsed.
 pub fn parse_decomp(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     // Track vertex IDs so helper functions can check token existence before linking.

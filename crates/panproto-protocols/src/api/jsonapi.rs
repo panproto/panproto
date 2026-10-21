@@ -65,6 +65,8 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 ///
 /// Returns [`ProtocolError`] if parsing or schema construction fails.
 pub fn parse_jsonapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

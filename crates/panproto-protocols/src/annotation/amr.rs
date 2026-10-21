@@ -127,6 +127,8 @@ const RELATION_EDGES: &[&str] = &[
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_amr_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

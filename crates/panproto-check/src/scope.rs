@@ -505,6 +505,7 @@ mod tests {
     use super::*;
     use panproto_gat::Name;
     use panproto_schema::Vertex;
+    use std::collections::BTreeMap;
 
     fn test_schema(verts: &[(&str, &str)]) -> Schema {
         let mut vertices = HashMap::new();
@@ -684,7 +685,7 @@ mod tests {
         // owning scope must still appear in the report.
         let schema = test_schema(&[("file.rs", "source_file"), ("file.rs::fn_a", "function")]);
         let diff = SchemaDiff {
-            modified_constraints: HashMap::from([(
+            modified_constraints: BTreeMap::from([(
                 "file.rs::fn_a".to_string(),
                 crate::diff::ConstraintDiff {
                     added: vec![],

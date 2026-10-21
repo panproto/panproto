@@ -143,6 +143,8 @@ fn qualify(prefix: Option<&str>, local: &str) -> String {
 /// Returns [`ProtocolError::Parse`] if two documents declare the same
 /// `$id`, or a construction error from the schema builder.
 pub fn parse_openapi_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::all_in_key_order(docs);
+    let docs = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut counter: usize = 0;

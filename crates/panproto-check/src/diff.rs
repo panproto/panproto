@@ -36,7 +36,7 @@ pub struct SchemaDiff {
 
     // --- Constraints ---
     /// Constraints that changed between old and new, keyed by vertex ID.
-    pub modified_constraints: HashMap<String, ConstraintDiff>,
+    pub modified_constraints: BTreeMap<String, ConstraintDiff>,
 
     // --- Hyper-edges ---
     /// Hyper-edge IDs added in the new schema.
@@ -48,13 +48,13 @@ pub struct SchemaDiff {
 
     // --- Required edges ---
     /// Per-vertex: required edges added in the new schema.
-    pub added_required: HashMap<String, Vec<Edge>>,
+    pub added_required: BTreeMap<String, Vec<Edge>>,
     /// Per-vertex: required edges removed from the old schema.
-    pub removed_required: HashMap<String, Vec<Edge>>,
+    pub removed_required: BTreeMap<String, Vec<Edge>>,
 
     // --- NSIDs ---
     /// Vertex-to-NSID mappings added in the new schema.
-    pub added_nsids: HashMap<String, String>,
+    pub added_nsids: BTreeMap<String, String>,
     /// Vertex IDs whose NSID mapping was removed.
     pub removed_nsids: Vec<String>,
     /// NSID mappings that changed: `(vertex_id, old_nsid, new_nsid)`.
@@ -239,11 +239,11 @@ pub struct HyperEdgeChange {
     /// Kind change: `(old_kind, new_kind)`, or `None` if unchanged.
     pub kind_change: Option<(String, String)>,
     /// Signature labels added: label → `vertex_id`.
-    pub signature_added: HashMap<String, String>,
+    pub signature_added: BTreeMap<String, String>,
     /// Signature labels removed: label → `vertex_id`.
-    pub signature_removed: HashMap<String, String>,
+    pub signature_removed: BTreeMap<String, String>,
     /// Signature labels whose vertex changed: label → (`old_vid`, `new_vid`).
-    pub signature_changed: HashMap<String, (String, String)>,
+    pub signature_changed: BTreeMap<String, (String, String)>,
     /// Parent label change: `(old, new)`, or `None` if unchanged.
     pub parent_label_change: Option<(String, String)>,
 }
@@ -419,6 +419,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
                 .push(((*edge).clone(), old_pos, new_pos));
         }
     }
+    result.order_changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // --- Recursion Points ---
     diff_recursion_points(old, new, &mut result);
@@ -438,6 +439,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
                 .push(((*edge).clone(), old_mode, new_mode));
         }
     }
+    result.usage_mode_changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // --- Spans ---
     diff_spans(old, new, &mut result);
@@ -571,6 +573,9 @@ fn diff_constraints(old: &[Constraint], new: &[Constraint]) -> ConstraintDiff {
         }
     }
 
+    added.sort();
+    removed.sort();
+    changed.sort_by(|a, b| a.sort.cmp(&b.sort));
     ConstraintDiff {
         added,
         removed,
@@ -620,9 +625,9 @@ fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             ))
         };
 
-        let mut sig_added = HashMap::new();
-        let mut sig_removed = HashMap::new();
-        let mut sig_changed = HashMap::new();
+        let mut sig_added = BTreeMap::new();
+        let mut sig_removed = BTreeMap::new();
+        let mut sig_changed = BTreeMap::new();
 
         for (label, new_vid) in &new_he.signature {
             match old_he.signature.get(label) {
@@ -673,14 +678,16 @@ fn diff_required(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             .map(|v| v.iter().collect())
             .unwrap_or_default();
 
-        let added: Vec<Edge> = new_edges
+        let mut added: Vec<Edge> = new_edges
             .difference(&old_edges)
             .map(|e| (*e).clone())
             .collect();
-        let removed: Vec<Edge> = old_edges
+        let mut removed: Vec<Edge> = old_edges
             .difference(&new_edges)
             .map(|e| (*e).clone())
             .collect();
+        added.sort();
+        removed.sort();
 
         if !added.is_empty() {
             result.added_required.insert(vid.to_string(), added);
@@ -762,6 +769,9 @@ fn diff_variants(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
         }
     }
 
+    let variant_key = |v: &Variant| (v.parent_vertex.clone(), v.id.clone());
+    result.added_variants.sort_by_key(variant_key);
+    result.removed_variants.sort_by_key(variant_key);
     result
         .modified_variants
         .sort_by(|a, b| (&a.parent_vertex, &a.id).cmp(&(&b.parent_vertex, &b.id)));
@@ -794,6 +804,13 @@ fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
                 .push((id.clone(), old_rp.clone()));
         }
     }
+    result.added_recursion_points.sort_by(|a, b| a.0.cmp(&b.0));
+    result
+        .removed_recursion_points
+        .sort_by(|a, b| a.0.cmp(&b.0));
+    result
+        .modified_recursion_points
+        .sort_by(|a, b| a.mu_id.cmp(&b.mu_id));
 }
 
 /// Diff spans: additions, removals, and left/right changes.
@@ -1556,7 +1573,7 @@ mod tests {
                 ..Default::default()
             },
             SchemaDiff {
-                modified_constraints: HashMap::from([(
+                modified_constraints: BTreeMap::from([(
                     "a".into(),
                     ConstraintDiff {
                         added: vec![Constraint {
@@ -1581,23 +1598,23 @@ mod tests {
                 modified_hyper_edges: vec![HyperEdgeChange {
                     id: "he".into(),
                     kind_change: None,
-                    signature_added: HashMap::new(),
-                    signature_removed: HashMap::new(),
-                    signature_changed: HashMap::new(),
+                    signature_added: BTreeMap::new(),
+                    signature_removed: BTreeMap::new(),
+                    signature_changed: BTreeMap::new(),
                     parent_label_change: Some(("a".into(), "b".into())),
                 }],
                 ..Default::default()
             },
             SchemaDiff {
-                added_required: HashMap::from([("a".into(), vec![])]),
+                added_required: BTreeMap::from([("a".into(), vec![])]),
                 ..Default::default()
             },
             SchemaDiff {
-                removed_required: HashMap::from([("a".into(), vec![])]),
+                removed_required: BTreeMap::from([("a".into(), vec![])]),
                 ..Default::default()
             },
             SchemaDiff {
-                added_nsids: HashMap::from([("a".into(), "x".into())]),
+                added_nsids: BTreeMap::from([("a".into(), "x".into())]),
                 ..Default::default()
             },
             SchemaDiff {

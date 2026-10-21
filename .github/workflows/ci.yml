@@ -129,6 +129,16 @@ jobs:
       - run: cargo test --doc --workspace
         env:
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      # A build that turns on serde_json's `preserve_order` hands document
+      # parsers each object's members in written order rather than sorted.
+      # The default build above cannot tell the two apart, so the member
+      # order tests run again with the feature on.
+      - name: Schema identity under preserve_order
+        run: >-
+          cargo nextest run -p panproto-protocols --features serde_json/preserve_order
+          --no-tests=fail -E 'binary(a_schema_does_not_depend_on_member_order) or test(/key_order::/)'
+        env:
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
       - name: Report disk headroom
         # A run that passes with almost nothing left is a run that will
         # fail on the next grammar added, and nothing else would say so.
