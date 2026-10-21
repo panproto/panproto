@@ -579,7 +579,7 @@ fn conform(instance: &FInstance, scope: &Scope<'_>) -> Result<(), AdjunctionErro
             .min()
             .map(|key| (key.clone(), NonConformance::StrayCell));
         let keys = match (missing, stray) {
-            (Some(m), Some(s)) => Some(if s.0 < m.0 { s } else { m }),
+            (Some(m), Some(s)) => Some(if s.0.cmp(&m.0).is_lt() { s } else { m }),
             (m, s) => m.or(s),
         };
         if let Some((column, reason)) = keys {
@@ -771,11 +771,19 @@ impl ValueClasses {
 
     /// The root of `i`'s class.
     fn root(&mut self, mut i: usize) -> usize {
-        while self.parent[i] != i {
-            self.parent[i] = self.parent[self.parent[i]];
-            i = self.parent[i];
+        // Bound the walk by the number of classes. Besides documenting the
+        // union-find invariant, the bound makes a corrupted parent cycle a
+        // prompt failure instead of an unbounded loop.
+        for _ in 0..self.parent.len() {
+            let parent = self.parent[i];
+            if parent == i {
+                return i;
+            }
+            let grandparent = self.parent[parent];
+            self.parent[i] = grandparent;
+            i = grandparent;
         }
-        i
+        unreachable!("a value-class parent chain must reach a root")
     }
 
     /// Join the classes of `a` and `b`; on two different constants, return
@@ -2966,6 +2974,238 @@ mod tests {
                 .iter()
                 .map(|(c, v)| ((*c).to_owned(), v.clone()))
                 .collect()
+        }
+    }
+
+    /// Focused witnesses for mutation-sensitive branches in the small
+    /// helpers used by the table adjunctions. Each case distinguishes a
+    /// semantically different outcome rather than merely executing a line.
+    mod mutation_regressions {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use super::fixture::row;
+        use super::*;
+        use crate::functor::Row;
+
+        fn one_table(table: &str, rows: impl IntoIterator<Item = (u32, Row)>) -> FInstance {
+            FInstance::new()
+                .with_rows(
+                    table,
+                    rows.into_iter().map(|(id, cells)| (RowId(id), cells)),
+                )
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"))
+        }
+
+        fn two_tables(first: (&str, u32, Row), second: (&str, u32, Row)) -> FInstance {
+            FInstance::new()
+                .with_rows(first.0, [(RowId(first.1), first.2)])
+                .and_then(|instance| instance.with_rows(second.0, [(RowId(second.1), second.2)]))
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"))
+        }
+
+        #[test]
+        fn source_edges_excludes_images_and_keeps_implicit_identities() {
+            let renamed = edge("a", "b", "renamed");
+            let image = edge("x", "y", "image");
+            let identity = edge("c", "d", "identity");
+            let migration = CompiledMigration {
+                edge_remap: HashMap::from([(renamed.clone(), image.clone())]),
+                surviving_edges: HashSet::from([renamed.clone(), image, identity.clone()]),
+                ..CompiledMigration::default()
+            };
+
+            assert_eq!(
+                source_edges(&migration),
+                BTreeSet::from([renamed, identity])
+            );
+        }
+
+        #[test]
+        fn inverting_edges_rejects_two_sources_with_one_image() {
+            let first = edge("a", "b", "first");
+            let second = edge("a", "b", "second");
+            let image = edge("x", "y", "merged");
+            let migration = CompiledMigration {
+                edge_remap: HashMap::from([(first, image.clone()), (second, image)]),
+                ..CompiledMigration::default()
+            };
+
+            assert!(matches!(
+                invert_edge_map(&migration),
+                Err(AdjunctionError::NonInjectiveEdgeMap { .. })
+            ));
+        }
+
+        fn scope<'a>(
+            table: &'a Name,
+            columns: &'a [&'a str],
+            relations: &'a BTreeSet<Edge>,
+        ) -> Scope<'a> {
+            Scope {
+                tables: BTreeMap::from([(table, columns.iter().copied().collect())]),
+                relations: relations.iter().collect(),
+            }
+        }
+
+        fn nonconformance(
+            result: Result<(), AdjunctionError>,
+        ) -> (RowId, Option<String>, NonConformance) {
+            match result {
+                Err(AdjunctionError::NonConforming {
+                    row,
+                    column,
+                    reason,
+                }) => (row, column, reason),
+                other => panic!("expected a non-conformance, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn conformance_chooses_the_lexically_first_bad_column() {
+            let table = Name::from("a");
+            let relations = BTreeSet::new();
+            let columns = ["middle"];
+            let instance = one_table("a", [(0, row(&[("alpha", Value::Int(1))]))]);
+
+            assert_eq!(
+                nonconformance(conform(&instance, &scope(&table, &columns, &relations))),
+                (
+                    RowId(0),
+                    Some("alpha".to_owned()),
+                    NonConformance::StrayCell
+                )
+            );
+        }
+
+        #[test]
+        fn conformance_orders_row_and_relation_violations_by_source_row() {
+            let table = Name::from("a");
+            let columns = ["x"];
+            let relations = BTreeSet::new();
+            let outside = edge("a", "a", "outside");
+            let valid = row(&[("x", Value::Int(1))]);
+            let invalid = row(&[("x", Value::Int(1)), ("z", Value::Int(2))]);
+
+            let pair_first = one_table("a", [(1, valid.clone()), (2, invalid.clone())])
+                .with_foreign_key(outside.clone(), [(RowId(1), RowId(1))])
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"));
+            assert_eq!(
+                nonconformance(conform(&pair_first, &scope(&table, &columns, &relations),)),
+                (
+                    RowId(1),
+                    None,
+                    NonConformance::RelationOutside {
+                        edge: Box::new(outside.clone()),
+                    },
+                )
+            );
+
+            let row_first = one_table("a", [(1, invalid), (2, valid)])
+                .with_foreign_key(outside, [(RowId(2), RowId(2))])
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"));
+            assert_eq!(
+                nonconformance(conform(&row_first, &scope(&table, &columns, &relations),)),
+                (RowId(1), Some("z".to_owned()), NonConformance::StrayCell)
+            );
+        }
+
+        #[test]
+        fn value_class_roots_follow_a_chain_to_its_constant() {
+            let mut classes = ValueClasses::default();
+            classes
+                .union(&Value::LabeledNull(7), &Value::LabeledNull(8))
+                .unwrap_or_else(|values| panic!("two nulls cannot clash: {values:?}"));
+            classes
+                .union(&Value::LabeledNull(8), &Value::Int(13))
+                .unwrap_or_else(|values| panic!("a null and a constant cannot clash: {values:?}"));
+
+            assert_eq!(
+                classes.representative(&Value::LabeledNull(7)),
+                Value::Int(13)
+            );
+            assert_eq!(
+                classes.representative(&Value::LabeledNull(8)),
+                Value::Int(13)
+            );
+        }
+
+        #[test]
+        fn first_offending_row_distinguishes_each_homomorphism_obligation() {
+            let source = one_table("a", [(0, row(&[("x", Value::Int(1))]))]);
+            let target = one_table("a", [(10, row(&[("x", Value::Int(1))]))]);
+            let map = FInstanceHom::new(BTreeMap::from([(RowId(0), RowId(10))]));
+            assert_eq!(first_offending_row(&map, &source, &target), None);
+            assert_eq!(
+                first_offending_row(&FInstanceHom::default(), &source, &target),
+                Some(RowId(0))
+            );
+
+            let wrong_table = one_table("b", [(10, row(&[("x", Value::Int(1))]))]);
+            assert_eq!(
+                first_offending_row(&map, &source, &wrong_table),
+                Some(RowId(0))
+            );
+            let extra_cell = one_table(
+                "a",
+                [(10, row(&[("x", Value::Int(1)), ("y", Value::Int(2))]))],
+            );
+            assert_eq!(
+                first_offending_row(&map, &source, &extra_cell),
+                Some(RowId(0))
+            );
+            let changed_cell = one_table("a", [(10, row(&[("x", Value::Int(2))]))]);
+            assert_eq!(
+                first_offending_row(&map, &source, &changed_cell),
+                Some(RowId(0))
+            );
+
+            let relation = edge("a", "b", "r");
+            let domain = two_tables(("a", 0, HashMap::new()), ("b", 1, HashMap::new()))
+                .with_foreign_key(relation.clone(), [(RowId(0), RowId(1))])
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"));
+            let codomain = two_tables(("a", 10, HashMap::new()), ("b", 11, HashMap::new()));
+            let relation_map = FInstanceHom::new(BTreeMap::from([
+                (RowId(0), RowId(10)),
+                (RowId(1), RowId(11)),
+            ]));
+            assert_eq!(
+                first_offending_row(&relation_map, &domain, &codomain),
+                Some(RowId(0))
+            );
+            let codomain = codomain
+                .with_foreign_key(relation, [(RowId(10), RowId(11))])
+                .unwrap_or_else(|error| panic!("the fixture is a valid instance: {error}"));
+            assert_eq!(first_offending_row(&relation_map, &domain, &codomain), None);
+        }
+
+        #[test]
+        fn fast_composition_is_not_used_when_schema_names_change() {
+            let rows_g = BTreeMap::from([(RowId(0), RowId(1))]);
+            let rows_h = BTreeMap::from([(RowId(1), RowId(2))]);
+            let no_nulls = BTreeSet::new();
+
+            let g = FInstanceHom::new(rows_g.clone())
+                .with_table_map(BTreeMap::from([(Name::from("a"), Name::from("b"))]));
+            let h = FInstanceHom::new(rows_h.clone());
+            let composite = then(&g, &h, &no_nulls)
+                .unwrap_or_else(|error| panic!("the homomorphisms compose: {error}"));
+            assert_eq!(composite.image_table(&Name::from("a")), &Name::from("b"));
+
+            let h = h.with_table_map(BTreeMap::from([(Name::from("b"), Name::from("c"))]));
+            let composite = then(&g, &h, &no_nulls)
+                .unwrap_or_else(|error| panic!("the homomorphisms compose: {error}"));
+            assert_eq!(composite.image_table(&Name::from("a")), &Name::from("c"));
+
+            let source = edge("a", "a", "source");
+            let middle = edge("a", "a", "middle");
+            let target = edge("a", "a", "target");
+            let g = FInstanceHom::new(rows_g)
+                .with_edge_map(BTreeMap::from([(source.clone(), middle.clone())]));
+            let h =
+                FInstanceHom::new(rows_h).with_edge_map(BTreeMap::from([(middle, target.clone())]));
+            let composite = then(&g, &h, &no_nulls)
+                .unwrap_or_else(|error| panic!("the homomorphisms compose: {error}"));
+            assert_eq!(composite.image_edge(&source), target);
         }
     }
 
