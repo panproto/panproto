@@ -271,9 +271,13 @@ fn shared_columns<'c>(one: &'c Component, other: &Component) -> Vec<&'c String> 
 /// The join is unchanged (a dropped row is in no cone), and afterwards any
 /// two components agree on what they share (pairwise consistency).
 fn reduce(components: &mut [Component]) {
-    let mut changed = true;
-    while changed {
-        changed = false;
+    let max_rounds = components
+        .iter()
+        .map(|component| component.rows.len())
+        .sum::<usize>()
+        .saturating_add(1);
+    for _ in 0..max_rounds {
+        let mut changed = false;
         for i in 0..components.len() {
             for j in 0..components.len() {
                 if i == j {
@@ -297,26 +301,35 @@ fn reduce(components: &mut [Component]) {
                 components[i]
                     .rows
                     .retain(|(_, at)| key_at(at, &shared).is_some_and(|k| keys.contains(&k)));
-                changed |= components[i].rows.len() != before;
+                if components[i].rows.len() != before {
+                    changed = true;
+                }
             }
         }
+        if !changed {
+            return;
+        }
     }
+    unreachable!("each changing reduction round removes at least one row");
 }
 
 /// The components that share target columns, grouped into connected
 /// groups (as indices into `components`), each ascending, the groups
 /// ordered by their least member.
 fn connected_groups(components: &[Component]) -> Vec<Vec<usize>> {
-    const fn root(group_of: &mut [usize], mut i: usize) -> usize {
-        while group_of[i] != i {
+    fn root(group_of: &mut [usize], mut i: usize) -> usize {
+        for _ in 0..group_of.len() {
+            if group_of[i] == i {
+                return i;
+            }
             group_of[i] = group_of[group_of[i]];
             i = group_of[i];
         }
-        i
+        unreachable!("the parent forest is acyclic and points to smaller indices");
     }
     let mut group_of: Vec<usize> = (0..components.len()).collect();
     for i in 0..components.len() {
-        for j in (i + 1)..components.len() {
+        for j in 0..i {
             if !shared_columns(&components[i], &components[j]).is_empty() {
                 let (a, b) = (root(&mut group_of, i), root(&mut group_of, j));
                 group_of[a.max(b)] = a.min(b);
@@ -344,9 +357,10 @@ fn join_tree(
     let mut parent: Vec<Option<usize>> = vec![None; components.len()];
     let mut remaining: Vec<usize> = group.to_vec();
     let mut order = Vec::with_capacity(group.len());
-    while remaining.len() > 1 {
+    while matches!(remaining.as_slice(), [_, _, ..]) {
         let ear = remaining.iter().enumerate().find_map(|(at, &e)| {
-            let others: Vec<usize> = remaining.iter().copied().filter(|&f| f != e).collect();
+            let mut others = remaining.clone();
+            others.remove(at);
             let linked: Vec<&String> = components[e]
                 .columns
                 .iter()
@@ -1083,6 +1097,7 @@ mod tests {
 
     use super::*;
     use crate::value::Value;
+    use crate::wtype::FieldTransform;
 
     fn make_test_schema(vertices: &[&str], edges: &[Edge]) -> Schema {
         let mut between = HashMap::new();
@@ -1166,6 +1181,116 @@ mod tests {
         let result = wtype_pi(&inst, &schema, &migration, 10_000).unwrap();
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.arc_count(), 1);
+    }
+
+    #[test]
+    fn wtype_pi_applies_nonempty_field_transforms() {
+        let schema = make_test_schema(&["root"], &[]);
+        let mut root = Node::new(0, "root");
+        root.extra_fields.insert("old".into(), Value::Int(7));
+        let inst = WInstance::new(
+            HashMap::from([(0, root)]),
+            vec![],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let mut migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root")]),
+            ..CompiledMigration::default()
+        };
+        migration.field_transforms.insert(
+            Name::from("root"),
+            vec![FieldTransform::RenameField {
+                old_key: "old".into(),
+                new_key: "new".into(),
+            }],
+        );
+
+        let out = wtype_pi(&inst, &schema, &migration, usize::MAX).unwrap();
+        assert_eq!(out.nodes[&0].extra_fields.get("new"), Some(&Value::Int(7)));
+        assert!(!out.nodes[&0].extra_fields.contains_key("old"));
+    }
+
+    #[test]
+    fn wtype_pi_ignores_an_arc_with_one_missing_endpoint() {
+        let edge = Edge {
+            src: "root".into(),
+            tgt: "missing".into(),
+            kind: "prop".into(),
+            name: Some("child".into()),
+        };
+        let schema = make_test_schema(&["root"], &[]);
+        let inst = WInstance::new(
+            HashMap::from([(0, Node::new(0, "root"))]),
+            vec![(0, 99, edge)],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root")]),
+            ..CompiledMigration::default()
+        };
+
+        let out = wtype_pi(&inst, &schema, &migration, usize::MAX).unwrap();
+        assert!(out.arcs.is_empty());
+    }
+
+    #[test]
+    fn wtype_pi_resolves_a_surviving_edge_when_exactly_one_endpoint_changes() {
+        for remap_parent in [true, false] {
+            let source_edge = Edge {
+                src: "parent".into(),
+                tgt: "child".into(),
+                kind: "prop".into(),
+                name: Some("link".into()),
+            };
+            let (parent_image, child_image) = if remap_parent {
+                (Name::from("parent-image"), Name::from("child"))
+            } else {
+                (Name::from("parent"), Name::from("child-image"))
+            };
+            let target_edge = Edge {
+                src: parent_image.clone(),
+                tgt: child_image.clone(),
+                kind: "prop".into(),
+                name: Some("resolved".into()),
+            };
+            let schema = make_test_schema(
+                &[parent_image.as_str(), child_image.as_str()],
+                std::slice::from_ref(&target_edge),
+            );
+            let inst = WInstance::new(
+                HashMap::from([(0, Node::new(0, "parent")), (1, Node::new(1, "child"))]),
+                vec![(0, 1, source_edge.clone())],
+                vec![],
+                0,
+                Name::from("parent"),
+            );
+            let mut migration = CompiledMigration {
+                surviving_edges: HashSet::from([source_edge]),
+                ..CompiledMigration::default()
+            };
+            if remap_parent {
+                migration
+                    .vertex_remap
+                    .insert(Name::from("parent"), parent_image);
+                migration.surviving_verts.insert(Name::from("child"));
+            } else {
+                migration
+                    .vertex_remap
+                    .insert(Name::from("child"), child_image);
+                migration.surviving_verts.insert(Name::from("parent"));
+            }
+
+            let out = wtype_pi(&inst, &schema, &migration, usize::MAX).unwrap();
+            assert_eq!(
+                out.arcs,
+                vec![(0, 1, target_edge)],
+                "remap_parent={remap_parent}"
+            );
+        }
     }
 
     #[test]
@@ -1536,6 +1661,127 @@ mod tests {
         let before = JOIN_WORK.with(std::cell::Cell::get);
         let out = run();
         (out, JOIN_WORK.with(std::cell::Cell::get) - before)
+    }
+
+    /// A row already expressed at target columns.
+    fn at_target(values: impl IntoIterator<Item = (&'static str, i64)>) -> AtTarget {
+        values
+            .into_iter()
+            .map(|(column, value)| {
+                let value = Value::Int(value);
+                (column.to_owned(), (value.canonical_bytes(), value))
+            })
+            .collect()
+    }
+
+    /// A join component with target columns and rows supplied directly.
+    fn component(
+        position: usize,
+        columns: &[&str],
+        rows: impl IntoIterator<Item = (u32, AtTarget)>,
+    ) -> Component {
+        Component {
+            position,
+            columns: columns.iter().map(|column| (*column).to_owned()).collect(),
+            rows: rows.into_iter().map(|(id, row)| (RowId(id), row)).collect(),
+        }
+    }
+
+    #[test]
+    fn join_reduction_reaches_the_fixed_point_and_charges_each_scan() {
+        let mut components = vec![
+            component(
+                0,
+                &["x"],
+                [(0, at_target([("x", 1)])), (1, at_target([("x", 2)]))],
+            ),
+            component(
+                1,
+                &["x", "y"],
+                [
+                    (2, at_target([("x", 1), ("y", 1)])),
+                    (3, at_target([("x", 2), ("y", 2)])),
+                ],
+            ),
+            component(2, &["y"], [(4, at_target([("y", 1)]))]),
+        ];
+
+        let ((), work) = join_work(|| reduce(&mut components));
+        assert_eq!(
+            components
+                .iter()
+                .map(|part| part.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            vec![vec![RowId(0)], vec![RowId(2)], vec![RowId(4)]]
+        );
+        assert_eq!(work, 30);
+    }
+
+    #[test]
+    fn connected_groups_follow_shared_column_chains() {
+        let components = vec![
+            component(0, &["x"], []),
+            component(1, &["z"], []),
+            component(2, &["x", "y"], []),
+            component(3, &["y"], []),
+        ];
+
+        assert_eq!(connected_groups(&components), vec![vec![0, 2, 3], vec![1]]);
+    }
+
+    #[test]
+    fn join_tree_accepts_a_chain_and_rejects_a_cycle() {
+        let chain = vec![
+            component(0, &["x"], []),
+            component(1, &["x", "y"], []),
+            component(2, &["y"], []),
+        ];
+        let (order, parent) = join_tree(&chain, &[0, 1, 2]).unwrap();
+        assert_eq!(order, vec![0, 1, 2]);
+        assert_eq!(parent, vec![Some(1), Some(2), None]);
+
+        let cycle = vec![
+            component(0, &["a", "b"], []),
+            component(1, &["b", "c"], []),
+            component(2, &["a", "c"], []),
+        ];
+        assert!(join_tree(&cycle, &[0, 1, 2]).is_none());
+    }
+
+    #[test]
+    fn tree_and_walk_counts_agree_on_a_join_with_multiplicity() {
+        let components = vec![
+            component(
+                0,
+                &["x"],
+                [
+                    (0, at_target([("x", 1)])),
+                    (1, at_target([("x", 1)])),
+                    (2, at_target([("x", 2)])),
+                ],
+            ),
+            component(
+                1,
+                &["x", "y"],
+                [
+                    (3, at_target([("x", 1), ("y", 10)])),
+                    (4, at_target([("x", 2), ("y", 20)])),
+                ],
+            ),
+            component(
+                2,
+                &["y"],
+                [(5, at_target([("y", 10)])), (6, at_target([("y", 20)]))],
+            ),
+        ];
+        let (removal, parent) = join_tree(&components, &[0, 1, 2]).unwrap();
+        let (tree_total, work) = join_work(|| tree_count(&components, &removal, &parent));
+        assert_eq!(tree_total, 3);
+        assert_eq!(work, 9);
+
+        let order = connected_order(&components, &[0, 1, 2]);
+        let steps = join_steps(&components, &order);
+        assert_eq!(count_cones(&components, &steps), 3);
     }
 
     /// Rows holding `column = value` for each `(id, value)`.
