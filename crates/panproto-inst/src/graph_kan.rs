@@ -191,7 +191,7 @@ impl SideData {
         }
 
         let mut inner_edges = BTreeSet::new();
-        loop {
+        for _ in 0..=source.inner_edges().len() {
             let before = value_vertices.len();
             for edge in source.inner_edges() {
                 if value_vertices.contains(&edge.src) {
@@ -1365,7 +1365,11 @@ fn conform(instance: &FInstance, side: &SideData) -> Result<(), GraphKanError> {
             .min()
             .map(|column| (column.clone(), NonConformance::StrayCell));
         let first = match (missing, stray) {
-            (Some(missing), Some(stray)) => Some(if stray.0 < missing.0 { stray } else { missing }),
+            (Some(missing), Some(stray)) => Some(if stray.0.cmp(&missing.0).is_lt() {
+                stray
+            } else {
+                missing
+            }),
             (missing, stray) => missing.or(stray),
         };
         if let Some((column, reason)) = first {
@@ -1382,12 +1386,24 @@ fn conform(instance: &FInstance, side: &SideData) -> Result<(), GraphKanError> {
     let pair_violation = instance
         .foreign_keys()
         .into_iter()
-        .filter(|(edge, pairs)| !pairs.is_empty() && !side.relations.contains(*edge))
+        .filter(|(edge, _)| !side.relations.contains(*edge))
         .filter_map(|(edge, pairs)| pairs.first().map(|(src, _)| (*src, (*edge).clone())))
         .min_by_key(|(src, _)| *src);
     let violation = match (row_violation, pair_violation) {
-        (Some(row), Some((src, _))) if row.0 <= src => Some(row),
-        (_, Some((src, edge))) => Some((
+        (Some(row), Some((src, edge))) => {
+            if row.0.cmp(&src).is_gt() {
+                Some((
+                    src,
+                    None,
+                    NonConformance::RelationOutside {
+                        edge: Box::new(edge),
+                    },
+                ))
+            } else {
+                Some(row)
+            }
+        }
+        (None, Some((src, edge))) => Some((
             src,
             None,
             NonConformance::RelationOutside {
@@ -1496,7 +1512,7 @@ fn selected_relation_layout(
             .then(|| entries.first().and_then(|entry| entry.id))
             .flatten(),
         position: entries.iter().filter_map(|entry| entry.position).min(),
-        has_source: !entries.is_empty(),
+        has_source: matches!(entries.as_slice(), [_, ..]),
     }
 }
 
@@ -2415,8 +2431,71 @@ pub fn g_pi_transpose_right(
 
 #[cfg(test)]
 mod tests {
-    use super::allocate_fresh;
+    use super::*;
     use crate::segment::{IdAllocator, IdRange};
+
+    fn ok<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("expected success, got {error:?}"),
+        }
+    }
+
+    fn present<T>(value: Option<T>) -> T {
+        let Some(value) = value else {
+            panic!("expected a value");
+        };
+        value
+    }
+
+    fn edge(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    fn table_side(columns: &[&str]) -> SideData {
+        let columns = columns
+            .iter()
+            .map(|column| ((*column).to_owned(), edge("t", "integer", column)))
+            .collect();
+        SideData {
+            tables: [Name::from("t"), Name::from("u")].into_iter().collect(),
+            relations: BTreeSet::new(),
+            columns: BTreeMap::from([
+                (Name::from("t"), columns),
+                (Name::from("u"), BTreeMap::new()),
+            ]),
+            value_vertices: BTreeSet::from([Name::from("integer")]),
+            inner_edges: BTreeSet::new(),
+        }
+    }
+
+    fn violation(instance: &FInstance, side: &SideData) -> (RowId, Option<String>, NonConformance) {
+        match conform(instance, side) {
+            Err(GraphKanError::Adjunction(AdjunctionError::NonConforming {
+                row,
+                column,
+                reason,
+            })) => (row, column, reason),
+            Err(other) => panic!("expected non-conformance, got {other:?}"),
+            Ok(()) => panic!("expected non-conformance, got success"),
+        }
+    }
+
+    fn one_field_cell(inner: Edge) -> CellLayout {
+        let mut leaf = Node::new(11, inner.tgt.clone());
+        leaf.value = Some(FieldPresence::Present(Value::Int(1)));
+        CellLayout {
+            root: 10,
+            attribute: EdgeLayout::default(),
+            nodes: BTreeMap::from([(10, Node::new(10, "record")), (11, leaf)]),
+            edges: BTreeMap::from([(EdgeId(1), GEdge::new(10, 11, inner))]),
+        }
+    }
 
     /// At every floor in the last four ids, fresh decode ids are the ids
     /// from the floor up to `u32::MAX - 1`, and then allocation fails.
@@ -2431,5 +2510,188 @@ mod tests {
             }
             assert_eq!(drawn, (floor..u32::MAX).collect::<Vec<_>>());
         }
+    }
+
+    #[test]
+    fn null_detection_descends_through_lists_and_records() {
+        let null = Value::LabeledNull(7);
+        assert!(holds_any_null(&Value::List(vec![null.clone()])));
+        assert!(holds_any_null(&Value::Unknown(HashMap::from([(
+            "field".into(),
+            null.clone(),
+        )]))));
+        assert!(holds_nested_null(&Value::Opaque {
+            type_: "record".into(),
+            fields: HashMap::from([("field".into(), null)]),
+        }));
+        assert!(!holds_nested_null(&Value::LabeledNull(7)));
+    }
+
+    #[test]
+    fn cell_fit_checks_edge_membership_and_both_endpoint_anchors() {
+        let arrow = edge("t", "record", "cell");
+        let inner = edge("record", "integer", "field");
+        let valid = one_field_cell(inner.clone());
+        let value = ok(fold_layout(&valid));
+        let mut side = table_side(&[]);
+        side.inner_edges.insert(inner);
+        assert!(cell_fits(&valid, &value, &arrow, &side));
+
+        let mut outside = side.clone();
+        outside.inner_edges.clear();
+        assert!(!cell_fits(&valid, &value, &arrow, &outside));
+
+        let wrong_source_edge = edge("other", "integer", "field");
+        let wrong_source = one_field_cell(wrong_source_edge.clone());
+        let mut wrong_source_side = side.clone();
+        wrong_source_side.inner_edges = BTreeSet::from([wrong_source_edge]);
+        assert!(!cell_fits(
+            &wrong_source,
+            &value,
+            &arrow,
+            &wrong_source_side
+        ));
+
+        let mut wrong_target = valid;
+        present(wrong_target.nodes.get_mut(&11)).anchor = Name::from("other");
+        assert!(!cell_fits(&wrong_target, &value, &arrow, &side));
+    }
+
+    #[test]
+    fn moving_a_cell_accepts_agreement_and_rejects_an_anchor_conflict() {
+        let first = edge("record", "leaf", "a");
+        let second = edge("record", "leaf", "b");
+        let cell = CellLayout {
+            root: 0,
+            attribute: EdgeLayout::default(),
+            nodes: BTreeMap::from([(0, Node::new(0, "record")), (1, Node::new(1, "leaf"))]),
+            edges: BTreeMap::from([
+                (EdgeId(0), GEdge::new(0, 1, first)),
+                (EdgeId(1), GEdge::new(0, 1, second)),
+            ]),
+        };
+        let agreeing = present(move_cell(&cell, &Name::from("image"), |edge, source| {
+            Some(Edge {
+                src: source.clone(),
+                tgt: Name::from("shared"),
+                kind: edge.kind.clone(),
+                name: edge.name.clone(),
+            })
+        }));
+        assert_eq!(agreeing.nodes[&1].anchor, Name::from("shared"));
+
+        let conflict = move_cell(&cell, &Name::from("image"), |edge, source| {
+            Some(Edge {
+                src: source.clone(),
+                tgt: edge.name.clone()?,
+                kind: edge.kind.clone(),
+                name: edge.name.clone(),
+            })
+        });
+        assert!(conflict.is_none());
+    }
+
+    #[test]
+    fn conformance_chooses_the_lexically_first_bad_column() {
+        let stray_first = ok(FInstance::new().with_rows(
+            "t",
+            [(RowId(0), HashMap::from([("a".into(), Value::Int(1))]))],
+        ));
+        assert_eq!(
+            violation(&stray_first, &table_side(&["b"])),
+            (RowId(0), Some("a".into()), NonConformance::StrayCell)
+        );
+
+        let missing_first = ok(FInstance::new().with_rows(
+            "t",
+            [(RowId(0), HashMap::from([("b".into(), Value::Int(1))]))],
+        ));
+        assert_eq!(
+            violation(&missing_first, &table_side(&["a"])),
+            (RowId(0), Some("a".into()), NonConformance::MissingCell)
+        );
+    }
+
+    #[test]
+    fn conformance_orders_row_and_relation_violations_by_source_row() {
+        let relation = edge("t", "u", "fk");
+        let tied = ok(FInstance::new()
+            .with_rows(
+                "t",
+                [(RowId(0), HashMap::from([("stray".into(), Value::Int(1))]))],
+            )
+            .and_then(|instance| instance.with_rows("u", [(RowId(1), Row::new())]))
+            .and_then(|instance| {
+                instance.with_foreign_key(relation.clone(), [(RowId(0), RowId(1))])
+            }));
+        assert_eq!(
+            violation(&tied, &table_side(&[])),
+            (RowId(0), Some("stray".into()), NonConformance::StrayCell)
+        );
+
+        let relation_first = ok(FInstance::new()
+            .with_rows(
+                "t",
+                [
+                    (RowId(0), Row::new()),
+                    (RowId(1), HashMap::from([("stray".into(), Value::Int(1))])),
+                ],
+            )
+            .and_then(|instance| instance.with_rows("u", [(RowId(2), Row::new())]))
+            .and_then(|instance| {
+                instance.with_foreign_key(relation.clone(), [(RowId(0), RowId(2))])
+            }));
+        assert_eq!(
+            violation(&relation_first, &table_side(&[])),
+            (
+                RowId(0),
+                None,
+                NonConformance::RelationOutside {
+                    edge: Box::new(relation),
+                },
+            )
+        );
+    }
+
+    #[test]
+    fn relation_layout_records_whether_a_contributor_exists() {
+        let relation = edge("t", "u", "fk");
+        let key = (relation, RowId(0), RowId(1));
+        let layout = GraphLayout {
+            relations: BTreeMap::from([(
+                key.clone(),
+                EdgeLayout {
+                    id: Some(EdgeId(9)),
+                    position: Some(3),
+                    has_source: true,
+                },
+            )]),
+            ..GraphLayout::default()
+        };
+        assert_eq!(
+            selected_relation_layout(&layout, std::slice::from_ref(&key), true),
+            EdgeLayout {
+                id: Some(EdgeId(9)),
+                position: Some(3),
+                has_source: true,
+            }
+        );
+        assert_eq!(
+            selected_relation_layout(&layout, &[], true),
+            EdgeLayout::default()
+        );
+    }
+
+    #[test]
+    fn graph_kan_hom_same_as_rejects_a_different_node_image() {
+        let left = GraphKanHom {
+            node_map: BTreeMap::from([(0, 1)]),
+            null_map: BTreeMap::new(),
+        };
+        let right = GraphKanHom {
+            node_map: BTreeMap::from([(0, 2)]),
+            null_map: BTreeMap::new(),
+        };
+        assert!(!left.same_as(&right));
     }
 }
