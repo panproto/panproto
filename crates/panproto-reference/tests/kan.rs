@@ -240,7 +240,9 @@ fn pi_on_hom_with(
     hom_from_rows(pi_domain, pi_codomain, rows)
 }
 
-fn sigma_clash_features(f: &RelFunctor, table: &Table) -> BTreeSet<(Vec<u8>, Vec<u8>)> {
+type SigmaClashFeature = (u32, String, Vec<u8>, Vec<u8>);
+
+fn sigma_clash_features(f: &RelFunctor, table: &Table) -> BTreeSet<SigmaClashFeature> {
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum Term {
         Slot(u32, String),
@@ -289,10 +291,17 @@ fn sigma_clash_features(f: &RelFunctor, table: &Table) -> BTreeSet<(Vec<u8>, Vec
             continue;
         }
         let mut stack = vec![start.clone()];
+        let mut slots = BTreeSet::new();
         let mut constants = BTreeSet::new();
         while let Some(term) = stack.pop() {
-            if let Term::Constant(bytes) = &term {
-                constants.insert(bytes.clone());
+            match &term {
+                Term::Slot(row, column) => {
+                    slots.insert((*row, column.clone()));
+                }
+                Term::Constant(bytes) => {
+                    constants.insert(bytes.clone());
+                }
+                Term::Null(_) => {}
             }
             for next in &adjacent[&term] {
                 if seen.insert(next.clone()) {
@@ -301,13 +310,30 @@ fn sigma_clash_features(f: &RelFunctor, table: &Table) -> BTreeSet<(Vec<u8>, Vec
             }
         }
         let constants = constants.into_iter().collect::<Vec<_>>();
-        for left in 0..constants.len() {
-            for right in left + 1..constants.len() {
-                features.insert((constants[left].clone(), constants[right].clone()));
+        for (row, column) in slots {
+            for left in 0..constants.len() {
+                for right in left + 1..constants.len() {
+                    features.insert((
+                        row,
+                        column.clone(),
+                        constants[left].clone(),
+                        constants[right].clone(),
+                    ));
+                }
             }
         }
     }
     features
+}
+
+fn transport_sigma_clash_features(
+    features: &BTreeSet<SigmaClashFeature>,
+    rows: &BTreeMap<u32, u32>,
+) -> BTreeSet<SigmaClashFeature> {
+    features
+        .iter()
+        .map(|(row, column, left, right)| (rows[row], column.clone(), left.clone(), right.clone()))
+        .collect()
 }
 
 type CellKey = (u32, String);
@@ -1384,10 +1410,70 @@ fn assert_tree_transport(
     source: &Tree,
     target: &Tree,
     table_transport: &panproto_reference::enumerate::kan_extensions::ProfileTransport,
-    nodes: &BTreeMap<u32, u32>,
 ) {
     assert!(source.fans.is_empty());
     assert!(target.fans.is_empty());
+    let mut nodes = table_transport
+        .rows
+        .iter()
+        .filter(|(source_id, target_id)| {
+            source.nodes.contains_key(source_id) && target.nodes.contains_key(target_id)
+        })
+        .map(|(source_id, target_id)| (*source_id, *target_id))
+        .collect::<BTreeMap<_, _>>();
+    while nodes.len() < source.nodes.len() {
+        let claimed = nodes.values().copied().collect::<BTreeSet<_>>();
+        let mut additions = Vec::new();
+        for (source_parent, source_child, source_edge) in &source.arcs {
+            if nodes.contains_key(source_child) {
+                continue;
+            }
+            let Some(target_parent) = nodes.get(source_parent) else {
+                continue;
+            };
+            let mut expected_node = source.nodes[source_child].clone();
+            if let Some(Presence::Present(value)) = &mut expected_node.value {
+                *value = transported_value(value, table_transport);
+            }
+            expected_node.fields = expected_node
+                .fields
+                .iter()
+                .map(|(key, value)| (key.clone(), transported_value(value, table_transport)))
+                .collect();
+            expected_node.annotations = expected_node
+                .annotations
+                .iter()
+                .map(|(key, value)| (key.clone(), transported_value(value, table_transport)))
+                .collect();
+            let candidates = target
+                .arcs
+                .iter()
+                .filter(|(parent, child, edge)| {
+                    parent == target_parent
+                        && edge == source_edge
+                        && !claimed.contains(child)
+                        && !additions
+                            .iter()
+                            .any(|(_, claimed_child)| claimed_child == child)
+                })
+                .filter_map(|(_, child, _)| {
+                    let mut expected = expected_node.clone();
+                    expected.id = *child;
+                    (target.nodes[child] == expected).then_some(*child)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                candidates.len(),
+                1,
+                "tree child has no unique semantic transport: {source_parent}->{source_child} {source_edge:?}"
+            );
+            additions.push((*source_child, candidates[0]));
+        }
+        assert!(!additions.is_empty(), "tree transport made no progress");
+        for (source_id, target_id) in additions {
+            assert_eq!(nodes.insert(source_id, target_id), None);
+        }
+    }
     assert_eq!(
         nodes.keys().copied().collect::<BTreeSet<_>>(),
         source.nodes.keys().copied().collect(),
@@ -1422,6 +1508,28 @@ fn assert_tree_transport(
         .map(|(from, to, edge)| (nodes[from], nodes[to], edge.clone()))
         .collect::<BTreeSet<_>>();
     assert_eq!(expected_arcs, target.arcs.iter().cloned().collect());
+}
+
+#[test]
+fn tree_transport_recovers_cell_keys_when_graph_allocations_differ() {
+    let edge = SEdge::new("row", "value", "attribute", Some("x"));
+    let source = Tree {
+        nodes: BTreeMap::from([(0, Node::new(0, "row")), (3, Node::new(3, "value"))]),
+        arcs: vec![(0, 3, edge.clone())],
+        fans: Vec::new(),
+        root: 0,
+    };
+    let target = Tree {
+        nodes: BTreeMap::from([(1, Node::new(1, "row")), (4, Node::new(4, "value"))]),
+        arcs: vec![(1, 4, edge)],
+        fans: Vec::new(),
+        root: 1,
+    };
+    let transport = bounded::ProfileTransport {
+        rows: BTreeMap::from([(0, 1)]),
+        nulls: BTreeMap::new(),
+    };
+    assert_tree_transport(&source, &target, &transport);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1514,7 +1622,7 @@ fn assert_input_tree_transport(
     let target_feature = tree_domain_feature(target_graph);
     match (&source_feature, &target_feature, source, target) {
         (TreeDomainFeature::Tree, TreeDomainFeature::Tree, Ok(source), Ok(target)) => {
-            assert_tree_transport(source, target, table, &graph.nodes);
+            assert_tree_transport(source, target, table);
         }
         (
             TreeDomainFeature::RootCount(source_count),
@@ -1582,12 +1690,8 @@ fn assert_tree_route_transport(
     assert_eq!(tree_outcome(source), tree_outcome(target));
     match (source, target) {
         (Ok(source), Ok(target)) => {
-            assert_tree_transport(
-                source,
-                target,
-                table_transport.unwrap(),
-                &graph_transport.unwrap().nodes,
-            );
+            assert!(graph_transport.is_some());
+            assert_tree_transport(source, target, table_transport.unwrap());
             true
         }
         (
@@ -3734,7 +3838,6 @@ fn check_member_sigma_clash(
     };
     assert!(context.object.table.rows.contains_key(left_row));
     assert!(context.representative.rows.contains_key(right_row));
-    assert_eq!(left_column, right_column);
     let clash_pair = |first: &Value, second: &Value| {
         let mut pair = [
             panproto_reference::canonical::value_bytes(first).unwrap(),
@@ -3747,9 +3850,22 @@ fn check_member_sigma_clash(
     let right_pair = clash_pair(right_left, right_right);
     let left_features = sigma_clash_features(context.functor, &context.object.table);
     let right_features = sigma_clash_features(context.functor, context.representative);
-    assert_eq!(left_features, right_features);
-    assert!(left_features.contains(&(left_pair[0].clone(), left_pair[1].clone())));
-    assert!(right_features.contains(&(right_pair[0].clone(), right_pair[1].clone())));
+    assert_eq!(
+        transport_sigma_clash_features(&left_features, &context.input_transport.rows),
+        right_features
+    );
+    assert!(left_features.contains(&(
+        *left_row,
+        left_column.clone(),
+        left_pair[0].clone(),
+        left_pair[1].clone(),
+    )));
+    assert!(right_features.contains(&(
+        *right_row,
+        right_column.clone(),
+        right_pair[0].clone(),
+        right_pair[1].clone(),
+    )));
     stats.adapter_comparisons += 1;
     stats.adapter_refusals += 1;
     if let Some((left_tree, right_tree)) = member_tree_pair(context) {
@@ -5014,5 +5130,98 @@ fn pi_refuses_a_target_column_outside_the_image() {
             table: "a".into(),
             column: "z".into()
         })
+    );
+}
+
+#[test]
+fn sigma_clash_features_keep_slots_and_transport_first_witnesses() {
+    let source = Schema::default()
+        .vertex("r", "record")
+        .vertex("r.x", "int")
+        .vertex("r.y", "int")
+        .edge("r", "r.x", "prop", Some("x"))
+        .edge("r", "r.y", "prop", Some("y"));
+    let target = Schema::default()
+        .vertex("r", "record")
+        .vertex("r.z", "int")
+        .edge("r", "r.z", "prop", Some("z"));
+    let target_column = SEdge::new("r", "r.z", "prop", Some("z"));
+    let migration = Migration {
+        surviving_verts: ["r".to_owned()].into(),
+        vertex_remap: [
+            ("r.x".to_owned(), "r.z".to_owned()),
+            ("r.y".to_owned(), "r.z".to_owned()),
+        ]
+        .into(),
+        edge_remap: [
+            (
+                SEdge::new("r", "r.x", "prop", Some("x")),
+                target_column.clone(),
+            ),
+            (SEdge::new("r", "r.y", "prop", Some("y")), target_column),
+        ]
+        .into(),
+        ..Migration::default()
+    };
+    let f = functor(&source, &target, &migration);
+
+    let mut member = Table::default();
+    member.rows.insert(
+        7,
+        row("r", &[("x", Value::LabeledNull(0)), ("y", Value::Int(1))]),
+    );
+    member.rows.insert(
+        9,
+        row("r", &[("x", Value::LabeledNull(0)), ("y", Value::Int(2))]),
+    );
+    let mut representative = Table::default();
+    representative.rows.insert(
+        10,
+        row("r", &[("x", Value::LabeledNull(0)), ("y", Value::Int(2))]),
+    );
+    representative.rows.insert(
+        20,
+        row("r", &[("x", Value::LabeledNull(0)), ("y", Value::Int(1))]),
+    );
+
+    let member_error = rel::sigma(&f, &member).unwrap_err();
+    let representative_error = rel::sigma(&f, &representative).unwrap_err();
+    let KanError::SigmaConstantClash {
+        row: member_row, ..
+    } = member_error
+    else {
+        panic!("expected a member clash")
+    };
+    let KanError::SigmaConstantClash {
+        row: representative_row,
+        ..
+    } = representative_error
+    else {
+        panic!("expected a representative clash")
+    };
+    assert_eq!(member_row, 9);
+    assert_eq!(representative_row, 20);
+
+    let member_features = sigma_clash_features(&f, &member);
+    let representative_features = sigma_clash_features(&f, &representative);
+    assert_eq!(member_features.len(), 2);
+    assert_eq!(representative_features.len(), 2);
+    assert_eq!(
+        transport_sigma_clash_features(&member_features, &BTreeMap::from([(7, 20), (9, 10)]),),
+        representative_features
+    );
+    assert_eq!(
+        member_features
+            .iter()
+            .map(|(_, column, _, _)| column.as_str())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["z"]),
+    );
+    assert_eq!(
+        member_features
+            .iter()
+            .map(|(row, _, _, _)| *row)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([7, 9]),
     );
 }

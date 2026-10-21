@@ -1159,43 +1159,204 @@ fn input_tree(graph: &model::Graph) -> Option<model::Tree> {
     encode::graph_to_tree(graph, root, &encode::schema_parent_name(None)).ok()
 }
 
-/// The production read-back of a graph-route output as a tree, in the
-/// reference's terms: the tree from the unique root, the number of roots
-/// when there is not exactly one, or the production reason it is no tree.
+/// The semantic result of reading back a bounded leaf graph. Refusal
+/// payloads are complete structural feature sets rather than the first
+/// numeric witness chosen by either implementation.
 #[derive(Debug, PartialEq, Eq)]
 enum ReadBack {
     Tree(model::Tree),
     RootCount(usize),
-    NotATree(String),
+    SecondParent(BTreeSet<u32>),
+    Unreached(BTreeSet<u32>),
 }
 
-fn production_read_back(graph: &GInstance, schema: &Schema) -> ReadBack {
-    match graph.tree_shape(schema) {
-        TreeShapeReport::Tree { root } => match graph.to_wtype(root) {
-            Ok(tree) => ReadBack::Tree(ref_tree(&tree)),
-            Err(error) => ReadBack::NotATree(format!("{error:?}")),
-        },
-        TreeShapeReport::Forest { roots } => ReadBack::RootCount(roots.len()),
-        TreeShapeReport::NotTree { reason } if graph.nodes().is_empty() => {
-            assert!(matches!(reason, panproto_inst::NotTreeReason::NoRoot));
-            ReadBack::RootCount(0)
+fn read_back_features(graph: &model::Graph) -> ReadBack {
+    assert!(
+        graph
+            .nodes
+            .values()
+            .all(|node| node.shape != model::NodeShape::HyperEdge)
+    );
+    assert!(graph.edges.values().all(|edge| {
+        graph.nodes.contains_key(&edge.src)
+            && graph.nodes.contains_key(&edge.tgt)
+            && edge.position.is_none()
+            && !matches!(edge.label.kind.as_str(), "hyper_parent" | "hyper_label")
+    }));
+
+    let mut parents = graph
+        .nodes
+        .keys()
+        .map(|node| (*node, BTreeSet::new()))
+        .collect::<BTreeMap<_, _>>();
+    for edge in graph.edges.values() {
+        parents.get_mut(&edge.tgt).unwrap().insert(edge.src);
+    }
+    let roots = parents
+        .iter()
+        .filter_map(|(node, parents)| parents.is_empty().then_some(*node))
+        .collect::<Vec<_>>();
+    let [root] = roots.as_slice() else {
+        return ReadBack::RootCount(roots.len());
+    };
+    let second_parent = parents
+        .iter()
+        .filter_map(|(node, parents)| (parents.len() >= 2).then_some(*node))
+        .collect::<BTreeSet<_>>();
+    if !second_parent.is_empty() {
+        return ReadBack::SecondParent(second_parent);
+    }
+    let unreached = graph
+        .nodes
+        .keys()
+        .filter(|node| {
+            let mut current = **node;
+            for _ in 0..graph.nodes.len() {
+                if current == *root {
+                    return false;
+                }
+                let Some(parent) = parents[&current].first() else {
+                    return true;
+                };
+                current = *parent;
+            }
+            current != *root
+        })
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if !unreached.is_empty() {
+        return ReadBack::Unreached(unreached);
+    }
+    ReadBack::Tree(encode::graph_to_tree(graph, *root, &encode::schema_parent_name(None)).unwrap())
+}
+
+fn production_read_back(graph: &GInstance, _schema: &Schema) -> ReadBack {
+    let reference_graph = ref_graph(graph);
+    let features = read_back_features(&reference_graph);
+    match &features {
+        ReadBack::Tree(expected) => {
+            let actual = ref_tree(&graph.to_wtype(expected.root).unwrap());
+            assert_eq!(&actual, expected);
         }
-        TreeShapeReport::NotTree { reason } => ReadBack::NotATree(format!("{reason:?}")),
+        ReadBack::RootCount(expected) => {
+            let children = graph
+                .edges()
+                .values()
+                .map(|edge| edge.tgt)
+                .collect::<BTreeSet<_>>();
+            let actual = graph
+                .nodes()
+                .keys()
+                .filter(|node| !children.contains(node))
+                .count();
+            assert_eq!(actual, *expected);
+        }
+        ReadBack::SecondParent(candidates) => {
+            let root = reference_graph
+                .nodes
+                .keys()
+                .find(|node| {
+                    reference_graph
+                        .edges
+                        .values()
+                        .all(|edge| edge.tgt != **node)
+                })
+                .copied()
+                .unwrap();
+            let Err(panproto_inst::InstError::NotATree { reason }) = graph.to_wtype(root) else {
+                panic!("production accepts a graph with second-parent features {candidates:?}")
+            };
+            let node = match reason {
+                panproto_inst::NotTreeReason::MultipleParents { node, .. } => node,
+                panproto_inst::NotTreeReason::ParallelEdges { tgt, .. } => tgt,
+                reason => panic!(
+                    "production reason {reason:?} does not realize second-parent features {candidates:?}"
+                ),
+            };
+            assert!(candidates.contains(&node));
+        }
+        ReadBack::Unreached(candidates) => {
+            let root = reference_graph
+                .nodes
+                .keys()
+                .find(|node| {
+                    reference_graph
+                        .edges
+                        .values()
+                        .all(|edge| edge.tgt != **node)
+                })
+                .copied()
+                .unwrap();
+            let Err(panproto_inst::InstError::NotATree {
+                reason: panproto_inst::NotTreeReason::Cycle { witness },
+            }) = graph.to_wtype(root)
+            else {
+                panic!("production does not report a cycle for unreached features {candidates:?}")
+            };
+            assert!(!witness.is_empty());
+            assert!(witness.iter().all(|edge| {
+                let edge = &graph.edges()[edge];
+                candidates.contains(&edge.src) && candidates.contains(&edge.tgt)
+            }));
+        }
+    }
+    features
+}
+
+fn leaf_graph(nodes: impl IntoIterator<Item = u32>, edges: &[(u32, u32, u32)]) -> model::Graph {
+    model::Graph {
+        nodes: nodes
+            .into_iter()
+            .map(|id| (id, model::Node::new(id, "v")))
+            .collect(),
+        edges: edges
+            .iter()
+            .map(|(id, src, tgt)| {
+                (
+                    *id,
+                    model::GEdge {
+                        src: *src,
+                        tgt: *tgt,
+                        label: model::SEdge::new("v", "v", "parent", None),
+                        position: None,
+                    },
+                )
+            })
+            .collect(),
     }
 }
 
-/// The variant name of a Debug rendering: its text up to the first space,
-/// brace or parenthesis.
-fn variant_name(debug: &str) -> &str {
-    debug.split([' ', '{', '(']).next().unwrap_or(debug)
+#[test]
+fn read_back_features_keep_every_semantic_payload() {
+    let second_parent = leaf_graph(
+        [0, 1, 2, 3],
+        &[(0, 0, 1), (1, 0, 2), (2, 1, 2), (3, 0, 3), (4, 1, 3)],
+    );
+    assert_eq!(
+        production_read_back(&prod_graph(&second_parent), &Schema::default()),
+        ReadBack::SecondParent(BTreeSet::from([2, 3])),
+    );
+
+    let unreached = leaf_graph([0, 1, 2, 3], &[(0, 1, 2), (1, 2, 1), (2, 2, 3)]);
+    assert_eq!(
+        production_read_back(&prod_graph(&unreached), &Schema::default()),
+        ReadBack::Unreached(BTreeSet::from([1, 2, 3])),
+    );
+}
+
+#[test]
+fn read_back_root_count_precedes_disconnected_shape_failures() {
+    let graph = leaf_graph([0, 1, 2, 3], &[(0, 2, 3), (1, 3, 2)]);
+    assert_eq!(
+        production_read_back(&prod_graph(&graph), &Schema::default()),
+        ReadBack::RootCount(2),
+    );
 }
 
 /// The input conversion of a decoded graph that is no tree, on both sides:
-/// where production reports a root count it must be the reference's
-/// exactly; otherwise the label pairs the reference reason (`RootCount` or
-/// `NotATree`) with the production reason, so that the census records the
-/// correspondence of the two vocabularies. Production checks the tree
-/// conditions before it counts roots, the reference counts roots first.
+/// where production reports the same semantic family and the returned
+/// reference payload belongs to the independently computed complete feature
+/// set. Root counts agree exactly.
 fn input_refusal_agrees(
     graph: &model::Graph,
     production_graph: &GInstance,
@@ -1206,24 +1367,29 @@ fn input_refusal_agrees(
     if let [root] = roots[..] {
         let reason = encode::graph_to_tree(graph, root, &encode::schema_parent_name(None))
             .expect_err("a graph the input conversion refuses");
-        let ReadBack::NotATree(ours) = &production else {
-            panic!("reference NotATree({reason:?}), production {production:?}");
-        };
-        format!(
-            "input NotATree({} / {})",
-            variant_name(&format!("{reason:?}")),
-            variant_name(ours)
-        )
+        match (reason, production) {
+            (encode::NotATree::SecondParent { node }, ReadBack::SecondParent(features)) => {
+                assert!(features.contains(&node));
+                "input NotATree(SecondParent)".to_owned()
+            }
+            (encode::NotATree::Unreached { node }, ReadBack::Unreached(features)) => {
+                assert!(features.contains(&node));
+                "input NotATree(Unreached)".to_owned()
+            }
+            (reason, production) => {
+                panic!("reference NotATree({reason:?}), production {production:?}")
+            }
+        }
     } else {
-        match &production {
+        match production {
             ReadBack::RootCount(count) => {
-                assert_eq!(*count, roots.len(), "{graph:?}");
+                assert_eq!(count, roots.len(), "{graph:?}");
                 format!("input RootCount({count})")
             }
-            ReadBack::NotATree(ours) => {
-                format!("input RootCount({}) / {}", roots.len(), variant_name(ours))
-            }
-            ReadBack::Tree(_) => panic!("production reads a tree with {} roots", roots.len()),
+            production => panic!(
+                "reference RootCount({}), production {production:?}",
+                roots.len()
+            ),
         }
     }
 }
@@ -1393,33 +1559,35 @@ fn check_tree_route(
             "Ok".to_owned()
         }
         (Ok(out), Err(encode::TreeKanError::RootCount { count })) => {
-            // Production checks the tree conditions before it counts roots;
-            // where it reports a count, the count is the reference's.
             match production_read_back(out, schema) {
                 ReadBack::RootCount(ours) => {
                     assert_eq!(ours, *count, "{route:?} of {tree:?}");
                     format!("RootCount({count})")
                 }
-                ReadBack::NotATree(ours) => {
-                    format!("RootCount({count}) / {}", variant_name(&ours))
-                }
-                ReadBack::Tree(_) => panic!("{route:?} of {tree:?}: production reads a tree"),
+                ours => panic!(
+                    "{route:?} of {tree:?}: reference RootCount({count}), production {ours:?}"
+                ),
             }
         }
         (Ok(out), Err(encode::TreeKanError::NotATree(reason))) => {
-            let ReadBack::NotATree(ours) = production_read_back(out, schema) else {
-                panic!("{route:?} of {tree:?}: production reads no NotATree reason");
-            };
             assert_eq!(
                 graph_roots(&ref_graph(out)).len(),
                 1,
                 "{route:?} of {tree:?}"
             );
-            format!(
-                "NotATree({} / {})",
-                variant_name(&format!("{reason:?}")),
-                variant_name(&ours)
-            )
+            match (reason, production_read_back(out, schema)) {
+                (encode::NotATree::SecondParent { node }, ReadBack::SecondParent(features)) => {
+                    assert!(features.contains(node));
+                    "NotATree(SecondParent)".to_owned()
+                }
+                (encode::NotATree::Unreached { node }, ReadBack::Unreached(features)) => {
+                    assert!(features.contains(node));
+                    "NotATree(Unreached)".to_owned()
+                }
+                (reason, ours) => panic!(
+                    "{route:?} of {tree:?}: reference NotATree({reason:?}), production {ours:?}"
+                ),
+            }
         }
         (Err(ours), Err(encode::TreeKanError::Graph(theirs))) => {
             graph_errors_agree(ours, theirs, &(route, tree));
