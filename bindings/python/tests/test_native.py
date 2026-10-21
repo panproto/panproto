@@ -75,6 +75,29 @@ class TestProtocolRegistry:
         proto = panproto.get_builtin_protocol("atproto")
         assert proto.name == "atproto"
 
+    @pytest.mark.parametrize(
+        "underscored",
+        [
+            "edi_x12",
+            "iso_space",
+            "json_schema",
+            "k8s_crd",
+            "laf_graf",
+            "msgpack_schema",
+            "rss_atom",
+            "swift_mt",
+            "uima_cas",
+            "vcard_ical",
+            "web_annotation",
+        ],
+    )
+    def test_both_separators_reach_one_protocol(self, underscored: str) -> None:
+        hyphenated = underscored.replace("_", "-")
+        by_underscore = panproto.get_builtin_protocol(underscored)
+        by_hyphen = panproto.get_builtin_protocol(hyphenated)
+        assert by_underscore.to_dict() == by_hyphen.to_dict()
+        assert by_hyphen.schema_theory != "ThGraph"
+
     def test_get_builtin_protocol_unknown_raises(self) -> None:
         with pytest.raises(KeyError, match="nonexistent"):
             panproto.get_builtin_protocol("nonexistent")

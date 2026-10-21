@@ -1719,7 +1719,9 @@ pub fn wtype_restrict_with_synthesis(
     migration: &CompiledMigration,
     protocols: crate::restrict_boundary::BoundaryProtocols<'_>,
 ) -> Result<(WInstance, TreeSynthesis), RestrictError> {
-    use crate::restrict_boundary::{BoundarySide, boundary_plan, require_passed, unlimited};
+    use crate::restrict_boundary::{
+        BoundarySide, boundary_plan, output_plan, require_passed, unlimited,
+    };
     let (budget, external) = unlimited();
     let src_plan = boundary_plan(src_schema, protocols.src);
     require_passed(
@@ -1730,7 +1732,7 @@ pub fn wtype_restrict_with_synthesis(
         src_schema, tgt_schema, migration, protocols,
     )?;
     let restricted = wtype_restrict_with_plan(instance, &plan)?;
-    let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
+    let tgt_plan = output_plan(&src_plan, tgt_schema, &plan.tgt_schema, protocols);
     require_passed(
         tgt_plan.validate_tree(&restricted.0, &budget, &external),
         BoundarySide::Output,
@@ -3511,9 +3513,14 @@ pub fn wtype_extend(
     let total = total_extension_migration(src_schema, tgt_schema, migration);
     require_total_tree_elements(instance, tgt_schema, &total)?;
     let src_validation = crate::restrict_boundary::boundary_plan(src_schema, protocols.src);
-    let tgt_validation = crate::restrict_boundary::boundary_plan(tgt_schema, protocols.tgt);
     let plan =
         crate::RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    let tgt_validation = crate::restrict_boundary::output_plan(
+        &src_validation,
+        tgt_schema,
+        &plan.tgt_schema,
+        protocols,
+    );
     wtype_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 

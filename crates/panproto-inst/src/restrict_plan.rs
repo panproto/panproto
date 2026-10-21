@@ -577,23 +577,71 @@ fn cell_plan(
     CellPlan { fates, specs }
 }
 
-/// The source anchor a view anchor maps back to, read off the vertex map:
-/// its one explicit preimage; itself, when it has none; and no single
-/// anchor when it has several.
-pub(crate) struct ReverseAnchors<'m> {
-    preimages: HashMap<&'m Name, Vec<&'m Name>>,
+/// The source anchor a view anchor maps back to, read off the total map on
+/// the source's carrier anchors: its unique preimage, when it has one.
+pub(crate) struct ReverseAnchors<'s> {
+    preimages: HashMap<Name, Vec<&'s Name>>,
 }
 
-impl<'m> ReverseAnchors<'m> {
-    pub(crate) fn new(migration: &'m CompiledMigration) -> Self {
-        let mut preimages: HashMap<&Name, Vec<&Name>> = HashMap::new();
-        for (source, image) in &migration.vertex_remap {
-            preimages.entry(image).or_default().push(source);
+impl<'s> ReverseAnchors<'s> {
+    /// Build the inverse on graph anchors. Ordinary vertices use the total
+    /// vertex map, including implicit identities. Hyper-edges use every
+    /// resolver target, with identity also possible unless exactly one
+    /// resolver entry fixes the image.
+    pub(crate) fn for_graph(source: &'s Schema, migration: &CompiledMigration) -> Self {
+        let mut reverse = Self::from_vertices(source.vertices.keys(), migration);
+        for source_anchor in source.hyper_edges.keys() {
+            let images: Vec<&Name> = migration
+                .hyper_resolver
+                .iter()
+                .filter(|((hyper_edge, _), _)| hyper_edge == source_anchor)
+                .map(|(_, (target, _))| target)
+                .collect();
+            for image in &images {
+                reverse.insert((*image).clone(), source_anchor);
+            }
+            if images.len() != 1 {
+                reverse.insert(source_anchor.clone(), source_anchor);
+            }
         }
-        for candidates in preimages.values_mut() {
+        reverse.sort();
+        reverse
+    }
+
+    /// Build the inverse on the table objects of an attributed relational
+    /// schema. Value vertices are not table-carrier preimages.
+    pub(crate) fn for_tables(source: &'s RelSchema, migration: &CompiledMigration) -> Self {
+        let mut reverse = Self::from_vertices(source.tables(), migration);
+        reverse.sort();
+        reverse
+    }
+
+    fn from_vertices<'a>(
+        vertices: impl IntoIterator<Item = &'s Name>,
+        migration: &'a CompiledMigration,
+    ) -> Self {
+        let mut reverse = Self {
+            preimages: HashMap::new(),
+        };
+        for source in vertices {
+            if survives(migration, source) {
+                reverse.insert(remap(migration, source).clone(), source);
+            }
+        }
+        reverse
+    }
+
+    fn insert(&mut self, image: Name, source: &'s Name) {
+        let candidates = self.preimages.entry(image).or_default();
+        if !candidates.contains(&source) {
+            candidates.push(source);
+        }
+    }
+
+    fn sort(&mut self) {
+        for candidates in self.preimages.values_mut() {
             candidates.sort_unstable();
         }
-        Self { preimages }
     }
 
     /// Whether `view_anchor` maps back to exactly `source_anchor`.
@@ -601,13 +649,12 @@ impl<'m> ReverseAnchors<'m> {
         self.source_of(view_anchor) == Some(source_anchor)
     }
 
-    /// The source anchor `view_anchor` maps back to: its one explicit
-    /// preimage, itself when it has none, and `None` when it has several.
-    pub(crate) fn source_of<'a>(&'a self, view_anchor: &'a Name) -> Option<&'a Name> {
+    /// The source anchor `view_anchor` maps back to, exactly when its
+    /// preimage among the source's carrier anchors is a singleton.
+    pub(crate) fn source_of<'a>(&'a self, view_anchor: &Name) -> Option<&'a Name> {
         match self.preimages.get(view_anchor).map(Vec::as_slice) {
-            None | Some([]) => Some(view_anchor),
             Some([only]) => Some(*only),
-            Some(_) => None,
+            _ => None,
         }
     }
 }
@@ -898,7 +945,8 @@ impl RestrictError {
     /// `Some` exactly on [`RestrictError::At`], the form in which the graph
     /// engine returns every error it raises while evaluating an instance,
     /// and `None` on every other error (the tree and table engines, plan
-    /// compilation and the boundary refusals locate nothing).
+    /// compilation, the boundary refusals and the graph engine's fan-domain
+    /// refusal, [`RestrictError::MalformedFan`], locate nothing).
     #[must_use]
     pub const fn key(&self) -> Option<ErrorKey> {
         match self {
@@ -965,6 +1013,7 @@ impl RestrictError {
             Self::UnmappedEdge { .. } => 34,
             Self::SigmaConstantClash { .. } => 35,
             Self::NullIdsExhausted => 36,
+            Self::MalformedFan { .. } => 37,
         }
     }
 

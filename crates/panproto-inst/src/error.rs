@@ -615,6 +615,23 @@ pub enum RestrictError {
     /// A table extension needed a fresh labelled null but exhausted `u64`.
     #[error("no labelled null id is free above the largest in use")]
     NullIdsExhausted,
+
+    /// The input graph of a graph restrict is outside the fan domain
+    /// ([`FanDomain`](crate::FanDomain)): a node of the fan shape, or a
+    /// source of an edge of a reserved fan kind, is not a well-formed fan
+    /// node. Graph restrict is defined on the fan domain only. The engine
+    /// that takes a compiled plan checks its input before any stage and
+    /// reports the least offending node with its first violation, in the
+    /// order [`FanDomain::check`](crate::FanDomain::check) tests them; the
+    /// validating entry points refuse such an input at the boundary instead
+    /// ([`RestrictError::Validation`]).
+    #[error("fan node {node} is malformed: {reason}")]
+    MalformedFan {
+        /// The least offending node.
+        node: u32,
+        /// Its first violation.
+        reason: FanViolation,
+    },
 }
 
 /// The place of a non-conforming row's violation in its message: ` at

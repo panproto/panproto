@@ -934,6 +934,16 @@ pub mod restrict {
             /// Distinguished tree root removed from the view.
             root: u32,
         },
+        /// The input graph is outside the fan domain: the least node that
+        /// must be a fan and is not, with its first violation in the order
+        /// [`crate::fan::violations_at`] lists them. Graph restriction is
+        /// defined on the fan domain only.
+        MalformedFan {
+            /// The least offending node.
+            node: u32,
+            /// Its first violation.
+            reason: crate::fan::FanViolation,
+        },
     }
 
     /// The complement of a graph get.
@@ -968,16 +978,14 @@ pub mod restrict {
         pub identity: Option<crate::pages::representation::canonical::IdentityEnvelope>,
     }
 
-    /// Whether a node is a fan node: shape hyper-edge, or the source of an
-    /// edge of a reserved kind.
+    /// Whether a node is a fan node: its shape is the hyper-edge shape.
+    /// Restriction runs on the fan domain only, where every source of an
+    /// edge of a reserved kind has that shape.
     #[must_use]
     pub fn is_fan_node(g: &Graph, n: u32) -> bool {
         g.nodes
             .get(&n)
             .is_some_and(|x| x.shape == NodeShape::HyperEdge)
-            || g.edges
-                .values()
-                .any(|e| e.src == n && is_fan_kind(&e.label.kind))
     }
 
     /// Whether an edge kind is reserved for fans.
@@ -1638,7 +1646,10 @@ pub mod restrict {
     /// layer `vl`, returning the view and the complement.
     ///
     /// Stages, each in ascending element order, the first error returned:
-    /// compile the plan; stage 0, every non-fan node survives iff its anchor's
+    /// compile the plan; refuse a graph outside the fan domain (some node of
+    /// the fan shape, or some source of an edge of a reserved kind, is not a
+    /// well-formed fan) with its least offending node and that node's first
+    /// violation; stage 0, every non-fan node survives iff its anchor's
     /// image survives and its survival predicate (if any) holds, and a
     /// surviving node takes its image anchor and its transforms; stage 1,
     /// every non-fan edge with both endpoints surviving takes its label's fate
@@ -1650,7 +1661,8 @@ pub mod restrict {
     ///
     /// # Errors
     ///
-    /// [`RestrictError::Plan`] or the first [`RestrictError::At`], including
+    /// [`RestrictError::Plan`], then [`RestrictError::MalformedFan`] for a
+    /// graph outside the fan domain, or the first [`RestrictError::At`], including
     /// the defensive [`EngineError::ExpansionTooLong`] guard at a source edge
     /// in stage 1 or source-node pair in stage 2, and
     /// [`EngineError::FanReconstructionFailed`] at the fan node in stage 3.
@@ -1683,6 +1695,9 @@ pub mod restrict {
     ) -> Result<(Graph, Complement), RestrictError> {
         plan.validate_for(src, tgt, m)
             .map_err(RestrictError::Plan)?;
+        if let Some((node, reason)) = crate::fan::first_violation(g, None) {
+            return Err(RestrictError::MalformedFan { node, reason });
+        }
         let mut run = Run {
             src,
             tgt,

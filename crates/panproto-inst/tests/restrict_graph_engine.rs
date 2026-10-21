@@ -669,6 +669,18 @@ fn an_injective_rename_records_no_original_anchor() {
         complement.original_anchors,
         BTreeMap::from([(0, Name::from("a")), (1, Name::from("c"))])
     );
+
+    // An explicit rename can also merge with an implicit identity. Both
+    // source anchors are then needed because neither is the unique reverse.
+    let src = schema(&["a", "b"], &[]);
+    let tgt = schema(&["a"], &[]);
+    let mut m = keep(&["a"]);
+    m.vertex_remap.insert("b".into(), "a".into());
+    let (_, complement) = restrict(&nodes(&[(0, "a"), (1, "b")]), &src, &tgt, &m).unwrap();
+    assert_eq!(
+        complement.original_anchors,
+        BTreeMap::from([(0, Name::from("a")), (1, Name::from("b"))])
+    );
 }
 
 #[test]

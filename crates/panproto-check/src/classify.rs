@@ -1218,7 +1218,7 @@ mod tests {
         VariantChange,
     };
     use panproto_schema::{Constraint, Edge, EdgeRule, RecursionPoint, UsageMode, Variant};
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn test_protocol() -> Protocol {
         Protocol {
@@ -1291,7 +1291,7 @@ mod tests {
     fn classify_added_required_edge_as_breaking() {
         let e = edge("body", "body.text", "prop", Some("text"));
         let diff = SchemaDiff {
-            added_required: HashMap::from([("body".into(), vec![e.clone()])]),
+            added_required: BTreeMap::from([("body".into(), vec![e.clone()])]),
             // An added-and-required edge also shows up as an added edge.
             added_edges: vec![e],
             ..SchemaDiff::default()
@@ -1318,7 +1318,7 @@ mod tests {
     fn classify_removed_required_edge_as_breaking() {
         let e = edge("body", "body.text", "prop", Some("text"));
         let diff = SchemaDiff {
-            removed_required: HashMap::from([("body".into(), vec![e])]),
+            removed_required: BTreeMap::from([("body".into(), vec![e])]),
             ..SchemaDiff::default()
         };
         let report = classify(&diff, &test_protocol());
@@ -1555,7 +1555,7 @@ mod tests {
     #[test]
     fn nsid_add_non_breaking_change_remove_breaking() {
         let added = SchemaDiff {
-            added_nsids: HashMap::from([("a".into(), "com.example.thing".into())]),
+            added_nsids: BTreeMap::from([("a".into(), "com.example.thing".into())]),
             ..SchemaDiff::default()
         };
         assert!(classify(&added, &test_protocol()).compatible);
@@ -1591,9 +1591,9 @@ mod tests {
             modified_hyper_edges: vec![HyperEdgeChange {
                 id: "he1".into(),
                 kind_change: Some(("join".into(), "merge".into())),
-                signature_added: HashMap::new(),
-                signature_removed: HashMap::new(),
-                signature_changed: HashMap::new(),
+                signature_added: BTreeMap::new(),
+                signature_removed: BTreeMap::new(),
+                signature_changed: BTreeMap::new(),
                 parent_label_change: None,
             }],
             ..SchemaDiff::default()
@@ -1789,14 +1789,14 @@ mod tests {
             (
                 "added_required",
                 SchemaDiff {
-                    added_required: HashMap::from([("a".into(), vec![e.clone()])]),
+                    added_required: BTreeMap::from([("a".into(), vec![e.clone()])]),
                     ..SchemaDiff::default()
                 },
             ),
             (
                 "removed_required",
                 SchemaDiff {
-                    removed_required: HashMap::from([("a".into(), vec![e.clone()])]),
+                    removed_required: BTreeMap::from([("a".into(), vec![e.clone()])]),
                     ..SchemaDiff::default()
                 },
             ),
@@ -1931,7 +1931,7 @@ mod tests {
             (
                 "added_nsids",
                 SchemaDiff {
-                    added_nsids: HashMap::from([("a".into(), "x".into())]),
+                    added_nsids: BTreeMap::from([("a".into(), "x".into())]),
                     ..SchemaDiff::default()
                 },
             ),

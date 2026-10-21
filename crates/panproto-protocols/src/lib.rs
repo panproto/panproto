@@ -52,6 +52,7 @@ pub mod emit;
 /// Error types for protocol operations.
 pub mod error;
 pub mod graph_instance_model;
+mod key_order;
 /// Raw file protocol for non-code files (README, LICENSE, images, etc.).
 pub mod raw_file;
 

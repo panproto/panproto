@@ -130,6 +130,14 @@ impl FanDomain {
         }
     }
 
+    /// The least offending node of `graph` with its first violation, the
+    /// pair [`Self::check`] reports, or `None` when `graph` is in the fan
+    /// domain.
+    #[must_use]
+    pub(crate) fn first_violation(graph: &GInstance) -> Option<(u32, FanViolation)> {
+        first_violation(graph, None)
+    }
+
     /// Whether `graph` is in the fan domain.
     #[must_use]
     pub fn contains(graph: &GInstance) -> bool {
