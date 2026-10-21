@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "campaign": "values-expr-5e5209f4",
+  "lane": "values-expr",
+  "lane_commit": "5e5209f4f5d60abdc063ea77313c73ce4c172a2a",
+  "package": "panproto-expr",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 20,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "256",
+    "PROPTEST_RNG_SEED": "2026102101",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "priority_binaries": [
+    "reference_values",
+    "reduced_temporals"
+  ],
+  "groups": [
+    {
+      "name": "exact",
+      "files": [
+        "crates/panproto-expr/src/exact.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "decimal",
+      "files": [
+        "crates/panproto-expr/src/exact/decimal.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "integer",
+      "files": [
+        "crates/panproto-expr/src/exact/integer.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "temporal",
+      "files": [
+        "crates/panproto-expr/src/exact/temporal.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "binary16",
+      "files": [
+        "crates/panproto-expr/src/exact/binary16.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "builtin",
+      "files": [
+        "crates/panproto-expr/src/builtin.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    },
+    {
+      "name": "eval",
+      "files": [
+        "crates/panproto-expr/src/eval.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=an_environment_is_shared_not_copied",
+        "--test=arithmetic_reports_overflow_rather_than_aborting",
+        "--test=epoch_counts",
+        "--test=exact_values",
+        "--test=exact_values_pinned",
+        "--test=limits_compose",
+        "--test=reduced_temporals",
+        "--test=reference_values",
+        "--test=special_decimals",
+        "--test=zero_offsets"
+      ],
+      "test_args": []
+    }
+  ],
+  "_scope": "Values CI-only mutation of every panproto-expr production file named by values.md, whole files via --file. Every package test binary runs for every group; reference_values and reduced_temporals run at priority 100. Property differentials use 256 deterministic cases at the audited commit."
+}
