@@ -2085,14 +2085,71 @@ fn epoch_round_trip_cases() -> &'static [EpochRoundTripCase] {
 }
 
 fn generated_config() -> ProptestConfig {
-    ProptestConfig {
-        cases: 4096,
-        ..ProptestConfig::default()
+    let mut config = ProptestConfig::default();
+    if std::env::var_os("PROPTEST_CASES").is_none() {
+        config.cases = 4096;
     }
+    config
 }
 
 proptest! {
     #![proptest_config(generated_config())]
+
+    /// Generated finite binary64 values, interpreted as exact rationals and
+    /// exact decimals, have the same nearest binary16 reading in production
+    /// and in the reference.
+    #[test]
+    fn randomized_binary16_differential(
+        bits in any::<u64>().prop_filter("finite binary64 pattern", |bits| {
+            f64::from_bits(*bits).is_finite()
+        }),
+    ) {
+        let (negative, value) = finite_rational(bits)
+            .expect("the strategy contains only finite binary64 patterns");
+        let production = panproto_expr::exact::binary16_nearest(
+            &exact_decimal(f64::from_bits(bits)),
+        );
+        let reference = panproto_reference::float::binary16(&value, negative);
+        prop_assert_eq!(
+            production.to_bits(),
+            rf::widen_bits(Format::B16, reference.bits(Format::B16)),
+            "generated binary16 reading disagrees for binary64 bits {bits:#018x}",
+            bits = bits,
+        );
+    }
+
+    /// Generated finite decimals with bounded exponents have the same exact
+    /// nearest, ties-to-even reading at every supported binary width in
+    /// production and in the reference.
+    #[test]
+    fn randomized_exact_rounding_differential(
+        format_index in 0_usize..3,
+        negative in any::<bool>(),
+        coefficient in any::<u64>(),
+        exponent in -400_i16..401_i16,
+    ) {
+        let format = [Format::B16, Format::B32, Format::B64][format_index];
+        let exponent = i64::from(exponent);
+        let production = DecimalValue::new(negative, coefficient.to_string(), exponent)
+            .expect("a generated integer coefficient is canonical");
+        let reference_decimal = rf::Dec {
+            negative,
+            coefficient: Nat::from_u64(coefficient),
+            exponent,
+        };
+        let reference = panproto_reference::float::round_to(
+            format,
+            &reference_decimal.value(),
+            negative,
+        );
+        prop_assert_eq!(
+            production_nearest(format, &production),
+            reference.bits(format),
+            "generated {:?} rounding disagrees for {}",
+            format,
+            production,
+        );
+    }
 
     /// A temporal selected independently from the reference's admitted
     /// temporal-to-count domain returns to the identical representation
@@ -2185,14 +2242,33 @@ proptest! {
                 let reverse_total = decimals[j].compare_total(&decimals[i]);
                 prop_assert_eq!(
                     numeric,
-                    reference_decimals[i].cmp_numeric(&reference_decimals[j]),
+                    panproto_reference::exact::Decimal::cmp_numeric(
+                        &reference_decimals[i],
+                        &reference_decimals[j],
+                    ),
                     "generated decimal numeric order disagrees: {} against {}",
                     decimals[i],
                     decimals[j]
                 );
+                if let (
+                    rx::Decimal::Finite(left),
+                    rx::Decimal::Finite(right),
+                ) = (&reference_decimals[i], &reference_decimals[j])
+                {
+                    prop_assert_eq!(
+                        numeric,
+                        panproto_reference::exact::DecimalValue::cmp_numeric(left, right),
+                        "generated finite decimal numeric order disagrees: {} against {}",
+                        decimals[i],
+                        decimals[j]
+                    );
+                }
                 prop_assert_eq!(
                     total,
-                    reference_decimals[i].compare_total(&reference_decimals[j]),
+                    panproto_reference::exact::Decimal::compare_total(
+                        &reference_decimals[i],
+                        &reference_decimals[j],
+                    ),
                     "generated decimal total order disagrees: {} against {}",
                     decimals[i],
                     decimals[j]
