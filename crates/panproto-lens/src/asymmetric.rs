@@ -146,19 +146,21 @@ impl ComplementCompose for Complement {
             PartialEq::eq,
         )?;
 
-        // Arc order: keep this operand's sequence and append any pair the
-        // other records that this one does not, so a merged complement
-        // still describes a single consistent ordering. Membership goes
-        // through a set: `compose` is called repeatedly (the associativity
-        // proptests compose in a loop), and a linear scan per pair makes
-        // that quadratic in the arc count.
-        let mut arc_order = self.arc_order.clone();
-        let mut present: HashSet<(u32, u32)> = arc_order.iter().copied().collect();
-        for pair in &other.arc_order {
-            if present.insert(*pair) {
-                arc_order.push(*pair);
+        // Arc order is one global sequence, not a keyed resource. Two
+        // non-empty records are compatible only when they state the same
+        // sequence: sorting would destroy collection order, while a
+        // left-biased union would make composition non-commutative.
+        let arc_order = match (self.arc_order.is_empty(), other.arc_order.is_empty()) {
+            (true, _) => other.arc_order.clone(),
+            (_, true) => self.arc_order.clone(),
+            (false, false) if self.arc_order == other.arc_order => self.arc_order.clone(),
+            (false, false) => {
+                return Err(LensError::ComplementConflict {
+                    kind: "arc_order",
+                    key: "ordered sequence".to_owned(),
+                });
             }
-        }
+        };
 
         let synthesized_keys = merge_synthesized_keys(self, other)?;
 
@@ -3730,6 +3732,56 @@ mod tests {
             }
         }
 
+        #[test]
+        fn arc_order_is_a_global_compatibility_constraint() {
+            let mut left = Complement::empty();
+            left.arc_order = vec![(0, 1), (0, 2)];
+            left.source_fingerprint = BOUND;
+            let mut right = Complement::empty();
+            right.arc_order = vec![(0, 2), (0, 1)];
+            right.source_fingerprint = BOUND;
+
+            assert!(matches!(
+                left.compose(&right),
+                Err(LensError::ComplementConflict {
+                    kind: "arc_order",
+                    ..
+                })
+            ));
+            assert!(matches!(
+                right.compose(&left),
+                Err(LensError::ComplementConflict {
+                    kind: "arc_order",
+                    ..
+                })
+            ));
+            assert!(!left.is_compatible(&right));
+        }
+
+        #[test]
+        fn equal_arc_orders_merge_and_empty_order_is_the_unit() {
+            let mut ordered = Complement::empty();
+            ordered.arc_order = vec![(0, 2), (0, 1)];
+            ordered.source_fingerprint = BOUND;
+            let mut same = ordered.clone();
+            same.id_floor = 7;
+            let mut no_order = Complement::empty();
+            no_order.source_fingerprint = BOUND;
+
+            assert_eq!(
+                ordered.compose(&same).expect("equal order").arc_order,
+                ordered.arc_order
+            );
+            assert_eq!(
+                no_order.compose(&ordered).expect("left unit").arc_order,
+                ordered.arc_order
+            );
+            assert_eq!(
+                ordered.compose(&no_order).expect("right unit").arc_order,
+                ordered.arc_order
+            );
+        }
+
         /// Property-based partial-monoid laws for [`Complement::compose`].
         ///
         /// These are the `complement_partial_monoid_*` proptests that the
@@ -3743,8 +3795,9 @@ mod tests {
             use super::*;
             use crate::asymmetric::ComplementCompose;
             use panproto_inst::value::{FieldPresence, Value};
+            use panproto_inst::{EdgeId, SynthKey};
             use proptest::prelude::*;
-            use std::collections::{HashMap, HashSet};
+            use std::collections::{BTreeMap, HashMap, HashSet};
 
             /// Size of the shared key pool. Small enough that independently
             /// drawn subsets overlap often (so shared keys are genuinely
@@ -3793,6 +3846,15 @@ mod tests {
             fn canon_parent(k: u32) -> u32 {
                 k + 100
             }
+            fn canon_anchor(k: u32) -> Name {
+                Name::from(format!("anchor-{k}"))
+            }
+            fn canon_synth_key(k: u32) -> SynthKey {
+                SynthKey::Expand {
+                    source_edge: EdgeId(k),
+                    hop: u16::try_from(k).expect("generated key is in u16 range"),
+                }
+            }
 
             type IdSet = HashSet<u32>;
             type PairSet = HashSet<(u32, u32)>;
@@ -3802,6 +3864,15 @@ mod tests {
             }
             fn arb_pair_set() -> impl Strategy<Value = PairSet> {
                 prop::collection::hash_set((0u32..KEY_POOL, 0u32..KEY_POOL), 0..=4)
+            }
+            fn arb_arc_order() -> impl Strategy<Value = Vec<(u32, u32)>> {
+                prop::collection::vec((0u32..KEY_POOL, 0u32..KEY_POOL), 0..=4).prop_map(|pairs| {
+                    let mut seen = HashSet::new();
+                    pairs
+                        .into_iter()
+                        .filter(|pair| seen.insert(*pair))
+                        .collect()
+                })
             }
             /// How every complement of one generated case is bound to its
             /// lens: all by one legacy fingerprint, or all by one envelope.
@@ -3831,31 +3902,50 @@ mod tests {
             /// Strategy generating a [`Complement`] with `dropped_nodes`,
             /// `dropped_arcs`, `dropped_fans`, `contraction_choices`,
             /// `original_parent`, `original_extra_fields`, `arc_edges`,
-            /// `original_values`, `synthesized_nodes`, and a fingerprint all
-            /// independently populated from the shared key pool.
-            fn arb_complement(binding: Binding) -> impl Strategy<Value = Complement> {
+            /// `original_values`, `synthesized_nodes`, `contracted_into`,
+            /// `original_anchors`, `synthesized_keys`, `id_floor`, and a
+            /// fingerprint all independently populated from the shared key
+            /// pool. `arc_order` is either empty or the case's one shared
+            /// sequence, which keeps generated operands inside its partial
+            /// compatibility domain.
+            fn arb_complement(
+                binding: Binding,
+                shared_arc_order: Vec<(u32, u32)>,
+            ) -> impl Strategy<Value = Complement> {
                 (
-                    arb_id_set(),
-                    arb_pair_set(),
-                    arb_id_set(),
-                    arb_pair_set(),
-                    arb_id_set(),
-                    arb_id_set(),
-                    arb_pair_set(),
-                    arb_id_set(),
-                    arb_id_set(),
+                    (
+                        arb_id_set(),
+                        arb_pair_set(),
+                        arb_id_set(),
+                        arb_pair_set(),
+                        arb_id_set(),
+                        arb_id_set(),
+                        arb_pair_set(),
+                        arb_id_set(),
+                        arb_id_set(),
+                    ),
+                    (
+                        arb_id_set(),
+                        arb_id_set(),
+                        arb_id_set(),
+                        0u32..128,
+                        any::<bool>(),
+                    ),
                 )
                     .prop_map(
                         move |(
-                            nodes,
-                            arcs,
-                            fans,
-                            contraction,
-                            parents,
-                            extra,
-                            arc_edges,
-                            values,
-                            synth,
+                            (
+                                nodes,
+                                arcs,
+                                fans,
+                                contraction,
+                                parents,
+                                extra,
+                                arc_edges,
+                                values,
+                                synth,
+                            ),
+                            (contracted, anchors, synth_keys, id_floor, records_arc_order),
                         )| {
                             let mut c = Complement::empty();
                             for k in nodes {
@@ -3883,6 +3973,20 @@ mod tests {
                                 c.original_values.insert(k, canon_presence(k));
                             }
                             c.synthesized_nodes = synth;
+                            for k in contracted {
+                                c.contracted_into.insert(k, canon_parent(k));
+                            }
+                            for k in anchors {
+                                c.original_anchors.insert(k, canon_anchor(k));
+                            }
+                            c.synthesized_keys = synth_keys
+                                .into_iter()
+                                .map(|k| (k, canon_synth_key(k)))
+                                .collect::<BTreeMap<_, _>>();
+                            c.id_floor = id_floor;
+                            if records_arc_order {
+                                c.arc_order.clone_from(&shared_arc_order);
+                            }
                             bind(&mut c, binding);
                             c
                         },
@@ -3927,19 +4031,35 @@ mod tests {
                         presence_equiv(x.as_ref(), y.as_ref())
                     })
                     && a.synthesized_nodes == b.synthesized_nodes
+                    && a.contracted_into == b.contracted_into
+                    && a.original_anchors == b.original_anchors
+                    && a.arc_order == b.arc_order
+                    && a.id_floor == b.id_floor
+                    && a.synthesized_keys == b.synthesized_keys
             }
 
             fn arb_one() -> impl Strategy<Value = Complement> {
-                arb_binding().prop_flat_map(arb_complement)
+                (arb_binding(), arb_arc_order())
+                    .prop_flat_map(|(binding, order)| arb_complement(binding, order))
             }
 
             fn arb_two() -> impl Strategy<Value = (Complement, Complement)> {
-                arb_binding().prop_flat_map(|b| (arb_complement(b), arb_complement(b)))
+                (arb_binding(), arb_arc_order()).prop_flat_map(|(binding, order)| {
+                    (
+                        arb_complement(binding, order.clone()),
+                        arb_complement(binding, order),
+                    )
+                })
             }
 
             fn arb_three() -> impl Strategy<Value = (Complement, Complement, Complement)> {
-                arb_binding()
-                    .prop_flat_map(|b| (arb_complement(b), arb_complement(b), arb_complement(b)))
+                (arb_binding(), arb_arc_order()).prop_flat_map(|(binding, order)| {
+                    (
+                        arb_complement(binding, order.clone()),
+                        arb_complement(binding, order.clone()),
+                        arb_complement(binding, order),
+                    )
+                })
             }
 
             proptest! {

@@ -102,6 +102,198 @@ pub struct TreeShape;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GraphShape;
 
+/// A tree-complement node coordinate with presentation-only synthesized ids
+/// replaced by their stable synthesis keys.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum NormalizedId {
+    Origin(u32),
+    Synthesized(SynthKey),
+}
+
+fn normalized_id(complement: &Complement, id: u32) -> NormalizedId {
+    complement
+        .synthesized_keys
+        .get(&id)
+        .cloned()
+        .map_or(NormalizedId::Origin(id), NormalizedId::Synthesized)
+}
+
+fn normalized_id_map_equiv<V, F>(
+    a: &HashMap<u32, V>,
+    ac: &Complement,
+    b: &HashMap<u32, V>,
+    bc: &Complement,
+    values_equiv: F,
+) -> bool
+where
+    F: Fn(&V, &Complement, &V, &Complement) -> bool,
+{
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut seen = BTreeSet::new();
+    a.iter().all(|(&id, value)| {
+        let key = normalized_id(ac, id);
+        if !seen.insert(key.clone()) {
+            return false;
+        }
+        let mut matches = b
+            .iter()
+            .filter(|(other_id, _)| normalized_id(bc, **other_id) == key);
+        let Some((_, other)) = matches.next() else {
+            return false;
+        };
+        matches.next().is_none() && values_equiv(value, ac, other, bc)
+    })
+}
+
+fn normalized_pair_map_equiv<V, F>(
+    a: &HashMap<(u32, u32), V>,
+    ac: &Complement,
+    b: &HashMap<(u32, u32), V>,
+    bc: &Complement,
+    values_equiv: F,
+) -> bool
+where
+    F: Fn(&V, &V) -> bool,
+{
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut seen = BTreeSet::new();
+    a.iter().all(|(&(parent, child), value)| {
+        let key = (normalized_id(ac, parent), normalized_id(ac, child));
+        if !seen.insert(key.clone()) {
+            return false;
+        }
+        let mut matches = b.iter().filter(|((other_parent, other_child), _)| {
+            (
+                normalized_id(bc, *other_parent),
+                normalized_id(bc, *other_child),
+            ) == key
+        });
+        let Some((_, other)) = matches.next() else {
+            return false;
+        };
+        matches.next().is_none() && values_equiv(value, other)
+    })
+}
+
+fn normalized_parent_map_equiv(a: &Complement, b: &Complement) -> bool {
+    normalized_id_map_equiv(
+        &a.original_parent,
+        a,
+        &b.original_parent,
+        b,
+        |parent, ac, other, bc| normalized_id(ac, *parent) == normalized_id(bc, *other),
+    )
+}
+
+fn normalized_node_map_equiv(a: &Complement, b: &Complement) -> bool {
+    normalized_id_map_equiv(
+        &a.dropped_nodes,
+        a,
+        &b.dropped_nodes,
+        b,
+        |node, ac, other, bc| {
+            if normalized_id(ac, node.id) != normalized_id(bc, other.id) {
+                return false;
+            }
+            let mut left = node.clone();
+            let mut right = other.clone();
+            left.id = 0;
+            right.id = 0;
+            crate::asymmetric::node_equiv(&left, &right)
+        },
+    )
+}
+
+fn normalized_arc_set_equiv(a: &Complement, b: &Complement) -> bool {
+    if a.dropped_arcs.len() != b.dropped_arcs.len() {
+        return false;
+    }
+    let mut used = vec![false; b.dropped_arcs.len()];
+    a.dropped_arcs.iter().all(|(parent, child, edge)| {
+        let endpoints = (normalized_id(a, *parent), normalized_id(a, *child));
+        let Some(index) = b.dropped_arcs.iter().enumerate().position(
+            |(index, (other_parent, other_child, other_edge))| {
+                !used[index]
+                    && endpoints
+                        == (
+                            normalized_id(b, *other_parent),
+                            normalized_id(b, *other_child),
+                        )
+                    && edge == other_edge
+            },
+        ) else {
+            return false;
+        };
+        used[index] = true;
+        true
+    })
+}
+
+fn normalized_fan_equiv(
+    a: &panproto_inst::Fan,
+    ac: &Complement,
+    b: &panproto_inst::Fan,
+    bc: &Complement,
+) -> bool {
+    a.hyper_edge_id == b.hyper_edge_id
+        && normalized_id(ac, a.parent) == normalized_id(bc, b.parent)
+        && a.children.len() == b.children.len()
+        && a.children.iter().all(|(label, child)| {
+            b.children
+                .get(label)
+                .is_some_and(|other| normalized_id(ac, *child) == normalized_id(bc, *other))
+        })
+}
+
+fn normalized_fans_equiv(a: &Complement, b: &Complement) -> bool {
+    a.dropped_fans.len() == b.dropped_fans.len()
+        && a.dropped_fans
+            .iter()
+            .zip(&b.dropped_fans)
+            .all(|(left, right)| normalized_fan_equiv(left, a, right, b))
+}
+
+fn normalized_arc_order_equiv(a: &Complement, b: &Complement) -> bool {
+    a.arc_order.len() == b.arc_order.len()
+        && a.arc_order.iter().zip(&b.arc_order).all(
+            |(&(parent, child), &(other_parent, other_child))| {
+                (normalized_id(a, parent), normalized_id(a, child))
+                    == (
+                        normalized_id(b, other_parent),
+                        normalized_id(b, other_child),
+                    )
+            },
+        )
+}
+
+fn normalized_synthesized_nodes(complement: &Complement) -> BTreeSet<NormalizedId> {
+    complement
+        .synthesized_nodes
+        .iter()
+        .map(|&id| normalized_id(complement, id))
+        .collect()
+}
+
+fn synthesized_metadata_coherent(complement: &Complement) -> bool {
+    complement.synthesized_nodes.len() == complement.synthesized_keys.len()
+        && complement
+            .synthesized_nodes
+            .iter()
+            .all(|id| complement.synthesized_keys.contains_key(id))
+}
+
+fn synthesized_keys_equiv(a: &Complement, b: &Complement) -> bool {
+    let a_keys: BTreeSet<&SynthKey> = a.synthesized_keys.values().collect();
+    let b_keys: BTreeSet<&SynthKey> = b.synthesized_keys.values().collect();
+    a_keys.len() == a.synthesized_keys.len()
+        && b_keys.len() == b.synthesized_keys.len()
+        && a_keys == b_keys
+}
+
 impl LensShape for TreeShape {
     type Instance = WInstance;
     type Complement = Complement;
@@ -184,39 +376,70 @@ impl LensShape for TreeShape {
     }
 
     fn complement_divergence(a: &Self::Complement, b: &Self::Complement) -> Option<String> {
-        if a.dropped_nodes.len() != b.dropped_nodes.len()
-            || !a.dropped_nodes.iter().all(|(id, node)| {
-                b.dropped_nodes
-                    .get(id)
-                    .is_some_and(|other| crate::asymmetric::node_equiv(node, other))
-            })
-        {
+        if !synthesized_metadata_coherent(a) || !synthesized_metadata_coherent(b) {
+            return Some("synthesized metadata is incoherent".to_owned());
+        }
+        if !synthesized_keys_equiv(a, b) {
+            return Some("synthesized keys differ".to_owned());
+        }
+        if normalized_synthesized_nodes(a) != normalized_synthesized_nodes(b) {
+            return Some("synthesized nodes differ".to_owned());
+        }
+        if !normalized_node_map_equiv(a, b) {
             return Some("dropped_nodes differ".to_owned());
         }
-        if sorted(&a.dropped_arcs) != sorted(&b.dropped_arcs) {
+        if !normalized_arc_set_equiv(a, b) {
             return Some("dropped_arcs differ".to_owned());
         }
-        if a.dropped_fans != b.dropped_fans {
+        if !normalized_fans_equiv(a, b) {
             return Some("dropped_fans differ".to_owned());
         }
-        if a.original_parent != b.original_parent {
+        if !normalized_pair_map_equiv(
+            &a.contraction_choices,
+            a,
+            &b.contraction_choices,
+            b,
+            PartialEq::eq,
+        ) {
+            return Some("contraction_choices differ".to_owned());
+        }
+        if !normalized_parent_map_equiv(a, b) {
             return Some("original_parent differs".to_owned());
         }
-        if a.arc_edges != b.arc_edges || a.arc_order != b.arc_order {
-            return Some("arc restoration differs".to_owned());
+        if !normalized_pair_map_equiv(&a.arc_edges, a, &b.arc_edges, b, PartialEq::eq) {
+            return Some("arc_edges differ".to_owned());
         }
-        if a.original_anchors != b.original_anchors {
+        if !normalized_arc_order_equiv(a, b) {
+            return Some("arc_order differs".to_owned());
+        }
+        if !normalized_id_map_equiv(
+            &a.original_anchors,
+            a,
+            &b.original_anchors,
+            b,
+            |anchor, _, other, _| anchor == other,
+        ) {
             return Some("original_anchors differ".to_owned());
         }
-        if !map_values_equiv(&a.original_extra_fields, &b.original_extra_fields) {
+        if !normalized_id_map_equiv(
+            &a.original_extra_fields,
+            a,
+            &b.original_extra_fields,
+            b,
+            |fields, _, other, _| crate::asymmetric::extra_fields_equiv(fields, other),
+        ) {
             return Some("original_extra_fields differ".to_owned());
         }
-        if !presence_maps_equiv(&a.original_values, &b.original_values) {
+        if !normalized_id_map_equiv(
+            &a.original_values,
+            a,
+            &b.original_values,
+            b,
+            |value, _, other, _| crate::asymmetric::presence_equiv(value.as_ref(), other.as_ref()),
+        ) {
             return Some("original_values differ".to_owned());
         }
-        let a_keys: BTreeSet<&SynthKey> = a.synthesized_keys.values().collect();
-        let b_keys: BTreeSet<&SynthKey> = b.synthesized_keys.values().collect();
-        (a_keys != b_keys).then(|| "synthesized keys differ".to_owned())
+        None
     }
 
     fn congruence_witnesses(
@@ -657,12 +880,6 @@ fn remap_tree(instance: &WInstance, remap: &HashMap<u32, u32>) -> Option<WInstan
     ))
 }
 
-fn sorted<T: Clone + Ord>(values: &[T]) -> Vec<T> {
-    let mut result = values.to_vec();
-    result.sort();
-    result
-}
-
 fn fresh_node_id(ids: impl Iterator<Item = u32>) -> Option<u32> {
     ids.max().map_or(Some(0), |id| id.checked_add(1))
 }
@@ -679,29 +896,6 @@ fn node_btree_equiv(
         && a.iter().all(|(id, node)| {
             b.get(id)
                 .is_some_and(|other| crate::asymmetric::node_equiv(node, other))
-        })
-}
-
-fn map_values_equiv(
-    a: &HashMap<u32, HashMap<String, panproto_inst::Value>>,
-    b: &HashMap<u32, HashMap<String, panproto_inst::Value>>,
-) -> bool {
-    a.len() == b.len()
-        && a.iter().all(|(id, fields)| {
-            b.get(id)
-                .is_some_and(|other| crate::asymmetric::extra_fields_equiv(fields, other))
-        })
-}
-
-fn presence_maps_equiv(
-    a: &HashMap<u32, Option<panproto_inst::FieldPresence>>,
-    b: &HashMap<u32, Option<panproto_inst::FieldPresence>>,
-) -> bool {
-    a.len() == b.len()
-        && a.iter().all(|(id, value)| {
-            b.get(id).is_some_and(|other| {
-                crate::asymmetric::presence_equiv(value.as_ref(), other.as_ref())
-            })
         })
 }
 
@@ -1010,5 +1204,124 @@ mod tests {
             node.annotations.clear();
         }
         assert!(!TreeShape::equivalent(&base, &index, &changed, &index));
+    }
+
+    fn complement_with_synthesized_id(id: u32) -> Complement {
+        let key = SynthKey::Expand {
+            source_edge: EdgeId(4),
+            hop: 1,
+        };
+        let label = edge("root", "leaf", "leaf");
+        let mut complement = Complement::empty();
+        complement.synthesized_keys.insert(id, key);
+        complement.synthesized_nodes.insert(id);
+        complement.dropped_nodes.insert(id, Node::new(id, "leaf"));
+        complement.dropped_arcs.push((0, id, label.clone()));
+        complement
+            .dropped_fans
+            .push(panproto_inst::Fan::new("fan", id).with_child("child", id));
+        complement
+            .contraction_choices
+            .insert((0, id), label.clone());
+        complement.original_parent.insert(id, 0);
+        complement
+            .original_extra_fields
+            .insert(id, HashMap::from([("payload".to_owned(), Value::Int(7))]));
+        complement.arc_edges.insert((0, id), label);
+        complement.arc_order = vec![(0, id)];
+        complement.original_values.insert(
+            id,
+            Some(FieldPresence::Present(Value::Str("original".to_owned()))),
+        );
+        complement.original_anchors.insert(id, "leaf".into());
+        complement
+    }
+
+    #[test]
+    fn tree_complement_comparison_accepts_a_coherent_synthesized_rekey() {
+        let left = complement_with_synthesized_id(7);
+        let right = complement_with_synthesized_id(19);
+
+        assert_eq!(TreeShape::complement_divergence(&left, &right), None);
+    }
+
+    #[test]
+    fn tree_complement_comparison_rejects_incoherent_synthesis_metadata() {
+        let key = SynthKey::Expand {
+            source_edge: EdgeId(4),
+            hop: 1,
+        };
+        let mut orphan_node = Complement::empty();
+        orphan_node.synthesized_nodes.insert(7);
+        assert_eq!(
+            TreeShape::complement_divergence(&orphan_node, &orphan_node).as_deref(),
+            Some("synthesized metadata is incoherent")
+        );
+
+        let mut orphan_key = Complement::empty();
+        orphan_key.synthesized_keys.insert(7, key);
+        assert_eq!(
+            TreeShape::complement_divergence(&orphan_key, &orphan_key).as_deref(),
+            Some("synthesized metadata is incoherent")
+        );
+    }
+
+    #[test]
+    fn tree_complement_comparison_observes_contraction_choices_used_by_put() {
+        let schema = crate::tests::three_node_schema();
+        let lens = crate::tests::identity_lens(&schema);
+        let mut view = crate::tests::three_node_instance();
+        let Some(node) = view.nodes.get_mut(&2) else {
+            panic!("fixture has node 2");
+        };
+        node.value = None;
+        let Some((parent, child, expected)) =
+            view.arcs.iter().find(|(_, child, _)| *child == 2).cloned()
+        else {
+            panic!("fixture has an arc to node 2");
+        };
+        let mut accepted = Complement::empty();
+        accepted.synthesized_nodes.insert(child);
+        accepted.synthesized_keys.insert(
+            child,
+            SynthKey::Expand {
+                source_edge: EdgeId(0),
+                hop: 0,
+            },
+        );
+        accepted
+            .contraction_choices
+            .insert((parent, child), expected.clone());
+
+        let mut changed = accepted.clone();
+        let mut unexpected = expected;
+        unexpected.name = Some("other".into());
+        changed
+            .contraction_choices
+            .insert((parent, child), unexpected);
+
+        assert_eq!(
+            TreeShape::complement_divergence(&accepted, &changed).as_deref(),
+            Some("contraction_choices differ")
+        );
+        let accepted_errors = crate::asymmetric::check_put_domain(&lens, &view, &accepted)
+            .err()
+            .unwrap_or_default();
+        assert!(!accepted_errors.iter().any(|error| {
+            matches!(
+                error,
+                panproto_inst::PutDomainError::SynthesizedEdited { .. }
+            )
+        }));
+        let Err(changed_errors) = crate::asymmetric::check_put_domain(&lens, &view, &changed)
+        else {
+            panic!("the changed contraction choice must edit a synthesized arc");
+        };
+        assert!(changed_errors.iter().any(|error| {
+            matches!(
+                error,
+                panproto_inst::PutDomainError::SynthesizedEdited { .. }
+            )
+        }));
     }
 }
