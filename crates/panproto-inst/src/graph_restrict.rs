@@ -13,9 +13,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
 
-use crate::contraction_plan::PairResolution;
+use crate::contraction_plan::{PairResolution, remap};
 use crate::error::RestrictError;
-use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::ginstance::{EdgeId, FanDomain, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
 use crate::graph_complement::GraphComplement;
 use crate::metadata::{Node, NodeShape};
 use crate::restrict_boundary::{
@@ -55,6 +55,16 @@ fn is_fan_node(node: &Node) -> bool {
 /// the instance should be valid against the plan's source schema
 /// ([`graph_restrict_with_complement`] validates both boundaries). The
 /// complement is unstamped; the lens stamps it.
+///
+/// # Domain
+///
+/// Graph restrict is defined on the fan domain ([`FanDomain`]): every node
+/// of the fan shape, and every source of an edge of a reserved fan kind, is
+/// a well-formed fan node. Before any stage runs, the input is checked
+/// against it, and an input outside it is refused with
+/// [`RestrictError::MalformedFan`]. On the fan domain a reserved edge
+/// always leaves a fan node, so the stages below read every edge of a
+/// reserved kind as a fan edge and no other edge as one.
 ///
 /// # Stages
 ///
@@ -114,8 +124,13 @@ fn is_fan_node(node: &Node) -> bool {
 ///
 /// # Errors
 ///
-/// Every error is [`RestrictError::At`], located at the element it arose
-/// at, and the first error in stage order (and, within a stage, element
+/// An input outside the fan domain is refused before any stage with
+/// [`RestrictError::MalformedFan`], which names the least offending node
+/// and its first violation, in the order [`FanDomain::check`] tests them;
+/// it is the one error the engine does not locate, since it is about the
+/// input as a whole and no stage has run. Every other error is
+/// [`RestrictError::At`], located at the element it arose at, and the
+/// first error in stage order (and, within a stage, element
 /// order) is returned, which is the error with the least key: in stage 0
 /// the refusals of survival predicates and transforms
 /// ([`RestrictError::SurvivalPredicateFailed`],
@@ -137,6 +152,9 @@ pub fn graph_restrict_with_plan(
     instance: &GInstance,
     plan: &RestrictPlan,
 ) -> Result<(GInstance, GraphComplement), RestrictError> {
+    if let Some((node, reason)) = FanDomain::first_violation(instance) {
+        return Err(RestrictError::MalformedFan { node, reason });
+    }
     let mut run = GraphRun::new(instance, plan);
     run.nodes()?;
     run.edges()?;
@@ -183,7 +201,7 @@ impl<'a> GraphRun<'a> {
             instance,
             plan,
             migration: plan.migration(),
-            reverse: ReverseAnchors::new(plan.migration()),
+            reverse: ReverseAnchors::for_graph(plan.source(), plan.migration()),
             complement,
             nodes: BTreeMap::new(),
             fan_nodes: BTreeMap::new(),
@@ -269,17 +287,18 @@ impl<'a> GraphRun<'a> {
         Ok(Some(view))
     }
 
-    /// Whether an edge belongs to a reified fan: it leaves a fan node with a
-    /// reserved kind.
-    fn is_fan_edge(&self, edge: &GEdge) -> bool {
-        is_fan_edge(&edge.edge) && self.instance.node(edge.src).is_some_and(is_fan_node)
+    /// Whether an edge belongs to a reified fan: it has a reserved kind. The
+    /// engine runs on the fan domain only, where such an edge always leaves
+    /// a fan node.
+    fn is_fan_edge(edge: &GEdge) -> bool {
+        is_fan_edge(&edge.edge)
     }
 
     /// Stage 1: edges between surviving nodes, by fate.
     fn edges(&mut self) -> Result<(), RestrictError> {
         let instance = self.instance;
         for (id, edge) in instance.edges_sorted() {
-            if self.is_fan_edge(edge) {
+            if Self::is_fan_edge(edge) {
                 continue;
             }
             if !self.nodes.contains_key(&edge.src) || !self.nodes.contains_key(&edge.tgt) {
@@ -299,7 +318,18 @@ impl<'a> GraphRun<'a> {
                 image: Box::new(edge.edge.clone()),
             }),
             Some(EdgeFate::Keep(image)) => {
-                let preimages = self.plan.edge_image.preimages(image);
+                let source_anchor = &self.nodes[&edge.src].anchor;
+                let target_anchor = &self.nodes[&edge.tgt].anchor;
+                let preimages: Vec<&Edge> = self
+                    .plan
+                    .edge_image
+                    .preimages(image)
+                    .into_iter()
+                    .filter(|candidate| {
+                        remap(self.migration, &candidate.src) == source_anchor
+                            && remap(self.migration, &candidate.tgt) == target_anchor
+                    })
+                    .collect();
                 if preimages.as_slice() != [&edge.edge] {
                     self.complement.original_edges.insert(id, edge.clone());
                 }
@@ -361,7 +391,7 @@ impl<'a> GraphRun<'a> {
                     let Some(edge) = instance.edge(id) else {
                         continue;
                     };
-                    if self.is_fan_edge(edge) {
+                    if Self::is_fan_edge(edge) {
                         continue;
                     }
                     if dropped(edge.tgt) {

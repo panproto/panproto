@@ -108,7 +108,7 @@ impl<'a> TableRun<'a> {
             instance,
             plan,
             migration: plan.migration(),
-            reverse: ReverseAnchors::new(plan.migration()),
+            reverse: ReverseAnchors::for_tables(source, plan.migration()),
             source,
             complement,
             view: FInstance::new(),
