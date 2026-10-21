@@ -2459,7 +2459,7 @@ The derived `Hash` of `Temporal` reads the same fields as `==`, so it is consist
 
 - Law ID: `values.yaml-unwritten-zulu-representation`
 - Reference: `panproto_reference::temporal::unwritten_zulu`
-- Enumerator: `panproto_reference::enumerate::values::unwritten_zulu_temporal_scope; bound: forms=658, unwritten-Zulu baselines=62, offsets=16`
+- Enumerator: `panproto_reference::enumerate::values::unwritten_zulu_temporal_scope; bound: forms=658, unwritten_zulu_baselines=62, offsets=16`
 - Exhaustive differential test: `unwritten_offsets_and_infinities_remain_distinct; command: cargo nextest run -p panproto-expr --test reduced_temporals --no-tests=fail -E 'test(=unwritten_offsets_and_infinities_remain_distinct)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
 - File: `crates/panproto-expr/src/exact/temporal.rs`
