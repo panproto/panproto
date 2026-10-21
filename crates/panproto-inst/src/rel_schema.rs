@@ -441,7 +441,7 @@ fn columns_of(
         .iter()
         .map(|table| (table.clone(), BTreeMap::new()))
         .collect();
-    let mut duplicate: Option<(Name, String)> = None;
+    let mut duplicates = BTreeSet::new();
     for edge in edges
         .iter()
         .filter(|edge| tables.contains(&edge.src) && values.contains(&edge.tgt))
@@ -449,17 +449,14 @@ fn columns_of(
         let column = column_name(edge);
         match columns.entry(edge.src.clone()).or_default().entry(column) {
             std::collections::btree_map::Entry::Occupied(taken) => {
-                let candidate = (edge.src.clone(), taken.key().clone());
-                if duplicate.as_ref().is_none_or(|least| candidate < *least) {
-                    duplicate = Some(candidate);
-                }
+                duplicates.insert((edge.src.clone(), taken.key().clone()));
             }
             std::collections::btree_map::Entry::Vacant(free) => {
                 free.insert((*edge).clone());
             }
         }
     }
-    if let Some((table, column)) = duplicate {
+    if let Some((table, column)) = duplicates.into_iter().next() {
         return Err(RelSchemaError::DuplicateColumn { table, column });
     }
     Ok(columns)
@@ -580,6 +577,29 @@ mod tests {
 
     fn names(set: &BTreeSet<Name>) -> Vec<&str> {
         set.iter().map(AsRef::as_ref).collect()
+    }
+
+    #[test]
+    fn value_closure_walks_each_non_table_vertex_once() {
+        let a = Name::from("a");
+        let b = Name::from("b");
+        let c = Name::from("c");
+        let table = Name::from("table");
+        let kind = Name::from("value");
+        let vertices = BTreeMap::from([(&a, &kind), (&b, &kind), (&c, &kind), (&table, &kind)]);
+        let a_to_b = edge("a", "b", "inner", "ab");
+        let b_to_c = edge("b", "c", "inner", "bc");
+        let c_to_b = edge("c", "b", "inner", "cb");
+        let b_to_table = edge("b", "table", "inner", "bt");
+        let c_to_missing = edge("c", "missing", "inner", "cm");
+        let edges = BTreeSet::from([&a_to_b, &b_to_c, &c_to_b, &b_to_table, &c_to_missing]);
+
+        assert_eq!(
+            closure_under(&edges, &vertices, std::iter::once(&a), |vertex| {
+                vertex == &table
+            }),
+            BTreeSet::from([&a, &b, &c])
+        );
     }
 
     #[test]

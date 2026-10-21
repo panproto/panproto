@@ -1337,13 +1337,28 @@ mod tests {
         // `z` does not.
         let tgt = schema(&[("a", &["x"]), ("z", &["v"]), ("e", &[])], &[]);
         let f = functor(&src, &tgt, &m)?;
+        assert_eq!(
+            f.tables_outside_image()
+                .into_iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>(),
+            ["e", "z"]
+        );
         assert!(matches!(
             f.attribute_surjective(),
             Err(RestrictError::AttributeOutsideImage { table, column })
                 if table == "z" && column == "v"
         ));
         let tgt = schema(&[("a", &["x"]), ("e", &[])], &[]);
-        functor(&src, &tgt, &m)?.attribute_surjective()?;
+        let f = functor(&src, &tgt, &m)?;
+        assert_eq!(
+            f.tables_outside_image()
+                .into_iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>(),
+            ["e"]
+        );
+        f.attribute_surjective()?;
         Ok(())
     }
 
