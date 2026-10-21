@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "32",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "campaign": "table-kan-final-reference-3b079c9f",
+  "lane": "table-kan-s-reference",
+  "lane_commit": "3b079c9fae567e805cb8297f342677649789588f",
+  "package": "panproto-reference",
+  "shards": 20,
+  "groups": [
+    {
+      "name": "kan-page",
+      "files": [
+        "crates/panproto-reference/src/pages/kan_extensions.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=edits",
+        "--test=encodings",
+        "--test=enumerate",
+        "--test=enumerate_lenses",
+        "--test=json_corpus",
+        "--test=kan",
+        "--test=kan_o16",
+        "--test=lens_identity_protolens_squares",
+        "--test=lens_key_domain",
+        "--test=lens_law_census",
+        "--test=lens_path",
+        "--test=lens_path_contract",
+        "--test=lens_plan_binding",
+        "--test=lens_table_contract",
+        "--test=lenses",
+        "--test=manifest_paths",
+        "--test=num_exact",
+        "--test=o16_core_paths",
+        "--test=pattern_table",
+        "--test=properties",
+        "--test=resolution",
+        "--test=reverse_anchor",
+        "--test=schema_v2",
+        "--test=segments",
+        "--test=shared",
+        "--test=tables",
+        "--test=theories",
+        "--test=tree_forms",
+        "--test=tree_kan",
+        "--test=tree_lens_order",
+        "--test=validation",
+        "--test=values",
+        "--test=values_io_direct"
+      ],
+      "test_args": [
+        "--filterset=not (test(=o14_executes_every_representative_profile_pair) | test(=o14_every_labelled_member_has_checked_operation_transports) | test(=sigma_layout_uses_the_whole_global_value_class_and_records_every_origin) | test(=complete_bounded_family_has_typed_kan_results_and_refusals))"
+      ]
+    },
+    {
+      "name": "kan-enumerate",
+      "files": [
+        "crates/panproto-reference/src/enumerate/kan_extensions.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=edits",
+        "--test=encodings",
+        "--test=enumerate",
+        "--test=enumerate_lenses",
+        "--test=json_corpus",
+        "--test=kan",
+        "--test=kan_o16",
+        "--test=lens_identity_protolens_squares",
+        "--test=lens_key_domain",
+        "--test=lens_law_census",
+        "--test=lens_path",
+        "--test=lens_path_contract",
+        "--test=lens_plan_binding",
+        "--test=lens_table_contract",
+        "--test=lenses",
+        "--test=manifest_paths",
+        "--test=num_exact",
+        "--test=o16_core_paths",
+        "--test=pattern_table",
+        "--test=properties",
+        "--test=resolution",
+        "--test=reverse_anchor",
+        "--test=schema_v2",
+        "--test=segments",
+        "--test=shared",
+        "--test=tables",
+        "--test=theories",
+        "--test=tree_forms",
+        "--test=tree_kan",
+        "--test=tree_lens_order",
+        "--test=validation",
+        "--test=values",
+        "--test=values_io_direct"
+      ],
+      "test_args": [
+        "--filterset=not (test(=o14_executes_every_representative_profile_pair) | test(=o14_every_labelled_member_has_checked_operation_transports) | test(=sigma_layout_uses_the_whole_global_value_class_and_records_every_origin) | test(=complete_bounded_family_has_typed_kan_results_and_refusals))"
+      ]
+    }
+  ],
+  "_scope": "table-kan final CI-only mutation of the assigned reference page and enumerator. The exact O14 certificates are excluded from mutant runs because they run for hours; both have passed separately on the final candidate."
+}
