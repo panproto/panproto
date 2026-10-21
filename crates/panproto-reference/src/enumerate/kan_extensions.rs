@@ -712,8 +712,13 @@ impl ProfileTransport {
             .iter()
             .map(|(source, target)| (*target, *source))
             .collect();
-        (rows.len() == self.rows.len() && nulls.len() == self.nulls.len())
-            .then_some(Self { rows, nulls })
+        if rows.len() != self.rows.len() {
+            return None;
+        }
+        if nulls.len() != self.nulls.len() {
+            return None;
+        }
+        Some(Self { rows, nulls })
     }
 
     /// This transport as an attributed-instance homomorphism.
@@ -735,18 +740,29 @@ impl ProfileTransport {
         let Some(inverse) = self.inverse() else {
             return false;
         };
-        self.apply(source).as_ref() == Some(target)
-            && inverse.apply(target).as_ref() == Some(source)
-            && self.as_hom().check(source, target).is_ok()
-            && inverse.as_hom().check(target, source).is_ok()
-            && self
-                .as_hom()
-                .compose(&inverse.as_hom())
-                .is_ok_and(|hom| hom.same_as(&identity_hom(source), source))
-            && inverse
-                .as_hom()
-                .compose(&self.as_hom())
-                .is_ok_and(|hom| hom.same_as(&identity_hom(target), target))
+        if self.apply(source).as_ref() != Some(target) {
+            return false;
+        }
+        if inverse.apply(target).as_ref() != Some(source) {
+            return false;
+        }
+        if self.as_hom().check(source, target).is_err() {
+            return false;
+        }
+        if inverse.as_hom().check(target, source).is_err() {
+            return false;
+        }
+        if !self
+            .as_hom()
+            .compose(&inverse.as_hom())
+            .is_ok_and(|hom| hom.same_as(&identity_hom(source), source))
+        {
+            return false;
+        }
+        inverse
+            .as_hom()
+            .compose(&self.as_hom())
+            .is_ok_and(|hom| hom.same_as(&identity_hom(target), target))
     }
 }
 
@@ -1044,7 +1060,10 @@ pub fn profile_multiplicity_certificate(
             certificate_action(representative, rows, nulls).as_ref() == Some(representative)
         })
         .count() as u64;
-    (stabilizer_order != 0 && group_order % stabilizer_order == 0).then_some(OrbitCertificate {
+    if stabilizer_order == 0 || group_order % stabilizer_order != 0 {
+        return None;
+    }
+    Some(OrbitCertificate {
         group_order,
         stabilizer_order,
         multiplicity: group_order / stabilizer_order,
@@ -1097,10 +1116,7 @@ pub fn sigma_output_null_transport(
             .unwrap_or(Value::LabeledNull(*right_id));
         match (left_rep, right_rep) {
             (Value::LabeledNull(source), Value::LabeledNull(target)) => {
-                if out
-                    .insert(source, target)
-                    .is_some_and(|prior| prior != target)
-                {
+                if !insert_consistent(&mut out, source, target) {
                     return None;
                 }
             }
@@ -1118,14 +1134,21 @@ pub fn sigma_output_null_transport(
     for (source, slot) in &left.fresh {
         let mapped_slot = (*input.rows.get(&slot.0)?, slot.1.clone());
         let target = *right_fresh.get(&mapped_slot)?;
-        if out
-            .insert(*source, target)
-            .is_some_and(|prior| prior != target)
-        {
+        if !insert_consistent(&mut out, *source, target) {
             return None;
         }
     }
     Some(out)
+}
+
+fn insert_consistent(map: &mut BTreeMap<u64, u64>, source: u64, target: u64) -> bool {
+    match map.entry(source) {
+        std::collections::btree_map::Entry::Occupied(entry) => *entry.get() == target,
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(target);
+            true
+        }
+    }
 }
 
 /// Transport Delta output rows from the copied target-row provenance.
@@ -1448,13 +1471,10 @@ pub fn encoding_graphs() -> Vec<Graph> {
                 b_nodes.push(id);
             }
             let mut next_edge = 0u32;
-            let mut complete = true;
             for (owner, form) in a_nodes.iter().copied().zip(&chosen) {
-                complete &=
-                    add_cell(&mut base, &mut next_node, &mut next_edge, owner, form).is_some();
-            }
-            if !complete {
-                continue;
+                if add_cell(&mut base, &mut next_node, &mut next_edge, owner, form).is_none() {
+                    return Vec::new();
+                }
             }
             let possible = a_nodes
                 .iter()
@@ -1474,14 +1494,11 @@ pub fn encoding_graphs() -> Vec<Graph> {
                         },
                     );
                     let Some(fresh) = edge.checked_add(1) else {
-                        complete = false;
-                        break;
+                        return Vec::new();
                     };
                     edge = fresh;
                 }
-                if complete {
-                    out.push(graph);
-                }
+                out.push(graph);
             }
         }
     }
@@ -1526,6 +1543,14 @@ fn relabel_graph(
     Graph { nodes, edges }
 }
 
+fn spread_graph(graph: &Graph) -> Graph {
+    let top_node = graph.nodes.keys().next_back().copied().unwrap_or(0);
+    let top_edge = graph.edges.keys().next_back().copied().unwrap_or(0);
+    relabel_graph(graph, &|node| 3 * (top_node - node) + 1, &|edge| {
+        5 * (top_edge - edge) + 2
+    })
+}
+
 fn decorate_graph(graph: &Graph) -> Graph {
     let mut out = graph.clone();
     for node in out.nodes.values_mut() {
@@ -1554,11 +1579,7 @@ pub fn encoding_graph_presentations() -> Vec<Graph> {
     let bases = encoding_graphs();
     let mut out = Vec::with_capacity(bases.len() * 4);
     for graph in bases {
-        let top_node = graph.nodes.keys().next_back().copied().unwrap_or(0);
-        let top_edge = graph.edges.keys().next_back().copied().unwrap_or(0);
-        let spread = relabel_graph(&graph, &|node| 3 * (top_node - node) + 1, &|edge| {
-            5 * (top_edge - edge) + 2
-        });
+        let spread = spread_graph(&graph);
         out.push(decorate_graph(&graph));
         out.push(decorate_graph(&spread));
         out.push(graph);
@@ -2097,11 +2118,7 @@ pub fn o7_encoding_presentations(max: usize) -> Vec<Graph> {
     let plain = spec_graphs(&spec, &|_, _| o7_encoding_forms(), max);
     let mut out = Vec::with_capacity(plain.len() * 4);
     for graph in plain {
-        let top_node = graph.nodes.keys().next_back().copied().unwrap_or(0);
-        let top_edge = graph.edges.keys().next_back().copied().unwrap_or(0);
-        let spread = relabel_graph(&graph, &|node| 3 * (top_node - node) + 1, &|edge| {
-            5 * (top_edge - edge) + 2
-        });
+        let spread = spread_graph(&graph);
         out.push(decorate_spec_graph(&graph, &spec));
         out.push(decorate_spec_graph(&spread, &spec));
         out.push(graph);
@@ -3620,6 +3637,262 @@ mod tests {
             format!("max {}", case.max),
             format!("state {:x}", case.rng.0),
         ]
+    }
+
+    #[test]
+    fn finite_family_materializers_match_independent_small_counts() {
+        let cases = family();
+        assert_eq!(cases.len(), 10);
+
+        let all_schemas = schemas();
+        assert_eq!(all_schemas.len(), 15);
+        assert_eq!(all_schemas.first(), Some(&cases[0].source_schema()));
+        assert_eq!(all_schemas.last(), Some(&cases[9].source_schema()));
+
+        let all_migrations = migrations();
+        assert_eq!(all_migrations.len(), 8);
+        assert_eq!(all_migrations.first(), Some(&cases[0].migration()));
+        assert!(all_migrations.contains(&cases[7].migration()));
+        assert_eq!(cases[7].migration(), cases[8].migration());
+        assert_eq!(
+            all_migrations[0].vertex_remap.get("a").map(String::as_str),
+            Some("m")
+        );
+        assert_eq!(
+            all_migrations[0].vertex_remap.get("b").map(String::as_str),
+            Some("m")
+        );
+
+        let counted = case_object_counts(1, 2);
+        let enumerated = cases
+            .iter()
+            .map(|case| {
+                (
+                    instances(&case.source, 1, 2, &case.cells).len() as u64,
+                    instances(&case.target, 1, 2, &case.cells).len() as u64,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(counted, enumerated);
+        assert_eq!(
+            objects_count(1, 2),
+            counted.iter().map(|(source, target)| source + target).sum()
+        );
+        assert_eq!(
+            object_pairs_count(1, 2),
+            counted.iter().map(|(source, target)| source * target).sum()
+        );
+        assert_eq!(objects(1, 2).len() as u64, objects_count(1, 2));
+    }
+
+    #[test]
+    fn table_materializer_matches_the_registered_object_scope() {
+        let materialized = tables();
+        assert_eq!(materialized.len() as u64, objects_count(3, 6));
+        assert!(materialized.iter().all(Table::well_formed));
+    }
+
+    #[test]
+    fn profile_transport_checks_each_bijection_and_structural_obligation() {
+        let relation = fk("a", "a", "loop");
+        let source = Table {
+            rows: BTreeMap::from([
+                (
+                    1,
+                    (
+                        "a".to_owned(),
+                        BTreeMap::from([("x".to_owned(), Value::LabeledNull(10))]),
+                    ),
+                ),
+                (
+                    2,
+                    (
+                        "a".to_owned(),
+                        BTreeMap::from([("x".to_owned(), Value::Int(0))]),
+                    ),
+                ),
+            ]),
+            pairs: BTreeSet::from([(relation, 1, 2)]),
+        };
+        let transport = ProfileTransport {
+            rows: BTreeMap::from([(1, 9), (2, 7)]),
+            nulls: BTreeMap::from([(10, 20)]),
+        };
+        let Some(target) = transport.apply(&source) else {
+            panic!("the complete transport must apply");
+        };
+        assert!(transport.check(&source, &target));
+        let Some(inverse) = transport.inverse() else {
+            panic!("the transport must be bijective");
+        };
+        assert_eq!(inverse.apply(&target), Some(source.clone()));
+
+        let duplicate_rows = ProfileTransport {
+            rows: BTreeMap::from([(1, 7), (2, 7)]),
+            nulls: BTreeMap::from([(10, 20)]),
+        };
+        assert_eq!(duplicate_rows.inverse(), None);
+        assert!(!duplicate_rows.check(&source, &target));
+        let duplicate_nulls = ProfileTransport {
+            rows: transport.rows.clone(),
+            nulls: BTreeMap::from([(10, 20), (11, 20)]),
+        };
+        assert_eq!(duplicate_nulls.inverse(), None);
+        assert!(!duplicate_nulls.check(&source, &target));
+
+        let missing_row = ProfileTransport {
+            rows: BTreeMap::from([(1, 9)]),
+            nulls: transport.nulls.clone(),
+        };
+        assert!(!missing_row.check(&source, &target));
+        let mut altered_target = target;
+        let Some((_, cells)) = altered_target.rows.get_mut(&9) else {
+            panic!("the transported row must exist");
+        };
+        cells.insert("x".to_owned(), Value::LabeledNull(21));
+        assert!(!transport.check(&source, &altered_target));
+
+        assert_eq!(
+            profile_multiplicity_certificate(0, CaseSide::Source, &Table::default()),
+            Some(OrbitCertificate {
+                group_order: 2,
+                stabilizer_order: 2,
+                multiplicity: 1,
+            })
+        );
+        let outside = row_table(&[(0, "outside")]);
+        assert_eq!(
+            profile_multiplicity_certificate(0, CaseSide::Source, &outside),
+            None
+        );
+    }
+
+    #[test]
+    fn sigma_null_transport_rejects_disagreement_and_accepts_shared_images() {
+        let input = ProfileTransport {
+            rows: BTreeMap::new(),
+            nulls: BTreeMap::from([(1, 2)]),
+        };
+        let constants = |left_value, right_value| {
+            (
+                crate::rel::SigmaProvenance {
+                    fresh: BTreeMap::new(),
+                    merged: BTreeMap::from([(1, left_value)]),
+                },
+                crate::rel::SigmaProvenance {
+                    fresh: BTreeMap::new(),
+                    merged: BTreeMap::from([(2, right_value)]),
+                },
+            )
+        };
+        let (left, right) = constants(Value::Int(7), Value::Int(7));
+        assert_eq!(
+            sigma_output_null_transport(&input, &left, &right),
+            Some(BTreeMap::new())
+        );
+        let (left, right) = constants(Value::Int(7), Value::Int(8));
+        assert_eq!(sigma_output_null_transport(&input, &left, &right), None);
+
+        let duplicate_input = ProfileTransport {
+            rows: BTreeMap::new(),
+            nulls: BTreeMap::from([(1, 2), (3, 4)]),
+        };
+        let left = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::new(),
+            merged: BTreeMap::from([(1, Value::LabeledNull(9)), (3, Value::LabeledNull(9))]),
+        };
+        let right_same = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::new(),
+            merged: BTreeMap::from([(2, Value::LabeledNull(10)), (4, Value::LabeledNull(10))]),
+        };
+        assert_eq!(
+            sigma_output_null_transport(&duplicate_input, &left, &right_same),
+            Some(BTreeMap::from([(9, 10)]))
+        );
+        let right_different = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::new(),
+            merged: BTreeMap::from([(2, Value::LabeledNull(10)), (4, Value::LabeledNull(11))]),
+        };
+        assert_eq!(
+            sigma_output_null_transport(&duplicate_input, &left, &right_different),
+            None
+        );
+
+        let input = ProfileTransport {
+            rows: BTreeMap::from([(5, 7)]),
+            nulls: BTreeMap::from([(1, 2)]),
+        };
+        let left = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::from([(9, (5, "x".to_owned()))]),
+            merged: BTreeMap::from([(1, Value::LabeledNull(9))]),
+        };
+        let right_same = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::from([(10, (7, "x".to_owned()))]),
+            merged: BTreeMap::from([(2, Value::LabeledNull(10))]),
+        };
+        assert_eq!(
+            sigma_output_null_transport(&input, &left, &right_same),
+            Some(BTreeMap::from([(9, 10)]))
+        );
+        let right_different = crate::rel::SigmaProvenance {
+            fresh: BTreeMap::from([(11, (7, "x".to_owned()))]),
+            merged: BTreeMap::from([(2, Value::LabeledNull(10))]),
+        };
+        assert_eq!(
+            sigma_output_null_transport(&input, &left, &right_different),
+            None
+        );
+    }
+
+    #[test]
+    fn compact_graph_scopes_preserve_bits_decoration_and_spread_ids() {
+        let ordinary = fk("a", "b", "f");
+        let inner = SEdge::new("a", "a.x", "inner", Some("x"));
+        let base = graph(
+            vec![node(1, "a", None), node(4, "b", None)],
+            vec![
+                (1, gedge(1, 4, ordinary, None)),
+                (3, gedge(4, 1, inner, Some(6))),
+            ],
+        );
+        let spread = spread_graph(&base);
+        assert_eq!(spread.nodes.keys().copied().collect::<Vec<_>>(), [1, 10]);
+        assert_eq!(spread.edges.keys().copied().collect::<Vec<_>>(), [2, 12]);
+        assert_eq!((spread.edges[&12].src, spread.edges[&12].tgt), (10, 1));
+        assert_eq!((spread.edges[&2].src, spread.edges[&2].tgt), (1, 10));
+
+        let decorated = decorate_graph(&base);
+        assert_eq!(decorated.nodes[&1].position, Some(1));
+        assert_eq!(decorated.nodes[&4].position, Some(4));
+        assert_eq!(decorated.nodes[&1].discriminator.as_deref(), Some("a"));
+        assert_eq!(decorated.nodes[&4].annotations["seen"], Value::Int(4));
+        assert_eq!(
+            decorated.nodes[&4].fields["note"],
+            Value::Str("n4".to_owned())
+        );
+        assert_eq!(decorated.edges[&1].position, Some(3));
+        assert_eq!(decorated.edges[&3].position, Some(6));
+
+        let graphs = encoding_graphs();
+        assert_eq!(graphs.len() as u64, encoding_graphs_count());
+        assert_eq!(
+            encoding_graph_presentations_count(),
+            4 * graphs.len() as u64
+        );
+        assert!(graphs.iter().all(Graph::well_formed));
+
+        let negative_zero = Value::Float(1u64 << 63);
+        assert!(trees().iter().any(|tree| {
+            tree.nodes
+                .values()
+                .any(|node| node.value.as_ref() == Some(&Presence::Present(negative_zero.clone())))
+        }));
+        assert!(carrier_graphs().iter().any(|graph| {
+            graph
+                .nodes
+                .values()
+                .any(|node| node.value.as_ref() == Some(&Presence::Present(negative_zero.clone())))
+        }));
     }
 
     #[test]
