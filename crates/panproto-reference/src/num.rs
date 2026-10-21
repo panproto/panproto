@@ -704,14 +704,20 @@ impl Rat {
         Self::new(num, den)
     }
 
-    /// `2^k` for an integer exponent `k` (negative allowed).
+    /// `2^k` exactly, for every integer exponent `k` (negative allowed).
     #[must_use]
     pub fn pow2(k: i64) -> Self {
-        let up = u32::try_from(k.max(0)).unwrap_or(u32::MAX);
-        let down = u32::try_from(k.min(0).unsigned_abs()).unwrap_or(u32::MAX);
-        Self {
-            num: Int::new(false, Nat::pow2(up)),
-            den: Nat::pow2(down),
+        let power = pow2_wide(k.unsigned_abs());
+        if k < 0 {
+            Self {
+                num: Int::new(false, Nat::one()),
+                den: power,
+            }
+        } else {
+            Self {
+                num: Int::new(false, power),
+                den: Nat::one(),
+            }
         }
     }
 
@@ -755,6 +761,29 @@ impl Ord for Rat {
         let a = self.num.mul(&Int::new(false, other.den.clone()));
         let b = other.num.mul(&Int::new(false, self.den.clone()));
         a.cmp(&b)
+    }
+}
+
+/// `2^m` exactly, for every `m: u64`.
+fn pow2_wide(m: u64) -> Nat {
+    pow2_by_halving(m, u64::from(u32::MAX))
+}
+
+/// `2^m` exactly: directly when `m <= limit` (and `limit` fits `u32`), and
+/// otherwise as `(2^h)^2 * 2^r` with `m = 2h + r` and `r` in `{0, 1}`, whose
+/// `h` is below `m`.
+fn pow2_by_halving(m: u64, limit: u64) -> Nat {
+    if m <= limit {
+        if let Ok(small) = u32::try_from(m) {
+            return Nat::pow2(small);
+        }
+    }
+    let half = pow2_by_halving(m / 2, limit);
+    let square = half.mul(&half);
+    if m % 2 == 1 {
+        square.mul(&Nat::from_u64(2))
+    } else {
+        square
     }
 }
 
@@ -828,6 +857,32 @@ mod tests {
             "340282366920938463463374607431768211456"
         );
         assert_eq!(Nat::gcd(&Nat::pow10(20), &Nat::pow2(64)), Nat::pow2(20));
+    }
+
+    #[test]
+    fn halving_powers_of_two_are_exact_at_every_split() {
+        // Below any limit the power is direct; above it, it is assembled from
+        // halves, so each limit up to the exponent exercises the halving.
+        for m in 0..=130_u64 {
+            let direct = Nat::pow2(u32::try_from(m).unwrap_or(0));
+            for limit in 0..=8 {
+                assert_eq!(
+                    pow2_by_halving(m, limit),
+                    direct,
+                    "2^{m} under limit {limit}"
+                );
+            }
+            assert_eq!(pow2_wide(m), direct);
+        }
+        assert_eq!(
+            Rat::pow2(3),
+            Rat::new(Int::from_i64(8), Nat::one()).unwrap_or_else(Rat::zero)
+        );
+        assert_eq!(
+            Rat::pow2(-3),
+            Rat::new(Int::from_i64(1), Nat::from_u64(8)).unwrap_or_else(Rat::zero)
+        );
+        assert_eq!(Rat::pow2(0), Rat::pow10(0));
     }
 
     #[test]

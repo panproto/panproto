@@ -44,7 +44,20 @@ fn literal_to_ref(literal: &Literal) -> RValue {
         Literal::Temporal(t) => RValue::Temporal(temporal_to_ref(t)),
         Literal::Decimal(d) => RValue::Decimal(decimal_to_ref(d)),
         Literal::List(items) => RValue::List(items.iter().map(literal_to_ref).collect()),
-        other => panic!("no scalar reference value for {other:?}"),
+        Literal::BigInt(b) => RValue::BigInt(rx::BigIntValue {
+            negative: b.negative,
+            significand: nat(&b.significand),
+            zeros: nat(b.zeros.magnitude()),
+        }),
+        // A record is a map from names: a later field of one name replaces
+        // an earlier one.
+        Literal::Record(fields) => RValue::Unknown(
+            fields
+                .iter()
+                .map(|(name, field)| (name.to_string(), literal_to_ref(field)))
+                .collect(),
+        ),
+        Literal::Closure { .. } => panic!("no reference value for a closure"),
     }
 }
 
@@ -66,10 +79,7 @@ fn error_to_ref(error: &ExprError) -> EvalError {
         // The production error names its builtin by the operation's debug
         // name, the reference by the operation itself.
         ExprError::ArityMismatch { op, expected, got } => EvalError::ArityMismatch {
-            op: MAPPED_OPS
-                .into_iter()
-                .find(|mapped| format!("{mapped:?}") == *op)
-                .map_or_else(|| panic!("no reference builtin named {op}"), op_to_ref),
+            op: op_named(op),
             expected: *expected,
             got: *got,
         },
@@ -77,8 +87,22 @@ fn error_to_ref(error: &ExprError) -> EvalError {
             expected: Box::leak(expected.clone().into_boxed_str()),
             got: Box::leak(got.clone().into_boxed_str()),
         },
+        ExprError::ExactArithmetic { op, operand } => EvalError::ExactArithmetic {
+            op: op_named(op),
+            operand: Box::leak(operand.clone().into_boxed_str()),
+        },
+        ExprError::ParseError { value, .. } => EvalError::InvalidDecimal(value.clone()),
+        ExprError::NoInstanceContext { op } => EvalError::NoInstanceContext { op: op_named(op) },
         other => panic!("no reference refusal for {other:?}"),
     }
+}
+
+/// The reference builtin a production error names by its debug name.
+fn op_named(name: &str) -> rv::BuiltinOp {
+    ALL_OPS
+        .into_iter()
+        .find(|op| format!("{op:?}") == name)
+        .map_or_else(|| panic!("no builtin named {name}"), op_to_ref)
 }
 
 /// A production builtin's outcome in the reference model.
@@ -86,55 +110,141 @@ fn outcome_to_ref(outcome: &Result<Literal, ExprError>) -> Result<RValue, EvalEr
     outcome.as_ref().map(literal_to_ref).map_err(error_to_ref)
 }
 
-/// The production builtins these tests map into the reference model.
-const MAPPED_OPS: [BuiltinOp; 21] = [
-    BuiltinOp::FloatToInt,
-    BuiltinOp::Floor,
-    BuiltinOp::Ceil,
-    BuiltinOp::Round,
+/// Every production builtin.
+const ALL_OPS: [BuiltinOp; 64] = [
     BuiltinOp::Add,
     BuiltinOp::Sub,
     BuiltinOp::Mul,
     BuiltinOp::Div,
+    BuiltinOp::Mod,
     BuiltinOp::Neg,
     BuiltinOp::Abs,
-    BuiltinOp::StrToFloat,
-    BuiltinOp::Mod,
+    BuiltinOp::Floor,
+    BuiltinOp::Ceil,
+    BuiltinOp::Round,
+    BuiltinOp::Eq,
+    BuiltinOp::Neq,
+    BuiltinOp::Lt,
+    BuiltinOp::Lte,
+    BuiltinOp::Gt,
+    BuiltinOp::Gte,
+    BuiltinOp::And,
+    BuiltinOp::Or,
+    BuiltinOp::Not,
+    BuiltinOp::Concat,
+    BuiltinOp::Len,
+    BuiltinOp::Slice,
+    BuiltinOp::Upper,
+    BuiltinOp::Lower,
+    BuiltinOp::Trim,
+    BuiltinOp::Split,
+    BuiltinOp::Join,
+    BuiltinOp::Replace,
+    BuiltinOp::Contains,
     BuiltinOp::Map,
     BuiltinOp::Filter,
-    BuiltinOp::FlatMap,
     BuiltinOp::Fold,
-    BuiltinOp::Gt,
+    BuiltinOp::Append,
+    BuiltinOp::Head,
+    BuiltinOp::Tail,
+    BuiltinOp::Reverse,
+    BuiltinOp::FlatMap,
+    BuiltinOp::Length,
+    BuiltinOp::Range,
+    BuiltinOp::MergeRecords,
+    BuiltinOp::Keys,
+    BuiltinOp::Values,
+    BuiltinOp::HasField,
+    BuiltinOp::DefaultVal,
     BuiltinOp::Clamp,
+    BuiltinOp::TruncateStr,
     BuiltinOp::IntToFloat,
-    BuiltinOp::DecimalToFloat,
+    BuiltinOp::FloatToInt,
+    BuiltinOp::IntToStr,
+    BuiltinOp::FloatToStr,
+    BuiltinOp::StrToInt,
+    BuiltinOp::StrToFloat,
+    BuiltinOp::TypeOf,
+    BuiltinOp::IsNull,
+    BuiltinOp::IsList,
+    BuiltinOp::Edge,
+    BuiltinOp::Children,
+    BuiltinOp::HasEdge,
+    BuiltinOp::EdgeCount,
+    BuiltinOp::Anchor,
+    BuiltinOp::Edges,
     BuiltinOp::ToString,
+    BuiltinOp::ParseDecimal,
+    BuiltinOp::DecimalToFloat,
 ];
 
+/// The reference builtin of a production builtin.
 const fn op_to_ref(op: BuiltinOp) -> rv::BuiltinOp {
     match op {
-        BuiltinOp::Clamp => rv::BuiltinOp::Clamp,
-        BuiltinOp::IntToFloat => rv::BuiltinOp::IntToFloat,
-        BuiltinOp::DecimalToFloat => rv::BuiltinOp::DecimalToFloat,
-        BuiltinOp::ToString => rv::BuiltinOp::ToString,
-        BuiltinOp::FloatToInt => rv::BuiltinOp::FloatToInt,
-        BuiltinOp::Floor => rv::BuiltinOp::Floor,
-        BuiltinOp::Ceil => rv::BuiltinOp::Ceil,
-        BuiltinOp::Round => rv::BuiltinOp::Round,
         BuiltinOp::Add => rv::BuiltinOp::Add,
         BuiltinOp::Sub => rv::BuiltinOp::Sub,
         BuiltinOp::Mul => rv::BuiltinOp::Mul,
         BuiltinOp::Div => rv::BuiltinOp::Div,
+        BuiltinOp::Mod => rv::BuiltinOp::Mod,
         BuiltinOp::Neg => rv::BuiltinOp::Neg,
         BuiltinOp::Abs => rv::BuiltinOp::Abs,
-        BuiltinOp::StrToFloat => rv::BuiltinOp::StrToFloat,
-        BuiltinOp::Mod => rv::BuiltinOp::Mod,
+        BuiltinOp::Floor => rv::BuiltinOp::Floor,
+        BuiltinOp::Ceil => rv::BuiltinOp::Ceil,
+        BuiltinOp::Round => rv::BuiltinOp::Round,
+        BuiltinOp::Eq => rv::BuiltinOp::Eq,
+        BuiltinOp::Neq => rv::BuiltinOp::Ne,
+        BuiltinOp::Lt => rv::BuiltinOp::Lt,
+        BuiltinOp::Lte => rv::BuiltinOp::Lte,
+        BuiltinOp::Gt => rv::BuiltinOp::Gt,
+        BuiltinOp::Gte => rv::BuiltinOp::Gte,
+        BuiltinOp::And => rv::BuiltinOp::And,
+        BuiltinOp::Or => rv::BuiltinOp::Or,
+        BuiltinOp::Not => rv::BuiltinOp::Not,
+        BuiltinOp::Concat => rv::BuiltinOp::Concat,
+        BuiltinOp::Len => rv::BuiltinOp::Len,
+        BuiltinOp::Slice => rv::BuiltinOp::Slice,
+        BuiltinOp::Upper => rv::BuiltinOp::Upper,
+        BuiltinOp::Lower => rv::BuiltinOp::Lower,
+        BuiltinOp::Trim => rv::BuiltinOp::Trim,
+        BuiltinOp::Split => rv::BuiltinOp::Split,
+        BuiltinOp::Join => rv::BuiltinOp::Join,
+        BuiltinOp::Replace => rv::BuiltinOp::Replace,
+        BuiltinOp::Contains => rv::BuiltinOp::Contains,
         BuiltinOp::Map => rv::BuiltinOp::Map,
         BuiltinOp::Filter => rv::BuiltinOp::Filter,
-        BuiltinOp::FlatMap => rv::BuiltinOp::FlatMap,
         BuiltinOp::Fold => rv::BuiltinOp::Fold,
-        BuiltinOp::Gt => rv::BuiltinOp::Gt,
-        _ => panic!("no reference builtin mapped"),
+        BuiltinOp::Append => rv::BuiltinOp::Append,
+        BuiltinOp::Head => rv::BuiltinOp::Head,
+        BuiltinOp::Tail => rv::BuiltinOp::Tail,
+        BuiltinOp::Reverse => rv::BuiltinOp::Reverse,
+        BuiltinOp::FlatMap => rv::BuiltinOp::FlatMap,
+        BuiltinOp::Length => rv::BuiltinOp::Length,
+        BuiltinOp::Range => rv::BuiltinOp::Range,
+        BuiltinOp::MergeRecords => rv::BuiltinOp::MergeRecords,
+        BuiltinOp::Keys => rv::BuiltinOp::Keys,
+        BuiltinOp::Values => rv::BuiltinOp::Values,
+        BuiltinOp::HasField => rv::BuiltinOp::HasField,
+        BuiltinOp::DefaultVal => rv::BuiltinOp::DefaultVal,
+        BuiltinOp::Clamp => rv::BuiltinOp::Clamp,
+        BuiltinOp::TruncateStr => rv::BuiltinOp::TruncateStr,
+        BuiltinOp::IntToFloat => rv::BuiltinOp::IntToFloat,
+        BuiltinOp::FloatToInt => rv::BuiltinOp::FloatToInt,
+        BuiltinOp::IntToStr => rv::BuiltinOp::IntToStr,
+        BuiltinOp::FloatToStr => rv::BuiltinOp::FloatToStr,
+        BuiltinOp::StrToInt => rv::BuiltinOp::StrToInt,
+        BuiltinOp::StrToFloat => rv::BuiltinOp::StrToFloat,
+        BuiltinOp::TypeOf => rv::BuiltinOp::TypeOf,
+        BuiltinOp::IsNull => rv::BuiltinOp::IsNull,
+        BuiltinOp::IsList => rv::BuiltinOp::IsList,
+        BuiltinOp::Edge => rv::BuiltinOp::Edge,
+        BuiltinOp::Children => rv::BuiltinOp::Children,
+        BuiltinOp::HasEdge => rv::BuiltinOp::HasEdge,
+        BuiltinOp::EdgeCount => rv::BuiltinOp::EdgeCount,
+        BuiltinOp::Anchor => rv::BuiltinOp::Anchor,
+        BuiltinOp::Edges => rv::BuiltinOp::Edges,
+        BuiltinOp::ToString => rv::BuiltinOp::ToString,
+        BuiltinOp::ParseDecimal => rv::BuiltinOp::ParseDecimal,
+        BuiltinOp::DecimalToFloat => rv::BuiltinOp::DecimalToFloat,
     }
 }
 
@@ -587,15 +697,6 @@ fn computed_nans_agree_with_the_reference() {
     for (op, operands) in &cases {
         let references: Vec<RValue> = operands.iter().map(literal_to_ref).collect();
         let production = apply_builtin(*op, operands);
-        if *op == BuiltinOp::Clamp && production.is_err() {
-            println!(
-                "TEMP clamp {:?} vs {:?}",
-                production,
-                rv::apply_builtin(op_to_ref(*op), &references)
-            );
-            refused += 1;
-            continue;
-        }
         assert_eq!(
             outcome_to_ref(&production),
             rv::apply_builtin(op_to_ref(*op), &references),
@@ -1054,6 +1155,95 @@ fn pattern_to_ref(pattern: &Pattern) -> rv::Pattern {
     }
 }
 
+/// The production builtin of a reference builtin.
+fn op_from_ref(op: rv::BuiltinOp) -> BuiltinOp {
+    ALL_OPS
+        .into_iter()
+        .find(|candidate| op_to_ref(*candidate) == op)
+        .unwrap_or_else(|| panic!("no production builtin for {op:?}"))
+}
+
+/// The production literal of a reference value that a production literal
+/// denotes: a scalar of a shared variant, a list, or a record.
+fn value_from_ref(value: &RValue) -> Literal {
+    match value {
+        RValue::Bool(b) => Literal::Bool(*b),
+        RValue::Int(n) => Literal::Int(*n),
+        RValue::Float(bits) => Literal::Float(f64::from_bits(*bits)),
+        RValue::Str(s) => Literal::Str(s.clone()),
+        RValue::Bytes(b) => Literal::Bytes(b.clone()),
+        RValue::Null => Literal::Null,
+        RValue::Decimal(d) => Literal::Decimal(decimal_from_ref(d)),
+        RValue::List(items) => Literal::List(items.iter().map(value_from_ref).collect()),
+        RValue::Unknown(fields) => Literal::Record(
+            fields
+                .iter()
+                .map(|(name, field)| (Arc::from(name.as_str()), value_from_ref(field)))
+                .collect(),
+        ),
+        other => panic!("no production literal for {other:?}"),
+    }
+}
+
+/// The production pattern of a reference pattern.
+fn pattern_from_ref(pattern: &rv::Pattern) -> Pattern {
+    match pattern {
+        rv::Pattern::Wildcard => Pattern::Wildcard,
+        rv::Pattern::Variable(name) => Pattern::Var(Arc::from(name.as_str())),
+        rv::Pattern::Literal(value) => Pattern::Lit(value_from_ref(value)),
+        rv::Pattern::Record(fields) => Pattern::Record(
+            fields
+                .iter()
+                .map(|(name, field)| (Arc::from(name.as_str()), pattern_from_ref(field)))
+                .collect(),
+        ),
+        rv::Pattern::List(items) => Pattern::List(items.iter().map(pattern_from_ref).collect()),
+        rv::Pattern::Constructor(name, args) => Pattern::Constructor(
+            Arc::from(name.as_str()),
+            args.iter().map(pattern_from_ref).collect(),
+        ),
+    }
+}
+
+/// The production expression of a reference expression in the image of
+/// [`expr_to_ref`]: every form but `Equal` and `If`, which production lacks.
+fn expr_from_ref(expr: &rv::Expr) -> Expr {
+    let boxed = |e: &rv::Expr| Box::new(expr_from_ref(e));
+    match expr {
+        rv::Expr::Literal(value) => Expr::Lit(value_from_ref(value)),
+        rv::Expr::Variable(name) => Expr::Var(Arc::from(name.as_str())),
+        rv::Expr::Lambda(param, body) => Expr::Lam(Arc::from(param.as_str()), boxed(body)),
+        rv::Expr::Apply(function, argument) => Expr::App(boxed(function), boxed(argument)),
+        rv::Expr::Record(fields) => Expr::Record(
+            fields
+                .iter()
+                .map(|(name, field)| (Arc::from(name.as_str()), expr_from_ref(field)))
+                .collect(),
+        ),
+        rv::Expr::List(items) => Expr::List(items.iter().map(expr_from_ref).collect()),
+        rv::Expr::Field(record, name) => Expr::Field(boxed(record), Arc::from(name.as_str())),
+        rv::Expr::Index(list, index) => Expr::Index(boxed(list), boxed(index)),
+        rv::Expr::Match { scrutinee, arms } => Expr::Match {
+            scrutinee: boxed(scrutinee),
+            arms: arms
+                .iter()
+                .map(|(pattern, body)| (pattern_from_ref(pattern), expr_from_ref(body)))
+                .collect(),
+        },
+        rv::Expr::Let { name, value, body } => Expr::Let {
+            name: Arc::from(name.as_str()),
+            value: boxed(value),
+            body: boxed(body),
+        },
+        rv::Expr::Builtin(op, args) => {
+            Expr::Builtin(op_from_ref(*op), args.iter().map(expr_from_ref).collect())
+        }
+        rv::Expr::Equal(..) | rv::Expr::If(..) => {
+            panic!("{expr:?} is outside the image of expr_to_ref")
+        }
+    }
+}
+
 fn var(name: &str) -> Expr {
     Expr::Var(Arc::from(name))
 }
@@ -1102,8 +1292,19 @@ fn evaluation_shapes(op: BuiltinOp, x: f64) -> [Expr; 5] {
     ]
 }
 
+/// The size of the reference's evaluation-expression scope, counted from
+/// its construction: 15 shapes on each of 3 lists and 5 others; 14 curried
+/// and partial shapes; 5 operations on 5 x 5 integer pairs and 2 on 5
+/// integers; 9 refusal orders; 5 relations on 8 x 8 operand pairs and 3
+/// record and list equalities; 5 indexes and 3 index refusals; 9 record
+/// shapes; 10 match shapes; 8 ranges; 14 functions in data positions; and 4
+/// scope shapes: 45 + 5 + 14 + 125 + 10 + 9 + 320 + 3 + 5 + 3 + 9 + 10 + 8 +
+/// 14 + 4.
+const EVALUATION_EXPRESSIONS: usize = 584;
+
 /// Production evaluation agrees with the reference evaluator, value for
-/// value and refusal for refusal, on every evaluation shape of every
+/// value and refusal for refusal, on every enumerated evaluation expression
+/// of the reference, and on every evaluation shape of every
 /// rounding builtin over [`rounding_scope`] and every widened binary16
 /// pattern, and on an unbound variable.
 #[test]
@@ -1135,6 +1336,36 @@ fn evaluation_agrees_with_the_reference() {
         rv::eval(&expr_to_ref(&unbound), &empty)
     );
     cases += 1;
+    // The enumerated expressions of the law, each in the image of
+    // `expr_to_ref`: production evaluation of its production form equals
+    // the reference evaluation.
+    let expressions = panproto_reference::enumerate::values::evaluation_expressions();
+    println!("bound: expressions={}", expressions.len());
+    let mut refusals = 0_usize;
+    let mut disagreements = 0_usize;
+    for reference_expr in &expressions {
+        let expr = expr_from_ref(reference_expr);
+        assert_eq!(
+            &expr_to_ref(&expr),
+            reference_expr,
+            "{expr:?} leaves the image"
+        );
+        let production = evaluation_to_ref(&eval(&expr, &Env::new(), &config));
+        let reference = rv::eval(reference_expr, &empty);
+        if production != reference {
+            println!("disagreement: {expr:?}: production {production:?}, reference {reference:?}");
+            disagreements += 1;
+        }
+        if reference.is_err() {
+            refusals += 1;
+        }
+    }
+    println!(
+        "evaluation expressions: {} expressions ({refusals} refusals), {disagreements} disagreements",
+        expressions.len()
+    );
+    assert_eq!(disagreements, 0);
+    assert_eq!(expressions.len(), EVALUATION_EXPRESSIONS);
     println!(
         "evaluation: bound {} ops by {} floats ({rounding} rounding-scope floats and 65536 widened binary16 patterns) by 5 shapes plus 1 unbound variable: {cases} expressions, all agree",
         ROUNDING_OPS.len(),
@@ -1545,7 +1776,6 @@ fn temporal_index_strategy() -> impl Strategy<Value = usize> {
 fn generated_config() -> ProptestConfig {
     ProptestConfig {
         cases: 4096,
-        failure_persistence: None,
         ..ProptestConfig::default()
     }
 }
@@ -1738,6 +1968,16 @@ proptest! {
             let reference_form = reference_temporal
                 .lexical_form()
                 .expect("an enumerated reference temporal has an exact lexical form");
+            prop_assert!(
+                rt::parse_display(reference_form, selected[i]),
+                "the reference parse-then-display law fails for {:?}",
+                selected[i]
+            );
+            prop_assert!(
+                rt::display_parse(reference_temporal),
+                "the reference display-then-parse law fails for {:?}",
+                selected[i]
+            );
             let reference_from_lexeme = rt::parse_as(reference_form, selected[i])
                 .expect("an enumerated reference temporal reparses under its descriptor");
             prop_assert_eq!(
@@ -2342,9 +2582,6 @@ proptest! {
         let canonical = rf::computed_nan(Format::B64);
         let (op, arity) = NAN_OPS[op_index];
         let operands = &operands[..arity];
-        let unordered_bounds = operands[1..].iter().any(|b| f64::from_bits(*b).is_nan())
-            || f64::from_bits(operands[1]) > f64::from_bits(operands[2]);
-        prop_assume!(op != BuiltinOp::Clamp || !unordered_bounds);
         let literals: Vec<Literal> = operands
             .iter()
             .map(|bits| Literal::Float(f64::from_bits(*bits)))
@@ -2415,28 +2652,264 @@ proptest! {
     }
 }
 
+fn string(text: &str) -> Expr {
+    Expr::Lit(Literal::Str(text.into()))
+}
+
+fn record(fields: Vec<(&str, Expr)>) -> Expr {
+    Expr::Record(
+        fields
+            .into_iter()
+            .map(|(name, field)| (Arc::from(name), field))
+            .collect(),
+    )
+}
+
+/// The list pattern `[x, x]`.
+fn repeated_pattern() -> Pattern {
+    Pattern::List(vec![
+        Pattern::Var(Arc::from("x")),
+        Pattern::Var(Arc::from("x")),
+    ])
+}
+
+type EvaluationCase = (Expr, Result<RValue, EvalError>);
+
+const fn type_error(expected: &'static str, got: &'static str) -> Result<RValue, EvalError> {
+    Err(EvalError::TypeError { expected, got })
+}
+
+/// Index, function-as-data, clamp and exhaustive-match refusals.
+fn data_refusal_cases() -> Vec<EvaluationCase> {
+    vec![
+        (
+            Expr::Index(Box::new(int(1)), Box::new(int(0))),
+            type_error("list and int", "int"),
+        ),
+        (
+            Expr::Index(Box::new(list(&[1])), Box::new(list(&[0]))),
+            type_error("list and int", "list"),
+        ),
+        (
+            Expr::Index(Box::new(list(&[1])), Box::new(int(5))),
+            Err(EvalError::IndexOutOfBounds { index: 5, len: 1 }),
+        ),
+        (
+            Expr::Index(Box::new(list(&[1, 2])), Box::new(int(-1))),
+            Err(EvalError::IndexOutOfBounds { index: -1, len: 2 }),
+        ),
+        (
+            Expr::Index(Box::new(list(&[1])), Box::new(int(i64::MIN))),
+            Err(EvalError::IndexOutOfBounds {
+                index: i64::MIN,
+                len: 1,
+            }),
+        ),
+        (
+            call(BuiltinOp::Map, vec![lam("x", int(1)), lam("x", int(2))]),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            call(BuiltinOp::Add, vec![lam("x", int(1)), int(1)]),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            call(BuiltinOp::Add, vec![int(1), lam("x", int(1))]),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            Expr::List(vec![int(1), lam("x", int(1))]),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            Expr::Index(Box::new(lam("x", int(1))), Box::new(int(0))),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            Expr::Match {
+                scrutinee: Box::new(lam("x", int(1))),
+                arms: vec![(Pattern::Wildcard, int(0))],
+            },
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            call(
+                BuiltinOp::Map,
+                vec![list(&[1]), lam("x", lam("y", var("y")))],
+            ),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            call(
+                BuiltinOp::Fold,
+                vec![list(&[1]), int(0), lam("a", lam("b", lam("c", var("c"))))],
+            ),
+            Err(EvalError::NotAFunction),
+        ),
+        (
+            call(BuiltinOp::Clamp, vec![float(0.5), float(1.0), float(0.0)]),
+            type_error("clamp requires min <= max", "unordered or reversed bounds"),
+        ),
+        (
+            call(
+                BuiltinOp::Clamp,
+                vec![float(0.5), float(f64::NAN), float(1.0)],
+            ),
+            type_error("clamp requires min <= max", "unordered or reversed bounds"),
+        ),
+        (
+            call(BuiltinOp::Clamp, vec![int(5), int(3), int(1)]),
+            type_error("clamp requires min <= max", "min > max"),
+        ),
+        (
+            Expr::Match {
+                scrutinee: Box::new(int(3)),
+                arms: vec![(Pattern::Lit(Literal::Int(4)), int(0))],
+            },
+            Err(EvalError::NonExhaustiveMatch),
+        ),
+    ]
+}
+
+/// Refusals for values outside the comparison domains.
+fn comparison_refusal_cases() -> Vec<EvaluationCase> {
+    vec![
+        // Comparison refusals name the left operand; an exact pair that is
+        // not two numbers, and two temporals of different forms, each have
+        // their own refusal.
+        (
+            call(BuiltinOp::Gt, vec![list(&[]), int(0)]),
+            type_error("comparable values", "list"),
+        ),
+        (
+            call(BuiltinOp::Lt, vec![string("a"), int(0)]),
+            type_error("comparable values", "string"),
+        ),
+        (
+            call(
+                BuiltinOp::Lte,
+                vec![
+                    Expr::Lit(Literal::Decimal(DecimalValue::parse("NaN").unwrap())),
+                    int(1),
+                ],
+            ),
+            type_error(
+                "int|bigint|finite decimal, or comparable temporals",
+                "incomparable exact values",
+            ),
+        ),
+        (
+            call(
+                BuiltinOp::Gte,
+                vec![
+                    Expr::Lit(Literal::Temporal(Temporal::parse("2020-01-01").unwrap())),
+                    Expr::Lit(Literal::Temporal(Temporal::parse("10:00:00").unwrap())),
+                ],
+            ),
+            type_error("temporals of one comparable form", "incomparable temporals"),
+        ),
+    ]
+}
+
+/// Record, pattern and evaluation-order cases.
+fn structural_evaluation_cases() -> Vec<EvaluationCase> {
+    vec![
+        // A record is a map: equality ignores field order, and a later field
+        // of one name replaces an earlier one.
+        (
+            call(
+                BuiltinOp::Eq,
+                vec![
+                    record(vec![("a", int(1)), ("b", int(2))]),
+                    record(vec![("b", int(2)), ("a", int(1))]),
+                ],
+            ),
+            Ok(RValue::Bool(true)),
+        ),
+        (
+            Expr::Field(
+                Box::new(record(vec![("a", int(1)), ("a", int(2))])),
+                Arc::from("a"),
+            ),
+            Ok(RValue::Int(2)),
+        ),
+        // A name repeated in a pattern matches equal values only.
+        (
+            Expr::Match {
+                scrutinee: Box::new(list(&[1, 2])),
+                arms: vec![(repeated_pattern(), var("x"))],
+            },
+            Err(EvalError::NonExhaustiveMatch),
+        ),
+        (
+            Expr::Match {
+                scrutinee: Box::new(list(&[2, 2])),
+                arms: vec![(repeated_pattern(), var("x"))],
+            },
+            Ok(RValue::Int(2)),
+        ),
+        // A constructor pattern matches a record tagged by `$tag` whose
+        // arguments are the fields `$0`, `$1`, ...
+        (
+            Expr::Match {
+                scrutinee: Box::new(record(vec![("$tag", string("Just")), ("$0", int(5))])),
+                arms: vec![(
+                    Pattern::Constructor(Arc::from("Just"), vec![Pattern::Var(Arc::from("x"))]),
+                    var("x"),
+                )],
+            },
+            Ok(RValue::Int(5)),
+        ),
+        (
+            Expr::Match {
+                scrutinee: Box::new(record(vec![("$tag", string("None"))])),
+                arms: vec![(
+                    Pattern::Constructor(Arc::from("Just"), vec![Pattern::Wildcard]),
+                    int(0),
+                )],
+            },
+            Err(EvalError::NonExhaustiveMatch),
+        ),
+        // A range evaluates its arguments before its arity and types.
+        (
+            call(BuiltinOp::Range, vec![int(1), int(2), var("u")]),
+            Err(EvalError::UnboundVariable("u".into())),
+        ),
+        (
+            call(
+                BuiltinOp::Range,
+                vec![string("a"), call(BuiltinOp::Div, vec![int(1), int(0)])],
+            ),
+            Err(EvalError::DivisionByZero),
+        ),
+        (
+            call(BuiltinOp::Range, vec![int(1), string("a")]),
+            type_error("int", "string"),
+        ),
+    ]
+}
+
+/// The refusals of evaluation where a function stands for data, where an
+/// index is negative or the indexed operand is not a list, and where a float
+/// clamp's bounds are unordered: production refuses each as the reference
+/// does.
 #[test]
-fn temp_probe() {
+fn evaluation_refusals_agree_with_the_reference() {
     let cfg = EvalConfig::default();
-    let probes = vec![
-        Expr::Index(Box::new(int(1)), Box::new(int(0))),
-        Expr::Index(Box::new(list(&[1])), Box::new(int(5))),
-        Expr::Index(Box::new(list(&[1, 2])), Box::new(int(-2))),
-        Expr::Index(Box::new(list(&[1, 2])), Box::new(int(-3))),
-        Expr::Index(Box::new(list(&[1])), Box::new(int(i64::MIN))),
-        call(BuiltinOp::Map, vec![lam("x", int(1)), lam("x", int(2))]),
-        call(BuiltinOp::Clamp, vec![float(0.5), float(1.0), float(0.0)]),
-        call(BuiltinOp::Clamp, vec![int(5), int(3), int(1)]),
-        Expr::Match {
-            scrutinee: Box::new(int(3)),
-            arms: vec![(Pattern::Lit(Literal::Int(4)), int(0))],
-        },
-    ];
-    for e in probes {
-        println!(
-            "TEMPPROBE {e:?}\n  production {:?}\n  reference  {:?}",
-            eval(&e, &Env::new(), &cfg),
-            rv::eval(&expr_to_ref(&e), &BTreeMap::new())
-        );
+    let mut cases = data_refusal_cases();
+    cases.extend(comparison_refusal_cases());
+    cases.extend(structural_evaluation_cases());
+    let mut disagreements = 0_usize;
+    for (expr, expected) in &cases {
+        let reference = rv::eval(&expr_to_ref(expr), &BTreeMap::new());
+        let production = evaluation_to_ref(&eval(expr, &Env::new(), &cfg));
+        for (side, outcome) in [("reference", &reference), ("production", &production)] {
+            if outcome != expected {
+                println!("disagreement: {side} on {expr:?}: {outcome:?}, expected {expected:?}");
+                disagreements += 1;
+            }
+        }
     }
+    assert_eq!(disagreements, 0);
+    println!("bound: refusals={}", cases.len());
 }

@@ -967,3 +967,402 @@ pub fn binary32_scope() -> Vec<u64> {
     patterns.extend(binary32_nans());
     dedupe(patterns)
 }
+
+/// The scope of the nearest-reading sweep.
+///
+/// Every binary32 boundary pattern (2 x 256 x 8 = 4096), every binary64
+/// exponent pattern (2 x 2048 x 14 = 57,344) and the values-page numerals (at
+/// most two significand digits, exponents -1 to 1: 600).
+#[must_use]
+pub fn nearest_reading_scope() -> (Vec<u64>, Vec<u64>, Vec<String>) {
+    (
+        binary32_boundary_patterns(),
+        binary64_exponent_patterns(),
+        numerals(),
+    )
+}
+
+/// The scope of the binary rounding and printing sweeps.
+///
+/// Every binary16 pattern (65,536), every binary32 boundary pattern (4096)
+/// and every binary64 boundary pattern (8036).
+#[must_use]
+pub fn binary_rounding_scope() -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    (
+        binary16_patterns(),
+        binary32_boundary_patterns(),
+        binary64_boundary_patterns(),
+    )
+}
+
+/// The expressions of the expression-evaluation scope.
+///
+/// Every expression uses only forms the production expression language
+/// shares with the reference (no `Equal`, no `If`) and only values a
+/// production literal denotes. The scope covers the higher-order builtins
+/// over the empty list and short lists, with well-typed, refusing and
+/// function-valued functions and with too many arguments; partial and
+/// curried builtins, a shadowed builtin name and a bare builtin; `Add`,
+/// `Sub`, `Mul`, `Div` and `Mod` on every pair of five boundary integers;
+/// the refusal orders of the numeric builtins; the four orderings and `Eq`
+/// on every pair of eight operands of distinct kinds; `Index`, `Field`,
+/// `Match` and `Range` shapes, including negative and extreme indexes,
+/// repeated record fields, order-free record equality, repeated pattern
+/// variables and constructor patterns; closures in every data position; and
+/// lexical capture, shadowing and unbound names.
+#[must_use]
+pub fn evaluation_expressions() -> Vec<crate::value::Expr> {
+    let mut out = Vec::new();
+    higher_order_expressions(&mut out);
+    curried_expressions(&mut out);
+    arithmetic_expressions(&mut out);
+    comparison_expressions(&mut out);
+    lookup_expressions(&mut out);
+    match_and_range_expressions(&mut out);
+    function_expressions(&mut out);
+    out
+}
+
+mod ev {
+    //! Constructors of reference expressions for the evaluation scope.
+
+    use crate::value::{BuiltinOp, Expr, Pattern, Value};
+
+    pub const fn int(n: i64) -> Expr {
+        Expr::Literal(Value::Int(n))
+    }
+
+    pub const fn float(x: f64) -> Expr {
+        Expr::Literal(Value::Float(x.to_bits()))
+    }
+
+    pub fn text(s: &str) -> Expr {
+        Expr::Literal(Value::Str(s.to_owned()))
+    }
+
+    pub fn var(name: &str) -> Expr {
+        Expr::Variable(name.to_owned())
+    }
+
+    pub fn pvar(name: &str) -> Pattern {
+        Pattern::Variable(name.to_owned())
+    }
+
+    pub fn lam(name: &str, body: Expr) -> Expr {
+        Expr::Lambda(name.to_owned(), Box::new(body))
+    }
+
+    pub fn app(f: Expr, a: Expr) -> Expr {
+        Expr::Apply(Box::new(f), Box::new(a))
+    }
+
+    pub const fn call(op: BuiltinOp, args: Vec<Expr>) -> Expr {
+        Expr::Builtin(op, args)
+    }
+
+    pub fn list(items: &[i64]) -> Expr {
+        Expr::List(items.iter().map(|n| int(*n)).collect())
+    }
+
+    pub fn record(fields: Vec<(&str, Expr)>) -> Expr {
+        Expr::Record(
+            fields
+                .into_iter()
+                .map(|(name, field)| (name.to_owned(), field))
+                .collect(),
+        )
+    }
+
+    pub fn field(r: Expr, name: &str) -> Expr {
+        Expr::Field(Box::new(r), name.to_owned())
+    }
+
+    pub fn index(l: Expr, i: Expr) -> Expr {
+        Expr::Index(Box::new(l), Box::new(i))
+    }
+
+    pub fn let_in(name: &str, value: Expr, body: Expr) -> Expr {
+        Expr::Let {
+            name: name.to_owned(),
+            value: Box::new(value),
+            body: Box::new(body),
+        }
+    }
+
+    pub fn matching(scrutinee: Expr, arms: Vec<(Pattern, Expr)>) -> Expr {
+        Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+        }
+    }
+
+    /// A decimal literal; every lexeme the scope writes is a decimal.
+    pub fn decimal(s: &str) -> Expr {
+        Expr::Literal(crate::exact::parse_decimal(s).map_or(Value::Null, Value::Decimal))
+    }
+
+    /// `\x -> x + 1`.
+    pub fn add_one() -> Expr {
+        lam("x", call(BuiltinOp::Add, vec![var("x"), int(1)]))
+    }
+
+    /// `\a -> \b -> a + b`.
+    pub fn sum() -> Expr {
+        lam(
+            "a",
+            lam("b", call(BuiltinOp::Add, vec![var("a"), var("b")])),
+        )
+    }
+
+    /// `\z -> z`.
+    pub fn identity() -> Expr {
+        lam("z", var("z"))
+    }
+
+    /// A field access on an integer, refused when evaluated.
+    pub fn broken() -> Expr {
+        field(int(1), "f")
+    }
+
+    /// A division by zero.
+    pub fn failing() -> Expr {
+        call(BuiltinOp::Div, vec![int(1), int(0)])
+    }
+}
+
+/// Higher-order builtins over short lists: 15 shapes on each of 3 lists and
+/// 5 others.
+fn higher_order_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::BuiltinOp as Op;
+    use ev::{add_one, app, broken, call, failing, identity, int, lam, list, sum, text, var};
+    let positive = lam("x", call(Op::Gt, vec![var("x"), int(0)]));
+    let twice = lam("x", crate::value::Expr::List(vec![var("x"), var("x")]));
+    let to_function = lam("x", lam("y", var("y")));
+    let lists: [&[i64]; 3] = [&[], &[1], &[-2, 0, 3]];
+    for items in lists {
+        let xs = list(items);
+        out.push(call(Op::Map, vec![xs.clone(), add_one()]));
+        out.push(call(Op::Filter, vec![xs.clone(), positive.clone()]));
+        out.push(call(Op::FlatMap, vec![xs.clone(), twice.clone()]));
+        out.push(call(Op::Fold, vec![xs.clone(), int(10), sum()]));
+        out.push(call(Op::Map, vec![xs.clone(), broken()]));
+        out.push(call(Op::Fold, vec![xs.clone(), failing(), sum()]));
+        out.push(call(Op::Fold, vec![xs.clone(), int(0), broken()]));
+        out.push(call(Op::Map, vec![xs.clone(), to_function.clone()]));
+        out.push(call(Op::Filter, vec![xs.clone(), add_one()]));
+        out.push(call(Op::FlatMap, vec![xs.clone(), add_one()]));
+        out.push(call(Op::Fold, vec![xs.clone(), int(0), add_one()]));
+        out.push(call(Op::Map, vec![xs.clone(), int(3)]));
+        out.push(app(app(var("map"), add_one()), xs.clone()));
+        out.push(app(app(app(var("fold"), sum()), int(0)), xs.clone()));
+        out.push(app(call(Op::Filter, vec![positive.clone()]), xs));
+    }
+    out.push(call(Op::Map, vec![int(1), broken()]));
+    out.push(call(Op::Fold, vec![text("a"), failing(), broken()]));
+    out.push(call(Op::Map, vec![identity(), add_one()]));
+    out.push(call(Op::Map, vec![list(&[1]), add_one(), var("unbound")]));
+    out.push(call(Op::Fold, vec![list(&[1, 2]), int(0), var("add")]));
+}
+
+/// Partial and curried builtins, shadowing and bare names: 14 shapes.
+fn curried_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::BuiltinOp as Op;
+    use ev::{app, call, failing, identity, int, let_in, var};
+    out.push(app(app(var("sub"), int(5)), int(3)));
+    out.push(app(call(Op::Sub, vec![int(5)]), int(3)));
+    out.push(call(Op::Sub, vec![int(5)]));
+    out.push(call(Op::Sub, vec![failing()]));
+    out.push(var("add"));
+    out.push(app(var("add"), int(1)));
+    out.push(app(app(app(var("add"), int(1)), int(2)), int(3)));
+    out.push(let_in("add", int(5), var("add")));
+    out.push(let_in("add", identity(), app(var("add"), int(4))));
+    out.push(app(app(app(var("clamp"), int(9)), int(0)), int(5)));
+    out.push(app(call(Op::Clamp, vec![int(9), int(0)]), int(5)));
+    out.push(app(app(var("range"), int(1)), int(3)));
+    out.push(call(Op::Add, vec![int(1), int(2), var("unbound")]));
+    out.push(call(Op::Add, vec![int(1), int(2), int(3)]));
+}
+
+/// Integer arithmetic at the extremes (5 operations on 25 pairs, 2 on 5
+/// integers) and 9 refusal orders of the numeric builtins.
+fn arithmetic_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::BuiltinOp as Op;
+    use ev::{call, decimal, float, int, text};
+    let extremes = [i64::MIN, -1, 0, 1, i64::MAX];
+    for op in [Op::Add, Op::Sub, Op::Mul, Op::Div, Op::Mod] {
+        for a in extremes {
+            for b in extremes {
+                out.push(call(op, vec![int(a), int(b)]));
+            }
+        }
+    }
+    for op in [Op::Neg, Op::Abs] {
+        for a in extremes {
+            out.push(call(op, vec![int(a)]));
+        }
+    }
+    out.push(call(Op::Div, vec![text("a"), int(0)]));
+    out.push(call(Op::Div, vec![int(1), float(-0.0)]));
+    out.push(call(Op::Div, vec![float(1.0), int(0)]));
+    out.push(call(Op::Div, vec![decimal("1.5"), int(0)]));
+    out.push(call(Op::Add, vec![int(1), decimal("1.5")]));
+    out.push(call(Op::Mod, vec![float(1.0), int(0)]));
+    out.push(call(Op::Mod, vec![decimal("NaN"), text("a")]));
+    out.push(call(Op::Add, vec![int(1), text("a")]));
+    out.push(call(Op::Neg, vec![decimal("1")]));
+}
+
+/// The four orderings and `Eq` on every pair of 8 operands, and 3 record and
+/// list equalities.
+fn comparison_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::{BuiltinOp as Op, Expr};
+    use ev::{call, decimal, float, int, list, record, text};
+    let operands = [
+        int(1),
+        float(1.5),
+        text("a"),
+        Expr::List(vec![]),
+        Expr::Literal(Value::Null),
+        Expr::Literal(Value::Bool(true)),
+        decimal("NaN"),
+        decimal("1.50"),
+    ];
+    for op in [Op::Lt, Op::Lte, Op::Gt, Op::Gte, Op::Eq] {
+        for a in &operands {
+            for b in &operands {
+                out.push(call(op, vec![a.clone(), b.clone()]));
+            }
+        }
+    }
+    out.push(call(
+        Op::Eq,
+        vec![
+            record(vec![("a", int(1)), ("b", int(2))]),
+            record(vec![("b", int(2)), ("a", int(1))]),
+        ],
+    ));
+    out.push(call(
+        Op::Ne,
+        vec![
+            record(vec![("a", int(1)), ("a", int(2))]),
+            record(vec![("a", int(2))]),
+        ],
+    ));
+    out.push(call(Op::Eq, vec![list(&[1, 2]), list(&[2, 1])]));
+}
+
+/// 5 indexes, 3 index refusals and 9 record shapes, one record repeating a
+/// field.
+fn lookup_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::BuiltinOp as Op;
+    use ev::{call, failing, field, index, int, list, record, text, var};
+    for i in [i64::MIN, -1, 0, 2, 3] {
+        out.push(index(list(&[10, 20, 30]), int(i)));
+    }
+    out.push(index(int(1), int(0)));
+    out.push(index(list(&[1]), text("0")));
+    out.push(index(failing(), var("unbound")));
+    let r = record(vec![("a", int(1)), ("b", int(2)), ("a", int(3))]);
+    out.push(field(r.clone(), "a"));
+    out.push(field(r.clone(), "b"));
+    out.push(field(r.clone(), "c"));
+    out.push(field(int(1), "a"));
+    out.push(r.clone());
+    out.push(call(Op::Keys, vec![r.clone()]));
+    out.push(call(Op::Values, vec![r.clone()]));
+    out.push(call(
+        Op::MergeRecords,
+        vec![r.clone(), record(vec![("b", int(9)), ("c", int(8))])],
+    ));
+    out.push(call(Op::HasField, vec![r, text("a")]));
+}
+
+/// 10 match shapes and 8 ranges.
+fn match_and_range_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::{BuiltinOp as Op, Pattern};
+    use ev::{call, failing, int, list, matching, pvar, record, text, var};
+    let arms = || {
+        vec![
+            (Pattern::Literal(Value::Int(9)), int(0)),
+            (Pattern::List(vec![pvar("x"), pvar("x")]), var("x")),
+            (
+                Pattern::List(vec![pvar("x"), Pattern::Wildcard]),
+                call(Op::Neg, vec![var("x")]),
+            ),
+        ]
+    };
+    out.push(matching(list(&[2, 2]), arms()));
+    out.push(matching(list(&[1, 2]), arms()));
+    out.push(matching(list(&[1, 2, 3]), arms()));
+    let field_b = || vec![(Pattern::Record(vec![("b".to_owned(), pvar("y"))]), var("y"))];
+    out.push(matching(
+        record(vec![("a", int(1)), ("b", int(2))]),
+        field_b(),
+    ));
+    out.push(matching(record(vec![("a", int(1))]), field_b()));
+    for tag in ["Just", "None"] {
+        out.push(matching(
+            record(vec![("$tag", text(tag)), ("$0", int(5))]),
+            vec![
+                (
+                    Pattern::Constructor("Just".to_owned(), vec![pvar("v")]),
+                    var("v"),
+                ),
+                (Pattern::Constructor("None".to_owned(), vec![]), int(0)),
+            ],
+        ));
+    }
+    out.push(matching(
+        record(vec![("$tag", int(1))]),
+        vec![(Pattern::Constructor("Just".to_owned(), vec![]), int(0))],
+    ));
+    out.push(matching(
+        int(3),
+        vec![(Pattern::Literal(Value::Int(4)), int(0))],
+    ));
+    out.push(matching(failing(), vec![(Pattern::Wildcard, int(0))]));
+    for (start, stop) in [(1, 3), (3, 1), (1, 1), (-1, 1)] {
+        out.push(call(Op::Range, vec![int(start), int(stop)]));
+    }
+    out.push(call(Op::Range, vec![text("a"), int(1)]));
+    out.push(call(Op::Range, vec![int(1), text("a")]));
+    out.push(call(Op::Range, vec![int(1), int(2), var("unbound")]));
+    out.push(call(Op::Range, vec![text("a"), failing()]));
+}
+
+/// 14 closures in data positions and functions passed and applied, and 4
+/// shapes of lexical capture, shadowing and unbound names.
+fn function_expressions(out: &mut Vec<crate::value::Expr>) {
+    use crate::value::{BuiltinOp as Op, Expr, Pattern};
+    use ev::{
+        app, call, failing, field, identity, index, int, lam, let_in, list, matching, record, sum,
+        var,
+    };
+    out.push(Expr::List(vec![int(1), identity()]));
+    out.push(record(vec![("f", identity())]));
+    out.push(index(identity(), int(0)));
+    out.push(field(identity(), "f"));
+    out.push(matching(identity(), vec![(Pattern::Wildcard, int(0))]));
+    out.push(call(Op::Add, vec![identity(), int(1)]));
+    out.push(call(Op::Add, vec![int(1), identity()]));
+    out.push(call(Op::Add, vec![identity(), failing()]));
+    out.push(call(Op::TypeOf, vec![identity()]));
+    out.push(call(Op::Range, vec![identity(), int(1)]));
+    out.push(call(Op::Fold, vec![list(&[1]), identity(), sum()]));
+    out.push(app(identity(), identity()));
+    out.push(app(app(identity(), identity()), int(7)));
+    out.push(app(int(1), int(2)));
+    out.push(let_in(
+        "y",
+        int(1),
+        let_in(
+            "f",
+            lam("z", var("y")),
+            let_in("y", int(2), app(var("f"), int(0))),
+        ),
+    ));
+    out.push(let_in("x", int(1), app(lam("x", var("x")), int(2))));
+    out.push(var("unbound"));
+    out.push(app(lam("x", var("unbound")), int(1)));
+}

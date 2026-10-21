@@ -2169,12 +2169,16 @@ pub mod coerce {
         }
     }
 
-    /// The lexeme of a value with a scalar lexeme, and its class: the value
-    /// read back through [`coerce`] by [`coerce_value`]. A finite float is its
-    /// shortest binary64 text (its shortest binary32 text under a 32-bit kind
-    /// when it is a binary32 value), written positionally; `None` for a value
-    /// with no scalar lexeme.
-    fn lexeme_of(v: &Value, kind: ScalarKind) -> Option<(String, LexClass)> {
+    /// Definition: the lexeme of a value with a scalar lexeme, and its class:
+    /// the text [`coerce_value`] reads back through [`coerce`].
+    ///
+    /// A finite float is its shortest binary64 text (its shortest binary32
+    /// text under a 32-bit kind when it is a binary32 value), written
+    /// positionally; `None` for a value with no scalar lexeme.
+    ///
+    /// Book anchors: `L-values-3`, `L-values-6`.
+    #[must_use]
+    pub fn lexeme_of(v: &Value, kind: ScalarKind) -> Option<(String, LexClass)> {
         Some(match v {
             Value::Bool(b) => (b.to_string(), LexClass::Bool),
             Value::Int(i) => (i.to_string(), LexClass::Number),
@@ -5518,7 +5522,9 @@ pub mod value {
         Record(Vec<(String, Self)>),
         /// Match a list of exactly this length.
         List(Vec<Self>),
-        /// Match an opaque constructor and its fields in key order.
+        /// Match a constructor value: a record whose field `$tag` is the
+        /// string naming the constructor and whose fields `$0`, `$1`, ...
+        /// match the argument patterns in order; other fields are ignored.
         Constructor(String, Vec<Self>),
     }
 
@@ -5827,14 +5833,14 @@ pub mod value {
                     .all(|(pattern, value)| match_pattern(pattern, value, bindings)),
                 _ => false,
             },
-            Pattern::Constructor(type_, patterns) => match value {
-                Value::Opaque {
-                    type_: actual,
-                    fields,
-                } if type_ == actual && patterns.len() == fields.len() => patterns
-                    .iter()
-                    .zip(fields.values())
-                    .all(|(pattern, value)| match_pattern(pattern, value, bindings)),
+            Pattern::Constructor(tag, patterns) => match value {
+                Value::Unknown(fields) if fields.get("$tag") == Some(&Value::Str(tag.clone())) => {
+                    patterns.iter().enumerate().all(|(index, pattern)| {
+                        fields
+                            .get(&format!("${index}"))
+                            .is_some_and(|value| match_pattern(pattern, value, bindings))
+                    })
+                }
                 _ => false,
             },
         }
@@ -5943,7 +5949,7 @@ pub mod value {
                         len: items.len(),
                     })
             }
-            (other, _) => Err(type_error("list and int", &other)),
+            (Value::List(_), other) | (other, _) => Err(type_error("list and int", &other)),
         }
     }
 
@@ -6534,7 +6540,12 @@ pub mod value {
 
     fn integer_range(start: &Value, stop: &Value) -> Result<Value, EvalError> {
         let (Value::Int(start), Value::Int(stop)) = (start, stop) else {
-            return Err(type_error("int", start));
+            let offending = if matches!(start, Value::Int(_)) {
+                stop
+            } else {
+                start
+            };
+            return Err(type_error("int", offending));
         };
         if stop < start {
             return Ok(Value::List(Vec::new()));

@@ -841,14 +841,14 @@
             }
           ],
           "references": [
-            "panproto_reference::float::nearest_reading"
+            "panproto_reference::coerce::coerce"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-expr",
-              "binary": "panproto-expr::reference_values",
-              "test": "binary16_operations_agree_with_the_reference"
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "nearest_reading_coercion_agrees_with_the_reference"
             }
           ]
         },

@@ -1331,6 +1331,17 @@ mod tests {
         "8cbe7db62436b2a9dd582c9702916f025921800514aee8e544fab7c9be319975";
 
     #[test]
+    fn the_writer_shows_exactly_the_bytes_it_appended() {
+        let mut w = CanonicalWriter::new();
+        assert_eq!(w.as_bytes(), [0_u8; 0]);
+        w.u64(0x0102_0304_0506_0708);
+        assert_eq!(w.as_bytes(), [8, 7, 6, 5, 4, 3, 2, 1]);
+        w.tag(9);
+        assert_eq!(w.as_bytes(), [8, 7, 6, 5, 4, 3, 2, 1, 9]);
+        assert_eq!(w.clone().into_bytes(), w.as_bytes());
+    }
+
+    #[test]
     fn induced_apices_that_agree_encode_alike() {
         let protocol = protocol();
         let schema = fixture();

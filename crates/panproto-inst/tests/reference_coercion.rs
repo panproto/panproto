@@ -785,7 +785,7 @@ impl Tally {
         &mut self,
         spec: &r::ValueSpec,
         input: &dyn std::fmt::Debug,
-        input_class: &str,
+        input_class: impl FnOnce() -> String,
         production: &Result<RValue, r::FidelityReason>,
         reference: &Result<RValue, r::FidelityReason>,
     ) {
@@ -795,8 +795,9 @@ impl Tally {
         if production != reference {
             self.disagreement_count += 1;
             let class = format!(
-                "{} / {input_class} / production {} / reference {}",
+                "{} / {} / production {} / reference {}",
                 kind_label(spec),
+                input_class(),
                 label(production),
                 label(reference)
             );
@@ -942,13 +943,14 @@ fn a_complete_local_date_requires_an_offset_when_declared() {
     assert_eq!(reference, Err(r::FidelityReason::OffsetRequired));
 }
 
-/// The number of worker threads a differential run uses.
-const WORKERS: usize = 4;
+/// The number of worker threads a differential run uses: the host's
+/// available parallelism, at most eight.
+fn workers() -> usize {
+    std::thread::available_parallelism().map_or(4, |n| n.get().min(8))
+}
 
-/// Run `case` for every spec on [`WORKERS`] threads, each spec on one
-/// thread, and merge the tallies.
 /// Run `case` on every spec and every chunk of `CHUNK` consecutive indices
-/// below `items`, the work items shared among `WORKERS` threads, so that a
+/// below `items`, the work items shared among [`workers`] threads, so that a
 /// spec whose cases are slow is spread over every thread.
 fn over_spec_chunks(
     specs: &[r::ValueSpec],
@@ -959,7 +961,7 @@ fn over_spec_chunks(
     let chunks = items.div_ceil(CHUNK);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let tallies: Vec<Tally> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..WORKERS)
+        let workers: Vec<_> = (0..workers())
             .map(|_| {
                 s.spawn(|| {
                     let mut tally = Tally::default();
@@ -985,7 +987,7 @@ fn over_spec_chunks(
 fn over_specs(specs: &[r::ValueSpec], case: impl Fn(&r::ValueSpec, &mut Tally) + Sync) -> Tally {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let tallies: Vec<Tally> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..WORKERS)
+        let workers: Vec<_> = (0..workers())
             .map(|_| {
                 s.spawn(|| {
                     let mut tally = Tally::default();
@@ -1038,11 +1040,39 @@ fn merge_tallies(tallies: Vec<Tally>) -> Tally {
     all
 }
 
+/// The fixed points of value coercion under a declared kind that is neither
+/// `Any` nor a float kind: a value is fixed exactly when the direct coercion
+/// of its own lexeme under the dialect-free specification gives it back, or
+/// when it has no lexeme and is not a non-finite float.
+fn check_fixed_point(
+    x: &RValue,
+    spec: &r::ValueSpec,
+    reference: &Result<RValue, r::FidelityReason>,
+) {
+    if matches!(spec.kind, r::ScalarKind::Any | r::ScalarKind::Float { .. }) {
+        return;
+    }
+    let fixed = reference.as_ref() == Ok(x);
+    let plain = r::ValueSpec {
+        numeral: None,
+        ..*spec
+    };
+    let expected = match r::lexeme_of(x, spec.kind) {
+        Some((text, class)) => r::coerce(&text, &class, &plain).as_ref() == Some(&Ok(x.clone())),
+        None => !matches!(x, RValue::Float(bits) if !f64::from_bits(*bits).is_finite()),
+    };
+    assert_eq!(fixed, expected, "fixed point of {x:?} under {spec:?}");
+}
+
 #[test]
 fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
     let started = Instant::now();
     let values = scope::coercion_values();
     let specs = scope::coercion_specs();
+    // The stated bounds, written out so that a dropped or duplicated element
+    // of either enumeration fails here rather than shrinking the sweep.
+    assert_eq!(values.len(), 337_876);
+    assert_eq!(specs.len(), 81);
     let held: Vec<(&RValue, Option<Value>)> =
         values.iter().map(|x| (x, into_production(x))).collect();
     let total = (values.len() * specs.len()) as u64;
@@ -1065,10 +1095,11 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
                 tally.outside_reference += 1;
                 continue;
             };
+            check_fixed_point(x, spec, &reference);
             let production = coerce_value(p, &production_spec, ValueSite::unknown())
                 .map(|v| to_ref(&v))
                 .map_err(|e| reason_to_ref(&e.reason));
-            tally.record(spec, x, &value_class(x), &production, &reference);
+            tally.record(spec, x, || value_class(x), &production, &reference);
         }
     });
     tally.print("coerce_value", total, started);
@@ -1079,6 +1110,8 @@ fn coerce_agrees_with_the_reference_over_the_values_scope() {
     let started = Instant::now();
     let lexemes = scope::coercion_lexemes();
     let specs = scope::coercion_specs();
+    assert_eq!(lexemes.len(), 20_986);
+    assert_eq!(specs.len(), 81);
     let mut classes = vec![
         LexClass::Number,
         LexClass::String,
@@ -1113,7 +1146,7 @@ fn coerce_agrees_with_the_reference_over_the_values_scope() {
                 tally.record(
                     spec,
                     &(t, class),
-                    &format!("{class:?}"),
+                    || format!("{class:?}"),
                     &production,
                     &reference,
                 );
@@ -1507,10 +1540,9 @@ fn discriminated_coercion_agrees_with_the_reference() {
 // ---------------------------------------------------------------------------
 
 proptest::proptest! {
-    #![proptest_config(proptest::test_runner::Config {
-        failure_persistence: None,
-        ..proptest::test_runner::Config::default()
-    })]
+    // The default configuration persists every shrunk counterexample under
+    // `proptest-regressions/` and replays it first on the next run.
+    #![proptest_config(proptest::test_runner::Config::default())]
 
     /// Generated lexemes over the numeral, temporal and byte-text alphabets,
     /// of every class, under every spec of the scope that production holds,
@@ -1653,12 +1685,12 @@ fn canonical_scope() -> Vec<(RValue, Value)> {
         .collect()
 }
 
-/// Run `row` on every index below `rows` on [`WORKERS`] threads and sum the
+/// Run `row` on every index below `rows` on [`workers`] threads and sum the
 /// counts it returns.
 fn sum_over_rows<const N: usize>(rows: usize, row: impl Fn(usize) -> [u64; N] + Sync) -> [u64; N] {
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
-        let workers: Vec<_> = (0..WORKERS)
+        let workers: Vec<_> = (0..workers())
             .map(|_| {
                 s.spawn(|| {
                     let mut sum = [0_u64; N];
@@ -1812,8 +1844,7 @@ fn check_nearest_value(text: &str, bits: u8, production: &Result<RValue, r::Fide
 #[test]
 fn nearest_reading_coercion_agrees_with_the_reference() {
     let started = Instant::now();
-    let binary32 = scope::binary32_boundary_patterns();
-    let binary64 = scope::binary64_exponent_patterns();
+    let (binary32, binary64, numerals) = scope::nearest_reading_scope();
     assert_eq!(binary32.len(), 2 * 256 * 8);
     assert_eq!(binary64.len(), 2 * 2048 * 14);
     let mut texts = Vec::new();
@@ -1823,10 +1854,16 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
     for &bits in &binary64 {
         texts.extend(shortest_with_neighbours(Format::B64, bits));
     }
-    let numerals = scope::numerals();
     assert_eq!(
         numerals.len() as u64,
         panproto_reference::enumerate::numerals_count(2, -1, 1)
+    );
+    assert_eq!(numerals.len(), 600);
+    println!(
+        "bound: binary32={}, binary64={}, numerals={}",
+        binary32.len(),
+        binary64.len(),
+        numerals.len()
     );
     texts.extend(numerals);
     let texts = dedupe(texts);
@@ -1856,7 +1893,7 @@ fn nearest_reading_coercion_agrees_with_the_reference() {
                     if reading == FloatReading::NearestKeepingLexeme {
                         check_nearest_value(text, bits, &production);
                     }
-                    tally.record(rspec, text, "Number", &production, &reference);
+                    tally.record(rspec, text, || "Number".to_owned(), &production, &reference);
                 }
             });
             tally.print(
@@ -1932,10 +1969,9 @@ fn dialect_lexeme() -> impl proptest::strategy::Strategy<Value = String> {
 }
 
 proptest::proptest! {
-    #![proptest_config(proptest::test_runner::Config {
-        failure_persistence: None,
-        ..proptest::test_runner::Config::default()
-    })]
+    // The default configuration persists every shrunk counterexample under
+    // `proptest-regressions/` and replays it first on the next run.
+    #![proptest_config(proptest::test_runner::Config::default())]
 
     /// A generated discriminator table (each of four tags absent or mapped
     /// to one of four kinds), a tag of the table, outside it or none, an own

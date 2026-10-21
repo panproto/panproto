@@ -236,8 +236,8 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
 /// Comparison operations.
 fn apply_comparison(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
-        BuiltinOp::Eq => Ok(Literal::Bool(args[0] == args[1])),
-        BuiltinOp::Neq => Ok(Literal::Bool(args[0] != args[1])),
+        BuiltinOp::Eq => Ok(Literal::Bool(same_value(&args[0], &args[1]))),
+        BuiltinOp::Neq => Ok(Literal::Bool(!same_value(&args[0], &args[1]))),
         BuiltinOp::Lt => compare(&args[0], &args[1], std::cmp::Ordering::is_lt),
         BuiltinOp::Lte => compare(&args[0], &args[1], std::cmp::Ordering::is_le),
         BuiltinOp::Gt => compare(&args[0], &args[1], std::cmp::Ordering::is_gt),
@@ -347,7 +347,9 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
         // rather than against a flattened string.
         BuiltinOp::Contains => match (&args[0], &args[1]) {
             (Literal::Str(s), Literal::Str(substr)) => Ok(Literal::Bool(s.contains(&**substr))),
-            (Literal::List(items), needle) => Ok(Literal::Bool(items.iter().any(|i| i == needle))),
+            (Literal::List(items), needle) => Ok(Literal::Bool(
+                items.iter().any(|item| same_value(item, needle)),
+            )),
             _ => Err(type_err("(string, string) or (list, any)", &args[0])),
         },
         _ => Err(ExprError::InternalDispatch {
@@ -415,30 +417,32 @@ fn apply_record(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
         BuiltinOp::MergeRecords => match (&args[0], &args[1]) {
             (Literal::Record(a), Literal::Record(b)) => {
-                let mut merged = a.clone();
-                for (k, v) in b {
-                    if let Some(existing) = merged.iter_mut().find(|(ek, _)| ek == k) {
-                        existing.1 = v.clone();
-                    } else {
-                        merged.push((Arc::clone(k), v.clone()));
-                    }
-                }
-                Ok(Literal::Record(merged))
+                let mut merged = record_view(a);
+                merged.extend(record_view(b));
+                Ok(Literal::Record(
+                    merged
+                        .into_values()
+                        .map(|(k, v)| (Arc::clone(k), v.clone()))
+                        .collect(),
+                ))
             }
             (Literal::Record(_), other) | (other, _) => Err(type_err("record", other)),
         },
         BuiltinOp::Keys => match &args[0] {
             Literal::Record(fields) => Ok(Literal::List(
-                fields
-                    .iter()
-                    .map(|(k, _)| Literal::Str(k.to_string()))
+                record_view(fields)
+                    .into_keys()
+                    .map(|k| Literal::Str(k.to_owned()))
                     .collect(),
             )),
             other => Err(type_err("record", other)),
         },
         BuiltinOp::Values => match &args[0] {
             Literal::Record(fields) => Ok(Literal::List(
-                fields.iter().map(|(_, v)| v.clone()).collect(),
+                record_view(fields)
+                    .into_values()
+                    .map(|(_, v)| v.clone())
+                    .collect(),
             )),
             other => Err(type_err("record", other)),
         },
@@ -531,11 +535,14 @@ fn apply_utility(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> 
             (Literal::Float(x), Literal::Float(lo), Literal::Float(hi)) if lo <= hi => {
                 Ok(Literal::Float(canonical_float(x.clamp(*lo, *hi))))
             }
-            (Literal::Int(_), Literal::Int(_), Literal::Int(_))
-            | (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
+            (Literal::Int(_), Literal::Int(_), Literal::Int(_)) => Err(ExprError::TypeError {
+                expected: "clamp requires min <= max".into(),
+                got: "min > max".into(),
+            }),
+            (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
                 Err(ExprError::TypeError {
                     expected: "clamp requires min <= max".into(),
-                    got: "min > max".into(),
+                    got: "unordered or reversed bounds".into(),
                 })
             }
             _ => Err(type_err(
@@ -609,12 +616,7 @@ fn compare(
         #[allow(clippy::cast_precision_loss)]
         (Literal::Float(x), Literal::Int(y)) => x.total_cmp(&(*y as f64)),
         (Literal::Str(x), Literal::Str(y)) => x.cmp(y),
-        _ => {
-            return Err(ExprError::TypeError {
-                expected: "comparable types (int, float, or string)".into(),
-                got: format!("({}, {})", a.type_name(), b.type_name()),
-            });
-        }
+        _ => return Err(type_err("comparable values", a)),
     };
     Ok(Literal::Bool(pred(ord)))
 }
@@ -652,16 +654,18 @@ fn compare_exact(a: &Literal, b: &Literal) -> Option<Result<Ordering, ExprError>
         return None;
     }
     let incomparable = || ExprError::TypeError {
-        expected: "comparable exact values (int, bigint and decimal, or temporals of one form)"
-            .into(),
-        got: format!("({}, {})", a.type_name(), b.type_name()),
+        expected: "int|bigint|finite decimal, or comparable temporals".into(),
+        got: "incomparable exact values".into(),
     };
     Some(match (a, b) {
         (Literal::BigInt(x), Literal::BigInt(y)) => Ok(x.cmp_numeric(y)),
         (Literal::BigInt(x), Literal::Int(y)) => Ok(x.cmp_i64(*y)),
         (Literal::Int(x), Literal::BigInt(y)) => Ok(y.cmp_i64(*x).reverse()),
         (Literal::Temporal(x), Literal::Temporal(y)) => {
-            x.cmp_chronological(y).ok_or_else(incomparable)
+            x.cmp_chronological(y).ok_or_else(|| ExprError::TypeError {
+                expected: "temporals of one comparable form".into(),
+                got: "incomparable temporals".into(),
+            })
         }
         _ => match (as_decimal(a), as_decimal(b)) {
             (Some(x), Some(y)) => Ok(x.cmp_numeric(&y)),
@@ -710,6 +714,38 @@ fn apply_exact(op: BuiltinOp, arg: &Literal) -> Result<Literal, ExprError> {
         _ => Err(ExprError::InternalDispatch {
             op: format!("{op:?}"),
         }),
+    }
+}
+
+/// A record's fields as a map from names, in name order: a later field of a
+/// name replaces an earlier one, so a record is the map its fields define.
+/// Each entry keeps the name as the record holds it.
+pub fn record_view(
+    fields: &[(Arc<str>, Literal)],
+) -> std::collections::BTreeMap<&str, (&Arc<str>, &Literal)> {
+    fields
+        .iter()
+        .map(|(name, value)| (&**name, (name, value)))
+        .collect()
+}
+
+/// Representation equality of two values, the meaning of `Eq`: equal
+/// variants with equal contents, a float by its bits, a list item by item and
+/// a record as the map of its fields ([`record_view`]), so field order and
+/// replaced fields do not count.
+pub fn same_value(a: &Literal, b: &Literal) -> bool {
+    match (a, b) {
+        (Literal::List(x), Literal::List(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q))
+        }
+        (Literal::Record(x), Literal::Record(y)) => {
+            let (x, y) = (record_view(x), record_view(y));
+            x.len() == y.len()
+                && x.iter()
+                    .zip(&y)
+                    .all(|((kx, (_, vx)), (ky, (_, vy)))| kx == ky && same_value(vx, vy))
+        }
+        _ => a == b,
     }
 }
 

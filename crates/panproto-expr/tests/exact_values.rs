@@ -1141,7 +1141,7 @@ mod exact {
         assert_eq!(DecimalValue::from_f32_shortest(0.1).unwrap(), dec("0.1"));
         assert_eq!(DecimalValue::from_f32_shortest(f32::NAN), None);
         assert_eq!(DecimalValue::from_f32_shortest(f32::NEG_INFINITY), None);
-        assert_eq!(DecimalValue::from_f32_shortest(-0.0).unwrap(), dec("0"));
+        assert_eq!(DecimalValue::from_f32_shortest(-0.0).unwrap(), dec("-0"));
         assert_eq!(
             DecimalValue::from_f32_shortest(f32::MAX).unwrap(),
             dec("3.4028235e38")

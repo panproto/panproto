@@ -992,4 +992,70 @@ mod tests {
             assert_eq!(exponent(text), Err(not_a_number()), "{text}");
         }
     }
+
+    /// The sign, digits and exponent of `d`.
+    fn parts(d: &DecimalValue) -> (bool, String, String) {
+        (d.negative, d.digits.clone(), d.exponent.to_string())
+    }
+
+    /// Whether `text` reads as a binary64 value in `[low, high]`.
+    fn reads_within(low: f64, high: f64) -> impl Fn(&str) -> bool {
+        move |text| {
+            text.parse::<f64>()
+                .is_ok_and(|value| low <= value && value <= high)
+        }
+    }
+
+    /// Whether `text` reads as one of the binary64 values `values`.
+    fn reads_as_one_of(values: &[f64]) -> impl Fn(&str) -> bool + '_ {
+        move |text| {
+            text.parse::<f64>()
+                .is_ok_and(|value| values.iter().any(|v| v.to_bits() == value.to_bits()))
+        }
+    }
+
+    #[test]
+    fn closest_shortest_is_the_same_whatever_the_hint() {
+        // Of the two-digit candidates 1.2 and 1.3 around 1.25 both read
+        // back and the cut-off digit is exactly 5, so the even one is taken;
+        // no one-digit candidate reads back.
+        for hint in 0..=10 {
+            let d = closest_shortest(false, "1.25e0", hint, reads_within(1.2, 1.3));
+            assert_eq!(
+                parts(&d),
+                (false, "12".to_owned(), "-1".to_owned()),
+                "{hint}"
+            );
+        }
+    }
+
+    #[test]
+    fn closest_shortest_moves_a_carried_zero_into_the_exponent() {
+        // The one-digit candidate above 9.96 is `10e0`, which keeps 1 at
+        // 10^1; its sign is the float's.
+        for hint in [1, 2, 3] {
+            let d = closest_shortest(true, "9.96e0", hint, reads_within(9.95, 10.05));
+            assert_eq!(parts(&d), (true, "1".to_owned(), "1".to_owned()), "{hint}");
+        }
+    }
+
+    #[test]
+    fn a_failed_hint_count_starts_the_search_at_the_hint() {
+        // A test that admits 1 and 1.25 but no two-digit decimal: when the
+        // hint is the whole expansion the search starts at one digit, and
+        // when the count below the hint fails it starts at the hint.
+        let reads = reads_as_one_of(&[1.0, 1.25]);
+        assert_eq!(
+            parts(&closest_shortest(false, "1.25e0", 3, &reads)),
+            (false, "1".to_owned(), "0".to_owned())
+        );
+        assert_eq!(
+            parts(&closest_shortest(false, "1.251e0", 3, &reads)),
+            (false, "125".to_owned(), "-2".to_owned())
+        );
+        assert_eq!(
+            parts(&closest_shortest(false, "1.251e0", 1, &reads)),
+            (false, "1".to_owned(), "0".to_owned())
+        );
+    }
 }
