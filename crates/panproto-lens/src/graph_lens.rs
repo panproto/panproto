@@ -1011,12 +1011,11 @@ fn restore(
     restore_with_plan(lens, view, complement, &plan)
 }
 
-fn restore_with_plan(
+fn restore_nodes(
     lens: &Lens,
     view: &GInstance,
     complement: &GraphComplement,
-    plan: &RestrictPlan,
-) -> Result<GInstance, Vec<PutDomainError>> {
+) -> (GInstance, Vec<PutDomainError>) {
     let reverse = reverse_anchors(lens);
     let mut source = GInstance::new();
     let mut errors = Vec::new();
@@ -1080,6 +1079,17 @@ fn restore_with_plan(
         }
     }
     invert_graph_child_scalars(lens, view, &mut source);
+    (source, errors)
+}
+
+fn restore_edges(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    source: &mut GInstance,
+    errors: &mut Vec<PutDomainError>,
+) {
     let mut edge_ids: Vec<EdgeId> = view.edges().keys().copied().collect();
     edge_ids.sort_unstable();
     for id in edge_ids {
@@ -1115,6 +1125,16 @@ fn restore_with_plan(
             let _ = source.insert_edge(id, edge.clone());
         }
     }
+}
+
+fn restore_with_plan(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+) -> Result<GInstance, Vec<PutDomainError>> {
+    let (mut source, mut errors) = restore_nodes(lens, view, complement);
+    restore_edges(lens, view, complement, plan, &mut source, &mut errors);
     if errors.is_empty() {
         Ok(source)
     } else {

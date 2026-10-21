@@ -7037,7 +7037,7 @@ mod tests {
             arcs,
             fixture.fans.clone(),
             fixture.root,
-            fixture.schema_root.clone(),
+            fixture.schema_root,
         );
         let Some(synthesized) = view.nodes.get_mut(&1) else {
             panic!("fixture has node 1");
@@ -7143,22 +7143,28 @@ mod tests {
     #[test]
     fn a_relabelled_root_carries_its_schema_root() {
         let protocol = panproto_schema::Protocol::default();
-        let schema = panproto_schema::SchemaBuilder::new(&protocol)
-            .vertex("a", "object", None)
-            .unwrap()
-            .vertex("b", "object", None)
-            .unwrap()
-            .build()
-            .unwrap();
+        let Ok(builder) =
+            panproto_schema::SchemaBuilder::new(&protocol).vertex("a", "object", None)
+        else {
+            panic!("vertex a is valid");
+        };
+        let Ok(builder) = builder.vertex("b", "object", None) else {
+            panic!("vertex b is valid");
+        };
+        let Ok(schema) = builder.build() else {
+            panic!("the two-vertex schema is valid");
+        };
         let lens = identity_lens(&schema);
         let lone = WInstance::new(
-            [(0, Node::new(0, "a"))].into_iter().collect(),
+            HashMap::from([(0, Node::new(0, "a"))]),
             Vec::new(),
             Vec::new(),
             0,
             "a".into(),
         );
-        let (view, complement) = crate::asymmetric::get(&lens, &lone).unwrap();
+        let Ok((view, complement)) = crate::asymmetric::get(&lens, &lone) else {
+            panic!("the identity tree get succeeds");
+        };
         let candidates = tree_relabel_node_cases(&lens, &view, &complement);
         assert_eq!(candidates.len(), 1);
         assert_eq!(

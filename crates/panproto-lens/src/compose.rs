@@ -1202,11 +1202,14 @@ mod tests {
 
     #[test]
     fn fusion_reports_a_field_read_after_a_drop() {
-        let schema = panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol::default())
-            .vertex("a", "obj", None)
-            .expect("the C11 vertex is valid")
-            .build()
-            .expect("the C11 schema is valid");
+        let protocol = panproto_schema::Protocol::default();
+        let Ok(builder) = panproto_schema::SchemaBuilder::new(&protocol).vertex("a", "obj", None)
+        else {
+            panic!("the C11 vertex is valid");
+        };
+        let Ok(schema) = builder.build() else {
+            panic!("the C11 schema is valid");
+        };
         let anchor = panproto_gat::Name::from("a");
         let mut first = identity_lens(&schema);
         first.compiled.field_transforms.insert(

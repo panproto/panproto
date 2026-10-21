@@ -1133,6 +1133,42 @@ fn produced_by_get(
             .is_some_and(|recorded| edge_image(lens, recorded) == *edge)
 }
 
+/// Survival predicates that are not true after writing the view back.
+fn survival_violations(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    source: &WInstance,
+) -> Vec<PutDomainError> {
+    if lens.compiled.conditional_survival.is_empty() {
+        return Vec::new();
+    }
+    let Ok(plan) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) else {
+        return Vec::new();
+    };
+
+    // Every predicate is evaluated on the restored source exactly as the
+    // next `get` evaluates it: over the node's fields and its children
+    // bound by column name.
+    let verdicts = panproto_inst::tree_survival_verdicts(source, &plan);
+    let mut found = Vec::new();
+    for &id in view.nodes.keys() {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
+        let elem = ViewRef::Node(id);
+        match verdicts.get(&id) {
+            None | Some(Ok(true)) => {}
+            Some(Ok(false)) => found.push(PutDomainError::SurvivalPredicateFails { elem }),
+            Some(Err(refusal)) => found.push(PutDomainError::SurvivalPredicateRefused {
+                elem,
+                refusal: refusal.clone(),
+            }),
+        }
+    }
+    found
+}
+
 /// The violations found by writing the view back and running the forward
 /// direction again on the result: every restored node whose survival
 /// predicate is not true, and every computed field whose recomputed value is
@@ -1157,29 +1193,7 @@ fn value_violations(
     if !rewrites_fields && compiled.conditional_survival.is_empty() {
         return Vec::new();
     }
-    let mut found = Vec::new();
-    if !compiled.conditional_survival.is_empty()
-        && let Ok(plan) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, compiled)
-    {
-        // Every predicate is evaluated on the restored source exactly as the
-        // next `get` evaluates it: over the node's fields and its children
-        // bound by column name.
-        let verdicts = panproto_inst::tree_survival_verdicts(source, &plan);
-        for &id in view.nodes.keys() {
-            if complement.synthesized_nodes.contains(&id) {
-                continue;
-            }
-            let elem = ViewRef::Node(id);
-            match verdicts.get(&id) {
-                None | Some(Ok(true)) => {}
-                Some(Ok(false)) => found.push(PutDomainError::SurvivalPredicateFails { elem }),
-                Some(Err(refusal)) => found.push(PutDomainError::SurvivalPredicateRefused {
-                    elem,
-                    refusal: refusal.clone(),
-                }),
-            }
-        }
-    }
+    let mut found = survival_violations(lens, view, complement, source);
     if !rewrites_fields {
         return in_report_order(found);
     }
@@ -2835,14 +2849,13 @@ mod tests {
                     .iter()
                     .map(|(s, t)| (Name::from(*s), Name::from(*t)))
                     .collect(),
-                edge_map: [(prop("r", "x", "x"), prop("r", "x", "x"))]
-                    .into_iter()
-                    .collect(),
+                edge_map: HashMap::from([(prop("r", "x", "x"), prop("r", "x", "x"))]),
                 hyper_edge_map: HashMap::new(),
                 label_map: HashMap::new(),
-                resolver: [((Name::from("r"), Name::from("y")), prop("r", "y", "c"))]
-                    .into_iter()
-                    .collect(),
+                resolver: HashMap::from([(
+                    (Name::from("r"), Name::from("y")),
+                    prop("r", "y", "c"),
+                )]),
                 hyper_resolver: HashMap::new(),
                 expr_resolvers: HashMap::new(),
                 coercions: HashMap::new(),
@@ -2894,7 +2907,7 @@ mod tests {
                 arcs,
                 view.fans.clone(),
                 view.root,
-                view.schema_root.clone(),
+                view.schema_root,
             );
             if let Ok(restored) = put(&lens, &moved, &complement) {
                 let (again, _) = get(&lens, &restored).unwrap();
@@ -2915,7 +2928,7 @@ mod tests {
 
     /// A field the migration adds that the source already carries with the
     /// added value is unchanged by get, so get records nothing for the node
-    /// and put must keep the field: GetPut in both shapes.
+    /// and put must keep the field: `GetPut` in both shapes.
     mod an_added_field_the_source_carries {
         use super::*;
         use panproto_inst::FieldTransform;
@@ -2951,7 +2964,7 @@ mod tests {
         fn tree_put_keeps_it() {
             let lens = lens();
             let source = WInstance::new(
-                [(0, carrying())].into_iter().collect(),
+                HashMap::from([(0, carrying())]),
                 Vec::new(),
                 Vec::new(),
                 0,
@@ -3018,7 +3031,7 @@ mod tests {
         fn tree_get_then_put_restores_the_fields_a_term_replaced() {
             let lens = lens();
             let source = WInstance::new(
-                [(0, Node::new(0, "a"))].into_iter().collect(),
+                HashMap::from([(0, Node::new(0, "a"))]),
                 Vec::new(),
                 Vec::new(),
                 0,
@@ -3034,14 +3047,14 @@ mod tests {
         fn tree_put_refuses_an_edited_computed_field() {
             let lens = lens();
             let source = WInstance::new(
-                [(0, Node::new(0, "a"))].into_iter().collect(),
+                HashMap::from([(0, Node::new(0, "a"))]),
                 Vec::new(),
                 Vec::new(),
                 0,
                 "a".into(),
             );
             let (view, complement) = get(&lens, &source).unwrap();
-            let mut edited = view.clone();
+            let mut edited = view;
             without_f(edited.nodes.get_mut(&0).unwrap());
             let refused = check_put_domain(&lens, &edited, &complement).unwrap_err();
             assert!(
@@ -3055,7 +3068,7 @@ mod tests {
             let lens = lens();
             let source = GInstance::new().with_node(Node::new(0, "a"));
             let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
-            let mut edited = view.clone();
+            let mut edited = view;
             without_f(edited.node_mut(0).unwrap());
             let refused =
                 crate::graph_lens::check_put_domain(&lens, &edited, &complement).unwrap_err();
@@ -3098,7 +3111,7 @@ mod tests {
 
         fn lone_root() -> WInstance {
             WInstance::new(
-                [(0, Node::new(0, "r"))].into_iter().collect(),
+                HashMap::from([(0, Node::new(0, "r"))]),
                 Vec::new(),
                 Vec::new(),
                 0,
