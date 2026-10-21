@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "campaign": "values-reference-5e5209f4",
+  "lane": "values-reference",
+  "lane_commit": "5e5209f4f5d60abdc063ea77313c73ce4c172a2a",
+  "package": "panproto-reference",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 20,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "256",
+    "PROPTEST_RNG_SEED": "2026102101",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "priority_binaries": [
+    "values",
+    "values_io_direct",
+    "enumerate",
+    "properties",
+    "schema_v2",
+    "num_exact"
+  ],
+  "groups": [
+    {
+      "name": "values-page",
+      "files": [
+        "crates/panproto-reference/src/pages/values.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=edits",
+        "--test=encodings",
+        "--test=enumerate",
+        "--test=enumerate_lenses",
+        "--test=json_corpus",
+        "--test=kan",
+        "--test=kan_o16",
+        "--test=lens_identity_protolens_squares",
+        "--test=lens_key_domain",
+        "--test=lens_law_census",
+        "--test=lens_path",
+        "--test=lens_path_contract",
+        "--test=lens_plan_binding",
+        "--test=lens_table_contract",
+        "--test=lenses",
+        "--test=num_exact",
+        "--test=o16_core_paths",
+        "--test=pattern_table",
+        "--test=properties",
+        "--test=resolution",
+        "--test=reverse_anchor",
+        "--test=schema_v2",
+        "--test=segments",
+        "--test=tables",
+        "--test=theories",
+        "--test=tree_forms",
+        "--test=tree_kan",
+        "--test=tree_lens_order",
+        "--test=validation",
+        "--test=values",
+        "--test=values_io_direct"
+      ],
+      "test_args": [
+        "--filterset=not (test(=o14_executes_every_representative_profile_pair) | test(=o14_every_labelled_member_has_checked_operation_transports))"
+      ]
+    },
+    {
+      "name": "values-enumerator",
+      "files": [
+        "crates/panproto-reference/src/enumerate/values.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=edits",
+        "--test=encodings",
+        "--test=enumerate",
+        "--test=enumerate_lenses",
+        "--test=json_corpus",
+        "--test=kan",
+        "--test=kan_o16",
+        "--test=lens_identity_protolens_squares",
+        "--test=lens_key_domain",
+        "--test=lens_law_census",
+        "--test=lens_path",
+        "--test=lens_path_contract",
+        "--test=lens_plan_binding",
+        "--test=lens_table_contract",
+        "--test=lenses",
+        "--test=num_exact",
+        "--test=o16_core_paths",
+        "--test=pattern_table",
+        "--test=properties",
+        "--test=resolution",
+        "--test=reverse_anchor",
+        "--test=schema_v2",
+        "--test=segments",
+        "--test=tables",
+        "--test=theories",
+        "--test=tree_forms",
+        "--test=tree_kan",
+        "--test=tree_lens_order",
+        "--test=validation",
+        "--test=values",
+        "--test=values_io_direct"
+      ],
+      "test_args": [
+        "--filterset=not (test(=o14_executes_every_representative_profile_pair) | test(=o14_every_labelled_member_has_checked_operation_transports))"
+      ]
+    }
+  ],
+  "_scope": "Values CI-only mutation of the two manifest-assigned panproto-reference files, whole files via --file. Every reference semantic consumer runs except the two repository-wide manifest snapshot binaries whose assertions are unrelated to Values behavior; six direct Values binaries run at priority 100. Property checks use 256 deterministic cases at the audited commit."
+}
