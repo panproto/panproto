@@ -1556,31 +1556,30 @@ fn tree_domain_feature(graph: &Graph) -> TreeDomainFeature {
             "hyper_parent" | "hyper_label"
         ));
     }
-    let children = graph
-        .edges
-        .values()
-        .map(|edge| edge.tgt)
-        .collect::<BTreeSet<_>>();
-    let roots = graph
-        .nodes
-        .keys()
-        .filter(|node| !children.contains(node))
-        .copied()
-        .collect::<Vec<_>>();
-    let [root] = roots.as_slice() else {
-        return TreeDomainFeature::RootCount(roots.len());
-    };
     let mut parents = graph
         .nodes
         .keys()
         .map(|node| (*node, BTreeSet::new()))
         .collect::<BTreeMap<_, _>>();
+    let mut incoming = graph
+        .nodes
+        .keys()
+        .map(|node| (*node, 0usize))
+        .collect::<BTreeMap<_, _>>();
     for edge in graph.edges.values() {
         parents.get_mut(&edge.tgt).unwrap().insert(edge.src);
+        *incoming.get_mut(&edge.tgt).unwrap() += 1;
     }
-    let second_parent = parents
+    let roots = incoming
         .iter()
-        .filter_map(|(node, values)| (values.len() >= 2).then_some(*node))
+        .filter_map(|(node, count)| (*count == 0).then_some(*node))
+        .collect::<Vec<_>>();
+    let [root] = roots.as_slice() else {
+        return TreeDomainFeature::RootCount(roots.len());
+    };
+    let second_parent = incoming
+        .iter()
+        .filter_map(|(node, count)| (*count >= 2).then_some(*node))
         .collect::<BTreeSet<_>>();
     if !second_parent.is_empty() {
         return TreeDomainFeature::SecondParent(second_parent);
@@ -1608,6 +1607,38 @@ fn tree_domain_feature(graph: &Graph) -> TreeDomainFeature {
     } else {
         TreeDomainFeature::Unreached(unreached)
     }
+}
+
+#[test]
+fn parallel_edges_are_a_second_parent_tree_domain_feature() {
+    let graph = Graph {
+        nodes: [0, 1, 2]
+            .into_iter()
+            .map(|id| (id, Node::new(id, "v")))
+            .collect(),
+        edges: [(0, 0, 1), (1, 0, 1), (2, 0, 2)]
+            .into_iter()
+            .map(|(id, src, tgt)| {
+                (
+                    id,
+                    GEdge {
+                        src,
+                        tgt,
+                        label: SEdge::new("v", "v", "parent", None),
+                        position: None,
+                    },
+                )
+            })
+            .collect(),
+    };
+    assert_eq!(
+        encode::graph_to_tree(&graph, 0, &encode::schema_parent_name(None)),
+        Err(encode::NotATree::SecondParent { node: 1 }),
+    );
+    assert_eq!(
+        tree_domain_feature(&graph),
+        TreeDomainFeature::SecondParent(BTreeSet::from([1])),
+    );
 }
 
 fn assert_input_tree_transport(

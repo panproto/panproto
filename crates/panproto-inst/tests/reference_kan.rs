@@ -1353,6 +1353,10 @@ fn read_back_features_keep_every_semantic_payload() {
 #[test]
 fn parallel_edges_are_a_second_parent_feature() {
     let graph = leaf_graph([0, 1, 2], &[(0, 0, 1), (1, 0, 1), (2, 0, 2)]);
+    assert_eq!(
+        encode::graph_to_tree(&graph, 0, &encode::schema_parent_name(None)),
+        Err(encode::NotATree::SecondParent { node: 1 }),
+    );
     let expected = ReadBack::SecondParent(BTreeSet::from([1]));
     assert_eq!(read_back_features(&graph), expected);
     assert_eq!(
