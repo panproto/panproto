@@ -72,7 +72,11 @@ fn lexicons() -> Vec<(String, Value)> {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|name| name.ends_with(".json"))
+        .filter(|name| {
+            Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        })
         .collect();
     names.sort();
     assert!(!names.is_empty(), "no lexicons under {}", dir.display());

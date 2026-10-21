@@ -138,7 +138,7 @@ fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
             id: name(&format!("h{i}")),
             kind: name("rel"),
             signature: (0..4)
-                .map(|j| (name(&format!("l{side}_{j}")), name(&shared)))
+                .map(|j| (name(&format!("l{side}_{j}")), name(shared)))
                 .chain(std::iter::once((
                     name("moved"),
                     name(&format!("v{}", i + side)),
@@ -149,25 +149,23 @@ fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
     );
 
     s.required
-        .insert(name(&shared), vec![own_edge.clone(), shared_edge.clone()]);
+        .insert(name(shared), vec![own_edge.clone(), shared_edge.clone()]);
     s.nsids
-        .insert(name(&own), name(&format!("com.example.{side}.{i}")));
-    s.nsids.insert(
-        name(&shared),
-        name(&format!("com.example.shared{side}.{i}")),
-    );
+        .insert(name(own), name(&format!("com.example.{side}.{i}")));
+    s.nsids
+        .insert(name(shared), name(&format!("com.example.shared{side}.{i}")));
 
     s.variants.insert(
-        name(&shared),
+        name(shared),
         vec![
             Variant {
                 id: name(&format!("var{side}_{i}")),
-                parent_vertex: name(&shared),
+                parent_vertex: name(shared),
                 tag: None,
             },
             Variant {
                 id: name("tagged"),
-                parent_vertex: name(&shared),
+                parent_vertex: name(shared),
                 tag: Some(name(&format!("t{side}"))),
             },
         ],
@@ -180,7 +178,7 @@ fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
     s.recursion_points.insert(
         name(&format!("mu{side}_{i}")),
         RecursionPoint {
-            target_vertex: name(&shared),
+            target_vertex: name(shared),
         },
     );
     s.recursion_points.insert(
@@ -199,7 +197,7 @@ fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
         name(&format!("s{i}")),
         Span {
             id: name(&format!("s{i}")),
-            left: name(&shared),
+            left: name(shared),
             right: name(&format!("v{}", (i + side) % WIDTH)),
         },
     );
@@ -207,12 +205,12 @@ fn add_annotations(s: &mut Schema, side: usize, i: usize, entry: &Entry) {
         name(&format!("s{side}_{i}")),
         Span {
             id: name(&format!("s{side}_{i}")),
-            left: name(&shared),
-            right: name(&own),
+            left: name(shared),
+            right: name(own),
         },
     );
 
-    s.nominal.insert(name(&shared), side == 1);
+    s.nominal.insert(name(shared), side == 1);
     s.nominal.insert(name(&format!("only{other}_{i}")), false);
 }
 
@@ -233,7 +231,9 @@ fn protocol() -> Protocol {
 }
 
 /// Everything one rebuild answers, rendered to text and bytes.
-fn answer() -> (String, Vec<u8>, String, String, String) {
+type Answer = (String, Vec<u8>, String, String, String);
+
+fn answer() -> Answer {
     let old = schema(0);
     let new = schema(1);
     let computed = diff(&old, &new);
@@ -314,7 +314,7 @@ fn the_fixture_exercises_every_ordered_category() {
 
 #[test]
 fn a_diff_and_its_report_are_the_same_on_every_rebuild() {
-    let mut answers: BTreeSet<(String, Vec<u8>, String, String, String)> = BTreeSet::new();
+    let mut answers: BTreeSet<Answer> = BTreeSet::new();
     for _ in 0..REBUILDS {
         answers.insert(answer());
     }
@@ -334,9 +334,8 @@ fn a_diff_and_its_report_are_the_same_on_every_rebuild() {
             .collect()
     });
     answers.extend(threaded);
-    let distinct = |pick: fn(&(String, Vec<u8>, String, String, String)) -> Vec<u8>| {
-        answers.iter().map(pick).collect::<BTreeSet<_>>().len()
-    };
+    let distinct =
+        |pick: fn(&Answer) -> Vec<u8>| answers.iter().map(pick).collect::<BTreeSet<_>>().len();
     let counts: HashMap<&str, usize> = [
         ("diff (Debug)", distinct(|a| a.0.clone().into_bytes())),
         ("diff (JSON)", distinct(|a| a.1.clone())),

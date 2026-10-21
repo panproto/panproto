@@ -34,7 +34,7 @@ use serde_json::{Map, Value};
 /// copy with the objects rebuilt in order. Arrays keep their order, which
 /// JSON gives meaning to.
 #[must_use]
-pub(crate) fn in_key_order(value: &Value) -> Cow<'_, Value> {
+pub fn in_key_order(value: &Value) -> Cow<'_, Value> {
     if is_in_key_order(value) {
         Cow::Borrowed(value)
     } else {
@@ -44,7 +44,7 @@ pub(crate) fn in_key_order(value: &Value) -> Cow<'_, Value> {
 
 /// [`in_key_order`] over each document of a bundle.
 #[must_use]
-pub(crate) fn all_in_key_order(values: &[Value]) -> Cow<'_, [Value]> {
+pub fn all_in_key_order(values: &[Value]) -> Cow<'_, [Value]> {
     if values.iter().all(is_in_key_order) {
         Cow::Borrowed(values)
     } else {
@@ -131,7 +131,7 @@ mod tests {
     fn an_ordered_document_is_borrowed() {
         let value = serde_json::json!({ "a": [{ "c": 1, "d": 2 }], "b": null });
         assert!(matches!(in_key_order(&value), Cow::Borrowed(_)));
-        let values = [value.clone(), Value::from("s")];
+        let values = [value, Value::from("s")];
         assert!(matches!(all_in_key_order(&values), Cow::Borrowed(_)));
     }
 

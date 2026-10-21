@@ -115,12 +115,12 @@ pub(crate) mod compilations {
     }
 
     /// Count one compilation.
-    pub(crate) fn record() {
+    pub fn record() {
         COMPILED.with(|count| count.set(count.get() + 1));
     }
 
     /// The number of compilations `f` makes on this thread.
-    pub(crate) fn during<T>(f: impl FnOnce() -> T) -> (T, usize) {
+    pub fn during<T>(f: impl FnOnce() -> T) -> (T, usize) {
         let before = COMPILED.with(Cell::get);
         let value = f();
         (value, COMPILED.with(Cell::get) - before)
@@ -184,6 +184,11 @@ mod tests {
     use crate::metadata::Node;
     use crate::value::{FieldPresence, Value};
     use crate::{CompiledMigration, FInstance, GInstance, RestrictError, WInstance};
+
+    type BoundaryOp<'a> = (
+        &'static str,
+        Box<dyn Fn() -> Result<(), RestrictError> + 'a>,
+    );
 
     fn prop(src: &str, tgt: &str, name: &str) -> Edge {
         Edge {
@@ -293,10 +298,7 @@ mod tests {
         let (ws, gs, fs) = (tree_schema(), graph_schema(), table_schema());
         let (wt, gt, ft) = (ws.clone(), gs.clone(), fs.clone());
         let (wm, gm, fm) = (identity(&ws), identity(&gs), identity(&fs));
-        let ops: Vec<(
-            &'static str,
-            Box<dyn Fn() -> Result<(), RestrictError> + '_>,
-        )> = vec![
+        let ops: Vec<BoundaryOp<'_>> = vec![
             (
                 "wtype_restrict",
                 Box::new(|| crate::wtype_restrict(&w, &ws, &wt, &wm, protocols).map(drop)),
