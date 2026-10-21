@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "campaign": "values-inst-5e5209f4",
+  "lane": "values-inst",
+  "lane_commit": "5e5209f4f5d60abdc063ea77313c73ce4c172a2a",
+  "package": "panproto-inst",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 20,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "256",
+    "PROPTEST_RNG_SEED": "2026102101",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "priority_binaries": [
+    "reference_coercion",
+    "byte_text_forms",
+    "coerce_value"
+  ],
+  "groups": [
+    {
+      "name": "value",
+      "files": [
+        "crates/panproto-inst/src/value.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--tests"
+      ],
+      "test_args": [
+        "--filterset=not (test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))"
+      ]
+    },
+    {
+      "name": "coerce",
+      "files": [
+        "crates/panproto-inst/src/value/coerce.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--tests"
+      ],
+      "test_args": [
+        "--filterset=not (test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))"
+      ]
+    },
+    {
+      "name": "identity",
+      "files": [
+        "crates/panproto-inst/src/identity.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--tests"
+      ],
+      "test_args": [
+        "--filterset=not (test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))"
+      ]
+    }
+  ],
+  "_scope": "Values CI-only mutation of every panproto-inst production file named by values.md, whole files via --file. The full package unit and integration suites run for every group, except the multi-hour exact coerce_value census, timing tests, and multi-process tests already covered by acceptance gates. Values property differentials use 256 deterministic cases at the audited commit."
+}
