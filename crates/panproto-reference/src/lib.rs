@@ -38,7 +38,7 @@
 //! | The fan domain | [`fan::violations_at`] | `representation.md` |
 //! | Get and put of the graph lens | [`restrict::get`], [`lens::GraphLens::put`] | `lenses.md` |
 //! | The graph put domain | [`lens::GraphLens::check_put_domain`] | `lenses.md` |
-//! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`] | `lenses.md` |
+//! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`], [`table::TableComplement`] | `lenses.md` |
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |
 //! | Get and put of the tree lens | [`lens::tree_get`], [`lens::tree_put`] | `lenses.md` |
 //! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`] | `resolution.md` |

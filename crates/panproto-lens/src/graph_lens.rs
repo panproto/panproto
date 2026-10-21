@@ -21,7 +21,7 @@ use panproto_inst::{
 use panproto_schema::{Edge, Schema};
 
 use crate::asymmetric::{
-    ComplementCompose, apply_inverse_transforms, extra_fields_equiv, node_equiv, presence_equiv,
+    ComplementCompose, extra_fields_equiv, node_equiv, presence_equiv,
     propagate_view_edits_through_inverse,
 };
 use crate::compose::{check_boundary, duplicate, tree_fusion};
@@ -504,10 +504,56 @@ pub fn check_put_domain(
             found.extend(schema_violations(&source, &lens.src_schema));
             found.extend(fan_violations(&source, &lens.src_schema));
         }
-        Err(errors) => found.extend(errors),
+        Err(errors) => {
+            // The clauses read on the restored source run on the part of
+            // the view put can still restore.
+            let restorable = restorable_part(view, &errors);
+            found.extend(errors);
+            if let Ok(source) = restore_with_plan(lens, &restorable, complement, &plan) {
+                found.extend(forward_stability(
+                    lens,
+                    &restorable,
+                    complement,
+                    &source,
+                    &plan,
+                ));
+                found.extend(schema_violations(&source, &lens.src_schema));
+                found.extend(fan_violations(&source, &lens.src_schema));
+            }
+        }
     }
     sort_violations(&mut found);
+    found.dedup();
     if found.is_empty() { Ok(()) } else { Err(found) }
+}
+
+/// The part of `view` put can restore given the restoration violations
+/// `errors`: the view without each node that has no single source anchor
+/// (with its incident edges) and without each edge that maps back to no
+/// single source label. A view node whose id collides with a dropped node
+/// stays: restoration puts it in the dropped node's place.
+fn restorable_part(view: &GInstance, errors: &[PutDomainError]) -> GInstance {
+    let mut restorable = view.clone();
+    for error in errors {
+        match error {
+            PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
+                ..
+            } => {
+                let _ = restorable.remove_node(*id);
+            }
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(id),
+            }
+            | PutDomainError::ContractedEdgeInserted {
+                elem: ViewRef::Edge(id),
+            } => {
+                let _ = restorable.remove_edge(*id);
+            }
+            _ => {}
+        }
+    }
+    restorable
 }
 
 /// A deterministic node id for a single writer adding to a graph view.
@@ -1017,7 +1063,11 @@ fn restore_with_plan(
                 propagate_view_edits_through_inverse(&mut restored, &view_fields, transforms);
             }
         } else if let Some(transforms) = transforms {
-            apply_inverse_transforms(&mut restored, transforms);
+            crate::asymmetric::restore_unrecorded_fields(
+                &mut restored,
+                transforms,
+                complement.identity.is_some(),
+            );
         }
         if let Some(value) = complement.original_values.get(&id) {
             restored.value.clone_from(value);
@@ -1611,6 +1661,22 @@ fn classify_transform_differences(
     found: &mut Vec<PutDomainError>,
 ) {
     let source_anchor = source_anchor.unwrap_or(&expected.anchor);
+    for field in crate::asymmetric::computed_term_fields(&lens.compiled, source_anchor) {
+        let differs = match (
+            expected.extra_fields.get(field),
+            actual.extra_fields.get(field),
+        ) {
+            (Some(a), Some(b)) => !crate::asymmetric::value_equiv(a, b),
+            (None, None) => false,
+            _ => true,
+        };
+        if differs {
+            found.push(PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Node(id),
+                field: field.to_owned(),
+            });
+        }
+    }
     let transforms = lens.compiled.field_transforms.get(source_anchor);
     let Some(transforms) = transforms else {
         return;
@@ -1927,11 +1993,18 @@ fn first_put_error(mut errors: Vec<PutDomainError>) -> LensError {
 }
 
 fn sort_violations(found: &mut Vec<PutDomainError>) {
+    // The sort is stable: the fan violations of one node keep the order
+    // `FanDomain::violations_at` lists them in.
     found.sort_by(|a, b| {
         a.variant_index()
             .cmp(&b.variant_index())
             .then_with(|| violation_ref(a).cmp(&violation_ref(b)))
-            .then_with(|| a.to_string().cmp(&b.to_string()))
+            .then_with(|| match (a, b) {
+                (PutDomainError::MalformedFan { .. }, PutDomainError::MalformedFan { .. }) => {
+                    std::cmp::Ordering::Equal
+                }
+                _ => a.to_string().cmp(&b.to_string()),
+            })
     });
     found.dedup();
 }

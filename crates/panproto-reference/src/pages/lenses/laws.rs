@@ -2775,6 +2775,9 @@ pub struct LawReport<R> {
     pub basis_families: BTreeMap<Mutation, usize>,
     /// Every generated mutation in canonical family/carrier order.
     pub basis_sequence: Vec<Mutation>,
+    /// Positive candidates the put-domain predicate admits: the in-domain
+    /// mutations PutGet, Totality and PutTwice range over.
+    pub admitted: usize,
 }
 
 /// Separate locality-oracle result over the same finite SSB.
@@ -2820,16 +2823,38 @@ where
                 basis_cases: 0,
                 basis_families: BTreeMap::new(),
                 basis_sequence: Vec::new(),
+                admitted: 0,
             };
         }
     };
 
-    let basis = S::single_step_basis(lens, source, &original_view, &complement, context);
+    let generated = S::single_step_basis(lens, source, &original_view, &complement, context);
+    // A positive candidate is in the domain exactly when the put-domain
+    // predicate admits it; one a clause refuses is out of the domain and
+    // leaves PutGet, Totality and PutTwice. A negative candidate keeps its
+    // designated refusal, which Totality checks.
+    let basis: Vec<_> = generated
+        .iter()
+        .filter(|candidate| match candidate.domain {
+            DomainExpectation::Admitted => {
+                S::check_put_domain(lens, &candidate.view, &complement, context).is_ok()
+            }
+            DomainExpectation::Refused(_) => true,
+        })
+        .cloned()
+        .collect();
+    let admitted = basis
+        .iter()
+        .filter(|candidate| matches!(candidate.domain, DomainExpectation::Admitted))
+        .count();
     let mut basis_families = BTreeMap::new();
-    for candidate in &basis {
+    for candidate in &generated {
         *basis_families.entry(candidate.mutation).or_insert(0) += 1;
     }
-    let basis_sequence = basis.iter().map(|candidate| candidate.mutation).collect();
+    let basis_sequence = generated
+        .iter()
+        .map(|candidate| candidate.mutation)
+        .collect();
     LawReport {
         gates: vec![
             check_get_put::<S, L>(lens, source, &original_view, &complement, context),
@@ -2838,9 +2863,10 @@ where
             check_put_twice::<S, L>(lens, &basis, &complement, context),
             check_congruence::<S, L>(lens, &original_view, &complement, context),
         ],
-        basis_cases: basis.len(),
+        basis_cases: generated.len(),
         basis_families,
         basis_sequence,
+        admitted,
     }
 }
 

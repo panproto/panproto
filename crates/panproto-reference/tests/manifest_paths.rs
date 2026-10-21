@@ -78,7 +78,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        320
+        322
     );
 
     for page in manifest.pages.values().filter(|page| {
@@ -107,7 +107,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     assert_eq!(partial_laws.len(), 58);
-    assert_eq!(partial_paths.len(), 44);
+    assert_eq!(partial_paths.len(), 45);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -117,8 +117,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 182);
-    assert_eq!(documented.len(), 182);
+    assert_eq!(expected.len(), 183);
+    assert_eq!(documented.len(), 183);
     assert_eq!(documented, expected);
 }
 

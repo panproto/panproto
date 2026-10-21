@@ -662,7 +662,7 @@ fn synthesized_nodes_refuse_every_noncanonical_coordinate() {
 }
 
 #[test]
-fn every_fan_domain_violation_is_reported_in_node_and_reason_order() {
+fn the_fan_domain_is_read_on_the_restorable_part() {
     let mut schema = Schema::default();
     schema.hyper_edges.insert(
         "declared".to_owned(),
@@ -696,19 +696,17 @@ fn every_fan_domain_violation_is_reported_in_node_and_reason_order() {
                 elem: ViewRef::Node(9),
                 candidates: Vec::new(),
             },
+            // Node 4 is restorable, but the next get would drop its
+            // parentless fan, so clause (5) reports that loss before the
+            // fan-domain reason.
+            PutDomainError::SurvivalPredicateFails {
+                elem: ViewRef::Node(4),
+            },
+            // Node 9 has no source anchor, so it is outside the restorable
+            // part on which the fan domain is read.
             PutDomainError::MalformedFan {
                 node: 4,
                 reason: FanViolation::MissingParent,
-            },
-            PutDomainError::MalformedFan {
-                node: 9,
-                reason: FanViolation::MissingParent,
-            },
-            PutDomainError::MalformedFan {
-                node: 9,
-                reason: FanViolation::UnknownHyperEdge {
-                    hyper_edge: "unknown".to_owned(),
-                },
             },
         ])
     );

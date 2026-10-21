@@ -603,8 +603,7 @@ pub(crate) fn get_with_identity(
         }
     }
 
-    let (original_extra_fields, original_values) =
-        capture_pre_transform_state(lens, instance, &view);
+    let (original_extra_fields, original_values) = capture_pre_transform_state(instance, &view);
 
     let arc_edges = undetermined_arc_edges(lens, instance, &view);
 
@@ -1077,6 +1076,40 @@ fn synthesized_edits(view: &WInstance, complement: &Complement) -> Vec<PutDomain
         }
     }
 
+    found.extend(synthesized_sibling_order(view, complement));
+    found
+}
+
+/// Synthesized arcs moved before a kept sibling.
+///
+/// Tree get emits each parent's children as its kept arcs followed by its
+/// synthesized first hops, so in a view `get` produced no kept arc follows a
+/// synthesized arc of the same parent. A view where one does has moved the
+/// synthesized arc: the next `get` of the restored source would order the
+/// siblings back. Each synthesized arc with a later kept sibling is
+/// reported.
+fn synthesized_sibling_order(view: &WInstance, complement: &Complement) -> Vec<PutDomainError> {
+    let synthesized = |parent: u32, child: u32, edge: &Edge| {
+        complement.contraction_choices.get(&(parent, child)) == Some(edge)
+            || complement.synthesized_nodes.contains(&child)
+    };
+    let mut found = Vec::new();
+    for (index, (parent, child, edge)) in view.arcs.iter().enumerate() {
+        if !synthesized(*parent, *child, edge) {
+            continue;
+        }
+        let kept_after = view.arcs[index + 1..]
+            .iter()
+            .any(|(p, c, e)| p == parent && !synthesized(*p, *c, e));
+        if kept_after {
+            found.push(PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                },
+            });
+        }
+    }
     found
 }
 
@@ -1117,7 +1150,9 @@ fn value_violations(
     use panproto_inst::value::FieldPresence;
 
     let compiled = &lens.compiled;
-    if compiled.field_transforms.is_empty() && compiled.conditional_survival.is_empty() {
+    let rewrites_fields =
+        !compiled.field_transforms.is_empty() || !compiled.op_term_assignments.is_empty();
+    if !rewrites_fields && compiled.conditional_survival.is_empty() {
         return Vec::new();
     }
     let mut found = Vec::new();
@@ -1143,7 +1178,7 @@ fn value_violations(
             }
         }
     }
-    if compiled.field_transforms.is_empty() {
+    if !rewrites_fields {
         return in_report_order(found);
     }
 
@@ -1174,6 +1209,22 @@ fn value_violations(
         else {
             continue;
         };
+        for field in computed_term_fields(compiled, &restored.anchor) {
+            let differs = match (
+                view_node.extra_fields.get(field),
+                again.extra_fields.get(field),
+            ) {
+                (Some(shown), Some(recomputed)) => !value_equiv(shown, recomputed),
+                (Some(_), None) | (None, Some(_)) => true,
+                (None, None) => false,
+            };
+            if differs {
+                found.push(PutDomainError::DerivedCellEdited {
+                    elem: ViewRef::Node(id),
+                    field: field.to_owned(),
+                });
+            }
+        }
         let Some(transforms) = compiled.field_transforms.get(&restored.anchor) else {
             continue;
         };
@@ -1215,6 +1266,30 @@ fn value_violations(
         }
     }
     in_report_order(found)
+}
+
+/// The fields the migration computes on nodes over `anchor` through term
+/// assignments: the target of each `Compute` and the key of each `Default`.
+/// Put recomputes them, so a view that shows another value has edited a
+/// derived field.
+pub(crate) fn computed_term_fields<'a>(
+    compiled: &'a panproto_inst::CompiledMigration,
+    anchor: &Name,
+) -> Vec<&'a str> {
+    let mut fields: Vec<&str> = compiled
+        .op_term_assignments
+        .get(anchor)
+        .into_iter()
+        .flatten()
+        .filter_map(|assignment| match assignment {
+            panproto_inst::TermAssignment::Compute { target, .. } => Some(target.as_str()),
+            panproto_inst::TermAssignment::Default { key, .. } => Some(key.as_str()),
+            _ => None,
+        })
+        .collect();
+    fields.sort_unstable();
+    fields.dedup();
+    fields
 }
 
 /// Translate a forward refusal on the reconstructed source into the typed
@@ -1633,7 +1708,11 @@ fn reassemble(
                 propagate_view_edits_through_inverse(&mut restored_node, &view_fields, transforms);
             }
         } else if let Some(transforms) = transforms {
-            apply_inverse_transforms(&mut restored_node, transforms);
+            restore_unrecorded_fields(
+                &mut restored_node,
+                transforms,
+                complement.identity.is_some(),
+            );
         }
         // Restore original node.value for __value__ coercions
         if let Some(original_val) = complement.original_values.get(&id) {
@@ -1709,44 +1788,56 @@ type ValueSnapshots = HashMap<u32, Option<panproto_inst::value::FieldPresence>>;
 /// This is what lets the backward direction restore information the
 /// forward pass overwrote or discarded, rather than inferring it.
 fn capture_pre_transform_state(
-    lens: &Lens,
     instance: &WInstance,
     view: &WInstance,
 ) -> (ExtraFieldSnapshots, ValueSnapshots) {
-    // Capture pre-transform extra_fields for nodes that had field_transforms
+    // A surviving node's source fields are recorded exactly when its view
+    // fields differ from them, and its source value exactly when its view
+    // value differs, compared by canonical bytes: the graph complement's
+    // criterion, which the conversion between the two complements maps
+    // field for field. Every forward writer (field transforms, term
+    // assignments and value coercions) is covered alike.
     let mut original_extra_fields = HashMap::new();
-    for &id in view.nodes.keys() {
-        if let Some(source_node) = instance.nodes.get(&id) {
-            if lens
-                .compiled
-                .field_transforms
-                .contains_key(&source_node.anchor)
-            {
-                original_extra_fields.insert(id, source_node.extra_fields.clone());
-            }
-        }
-    }
-
-    // Capture pre-coercion node.value for nodes that had __value__ field transforms
     let mut original_values = HashMap::new();
-    for &id in view.nodes.keys() {
-        if let Some(source_node) = instance.nodes.get(&id) {
-            if lens
-                .compiled
-                .field_transforms
-                .get(&source_node.anchor)
-                .is_some_and(|ts| {
-                    ts.iter().any(|t| {
-                        matches!(t, panproto_inst::FieldTransform::ApplyExpr { key, .. } if key == "__value__")
-                    })
-                })
-            {
-                original_values.insert(id, source_node.value.clone());
-            }
+    for (&id, view_node) in &view.nodes {
+        let Some(source_node) = instance.nodes.get(&id) else {
+            continue;
+        };
+        if !same_canonical_fields(&view_node.extra_fields, &source_node.extra_fields) {
+            original_extra_fields.insert(id, source_node.extra_fields.clone());
+        }
+        if !same_canonical_presence(view_node.value.as_ref(), source_node.value.as_ref()) {
+            original_values.insert(id, source_node.value.clone());
         }
     }
-
     (original_extra_fields, original_values)
+}
+
+/// Whether two field maps hold the same keys with values of equal canonical
+/// bytes.
+fn same_canonical_fields(
+    a: &HashMap<String, panproto_inst::value::Value>,
+    b: &HashMap<String, panproto_inst::value::Value>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(key, value)| {
+            b.get(key)
+                .is_some_and(|other| value.canonical_cmp(other).is_eq())
+        })
+}
+
+/// Whether two node values are equal, a present value by canonical bytes.
+fn same_canonical_presence(
+    a: Option<&panproto_inst::value::FieldPresence>,
+    b: Option<&panproto_inst::value::FieldPresence>,
+) -> bool {
+    use panproto_inst::value::FieldPresence;
+    match (a, b) {
+        (Some(FieldPresence::Present(x)), Some(FieldPresence::Present(y))) => {
+            x.canonical_cmp(y).is_eq()
+        }
+        (x, y) => x == y,
+    }
 }
 
 /// Rebuild the source's arcs from the view and complement.
@@ -2135,11 +2226,9 @@ pub(crate) fn propagate_view_edits_through_inverse(
                     }
                 }
             }
-            FieldTransform::AddField { key, .. } => {
-                // Snapshot has no entry for the added key; make sure
-                // nothing else slipped it in.
-                node.extra_fields.remove(key);
-            }
+            // The node starts from the snapshot of the source's fields, and
+            // only keys the snapshot holds are updated, so an added key is
+            // present exactly when the source held it: nothing to undo.
             FieldTransform::PathTransform { path, inner } if path.is_empty() => {
                 propagate_view_edits_through_inverse(
                     node,
@@ -2182,6 +2271,29 @@ fn untouched_by(transforms: &[panproto_inst::FieldTransform]) -> impl Fn(&str) -
     }
 
     move |key| !transforms.iter().any(|t| touches(t, key))
+}
+
+/// Restore the fields of a node the complement records no source fields
+/// for.
+///
+/// A complement stamped by `get` records a node's source fields exactly
+/// when its view fields differ from them, so an unrecorded node's source
+/// fields were its view fields: put starts from the view's fields and
+/// propagates only the view's edits back through the inverses, which keeps
+/// a field the forward pass added or computed when the source already held
+/// it. A complement with no stamp carries no such guarantee, and put applies
+/// the inverses to the view's fields directly.
+pub(crate) fn restore_unrecorded_fields(
+    node: &mut Node,
+    transforms: &[panproto_inst::FieldTransform],
+    stamped: bool,
+) {
+    if stamped {
+        let view_fields = node.extra_fields.clone();
+        propagate_view_edits_through_inverse(node, &view_fields, transforms);
+    } else {
+        apply_inverse_transforms(node, transforms);
+    }
 }
 
 /// Apply inverse field transforms to a node, undoing the forward coercion.
@@ -2663,6 +2775,293 @@ mod tests {
     fn complement_is_empty_for_identity() {
         let complement = Complement::empty();
         assert!(complement.is_empty());
+    }
+
+    /// Tree get emits a parent's kept arcs before its synthesized first hops,
+    /// so a view that puts a synthesized arc before a kept sibling has moved
+    /// the synthesized arc: it is `SynthesizedEdited`, since put would
+    /// otherwise restore a source whose view orders them back.
+    mod synthesized_sibling_order {
+        use super::*;
+        use panproto_mig::Migration;
+        use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+
+        fn prop(src: &str, tgt: &str, name: &str) -> Edge {
+            Edge {
+                src: src.into(),
+                tgt: tgt.into(),
+                kind: "prop".into(),
+                name: Some(name.into()),
+            }
+        }
+
+        fn schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
+            let protocol = Protocol::default();
+            let mut builder = SchemaBuilder::new(&protocol);
+            for (id, kind) in vertices {
+                builder = builder.vertex(id, kind, None).unwrap();
+            }
+            for e in edges {
+                builder = builder
+                    .edge(&e.src, &e.tgt, &e.kind, e.name.as_deref())
+                    .unwrap();
+            }
+            builder.build().unwrap()
+        }
+
+        /// `r -> x` kept; `r -> m -> y` contracted to `r -> y` named `c`.
+        fn lens() -> Lens {
+            let src = schema(
+                &[
+                    ("r", "object"),
+                    ("x", "object"),
+                    ("m", "object"),
+                    ("y", "object"),
+                ],
+                &[
+                    prop("r", "x", "x"),
+                    prop("r", "m", "m"),
+                    prop("m", "y", "y"),
+                ],
+            );
+            let tgt = schema(
+                &[("r", "object"), ("x", "object"), ("y", "object")],
+                &[prop("r", "x", "x"), prop("r", "y", "c")],
+            );
+            let migration = Migration {
+                vertex_map: [("r", "r"), ("x", "x"), ("y", "y")]
+                    .iter()
+                    .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                    .collect(),
+                edge_map: [(prop("r", "x", "x"), prop("r", "x", "x"))]
+                    .into_iter()
+                    .collect(),
+                hyper_edge_map: HashMap::new(),
+                label_map: HashMap::new(),
+                resolver: [((Name::from("r"), Name::from("y")), prop("r", "y", "c"))]
+                    .into_iter()
+                    .collect(),
+                hyper_resolver: HashMap::new(),
+                expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
+                domain: None,
+                codomain: None,
+            };
+            let compiled = panproto_mig::compile(&src, &tgt, &migration).unwrap();
+            Lens {
+                compiled,
+                src_schema: src,
+                tgt_schema: tgt,
+            }
+        }
+
+        fn source() -> WInstance {
+            WInstance::new(
+                [
+                    (0, Node::new(0, "r")),
+                    (1, Node::new(1, "x")),
+                    (2, Node::new(2, "m")),
+                    (3, Node::new(3, "y")),
+                ]
+                .into_iter()
+                .collect(),
+                vec![
+                    (0, 1, prop("r", "x", "x")),
+                    (0, 2, prop("r", "m", "m")),
+                    (2, 3, prop("m", "y", "y")),
+                ],
+                Vec::new(),
+                0,
+                "r".into(),
+            )
+        }
+
+        #[test]
+        fn a_synthesized_arc_moved_before_a_kept_sibling_is_refused() {
+            let lens = lens();
+            let (view, complement) = get(&lens, &source()).unwrap();
+            assert_eq!(
+                view.arcs,
+                vec![(0, 1, prop("r", "x", "x")), (0, 3, prop("r", "y", "c"))],
+                "tree get emits the kept arc, then the synthesized first hop"
+            );
+            let mut arcs = view.arcs.clone();
+            arcs.reverse();
+            let moved = WInstance::new(
+                view.nodes.clone(),
+                arcs,
+                view.fans.clone(),
+                view.root,
+                view.schema_root.clone(),
+            );
+            if let Ok(restored) = put(&lens, &moved, &complement) {
+                let (again, _) = get(&lens, &restored).unwrap();
+                println!(
+                    "admitted: the view orders {:?}, get after put orders {:?}",
+                    moved.arcs, again.arcs
+                );
+            }
+            let refused = check_put_domain(&lens, &moved, &complement).unwrap_err();
+            assert!(
+                refused
+                    .iter()
+                    .any(|error| matches!(error, PutDomainError::SynthesizedEdited { .. })),
+                "{refused:?}"
+            );
+        }
+    }
+
+    /// A field the migration adds that the source already carries with the
+    /// added value is unchanged by get, so get records nothing for the node
+    /// and put must keep the field: GetPut in both shapes.
+    mod an_added_field_the_source_carries {
+        use super::*;
+        use panproto_inst::FieldTransform;
+        use panproto_inst::GInstance;
+        use panproto_inst::value::Value;
+        use panproto_schema::{Protocol, SchemaBuilder};
+
+        fn lens() -> Lens {
+            let protocol = Protocol::default();
+            let schema = SchemaBuilder::new(&protocol)
+                .vertex("a", "object", None)
+                .unwrap()
+                .build()
+                .unwrap();
+            let mut lens = crate::tests::identity_lens(&schema);
+            lens.compiled.field_transforms.insert(
+                "a".into(),
+                vec![FieldTransform::AddField {
+                    key: "f".to_owned(),
+                    value: Value::Int(0),
+                }],
+            );
+            lens
+        }
+
+        fn carrying() -> Node {
+            let mut node = Node::new(0, "a");
+            node.extra_fields.insert("f".to_owned(), Value::Int(0));
+            node
+        }
+
+        #[test]
+        fn tree_put_keeps_it() {
+            let lens = lens();
+            let source = WInstance::new(
+                [(0, carrying())].into_iter().collect(),
+                Vec::new(),
+                Vec::new(),
+                0,
+                "a".into(),
+            );
+            let (view, complement) = get(&lens, &source).unwrap();
+            assert!(complement.original_extra_fields.is_empty());
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(
+                restored.nodes[&0].extra_fields.get("f"),
+                Some(&Value::Int(0))
+            );
+        }
+
+        #[test]
+        fn graph_put_keeps_it() {
+            let lens = lens();
+            let source = GInstance::new().with_node(carrying());
+            let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+            assert!(complement.original_extra_fields.is_empty());
+            let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
+            assert_eq!(
+                restored.node(0).unwrap().extra_fields.get("f"),
+                Some(&Value::Int(0))
+            );
+        }
+    }
+
+    /// A field computed by a term assignment is derived: get records the
+    /// source fields it replaced, and a view that edits it is outside the
+    /// put domain in both shapes.
+    mod term_assignments {
+        use super::*;
+        use panproto_inst::value::Value;
+        use panproto_inst::{GInstance, TermAssignment, TermScope};
+        use panproto_schema::{Protocol, SchemaBuilder};
+
+        fn lens() -> Lens {
+            let protocol = Protocol::default();
+            let schema = SchemaBuilder::new(&protocol)
+                .vertex("a", "object", None)
+                .unwrap()
+                .build()
+                .unwrap();
+            let mut lens = crate::tests::identity_lens(&schema);
+            lens.compiled.op_term_assignments.insert(
+                "a".into(),
+                vec![TermAssignment::Compute {
+                    target: "f".to_owned(),
+                    scope: TermScope::Row,
+                    term: panproto_expr::Expr::Lit(panproto_expr::Literal::Int(0)),
+                    inverse: None,
+                    coercion_class: panproto_gat::CoercionClass::Projection,
+                }],
+            );
+            lens
+        }
+
+        fn without_f(node: &mut Node) {
+            node.extra_fields.remove("f");
+        }
+
+        #[test]
+        fn tree_get_then_put_restores_the_fields_a_term_replaced() {
+            let lens = lens();
+            let source = WInstance::new(
+                [(0, Node::new(0, "a"))].into_iter().collect(),
+                Vec::new(),
+                Vec::new(),
+                0,
+                "a".into(),
+            );
+            let (view, complement) = get(&lens, &source).unwrap();
+            assert_eq!(view.nodes[&0].extra_fields.get("f"), Some(&Value::Int(0)));
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert!(restored.nodes[&0].extra_fields.is_empty());
+        }
+
+        #[test]
+        fn tree_put_refuses_an_edited_computed_field() {
+            let lens = lens();
+            let source = WInstance::new(
+                [(0, Node::new(0, "a"))].into_iter().collect(),
+                Vec::new(),
+                Vec::new(),
+                0,
+                "a".into(),
+            );
+            let (view, complement) = get(&lens, &source).unwrap();
+            let mut edited = view.clone();
+            without_f(edited.nodes.get_mut(&0).unwrap());
+            let refused = check_put_domain(&lens, &edited, &complement).unwrap_err();
+            assert!(
+                matches!(refused.as_slice(), [PutDomainError::DerivedCellEdited { field, .. }] if field == "f"),
+                "{refused:?}"
+            );
+        }
+
+        #[test]
+        fn graph_put_refuses_an_edited_computed_field() {
+            let lens = lens();
+            let source = GInstance::new().with_node(Node::new(0, "a"));
+            let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+            let mut edited = view.clone();
+            without_f(edited.node_mut(0).unwrap());
+            let refused =
+                crate::graph_lens::check_put_domain(&lens, &edited, &complement).unwrap_err();
+            assert!(
+                matches!(refused.as_slice(), [PutDomainError::DerivedCellEdited { field, .. }] if field == "f"),
+                "{refused:?}"
+            );
+        }
     }
 
     /// A child added under a lone root is written back: the complement

@@ -635,7 +635,7 @@ fn totality_checks_an_independently_classified_refusal() {
 }
 
 #[test]
-fn totality_retains_admitted_and_negative_candidates_when_production_disagrees() {
+fn totality_excludes_refused_positive_candidates_and_retains_negative_ones() {
     let source = BooleanInstance {
         value: 0,
         untouched: 7,
@@ -656,14 +656,10 @@ fn totality_retains_admitted_and_negative_candidates_when_production_disagrees()
     else {
         panic!("totality gate expected")
     };
-    assert!(matches!(
-        refused_gate.status,
-        LawGateStatus::Failed(LawFailure::DomainMismatch {
-            case: 0,
-            expected: None,
-            observed: Some(Refusal::Different),
-        })
-    ));
+    // A positive candidate the put-domain predicate refuses is out of the
+    // domain: Totality ranges over no case, and nothing is admitted.
+    assert_eq!(refused_gate.status, LawGateStatus::Passed { cases: 0 });
+    assert_eq!(refused_admitted.admitted, 0);
 
     let extra_negative = check_laws_report::<BooleanShape, _>(
         &PathContractKind::Identity,

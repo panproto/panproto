@@ -348,3 +348,97 @@ fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
         "HOLD: build the amended C11 census and reproduce its independent counts before execution"
     );
 }
+
+/// A positive basis candidate a put-domain clause refuses is out of the
+/// domain, not a Totality violation: under `T`, which adds the computed field
+/// `f`, the field edit of `f` is refused with `DerivedCellEdited` and the
+/// report passes every gate.
+#[test]
+fn a_refused_positive_candidate_is_out_of_the_domain() {
+    use panproto_reference::enumerate::lenses::{C11AddField, c11_stages};
+    use panproto_reference::lens::{GraphLens, LawGateStatus, check_graph_laws};
+    use panproto_reference::model::Node;
+
+    let stages = c11_stages();
+    let stage = stages.iter().find(|stage| stage.name == "T").unwrap();
+    let plan =
+        panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration)
+            .unwrap();
+    let lens = GraphLens::new(
+        &stage.source,
+        &stage.target,
+        &stage.migration,
+        &plan,
+        &std::collections::BTreeMap::new(),
+        &C11AddField,
+    )
+    .unwrap();
+    let mut source = Graph::default();
+    source.nodes.insert(0, Node::new(0, "a"));
+    let report = check_graph_laws(&lens, &source);
+    assert!(
+        report
+            .gates
+            .iter()
+            .all(|gate| matches!(gate.status, LawGateStatus::Passed { .. })),
+        "{report:?}"
+    );
+}
+
+/// A fan child edge maps back only to a label its hyper-edge declares, by
+/// name and target vertex: under the identity on the fan schema, re-anchoring
+/// the child of label `l` from `b` to `a` leaves an edge `h -> a` named `l`,
+/// which the signature `{l -> b}` does not declare, so the view is outside
+/// the put domain.
+#[test]
+fn a_fan_child_edge_maps_back_by_name_and_target() {
+    use panproto_reference::enumerate::lenses::{c11_fan_labels, c11_stages};
+    use panproto_reference::lens::ViewRef;
+    use panproto_reference::lens::{GraphLens, PutDomainError};
+    use panproto_reference::model::{GEdge, Node, NodeShape};
+    use panproto_reference::restrict::NoValueLayer;
+
+    let stages = c11_stages();
+    let stage = stages.iter().find(|stage| stage.name == "Id_h").unwrap();
+    let plan =
+        panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration)
+            .unwrap();
+    let lens = GraphLens::new(
+        &stage.source,
+        &stage.target,
+        &stage.migration,
+        &plan,
+        &std::collections::BTreeMap::new(),
+        &NoValueLayer,
+    )
+    .unwrap();
+    let [parent, label] = c11_fan_labels();
+    let mut source = Graph::default();
+    let mut fan = Node::new(0, "h");
+    fan.shape = NodeShape::HyperEdge;
+    source.nodes.insert(0, fan);
+    source.nodes.insert(1, Node::new(1, "a"));
+    source.nodes.insert(2, Node::new(2, "b"));
+    for (id, tgt, label) in [(0, 1, parent), (1, 2, label)] {
+        source.edges.insert(
+            id,
+            GEdge {
+                src: 0,
+                tgt,
+                label,
+                position: None,
+            },
+        );
+    }
+    let (view, complement) = lens.get(&source).unwrap();
+    let mut edited = view.clone();
+    edited.nodes.get_mut(&2).unwrap().anchor = "a".to_owned();
+    edited.edges.get_mut(&1).unwrap().label.tgt = "a".to_owned();
+    let refused = lens.check_put_domain(&edited, &complement).unwrap_err();
+    assert!(
+        refused.contains(&PutDomainError::UnrepresentableViewEdge {
+            elem: ViewRef::Edge(1)
+        }),
+        "{refused:?}"
+    );
+}

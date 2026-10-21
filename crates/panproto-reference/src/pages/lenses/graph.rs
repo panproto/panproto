@@ -189,6 +189,51 @@ impl<'a> GraphLens<'a> {
     }
 }
 
+/// The part of `view` that put can restore given the clause (3) and (4)
+/// violations `structural`: without each node with no single source anchor,
+/// its incident edges, and each edge with no single source label.
+fn restorable_part(view: &Graph, structural: &[PutDomainError]) -> Graph {
+    let mut restorable = view.clone();
+    for violation in structural {
+        match violation {
+            PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
+                ..
+            } => {
+                restorable.nodes.remove(id);
+                restorable
+                    .edges
+                    .retain(|_, edge| edge.src != *id && edge.tgt != *id);
+            }
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(id),
+            }
+            | PutDomainError::ContractedEdgeInserted {
+                elem: ViewRef::Edge(id),
+            } => {
+                restorable.edges.remove(id);
+            }
+            _ => {}
+        }
+    }
+    restorable
+}
+
+/// Whether a violation is one of the clauses read on the restored source:
+/// (5) to (8), and the field clauses of (6).
+const fn reads_the_restored_source(violation: &PutDomainError) -> bool {
+    matches!(
+        violation,
+        PutDomainError::SurvivalPredicateFails { .. }
+            | PutDomainError::SurvivalPredicateRefused { .. }
+            | PutDomainError::DerivedCellEdited { .. }
+            | PutDomainError::TransformNotInvertible { .. }
+            | PutDomainError::DuplicateKey { .. }
+            | PutDomainError::MissingRequiredCell { .. }
+            | PutDomainError::MalformedFan { .. }
+    )
+}
+
 /// A view node or edge reusing the id of a dropped source node or edge.
 fn id_collisions(view: &Graph, c: &Complement) -> Vec<PutDomainError> {
     let nodes = view
@@ -456,6 +501,7 @@ impl GraphLens<'_> {
             .map(|_| ())
             .map_err(|mut errors| {
                 errors.sort_by(PutDomainError::report_cmp);
+                errors.dedup();
                 errors
             })
     }
@@ -588,12 +634,22 @@ impl GraphLens<'_> {
         out
     }
 
+    /// Restoration and every put-domain violation.
+    ///
+    /// Clauses (1) `IdCollision` and (2) `SynthesizedEdited` read the view
+    /// and complement alone and always run. Clauses (3) and (4) map every
+    /// view edge and node back. The clauses read on the restored source,
+    /// (5) to (8), run only when (3) and (4) report nothing, since only then
+    /// is there a restored source; a view node whose id collides with a
+    /// dropped node is restored in that node's place.
     pub(super) fn restore_unchecked(
         &self,
         view: &Graph,
         c: &Complement,
     ) -> Result<Graph, Vec<PutDomainError>> {
         let mut errs = id_collisions(view, c);
+        let mut structural = Vec::new();
+        let mut field_refusals = Vec::new();
         let mut anchors: BTreeMap<u32, Name> = BTreeMap::new();
         let mut out = Graph::default();
         for (id, n) in view
@@ -605,7 +661,7 @@ impl GraphLens<'_> {
                 Ok(a) => {
                     anchors.insert(*id, a);
                 }
-                Err(candidates) => errs.push(PutDomainError::AmbiguousReverseAnchor {
+                Err(candidates) => structural.push(PutDomainError::AmbiguousReverseAnchor {
                     elem: ViewRef::Node(*id),
                     candidates,
                 }),
@@ -639,7 +695,7 @@ impl GraphLens<'_> {
                         },
                     );
                 }
-                Err(refusal) => errs.push(field_refusal(ViewRef::Node(*id), refusal)),
+                Err(refusal) => field_refusals.push(field_refusal(ViewRef::Node(*id), refusal)),
             }
         }
         for (id, e) in view
@@ -651,7 +707,7 @@ impl GraphLens<'_> {
                 Ok(label) => {
                     out.edges.insert(*id, GEdge { label, ..e.clone() });
                 }
-                Err(err) => errs.push(err),
+                Err(err) => structural.push(err),
             }
         }
         let removed: BTreeSet<u32> = c
@@ -660,15 +716,58 @@ impl GraphLens<'_> {
             .flat_map(|e| [e.src, e.tgt])
             .filter(|n| !c.dropped_nodes.contains_key(n) && !view.nodes.contains_key(n))
             .collect();
-        out.nodes
-            .extend(c.dropped_nodes.iter().map(|(i, n)| (*i, n.clone())));
+        for (id, n) in &c.dropped_nodes {
+            out.nodes.entry(*id).or_insert_with(|| n.clone());
+        }
         for (id, e) in &c.dropped_edges {
             if !removed.contains(&e.src) && !removed.contains(&e.tgt) {
-                out.edges.insert(*id, e.clone());
+                out.edges.entry(*id).or_insert_with(|| e.clone());
             }
         }
-        errs.extend(self.source_violations(view, c, &out));
+        if structural.is_empty() {
+            errs.extend(field_refusals);
+            errs.extend(self.source_violations(view, c, &out));
+            errs.extend(self.hidden_by_the_next_get(view, c, &out));
+        } else {
+            // The clauses read on the restored source run on the restorable
+            // part: the view without each node with no single source anchor
+            // (and its incident edges) and without each edge that maps back
+            // to no single source label.
+            let restorable = restorable_part(view, &structural);
+            errs.extend(structural);
+            if let Err(again) = self.restore_unchecked(&restorable, c) {
+                errs.extend(again.into_iter().filter(reads_the_restored_source));
+            }
+        }
         if errs.is_empty() { Ok(out) } else { Err(errs) }
+    }
+
+    /// Clause (5) by its reason: a restored, non-synthesized view node that
+    /// the next get of the restored source would not keep is
+    /// `SurvivalPredicateFails`, whether a survival predicate or the
+    /// restriction itself (for instance a fan with no surviving child)
+    /// drops it. A get that refuses reports nothing here; its predicate
+    /// refusals are those of [`Self::source_violations`].
+    fn hidden_by_the_next_get(
+        &self,
+        view: &Graph,
+        c: &Complement,
+        out: &Graph,
+    ) -> Vec<PutDomainError> {
+        let Ok((next, _)) = self.get(out) else {
+            return Vec::new();
+        };
+        view.nodes
+            .keys()
+            .filter(|id| {
+                !c.synthesized_nodes.contains_key(id)
+                    && out.nodes.contains_key(id)
+                    && !next.nodes.contains_key(id)
+            })
+            .map(|id| PutDomainError::SurvivalPredicateFails {
+                elem: ViewRef::Node(*id),
+            })
+            .collect()
     }
 
     /// The violations read on the restored source: survival predicates of

@@ -2495,10 +2495,13 @@ impl crate::restrict::ValueLayer for C11AddField {
                 field: C11_FIELD.to_owned(),
             });
         }
-        let mut restored = view.fields.clone();
-        restored.remove(C11_FIELD);
+        // Get records a node's source fields exactly when its view fields
+        // differ from them, so an unrecorded node's source fields are its
+        // view fields.
         Ok((
-            original_fields.cloned().unwrap_or(restored),
+            original_fields
+                .cloned()
+                .unwrap_or_else(|| view.fields.clone()),
             original_value
                 .cloned()
                 .unwrap_or_else(|| view.value.clone()),
@@ -2639,6 +2642,9 @@ impl crate::restrict::ValueLayer for C11OpTerm {
         Ok((fields, node.value.clone()))
     }
 
+    /// The op term computes [`C11_FIELD`] and has no inverse: a view that
+    /// shows another value (or none) has edited a derived field. Otherwise
+    /// the source fields are those recorded, or else the view's.
     fn restore(
         &self,
         view: &Node,
@@ -2648,6 +2654,14 @@ impl crate::restrict::ValueLayer for C11OpTerm {
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
+        if view.fields.get(C11_FIELD) != Some(&C11_VALUE) {
+            return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
+                field: C11_FIELD.to_owned(),
+            });
+        }
+        // Get records a node's source fields exactly when its view fields
+        // differ from them, so an unrecorded node's source fields are its
+        // view fields.
         Ok((
             original_fields
                 .cloned()

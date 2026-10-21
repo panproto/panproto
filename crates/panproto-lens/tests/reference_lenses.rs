@@ -492,6 +492,38 @@ fn ref_view_ref(elem: &panproto_reference::lens::ViewRef) -> String {
     }
 }
 
+/// A production fan violation in reference coordinates: edge ids as plain
+/// numbers.
+fn fan_reason(reason: &panproto_inst::FanViolation) -> String {
+    use panproto_inst::FanViolation as F;
+    let ids =
+        |edges: &[panproto_inst::EdgeId]| edges.iter().map(|edge| edge.0).collect::<Vec<u32>>();
+    match reason {
+        F::MissingParent => "MissingParent".to_owned(),
+        F::MultipleParents { edges } => format!("MultipleParents {:?}", ids(edges)),
+        F::DuplicateLabel { label, edges } => format!("DuplicateLabel {label} {:?}", ids(edges)),
+        F::UnknownLabel { label } => format!("UnknownLabel {label}"),
+        F::ReservedKindOutsideFan { edge } => format!("ReservedKindOutsideFan {}", edge.0),
+        F::ForeignIncidentEdge { edge } => format!("ForeignIncidentEdge {}", edge.0),
+        F::UnknownHyperEdge { hyper_edge } => format!("UnknownHyperEdge {hyper_edge}"),
+        other => panic!("fan violation outside the lens differential: {other:?}"),
+    }
+}
+
+/// A reference fan violation in the same coordinates as [`fan_reason`].
+fn ref_fan_reason(reason: &panproto_reference::fan::FanViolation) -> String {
+    use panproto_reference::fan::FanViolation as F;
+    match reason {
+        F::MissingParent => "MissingParent".to_owned(),
+        F::MultipleParents { edges } => format!("MultipleParents {edges:?}"),
+        F::DuplicateLabel { label, edges } => format!("DuplicateLabel {label} {edges:?}"),
+        F::UnknownLabel { label } => format!("UnknownLabel {label}"),
+        F::ReservedKindOutsideFan { edge } => format!("ReservedKindOutsideFan {edge}"),
+        F::ForeignIncidentEdge { edge } => format!("ForeignIncidentEdge {edge}"),
+        F::UnknownHyperEdge { hyper_edge } => format!("UnknownHyperEdge {hyper_edge}"),
+    }
+}
+
 fn put_domain_reason(error: &PutDomainError) -> String {
     match error {
         PutDomainError::IdCollision { elem } => format!("IdCollision {}", view_ref(elem)),
@@ -525,7 +557,7 @@ fn put_domain_reason(error: &PutDomainError) -> String {
             format!("MissingRequiredCell {} {field}", view_ref(elem))
         }
         PutDomainError::MalformedFan { node, reason } => {
-            format!("MalformedFan {node} {reason:?}")
+            format!("MalformedFan {node} {}", fan_reason(reason))
         }
         other => panic!("put-domain refusal outside the lens differential: {other:?}"),
     }
@@ -560,7 +592,9 @@ fn ref_put_domain_reason(error: &panproto_reference::lens::PutDomainError) -> St
         R::MissingRequiredCell { elem, field } => {
             format!("MissingRequiredCell {} {field}", ref_view_ref(elem))
         }
-        R::MalformedFan { node, reason } => format!("MalformedFan {node} {reason:?}"),
+        R::MalformedFan { node, reason } => {
+            format!("MalformedFan {node} {}", ref_fan_reason(reason))
+        }
         other => panic!("reference put-domain refusal outside the lens differential: {other:?}"),
     }
 }
@@ -572,6 +606,8 @@ fn restrict_reason(error: &RestrictError) -> String {
             format!("IncoherentEdgeImage {:?}", ref_edge(source_edge))
         }
         RestrictError::NoEdgeFound { src, tgt } => format!("NoEdgeFound {src} {tgt}"),
+        // The production refusal names no root: a tree has exactly one.
+        RestrictError::RootPruned => "RootPruned".to_owned(),
         other => format!("production restrict refusal {other:?}"),
     }
 }
@@ -586,6 +622,7 @@ fn ref_restrict_reason(error: &RefRestrictError) -> String {
         RefRestrictError::Plan(PlanError::IncoherentEdgeImage { source_edge, .. }) => {
             format!("IncoherentEdgeImage {source_edge:?}")
         }
+        RefRestrictError::RootPruned { .. } => "RootPruned".to_owned(),
         other => format!("reference restrict refusal {other:?}"),
     }
 }
@@ -760,7 +797,7 @@ fn reference_strict_put(pair: &Pair, source: &RefGraph, edited: &RefGraph) -> Op
     })
 }
 
-fn assert_agree(result: Result<u64, Disagreement>) -> u64 {
+fn assert_agree<T>(result: Result<T, Disagreement>) -> T {
     match result {
         Ok(count) => count,
         Err(disagreement) => panic!("{disagreement}"),
@@ -791,35 +828,101 @@ where
     P: std::fmt::Debug,
     R: std::fmt::Debug,
 {
+    let census = agree_in_parallel_outside(
+        bound,
+        units,
+        context,
+        expand,
+        (production, reference),
+        eq,
+        |_, _| false,
+    )?;
+    Ok(census.compared)
+}
+
+/// The cases a comparison visited: all of them, and among them the cases in
+/// a recorded specification gap whose two sides differ, with the first few
+/// as witnesses.
+#[derive(Debug, Default)]
+struct Census {
+    compared: u64,
+    gap: u64,
+    witnesses: Vec<String>,
+}
+
+/// How many specification-gap witnesses a census keeps.
+const GAP_WITNESSES: usize = 3;
+
+/// [`agree_in_parallel`] with one recorded specification gap: a case for
+/// which `in_gap` holds and whose two sides differ is counted (and the first
+/// [`GAP_WITNESSES`] kept) instead of failing; every other difference is a
+/// disagreement exactly as in [`agree_in_parallel`]. Cases in the gap whose
+/// two sides agree are counted as agreeing.
+/// `sides` is the production and the reference side, in that order.
+fn agree_in_parallel_outside<'a, U, C, I, P, R, FP, FR>(
+    bound: &str,
+    units: &'a [U],
+    context: impl Fn() -> C + Sync,
+    expand: impl Fn(&C, &'a U) -> Vec<I> + Sync,
+    sides: (FP, FR),
+    eq: impl Fn(&P, &R) -> bool + Sync,
+    in_gap: impl Fn(&C, &I) -> bool + Sync,
+) -> Result<Census, Disagreement>
+where
+    U: Sync,
+    I: std::fmt::Debug,
+    P: std::fmt::Debug,
+    R: std::fmt::Debug,
+    FP: Fn(&C, &I) -> P + Sync,
+    FR: Fn(&C, &I) -> R + Sync,
+{
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let (production, reference) = (&sides.0, &sides.1);
     const BLOCK: usize = 32;
-    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let threads = std::env::var("PANPROTO_TEST_WORKERS")
+        .ok()
+        .and_then(|workers| workers.parse::<usize>().ok())
+        .filter(|workers| *workers > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, std::num::NonZero::get));
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
-    let outcomes: Vec<Result<u64, (usize, Disagreement)>> = std::thread::scope(|scope| {
+    type Outcome = Result<Census, (usize, Disagreement)>;
+    let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..threads)
             .map(|_| {
                 scope.spawn(|| {
                     let context = context();
-                    let mut compared = 0_u64;
+                    let mut census = Census::default();
                     loop {
                         let start = next.fetch_add(BLOCK, Ordering::Relaxed);
                         if start >= units.len() || stop.load(Ordering::Relaxed) {
-                            return Ok(compared);
+                            return Ok(census);
                         }
                         for (offset, unit) in units[start..].iter().take(BLOCK).enumerate() {
-                            match agree(
-                                bound,
-                                expand(&context, unit),
-                                |case| production(&context, case),
-                                |case| reference(&context, case),
-                                &eq,
-                            ) {
-                                Ok(count) => compared += count,
-                                Err(disagreement) => {
-                                    stop.store(true, Ordering::Relaxed);
-                                    return Err((start + offset, disagreement));
+                            for case in expand(&context, unit) {
+                                let (p, r) = (production(&context, &case), reference(&context, &case));
+                                census.compared += 1;
+                                if eq(&p, &r) {
+                                    continue;
                                 }
+                                if in_gap(&context, &case) {
+                                    census.gap += 1;
+                                    if census.witnesses.len() < GAP_WITNESSES {
+                                        census.witnesses.push(format!(
+                                            "input: {case:?}\n  production: {p:?}\n  reference: {r:?}"
+                                        ));
+                                    }
+                                    continue;
+                                }
+                                let disagreement = Disagreement {
+                                    bound: bound.to_owned(),
+                                    input: format!("{case:?}"),
+                                    production: format!("{p:?}"),
+                                    reference: format!("{r:?}"),
+                                };
+                                println!("{disagreement}");
+                                stop.store(true, Ordering::Relaxed);
+                                return Err((start + offset, disagreement));
                             }
                         }
                     }
@@ -831,11 +934,15 @@ where
             .map(|handle| handle.join().expect("a comparison thread panicked"))
             .collect()
     });
-    let mut compared = 0_u64;
+    let mut total = Census::default();
     let mut first: Option<(usize, Disagreement)> = None;
     for outcome in outcomes {
         match outcome {
-            Ok(count) => compared += count,
+            Ok(census) => {
+                total.compared += census.compared;
+                total.gap += census.gap;
+                total.witnesses.extend(census.witnesses);
+            }
             Err((unit, disagreement)) => {
                 if first.as_ref().is_none_or(|(at, _)| unit < *at) {
                     first = Some((unit, disagreement));
@@ -843,7 +950,42 @@ where
             }
         }
     }
-    first.map_or(Ok(compared), |(_, disagreement)| Err(disagreement))
+    total.witnesses.sort();
+    total.witnesses.truncate(GAP_WITNESSES);
+    first.map_or(Ok(total), |(_, disagreement)| Err(disagreement))
+}
+
+/// Whether a source graph lies outside the fan domain: some node of the fan
+/// shape, or some source of a reserved-kind edge, is not a well-formed fan.
+/// Restriction is not specified there; differences on such sources form the
+/// recorded specification gap "restrict outside the fan domain".
+fn outside_fan_domain(source: &RefGraph) -> bool {
+    let candidates = source
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.shape == RefNodeShape::HyperEdge)
+        .map(|(id, _)| *id)
+        .chain(
+            source
+                .edges
+                .values()
+                .filter(|edge| panproto_reference::restrict::is_fan_kind(&edge.label.kind))
+                .map(|edge| edge.src),
+        );
+    candidates
+        .into_iter()
+        .any(|node| !panproto_reference::fan::violations_at(source, node, None).is_empty())
+}
+
+/// Print a specification-gap census and its witnesses.
+fn print_gap(label: &str, census: &Census) {
+    println!(
+        "{label}: compared={}, spec gap (restrict outside the fan domain) differences={}",
+        census.compared, census.gap
+    );
+    for witness in &census.witnesses {
+        println!("  spec gap witness: {witness}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1820,7 +1962,7 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
     // checked against the per-view formula.
     let views = std::sync::atomic::AtomicUsize::new(0);
     let edits = std::sync::atomic::AtomicUsize::new(0);
-    let compared = assert_agree(agree_in_parallel(
+    let census = assert_agree(agree_in_parallel_outside(
         &bound,
         &units,
         || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
@@ -1834,30 +1976,37 @@ fn graph_lens_agrees_with_the_reference_exhaustively() {
             );
             cases
         },
-        |pairs, case| match case {
-            GraphCase::Get(stage, source) => {
-                GraphCaseOutcome::Get(production_get(&pairs[*stage], source))
-            }
-            GraphCase::Put(stage, source, view) => {
-                GraphCaseOutcome::Put(production_put(&pairs[*stage], source, view))
-            }
-        },
-        |pairs, case| match case {
-            GraphCase::Get(stage, source) => {
-                GraphCaseOutcome::Get(reference_get(&pairs[*stage], source))
-            }
-            GraphCase::Put(stage, source, view) => {
-                let module = reference_put(&pairs[*stage], source, view);
-                assert_eq!(
-                    module,
-                    reference_strict_put(&pairs[*stage], source, view),
-                    "the module put is the strict lens put"
-                );
-                GraphCaseOutcome::Put(module)
-            }
-        },
+        (
+            |pairs: &Vec<Pair>, case: &GraphCase<'_>| match case {
+                GraphCase::Get(stage, source) => {
+                    GraphCaseOutcome::Get(production_get(&pairs[*stage], source))
+                }
+                GraphCase::Put(stage, source, view) => {
+                    GraphCaseOutcome::Put(production_put(&pairs[*stage], source, view))
+                }
+            },
+            |pairs: &Vec<Pair>, case: &GraphCase<'_>| match case {
+                GraphCase::Get(stage, source) => {
+                    GraphCaseOutcome::Get(reference_get(&pairs[*stage], source))
+                }
+                GraphCase::Put(stage, source, view) => {
+                    let module = reference_put(&pairs[*stage], source, view);
+                    assert_eq!(
+                        module,
+                        reference_strict_put(&pairs[*stage], source, view),
+                        "the module put is the strict lens put"
+                    );
+                    GraphCaseOutcome::Put(module)
+                }
+            },
+        ),
         |production, reference| production == reference,
+        |_, case| match case {
+            GraphCase::Get(_, source) | GraphCase::Put(_, source, _) => outside_fan_domain(source),
+        },
     ));
+    print_gap("C11 graph", &census);
+    let compared = census.compared;
     let (views, edits) = (views.into_inner(), edits.into_inner());
     let total = units.len() + views + edits;
     println!(
@@ -2431,7 +2580,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     assert_eq!(composable_words.len(), certificate.composable());
     assert_eq!(units.len(), 3 * certificate.word_states());
     println!("{bound}");
-    let compared = assert_agree(agree_in_parallel(
+    let census = assert_agree(agree_in_parallel_outside(
         &bound,
         &units,
         composites,
@@ -2440,20 +2589,31 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
             let source = &sources[word[0]][*state];
             vec![(*index, word, source)]
         },
-        |(pairs, composites), (index, word, source)| {
-            let (_, path, reference) = &composites[*index];
-            let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
-            production_path_outcome(path, source, &edits)
-        },
-        |(pairs, composites), (index, word, source)| {
-            let (_, _, reference) = &composites[*index];
-            let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
-            reference_path_outcome(pairs, reference, source, &edits)
-        },
+        (
+            |(pairs, composites): &PathContext, (index, word, source): &PathCase<'_>| {
+                let (_, path, reference) = &composites[*index];
+                let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
+                production_path_outcome(path, source, &edits)
+            },
+            |(pairs, composites): &PathContext, (index, word, source): &PathCase<'_>| {
+                let (_, _, reference) = &composites[*index];
+                let edits = edits_of_reference_view(pairs, &stages, word, reference, source);
+                reference_path_outcome(pairs, reference, source, &edits)
+            },
+        ),
         path_outcomes_agree,
+        |_, (_, _, source)| outside_fan_domain(source),
     ));
-    assert_eq!(compared, u64::try_from(units.len()).unwrap());
+    print_gap("C11 paths", &census);
+    assert_eq!(census.compared, u64::try_from(units.len()).unwrap());
 }
+
+/// The per-thread context of the path differential: the lens pairs and the
+/// composites (each composable word, then with the identity on either side).
+type PathContext = (Vec<Pair>, Vec<(Vec<usize>, LensPath, RefLensPath<usize>)>);
+
+/// One path-state case: the composite's index, its word and the source.
+type PathCase<'a> = (usize, Vec<usize>, &'a RefGraph);
 
 /// The one-step edits of a path's final view: the C11 edits of the last
 /// stage's view against the last stage's complement, from the reference fold.
@@ -2650,9 +2810,7 @@ fn squares_agree(production: &SquareOutcome, reference: &SquareOutcome) -> bool 
     let fast = match (&production.fast, &reference.fast) {
         (Some(a), Some(b)) if legs_agree(a, b) => true,
         (None, _) => !reference.commutes,
-        (Some(a), _) => {
-            reference.outside && falls_back_to_the_graph_route(a, &production.graph)
-        }
+        (Some(a), _) => reference.outside && falls_back_to_the_graph_route(a, &production.graph),
     };
     legs_agree(&production.graph, &reference.graph)
         && fast
@@ -3003,18 +3161,17 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
     let states: Vec<Vec<RefGraph>> = schemas.iter().map(c11_graph_states).collect();
     let units: Vec<(usize, usize, usize)> = (0..alphabet.len())
         .flat_map(|index| {
-            states.iter().enumerate().flat_map(move |(schema, sources)| {
-                (0..sources.len()).map(move |state| (index, schema, state))
-            })
+            states
+                .iter()
+                .enumerate()
+                .flat_map(move |(schema, sources)| {
+                    (0..sources.len()).map(move |state| (index, schema, state))
+                })
         })
         .collect();
     assert_eq!(
         units.len(),
-        alphabet.len()
-            * schemas
-                .iter()
-                .map(c11_graph_state_count)
-                .sum::<usize>()
+        alphabet.len() * schemas.iter().map(c11_graph_state_count).sum::<usize>()
     );
     let bound = format!(
         "C11 protolenses: protolenses={}, schemas={}, (protolens, schema, state) cases={}",
@@ -3100,6 +3257,278 @@ fn protolens_transforms_agree_with_the_reference_exhaustively() {
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
+/// The law outcome recorded on both sides for a tree outside the reference
+/// tree lens's domain, where the tree law report is not compared.
+fn outside_the_tree_domain() -> LawOutcome {
+    LawOutcome {
+        first_failure: Some("OutsideTreeDomain".to_owned()),
+    }
+}
+
+/// The per-thread context of the L.8 differential: the C11 lens pairs, the
+/// table lens pairs and the partial-lens carrier.
+type LawContext = (Vec<Pair>, Vec<Vec<TablePair>>, Lens);
+
+// ---------------------------------------------------------------------------
+// Admission: both put-domain predicates on every Single-Step Basis candidate
+// ---------------------------------------------------------------------------
+
+use panproto_reference::lens::{
+    DomainExpectation, GraphShape as RefGraphShape, LawShape as RefLawShape,
+    TreeShape as RefTreeShape,
+};
+
+/// One candidate's admission: admitted, or every refusal in report order.
+type Admission = Result<(), Vec<String>>;
+
+/// The admission census of one source: each candidate's verdict, in the
+/// order the reference basis and then the production basis list them, and
+/// the number of positive reference-basis candidates admitted.
+#[derive(Debug, PartialEq, Eq)]
+struct AdmissionCensus {
+    verdicts: Vec<Admission>,
+    admitted: usize,
+}
+
+/// One Single-Step Basis candidate in reference coordinates, and whether it
+/// is a positive candidate of the reference basis.
+struct Candidate<I> {
+    view: I,
+    positive_reference: bool,
+}
+
+/// The positive reference-basis candidates a verdict list admits: the
+/// in-domain mutations of the reference law report, counted from each side's
+/// own predicate.
+fn admitted_positive<I>(candidates: &[Candidate<I>], verdicts: &[Admission]) -> usize {
+    candidates
+        .iter()
+        .zip(verdicts)
+        .filter(|(candidate, verdict)| candidate.positive_reference && verdict.is_ok())
+        .count()
+}
+
+/// Every candidate of both graph bases at `source`: the reference basis,
+/// then the production basis.
+fn graph_candidates(pair: &Pair, source: &RefGraph) -> Vec<Candidate<RefGraph>> {
+    let mut out = Vec::new();
+    pair.with_reference(|lens| {
+        if let Ok(lens) = lens
+            && let Ok((view, complement)) = RefGraphShape::get(lens, source, &())
+        {
+            out.extend(
+                RefGraphShape::single_step_basis(lens, source, &view, &complement, &())
+                    .into_iter()
+                    .map(|case| Candidate {
+                        positive_reference: matches!(case.domain, DomainExpectation::Admitted),
+                        view: case.view,
+                    }),
+            );
+        }
+    });
+    let production_source = prod_graph(source);
+    if let Ok((view, complement)) = graph_lens::get(&pair.production, &production_source) {
+        for mutation in Mutation::ALL {
+            if let MutationCases::Cases(views) =
+                <panproto_lens::GraphShape as LawShape>::mutation_cases(
+                    &pair.production,
+                    &production_source,
+                    &view,
+                    &complement,
+                    &(),
+                    mutation,
+                )
+            {
+                out.extend(views.iter().map(|view| Candidate {
+                    view: ref_graph(view),
+                    positive_reference: false,
+                }));
+            }
+        }
+    }
+    out
+}
+
+/// Production's admission census of a graph source, `None` when get refuses.
+fn production_graph_admissions(
+    pair: &Pair,
+    source: &RefGraph,
+    candidates: &[Candidate<RefGraph>],
+) -> Option<AdmissionCensus> {
+    let (_, complement) = graph_lens::get(&pair.production, &prod_graph(source)).ok()?;
+    let verdicts: Vec<Admission> = candidates
+        .iter()
+        .map(|candidate| {
+            graph_lens::check_put_domain(
+                &pair.production,
+                &prod_graph(&candidate.view),
+                &complement,
+            )
+            .map_err(|errors| errors.iter().map(put_domain_reason).collect())
+        })
+        .collect();
+    let admitted = admitted_positive(candidates, &verdicts);
+    Some(AdmissionCensus { verdicts, admitted })
+}
+
+/// The reference's admission census of a graph source; `None` when get
+/// refuses.
+fn reference_graph_admissions(
+    pair: &Pair,
+    source: &RefGraph,
+    candidates: &[Candidate<RefGraph>],
+) -> Option<AdmissionCensus> {
+    pair.with_reference(|lens| {
+        let lens = lens.ok()?;
+        let (_, complement) = panproto_reference::lens::get(lens, source).ok()?;
+        let verdicts: Vec<Admission> = candidates
+            .iter()
+            .map(|candidate| {
+                RefGraphLens::check_put_domain(lens, &candidate.view, &complement)
+                    .map_err(|errors| errors.iter().map(ref_put_domain_reason).collect())
+            })
+            .collect();
+        let admitted = admitted_positive(candidates, &verdicts);
+        Some(AdmissionCensus { verdicts, admitted })
+    })
+}
+
+/// Every candidate of both tree bases at `source`: the reference basis,
+/// then the production basis.
+fn tree_candidates(pair: &Pair, source: &RefTree) -> Vec<Candidate<RefTree>> {
+    let mut out = Vec::new();
+    pair.with_reference(|lens| {
+        if let Ok(lens) = lens
+            && let Ok((view, complement)) = RefTreeShape::get(lens, source, &())
+        {
+            out.extend(
+                RefTreeShape::single_step_basis(lens, source, &view, &complement, &())
+                    .into_iter()
+                    .map(|case| Candidate {
+                        positive_reference: matches!(case.domain, DomainExpectation::Admitted),
+                        view: case.view,
+                    }),
+            );
+        }
+    });
+    let production_source = prod_tree(source);
+    if let Ok((view, complement)) = panproto_lens::get(&pair.production, &production_source) {
+        for mutation in Mutation::ALL {
+            if let MutationCases::Cases(views) =
+                <panproto_lens::TreeShape as LawShape>::mutation_cases(
+                    &pair.production,
+                    &production_source,
+                    &view,
+                    &complement,
+                    &(),
+                    mutation,
+                )
+            {
+                out.extend(views.iter().map(|view| Candidate {
+                    view: ref_tree(view),
+                    positive_reference: false,
+                }));
+            }
+        }
+    }
+    out
+}
+
+/// Production's admission census of a tree source, `None` when get refuses.
+fn production_tree_admissions(
+    pair: &Pair,
+    source: &RefTree,
+    candidates: &[Candidate<RefTree>],
+) -> Option<AdmissionCensus> {
+    let (_, complement) = panproto_lens::get(&pair.production, &prod_tree(source)).ok()?;
+    let verdicts: Vec<Admission> = candidates
+        .iter()
+        .map(|candidate| {
+            panproto_lens::asymmetric::check_put_domain(
+                &pair.production,
+                &prod_tree(&candidate.view),
+                &complement,
+            )
+            .map_err(|errors| errors.iter().map(put_domain_reason).collect())
+        })
+        .collect();
+    let admitted = admitted_positive(candidates, &verdicts);
+    Some(AdmissionCensus { verdicts, admitted })
+}
+
+/// The reference's admission census of a tree source; `None` when get
+/// refuses.
+fn reference_tree_admissions(
+    pair: &Pair,
+    source: &RefTree,
+    candidates: &[Candidate<RefTree>],
+) -> Option<AdmissionCensus> {
+    pair.with_reference(|lens| {
+        let lens = lens.ok()?;
+        let (_, complement) = RefTreeShape::get(lens, source, &()).ok()?;
+        let verdicts: Vec<Admission> = candidates
+            .iter()
+            .map(|candidate| {
+                RefTreeShape::check_put_domain(lens, &candidate.view, &complement, &()).map_err(
+                    |error| match error {
+                        panproto_reference::lens::ReferenceLawError::PutDomain(errors) => {
+                            errors.iter().map(ref_put_domain_reason).collect()
+                        }
+                        other => vec![format!("{other:?}")],
+                    },
+                )
+            })
+            .collect();
+        let admitted = admitted_positive(candidates, &verdicts);
+        Some(AdmissionCensus { verdicts, admitted })
+    })
+}
+
+/// Running totals of the admission census over the reference side.
+#[derive(Default)]
+struct AdmissionTally {
+    candidates: std::sync::atomic::AtomicUsize,
+    admitted: std::sync::atomic::AtomicUsize,
+}
+
+/// The admission census of one L.8 case on one side: graph cases, and tree
+/// cases inside the reference tree lens's domain; `None` for the other
+/// families. The reference side adds to `tally`.
+fn law_admissions(
+    pairs: &[Pair],
+    case: &LawCase,
+    production: bool,
+    tally: &AdmissionTally,
+) -> Option<AdmissionCensus> {
+    let census = match case {
+        LawCase::Graph(stage, source) => {
+            let candidates = graph_candidates(&pairs[*stage], source);
+            if production {
+                production_graph_admissions(&pairs[*stage], source, &candidates)
+            } else {
+                reference_graph_admissions(&pairs[*stage], source, &candidates)
+            }
+        }
+        LawCase::Tree(stage, tree) if reference_tree_case(&pairs[*stage], tree).is_some() => {
+            let candidates = tree_candidates(&pairs[*stage], tree);
+            if production {
+                production_tree_admissions(&pairs[*stage], tree, &candidates)
+            } else {
+                reference_tree_admissions(&pairs[*stage], tree, &candidates)
+            }
+        }
+        _ => None,
+    };
+    if !production && let Some(census) = &census {
+        use std::sync::atomic::Ordering;
+        tally
+            .candidates
+            .fetch_add(census.verdicts.len(), Ordering::Relaxed);
+        tally.admitted.fetch_add(census.admitted, Ordering::Relaxed);
+    }
+    census
+}
+
 /// The law-report case families of the L.8 scope.
 #[derive(Debug)]
 enum LawCase {
@@ -3146,86 +3575,134 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         cases.len()
     );
     println!("{bound}");
-    let compared = assert_agree(agree_in_parallel(
+    let tally = AdmissionTally::default();
+    let census = assert_agree(agree_in_parallel_outside(
         &bound,
         &cases,
         context,
         |_, case| vec![case],
-        |(pairs, table_pairs, carrier), case| match case {
-            LawCase::Partial(lens, source) => production_law_outcome(
-                &panproto_lens::laws::check_laws_report::<PartialShape>(carrier, source, lens),
-            ),
-            LawCase::Table(fixture) => {
-                let pair = &table_pairs[fixture.columns][fixture.retained];
-                production_law_outcome(&table_lens::check_laws(
-                    &pair.production,
-                    &prod_table(&fixture.source),
-                    pair.protocols(),
-                ))
-            }
-            LawCase::Graph(stage, source) => production_law_outcome(&graph_lens::check_laws(
-                &pairs[*stage].production,
-                &prod_graph(source),
-            )),
-            LawCase::Tree(stage, tree) => production_law_outcome(
-                &panproto_lens::check_laws_report::<panproto_lens::TreeShape>(
-                    &pairs[*stage].production,
-                    &prod_tree(tree),
-                    &(),
-                ),
-            ),
-        },
-        |(pairs, table_pairs, _), case| match case {
-            LawCase::Partial(lens, source) => {
-                reference_law_outcome(&partial_lens_law_report(lens, usize::from(*source)))
-            }
-            LawCase::Table(fixture) => table_pairs[fixture.columns][fixture.retained]
-                .with_reference(|lens, _| {
-                    reference_law_outcome(&panproto_reference::lens::check_table_laws(
-                        lens,
-                        &fixture.source,
-                    ))
-                }),
-            LawCase::Graph(stage, source) => pairs[*stage].with_reference(|lens| match lens {
-                Ok(lens) => {
-                    let outcome = reference_law_outcome(
-                        &panproto_reference::lens::check_graph_laws(lens, source),
-                    );
-                    // A passing report includes GetPut: the unedited view is in
-                    // the put domain and both reference puts return the source.
-                    if outcome.first_failure.is_none() {
-                        let (view, complement) =
-                            panproto_reference::lens::get(lens, source).expect("GetPut passed");
-                        assert_eq!(
-                            RefGraphLens::check_put_domain(lens, &view, &complement),
-                            Ok(())
-                        );
-                        assert_eq!(
-                            RefGraphLens::put(lens, &view, &complement).as_ref(),
-                            Ok(source)
-                        );
-                        assert_eq!(
-                            panproto_reference::lens::put(lens, &view, &complement).as_ref(),
-                            Ok(source)
-                        );
-                    }
-                    outcome
-                }
-                Err(_) => LawOutcome {
-                    first_failure: Some("Refusal".to_owned()),
-                },
-            }),
-            LawCase::Tree(stage, tree) => pairs[*stage].with_reference(|lens| match lens {
-                Ok(lens) => {
-                    reference_law_outcome(&panproto_reference::lens::check_tree_laws(lens, tree))
-                }
-                Err(_) => LawOutcome {
-                    first_failure: Some("Refusal".to_owned()),
-                },
-            }),
-        },
+        (
+            |(pairs, table_pairs, carrier): &LawContext, case: &&LawCase| {
+                (
+                    match case {
+                        LawCase::Partial(lens, source) => {
+                            production_law_outcome(&panproto_lens::laws::check_laws_report::<
+                                PartialShape,
+                            >(
+                                carrier, source, lens
+                            ))
+                        }
+                        LawCase::Table(fixture) => {
+                            let pair = &table_pairs[fixture.columns][fixture.retained];
+                            production_law_outcome(&table_lens::check_laws(
+                                &pair.production,
+                                &prod_table(&fixture.source),
+                                pair.protocols(),
+                            ))
+                        }
+                        LawCase::Graph(stage, source) => production_law_outcome(
+                            &graph_lens::check_laws(&pairs[*stage].production, &prod_graph(source)),
+                        ),
+                        // Tree law reports are compared inside the reference tree lens's
+                        // domain, as the tree differential compares tree get and put.
+                        LawCase::Tree(stage, tree)
+                            if reference_tree_case(&pairs[*stage], tree).is_none() =>
+                        {
+                            outside_the_tree_domain()
+                        }
+                        LawCase::Tree(stage, tree) => {
+                            production_law_outcome(&panproto_lens::check_laws_report::<
+                                panproto_lens::TreeShape,
+                            >(
+                                &pairs[*stage].production,
+                                &prod_tree(tree),
+                                &(),
+                            ))
+                        }
+                    },
+                    law_admissions(pairs, case, true, &tally),
+                )
+            },
+            |(pairs, table_pairs, _): &LawContext, case: &&LawCase| {
+                (
+                    match case {
+                        LawCase::Partial(lens, source) => reference_law_outcome(
+                            &partial_lens_law_report(lens, usize::from(*source)),
+                        ),
+                        LawCase::Table(fixture) => table_pairs[fixture.columns][fixture.retained]
+                            .with_reference(|lens, _| {
+                                reference_law_outcome(&panproto_reference::lens::check_table_laws(
+                                    lens,
+                                    &fixture.source,
+                                ))
+                            }),
+                        LawCase::Graph(stage, source) => {
+                            pairs[*stage].with_reference(|lens| match lens {
+                                Ok(lens) => {
+                                    let outcome = reference_law_outcome(
+                                        &panproto_reference::lens::check_graph_laws(lens, source),
+                                    );
+                                    // A passing report includes GetPut: the unedited view is in
+                                    // the put domain and both reference puts return the source.
+                                    if outcome.first_failure.is_none() {
+                                        let (view, complement) =
+                                            panproto_reference::lens::get(lens, source)
+                                                .expect("GetPut passed");
+                                        assert_eq!(
+                                            RefGraphLens::check_put_domain(
+                                                lens,
+                                                &view,
+                                                &complement
+                                            ),
+                                            Ok(())
+                                        );
+                                        assert_eq!(
+                                            RefGraphLens::put(lens, &view, &complement).as_ref(),
+                                            Ok(source)
+                                        );
+                                        assert_eq!(
+                                            panproto_reference::lens::put(lens, &view, &complement)
+                                                .as_ref(),
+                                            Ok(source)
+                                        );
+                                    }
+                                    outcome
+                                }
+                                Err(_) => LawOutcome {
+                                    first_failure: Some("Refusal".to_owned()),
+                                },
+                            })
+                        }
+                        LawCase::Tree(stage, tree)
+                            if reference_tree_case(&pairs[*stage], tree).is_none() =>
+                        {
+                            outside_the_tree_domain()
+                        }
+                        LawCase::Tree(stage, tree) => {
+                            pairs[*stage].with_reference(|lens| match lens {
+                                Ok(lens) => reference_law_outcome(
+                                    &panproto_reference::lens::check_tree_laws(lens, tree),
+                                ),
+                                Err(_) => LawOutcome {
+                                    first_failure: Some("Refusal".to_owned()),
+                                },
+                            })
+                        }
+                    },
+                    law_admissions(pairs, case, false, &tally),
+                )
+            },
+        ),
         |production, reference| production == reference,
+        |_, case| matches!(case, LawCase::Graph(_, source) if outside_fan_domain(source)),
     ));
+    print_gap("L.8 law reports", &census);
+    println!(
+        "L.8 admission census (graph and tree families): candidates={}, admitted positive reference-basis candidates={}",
+        tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
+        tally.admitted.load(std::sync::atomic::Ordering::Relaxed)
+    );
+    let compared = census.compared;
     assert_eq!(compared, u64::try_from(cases.len()).unwrap());
 }
 
@@ -3393,26 +3870,34 @@ fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
             let (stages, graphs, _) = c11_cases();
             let (stage, source) = &graphs[index % graphs.len()];
             let pair = Pair::from_stage(&stages[*stage]);
-            differ(
-                "C11 get",
-                format!("{:?}", production_get(&pair, source)),
-                format!("{:?}", reference_get(&pair, source)),
-            )?;
-            let Ok((view, complement)) = reference_get(&pair, source) else {
-                return Ok(());
-            };
-            let mut views = vec![view.clone()];
-            views.extend(
-                c11_graph_edits(&view, &stages[*stage].target, &complement)
-                    .into_iter()
-                    .map(|e| e.view),
-            );
-            let edited = &views[edit % views.len()];
-            differ(
-                "C11 put",
-                format!("{:?}", production_put(&pair, source, edited)),
-                format!("{:?}", reference_strict_put(&pair, source, edited)),
-            )
+            let compared = (|| {
+                differ(
+                    "C11 get",
+                    format!("{:?}", production_get(&pair, source)),
+                    format!("{:?}", reference_get(&pair, source)),
+                )?;
+                let Ok((view, complement)) = reference_get(&pair, source) else {
+                    return Ok(());
+                };
+                let mut views = vec![view.clone()];
+                views.extend(
+                    c11_graph_edits(&view, &stages[*stage].target, &complement)
+                        .into_iter()
+                        .map(|e| e.view),
+                );
+                let edited = &views[edit % views.len()];
+                differ(
+                    "C11 put",
+                    format!("{:?}", production_put(&pair, source, edited)),
+                    format!("{:?}", reference_strict_put(&pair, source, edited)),
+                )
+            })();
+            // A difference on a source outside the fan domain is the recorded
+            // specification gap, not a disagreement.
+            match compared {
+                Err(_) if outside_fan_domain(source) => Ok(()),
+                other => other,
+            }
         }
         4 if C11_ACCEPTED => {
             let (stages, _, trees) = c11_cases();
@@ -3475,7 +3960,7 @@ fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
             let edits = edits_of_reference_view(&pairs, stages, word, &reference, source);
             let p = production_path_outcome(&production, source, &edits);
             let r = reference_path_outcome(&pairs, &reference, source, &edits);
-            if path_outcomes_agree(&p, &r) {
+            if path_outcomes_agree(&p, &r) || outside_fan_domain(source) {
                 Ok(())
             } else {
                 Err(format!("path: production {p:?} against reference {r:?}"))

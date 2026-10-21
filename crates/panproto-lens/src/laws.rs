@@ -2086,6 +2086,10 @@ fn tree_relabel_node_cases(
                 let mut next = view.clone();
                 if let Some(node) = next.nodes.get_mut(&id) {
                     node.anchor = anchor.clone();
+                    // The schema root is the root node's anchor.
+                    if id == view.root {
+                        next.schema_root = anchor.clone();
+                    }
                     candidates.push(next);
                 }
             }
@@ -7023,12 +7027,23 @@ mod tests {
 
         let schema = three_node_schema();
         let lens = identity_lens(&schema);
-        let mut view = three_node_instance();
+        let fixture = three_node_instance();
+        // Node 1 plays a synthesized first hop, so its arc follows its kept
+        // sibling, as tree get emits it.
+        let mut arcs = fixture.arcs.clone();
+        arcs.rotate_left(1);
+        let mut view = WInstance::new(
+            fixture.nodes.clone(),
+            arcs,
+            fixture.fans.clone(),
+            fixture.root,
+            fixture.schema_root.clone(),
+        );
         let Some(synthesized) = view.nodes.get_mut(&1) else {
             panic!("fixture has node 1");
         };
         synthesized.value = None;
-        let Some((_, _, edge)) = view.arcs.first() else {
+        let Some((_, _, edge)) = view.arcs.iter().find(|(_, child, _)| *child == 1) else {
             panic!("fixture has an arc to node 1");
         };
         let edge = edge.clone();
@@ -7121,6 +7136,38 @@ mod tests {
             ));
         }
         Ok(())
+    }
+
+    /// Re-anchoring the root re-anchors the tree: the candidate's schema
+    /// root follows the root node's anchor, so the identity lens passes.
+    #[test]
+    fn a_relabelled_root_carries_its_schema_root() {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "object", None)
+            .unwrap()
+            .vertex("b", "object", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = identity_lens(&schema);
+        let lone = WInstance::new(
+            [(0, Node::new(0, "a"))].into_iter().collect(),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "a".into(),
+        );
+        let (view, complement) = crate::asymmetric::get(&lens, &lone).unwrap();
+        let candidates = tree_relabel_node_cases(&lens, &view, &complement);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].nodes[&0].anchor,
+            panproto_gat::Name::from("b")
+        );
+        assert_eq!(candidates[0].schema_root, panproto_gat::Name::from("b"));
+        let report = check_laws_report::<TreeShape>(&lens, &lone, &());
+        assert!(report.is_ok(), "{report:?}");
     }
 
     #[test]

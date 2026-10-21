@@ -1577,7 +1577,8 @@ pub mod restrict {
     ///
     /// The number of candidates when there is not exactly one (0 or more than
     /// 1), for a non-fan edge; 0 for a fan edge whose label is not one of its
-    /// hyper-edge's.
+    /// hyper-edge's: a child edge maps back only when the signature maps its
+    /// name to the target's source anchor.
     pub(crate) fn map_back(
         src: &Schema,
         m: &Migration,
@@ -1600,7 +1601,7 @@ pub mod restrict {
                 || e.label.kind == HYPER_PARENT,
                 |l| {
                     (e.label.kind == HYPER_PARENT && *l == he.parent_label)
-                        || he.signature.contains_key(l)
+                        || (e.label.kind == HYPER_LABEL && he.signature.get(l) == Some(&at))
                 },
             );
             return if ok {
