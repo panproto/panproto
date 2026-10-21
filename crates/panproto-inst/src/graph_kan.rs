@@ -192,15 +192,11 @@ impl SideData {
 
         let mut inner_edges = BTreeSet::new();
         for _ in 0..=source.inner_edges().len() {
-            let before = value_vertices.len();
             for edge in source.inner_edges() {
                 if value_vertices.contains(&edge.src) {
                     inner_edges.insert(edge.clone());
                     value_vertices.insert(edge.tgt.clone());
                 }
-            }
-            if value_vertices.len() == before {
-                break;
             }
         }
         Self {
