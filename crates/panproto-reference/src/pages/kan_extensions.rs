@@ -2897,6 +2897,872 @@ pub mod encode {
         let r = g_delta_along(f, &g).map_err(TreeKanError::Graph)?;
         read_tree(&r)
     }
+
+    #[cfg(test)]
+    mod mutation_tests {
+        use super::*;
+
+        fn expect_some<T>(value: Option<T>) -> T {
+            let Some(value) = value else {
+                panic!("expected Some");
+            };
+            value
+        }
+
+        fn expect_ok<T, E: std::fmt::Debug>(value: Result<T, E>) -> T {
+            let Ok(value) = value else {
+                panic!("expected Ok");
+            };
+            value
+        }
+
+        fn side() -> GraphSide {
+            let attribute = SEdge::new("T", "v", "attr", Some("c"));
+            GraphSide {
+                tables: BTreeSet::from(["T".to_owned()]),
+                columns: BTreeMap::from([(
+                    "T".to_owned(),
+                    BTreeMap::from([("c".to_owned(), attribute)]),
+                )]),
+                value_vertices: BTreeSet::from(["v".to_owned(), "w".to_owned()]),
+                inner_edges: BTreeSet::from([SEdge::new("v", "w", "item", Some("child"))]),
+                ..GraphSide::default()
+            }
+        }
+
+        fn edge(src: u32, tgt: u32, label: SEdge) -> GEdge {
+            GEdge {
+                src,
+                tgt,
+                label,
+                position: None,
+            }
+        }
+
+        fn graph(nodes: Vec<Node>, edges: Vec<(u32, GEdge)>) -> Graph {
+            Graph {
+                nodes: nodes.into_iter().map(|node| (node.id, node)).collect(),
+                edges: edges.into_iter().collect(),
+            }
+        }
+
+        fn leaf(id: u32, anchor: &str, value: Value) -> Node {
+            Node::new(id, anchor).with_value(value)
+        }
+
+        #[test]
+        fn kept_side_closure_requires_a_reached_source_and_new_target() {
+            let attribute = SEdge::new("T", "v", "attr", Some("c"));
+            let reached = SEdge::new("v", "w", "item", Some("child"));
+            let already_reached = SEdge::new("w", "v", "item", Some("back"));
+            let unrelated = SEdge::new("x", "y", "item", Some("other"));
+            let src = RelSchema {
+                tables: BTreeSet::from(["T".to_owned()]),
+                columns: BTreeMap::from([(
+                    "T".to_owned(),
+                    BTreeMap::from([("c".to_owned(), attribute)]),
+                )]),
+                value_vertices: ["v", "w", "x", "y"]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                inner_edges: BTreeSet::from([reached.clone(), already_reached.clone(), unrelated]),
+                ..RelSchema::default()
+            };
+            let functor = RelFunctor {
+                src,
+                tgt: RelSchema::default(),
+                tables: BTreeMap::from([("T".to_owned(), "U".to_owned())]),
+                columns: BTreeMap::from([(("T".to_owned(), "c".to_owned()), "d".to_owned())]),
+                relations: BTreeMap::new(),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+
+            let kept = GraphSide::kept(&functor);
+            assert_eq!(
+                kept.value_vertices,
+                BTreeSet::from(["v".to_owned(), "w".to_owned()])
+            );
+            assert_eq!(kept.inner_edges, BTreeSet::from([reached, already_reached]));
+        }
+
+        #[test]
+        fn node_and_edge_checks_report_the_exact_offender() {
+            let side = side();
+            let hyper = graph(
+                vec![Node {
+                    shape: NodeShape::HyperEdge,
+                    ..Node::new(1, "T")
+                }],
+                vec![],
+            );
+            assert_eq!(
+                pass_nodes(&hyper, &side),
+                Err(NotEncodable::FanNode { node: 1 })
+            );
+
+            let fan_label = SEdge::new("T", "v", "hyper_parent", None);
+            let fan = graph(
+                vec![Node::new(1, "T"), Node::new(2, "v")],
+                vec![(9, edge(1, 2, fan_label))],
+            );
+            assert_eq!(
+                pass_nodes(&fan, &side),
+                Err(NotEncodable::FanNode { node: 1 })
+            );
+
+            let attribute = side.columns["T"]["c"].clone();
+            let wrong_source = graph(
+                vec![Node::new(1, "v"), Node::new(2, "v")],
+                vec![(7, edge(1, 2, attribute.clone()))],
+            );
+            assert_eq!(
+                pass_edges(&wrong_source, &side),
+                Err(NotEncodable::IncoherentEndpoints { edge: 7 })
+            );
+            let wrong_target = graph(
+                vec![Node::new(1, "T"), Node::new(2, "w")],
+                vec![(8, edge(1, 2, attribute.clone()))],
+            );
+            assert_eq!(
+                pass_edges(&wrong_target, &side),
+                Err(NotEncodable::IncoherentEndpoints { edge: 8 })
+            );
+            let parallel = graph(
+                vec![Node::new(1, "T"), Node::new(2, "v")],
+                vec![
+                    (3, edge(1, 2, attribute.clone())),
+                    (4, edge(1, 2, attribute)),
+                ],
+            );
+            assert_eq!(
+                pass_edges(&parallel, &side),
+                Err(NotEncodable::ParallelEdges { edges: vec![3, 4] })
+            );
+        }
+
+        #[test]
+        fn cell_check_distinguishes_missing_extra_and_repeated_cells() {
+            let side = side();
+            let missing = graph(vec![Node::new(1, "T")], vec![]);
+            assert_eq!(
+                pass_cells(&missing, &side),
+                Err(NotEncodable::MissingCell {
+                    node: 1,
+                    column: "c".to_owned(),
+                })
+            );
+            let extra = graph(
+                vec![Node::new(1, "T").with_field("c", Value::Int(4))],
+                vec![],
+            );
+            assert_eq!(
+                pass_cells(&extra, &side),
+                Err(NotEncodable::CellAsExtraField {
+                    node: 1,
+                    column: "c".to_owned(),
+                })
+            );
+            let attribute = side.columns["T"]["c"].clone();
+            let repeated = graph(
+                vec![Node::new(1, "T"), leaf(2, "v", Value::Int(1))],
+                vec![
+                    (4, edge(1, 2, attribute.clone())),
+                    (5, edge(1, 2, attribute)),
+                ],
+            );
+            assert_eq!(
+                pass_cells(&repeated, &side),
+                Err(NotEncodable::RepeatedCell {
+                    node: 1,
+                    column: "c".to_owned(),
+                    edges: vec![4, 5],
+                })
+            );
+        }
+
+        #[test]
+        fn value_check_separates_leaf_shape_and_null_depth_failures() {
+            let side = side();
+            let attribute = side.columns["T"]["c"].clone();
+            let inner = expect_some(side.inner_edges.iter().next()).clone();
+
+            let absent = graph(
+                vec![Node::new(1, "T"), Node::new(2, "v")],
+                vec![(1, edge(1, 2, attribute.clone()))],
+            );
+            assert_eq!(
+                pass_values(&absent, &side),
+                Err(NotEncodable::MissingValue { node: 2 })
+            );
+
+            let valued_record = graph(
+                vec![
+                    Node::new(1, "T"),
+                    leaf(2, "v", Value::Int(0)),
+                    leaf(3, "w", Value::Int(1)),
+                ],
+                vec![
+                    (1, edge(1, 2, attribute.clone())),
+                    (2, edge(2, 3, inner.clone())),
+                ],
+            );
+            assert_eq!(
+                pass_values(&valued_record, &side),
+                Err(NotEncodable::InnerValueShape { node: 2 })
+            );
+
+            let mut duplicate_name = graph(
+                vec![
+                    Node::new(1, "T"),
+                    Node::new(2, "v"),
+                    leaf(3, "w", Value::Int(1)),
+                    leaf(4, "w", Value::Int(2)),
+                ],
+                vec![
+                    (1, edge(1, 2, attribute.clone())),
+                    (2, edge(2, 3, inner.clone())),
+                    (3, edge(2, 4, inner.clone())),
+                ],
+            );
+            assert_eq!(
+                pass_values(&duplicate_name, &side),
+                Err(NotEncodable::InnerValueShape { node: 2 })
+            );
+            expect_some(duplicate_name.edges.get_mut(&2)).position = Some(0);
+            expect_some(duplicate_name.edges.get_mut(&3)).position = Some(0);
+            assert_eq!(
+                pass_values(&duplicate_name, &side),
+                Err(NotEncodable::InnerValueShape { node: 2 })
+            );
+
+            let nested = graph(
+                vec![
+                    Node::new(1, "T"),
+                    Node::new(2, "v"),
+                    leaf(3, "w", Value::LabeledNull(7)),
+                ],
+                vec![(1, edge(1, 2, attribute)), (2, edge(2, 3, inner))],
+            );
+            assert_eq!(
+                pass_values(&nested, &side),
+                Err(NotEncodable::NestedLabeledNull { node: 3 })
+            );
+            let top_level_null = graph(
+                vec![Node::new(1, "T"), leaf(2, "v", Value::LabeledNull(8))],
+                vec![(1, edge(1, 2, side.columns["T"]["c"].clone()))],
+            );
+            assert_eq!(pass_values(&top_level_null, &side), Ok(()));
+        }
+
+        #[test]
+        fn fold_depth_guard_and_layout_order_are_observable() {
+            let list_loop = graph(
+                vec![Node::new(1, "v")],
+                vec![(
+                    1,
+                    GEdge {
+                        position: Some(0),
+                        ..edge(1, 1, SEdge::new("v", "v", "item", None))
+                    },
+                )],
+            );
+            assert_eq!(
+                fold(&list_loop, 1, 0),
+                Value::List(vec![Value::List(vec![Value::Null])])
+            );
+            let record_loop = graph(
+                vec![Node::new(1, "v")],
+                vec![(1, edge(1, 1, SEdge::new("v", "v", "item", Some("x"))))],
+            );
+            assert_eq!(
+                fold(&record_loop, 1, 0),
+                Value::Unknown(BTreeMap::from([(
+                    "x".to_owned(),
+                    Value::Unknown(BTreeMap::from([("x".to_owned(), Value::Null)])),
+                )]))
+            );
+
+            let mut cell = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([
+                    (1, Node::new(1, "v")),
+                    (2, leaf(2, "w", Value::Int(1))),
+                    (3, leaf(3, "w", Value::Int(2))),
+                ]),
+                edges: BTreeMap::from([
+                    (
+                        4,
+                        GEdge {
+                            position: Some(0),
+                            ..edge(1, 2, SEdge::new("v", "w", "item", Some("a")))
+                        },
+                    ),
+                    (
+                        5,
+                        GEdge {
+                            position: Some(0),
+                            ..edge(1, 3, SEdge::new("v", "w", "item", Some("b")))
+                        },
+                    ),
+                ]),
+                ..CellLayout::default()
+            };
+            assert_eq!(fold_layout(&cell), None);
+            for candidate in cell.edges.values_mut() {
+                candidate.position = None;
+                candidate.label.name = Some("same".to_owned());
+            }
+            assert_eq!(fold_layout(&cell), None);
+        }
+
+        #[test]
+        fn cell_order_rejects_cycles_shared_nodes_and_missing_targets() {
+            let base = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([(1, Node::new(1, "v")), (2, Node::new(2, "w"))]),
+                edges: BTreeMap::from([
+                    (1, edge(1, 2, SEdge::new("v", "w", "item", Some("a")))),
+                    (2, edge(2, 1, SEdge::new("w", "v", "item", Some("b")))),
+                ]),
+                ..CellLayout::default()
+            };
+            assert_eq!(cell_order(&base), Err(()));
+            let shared = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([
+                    (1, Node::new(1, "v")),
+                    (2, Node::new(2, "v")),
+                    (3, Node::new(3, "w")),
+                ]),
+                edges: BTreeMap::from([
+                    (1, edge(1, 2, SEdge::new("v", "v", "item", Some("a")))),
+                    (2, edge(1, 3, SEdge::new("v", "w", "item", Some("b")))),
+                    (3, edge(2, 3, SEdge::new("v", "w", "item", Some("c")))),
+                ]),
+                ..CellLayout::default()
+            };
+            assert_eq!(cell_order(&shared), Err(()));
+            let missing = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([(1, Node::new(1, "v"))]),
+                edges: BTreeMap::from([(1, edge(1, 9, SEdge::new("v", "w", "item", Some("a"))))]),
+                ..CellLayout::default()
+            };
+            assert_eq!(cell_order(&missing), Err(()));
+        }
+
+        #[test]
+        fn cell_fit_checks_each_edge_and_full_reachable_shape() {
+            let side = side();
+            let arrow = side.columns["T"]["c"].clone();
+            let inner = expect_some(side.inner_edges.iter().next()).clone();
+            let valid = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([(1, Node::new(1, "v")), (2, leaf(2, "w", Value::Int(3)))]),
+                edges: BTreeMap::from([(1, edge(1, 2, inner))]),
+                ..CellLayout::default()
+            };
+            assert!(cell_fits(
+                &valid,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(3))])),
+                &arrow,
+                &side
+            ));
+            assert!(!cell_fits(
+                &valid,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(4))])),
+                &arrow,
+                &side
+            ));
+            let mut bad_label = valid.clone();
+            expect_some(bad_label.edges.get_mut(&1)).label.kind = "wrong".to_owned();
+            assert!(!cell_fits(
+                &bad_label,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(3))])),
+                &arrow,
+                &side
+            ));
+            let mut bad_source = valid.clone();
+            expect_some(bad_source.nodes.get_mut(&1)).anchor = "w".to_owned();
+            assert!(!cell_fits(
+                &bad_source,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(3))])),
+                &arrow,
+                &side
+            ));
+            let mut bad_target = valid.clone();
+            expect_some(bad_target.nodes.get_mut(&2)).anchor = "v".to_owned();
+            assert!(!cell_fits(
+                &bad_target,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(3))])),
+                &arrow,
+                &side
+            ));
+            let mut unreachable = valid;
+            unreachable.nodes.insert(9, leaf(9, "w", Value::Int(9)));
+            assert!(!cell_fits(
+                &unreachable,
+                &Value::Unknown(BTreeMap::from([("child".to_owned(), Value::Int(3))])),
+                &arrow,
+                &side
+            ));
+        }
+
+        #[test]
+        fn layout_metadata_and_hom_checks_are_semantic() {
+            let plain_side = GraphSide {
+                tables: BTreeSet::from(["T".to_owned()]),
+                ..GraphSide::default()
+            };
+            let input = graph(vec![Node::new(7, "T")], vec![]);
+            let (table, layout) = expect_ok(encode_graph(&input, &plain_side));
+            assert_eq!(table.rows.keys().copied().collect::<Vec<_>>(), vec![7]);
+            assert_eq!(layout.reserved_node_ids, BTreeSet::from([7]));
+
+            let bad = GraphKanHom {
+                node_map: BTreeMap::new(),
+                null_map: BTreeMap::new(),
+            };
+            assert!(bad.check(&input, &input, &plain_side).is_err());
+            let identity = expect_ok(GraphKanHom::identity(&input, &plain_side));
+            assert!(!bad.same_as(&identity));
+
+            let populated = GraphLayout {
+                relations: BTreeMap::from([(
+                    (SEdge::new("A", "B", "r", None), 1, 2),
+                    EdgeLayout {
+                        id: Some(8),
+                        position: Some(4),
+                        has_source: true,
+                    },
+                )]),
+                ..GraphLayout::default()
+            };
+            let key = (SEdge::new("A", "B", "r", None), 1, 2);
+            assert_eq!(
+                selected_relation_layout(&populated, std::slice::from_ref(&key), true),
+                EdgeLayout {
+                    id: Some(8),
+                    position: Some(4),
+                    has_source: true,
+                }
+            );
+            assert_eq!(
+                selected_relation_layout(&populated, &[], true),
+                EdgeLayout {
+                    id: None,
+                    position: None,
+                    has_source: false,
+                }
+            );
+        }
+
+        #[test]
+        fn cell_motion_requires_coherent_anchors_and_unique_preimages() {
+            let first = SEdge::new("v", "x", "item", Some("a"));
+            let second = SEdge::new("v", "x", "item", Some("b"));
+            let cell = CellLayout {
+                root: 1,
+                nodes: BTreeMap::from([(1, Node::new(1, "v")), (2, Node::new(2, "x"))]),
+                edges: BTreeMap::from([(1, edge(1, 2, first.clone())), (2, edge(1, 2, second))]),
+                ..CellLayout::default()
+            };
+            assert_eq!(
+                move_cell(&cell, "v2", |candidate, _| Some(SEdge::new(
+                    "v2",
+                    if candidate.name.as_deref() == Some("a") {
+                        "x2"
+                    } else {
+                        "x3"
+                    },
+                    "item",
+                    candidate.name.as_deref(),
+                ))),
+                None
+            );
+
+            let mapped = SEdge::new("v2", "x2", "item", Some("a"));
+            let functor = RelFunctor {
+                src: RelSchema {
+                    inner_edges: BTreeSet::from([first.clone()]),
+                    ..RelSchema::default()
+                },
+                tgt: RelSchema {
+                    inner_edges: BTreeSet::from([mapped.clone()]),
+                    ..RelSchema::default()
+                },
+                tables: BTreeMap::new(),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::new(),
+                inner_edges: BTreeMap::from([(first.clone(), mapped.clone())]),
+                value_vertices: BTreeMap::from([("v".to_owned(), "v2".to_owned())]),
+            };
+            assert_eq!(forward_inner(&functor, &first, "v2"), Some(mapped.clone()));
+            assert_eq!(forward_inner(&functor, &first, "wrong"), None);
+            assert_eq!(
+                expect_some(move_back(
+                    &CellLayout {
+                        root: 1,
+                        nodes: BTreeMap::from([(1, Node::new(1, "v2")), (2, Node::new(2, "x2"))]),
+                        edges: BTreeMap::from([(1, edge(1, 2, mapped))]),
+                        ..CellLayout::default()
+                    },
+                    &SEdge::new("T", "v", "attr", Some("c")),
+                    &functor
+                ))
+                .edges[&1]
+                    .label,
+                first
+            );
+        }
+
+        #[test]
+        fn sigma_sources_require_table_column_image_and_present_cell() {
+            let f = RelFunctor {
+                src: RelSchema::default(),
+                tgt: RelSchema::default(),
+                tables: BTreeMap::new(),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::from([
+                    (("A".to_owned(), "good".to_owned()), "out".to_owned()),
+                    (("A".to_owned(), "missing".to_owned()), "out".to_owned()),
+                    (
+                        ("A".to_owned(), "wrong_image".to_owned()),
+                        "other".to_owned(),
+                    ),
+                    (("B".to_owned(), "wrong_table".to_owned()), "out".to_owned()),
+                ]),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+            let input = Table {
+                rows: BTreeMap::from([(
+                    3,
+                    (
+                        "A".to_owned(),
+                        BTreeMap::from([
+                            ("good".to_owned(), Value::Int(1)),
+                            ("wrong_image".to_owned(), Value::Int(2)),
+                            ("wrong_table".to_owned(), Value::Int(3)),
+                        ]),
+                    ),
+                )]),
+                pairs: BTreeSet::new(),
+            };
+            assert_eq!(
+                sigma_slot_sources(&input, 3, "out", &f),
+                vec![(3, "good".to_owned())]
+            );
+        }
+
+        #[test]
+        fn relation_injectivity_checks_relation_and_both_endpoint_fibres() {
+            let r = SEdge::new("A", "B", "r", None);
+            let rho = SEdge::new("D", "E", "r", None);
+            let base = RelFunctor {
+                src: RelSchema::default(),
+                tgt: RelSchema::default(),
+                tables: BTreeMap::from([
+                    ("A".to_owned(), "D".to_owned()),
+                    ("B".to_owned(), "E".to_owned()),
+                ]),
+                relations: BTreeMap::from([(r.clone(), rho.clone())]),
+                columns: BTreeMap::new(),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+            assert!(relation_is_injective_at(&base, &r));
+            let mut source_collision = base.clone();
+            source_collision
+                .tables
+                .insert("A2".to_owned(), "D".to_owned());
+            assert!(!relation_is_injective_at(&source_collision, &r));
+            let mut target_collision = base.clone();
+            target_collision
+                .tables
+                .insert("B2".to_owned(), "E".to_owned());
+            assert!(!relation_is_injective_at(&target_collision, &r));
+            let mut edge_collision = base;
+            edge_collision
+                .relations
+                .insert(SEdge::new("A2", "B2", "r", None), rho);
+            assert!(!relation_is_injective_at(&edge_collision, &r));
+        }
+
+        #[allow(clippy::too_many_lines)]
+        #[test]
+        fn layouts_preserve_reservations_and_pi_uses_exact_contributors() {
+            let reserved = GraphLayout {
+                reserved_node_ids: BTreeSet::from([91]),
+                reserved_edge_ids: BTreeSet::from([92]),
+                ..GraphLayout::default()
+            };
+            let empty = Table::default();
+            let empty_functor = RelFunctor {
+                src: RelSchema::default(),
+                tgt: RelSchema::default(),
+                tables: BTreeMap::new(),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::new(),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+            for layout in [
+                sigma_layout(&empty, &reserved, &empty, &empty_functor),
+                delta_layout(&empty, &reserved, &empty, &BTreeMap::new(), &empty_functor),
+                pi_layout(&empty, &reserved, &empty, &BTreeMap::new(), &empty_functor),
+            ] {
+                assert_eq!(layout.reserved_node_ids, BTreeSet::from([91]));
+                assert_eq!(layout.reserved_edge_ids, BTreeSet::from([92]));
+            }
+
+            let source_arrow = SEdge::new("A", "va", "attr", Some("x"));
+            let wrong_image_arrow = SEdge::new("A", "va2", "attr", Some("a_wrong"));
+            let wrong_table_arrow = SEdge::new("B", "vb", "attr", Some("b_wrong"));
+            let target_arrow = SEdge::new("D", "vd", "attr", Some("w"));
+            let source_relation = SEdge::new("A", "B", "r", None);
+            let target_relation = SEdge::new("D", "E", "rho", None);
+            let f = RelFunctor {
+                src: RelSchema {
+                    tables: ["A", "B", "C"].into_iter().map(str::to_owned).collect(),
+                    relations: BTreeSet::from([source_relation.clone()]),
+                    columns: BTreeMap::from([
+                        (
+                            "A".to_owned(),
+                            BTreeMap::from([
+                                ("a_wrong".to_owned(), wrong_image_arrow),
+                                ("x".to_owned(), source_arrow),
+                            ]),
+                        ),
+                        (
+                            "B".to_owned(),
+                            BTreeMap::from([("b_wrong".to_owned(), wrong_table_arrow)]),
+                        ),
+                    ]),
+                    ..RelSchema::default()
+                },
+                tgt: RelSchema {
+                    tables: BTreeSet::from(["D".to_owned(), "E".to_owned()]),
+                    relations: BTreeSet::from([target_relation.clone()]),
+                    columns: BTreeMap::from([(
+                        "D".to_owned(),
+                        BTreeMap::from([("w".to_owned(), target_arrow)]),
+                    )]),
+                    value_vertices: BTreeSet::from(["vd".to_owned()]),
+                    ..RelSchema::default()
+                },
+                tables: BTreeMap::from([
+                    ("A".to_owned(), "D".to_owned()),
+                    ("B".to_owned(), "E".to_owned()),
+                    ("C".to_owned(), "D".to_owned()),
+                ]),
+                relations: BTreeMap::from([(source_relation.clone(), target_relation.clone())]),
+                columns: BTreeMap::from([
+                    (("A".to_owned(), "a_wrong".to_owned()), "other".to_owned()),
+                    (("A".to_owned(), "x".to_owned()), "w".to_owned()),
+                    (("B".to_owned(), "b_wrong".to_owned()), "w".to_owned()),
+                ]),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+            let leaf_cell = |root: u32, anchor: &str| CellLayout {
+                root,
+                nodes: BTreeMap::from([(root, leaf(root, anchor, Value::Int(7)))]),
+                ..CellLayout::default()
+            };
+            let input = Table {
+                rows: BTreeMap::from([
+                    (
+                        1,
+                        (
+                            "A".to_owned(),
+                            BTreeMap::from([
+                                ("a_wrong".to_owned(), Value::Int(7)),
+                                ("b_wrong".to_owned(), Value::Int(7)),
+                                ("x".to_owned(), Value::Int(7)),
+                            ]),
+                        ),
+                    ),
+                    (2, ("B".to_owned(), BTreeMap::new())),
+                    (3, ("C".to_owned(), BTreeMap::new())),
+                ]),
+                pairs: BTreeSet::from([(source_relation.clone(), 1, 2)]),
+            };
+            let input_layout = GraphLayout {
+                cells: BTreeMap::from([
+                    ((1, "a_wrong".to_owned()), leaf_cell(101, "va2")),
+                    ((1, "b_wrong".to_owned()), leaf_cell(102, "vb")),
+                    ((1, "x".to_owned()), leaf_cell(100, "va")),
+                ]),
+                relations: BTreeMap::from([(
+                    (source_relation.clone(), 1, 2),
+                    EdgeLayout {
+                        id: Some(7),
+                        position: Some(5),
+                        has_source: true,
+                    },
+                )]),
+                ..reserved
+            };
+            let output = Table {
+                rows: BTreeMap::from([
+                    (
+                        10,
+                        (
+                            "D".to_owned(),
+                            BTreeMap::from([("w".to_owned(), Value::Int(7))]),
+                        ),
+                    ),
+                    (20, ("E".to_owned(), BTreeMap::new())),
+                ]),
+                pairs: BTreeSet::from([(target_relation.clone(), 10, 20)]),
+            };
+            let provenance = BTreeMap::from([
+                (10, ("D".to_owned(), vec![1, 3])),
+                (20, ("E".to_owned(), vec![2])),
+            ]);
+            let layout = pi_layout(&input, &input_layout, &output, &provenance, &f);
+            assert_eq!(layout.cells[&(10, "w".to_owned())].root, 100);
+            assert_eq!(
+                layout.relations[&(target_relation.clone(), 10, 20)],
+                EdgeLayout {
+                    id: None,
+                    position: Some(5),
+                    has_source: true,
+                }
+            );
+            let origins = pi_origins(&input, &output, &provenance, &f);
+            assert_eq!(
+                origins.cells[&(10, "w".to_owned())],
+                BTreeSet::from([(1, "x".to_owned())])
+            );
+            assert_eq!(
+                origins.relations[&(target_relation, 10, 20)],
+                BTreeSet::from([(source_relation, 1, 2)])
+            );
+        }
+
+        #[test]
+        fn inferred_hom_rejects_one_null_for_two_different_values() {
+            let domain = Table {
+                rows: BTreeMap::from([
+                    (
+                        1,
+                        (
+                            "T".to_owned(),
+                            BTreeMap::from([("c".to_owned(), Value::LabeledNull(4))]),
+                        ),
+                    ),
+                    (
+                        2,
+                        (
+                            "T".to_owned(),
+                            BTreeMap::from([("c".to_owned(), Value::LabeledNull(4))]),
+                        ),
+                    ),
+                ]),
+                pairs: BTreeSet::new(),
+            };
+            let codomain = Table {
+                rows: BTreeMap::from([
+                    (
+                        11,
+                        (
+                            "T".to_owned(),
+                            BTreeMap::from([("c".to_owned(), Value::Int(1))]),
+                        ),
+                    ),
+                    (
+                        12,
+                        (
+                            "T".to_owned(),
+                            BTreeMap::from([("c".to_owned(), Value::Int(2))]),
+                        ),
+                    ),
+                ]),
+                pairs: BTreeSet::new(),
+            };
+            assert!(inferred_hom(&domain, &codomain, BTreeMap::from([(1, 11), (2, 12)])).is_err());
+        }
+
+        fn merging_table_functor() -> RelFunctor {
+            RelFunctor {
+                src: RelSchema {
+                    tables: ["A", "B"].into_iter().map(str::to_owned).collect(),
+                    ..RelSchema::default()
+                },
+                tgt: RelSchema {
+                    tables: BTreeSet::from(["D".to_owned()]),
+                    ..RelSchema::default()
+                },
+                tables: BTreeMap::from([
+                    ("A".to_owned(), "D".to_owned()),
+                    ("B".to_owned(), "D".to_owned()),
+                ]),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::new(),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            }
+        }
+
+        #[test]
+        fn adjunction_maps_select_the_copy_matching_both_coordinates() {
+            let f = merging_table_functor();
+            let source = graph(vec![Node::new(1, "A"), Node::new(2, "B")], vec![]);
+            assert_eq!(
+                expect_ok(g_unit(&source, &f)).node_map,
+                BTreeMap::from([(1, 1), (2, 4)])
+            );
+
+            let target = graph(vec![Node::new(1, "D"), Node::new(2, "D")], vec![]);
+            let sigma_to_target = GraphKanHom {
+                node_map: BTreeMap::from([(1, 1), (2, 2)]),
+                null_map: BTreeMap::new(),
+            };
+            assert_eq!(
+                expect_ok(g_transpose_left(&sigma_to_target, &source, &target, &f)).node_map,
+                BTreeMap::from([(1, 1), (2, 4)])
+            );
+
+            assert_eq!(
+                expect_ok(g_pi_unit(&target, &f, 4)).node_map,
+                BTreeMap::from([(1, 5), (2, 8)])
+            );
+            let product_source = graph(
+                vec![
+                    Node::new(1, "A"),
+                    Node::new(2, "A"),
+                    Node::new(3, "B"),
+                    Node::new(4, "B"),
+                ],
+                vec![],
+            );
+            let delta_to_source = GraphKanHom {
+                node_map: BTreeMap::from([(1, 1), (2, 2), (3, 3), (4, 4)]),
+                null_map: BTreeMap::new(),
+            };
+            assert_eq!(
+                expect_ok(g_pi_transpose_left(
+                    &delta_to_source,
+                    &target,
+                    &product_source,
+                    &f,
+                    4
+                ))
+                .node_map,
+                BTreeMap::from([(1, 5), (2, 8)])
+            );
+        }
+
+        #[test]
+        fn collision_requires_distinct_keys_with_one_image() {
+            assert_eq!(first_collision([(2, 'x'), (1, 'x')]), Some((1, 2, 'x')));
+            assert_eq!(first_collision([(1, 'x'), (1, 'x')]), None);
+        }
+    }
 }
 
 pub mod rel {
@@ -3595,10 +4461,10 @@ pub mod rel {
             .keys()
             .find(|k| !columns.contains(*k))
             .map(|k| (k.clone(), Conformance::StrayCell));
-        let keyed = match (missing, stray) {
-            (Some(m), Some(s)) => Some(if s.0 < m.0 { s } else { m }),
-            (m, s) => m.or(s),
-        };
+        let keyed = missing
+            .into_iter()
+            .chain(stray)
+            .min_by(|left, right| left.0.cmp(&right.0));
         if let Some((column, reason)) = keyed {
             return Some(NonConforming {
                 row: id,
@@ -5701,6 +6567,426 @@ pub mod rel {
             .collect::<Option<_>>()?;
         forced_hom(&pi_domain, &pi_codomain, rows)
     }
+
+    #[cfg(test)]
+    mod mutation_tests {
+        use super::*;
+
+        fn expect_some<T>(value: Option<T>) -> T {
+            let Some(value) = value else {
+                panic!("expected Some");
+            };
+            value
+        }
+
+        fn expect_ok<T, E: std::fmt::Debug>(value: Result<T, E>) -> T {
+            let Ok(value) = value else {
+                panic!("expected Ok");
+            };
+            value
+        }
+
+        fn names(items: &[&str]) -> BTreeSet<Name> {
+            items.iter().map(|item| (*item).to_owned()).collect()
+        }
+
+        fn row(table: &str, cells: &[(&str, Value)]) -> (Name, BTreeMap<String, Value>) {
+            (
+                table.to_owned(),
+                cells
+                    .iter()
+                    .map(|(column, value)| ((*column).to_owned(), value.clone()))
+                    .collect(),
+            )
+        }
+
+        fn bare_functor(tables: &[(&str, &str)]) -> RelFunctor {
+            RelFunctor {
+                src: RelSchema::default(),
+                tgt: RelSchema::default(),
+                tables: tables
+                    .iter()
+                    .map(|(source, target)| ((*source).to_owned(), (*target).to_owned()))
+                    .collect(),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::new(),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            }
+        }
+
+        #[test]
+        fn classify_distinguishes_empty_keys_and_directed_value_closure() {
+            let schema = Schema {
+                vertices: BTreeMap::from([
+                    ("blank".to_owned(), "value".to_owned()),
+                    ("seed".to_owned(), "value".to_owned()),
+                ]),
+                edges: BTreeSet::from([
+                    SEdge::new("seed", "reached", "item", Some("child")),
+                    SEdge::new("unreached", "also_unreached", "item", Some("other")),
+                ]),
+                keys: BTreeMap::from([("blank".to_owned(), Vec::new())]),
+                ..Schema::default()
+            };
+            let classified = expect_ok(classify(&schema, &names(&["value"]), &BTreeSet::new()));
+            assert!(classified.tables.is_empty());
+            assert_eq!(
+                classified.value_vertices,
+                names(&["blank", "seed", "reached"])
+            );
+            assert_eq!(
+                classified.inner_edges,
+                BTreeSet::from([SEdge::new("seed", "reached", "item", Some("child"))])
+            );
+        }
+
+        #[test]
+        fn image_column_and_restricted_value_closure_are_observable() {
+            let attribute = SEdge::new("A", "v", "attr", Some("x"));
+            assert!(is_image([("key", &attribute)], &attribute));
+            assert!(!is_image(
+                [("key", &attribute)],
+                &SEdge::new("A", "w", "attr", Some("x"))
+            ));
+
+            let reached = SEdge::new("v", "w", "item", Some("child"));
+            let backwards = SEdge::new("w", "v", "item", Some("back"));
+            let unrelated = SEdge::new("x", "y", "item", Some("other"));
+            let schema = RelSchema {
+                tables: names(&["A"]),
+                columns: BTreeMap::from([(
+                    "A".to_owned(),
+                    BTreeMap::from([("x".to_owned(), attribute.clone())]),
+                )]),
+                value_vertices: names(&["v", "w", "x", "y"]),
+                inner_edges: BTreeSet::from([reached.clone(), backwards.clone(), unrelated]),
+                ..RelSchema::default()
+            };
+            assert!(schema.is_column(&attribute));
+            let f = RelFunctor {
+                src: schema,
+                tgt: RelSchema::default(),
+                tables: BTreeMap::from([("A".to_owned(), "D".to_owned())]),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::from([(("A".to_owned(), "x".to_owned()), "z".to_owned())]),
+                inner_edges: BTreeMap::new(),
+                value_vertices: BTreeMap::new(),
+            };
+            let restricted = f.restricted_source();
+            assert_eq!(restricted.value_vertices, names(&["v", "w"]));
+            assert_eq!(restricted.inner_edges, BTreeSet::from([reached, backwards]));
+        }
+
+        #[test]
+        fn entity_functor_requires_both_relation_endpoints_and_exact_images() {
+            let relation = SEdge::new("A", "B", "r", None);
+            let image = SEdge::new("D", "E", "r", None);
+            let src = RelSchema {
+                tables: names(&["A", "B"]),
+                relations: BTreeSet::from([relation.clone()]),
+                ..RelSchema::default()
+            };
+            let tgt = RelSchema {
+                tables: names(&["D", "E", "X"]),
+                relations: BTreeSet::from([image.clone()]),
+                ..RelSchema::default()
+            };
+            let only_a = Migration {
+                vertex_remap: BTreeMap::from([("A".to_owned(), "D".to_owned())]),
+                edge_remap: BTreeMap::from([(relation.clone(), image)]),
+                ..Migration::default()
+            };
+            let entity = expect_ok(entity_functor(&src, &tgt, &only_a));
+            assert!(entity.table_part().relations.is_empty());
+
+            for wrong in [
+                SEdge::new("X", "E", "r", None),
+                SEdge::new("D", "X", "r", None),
+            ] {
+                let mut wrong_target = tgt.clone();
+                wrong_target.relations.insert(wrong.clone());
+                let migration = Migration {
+                    vertex_remap: BTreeMap::from([
+                        ("A".to_owned(), "D".to_owned()),
+                        ("B".to_owned(), "E".to_owned()),
+                    ]),
+                    edge_remap: BTreeMap::from([(relation.clone(), wrong)]),
+                    ..Migration::default()
+                };
+                assert!(matches!(
+                    entity_functor(&src, &wrong_target, &migration),
+                    Err(FunctorError::IncoherentEdgeImage { .. })
+                ));
+            }
+        }
+
+        #[test]
+        fn remapped_attribute_requires_the_right_source_and_endpoint() {
+            let source_arrow = SEdge::new("A", "v", "attr", Some("x"));
+            let target_arrow = SEdge::new("D", "w", "attr", Some("y"));
+            let src = RelSchema {
+                tables: names(&["A"]),
+                columns: BTreeMap::from([(
+                    "A".to_owned(),
+                    BTreeMap::from([("x".to_owned(), source_arrow.clone())]),
+                )]),
+                value_vertices: names(&["v"]),
+                ..RelSchema::default()
+            };
+            let tgt = RelSchema {
+                tables: names(&["D", "X"]),
+                columns: BTreeMap::from([(
+                    "D".to_owned(),
+                    BTreeMap::from([("y".to_owned(), target_arrow.clone())]),
+                )]),
+                value_vertices: names(&["w", "z"]),
+                ..RelSchema::default()
+            };
+            let tables = BTreeMap::from([("A".to_owned(), "D".to_owned())]);
+            let valid = Migration {
+                vertex_remap: BTreeMap::from([("v".to_owned(), "w".to_owned())]),
+                edge_remap: BTreeMap::from([(source_arrow.clone(), target_arrow)]),
+                ..Migration::default()
+            };
+            assert_eq!(
+                expect_ok(functor_columns(&src, &tgt, &valid, &tables)),
+                BTreeMap::from([(("A".to_owned(), "x".to_owned()), "y".to_owned())])
+            );
+            let wrong_endpoint = Migration {
+                vertex_remap: BTreeMap::from([("v".to_owned(), "z".to_owned())]),
+                ..valid.clone()
+            };
+            assert!(functor_columns(&src, &tgt, &wrong_endpoint, &tables).is_err());
+            let wrong_source_arrow = SEdge::new("X", "w", "attr", Some("y"));
+            let mut target_with_wrong = tgt;
+            expect_some(target_with_wrong.columns.get_mut("D"))
+                .insert("wrong".to_owned(), wrong_source_arrow.clone());
+            let wrong_source = Migration {
+                edge_remap: BTreeMap::from([(source_arrow, wrong_source_arrow)]),
+                ..valid
+            };
+            assert!(functor_columns(&src, &target_with_wrong, &wrong_source, &tables).is_err());
+        }
+
+        #[test]
+        fn conformance_orders_row_and_pair_violations_exactly() {
+            let relation = SEdge::new("A", "B", "r", None);
+            let side = Side {
+                tables: BTreeMap::from([
+                    ("A".to_owned(), names(&["m"])),
+                    ("B".to_owned(), BTreeSet::new()),
+                ]),
+                relations: BTreeSet::from([relation.clone()]),
+            };
+            let row_first = Table {
+                rows: BTreeMap::from([(1, row("A", &[("a", Value::Int(0))])), (2, row("B", &[]))]),
+                pairs: BTreeSet::from([(relation.clone(), 2, 1)]),
+            };
+            assert_eq!(
+                conform(&row_first, &side),
+                Err(Box::new(NonConforming {
+                    row: 1,
+                    column: Some("a".to_owned()),
+                    reason: Conformance::StrayCell,
+                }))
+            );
+            let pair_first = Table {
+                rows: BTreeMap::from([(1, row("B", &[])), (2, row("A", &[("z", Value::Int(0))]))]),
+                pairs: BTreeSet::from([(relation.clone(), 1, 1)]),
+            };
+            assert_eq!(
+                conform(&pair_first, &side),
+                Err(Box::new(NonConforming {
+                    row: 1,
+                    column: None,
+                    reason: Conformance::IncoherentPair(Box::new(relation.clone())),
+                }))
+            );
+            let one_bad_endpoint = Table {
+                rows: BTreeMap::from([
+                    (1, row("A", &[("m", Value::Int(0))])),
+                    (2, row("A", &[("m", Value::Int(0))])),
+                ]),
+                pairs: BTreeSet::from([(relation.clone(), 1, 2)]),
+            };
+            assert!(matches!(
+                conform(&one_bad_endpoint, &side),
+                Err(error) if error.reason == Conformance::IncoherentPair(Box::new(relation))
+            ));
+        }
+
+        #[test]
+        fn sigma_join_allocates_two_classes_before_merging() {
+            let mut labels = BTreeMap::new();
+            let mut next = 0;
+            let a = Term::Null(1);
+            let b = Term::Null(2);
+            expect_ok(join(&mut labels, &mut next, &a, &b));
+            assert_eq!(next, 2);
+            assert_eq!(labels[&a], labels[&b]);
+        }
+
+        #[test]
+        fn pi_product_limits_are_inclusive_and_mapped_relations_are_skipped() {
+            let mut f = bare_functor(&[("A", "D"), ("B", "D")]);
+            f.tgt.tables = names(&["D"]);
+            let input = Table {
+                rows: BTreeMap::from([(1, row("A", &[])), (2, row("B", &[]))]),
+                pairs: BTreeSet::new(),
+            };
+            assert_eq!(expect_ok(pi_cones(&f, &input, 1))["D"].len(), 1);
+
+            let source_relation = SEdge::new("A", "B", "r", None);
+            let target_relation = SEdge::new("D", "E", "r", None);
+            let mut mapped = bare_functor(&[("A", "D"), ("B", "E")]);
+            mapped.tgt.tables = names(&["D", "E"]);
+            mapped.tgt.relations = BTreeSet::from([target_relation.clone()]);
+            mapped.relations = BTreeMap::from([(source_relation, target_relation)]);
+            assert!(pi_cones(&mapped, &input, 0).is_ok());
+
+            let mut unmapped = mapped;
+            unmapped.relations.clear();
+            assert!(pi_cones(&unmapped, &input, 1).is_ok());
+        }
+
+        #[test]
+        fn hom_equalities_observe_rows_used_nulls_and_canonical_values() {
+            let rows = BTreeMap::from([(1, 2)]);
+            let identity_null = Hom {
+                rows: rows.clone(),
+                nulls: BTreeMap::from([(7, Value::LabeledNull(7))]),
+            };
+            let empty_nulls = Hom {
+                rows: rows.clone(),
+                nulls: BTreeMap::new(),
+            };
+            assert!(identity_null.normalized_same_as(&empty_nulls));
+            let different_rows = Hom {
+                rows: BTreeMap::from([(1, 3)]),
+                nulls: BTreeMap::new(),
+            };
+            assert!(!identity_null.normalized_same_as(&different_rows));
+            let different_null = Hom {
+                rows: rows.clone(),
+                nulls: BTreeMap::from([(7, Value::Int(1))]),
+            };
+            assert!(!identity_null.normalized_same_as(&different_null));
+
+            let domain = Table {
+                rows: BTreeMap::from([(1, row("A", &[("x", Value::LabeledNull(7))]))]),
+                pairs: BTreeSet::new(),
+            };
+            assert!(!identity_null.same_as(&different_rows, &domain));
+            assert!(!identity_null.same_as(&different_null, &domain));
+            let unused_difference = Hom {
+                rows,
+                nulls: BTreeMap::from([(8, Value::Int(1))]),
+            };
+            assert!(empty_nulls.same_as(&unused_difference, &domain));
+        }
+
+        #[test]
+        fn bijection_search_rejects_each_candidate_mismatch() {
+            let one_a = Table {
+                rows: BTreeMap::from([(1, row("A", &[("x", Value::Int(1))]))]),
+                pairs: BTreeSet::new(),
+            };
+            let one_b = Table {
+                rows: BTreeMap::from([(2, row("B", &[("x", Value::Int(1))]))]),
+                pairs: BTreeSet::new(),
+            };
+            assert_eq!(row_bijection(&one_a, &one_b), None);
+            let wrong_columns = Table {
+                rows: BTreeMap::from([(2, row("A", &[("y", Value::Int(1))]))]),
+                pairs: BTreeSet::new(),
+            };
+            assert_eq!(row_bijection(&one_a, &wrong_columns), None);
+            let two_a = Table {
+                rows: BTreeMap::from([
+                    (1, row("A", &[("x", Value::Int(1))])),
+                    (3, row("A", &[("x", Value::Int(1))])),
+                ]),
+                pairs: BTreeSet::new(),
+            };
+            assert_eq!(row_bijection(&one_a, &two_a), None);
+            let extra_pair = Table {
+                rows: BTreeMap::from([(2, row("A", &[("x", Value::Int(1))]))]),
+                pairs: BTreeSet::from([(SEdge::new("A", "A", "r", None), 2, 2)]),
+            };
+            assert_eq!(row_bijection(&one_a, &extra_pair), None);
+            let malformed_right = Table {
+                rows: BTreeMap::from([(2, row("A", &[("x", Value::Int(1))]))]),
+                pairs: BTreeSet::from([(SEdge::new("A", "A", "r", None), 2, 9)]),
+            };
+            assert_eq!(row_bijection(&one_a, &malformed_right), None);
+
+            let mut map = BTreeMap::from([(0, 2)]);
+            assert!(!search_bijection(
+                &one_a,
+                &Table {
+                    rows: BTreeMap::from([(2, row("A", &[("x", Value::Int(1))]))]),
+                    pairs: BTreeSet::new(),
+                },
+                &[1],
+                0,
+                &mut map,
+                &mut BTreeMap::new()
+            ));
+            assert_eq!(
+                row_bijection(
+                    &Table {
+                        rows: BTreeMap::from([(1, row("A", &[]))]),
+                        pairs: BTreeSet::from([(SEdge::new("A", "A", "r", None), 1, 9)]),
+                    },
+                    &Table {
+                        rows: BTreeMap::from([(2, row("A", &[]))]),
+                        pairs: BTreeSet::from([(SEdge::new("A", "A", "r", None), 2, 2)]),
+                    }
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn value_matching_is_a_partial_bijection_on_labelled_nulls() {
+            let mut nulls = BTreeMap::new();
+            assert!(!match_values(
+                &Value::LabeledNull(1),
+                &Value::Int(1),
+                &mut nulls
+            ));
+            assert!(!match_values(
+                &Value::Int(1),
+                &Value::LabeledNull(1),
+                &mut nulls
+            ));
+            assert!(match_values(
+                &Value::LabeledNull(1),
+                &Value::LabeledNull(7),
+                &mut nulls
+            ));
+            assert!(!match_values(
+                &Value::LabeledNull(1),
+                &Value::LabeledNull(8),
+                &mut nulls
+            ));
+            assert!(!match_values(
+                &Value::LabeledNull(2),
+                &Value::LabeledNull(7),
+                &mut nulls
+            ));
+            assert!(match_values(&Value::Int(3), &Value::Int(3), &mut nulls));
+            assert!(!match_values(&Value::Int(3), &Value::Int(4), &mut nulls));
+        }
+
+        #[test]
+        fn union_find_follows_and_compresses_a_non_root_chain() {
+            let mut parent = vec![0, 0, 1];
+            assert_eq!(find_root(&mut parent, 2), 0);
+            assert_eq!(parent, vec![0, 0, 0]);
+        }
+    }
 }
 
 pub mod migration {
@@ -5816,6 +7102,13 @@ mod tests {
 
     fn names(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    fn expect_ok<T, E: std::fmt::Debug>(value: Result<T, E>) -> T {
+        let Ok(value) = value else {
+            panic!("expected Ok");
+        };
+        value
     }
 
     fn relation(src: &str, tgt: &str, name: &str) -> SEdge {
@@ -6991,5 +8284,66 @@ mod tests {
             ])
         );
         assert_eq!(provenance.table, SigmaProvenance::default());
+    }
+
+    #[test]
+    fn kan_extensions_schema_wrappers_and_along_routes_preserve_a_nonempty_identity() {
+        let attribute = arrow("T", "v", "c");
+        let schema = crate::schema::Schema::default()
+            .vertex("T", "record")
+            .vertex("v", "value")
+            .edge("T", "v", "prop", Some("c"));
+        let protocol = super::encode::KindPartition {
+            value: names(&["value"]),
+            non_value: names(&["record"]),
+        };
+        let migration = Migration {
+            surviving_verts: names(&["T", "v"]),
+            surviving_edges: BTreeSet::from([attribute.clone()]),
+            ..Migration::default()
+        };
+        let input = graph(
+            vec![node(1, "T"), leaf(2, "v", Value::Int(7))],
+            vec![(3, gedge(1, 2, attribute))],
+        );
+
+        let sigma = expect_ok(super::encode::g_sigma(
+            &input, &schema, &protocol, &schema, &protocol, &migration,
+        ));
+        assert_eq!(sigma, input);
+        let (sigma_with, sigma_provenance) = expect_ok(super::encode::g_sigma_with_provenance(
+            &input, &schema, &protocol, &schema, &protocol, &migration,
+        ));
+        assert_eq!(sigma_with, input);
+        assert!(!sigma_provenance.nodes.is_empty());
+
+        let delta = expect_ok(super::encode::g_delta(
+            &input, &schema, &protocol, &schema, &protocol, &migration,
+        ));
+        assert_eq!(delta, input);
+        let (delta_with, delta_provenance) = expect_ok(super::encode::g_delta_with_provenance(
+            &input, &schema, &protocol, &schema, &protocol, &migration,
+        ));
+        assert_eq!(delta_with, input);
+        assert!(!delta_provenance.nodes.is_empty());
+
+        let pi = expect_ok(super::encode::g_pi(
+            &input, &schema, &protocol, &schema, &protocol, &migration, 1,
+        ));
+        assert_eq!(pi, input);
+        let (pi_with, pi_provenance) = expect_ok(super::encode::g_pi_with_provenance(
+            &input, &schema, &protocol, &schema, &protocol, &migration, 1,
+        ));
+        assert_eq!(pi_with, input);
+        assert!(!pi_provenance.nodes.is_empty());
+
+        let classified = expect_ok(rel::classify(&schema, &protocol.value, &protocol.non_value));
+        let checked = expect_ok(
+            expect_ok(rel::entity_functor(&classified, &classified, &migration)).into_kan(),
+        );
+        assert_eq!(
+            expect_ok(super::encode::g_pi_along(&checked, &input, 1)),
+            input
+        );
     }
 }
