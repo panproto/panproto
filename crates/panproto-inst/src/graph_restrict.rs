@@ -629,11 +629,12 @@ impl<'a> GraphRun<'a> {
     /// anchor `fan_anchor`) to the node `target` (view anchor
     /// `target_anchor`) maps back to:
     /// the fan edge label from the source anchor A(fan) of the fan node to
-    /// the source anchor A(target) of the target, under the view label's
-    /// name for a child edge and, for a named parent edge, under the parent
-    /// label the source schema declares for hyper-edge A(fan) (the view
-    /// label's name when the source schema declares no such hyper-edge,
-    /// as the view takes the source name when the target declares none).
+    /// the source anchor A(target) of the target, when the source schema's
+    /// hyper-edge maps the view child label to A(target), and, for a named
+    /// parent edge, under the parent label the source schema declares for
+    /// hyper-edge A(fan) (the view label's name when the source schema
+    /// declares no such hyper-edge, as the view takes the source name when
+    /// the target declares none).
     /// An unnamed parent edge maps back unnamed, as get keeps a source
     /// parent edge unnamed.
     ///
@@ -658,7 +659,9 @@ impl<'a> GraphRun<'a> {
                 .as_ref()
                 .map(|name| parent_edge_name(name, source_label.map(|h| &h.parent_label)))
         } else {
-            label.name.clone()
+            let name = label.name.as_ref()?;
+            let source = self.plan.source().hyper_edges.get(hyper_edge)?;
+            (source.signature.get(name) == Some(tgt)).then(|| name.clone())
         };
         Some(Edge {
             src: hyper_edge.clone(),
