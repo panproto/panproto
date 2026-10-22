@@ -2014,20 +2014,11 @@ fn tree_basis(
     tree_payload_cases(view, complement, &mut basis);
     tree_node_cases(lens, view, complement, &mut basis);
     tree_edge_cases(lens, view, complement, &mut basis);
-    tree_synthesized_negative_cases(view, complement, &mut basis);
+    tree_synthesized_negative_cases(lens, view, complement, &mut basis);
     tree_other_negative_cases(lens, view, complement, &mut basis);
     basis.sort_by_key(|case| (case.mutation, case.ordinal));
     for (ordinal, case) in basis.iter_mut().enumerate() {
         case.ordinal = ordinal;
-        case.domain = match tree_check_put_domain(
-            lens,
-            &case.view,
-            &complement.embedding,
-            &complement.complement,
-        ) {
-            Ok(()) => DomainExpectation::Admitted,
-            Err(error) => DomainExpectation::Refused(reference_lens_error(error)),
-        };
     }
     basis
 }
@@ -2043,13 +2034,221 @@ fn ordinary_tree_nodes<'a>(
 }
 
 fn fresh_tree_node(view: &Tree, complement: &TreeLawComplement) -> Option<u32> {
-    fresh_graph_node(
-        &Graph {
-            nodes: view.nodes.clone(),
-            edges: BTreeMap::new(),
-        },
-        &complement.complement,
-    )
+    let graph = &complement.complement;
+    let recorded_edge_endpoints = graph
+        .dropped_edges
+        .values()
+        .chain(graph.original_edges.values())
+        .flat_map(|edge| [edge.src, edge.tgt]);
+    let occupied = view
+        .nodes
+        .keys()
+        .chain(graph.dropped_nodes.keys())
+        .chain(graph.original_anchors.keys())
+        .chain(graph.original_fields.keys())
+        .chain(graph.original_values.keys())
+        .chain(graph.synthesized_nodes.keys())
+        .copied()
+        .chain(complement.embedding.fans.iter().map(|(node, _, _)| *node))
+        .chain(recorded_edge_endpoints);
+    let id = graph
+        .floor
+        .0
+        .max(complement.embedding.next_node)
+        .max(floor_of(occupied));
+    (id != u32::MAX).then_some(id)
+}
+
+fn tree_node_for_anchor(id: u32, schema: &crate::schema::Schema, anchor: &str) -> Node {
+    let node = Node::new(id, anchor);
+    let value = schema
+        .vertices
+        .get(anchor)
+        .and_then(|kind| match kind.as_str() {
+            "string" => Some(Value::Str(String::new())),
+            "integer" | "int" => Some(Value::Int(0)),
+            "number" | "float" => Some(Value::Float(0.0_f64.to_bits())),
+            "boolean" | "bool" => Some(Value::Bool(false)),
+            _ => None,
+        });
+    match value {
+        Some(value) => node.with_value(value),
+        None => node,
+    }
+}
+
+fn validation_neutral_tree_anchor(lens: &GraphLens<'_>, target: &str) -> bool {
+    let preimages = reverse_anchor(lens.src, lens.m, target);
+    let [source] = preimages.as_slice() else {
+        return false;
+    };
+    lens.src.vertices.get(source) == lens.tgt.vertices.get(target)
+        && lens.src.vertices.contains_key(source)
+        && !lens.m.conditional.contains(source)
+        && !lens.m.transformed.contains(source)
+        && lens.src.required.get(source).is_none_or(Vec::is_empty)
+        && lens.src.constraints.get(source).is_none_or(Vec::is_empty)
+        && lens.src.keys.get(source).is_none_or(Vec::is_empty)
+        && !lens
+            .src
+            .references
+            .values()
+            .any(|reference| reference.holder == *source && !reference.nullable)
+}
+
+fn tree_source_anchor(
+    lens: &GraphLens<'_>,
+    view: &Tree,
+    complement: &TreeLawComplement,
+    id: u32,
+) -> Option<String> {
+    let node = view.nodes.get(&id)?;
+    if let Some(recorded) = complement.complement.original_anchors.get(&id)
+        && lens.m.vertex_image(recorded) == node.anchor
+    {
+        return Some(recorded.clone());
+    }
+    let preimages = reverse_anchor(lens.src, lens.m, &node.anchor);
+    let [source] = preimages.as_slice() else {
+        return None;
+    };
+    Some(source.clone())
+}
+
+fn isolated_tree_attachment(
+    lens: &GraphLens<'_>,
+    view: &Tree,
+    complement: &TreeLawComplement,
+    parent: u32,
+) -> Option<crate::model::SEdge> {
+    let graph = &complement.complement;
+    if graph.synthesized_nodes.contains_key(&parent) {
+        return None;
+    }
+    let node = view.nodes.get(&parent)?;
+    let parent_anchor = tree_source_anchor(lens, view, complement, parent)?;
+    for prefer_unique in [true, false] {
+        for label in &lens.tgt.edges {
+            if uniquely_representable_edge(lens, label) != prefer_unique
+                || !validation_neutral_tree_anchor(lens, &label.tgt)
+            {
+                continue;
+            }
+            let child_anchors = reverse_anchor(lens.src, lens.m, &label.tgt);
+            let [child_anchor] = child_anchors.as_slice() else {
+                continue;
+            };
+            if node.anchor == label.src {
+                let preimages = lens
+                    .plan
+                    .fates()
+                    .iter()
+                    .filter(|(edge, fate)| {
+                        edge.src == parent_anchor
+                            && edge.tgt == *child_anchor
+                            && matches!(fate, EdgeFate::Keep(image) if image == label)
+                    })
+                    .count();
+                if preimages == 1 {
+                    return Some(label.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn isolated_reserved_tree_parent(complement: &TreeLawComplement, id: u32) -> Option<u32> {
+    let graph = &complement.complement;
+    let mut incident = graph
+        .dropped_edges
+        .values()
+        .filter(|edge| edge.src == id || edge.tgt == id);
+    let incoming = incident.next()?;
+    if incoming.tgt != id
+        || incident.next().is_some()
+        || graph
+            .original_edges
+            .values()
+            .any(|edge| edge.src == id || edge.tgt == id)
+        || graph.original_anchors.contains_key(&id)
+        || graph.original_fields.contains_key(&id)
+        || graph.original_values.contains_key(&id)
+    {
+        return None;
+    }
+    Some(incoming.src)
+}
+
+fn isolated_tree_synthesized_edge_replacement(
+    lens: &GraphLens<'_>,
+    view: &Tree,
+    complement: &TreeLawComplement,
+    parent: u32,
+    child: u32,
+    replacement: &crate::model::SEdge,
+) -> bool {
+    let graph = &complement.complement;
+    // Presentation nodes are discarded before source-edge representability
+    // is checked, so an incident arc cannot add an independent refusal.
+    if graph.synthesized_nodes.contains_key(&parent) || graph.synthesized_nodes.contains_key(&child)
+    {
+        return true;
+    }
+    let (Some(source), Some(target)) = (
+        tree_source_anchor(lens, view, complement, parent),
+        tree_source_anchor(lens, view, complement, child),
+    ) else {
+        return false;
+    };
+    lens.plan
+        .fates()
+        .iter()
+        .filter(|(edge, fate)| {
+            edge.src == source
+                && edge.tgt == target
+                && matches!(fate, EdgeFate::Keep(image) if image == replacement)
+        })
+        .count()
+        == 1
+}
+
+fn fresh_tree_edge(complement: &TreeLawComplement) -> Option<u32> {
+    let graph = &complement.complement;
+    let fan_edges = complement
+        .embedding
+        .fans
+        .iter()
+        .flat_map(|(_, parent, children)| {
+            std::iter::once(*parent).chain(children.values().copied())
+        });
+    let occupied = complement
+        .embedding
+        .arcs
+        .values()
+        .copied()
+        .chain(graph.dropped_edges.keys().copied())
+        .chain(graph.synthesized_edges.keys().copied())
+        .chain(fan_edges);
+    let id = graph
+        .floor
+        .1
+        .max(complement.embedding.next_edge)
+        .max(floor_of(occupied));
+    (id != u32::MAX).then_some(id)
+}
+
+fn first_synthesized_tree_arc(view: &Tree, complement: &TreeLawComplement) -> usize {
+    view.arcs
+        .iter()
+        .position(|(_, child, _)| {
+            complement
+                .embedding
+                .arcs
+                .get(child)
+                .is_some_and(|edge| complement.complement.synthesized_edges.contains_key(edge))
+        })
+        .unwrap_or(view.arcs.len())
 }
 
 fn tree_node_touches_synthesized_arc(
@@ -2135,7 +2334,9 @@ fn tree_node_cases(
                 .filter(|(_, node)| node.anchor == label.src)
             {
                 let mut edited = view.clone();
-                edited.nodes.insert(id, Node::new(id, &label.tgt));
+                edited
+                    .nodes
+                    .insert(id, tree_node_for_anchor(id, lens.tgt, &label.tgt));
                 let insertion = edited
                     .arcs
                     .iter()
@@ -2261,6 +2462,7 @@ fn tree_edge_cases(
 }
 
 fn tree_synthesized_negative_cases(
+    lens: &GraphLens<'_>,
     view: &Tree,
     complement: &TreeLawComplement,
     basis: &mut Vec<BasisCase<Tree, ReferenceLawError>>,
@@ -2290,16 +2492,35 @@ fn tree_synthesized_negative_cases(
             .iter()
             .position(|(_, candidate, _)| *candidate == child)
         {
-            let mut edited = view.clone();
-            edited.arcs[index].2.kind.push('#');
-            push_tree_refused(
-                basis,
-                Mutation::EditSynthesized,
-                edited,
-                PutDomainError::SynthesizedEdited {
-                    elem: ViewRef::Edge(id),
-                },
-            );
+            let original = &view.arcs[index].2;
+            // A different target edge with a unique source preimage is the
+            // only structural edit known to isolate this synthesized edge.
+            // Without one, there is no sound one-coordinate witness to emit.
+            let parent = view.arcs[index].0;
+            if let Some(replacement) = lens.tgt.edges.iter().find(|replacement| {
+                replacement.src == original.src
+                    && replacement.tgt == original.tgt
+                    && *replacement != original
+                    && isolated_tree_synthesized_edge_replacement(
+                        lens,
+                        view,
+                        complement,
+                        parent,
+                        child,
+                        replacement,
+                    )
+            }) {
+                let mut edited = view.clone();
+                edited.arcs[index].2.clone_from(replacement);
+                push_tree_refused(
+                    basis,
+                    Mutation::EditSynthesized,
+                    edited,
+                    PutDomainError::SynthesizedEdited {
+                        elem: ViewRef::Edge(id),
+                    },
+                );
+            }
         }
     }
     for id in graph
@@ -2340,27 +2561,7 @@ fn tree_other_negative_cases(
     basis: &mut Vec<BasisCase<Tree, ReferenceLawError>>,
 ) {
     let graph = &complement.complement;
-    let fan_edges = complement
-        .embedding
-        .fans
-        .iter()
-        .flat_map(|(_, parent, children)| {
-            std::iter::once(*parent).chain(children.values().copied())
-        });
-    let next_edge = complement
-        .embedding
-        .arcs
-        .values()
-        .copied()
-        .chain(graph.dropped_edges.keys().copied())
-        .chain(graph.synthesized_edges.keys().copied())
-        .chain(fan_edges)
-        .max()
-        .into_iter()
-        .chain(graph.floor.1.checked_sub(1))
-        .max()
-        .map_or(Some(0), |edge| edge.checked_add(1))
-        .filter(|edge| *edge != u32::MAX);
+    let next_edge = fresh_tree_edge(complement);
     if let (Some(id), Some(edge_id)) = (fresh_tree_node(view, complement), next_edge) {
         for (_, key) in graph
             .synthesized_edges
@@ -2370,9 +2571,21 @@ fn tree_other_negative_cases(
             let SynthKey::Contract { src, edge, .. } = key else {
                 unreachable!();
             };
+            if lens
+                .plan
+                .fates()
+                .values()
+                .any(|fate| matches!(fate, EdgeFate::Keep(image) if image == edge))
+                || !validation_neutral_tree_anchor(lens, &edge.tgt)
+            {
+                continue;
+            }
             let mut edited = view.clone();
-            edited.nodes.insert(id, Node::new(id, &edge.tgt));
-            edited.arcs.push((*src, id, edge.clone()));
+            edited
+                .nodes
+                .insert(id, tree_node_for_anchor(id, lens.tgt, &edge.tgt));
+            let insertion = first_synthesized_tree_arc(&edited, complement);
+            edited.arcs.insert(insertion, (*src, id, edge.clone()));
             push_tree_refused(
                 basis,
                 Mutation::AddContractedEdge,
@@ -2384,48 +2597,30 @@ fn tree_other_negative_cases(
         }
     }
 
-    let attachment_for = |label: &crate::model::SEdge| {
-        let (parent, _) = view
-            .nodes
-            .iter()
-            .find(|(_, node)| node.anchor == label.src)?;
-        let parent_anchor = graph.original_anchors.get(parent).cloned().or_else(|| {
-            reverse_anchor(lens.src, lens.m, &label.src)
-                .first()
-                .cloned()
-        })?;
-        let child_anchors = reverse_anchor(lens.src, lens.m, &label.tgt);
-        let [child_anchor] = child_anchors.as_slice() else {
-            return None;
-        };
-        Some((*parent, label.clone(), parent_anchor, child_anchor.clone()))
-    };
-    let attachment = lens
-        .tgt
-        .edges
-        .iter()
-        .filter(|label| uniquely_representable_edge(lens, label))
-        .find_map(attachment_for)
-        .or_else(|| lens.tgt.edges.iter().find_map(attachment_for));
-    for (id, dropped) in graph
-        .dropped_nodes
-        .iter()
-        .filter(|(id, _)| !view.nodes.contains_key(id))
-    {
-        let Some((parent, label, parent_anchor, child_anchor)) = &attachment else {
+    for (id, _) in graph.dropped_nodes.iter().filter(|(id, node)| {
+        !view.nodes.contains_key(id)
+            && node.shape != NodeShape::HyperEdge
+            && !complement
+                .embedding
+                .fans
+                .iter()
+                .any(|(fan, _, _)| fan == *id)
+    }) {
+        if next_edge.is_none() {
             break;
-        };
-        let Some(edge_id) = next_edge else {
-            break;
-        };
-        if independent_edge_refusal(lens, (parent_anchor, child_anchor), label, edge_id).is_some() {
-            continue;
         }
+        let Some(parent) = isolated_reserved_tree_parent(complement, *id) else {
+            continue;
+        };
+        let Some(label) = isolated_tree_attachment(lens, view, complement, parent) else {
+            continue;
+        };
         let mut edited = view.clone();
-        let mut node = dropped.clone();
-        node.anchor.clone_from(&label.tgt);
-        edited.nodes.insert(*id, node);
-        edited.arcs.push((*parent, *id, (*label).clone()));
+        edited
+            .nodes
+            .insert(*id, tree_node_for_anchor(*id, lens.tgt, &label.tgt));
+        let insertion = first_synthesized_tree_arc(&edited, complement);
+        edited.arcs.insert(insertion, (parent, *id, label));
         push_tree_refused(
             basis,
             Mutation::ReservedIdReuse,
@@ -3358,23 +3553,351 @@ pub fn put(
 
 #[cfg(test)]
 mod locality_tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        DomainExpectation, Mutation, ReferenceLawError, TreeLawComplement,
-        collision_free_tree_rekey, reference_lens_error, tree_basis, tree_locality_divergence,
-        tree_source_arcs,
+        DomainExpectation, EdgeFate, LawGateStatus, Mutation, PutDomainError, ReferenceLawError,
+        TreeLawComplement, ViewRef, check_tree_laws, collision_free_tree_rekey, fresh_tree_edge,
+        fresh_tree_node, reference_lens_error, tree_basis, tree_check_put_domain,
+        tree_locality_divergence, tree_put, tree_source_arcs,
     };
     use crate::encode::TreeEmbedding;
+    use crate::enumerate::lenses::{C11Stage, c11_edge, c11_stages};
     use crate::migration::Migration;
     use crate::model::{GEdge, Node, SEdge, Tree};
     use crate::pages::lenses::graph::{GraphLens, LensError};
     use crate::pages::lenses::tree::TreeOperationalError;
     use crate::restrict::{Complement, NoValueLayer, SynthKey, compile};
-    use crate::schema::Schema;
+    use crate::schema::{
+        Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+        Reference, ResolveMode, Schema,
+    };
+    use crate::value::{Presence, Value};
 
     fn label() -> SEdge {
         SEdge::new("r", "leaf", "child", Some("child"))
+    }
+
+    fn insert_nonnullable_reference(schema: &mut Schema) {
+        schema.keys.entry("b".to_owned()).or_default().push(Key {
+            id: "reference-target".to_owned(),
+            parts: vec![KeyPart::Path(Vec::new())],
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+            equality: Vec::new(),
+        });
+        let reference = Reference {
+            id: "required-ref".to_owned(),
+            holder: "a".to_owned(),
+            source: RefSource::KeyValue {
+                parts: vec![Vec::new()],
+            },
+            target_vertex: "b".to_owned(),
+            target_key: Some("reference-target".to_owned()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        };
+        schema.references.insert(reference.id.clone(), reference);
+    }
+
+    fn contraction_source() -> Tree {
+        Tree {
+            nodes: [
+                (0, Node::new(0, "a")),
+                (1, Node::new(1, "a")),
+                (2, Node::new(2, "b")),
+            ]
+            .into(),
+            arcs: vec![(0, 2, c11_edge("a", "b")), (2, 1, c11_edge("b", "a"))],
+            fans: Vec::new(),
+            root: 0,
+        }
+    }
+
+    fn reserved_source() -> Tree {
+        Tree {
+            nodes: [(0, Node::new(0, "a")), (2, Node::new(2, "b"))].into(),
+            arcs: vec![(0, 2, c11_edge("a", "b"))],
+            fans: Vec::new(),
+            root: 0,
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum ReservedAttachment {
+        FirstEligible,
+        LaterEligible,
+        None,
+    }
+
+    fn synthesized_parent_reserved_fixture(
+        attachment: ReservedAttachment,
+    ) -> (Schema, Schema, Migration, Tree) {
+        let ab = SEdge::new("a", "b", "rel", Some("path"));
+        let za = SEdge::new("z", "a", "rel", Some("to-a"));
+        let zm = SEdge::new("z", "m", "rel", Some("to-m"));
+        let zy = SEdge::new("z", "y", "rel", Some("to-y"));
+        let mx = SEdge::new("m", "x", "rel", Some("attach"));
+        let md = SEdge::new("m", "d", "rel", Some("drop"));
+        let zd = SEdge::new("z", "d", "rel", Some("drop"));
+        let yd = SEdge::new("y", "d", "rel", Some("drop"));
+        let (drop_parent, dropped) = match attachment {
+            ReservedAttachment::FirstEligible => (10, md),
+            ReservedAttachment::LaterEligible => (0, zd),
+            ReservedAttachment::None => (11, yd),
+        };
+        let source_schema = Schema::default()
+            .vertex("z", "record")
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .vertex("x", "record")
+            .vertex("y", "record")
+            .vertex("d", "record")
+            .edge("z", "a", "rel", Some("to-a"))
+            .edge("z", "m", "rel", Some("to-m"))
+            .edge("z", "y", "rel", Some("to-y"))
+            .edge("a", "b", "rel", Some("path"))
+            .edge("m", "x", "rel", Some("attach"))
+            .edge(&dropped.src, &dropped.tgt, "rel", Some("drop"));
+        let target_schema = Schema::default()
+            .vertex("z", "record")
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .vertex("x", "record")
+            .vertex("y", "record")
+            .edge("a", "m", "rel", Some("path-in"))
+            .edge("m", "b", "rel", Some("path-out"))
+            .edge("m", "x", "rel", Some("attach"))
+            .edge("z", "a", "rel", Some("to-a"))
+            .edge("z", "m", "rel", Some("to-m"))
+            .edge("z", "y", "rel", Some("to-y"));
+        let migration = Migration {
+            surviving_verts: ["z", "a", "m", "b", "x", "y"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            surviving_edges: [za.clone(), zm.clone(), zy.clone(), mx]
+                .into_iter()
+                .collect(),
+            expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["m".to_owned()])].into(),
+            ..Migration::default()
+        };
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "z")),
+                (1, Node::new(1, "b")),
+                (2, Node::new(2, "d")),
+                (4, Node::new(4, "a")),
+                (10, Node::new(10, "m")),
+                (11, Node::new(11, "y")),
+            ]
+            .into(),
+            arcs: vec![
+                (0, 4, za),
+                (4, 1, ab),
+                (0, 10, zm),
+                (0, 11, zy),
+                (drop_parent, 2, dropped),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        };
+        (source_schema, target_schema, migration, source)
+    }
+
+    fn without_reserved_tree_residue(
+        mut complement: TreeLawComplement,
+        id: u32,
+    ) -> TreeLawComplement {
+        let incident_source_edges: BTreeSet<_> = complement
+            .source_arcs
+            .iter()
+            .filter(|(_, (parent, child))| *parent == id || *child == id)
+            .map(|(edge, _)| *edge)
+            .collect();
+        complement
+            .source_arcs
+            .retain(|_, (parent, child)| *parent != id && *child != id);
+        complement.embedding.arcs.remove(&id);
+        complement.complement.dropped_nodes.remove(&id);
+        complement
+            .complement
+            .dropped_edges
+            .retain(|_, edge| edge.src != id && edge.tgt != id);
+        complement
+            .complement
+            .original_edges
+            .retain(|_, edge| edge.src != id && edge.tgt != id);
+        complement.complement.original_anchors.remove(&id);
+        complement.complement.original_fields.remove(&id);
+        complement.complement.original_values.remove(&id);
+        complement.complement.synthesized_nodes.retain(|node, key| {
+            *node != id
+                && match key {
+                    SynthKey::Contract { src, tgt, .. }
+                    | SynthKey::ContractExpand { src, tgt, .. } => *src != id && *tgt != id,
+                    SynthKey::Expand { source_edge, .. } => {
+                        !incident_source_edges.contains(source_edge)
+                    }
+                }
+        });
+        complement
+            .complement
+            .synthesized_edges
+            .retain(|_, key| match key {
+                SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
+                    *src != id && *tgt != id
+                }
+                SynthKey::Expand { source_edge, .. } => {
+                    !incident_source_edges.contains(source_edge)
+                }
+            });
+        complement
+    }
+
+    fn assert_reserved_tree_counterfactual(
+        lens: &GraphLens<'_>,
+        candidate: &super::BasisCase<Tree, ReferenceLawError>,
+        complement: &TreeLawComplement,
+        id: u32,
+    ) {
+        let expected = PutDomainError::IdCollision {
+            elem: ViewRef::Node(id),
+        };
+        assert_eq!(
+            candidate.domain,
+            DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![expected.clone()]))
+        );
+        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain(
+            lens,
+            &candidate.view,
+            &complement.embedding,
+            &complement.complement,
+        ) else {
+            panic!("the reused id must be the complete domain report");
+        };
+        assert_eq!(observed, vec![expected.clone()]);
+        assert_eq!(
+            tree_put(
+                lens,
+                &candidate.view,
+                &complement.embedding,
+                &complement.complement,
+            ),
+            Err(LensError::PutDomain(expected))
+        );
+
+        let stripped = without_reserved_tree_residue(complement.clone(), id);
+        assert_eq!(
+            tree_check_put_domain(
+                lens,
+                &candidate.view,
+                &stripped.embedding,
+                &stripped.complement,
+            ),
+            Ok(())
+        );
+        let Ok(restored) = tree_put(
+            lens,
+            &candidate.view,
+            &stripped.embedding,
+            &stripped.complement,
+        ) else {
+            panic!("removing the colliding residue admits the witness");
+        };
+        let Ok(validation) = crate::pages::validation::implementation::validate_tree(
+            lens.src,
+            &BTreeMap::new(),
+            &restored,
+        ) else {
+            panic!("the counterfactual source has a tree presentation");
+        };
+        assert_eq!(
+            validation.status,
+            crate::pages::validation::implementation::CheckStatus::Passed
+        );
+        let Some(Ok((roundtrip, graph, embedding))) = super::tree_get(lens, &restored) else {
+            panic!("the counterfactual source has a tree view");
+        };
+        let roundtrip_complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&restored),
+        };
+        assert!(<super::TreeShape as super::LensShape>::equivalent(
+            &candidate.view,
+            &super::tree_synth_index(&stripped),
+            &roundtrip,
+            &super::tree_synth_index(&roundtrip_complement),
+        ));
+    }
+
+    fn stage_tree_basis(
+        stage: &C11Stage,
+        source: &Tree,
+    ) -> Vec<super::BasisCase<Tree, ReferenceLawError>> {
+        let Ok(plan) = compile(&stage.source, &stage.target, &stage.migration) else {
+            panic!("the stage compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &stage.source,
+            &stage.target,
+            &stage.migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the stage lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, source) else {
+            panic!("the stage has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(source),
+        };
+        tree_basis(&lens, &view, &complement)
+    }
+
+    fn adversarial_contraction_edit_stage(include_actual_preimage: bool) -> (C11Stage, SEdge) {
+        let stages = c11_stages();
+        let Some(base) = stages.iter().find(|stage| stage.name == "C") else {
+            panic!("the contraction stage exists");
+        };
+        let mut stage = base.clone();
+        let replacement = SEdge::new("a", "a", "e", Some("replacement"));
+        let source_cc = SEdge::new("c", "c", "e", Some("replacement"));
+        let kind = stage.source.vertices["a"].clone();
+        stage.source.vertices.insert("c".to_owned(), kind);
+        stage.source.edges.insert(source_cc.clone());
+        stage.target.edges.insert(replacement.clone());
+        stage
+            .migration
+            .vertex_remap
+            .insert("c".to_owned(), "a".to_owned());
+        stage
+            .migration
+            .edge_remap
+            .insert(source_cc, replacement.clone());
+        if include_actual_preimage {
+            stage.source.edges.insert(replacement.clone());
+            stage
+                .migration
+                .edge_remap
+                .insert(replacement.clone(), replacement.clone());
+        }
+        (stage, replacement)
     }
 
     #[test]
@@ -3576,6 +4099,677 @@ mod locality_tests {
                     (1, 3, child),
                 ],
             ]
+        );
+    }
+
+    #[test]
+    fn fresh_tree_nodes_honor_every_reserved_carrier_and_exhaustion_floor() {
+        let view = Tree {
+            nodes: [(0, Node::new(0, "r"))].into(),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+            root: 0,
+        };
+        let mut complement = TreeLawComplement {
+            complement: Complement {
+                dropped_nodes: [(2, Node::new(2, "leaf"))].into(),
+                floor: (4, 0),
+                ..Complement::default()
+            },
+            embedding: TreeEmbedding {
+                next_node: 1,
+                ..TreeEmbedding::default()
+            },
+            source_arcs: BTreeMap::new(),
+        };
+        assert_eq!(fresh_tree_node(&view, &complement), Some(4));
+
+        complement.embedding.next_node = 6;
+        assert_eq!(fresh_tree_node(&view, &complement), Some(6));
+
+        complement.embedding.fans.push((8, 0, BTreeMap::new()));
+        assert_eq!(fresh_tree_node(&view, &complement), Some(9));
+
+        complement.complement.synthesized_nodes.insert(
+            10,
+            SynthKey::Contract {
+                src: 0,
+                tgt: 1,
+                edge: label(),
+            },
+        );
+        assert_eq!(fresh_tree_node(&view, &complement), Some(11));
+
+        complement
+            .complement
+            .original_anchors
+            .insert(12, "leaf".into());
+        assert_eq!(fresh_tree_node(&view, &complement), Some(13));
+
+        complement.complement.floor.0 = u32::MAX;
+        assert_eq!(fresh_tree_node(&view, &complement), None);
+    }
+
+    #[test]
+    fn fresh_tree_edges_honor_every_reserved_carrier_and_exhaustion_floor() {
+        let mut complement = TreeLawComplement {
+            complement: Complement {
+                synthesized_edges: [(
+                    5,
+                    SynthKey::Contract {
+                        src: 0,
+                        tgt: 1,
+                        edge: label(),
+                    },
+                )]
+                .into(),
+                floor: (0, 4),
+                ..Complement::default()
+            },
+            embedding: TreeEmbedding {
+                arcs: [(1, 2)].into(),
+                fans: vec![(8, 6, BTreeMap::new())],
+                next_edge: 1,
+                ..TreeEmbedding::default()
+            },
+            source_arcs: BTreeMap::new(),
+        };
+        assert_eq!(fresh_tree_edge(&complement), Some(7));
+
+        complement.embedding.next_edge = 9;
+        assert_eq!(fresh_tree_edge(&complement), Some(9));
+
+        complement.complement.floor.1 = 10;
+        assert_eq!(fresh_tree_edge(&complement), Some(10));
+
+        complement.complement.floor.1 = u32::MAX;
+        assert_eq!(fresh_tree_edge(&complement), None);
+    }
+
+    #[test]
+    fn tree_default_nodes_match_the_operational_payload_convention() {
+        let schema = Schema::default().vertex("flag", "boolean");
+        assert_eq!(
+            super::tree_node_for_anchor(3, &schema, "flag").value,
+            Some(Presence::Present(Value::Bool(false)))
+        );
+    }
+
+    #[test]
+    fn contracted_tree_basis_skips_direct_ambiguous_and_required_witnesses() {
+        let stages = c11_stages();
+        let Some(base) = stages.iter().find(|stage| stage.name == "C") else {
+            panic!("the contraction stage exists");
+        };
+        let source = contraction_source();
+        assert!(
+            stage_tree_basis(base, &source)
+                .iter()
+                .any(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+        );
+
+        let mut direct = base.clone();
+        let direct_edge = c11_edge("a", "a");
+        direct.source.edges.insert(direct_edge.clone());
+        direct.migration.surviving_edges.insert(direct_edge);
+        assert_eq!(
+            stage_tree_basis(&direct, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+
+        let mut ambiguous = base.clone();
+        let kind = ambiguous.source.vertices["a"].clone();
+        ambiguous.source.vertices.insert("c".to_owned(), kind);
+        ambiguous
+            .migration
+            .vertex_remap
+            .insert("c".to_owned(), "a".to_owned());
+        assert_eq!(
+            stage_tree_basis(&ambiguous, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+
+        let mut required = base.clone();
+        required
+            .source
+            .required
+            .insert("a".to_owned(), vec![c11_edge("a", "b")]);
+        assert_eq!(
+            stage_tree_basis(&required, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+
+        let mut nonnullable = base.clone();
+        insert_nonnullable_reference(&mut nonnullable.source);
+        assert_eq!(
+            stage_tree_basis(&nonnullable, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn synthesized_tree_edge_edits_use_endpoint_specific_preimages() {
+        let (stage, replacement) = adversarial_contraction_edit_stage(true);
+
+        let Ok(plan) = compile(&stage.source, &stage.target, &stage.migration) else {
+            panic!("the adversarial contraction compiles");
+        };
+        assert_eq!(
+            plan.fates()
+                .values()
+                .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == &replacement))
+                .count(),
+            2
+        );
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &stage.source,
+            &stage.target,
+            &stage.migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the adversarial lens constructs");
+        };
+        let source = contraction_source();
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the adversarial contraction has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        let edited: Vec<_> = tree_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|candidate| candidate.mutation == Mutation::EditSynthesized)
+            .collect();
+        assert_eq!(edited.len(), 1);
+        let DomainExpectation::Refused(ReferenceLawError::PutDomain(expected)) = &edited[0].domain
+        else {
+            panic!("the synthesized edit must retain its designated refusal");
+        };
+        assert!(matches!(
+            expected.as_slice(),
+            [PutDomainError::SynthesizedEdited { .. }]
+        ));
+        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain(
+            &lens,
+            &edited[0].view,
+            &complement.embedding,
+            &complement.complement,
+        ) else {
+            panic!("the synthesized edit must be refused");
+        };
+        assert_eq!(&observed, expected);
+
+        let (mismatched, replacement) = adversarial_contraction_edit_stage(false);
+        let Ok(plan) = compile(
+            &mismatched.source,
+            &mismatched.target,
+            &mismatched.migration,
+        ) else {
+            panic!("the endpoint-mismatched contraction compiles");
+        };
+        assert_eq!(
+            plan.fates()
+                .values()
+                .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == &replacement))
+                .count(),
+            1
+        );
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &mismatched.source,
+            &mismatched.target,
+            &mismatched.migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the endpoint-mismatched lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the endpoint-mismatched contraction has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(
+            tree_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::EditSynthesized)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn reserved_tree_basis_skips_required_key_and_predicate_anchors() {
+        let stages = c11_stages();
+        let Some(project) = stages.iter().find(|stage| stage.name == "P") else {
+            panic!("the projection stage exists");
+        };
+        let mut base = project.clone();
+        let attachable = c11_edge("a", "a");
+        base.source.edges.insert(attachable.clone());
+        base.target.edges.insert(attachable.clone());
+        base.migration.surviving_edges.insert(attachable);
+        let source = reserved_source();
+        assert!(
+            stage_tree_basis(&base, &source)
+                .iter()
+                .any(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+        );
+        let mut variants = Vec::new();
+
+        let mut required = base.clone();
+        required
+            .source
+            .required
+            .insert("a".to_owned(), vec![c11_edge("a", "b")]);
+        variants.push(required);
+
+        let mut keyed = base.clone();
+        keyed.source.keys.insert(
+            "a".to_owned(),
+            vec![Key {
+                id: "a-key".to_owned(),
+                parts: vec![KeyPart::Path(vec![c11_edge("a", "b")])],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        variants.push(keyed);
+
+        let mut predicate = base.clone();
+        predicate.migration.conditional.insert("a".to_owned());
+        variants.push(predicate);
+
+        let mut nonnullable = base.clone();
+        insert_nonnullable_reference(&mut nonnullable.source);
+        variants.push(nonnullable);
+
+        for variant in variants {
+            assert_eq!(
+                stage_tree_basis(&variant, &source)
+                    .iter()
+                    .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_tree_basis_skips_a_synthesized_first_parent() {
+        let (source_schema, target_schema, migration, source) =
+            synthesized_parent_reserved_fixture(ReservedAttachment::FirstEligible);
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("the synthesized-parent fixture compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the synthesized-parent lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the synthesized-parent source has a tree view");
+        };
+        assert_eq!(
+            graph.synthesized_nodes.len(),
+            1,
+            "the fixture must have exactly one synthesized node"
+        );
+        let Some(old_id) = graph.synthesized_nodes.keys().copied().next() else {
+            panic!("the synthesized node must have an id");
+        };
+        assert!(old_id > 10);
+        let moves = BTreeMap::from([(old_id, 3)]);
+        let mut nodes = view.nodes.clone();
+        let Some(mut synthesized) = nodes.remove(&old_id) else {
+            panic!("the synthesized node is present");
+        };
+        synthesized.id = 3;
+        nodes.insert(3, synthesized);
+        let view = Tree {
+            nodes,
+            arcs: view
+                .arcs
+                .iter()
+                .map(|(parent, child, label)| {
+                    (
+                        if *parent == old_id { 3 } else { *parent },
+                        if *child == old_id { 3 } else { *child },
+                        label.clone(),
+                    )
+                })
+                .collect(),
+            fans: view.fans,
+            root: view.root,
+        };
+        let complement = TreeLawComplement {
+            complement: super::reindexed_complement(&graph, &moves, &BTreeMap::new()),
+            embedding: super::reindexed_embedding(&embedding, &moves, &BTreeMap::new()),
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(view.nodes[&3].anchor, "m");
+        assert_eq!(view.nodes[&10].anchor, "m");
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Ok(())
+        );
+        assert_eq!(
+            tree_put(&lens, &view, &complement.embedding, &complement.complement,),
+            Ok(source)
+        );
+
+        let reserved: Vec<_> = tree_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+            .collect();
+        assert_eq!(reserved.len(), 1);
+        let candidate = &reserved[0];
+        assert!(
+            candidate
+                .view
+                .arcs
+                .iter()
+                .any(|(parent, child, _)| (*parent, *child) == (10, 2))
+        );
+        assert!(
+            !candidate
+                .view
+                .arcs
+                .iter()
+                .any(|(parent, child, _)| (*parent, *child) == (3, 2))
+        );
+        assert_reserved_tree_counterfactual(&lens, candidate, &complement, 2);
+    }
+
+    #[test]
+    fn reserved_tree_basis_uses_a_later_attachment_at_the_original_parent() {
+        let (source_schema, target_schema, migration, source) =
+            synthesized_parent_reserved_fixture(ReservedAttachment::LaterEligible);
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("the mismatched-parent fixture compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the mismatched-parent lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the mismatched-parent source has a tree view");
+        };
+        let Some(old_id) = graph.synthesized_nodes.keys().copied().next() else {
+            panic!("the fixture has a synthesized node");
+        };
+        assert_eq!(graph.synthesized_nodes.len(), 1);
+        let moves = BTreeMap::from([(old_id, 3)]);
+        let mut nodes = view.nodes.clone();
+        let Some(mut synthesized) = nodes.remove(&old_id) else {
+            panic!("the synthesized node is present");
+        };
+        synthesized.id = 3;
+        nodes.insert(3, synthesized);
+        let view = Tree {
+            nodes,
+            arcs: view
+                .arcs
+                .iter()
+                .map(|(parent, child, label)| {
+                    (
+                        if *parent == old_id { 3 } else { *parent },
+                        if *child == old_id { 3 } else { *child },
+                        label.clone(),
+                    )
+                })
+                .collect(),
+            fans: view.fans,
+            root: view.root,
+        };
+        let complement = TreeLawComplement {
+            complement: super::reindexed_complement(&graph, &moves, &BTreeMap::new()),
+            embedding: super::reindexed_embedding(&embedding, &moves, &BTreeMap::new()),
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Ok(())
+        );
+        assert_eq!(
+            tree_put(&lens, &view, &complement.embedding, &complement.complement,),
+            Ok(source)
+        );
+        let reserved: Vec<_> = tree_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+            .collect();
+        assert_eq!(reserved.len(), 1);
+        let candidate = &reserved[0];
+        assert!(candidate.view.arcs.iter().any(|(parent, child, label)| {
+            (*parent, *child, label.src.as_str()) == (0, 2, "z")
+        }));
+        assert!(
+            !candidate
+                .view
+                .arcs
+                .iter()
+                .any(|(parent, child, _)| (*parent, *child) == (10, 2))
+        );
+        assert_reserved_tree_counterfactual(&lens, candidate, &complement, 2);
+    }
+
+    #[test]
+    fn reserved_tree_basis_skips_an_original_parent_without_an_attachment() {
+        let (source_schema, target_schema, migration, source) =
+            synthesized_parent_reserved_fixture(ReservedAttachment::None);
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("the no-attachment fixture compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the no-attachment lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the no-attachment source has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(
+            tree_basis(&lens, &view, &complement)
+                .into_iter()
+                .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn reserved_tree_isolation_rejects_outgoing_and_fan_residue() {
+        let (source_schema, target_schema, migration, source) =
+            synthesized_parent_reserved_fixture(ReservedAttachment::FirstEligible);
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("the residue fixture compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the residue lens constructs");
+        };
+        let Some(Ok((_, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the residue source has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(
+            super::isolated_reserved_tree_parent(&complement, 2),
+            Some(10)
+        );
+
+        let mut outgoing = complement.clone();
+        outgoing.complement.dropped_edges.insert(
+            u32::MAX,
+            GEdge {
+                src: 2,
+                tgt: 0,
+                label: SEdge::new("d", "z", "rel", Some("hidden-child")),
+                position: None,
+            },
+        );
+        assert_eq!(super::isolated_reserved_tree_parent(&outgoing, 2), None);
+
+        let mut fan = complement;
+        let mut fan_node = Node::new(u32::MAX - 1, "fan");
+        fan_node.shape = crate::model::NodeShape::HyperEdge;
+        fan.complement.dropped_nodes.insert(fan_node.id, fan_node);
+        fan.complement.dropped_edges.insert(
+            u32::MAX,
+            GEdge {
+                src: u32::MAX - 1,
+                tgt: 2,
+                label: SEdge::new("fan", "d", "__label__", Some("member")),
+                position: None,
+            },
+        );
+        assert_eq!(super::isolated_reserved_tree_parent(&fan, 2), None);
+    }
+
+    #[test]
+    fn contracted_tree_basis_retains_its_designated_refusal() {
+        let stages = c11_stages();
+        let Some(stage) = stages.iter().find(|stage| stage.name == "C") else {
+            panic!("the contraction stage exists");
+        };
+        let Ok(plan) = compile(&stage.source, &stage.target, &stage.migration) else {
+            panic!("the contraction stage compiles");
+        };
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &stage.source,
+            &stage.target,
+            &stage.migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the contraction lens constructs");
+        };
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "a")),
+                (1, Node::new(1, "a")),
+                (2, Node::new(2, "b")),
+            ]
+            .into(),
+            arcs: vec![(0, 2, c11_edge("a", "b")), (2, 1, c11_edge("b", "a"))],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the contraction has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        let contracted: Vec<_> = tree_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+            .collect();
+        assert_eq!(contracted.len(), 1);
+        let candidate = &contracted[0];
+        assert!(candidate.view.nodes.contains_key(&3));
+        assert_eq!(
+            candidate
+                .view
+                .arcs
+                .iter()
+                .map(|(parent, child, _)| (*parent, *child))
+                .collect::<Vec<_>>(),
+            vec![(0, 3), (0, 1)]
+        );
+        let expected = PutDomainError::ContractedEdgeInserted {
+            elem: ViewRef::Edge(3),
+        };
+        assert_eq!(
+            candidate.domain,
+            DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![expected.clone()]))
+        );
+        let Err(LensError::PutDomainReport(errors)) = tree_check_put_domain(
+            &lens,
+            &candidate.view,
+            &complement.embedding,
+            &complement.complement,
+        ) else {
+            panic!("the inserted contracted edge must be the complete domain report");
+        };
+        assert_eq!(errors, vec![expected.clone()]);
+        assert_eq!(
+            tree_put(
+                &lens,
+                &candidate.view,
+                &complement.embedding,
+                &complement.complement,
+            ),
+            Err(LensError::PutDomain(expected))
+        );
+
+        let report = check_tree_laws(&lens, &source);
+        assert!(
+            report
+                .gates
+                .iter()
+                .all(|gate| { matches!(&gate.status, LawGateStatus::Passed { .. }) })
         );
     }
 
