@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, EdgeId, Fan, GEdge, GInstance, GraphComplement, IdFloor, Node,
+    CompiledMigration, EdgeId, Fan, GEdge, GInstance, GraphComplement, IdFloor, Node, NodeShape,
     RestrictError, RestrictPlan, SynthKey, WInstance, graph_restrict_with_plan,
     wtype_restrict_with_plan,
 };
@@ -1016,6 +1016,84 @@ fn a_kept_fan_edge_is_recorded_only_when_its_label_does_not_map_back() {
         complement.original_anchors.get(&fan_node),
         Some(&Name::from("h"))
     );
+}
+
+#[test]
+fn consecutive_identity_restrictions_preserve_each_fan_child_form() {
+    // The fan domain reads the endpoints of reified edges from the graph,
+    // while a schema hyper-edge assigns an anchor to each named child. A
+    // graph may therefore be in the fan domain even when a child edge's raw
+    // schema target differs from the anchor of its endpoint. The first
+    // identity restriction normalizes that target and records the raw edge.
+    // The second must record the normalized intermediate edge in turn, so
+    // the two complements retain the two distinct source forms needed by
+    // two right-to-left identity steps.
+    let protocol = Protocol::default();
+    let s = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .unwrap()
+        .vertex("a", "record", None)
+        .unwrap()
+        .vertex("b", "record", None)
+        .unwrap()
+        .hyper_edge(
+            "h",
+            "rel",
+            HashMap::from([
+                ("p".to_owned(), "r".to_owned()),
+                ("l".to_owned(), "b".to_owned()),
+            ]),
+            "p",
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+    let parent = Edge {
+        src: "h".into(),
+        tgt: "r".into(),
+        kind: "hyper_parent".into(),
+        name: Some("p".into()),
+    };
+    let raw_child = Edge {
+        src: "h".into(),
+        tgt: "b".into(),
+        kind: "hyper_label".into(),
+        name: Some("l".into()),
+    };
+    let mut fan = Node::new(2, "h");
+    fan.shape = NodeShape::HyperEdge;
+    let child_id = EdgeId(11);
+    let raw = nodes(&[(0, "r"), (1, "a")])
+        .with_node(fan.clone())
+        .with_edge_id(EdgeId(10), 2, 0, parent.clone())
+        .with_edge_id(child_id, 2, 1, raw_child.clone());
+    let plan = RestrictPlan::compile(&s, &s, &keep(&["r", "a", "b"])).unwrap();
+
+    let (normalized, raw_complement) = graph_restrict_with_plan(&raw, &plan).unwrap();
+    let normalized_child = normalized.edge(child_id).unwrap().clone();
+    assert_eq!(normalized_child.edge.tgt, "a");
+    assert_eq!(
+        raw_complement.original_edges.get(&child_id),
+        raw.edge(child_id)
+    );
+
+    let (_, normalized_complement) = graph_restrict_with_plan(&normalized, &plan).unwrap();
+    assert_eq!(
+        normalized_complement.original_edges,
+        BTreeMap::from([(child_id, normalized_child)])
+    );
+
+    // A schema-canonical identity has no residue: the stricter child check
+    // distinguishes only source forms whose endpoint anchor the schema does
+    // not represent.
+    let canonical = nodes(&[(0, "r"), (1, "b")])
+        .with_node(fan)
+        .with_edge_id(EdgeId(10), 2, 0, parent)
+        .with_edge_id(child_id, 2, 1, raw_child);
+    let (canonical_view, canonical_complement) =
+        graph_restrict_with_plan(&canonical, &plan).unwrap();
+    assert!(GInstance::identical(&canonical_view, &canonical));
+    assert!(canonical_complement.residue_is_trivial());
 }
 
 #[test]
