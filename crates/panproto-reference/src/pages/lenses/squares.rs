@@ -337,6 +337,11 @@ fn fast_tree_state(lens: &GraphLens<'_>, source: &Tree) -> Result<FastTreeState,
         ));
     };
     let (view, complement, embedding) = match get {
+        Err(RestrictError::RootPruned { .. }) => {
+            return Err(SquareError::OutsideExactDomain(
+                "the tree route prunes the distinguished root",
+            ));
+        }
         Err(error) => return Err(SquareError::Restrict(error)),
         Ok(state) => state,
     };
@@ -391,10 +396,27 @@ fn graph_square_impl(
             }))
         });
 
-    let fast_put_pair = fast_state.as_ref().ok().map(|fast| {
+    let native_fast_put_pair = fast_state.as_ref().ok().map(|fast| {
         let (view, embedding) = put_view.unwrap_or((&fast.view, &fast.embedding));
         tree_put_with_graph(lens, view, embedding, &fast.complement).map_err(graph_put_error)
     });
+    // Production dispatch checks the graph put domain before entering the
+    // tree engine. A graph-domain refusal therefore runs the graph route and
+    // exposes that route's exact error; a distinct tree-domain refusal is not
+    // observable through the fast entry point. Model that fallback here, and
+    // compare the native tree put only after the graph precheck succeeds.
+    let fast_put_pair = match graph_put_pair.as_ref() {
+        Some(Err(error)) => Some(Err(error.clone())),
+        _ => native_fast_put_pair,
+    };
+    // A caller-supplied tree presentation is in the square's common domain
+    // only when its durable embedding represents every observed coordinate.
+    // In particular, a sibling reorder with unchanged arc ids has no graph
+    // coordinate: graph readback orders those arcs by id and recovers the old
+    // order.  Treat that presentation loss as an exact-domain refusal rather
+    // than as a failure of either lens implementation.
+    let presentation = graph_square_presentation(lens, put_view, &fast_state);
+    let presentation_error = presentation_domain_error(presentation.as_ref());
     let graph_put = graph_put_pair.as_ref().map(|result| match result {
         Ok((_, graph)) => Ok(graph.clone()),
         Err(error) => Err(error.clone()),
@@ -403,14 +425,24 @@ fn graph_square_impl(
         Ok((tree, _)) => Ok(tree.clone()),
         Err(error) => Err(error.clone()),
     });
-    let fast_put = fast_put_pair.as_ref().map(|result| match result {
-        Ok((_, graph)) => Ok(graph.clone()),
-        Err(error) => Err(error.clone()),
-    });
-    let fast_tree_put = fast_put_pair.as_ref().map(|result| match result {
-        Ok((tree, _)) => Ok(tree.clone()),
-        Err(error) => Err(error.clone()),
-    });
+    let fast_put = presentation_error.as_ref().map_or_else(
+        || {
+            fast_put_pair.as_ref().map(|result| match result {
+                Ok((_, graph)) => Ok(graph.clone()),
+                Err(error) => Err(error.clone()),
+            })
+        },
+        |error| Some(Err(error.clone())),
+    );
+    let fast_tree_put = presentation_error.as_ref().map_or_else(
+        || {
+            fast_put_pair.as_ref().map(|result| match result {
+                Ok((tree, _)) => Ok(tree.clone()),
+                Err(error) => Err(error.clone()),
+            })
+        },
+        |error| Some(Err(error.clone())),
+    );
 
     let fast_tree_get = fast_state
         .as_ref()
@@ -437,6 +469,42 @@ fn graph_square_impl(
         fast_tree_put,
     };
     classify_graph_observation(observation)
+}
+
+fn graph_square_presentation(
+    lens: &GraphLens<'_>,
+    put_view: Option<(&Tree, &TreeEmbedding)>,
+    fast_state: &Result<FastTreeState, SquareError>,
+) -> Option<Result<(), SquareError>> {
+    put_view.and_then(|(view, embedding)| {
+        let fast = fast_state.as_ref().ok()?;
+        Some(
+            square_tree_view_graph(lens, view, embedding, &fast.complement)
+                .map_err(SquareError::TreeOperational)
+                .and_then(|graph| {
+                    graph_to_tree(&graph, view.root, &schema_parent_name(Some(lens.tgt)))
+                        .map_err(tree_shape_error)
+                })
+                .and_then(|round_trip| {
+                    if &round_trip == view {
+                        Ok(())
+                    } else {
+                        Err(SquareError::OutsideExactDomain(
+                            "the durable embedding does not represent the edited tree presentation",
+                        ))
+                    }
+                }),
+        )
+    })
+}
+
+fn presentation_domain_error(
+    presentation: Option<&Result<(), SquareError>>,
+) -> Option<SquareError> {
+    match presentation {
+        Some(Err(error @ SquareError::OutsideExactDomain(_))) => Some(error.clone()),
+        _ => None,
+    }
 }
 
 fn classify_graph_observation(
@@ -939,12 +1007,121 @@ pub fn table_put_square(
     table_square_impl(graph_lens, table_lens, source, Some(view))
 }
 
+/// One of the five relational migrations in the independent L18 carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelationalTableMigration {
+    /// Keep both tables, their scalar columns, and their relation.
+    Identity,
+    /// Rename column `a.x` to `a.z`.
+    RenameColumn,
+    /// Drop column `a.x`.
+    DropColumn,
+    /// Drop relation `a.ab -> b`.
+    DropRelation,
+    /// Drop table `b`, including its incident relation pairs.
+    DropTable,
+}
+
+/// Independent row-and-relation get semantics for the L18 carrier.
+///
+/// This definition operates only on the dependency-free reference table
+/// model. It does not call a production restrict or lens operation.
+#[must_use]
+pub fn relational_table_get(migration: RelationalTableMigration, source: &Table) -> Table {
+    let mut view = source.clone();
+    match migration {
+        RelationalTableMigration::Identity => {}
+        RelationalTableMigration::RenameColumn => {
+            for (table, cells) in view.rows.values_mut() {
+                if table == "a"
+                    && let Some(value) = cells.remove("x")
+                {
+                    cells.insert("z".to_owned(), value);
+                }
+            }
+        }
+        RelationalTableMigration::DropColumn => {
+            for (table, cells) in view.rows.values_mut() {
+                if table == "a" {
+                    cells.remove("x");
+                }
+            }
+        }
+        RelationalTableMigration::DropRelation => view.pairs.clear(),
+        RelationalTableMigration::DropTable => {
+            view.rows.retain(|_, (table, _)| table != "b");
+            view.pairs.retain(|(_, source, target)| {
+                view.rows.contains_key(source) && view.rows.contains_key(target)
+            });
+        }
+    }
+    view
+}
+
+fn restore_relational_pairs(source: &Table, restored: &mut Table) {
+    for pair @ (_, source_id, target_id) in &source.pairs {
+        if restored.rows.contains_key(source_id) && restored.rows.contains_key(target_id) {
+            restored.pairs.insert(pair.clone());
+        }
+    }
+}
+
+/// Independent row-and-relation put semantics for successful L18 edits.
+///
+/// Reserved-id collisions are refusal cases and are checked separately by
+/// the certificate before this total success oracle is called.
+#[must_use]
+pub fn relational_table_put(
+    migration: RelationalTableMigration,
+    source: &Table,
+    view: &Table,
+) -> Table {
+    let mut restored = view.clone();
+    match migration {
+        RelationalTableMigration::Identity => {}
+        RelationalTableMigration::RenameColumn => {
+            for (table, cells) in restored.rows.values_mut() {
+                if table == "a"
+                    && let Some(value) = cells.remove("z")
+                {
+                    cells.insert("x".to_owned(), value);
+                }
+            }
+        }
+        RelationalTableMigration::DropColumn => {
+            for (id, (table, cells)) in &mut restored.rows {
+                if table != "a" {
+                    continue;
+                }
+                if let Some(value) = source
+                    .rows
+                    .get(id)
+                    .and_then(|(_, source_cells)| source_cells.get("x"))
+                {
+                    cells.insert("x".to_owned(), value.clone());
+                }
+            }
+        }
+        RelationalTableMigration::DropRelation => restore_relational_pairs(source, &mut restored),
+        RelationalTableMigration::DropTable => {
+            for (id, (table, cells)) in &source.rows {
+                if table == "b" {
+                    restored.rows.insert(*id, (table.clone(), cells.clone()));
+                }
+            }
+            restore_relational_pairs(source, &mut restored);
+        }
+    }
+    restored
+}
+
 #[cfg(test)]
 mod graph_square_tests {
     use std::collections::BTreeMap;
 
     use super::{
-        GraphSquareObservation, SquareResult, SquareRouteObservation, classify_graph_observation,
+        GraphSquareObservation, SquareError, SquareResult, SquareRouteObservation,
+        classify_graph_observation, graph_put_square, graph_square, presentation_domain_error,
         square_tree_view_graph,
     };
     use crate::migration::Migration;
@@ -1011,6 +1188,134 @@ mod graph_square_tests {
             classify_graph_observation(observation),
             SquareResult::Mismatch(_)
         ));
+    }
+
+    #[test]
+    fn only_exact_domain_refusals_override_the_native_fast_put() {
+        let operational = Err(SquareError::NotAnIsomorphism {
+            detail: "native and presentation errors remain independently observable".to_owned(),
+        });
+        assert_eq!(presentation_domain_error(Some(&operational)), None);
+
+        let outside = Err(SquareError::OutsideExactDomain(
+            "the presentation cannot preserve child order",
+        ));
+        assert_eq!(
+            presentation_domain_error(Some(&outside)),
+            Some(SquareError::OutsideExactDomain(
+                "the presentation cannot preserve child order"
+            ))
+        );
+    }
+
+    #[test]
+    fn sibling_reorder_with_unchanged_embedding_is_an_end_to_end_refusal() {
+        let schema = Schema::default()
+            .vertex("r", "obj")
+            .vertex("leaf", "obj")
+            .edge("r", "leaf", "child", Some("leaf"));
+        let migration = Migration {
+            surviving_verts: schema.vertices.keys().cloned().collect(),
+            surviving_edges: schema.edges.clone(),
+            ..Migration::default()
+        };
+        let Ok(plan) = compile(&schema, &schema, &migration) else {
+            panic!("identity plan must compile");
+        };
+        let Ok(lens) = GraphLens::new(
+            &schema,
+            &schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ) else {
+            panic!("identity lens must bind");
+        };
+        let source = ordered(&[1, 2, 3]);
+        let Some(Ok((mut edited, _, embedding))) = super::super::tree_get(&lens, &source) else {
+            panic!("identity tree get must succeed");
+        };
+        edited.arcs.swap(0, 1);
+        assert_eq!(edited, ordered(&[2, 1, 3]));
+
+        let Ok((source_graph, _)) = crate::encode::tree_to_graph(&source, Some(&schema)) else {
+            panic!("source tree must encode");
+        };
+        let result = graph_put_square(&lens, &source, &edited, &embedding);
+        let SquareResult::Refused(observation) = result else {
+            panic!("unrepresentable sibling reorder must be refused: {result:#?}");
+        };
+        assert!(observation.graph.get.is_ok());
+        assert_eq!(observation.graph.put, Some(Ok(source_graph)));
+        assert_eq!(observation.graph_tree_put, Some(Ok(source)));
+        assert!(observation.fast.get.is_ok());
+        assert!(matches!(
+            observation.fast.put,
+            Some(Err(SquareError::OutsideExactDomain(
+                "the durable embedding does not represent the edited tree presentation"
+            )))
+        ));
+        assert!(matches!(
+            observation.fast_tree_put,
+            Some(Err(SquareError::OutsideExactDomain(
+                "the durable embedding does not represent the edited tree presentation"
+            )))
+        ));
+    }
+
+    #[test]
+    fn root_pruning_is_an_end_to_end_exact_domain_refusal() {
+        let source_schema = Schema::default()
+            .vertex("root", "obj")
+            .vertex("leaf", "obj")
+            .edge("root", "leaf", "child", Some("leaf"));
+        let target_schema = Schema::default().vertex("leaf", "obj");
+        let migration = Migration {
+            surviving_verts: ["leaf".to_owned()].into(),
+            ..Migration::default()
+        };
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("root-pruning plan must compile");
+        };
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ) else {
+            panic!("root-pruning lens must bind");
+        };
+        let source = Tree {
+            nodes: [(0, Node::new(0, "root")), (1, Node::new(1, "leaf"))].into(),
+            arcs: vec![(0, 1, SEdge::new("root", "leaf", "child", Some("leaf")))],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Ok((source_graph, _)) = crate::encode::tree_to_graph(&source, Some(&source_schema))
+        else {
+            panic!("source tree must encode");
+        };
+
+        let result = graph_square(&lens, &source);
+        let SquareResult::Refused(observation) = result else {
+            panic!("root pruning must be outside the exact tree domain: {result:#?}");
+        };
+        let Ok((graph_view, _)) = &observation.graph.get else {
+            panic!("graph get must succeed");
+        };
+        assert_eq!(graph_view.nodes, [(1, Node::new(1, "leaf"))].into());
+        assert!(graph_view.edges.is_empty());
+        assert_eq!(observation.graph.put, Some(Ok(source_graph)));
+        assert!(matches!(
+            observation.fast.get,
+            Err(SquareError::OutsideExactDomain(
+                "the tree route prunes the distinguished root"
+            ))
+        ));
+        assert_eq!(observation.fast.put, None);
     }
 
     #[test]

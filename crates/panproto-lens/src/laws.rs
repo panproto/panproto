@@ -1041,20 +1041,67 @@ pub fn check_totality_for_shape<S: LawShape>(
     ctx: &S::Context,
 ) -> Result<(), LawViolation> {
     let (view, complement) = S::get(lens, source, ctx).map_err(LawViolation::Error)?;
-    for mutation in Mutation::ALL.into_iter().filter(|m| !m.is_negative()) {
+    for mutation in Mutation::ALL {
         let MutationCases::Cases(candidates) =
             S::mutation_cases(lens, source, &view, &complement, ctx, mutation)
         else {
             continue;
         };
         for candidate in candidates {
-            if S::check_put_domain(lens, &candidate, &complement, ctx).is_ok()
-                && let Err(error) = S::put(lens, &candidate, &complement, ctx)
-            {
-                return Err(LawViolation::Totality {
-                    mutation,
-                    error: error.to_string(),
-                });
+            match S::check_put_domain(lens, &candidate, &complement, ctx) {
+                Ok(()) if mutation.is_negative() => {
+                    return Err(LawViolation::Totality {
+                        mutation,
+                        error: "negative mutation was admitted by the put domain".to_owned(),
+                    });
+                }
+                Ok(()) => {
+                    if let Err(error) = S::put(lens, &candidate, &complement, ctx) {
+                        return Err(LawViolation::Totality {
+                            mutation,
+                            error: error.to_string(),
+                        });
+                    }
+                }
+                Err(errors) if mutation.is_negative() => {
+                    if errors.is_empty()
+                        || errors
+                            .iter()
+                            .any(|error| !intended_negative(error, mutation))
+                    {
+                        let reasons = errors
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        return Err(LawViolation::Totality {
+                            mutation,
+                            error: format!(
+                                "negative mutation was refused with an unexpected reason: {reasons}"
+                            ),
+                        });
+                    }
+                    match S::put(lens, &candidate, &complement, ctx) {
+                        Err(crate::LensError::PutDomain(error))
+                            if intended_negative(&error, mutation) => {}
+                        Err(error) => {
+                            return Err(LawViolation::Totality {
+                                mutation,
+                                error: format!(
+                                    "negative mutation put returned an unexpected refusal: {error}"
+                                ),
+                            });
+                        }
+                        Ok(_) => {
+                            return Err(LawViolation::Totality {
+                                mutation,
+                                error: "negative mutation passed put despite its domain refusal"
+                                    .to_owned(),
+                            });
+                        }
+                    }
+                }
+                Err(_) => {}
             }
         }
     }
@@ -4798,6 +4845,8 @@ mod tests {
         Combined,
         CongruenceOnly,
         MixedNegative,
+        AdmittedNegative,
+        ExactNegative,
     }
 
     struct MockShape;
@@ -4946,7 +4995,16 @@ mod tests {
                     _ => Ok(*view),
                 },
                 MockMode::CongruenceOnly if *view == 2 => Ok(1),
-                MockMode::CongruenceOnly | MockMode::Partial | MockMode::MixedNegative => Ok(*view),
+                MockMode::ExactNegative if *view == 1 => Err(crate::LensError::PutDomain(
+                    Box::new(PutDomainError::SynthesizedEdited {
+                        elem: panproto_inst::ViewRef::Node(1),
+                    }),
+                )),
+                MockMode::CongruenceOnly
+                | MockMode::Partial
+                | MockMode::MixedNegative
+                | MockMode::AdmittedNegative
+                | MockMode::ExactNegative => Ok(*view),
             }
         }
 
@@ -4965,6 +5023,11 @@ mod tests {
                         elem: panproto_inst::ViewRef::Node(1),
                     },
                 ]);
+            }
+            if matches!(ctx, MockMode::ExactNegative) && *view == 1 {
+                return Err(vec![PutDomainError::SynthesizedEdited {
+                    elem: panproto_inst::ViewRef::Node(1),
+                }]);
             }
             Ok(())
         }
@@ -5022,7 +5085,10 @@ mod tests {
             ctx: &Self::Context,
             mutation: Mutation,
         ) -> MutationCases<Self::Instance> {
-            if matches!(ctx, MockMode::MixedNegative) {
+            if matches!(
+                ctx,
+                MockMode::MixedNegative | MockMode::AdmittedNegative | MockMode::ExactNegative
+            ) {
                 return if mutation == Mutation::RemoveSynthesized {
                     MutationCases::Cases(vec![1])
                 } else {
@@ -7005,6 +7071,22 @@ mod tests {
         };
         assert_eq!(mixed.negative, 1);
         assert_eq!(mixed.negative_ok, 0);
+
+        assert!(matches!(
+            check_totality_for_shape::<MockShape>(&lens, &0, &MockMode::MixedNegative),
+            Err(LawViolation::Totality {
+                mutation: Mutation::RemoveSynthesized,
+                ..
+            })
+        ));
+        assert!(matches!(
+            check_totality_for_shape::<MockShape>(&lens, &0, &MockMode::AdmittedNegative),
+            Err(LawViolation::Totality {
+                mutation: Mutation::RemoveSynthesized,
+                ..
+            })
+        ));
+        assert!(check_totality_for_shape::<MockShape>(&lens, &0, &MockMode::ExactNegative).is_ok());
     }
 
     #[test]

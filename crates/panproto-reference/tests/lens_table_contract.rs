@@ -4,6 +4,11 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Write};
 
+use panproto_reference::enumerate::lenses::{
+    derived_writer_count_certificate, for_each_derived_writer_fixture,
+    for_each_table_complement_construction, last_explicit_writer_count_certificate,
+    table_complement_construction_count_certificate,
+};
 use panproto_reference::fan::FanViolation;
 use panproto_reference::keys::{KeyEquality, SqlCollation, SqlPad};
 use panproto_reference::lens::{PutDomainError, ViewRef};
@@ -1887,6 +1892,23 @@ fn complement_layout_helpers_distinguish_residue_from_bookkeeping() {
             .iter()
             .all(|case| !case.residue_is_trivial() && case.reserved_row_ids().is_empty())
     );
+}
+
+#[test]
+fn reference_owned_table_certificates_have_their_exact_cardinalities() {
+    let mut constructions = 0;
+    for_each_table_complement_construction(|_| constructions += 1);
+    assert_eq!(
+        constructions,
+        table_complement_construction_count_certificate()
+    );
+    assert_eq!(constructions, 7);
+
+    let mut derived = 0;
+    for_each_derived_writer_fixture(|_| derived += 1);
+    assert_eq!(derived, derived_writer_count_certificate());
+    assert_eq!(derived, 2);
+    assert_eq!(last_explicit_writer_count_certificate(), 36);
 }
 
 #[test]

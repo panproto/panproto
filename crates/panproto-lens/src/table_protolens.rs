@@ -19,10 +19,9 @@ pub struct AppliedTableProtolens {
 }
 
 fn inapplicable(reasons: &[String]) -> LensError {
-    LensError::ProtolensError(format!(
-        "protolens is not applicable: {}",
-        reasons.join("; ")
-    ))
+    LensError::ProtolensInapplicable {
+        reasons: reasons.to_vec(),
+    }
 }
 
 /// Check applicability, instantiate a protolens, and get its table view.
@@ -37,10 +36,7 @@ pub fn apply(
     protocols: BoundaryProtocols<'_>,
     source: &FInstance,
 ) -> Result<AppliedTableProtolens, LensError> {
-    protolens
-        .check_applicability(schema)
-        .map_err(|reasons| inapplicable(&reasons))?;
-    let lens = protolens.instantiate(schema, protocols.src)?;
+    let lens = protolens.instantiate_checked(schema, protocols.src)?;
     let (view, complement) = crate::table_lens::get(&lens, source, protocols)?;
     Ok(AppliedTableProtolens {
         lens,
@@ -113,7 +109,10 @@ mod tests {
             },
             &FInstance::default(),
         );
-        assert!(matches!(outcome, Err(LensError::ProtolensError(_))));
+        assert!(matches!(
+            outcome,
+            Err(LensError::ProtolensInapplicable { .. })
+        ));
     }
 
     #[test]

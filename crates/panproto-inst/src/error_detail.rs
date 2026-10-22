@@ -160,6 +160,17 @@ pub enum PutDomainError {
         /// Why the predicate gives no verdict.
         refusal: PredicateRefusal,
     },
+    /// The migration cannot be compiled into an executable restrict plan.
+    ///
+    /// A plan failure is a property of the lens rather than of one view,
+    /// but it still makes every view lie outside that lens's put domain.
+    /// Keeping it in the ordered domain report prevents a failed compile
+    /// from being mistaken for an admitted view.
+    #[error("the migration cannot be compiled into a restrict plan: {detail}")]
+    PlanCompilation {
+        /// Stable display form of the restrict-plan compilation error.
+        detail: String,
+    },
 }
 
 /// Why a survival predicate gives neither `true` nor `false` at an element.
@@ -226,6 +237,7 @@ impl PutDomainError {
             Self::MissingRequiredCell { .. } => 9,
             Self::MalformedFan { .. } => 10,
             Self::SurvivalPredicateRefused { .. } => 11,
+            Self::PlanCompilation { .. } => 12,
         }
     }
 }
@@ -435,7 +447,24 @@ impl RestrictError {
 
 #[cfg(test)]
 mod tests {
-    use super::ErrorDetail;
+    use super::{ErrorDetail, PutDomainError};
+
+    #[test]
+    fn plan_compilation_domain_error_has_a_stable_wire_shape_and_order()
+    -> Result<(), serde_json::Error> {
+        let error = PutDomainError::PlanCompilation {
+            detail: "incoherent edge image".to_owned(),
+        };
+
+        assert_eq!(error.variant_index(), 12);
+        let json = serde_json::to_string(&error)?;
+        assert_eq!(
+            json,
+            r#"{"plan_compilation":{"detail":"incoherent edge image"}}"#
+        );
+        assert_eq!(serde_json::from_str::<PutDomainError>(&json)?, error);
+        Ok(())
+    }
 
     #[test]
     fn error_detail_law_violation_round_trips() -> Result<(), Box<dyn std::error::Error>> {

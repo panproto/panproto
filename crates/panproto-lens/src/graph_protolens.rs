@@ -19,10 +19,9 @@ pub struct AppliedGraphProtolens {
 }
 
 fn inapplicable(reasons: &[String]) -> LensError {
-    LensError::ProtolensError(format!(
-        "protolens is not applicable: {}",
-        reasons.join("; ")
-    ))
+    LensError::ProtolensInapplicable {
+        reasons: reasons.to_vec(),
+    }
 }
 
 /// Check applicability, instantiate a protolens, and get its graph view.
@@ -37,10 +36,7 @@ pub fn apply(
     protocol: &Protocol,
     source: &GInstance,
 ) -> Result<AppliedGraphProtolens, LensError> {
-    protolens
-        .check_applicability(schema)
-        .map_err(|reasons| inapplicable(&reasons))?;
-    let lens = protolens.instantiate(schema, protocol)?;
+    let lens = protolens.instantiate_checked(schema, protocol)?;
     let (view, complement) = crate::graph_lens::get(&lens, source)?;
     Ok(AppliedGraphProtolens {
         lens,
@@ -104,7 +100,10 @@ mod tests {
             &Protocol::default(),
             &GInstance::default(),
         );
-        assert!(matches!(outcome, Err(LensError::ProtolensError(_))));
+        assert!(matches!(
+            outcome,
+            Err(LensError::ProtolensInapplicable { .. })
+        ));
     }
 
     #[test]

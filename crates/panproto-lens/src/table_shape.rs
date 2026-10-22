@@ -142,7 +142,7 @@ impl LensShape for TableShape {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use panproto_inst::{EdgeId, FInstance, RowId, SynthKey, TableComplement};
     use panproto_schema::Edge;
@@ -179,6 +179,46 @@ mod tests {
                 edge,
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn table_equivalence_rejects_noninjective_synthesized_pair_indices_symmetrically()
+    -> Result<(), panproto_inst::InstError> {
+        let edge = foreign_key();
+        let mut table = FInstance::new();
+        table.insert_row("author", RowId(4), HashMap::new())?;
+        table.insert_row("author", RowId(5), HashMap::new())?;
+        table.insert_row("book", RowId(9), HashMap::new())?;
+        table.insert_row("book", RowId(10), HashMap::new())?;
+        table.insert_foreign_key(edge.clone(), RowId(4), RowId(9))?;
+        table.insert_foreign_key(edge.clone(), RowId(5), RowId(10))?;
+        let key = SynthKey::Contract {
+            src: 4,
+            tgt: 9,
+            edge,
+        };
+        let duplicated = panproto_inst::SynthIndex {
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::from([(EdgeId(0), key.clone()), (EdgeId(1), key.clone())]),
+        };
+        let coherent = panproto_inst::SynthIndex {
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::from([(EdgeId(0), key)]),
+        };
+
+        assert!(!TableShape::equivalent(
+            &table,
+            &duplicated,
+            &table,
+            &coherent,
+        ));
+        assert!(!TableShape::equivalent(
+            &table,
+            &coherent,
+            &table,
+            &duplicated,
+        ));
         Ok(())
     }
 }

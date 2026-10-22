@@ -13,8 +13,9 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    Fan, FanResolver, Node, PutDomainError, RestrictError, RestrictPlan, ViewRef, WInstance,
-    canonical_label_shape, wtype_restrict_with_plan,
+    EdgeFate, Fan, FanResolver, FanViolation, GInstance, InstError, Node, PutDomainError,
+    RestrictError, RestrictPlan, SynthKey, ViewRef, WInstance, canonical_label_shape,
+    wtype_restrict_with_plan,
 };
 use panproto_schema::Edge;
 
@@ -375,17 +376,17 @@ struct EdgePreimages {
 
 impl EdgePreimages {
     fn new(lens: &Lens) -> Self {
-        let remap = &lens.compiled;
         let mut preimages: HashMap<Edge, Vec<Edge>> = HashMap::new();
-        for source in lens.src_schema.edges.keys().filter(|source| {
-            remap.edge_remap.contains_key(*source)
-                || (remap.vertex_remap.contains_key(&source.src)
-                    && remap.vertex_remap.contains_key(&source.tgt))
-        }) {
-            preimages
-                .entry(edge_image(lens, source))
-                .or_default()
-                .push(source.clone());
+        if let Ok(plan) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+        {
+            for (source, fate) in &plan.edge_image.fates {
+                if let EdgeFate::Keep(image) = fate {
+                    preimages
+                        .entry(image.clone())
+                        .or_default()
+                        .push(source.clone());
+                }
+            }
         }
         for sources in preimages.values_mut() {
             sources.sort();
@@ -741,19 +742,12 @@ pub(crate) fn put_with_identity(
     if matches!(status, IdentityStatus::Unbound) {
         unbound_provenance(view, complement)?;
     }
-    if let Some(first) = structural_violations(lens, view, complement)
-        .into_iter()
-        .next()
+    if let Err(found) = check_put_domain(lens, view, complement)
+        && let Some(first) = found.into_iter().next()
     {
         return Err(LensError::PutDomain(Box::new(first)));
     }
     let source = reassemble(lens, view, complement)?;
-    if let Some(first) = value_violations(lens, view, complement, &source)
-        .into_iter()
-        .next()
-    {
-        return Err(LensError::PutDomain(Box::new(first)));
-    }
     Ok((source, status))
 }
 
@@ -763,6 +757,8 @@ pub(crate) fn put_with_identity(
 ///
 /// Checked:
 ///
+/// * [`PutDomainError::PlanCompilation`]: the migration has no executable
+///   restrict plan, so no view is in its put domain.
 /// * [`PutDomainError::IdCollision`]: a view node has the id of a node the
 ///   complement holds as dropped, so restoring that node would overwrite it.
 /// * [`PutDomainError::SynthesizedEdited`]: a node or arc introduced by the
@@ -797,6 +793,9 @@ pub(crate) fn put_with_identity(
 ///   transforms of a restored node does not give the value the view holds
 ///   on a field the lens computes: a field the migration adds (a default
 ///   or a computed field), or one written by a transform with no inverse.
+/// * [`PutDomainError::DuplicateKey`], [`PutDomainError::MissingRequiredCell`]
+///   and [`PutDomainError::MalformedFan`]: the restored source violates the
+///   source schema's key, required-cell or hyper-edge fan declarations.
 ///
 /// All violations are reported, ordered by variant (the declaration order
 /// of [`PutDomainError`]) and then by the element's [`ViewRef`]. The value
@@ -818,6 +817,11 @@ pub fn check_put_domain(
     view: &WInstance,
     complement: &Complement,
 ) -> Result<(), Vec<PutDomainError>> {
+    if let Err(error) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
+        return Err(vec![PutDomainError::PlanCompilation {
+            detail: error.to_string(),
+        }]);
+    }
     let mut found = structural_violations(lens, view, complement);
     let restorable = if found.is_empty() {
         None
@@ -827,8 +831,18 @@ pub fn check_put_domain(
     let (view, complement) = restorable
         .as_ref()
         .map_or((view, complement), |(view, complement)| (view, complement));
-    if let Ok(source) = reassemble(lens, view, complement) {
-        found.extend(value_violations(lens, view, complement, &source));
+    match reassemble(lens, view, complement) {
+        Ok(source) => found.extend(value_violations(lens, view, complement, &source)),
+        Err(LensError::PutDomain(error)) => found.push(*error),
+        Err(LensError::Restrict(error)) => {
+            found.extend(put_refusal_from_restrict(lens, view, error));
+        }
+        Err(error) => found.push(PutDomainError::SurvivalPredicateRefused {
+            elem: ViewRef::Node(view.root),
+            refusal: panproto_inst::PredicateRefusal::EvaluationFailed {
+                message: error.to_string(),
+            },
+        }),
     }
     let found = in_report_order(found);
     if found.is_empty() { Ok(()) } else { Err(found) }
@@ -929,6 +943,7 @@ fn violation_ref(violation: &PutDomainError) -> Option<ViewRef> {
         | PutDomainError::MissingRequiredCell { elem, .. } => Some(elem.clone()),
         PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
         PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
+        PutDomainError::PlanCompilation { .. } => None,
     }
 }
 
@@ -1013,7 +1028,10 @@ fn structural_violations(
 /// edge. Likewise, every id in `synthesized_nodes` names an expansion node
 /// with no source counterpart. Removing one of these elements, relabelling
 /// its arc, or inserting another arc through a synthesized node cannot be
-/// translated to the source. Detecting the edit before reassembly is
+/// translated to the source. The one exception is removing an original
+/// endpoint of the synthesized chain: the presentation-only chain then
+/// disappears with a representable source-node deletion. Detecting other
+/// edits before reassembly is
 /// essential: reassembly intentionally discards the presentation layer and
 /// would otherwise accept the edit while the next `get` silently restores
 /// the old presentation.
@@ -1045,7 +1063,11 @@ fn synthesized_edits(view: &WInstance, complement: &Complement) -> Vec<PutDomain
                 && matches!(node.shape, panproto_inst::NodeShape::Plain)
                 && node.annotations.is_empty()
         });
-        if !unchanged {
+        let endpoint_removed = complement
+            .synthesized_keys
+            .get(&id)
+            .is_some_and(|key| synth_chain_endpoint_removed(view, complement, key));
+        if !unchanged && !endpoint_removed {
             found.push(PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Node(id),
             });
@@ -1057,7 +1079,8 @@ fn synthesized_edits(view: &WInstance, complement: &Complement) -> Vec<PutDomain
             let same_endpoints = (*p, *c) == (parent, child);
             same_endpoints && edge == expected
         });
-        if !matches {
+        if !matches && !synthesized_arc_endpoint_removed(view, complement, parent, child, expected)
+        {
             found.push(PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Arc { parent, child },
             });
@@ -1080,6 +1103,54 @@ fn synthesized_edits(view: &WInstance, complement: &Complement) -> Vec<PutDomain
 
     found.extend(synthesized_sibling_order(view, complement));
     found
+}
+
+fn synth_chain_endpoints(complement: &Complement, key: &SynthKey) -> Option<(u32, u32)> {
+    match key {
+        SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
+            Some((*src, *tgt))
+        }
+        SynthKey::Expand { source_edge, .. } => usize::try_from(source_edge.0)
+            .ok()
+            .and_then(|index| complement.arc_order.get(index).copied()),
+        SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. } => None,
+    }
+}
+
+fn synth_chain_endpoint_removed(view: &WInstance, complement: &Complement, key: &SynthKey) -> bool {
+    synth_chain_endpoints(complement, key)
+        .is_some_and(|(src, tgt)| !view.nodes.contains_key(&src) || !view.nodes.contains_key(&tgt))
+}
+
+fn synthesized_arc_endpoint_removed(
+    view: &WInstance,
+    complement: &Complement,
+    parent: u32,
+    child: u32,
+    edge: &Edge,
+) -> bool {
+    let key = complement
+        .synthesized_keys
+        .get(&child)
+        .or_else(|| complement.synthesized_keys.get(&parent));
+    if let Some(key) = key {
+        return synth_chain_endpoint_removed(view, complement, key);
+    }
+    complement
+        .contraction_choices
+        .get(&(parent, child))
+        .filter(|recorded| *recorded == edge)
+        .is_some_and(|recorded| {
+            synth_chain_endpoint_removed(
+                view,
+                complement,
+                &SynthKey::Contract {
+                    src: parent,
+                    tgt: child,
+                    edge: recorded.clone(),
+                },
+            )
+        })
 }
 
 /// Synthesized arcs moved before a kept sibling.
@@ -1188,12 +1259,13 @@ fn value_violations(
     use panproto_inst::value::FieldPresence;
 
     let compiled = &lens.compiled;
+    let mut found = tree_schema_violations(source, &lens.src_schema);
     let rewrites_fields =
         !compiled.field_transforms.is_empty() || !compiled.op_term_assignments.is_empty();
     if !rewrites_fields && compiled.conditional_survival.is_empty() {
-        return Vec::new();
+        return in_report_order(found);
     }
-    let mut found = survival_violations(lens, view, complement, source);
+    found.extend(survival_violations(lens, view, complement, source));
     if !rewrites_fields {
         return in_report_order(found);
     }
@@ -1282,6 +1354,100 @@ fn value_violations(
         }
     }
     in_report_order(found)
+}
+
+/// Every native fan violation of a restored tree under `schema`.
+///
+/// This is the tree-side fan-domain predicate: a fan's parent and every child
+/// must be present, its hyper-edge must be declared, and every child label
+/// must occur in that hyper-edge's signature. Labels are examined in lexical
+/// order so the report is independent of [`HashMap`] iteration order.
+fn native_tree_fan_violations(
+    source: &WInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
+    for fan in &source.fans {
+        if !source.nodes.contains_key(&fan.parent) {
+            found.push(PutDomainError::MalformedFan {
+                node: fan.parent,
+                reason: FanViolation::MissingParent,
+            });
+        }
+
+        let mut labels: Vec<&str> = fan.children.keys().map(String::as_str).collect();
+        labels.sort_unstable();
+        for label in &labels {
+            if !source.nodes.contains_key(&fan.children[*label]) {
+                found.push(PutDomainError::MalformedFan {
+                    node: fan.parent,
+                    reason: FanViolation::MissingChild {
+                        label: Name::from(*label),
+                    },
+                });
+            }
+        }
+
+        match schema.hyper_edges.get(fan.hyper_edge_id.as_str()) {
+            None => found.push(PutDomainError::MalformedFan {
+                node: fan.parent,
+                reason: FanViolation::UnknownHyperEdge {
+                    hyper_edge: Name::from(fan.hyper_edge_id.as_str()),
+                },
+            }),
+            Some(hyper_edge) => {
+                for label in labels {
+                    if !hyper_edge.signature.contains_key(label) {
+                        found.push(PutDomainError::MalformedFan {
+                            node: fan.parent,
+                            reason: FanViolation::UnknownLabel {
+                                label: Name::from(label),
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Validate a restored tree under the source schema through its canonical
+/// graph embedding. Required cells and keys are independent of native fans,
+/// so the embedding omits fans and the tree-side predicate above reports
+/// their exact coordinates. This preserves required/key diagnostics even
+/// when a missing fan participant makes the full embedding impossible.
+fn tree_schema_violations(
+    source: &WInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<PutDomainError> {
+    let mut found = native_tree_fan_violations(source, schema);
+    let fanless = WInstance::new(
+        source.nodes.clone(),
+        source.arcs.clone(),
+        Vec::new(),
+        source.root,
+        source.schema_root.clone(),
+    );
+    match GInstance::from_wtype_with_schema(&fanless, schema) {
+        Ok(graph) => {
+            found.extend(crate::graph_lens::schema_violations(&graph, schema));
+            found
+        }
+        Err(InstError::MalformedFan { node, reason }) => {
+            found.push(PutDomainError::MalformedFan { node, reason });
+            found
+        }
+        Err(error) => {
+            found.push(PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(source.root),
+                refusal: panproto_inst::PredicateRefusal::EvaluationFailed {
+                    message: error.to_string(),
+                },
+            });
+            found
+        }
+    }
 }
 
 /// The fields the migration computes on nodes over `anchor` through term
@@ -1539,7 +1705,15 @@ fn restored_anchor<'a>(
                 .original_anchors
                 .get(&id)
                 .filter(|recorded| many.contains(recorded));
-            return from_record.ok_or_else(|| {
+            // An injective vertex rename also settles an ambiguity introduced
+            // by an implicit namesake edge. In that case the edge has several
+            // source preimages, but the view anchor itself has exactly one
+            // explicit preimage and therefore still determines the source.
+            let from_vertex = reverse_anchors
+                .source_anchor(view_anchor)
+                .ok()
+                .filter(|anchor| many.contains(anchor));
+            return from_record.or(from_vertex).ok_or_else(|| {
                 Box::new(PutDomainError::AmbiguousReverseAnchor {
                     elem: ViewRef::Node(id),
                     candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
@@ -2418,18 +2592,20 @@ pub(crate) fn apply_inverse_transforms(
 /// A lens with complement decomposes its source as `S ≅ V × C`. When the
 /// complement is terminal the decomposition collapses to `S ≅ V × 1 ≅ V`,
 /// the projection `get` becomes an isomorphism, and its inverse is a
-/// function of the view alone. This succeeds precisely for lenses whose
-/// every `get` leaves trivial residue ([`Complement::residue_is_trivial`]):
-/// every source vertex survives (an injective rename survives), no two
-/// source vertices or parallel source edges share an image, no vertex is
-/// filtered by a predicate, and every value transform is an isomorphism.
-/// It refuses everything else.
+/// function of the view alone. This succeeds for the statically classified
+/// lenses whose every `get` leaves trivial residue
+/// ([`Complement::residue_is_trivial`]) and whose vertex and edge maps are
+/// onto the target. Thus every source coordinate survives uniquely, every
+/// target coordinate has a source preimage, no vertex is filtered by a
+/// predicate, and the migration has no value-transform program. It refuses
+/// everything else.
 ///
-/// The refusal is not a limitation of this implementation. For a lens with
-/// non-trivial complement, `get` is not injective: distinct sources share a
-/// view, the fibre over that view has more than one point, and no section
-/// of `get` exists to be written. Anything returned in that case would be a
-/// guess.
+/// A structural source-side refusal witnesses non-terminal residue, while a
+/// target-only coordinate witnesses failure of surjectivity. The
+/// transform-free boundary is conservative: refusal there does not prove
+/// that no inverse lens exists, only that this classifier lacks an executable
+/// proof for the transform. Thus [`LensError::NotAnIsomorphism`] is a refusal
+/// from this certified fragment, not a global non-isomorphism theorem.
 ///
 /// What remains once the residue is empty is the reassembly bookkeeping,
 /// which [`Complement::residue_is_trivial`] explains is a function of the
@@ -2446,6 +2622,7 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
             detail: obstruction,
         });
     }
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
 
     // The bookkeeping half of the complement, read off the view. Sound
     // only because the residue is known empty: every node and arc of the
@@ -2455,11 +2632,18 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
     let mut arc_edges = HashMap::new();
     let mut arc_order = Vec::with_capacity(view.arcs.len());
     let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
-    let reverse_edges: HashMap<&Edge, &Edge> = lens
-        .compiled
-        .edge_remap
+    // Read the inverse from the compiled edge fates, not only from the
+    // explicit edge-remap table. A unique endpoint resolver is also a direct
+    // kept edge image, and the classifier has already proved this map
+    // bijective.
+    let reverse_edges: HashMap<&Edge, &Edge> = plan
+        .edge_image
+        .fates
         .iter()
-        .map(|(src, tgt)| (tgt, src))
+        .filter_map(|(source, fate)| match fate {
+            EdgeFate::Keep(target) => Some((target, source)),
+            EdgeFate::Expand { .. } | EdgeFate::Drop | EdgeFate::Unresolved(_) => None,
+        })
         .collect();
 
     for (parent, child, edge) in &view.arcs {
@@ -2539,27 +2723,28 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
     .map(|(source, _)| source)
 }
 
-/// The first reason `get` through `lens` can leave residue in a tree
-/// complement, or `None` when every complement it produces has trivial
-/// residue ([`Complement::residue_is_trivial`]).
+/// The first reason `lens` is outside the classified bijective, complement-
+/// `Unit` tree fragment, or `None` when it belongs to that fragment.
 ///
 /// Survival is read as `get` reads it: a source vertex survives when its
 /// image under the vertex remap is a surviving target vertex, so an
-/// injective rename is not a drop. The obstructions, in the order they are
-/// reported: a vertex that does not survive, or survives only under a
-/// predicate; two source vertices with one image (their nodes' anchors are
-/// then residue); a source edge with no image in the target; two source
-/// edges between the same vertices with one image (their arcs' edges are
-/// then residue); a fan resolver whose source labels cannot be recovered
-/// from the view; and a value transform that is not an isomorphism.
+/// injective rename is not a drop. Both the vertex and edge maps must also
+/// be onto the target; otherwise `get` is not surjective even if its source
+/// residue is trivial. Source and target hyper-edge declarations are excluded
+/// because a valid zero-child source fan is currently residue. The certified
+/// fragment also admits no value transforms or op-to-term assignments. In
+/// particular, scalar and child-scalar `ApplyExpr` transforms are refused
+/// rather than trusting a declared coercion class or an unchecked expression
+/// pair.
 pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
     let compiled = &lens.compiled;
     let mut vertices: Vec<&Name> = lens.src_schema.vertices.keys().collect();
     vertices.sort();
     for v in &vertices {
-        if !vertex_survives(lens, v) {
+        let image = compiled.vertex_remap.get(*v).unwrap_or(v);
+        if !vertex_survives(lens, v) || !lens.tgt_schema.vertices.contains_key(image) {
             return Some(format!(
-                "vertex `{v}` does not survive, so its data is set aside in the complement"
+                "vertex `{v}` has no surviving target vertex, so its data is set aside in the complement"
             ));
         }
         if compiled.conditional_survival.contains_key(*v) {
@@ -2579,25 +2764,58 @@ pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
             ));
         }
     }
-    let mut edges: Vec<&Edge> = lens.src_schema.edges.keys().collect();
-    edges.sort();
-    let mut edge_images: HashMap<Edge, &Edge> = HashMap::new();
-    for e in edges {
-        let image = edge_image(lens, e);
-        if !compiled.edge_remap.contains_key(e) && !lens.tgt_schema.edges.contains_key(&image) {
+    let mut target_vertices = lens.tgt_schema.vertices.keys().collect::<Vec<_>>();
+    target_vertices.sort();
+    if let Some(target) = target_vertices
+        .into_iter()
+        .find(|target| !images.keys().any(|image| *image == *target))
+    {
+        return Some(format!(
+            "target vertex `{target}` has no source preimage, so the vertex map is not bijective"
+        ));
+    }
+    let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, compiled) {
+        Ok(plan) => plan,
+        Err(error) => {
             return Some(format!(
-                "edge `{}` -> `{}` does not survive, so the arcs over it are set aside in the \
-                 complement",
-                e.src, e.tgt
+                "the migration is not executable as a tree lens: {error}"
             ));
         }
-        if let Some(other) = edge_images.insert(image, e) {
+    };
+    for (source, fate) in &plan.edge_image.fates {
+        let EdgeFate::Keep(image) = fate else {
             return Some(format!(
-                "edges `{:?}` and `{:?}` have one image, so a view arc does not determine its \
-                 source edge",
-                other.name, e.name
+                "edge `{:?}` is not kept as one tree edge, so it cannot be reconstructed without a complement",
+                source.name
+            ));
+        };
+        if plan.edge_image.preimages(image).len() != 1 {
+            return Some(format!(
+                "more than one source edge maps to `{:?}`, so a view arc does not determine its source label",
+                image.name
             ));
         }
+    }
+    let mut target_edges = lens.tgt_schema.edges.keys().collect::<Vec<_>>();
+    target_edges.sort();
+    if let Some(target) = target_edges
+        .into_iter()
+        .find(|target| plan.edge_image.preimages(target).is_empty())
+    {
+        return Some(format!(
+            "target edge `{:?}` has no source preimage, so the edge map is not bijective",
+            target.name
+        ));
+    }
+    if let Some(source) = lens.src_schema.hyper_edges.keys().min() {
+        return Some(format!(
+            "source hyper-edge `{source}` admits a valid zero-child fan that tree get records as residue"
+        ));
+    }
+    if let Some(target) = lens.tgt_schema.hyper_edges.keys().min() {
+        return Some(format!(
+            "target hyper-edge `{target}` has no admitted source preimage, so tree get is not surjective"
+        ));
     }
     if !compiled.hyper_resolver.is_empty() {
         return Some(
@@ -2606,14 +2824,30 @@ pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
                 .to_owned(),
         );
     }
-    let class = lens.coercion_class();
-    if !matches!(class, panproto_gat::CoercionClass::Iso) {
+    tree_transform_program_obstruction(lens)
+}
+
+fn tree_transform_program_obstruction(lens: &Lens) -> Option<String> {
+    let mut field_anchors = lens.compiled.field_transforms.keys().collect::<Vec<_>>();
+    field_anchors.sort();
+    if let Some(anchor) = field_anchors
+        .into_iter()
+        .find(|anchor| !lens.compiled.field_transforms[*anchor].is_empty())
+    {
         return Some(format!(
-            "a value transform is classified `{class:?}`, which is not injective, so a view \
-             value does not determine the source value it came from"
+            "vertex `{anchor}` has value transforms outside the certified transform-free tree fragment"
         ));
     }
-    None
+    let mut term_anchors = lens.compiled.op_term_assignments.keys().collect::<Vec<_>>();
+    term_anchors.sort();
+    term_anchors
+        .into_iter()
+        .find(|anchor| !lens.compiled.op_term_assignments[*anchor].is_empty())
+        .map(|anchor| {
+            format!(
+                "vertex `{anchor}` has op-to-term assignments outside the certified transform-free tree fragment"
+            )
+        })
 }
 
 /// The `extra_fields` key a transform writes, when it writes one.
@@ -2753,6 +2987,203 @@ fn edge_image(lens: &Lens, source: &Edge) -> Edge {
 mod tests {
     use super::*;
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
+
+    /// The native tree put-domain checker must expose every validation
+    /// obligation that the graph presentation exposes. These focused cases
+    /// protect the common-domain premise used by the graph/tree square; the
+    /// independent reference certificate lives in `reference_tree_validation`.
+    mod tree_validation_parity {
+        use super::*;
+        use panproto_inst::value::{FieldPresence, Value};
+        use panproto_inst::{GInstance, PutDomainError};
+        use panproto_schema::{Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, SchemaBuilder};
+
+        fn child_edge() -> Edge {
+            Edge {
+                src: "root".into(),
+                tgt: "item".into(),
+                kind: "prop".into(),
+                name: Some("item".into()),
+            }
+        }
+
+        fn base_schema() -> panproto_schema::Schema {
+            let protocol = Protocol::default();
+            SchemaBuilder::new(&protocol)
+                .vertex("root", "object", None)
+                .unwrap()
+                .vertex("item", "string", None)
+                .unwrap()
+                .edge("root", "item", "prop", Some("item"))
+                .unwrap()
+                .build()
+                .unwrap()
+        }
+
+        fn tree(
+            nodes: impl IntoIterator<Item = (u32, Node)>,
+            arcs: Vec<(u32, u32, Edge)>,
+        ) -> WInstance {
+            WInstance::new(
+                nodes.into_iter().collect(),
+                arcs,
+                Vec::new(),
+                0,
+                "root".into(),
+            )
+        }
+
+        fn graph_and_tree_reports(
+            lens: &Lens,
+            source: &WInstance,
+        ) -> (Vec<PutDomainError>, Vec<PutDomainError>) {
+            let graph = GInstance::from_wtype_with_schema(source, &lens.src_schema)
+                .expect("the validation witness has a graph presentation");
+            let (tree_view, tree_complement) = get(lens, source).expect("tree get");
+            let (graph_view, graph_complement) =
+                crate::graph_lens::get(lens, &graph).expect("graph get");
+            let tree_report = check_put_domain(lens, &tree_view, &tree_complement)
+                .expect_err("the tree view violates its source validation declaration");
+            let graph_report =
+                crate::graph_lens::check_put_domain(lens, &graph_view, &graph_complement)
+                    .expect_err("the graph view violates its source validation declaration");
+            (tree_report, graph_report)
+        }
+
+        #[test]
+        fn a_plan_compilation_failure_is_outside_the_tree_put_domain() {
+            let schema = three_node_schema();
+            let mut lens = identity_lens(&schema);
+            let source_edge = schema
+                .edges
+                .keys()
+                .next()
+                .cloned()
+                .expect("the fixture has an edge");
+            let mut incoherent_image = source_edge.clone();
+            incoherent_image.tgt = "missing-target".into();
+            lens.compiled
+                .edge_remap
+                .insert(source_edge, incoherent_image);
+
+            let view = WInstance::new(HashMap::new(), Vec::new(), Vec::new(), 0, "a".into());
+            let mut complement = Complement::empty();
+            complement.stamp(lens.identity(ComplementShape::WType), &lens.src_schema);
+
+            let report = check_put_domain(&lens, &view, &complement)
+                .expect_err("an unexecutable lens has no admitted tree view");
+            assert!(matches!(
+                report.as_slice(),
+                [PutDomainError::PlanCompilation { detail }]
+                    if detail.contains("incoherent") || detail.contains("missing-target")
+            ));
+            assert!(matches!(
+                put(&lens, &view, &complement),
+                Err(LensError::PutDomain(error))
+                    if matches!(*error, PutDomainError::PlanCompilation { .. })
+            ));
+        }
+
+        #[test]
+        fn required_cell_refusal_matches_the_graph_route_exactly() {
+            let mut schema = base_schema();
+            schema.required.insert("root".into(), vec![child_edge()]);
+            let lens = identity_lens(&schema);
+            let source = tree([(0, Node::new(0, "root"))], Vec::new());
+
+            let (tree_report, graph_report) = graph_and_tree_reports(&lens, &source);
+            assert_eq!(tree_report, graph_report);
+            assert!(matches!(
+                tree_report.as_slice(),
+                [PutDomainError::MissingRequiredCell {
+                    elem: ViewRef::Node(0),
+                    field,
+                }] if field == "item"
+            ));
+        }
+
+        #[test]
+        fn duplicate_key_refusal_matches_the_graph_route_exactly() {
+            let mut schema = base_schema();
+            schema.declarations.keys.insert(
+                "item".into(),
+                vec![Key {
+                    id: "item-value".into(),
+                    parts: vec![KeyPart::Path(Vec::new())],
+                    role: KeyRole::Unique,
+                    scope: KeyScope::Global,
+                }],
+            );
+            let lens = identity_lens(&schema);
+            let item = |id| {
+                Node::new(id, "item")
+                    .with_value(FieldPresence::Present(Value::Str("same".to_owned())))
+            };
+            let source = tree(
+                [(0, Node::new(0, "root")), (1, item(1)), (2, item(2))],
+                vec![(0, 1, child_edge()), (0, 2, child_edge())],
+            );
+
+            let (tree_report, graph_report) = graph_and_tree_reports(&lens, &source);
+            assert_eq!(tree_report, graph_report);
+            assert!(matches!(
+                tree_report.as_slice(),
+                [PutDomainError::DuplicateKey { table, elems, .. }]
+                    if table.as_str() == "item"
+                        && elems == &[ViewRef::Node(1), ViewRef::Node(2)]
+            ));
+        }
+
+        #[test]
+        fn a_missing_native_fan_child_has_its_tree_coordinate() {
+            let relation = Edge {
+                src: "root".into(),
+                tgt: "item".into(),
+                kind: "rel".into(),
+                name: Some("item".into()),
+            };
+            let protocol = Protocol::default();
+            let schema = SchemaBuilder::new(&protocol)
+                .vertex("root", "object", None)
+                .unwrap()
+                .vertex("item", "object", None)
+                .unwrap()
+                .edge("root", "item", "rel", Some("item"))
+                .unwrap()
+                .hyper_edge(
+                    "pair",
+                    "rel",
+                    HashMap::from([
+                        ("parent".to_owned(), "root".to_owned()),
+                        ("member".to_owned(), "item".to_owned()),
+                    ]),
+                    "parent",
+                )
+                .unwrap()
+                .build()
+                .unwrap();
+            let lens = identity_lens(&schema);
+            let source = WInstance::new(
+                HashMap::from([(0, Node::new(0, "root")), (1, Node::new(1, "item"))]),
+                vec![(0, 1, relation)],
+                vec![Fan::new("pair", 0).with_child("member", 1)],
+                0,
+                "root".into(),
+            );
+            let (mut view, complement) = get(&lens, &source).unwrap();
+            view.fans[0].children.insert("member".to_owned(), 99);
+
+            assert_eq!(
+                check_put_domain(&lens, &view, &complement),
+                Err(vec![PutDomainError::MalformedFan {
+                    node: 0,
+                    reason: FanViolation::MissingChild {
+                        label: "member".into(),
+                    },
+                }])
+            );
+        }
+    }
 
     #[test]
     fn get_with_identity_lens_produces_empty_complement() {
@@ -2924,6 +3355,104 @@ mod tests {
                 "{refused:?}"
             );
         }
+
+        #[test]
+        fn removing_a_chain_endpoint_explains_its_synthesized_arc() {
+            let lens = lens();
+            let (view, complement) = get(&lens, &source()).unwrap();
+            let mut edited = view;
+            edited.nodes.remove(&3);
+            edited.arcs.retain(|(_, child, _)| *child != 3);
+
+            let restored = put(&lens, &edited, &complement)
+                .expect("deleting a source endpoint also removes its presentation-only chain");
+            assert!(!restored.nodes.contains_key(&3));
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(again.nodes.len(), edited.nodes.len());
+            assert!(again.nodes.iter().all(|(id, node)| {
+                edited
+                    .nodes
+                    .get(id)
+                    .is_some_and(|other| node_equiv(node, other))
+            }));
+            assert_eq!(again.arcs, edited.arcs);
+            assert_eq!(again.fans, edited.fans);
+            assert_eq!(again.root, edited.root);
+            assert_eq!(again.schema_root, edited.schema_root);
+        }
+    }
+
+    #[test]
+    fn implicit_kept_edges_participate_in_reverse_anchor_recovery() {
+        let protocol = panproto_schema::Protocol::default();
+        let source_schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("A", "obj", None)
+            .unwrap()
+            .vertex("B1", "obj", None)
+            .unwrap()
+            .vertex("B2", "obj", None)
+            .unwrap()
+            .edge("A", "B1", "prop", Some("x"))
+            .unwrap()
+            .edge("A", "B2", "prop", Some("y"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let target_schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("A", "obj", None)
+            .unwrap()
+            .vertex("B", "obj", None)
+            .unwrap()
+            .edge("A", "B", "prop", Some("x"))
+            .unwrap()
+            .edge("A", "B", "prop", Some("y"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = Lens {
+            compiled: panproto_inst::CompiledMigration {
+                surviving_verts: target_schema.vertices.keys().cloned().collect(),
+                surviving_edges: target_schema.edges.keys().cloned().collect(),
+                vertex_remap: [
+                    (Name::from("B1"), Name::from("B")),
+                    (Name::from("B2"), Name::from("B")),
+                ]
+                .into(),
+                ..panproto_inst::CompiledMigration::default()
+            },
+            src_schema: source_schema,
+            tgt_schema: target_schema,
+        };
+        let source_edge = lens
+            .src_schema
+            .edges
+            .keys()
+            .find(|edge| edge.name.as_deref() == Some("x"))
+            .cloned()
+            .unwrap();
+        let source = WInstance::new(
+            HashMap::from([(0, Node::new(0, "A")), (1, Node::new(1, "B1"))]),
+            vec![(0, 1, source_edge)],
+            Vec::new(),
+            0,
+            Name::from("A"),
+        );
+
+        let (view, complement) = get(&lens, &source).unwrap();
+        assert_eq!(complement.original_anchors.get(&1), Some(&Name::from("B1")));
+        let restored = put(&lens, &view, &complement)
+            .expect("the implicit kept edge identifies the recorded source anchor");
+        assert_eq!(restored.nodes.len(), source.nodes.len());
+        assert!(restored.nodes.iter().all(|(id, node)| {
+            source
+                .nodes
+                .get(id)
+                .is_some_and(|other| node_equiv(node, other))
+        }));
+        assert_eq!(restored.arcs, source.arcs);
+        assert_eq!(restored.fans, source.fans);
+        assert_eq!(restored.root, source.root);
+        assert_eq!(restored.schema_root, source.schema_root);
     }
 
     /// A field the migration adds that the source already carries with the
@@ -3580,6 +4109,11 @@ mod tests {
             );
             let (view, complement) = get(&lens, &source).unwrap();
             assert_eq!(view.nodes[&1].anchor, "t");
+            assert!(
+                !complement.original_anchors.contains_key(&1),
+                "the injective vertex rename must remain reversible without anchor residue"
+            );
+            assert_eq!(check_put_domain(&lens, &view, &complement), Ok(()));
 
             let restored = put(&lens, &view, &complement).unwrap();
             assert_eq!(restored.nodes[&1].anchor, "a", "GetPut lost the anchor");

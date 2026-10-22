@@ -305,25 +305,19 @@ impl TablePlan {
         &self.fates
     }
 
-    /// Definition: The writer of target column `t` of rows of source table `s` is the
-    /// source of the last `Rename(_, t)` in fate order, else `t` itself
-    /// when `t` has no fate, else none (a derived cell).
+    /// Definition: The candidate writer of target column `t` of rows of
+    /// source table `s` is the source of the last `Rename(_, t)` in fate
+    /// order, else `t` itself when `t` has no fate, else none.
+    ///
+    /// Put accepts this candidate only when `s` has that source column. A
+    /// target-only column therefore has no effective writer and an edit to it
+    /// is `DerivedCellEdited`.
     ///
     /// Book anchors: `L-lenses-12`.
     #[must_use]
     pub fn writer(&self, s: &str, t: &str) -> Option<String> {
         let fates = self.fates.get(s).map(Vec::as_slice).unwrap_or_default();
-        if let Some(CellFate::Rename(from, _)) = fates
-            .iter()
-            .rev()
-            .find(|f| matches!(f, CellFate::Rename(_, to) if to == t))
-        {
-            return Some(from.clone());
-        }
-        let has_fate = fates
-            .iter()
-            .any(|f| matches!(f, CellFate::Drop(c) | CellFate::Rename(c, _) if c == t));
-        (!has_fate).then(|| t.to_owned())
+        cell_writer(fates, t)
     }
 
     /// The view cells of a source row of table `s`: each target column with
@@ -346,6 +340,20 @@ impl TablePlan {
             })
             .collect()
     }
+}
+
+fn cell_writer(fates: &[CellFate], target: &str) -> Option<String> {
+    if let Some(CellFate::Rename(from, _)) = fates
+        .iter()
+        .rev()
+        .find(|fate| matches!(fate, CellFate::Rename(_, to) if to == target))
+    {
+        return Some(from.clone());
+    }
+    let has_fate = fates.iter().any(
+        |fate| matches!(fate, CellFate::Drop(column) | CellFate::Rename(column, _) if column == target),
+    );
+    (!has_fate).then(|| target.to_owned())
 }
 
 /// Definition: Compile the table plan by the restrict plan, entity functor,
@@ -753,7 +761,7 @@ fn get_with_identity(
     for (pair, srcs) in sources {
         let unique = preimage(src, mig, &tp.plan, &view, &pair).ok();
         let back = unique.map(|edge| BTreeSet::from([edge]));
-        if comp.synthesized_fk_pairs.contains(&pair) || back.as_ref() != Some(&srcs) {
+        if back.as_ref() != Some(&srcs) {
             comp.original_fk_edges.insert(pair, srcs);
         }
     }
@@ -1262,13 +1270,11 @@ impl TableLens<'_> {
                     .extend(srcs.iter().map(|e| (e.clone(), pair.1, pair.2)));
                 continue;
             }
-            if c.synthesized_fk_pairs.contains(pair) {
-                continue;
-            }
             match candidates.as_slice() {
                 [e] => {
                     out.pairs.insert((e.clone(), pair.1, pair.2));
                 }
+                [] if c.synthesized_fk_pairs.contains(pair) => {}
                 [] if self.contracted(view, pair) => {
                     errs.push(PutDomainError::ContractedEdgeInserted {
                         elem: ViewRef::Pair(Box::new(pair.0.clone()), pair.1, pair.2),
@@ -1420,7 +1426,9 @@ impl TableLens<'_> {
             }
         }
         for pair in &view.pairs {
-            if !regenerated.pairs.contains(pair) && !complement.synthesized_fk_pairs.contains(pair)
+            if !regenerated.pairs.contains(pair)
+                && !complement.synthesized_fk_pairs.contains(pair)
+                && !self.contracted(view, pair)
             {
                 errors.push(PutDomainError::UnrepresentableViewEdge {
                     elem: ViewRef::Pair(Box::new(pair.0.clone()), pair.1, pair.2),

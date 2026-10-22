@@ -141,10 +141,10 @@ pub(crate) fn check_boundary(left: &Schema, right: &Schema) -> Result<(), LensEr
     Ok(())
 }
 
-/// The tree fusion rule: the fused lens of `l1` then `l2` when running it
-/// is observationally the same as running the pair in sequence, and `None`
-/// when the pair must stay in sequence. The schemas of the pair are known
-/// to meet.
+/// The tree fusion rule returns the fused lens for `l1` followed by `l2` when
+/// the fused execution is observationally equivalent to the pair in sequence.
+/// It returns `None` when the pair must remain sequential. The schemas of the
+/// pair are known to meet.
 ///
 /// The pair is fused only when all of the following hold:
 ///
@@ -153,39 +153,67 @@ pub(crate) fn check_boundary(left: &Schema, right: &Schema) -> Result<(), LensEr
 ///    survives only under a predicate, and each of the three compiled
 ///    plans has no contraction pair;
 /// 2. the two compiled migrations compose;
-/// 3. the composite's edge image compiles and agrees with the pair edge by
-///    edge: every explicit edge image joins the images of its endpoints and
-///    is an edge of the target (the endpoint check), and the direct-arc rule
-///    of the tree restrict, run on the composite, gives every source edge
-///    the fate obtained by running `l1`'s fate and then `l2`'s. The second
-///    half is needed because a tree migration states a drop only by leaving
-///    an edge out of its edge map: when the pair drops an edge whose kind and
-///    label the target still carries between the endpoints' images, the
-///    composite would carry the arc there implicitly;
-/// 4. the plans of `l1`, of `l2` and of the composite are all empty: none of
+/// 3. the composite agrees with the pair on every source vertex and edge.
+///    A source vertex survives the composite exactly when it survives `l1`
+///    and its middle image survives `l2`, and a surviving vertex has the same
+///    final image in both executions. This check is needed because the
+///    migration representation stores surviving target names: a remap onto
+///    one of those names could otherwise resurrect a different source vertex
+///    that `l1` dropped, while eliding a remap can retain the wrong image for
+///    an isolated vertex. For edges, every explicit image joins the images of
+///    its endpoints and is an edge of the target (the endpoint check), and
+///    the direct-arc rule of the tree restrict, run on the composite, gives
+///    every source edge the fate obtained by running `l1`'s fate and then
+///    `l2`'s. This edge check is needed because a tree migration states a
+///    drop only by leaving an edge out of its edge map: when the pair drops
+///    an edge whose kind and label the target still carries between the
+///    endpoints' images, the composite would carry the arc there implicitly;
+/// 4. `l1` is a complement-`Unit` bijection with no source validation
+///    obligation, `l2` is bijective from the surviving vertices and direct
+///    edges of its source onto the target carriers, and every such middle
+///    carrier is in the image of `l1`. In addition, both stages are the
+///    identity on instance carriers. An operational identity still checks
+///    that its input lies in its put domain, so deleting the sole identity
+///    beside a nonidentity stage could erase that intermediate check.
+///    Identity in this sense also requires
+///    every raw `vertex_remap` entry to be a self-map, including entries whose
+///    source lies outside the declared source schema. This condition makes the
+///    identity-extended partial inverses compose even on a view edit whose
+///    anchor or edge lies outside the declared target schema. The first-stage
+///    restrictions preserve staged error precedence: if the second atomic put
+///    refuses, fusion cannot report an independent first-stage residue or
+///    validation error before it. Put also computes reverse vertex and edge
+///    fibres. Injectivity prevents the sequential reverse from selecting a
+///    unique middle preimage when the composite reverse sees several source
+///    preimages, as well as the converse. Surjectivity prevents the atomic
+///    reverse from refusing an edit at a target-only carrier before the earlier
+///    stage runs while the fused reverse reports an earlier-stage residue
+///    collision instead. Coverage handles the remaining zero-preimage case:
+///    the atomic first put retains an otherwise foreign middle name, whereas
+///    the fused put retains the distinct final name;
+/// 5. neither representation of the middle schema has a required-cell or
+///    key-uniqueness declaration. Each atomic put validates its restored
+///    source schema; fusion would otherwise skip a validation obligation that
+///    exists only at the middle boundary. Both representations are inspected
+///    because ordinary composition equates their carriers, not their
+///    declarations;
+/// 6. the plans of `l1`, of `l2` and of the composite are all empty: none of
 ///    the three contracts a path or expands an arc into synthesized nodes.
 ///    The composite's plan alone does not suffice: when `l1` expands an arc
 ///    into a path through a synthesized node and `l2` drops the arc's
 ///    child, the composite carries no expansion, yet the pair still
 ///    synthesizes the intermediate node and `l2` may keep it;
-/// 5. at most one lens carries a value layer (a survival predicate, a field
-///    transform or an op-term assignment). A layer is read at a node over
-///    the node's fields and its children bound by column name, and the
-///    fused lens evaluates `l1`'s layer only at the nodes whose anchor
-///    survives the composite, while the pair evaluates it at every node
-///    whose anchor survives `l1`. So when `l1` carries the layer, `l2`
-///    removes nothing: every vertex of its source survives it and it keeps
-///    every edge, so the two lenses evaluate the layer at the same nodes
-///    over the same bindings. When `l2` carries it, `l1` is the identity on
-///    instances: every vertex survives as itself and every edge is kept as
-///    itself, so `l2` reads the source unchanged in both;
-/// 6. neither lens retargets a fan: both hyper-edge resolvers are empty. A
-///    resolver selects the entry for a fan by the labels of its children
-///    that survive, which the pair decides in two stages and the fused lens
-///    in one: when `l1` retargets a fan by the shape it sees and `l2` then
-///    drops one of its children, the fused lens sees the smaller shape and
-///    may select another entry;
-/// 7. the restrict plan compiles for `l1`, for `l2` and for the composite,
+/// 7. `l1` carries no value layer, as follows already from its
+///    complement-`Unit` classification. If `l2` carries one, `l1` is the
+///    identity on instances in this same sense, so `l2` reads the source
+///    unchanged in both;
+/// 8. neither lens retargets a fan, and none of the four schema objects that
+///    represent the three boundaries declares a hyper-edge. A fan identity is
+///    operational rather than complement-`Unit`: its first stage may retain a
+///    noncanonical raw fan label that the second stage normalizes. Collapsing
+///    the two complements then loses that retained label, even when all four
+///    declarations are equal;
+/// 9. the restrict plan compiles for `l1`, for `l2` and for the composite,
 ///    and every edge fate of each is to keep or to drop the edge. A tree
 ///    `get` compiles its whole plan before it reads the instance, so a stage
 ///    whose plan fails refuses every source, and the composite's plan does
@@ -194,36 +222,148 @@ pub(crate) fn check_boundary(left: &Schema, right: &Schema) -> Result<(), LensEr
 /// Under these conditions the fused lens and the pair in sequence are
 /// observationally equivalent: their views agree, so do the sources they
 /// write back, and one refuses exactly when the other does, with the same
-/// error. Queries of this kind compose because their pushforward is
-/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem
-/// 1, proof sketch; stated), and the endpoint check on edge images is that
-/// restriction here (inferred).
+/// error. The categorical discrete-opfibration result motivates the shape of
+/// these restrictions, but the implementation establishes soundness through
+/// the operational predicates above rather than identifying any one predicate
+/// with that categorical condition.
 pub(crate) fn tree_fusion(l1: &Lens, l2: &Lens) -> Option<Lens> {
     // Condition 1 for the two lenses, before their migrations are composed.
     if !contraction_free(l1) || !contraction_free(l2) {
         return None;
     }
-    // Condition 6.
-    if !l1.compiled.hyper_resolver.is_empty() || !l2.compiled.hyper_resolver.is_empty() {
+    // Condition 4: a lossy first stage contributes residue and independent
+    // put-domain failures. A fused complement cannot retain the sequential
+    // right-to-left error precedence without stage provenance.
+    if !l1.is_isomorphism() || !put_domain_is_trivial(&l1.src_schema) {
+        return None;
+    }
+    // Condition 8.
+    if !l1.compiled.hyper_resolver.is_empty()
+        || !l2.compiled.hyper_resolver.is_empty()
+        || !l1.src_schema.hyper_edges.is_empty()
+        || !l1.tgt_schema.hyper_edges.is_empty()
+        || !l2.src_schema.hyper_edges.is_empty()
+        || !l2.tgt_schema.hyper_edges.is_empty()
+    {
+        return None;
+    }
+    // Condition 4.
+    if !bijective_on_instances(l2) || !first_covers_second_domain(l1, l2) {
+        return None;
+    }
+    // Condition 5.
+    if !put_domain_is_trivial(&l1.tgt_schema) || !put_domain_is_trivial(&l2.src_schema) {
         return None;
     }
     // Condition 2.
     let composite = fuse(l1, l2).ok()?;
-    // Condition 7, and the compiled half of conditions 1 and 4.
+    // Condition 9, and the compiled half of conditions 1 and 6.
     let plans = [plan_of(l1)?, plan_of(l2)?, plan_of(&composite)?];
-    // Condition 3, and the structural half of conditions 1 and 4.
-    if !edge_image_compiles(l1, l2, &composite)
+    if !identity_on_instances(l1, &plans[0]) || !identity_on_instances(l2, &plans[1]) {
+        return None;
+    }
+    // Condition 3, and the structural half of conditions 1 and 6.
+    if !vertex_images_agree(l1, l2, &composite)
+        || !edge_image_compiles(l1, l2, &composite)
         || !plan_is_empty(l1)
         || !plan_is_empty(l2)
         || !plan_is_empty(&composite)
     {
         return None;
     }
-    // Condition 5.
+    // Condition 7.
     if !value_layers_compose(l1, &plans[0], l2, &plans[1]) {
         return None;
     }
     Some(composite)
+}
+
+/// Condition 5 of [`tree_fusion`]: the intermediate put performs no
+/// required-cell or uniqueness check that the fused put would skip.
+fn put_domain_is_trivial(schema: &Schema) -> bool {
+    schema.required.values().all(Vec::is_empty)
+        && schema.declarations.keys.values().all(Vec::is_empty)
+}
+
+/// Condition 4 of [`tree_fusion`]: the second stage maps its surviving source
+/// vertices and direct source edges bijectively onto the target carriers.
+fn bijective_on_instances(lens: &Lens) -> bool {
+    let mut vertices = HashSet::new();
+    let vertices_bijective = lens
+        .src_schema
+        .vertices
+        .keys()
+        .filter(|source| crate::asymmetric::vertex_survives(lens, source))
+        .all(|source| {
+            let image = lens.compiled.vertex_remap.get(source).unwrap_or(source);
+            lens.tgt_schema.vertices.contains_key(image) && vertices.insert(image)
+        })
+        && vertices.len() == lens.tgt_schema.vertices.len();
+    if !vertices_bijective {
+        return false;
+    }
+
+    let mut edges = HashSet::new();
+    lens.src_schema
+        .edges
+        .keys()
+        .filter_map(|source| direct_edge_image(lens, source))
+        .all(|image| lens.tgt_schema.edges.contains_key(&image) && edges.insert(image))
+        && edges.len() == lens.tgt_schema.edges.len()
+}
+
+/// The coverage half of condition 4: every middle carrier that the second
+/// stage keeps has a surviving first-stage preimage.
+fn first_covers_second_domain(first: &Lens, second: &Lens) -> bool {
+    let first_vertices: HashSet<_> = first
+        .src_schema
+        .vertices
+        .keys()
+        .filter(|source| crate::asymmetric::vertex_survives(first, source))
+        .map(|source| first.compiled.vertex_remap.get(source).unwrap_or(source))
+        .collect();
+    let vertices_covered = second
+        .src_schema
+        .vertices
+        .keys()
+        .filter(|middle| crate::asymmetric::vertex_survives(second, middle))
+        .all(|middle| first_vertices.contains(middle));
+    if !vertices_covered {
+        return false;
+    }
+
+    let first_edges: HashSet<_> = first
+        .src_schema
+        .edges
+        .keys()
+        .filter_map(|source| direct_edge_image(first, source))
+        .collect();
+    second
+        .src_schema
+        .edges
+        .keys()
+        .filter(|middle| direct_edge_image(second, middle).is_some())
+        .all(|middle| first_edges.contains(middle))
+}
+
+/// Condition 3 of [`tree_fusion`] for vertices: the composite preserves both
+/// the sequential survival decision and each surviving image in the source
+/// frame.
+fn vertex_images_agree(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
+    l1.src_schema.vertices.keys().all(|source| {
+        let middle = l1.compiled.vertex_remap.get(source).unwrap_or(source);
+        let sequential = crate::asymmetric::vertex_survives(l1, source)
+            && crate::asymmetric::vertex_survives(l2, middle);
+        let candidate = crate::asymmetric::vertex_survives(composite, source);
+        candidate == sequential
+            && (!sequential
+                || composite
+                    .compiled
+                    .vertex_remap
+                    .get(source)
+                    .unwrap_or(source)
+                    == l2.compiled.vertex_remap.get(middle).unwrap_or(middle))
+    })
 }
 
 /// The restrict plan of `lens` when it compiles with no contraction pair
@@ -247,7 +387,7 @@ fn edge_image_compiles(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
 }
 
 /// Whether the plan of `get` through `lens` is structurally empty, as
-/// condition 4 of [`tree_fusion`] requires of each lens and of the
+/// condition 6 of [`tree_fusion`] requires of each lens and of the
 /// composite: it neither contracts a path nor expands an arc into
 /// synthesized nodes.
 fn plan_is_empty(lens: &Lens) -> bool {
@@ -270,45 +410,31 @@ fn has_value_layer(lens: &Lens) -> bool {
             .any(|t| !t.is_empty())
 }
 
-/// Condition 5 of [`tree_fusion`], with the compiled plans of the two
-/// lenses: at most one lens carries a value layer; a layer on `l1` needs an
-/// `l2` that removes nothing, and a layer on `l2` an `l1` that is the
+/// Condition 7 of [`tree_fusion`], with the compiled plan of `l1`: the first
+/// stage has no value layer, and a layer on `l2` needs an `l1` that is the
 /// identity on instances.
 fn value_layers_compose(l1: &Lens, plan1: &RestrictPlan, l2: &Lens, plan2: &RestrictPlan) -> bool {
-    match (has_value_layer(l1), has_value_layer(l2)) {
-        (false, false) => true,
-        (true, true) => false,
-        (true, false) => removes_nothing(l2, plan2),
-        (false, true) => identity_on_instances(l1, plan1),
-    }
-}
-
-/// Whether `get` through `lens` removes nothing: every vertex of its source
-/// survives it, and every edge fate keeps the edge.
-fn removes_nothing(lens: &Lens, plan: &RestrictPlan) -> bool {
-    lens.src_schema
-        .vertices
-        .keys()
-        .all(|v| crate::asymmetric::vertex_survives(lens, v))
-        && plan
-            .edge_image
-            .fates
-            .values()
-            .all(|fate| matches!(fate, EdgeFate::Keep(_)))
+    let _ = plan2;
+    !has_value_layer(l1) && (!has_value_layer(l2) || identity_on_instances(l1, plan1))
 }
 
 /// Whether `get` through `lens` is the identity on instances: every vertex
 /// of its source survives with itself as its image, and every edge fate
 /// keeps the edge as itself.
 fn identity_on_instances(lens: &Lens, plan: &RestrictPlan) -> bool {
-    lens.src_schema.vertices.keys().all(|v| {
-        lens.compiled.vertex_remap.get(v).unwrap_or(v) == v
-            && crate::asymmetric::vertex_survives(lens, v)
-    }) && plan
-        .edge_image
-        .fates
+    lens.compiled
+        .vertex_remap
         .iter()
-        .all(|(source, fate)| matches!(fate, EdgeFate::Keep(image) if image == source))
+        .all(|(source, target)| source == target)
+        && lens.src_schema.vertices.keys().all(|v| {
+            lens.compiled.vertex_remap.get(v).unwrap_or(v) == v
+                && crate::asymmetric::vertex_survives(lens, v)
+        })
+        && plan
+            .edge_image
+            .fates
+            .iter()
+            .all(|(source, fate)| matches!(fate, EdgeFate::Keep(image) if image == source))
 }
 
 /// Whether the fused lens gives every direct arc the edge the pair gives it
@@ -1120,7 +1246,7 @@ mod tests {
     use panproto_expr::Expr;
     use panproto_inst::FieldTransform;
 
-    use crate::tests::{identity_lens, three_node_schema};
+    use crate::tests::{TestUnwrap, TestUnwrapErr, identity_lens, three_node_schema};
 
     #[test]
     fn compose_identity_with_identity() {
@@ -1235,5 +1361,647 @@ mod tests {
                 field,
             }) if refused_anchor == anchor.as_str() && field == "f"
         ));
+    }
+
+    #[test]
+    fn fusion_does_not_resurrect_a_dropped_source_vertex_through_a_remap() {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .build()
+            .test_unwrap("the two-vertex schema is valid");
+        let a = panproto_gat::Name::from("a");
+        let b = panproto_gat::Name::from("b");
+
+        let mut first = identity_lens(&schema);
+        first.compiled.surviving_verts.remove(&b);
+        let mut second = identity_lens(&schema);
+        second.compiled.vertex_remap.insert(a, b.clone());
+
+        let candidate = fuse(&first, &second).test_unwrap("the migrations compose structurally");
+        assert!(!crate::asymmetric::vertex_survives(&first, &b));
+        assert!(crate::asymmetric::vertex_survives(&candidate, &b));
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must not resurrect source b after the first stage drops it"
+        );
+    }
+
+    #[test]
+    fn fusion_preserves_the_image_of_an_isolated_source_vertex() {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .vertex("x", "obj", None)
+            .test_unwrap("x is a valid vertex")
+            .vertex("y", "obj", None)
+            .test_unwrap("y is a valid vertex")
+            .build()
+            .test_unwrap("the isolated-vertex schema is valid");
+        let a = panproto_gat::Name::from("a");
+        let b = panproto_gat::Name::from("b");
+        let x = panproto_gat::Name::from("x");
+        let y = panproto_gat::Name::from("y");
+
+        let mut first = identity_lens(&schema);
+        first.compiled.vertex_remap.insert(x, a.clone());
+        let mut second = identity_lens(&schema);
+        second.compiled.vertex_remap.insert(a.clone(), b);
+        second.compiled.vertex_remap.insert(y, a.clone());
+
+        let candidate = fuse(&first, &second).test_unwrap("the migrations compose structurally");
+        assert!(crate::asymmetric::vertex_survives(&candidate, &a));
+        assert_eq!(
+            candidate.compiled.vertex_remap.get(&a).unwrap_or(&a),
+            &a,
+            "the structural composite elides the sequential a-to-b remap"
+        );
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the sequential image of an isolated source vertex"
+        );
+    }
+
+    #[test]
+    fn fusion_preserves_reverse_vertex_fibres() {
+        let protocol = panproto_schema::Protocol::default();
+        let source = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("A", "obj", None)
+            .test_unwrap("A is a valid vertex")
+            .vertex("B", "obj", None)
+            .test_unwrap("B is a valid vertex")
+            .build()
+            .test_unwrap("the source schema is valid");
+        let middle = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("X", "obj", None)
+            .test_unwrap("X is a valid vertex")
+            .vertex("Y", "obj", None)
+            .test_unwrap("Y is a valid vertex")
+            .build()
+            .test_unwrap("the middle schema is valid");
+        let target = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("Y", "obj", None)
+            .test_unwrap("Y is a valid vertex")
+            .build()
+            .test_unwrap("the target schema is valid");
+        let first = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("X"), Name::from("Y")].into(),
+                vertex_remap: [
+                    (Name::from("A"), Name::from("X")),
+                    (Name::from("B"), Name::from("Y")),
+                ]
+                .into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source,
+            tgt_schema: middle.clone(),
+        };
+        let second = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("Y")].into(),
+                vertex_remap: [(Name::from("X"), Name::from("Y"))].into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: middle,
+            tgt_schema: target,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the second stage's distinct reverse fibres"
+        );
+    }
+
+    #[test]
+    fn fusion_requires_first_stage_coverage_of_surviving_middle_vertices() {
+        let protocol = panproto_schema::Protocol::default();
+        let source = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .build()
+            .test_unwrap("the source schema is valid");
+        let middle = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("x", "obj", None)
+            .test_unwrap("x is a valid vertex")
+            .vertex("y", "obj", None)
+            .test_unwrap("y is a valid vertex")
+            .build()
+            .test_unwrap("the middle schema is valid");
+        let target = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("z", "obj", None)
+            .test_unwrap("z is a valid vertex")
+            .vertex("w", "obj", None)
+            .test_unwrap("w is a valid vertex")
+            .build()
+            .test_unwrap("the target schema is valid");
+        let first = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("x")].into(),
+                vertex_remap: [(Name::from("a"), Name::from("x"))].into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source,
+            tgt_schema: middle.clone(),
+        };
+        let second = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("z"), Name::from("w")].into(),
+                vertex_remap: [
+                    (Name::from("x"), Name::from("z")),
+                    (Name::from("y"), Name::from("w")),
+                ]
+                .into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: middle,
+            tgt_schema: target,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the zero-preimage fallback at the first reverse stage"
+        );
+    }
+
+    #[test]
+    fn fusion_preserves_reverse_edge_fibres() {
+        let protocol = panproto_schema::Protocol::default();
+        let middle = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .edge("a", "b", "prop", Some("e1"))
+            .test_unwrap("e1 is a valid edge")
+            .edge("a", "b", "prop", Some("e2"))
+            .test_unwrap("e2 is a valid edge")
+            .build()
+            .test_unwrap("the middle schema is valid");
+        let target = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .edge("a", "b", "prop", Some("q"))
+            .test_unwrap("q is a valid edge")
+            .build()
+            .test_unwrap("the target schema is valid");
+        let first = identity_lens(&middle);
+        let target_edge = target
+            .edges
+            .keys()
+            .next()
+            .cloned()
+            .test_unwrap("the target edge exists");
+        let second = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: target.vertices.keys().cloned().collect(),
+                surviving_edges: [target_edge.clone()].into(),
+                edge_remap: middle
+                    .edges
+                    .keys()
+                    .cloned()
+                    .map(|source| (source, target_edge.clone()))
+                    .collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: middle,
+            tgt_schema: target,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the second stage's distinct reverse edge fibres"
+        );
+    }
+
+    #[test]
+    fn fusion_retains_target_only_reverse_carriers() {
+        let protocol = panproto_schema::Protocol::default();
+        let source = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("dropped", "obj", None)
+            .test_unwrap("dropped is a valid vertex")
+            .build()
+            .test_unwrap("the source schema is valid");
+        let middle = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .build()
+            .test_unwrap("the middle schema is valid");
+        let target = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("fresh", "obj", None)
+            .test_unwrap("fresh is a valid vertex")
+            .build()
+            .test_unwrap("the target schema is valid");
+        let first = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: middle.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source,
+            tgt_schema: middle.clone(),
+        };
+        let second = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: target.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: middle,
+            tgt_schema: target,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the atomic refusal at a target-only reverse carrier"
+        );
+    }
+
+    #[test]
+    fn fusion_retains_staged_error_precedence_after_a_lossy_first_stage() {
+        let protocol = panproto_schema::Protocol::default();
+        let source_schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("kept", "obj", None)
+            .test_unwrap("kept is a valid vertex")
+            .vertex("dropped", "obj", None)
+            .test_unwrap("dropped is a valid vertex")
+            .build()
+            .test_unwrap("the source schema is valid");
+        let middle_schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("kept", "obj", None)
+            .test_unwrap("kept is a valid vertex")
+            .build()
+            .test_unwrap("the middle schema is valid");
+        let first = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: middle_schema.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source_schema,
+            tgt_schema: middle_schema.clone(),
+        };
+        let second = identity_lens(&middle_schema);
+        let source = panproto_inst::GInstance::new()
+            .with_node(panproto_inst::Node::new(0, "kept"))
+            .with_node(panproto_inst::Node::new(1, "dropped"));
+
+        let (middle, _) = crate::graph_lens::get(&first, &source).test_unwrap("first graph get");
+        let (mut sequential_view, second_complement) =
+            crate::graph_lens::get(&second, &middle).test_unwrap("second graph get");
+        sequential_view
+            .insert_node(panproto_inst::Node::new(1, "outside"))
+            .test_unwrap("the edit reuses the dropped source id");
+        let sequential_error =
+            crate::graph_lens::put(&second, &sequential_view, &second_complement)
+                .test_unwrap_err("the atomic second put rejects the outside anchor");
+
+        let candidate = fuse(&first, &second).test_unwrap("the structural migrations compose");
+        let (mut fused_view, fused_complement) =
+            crate::graph_lens::get(&candidate, &source).test_unwrap("candidate graph get");
+        fused_view
+            .insert_node(panproto_inst::Node::new(1, "outside"))
+            .test_unwrap("the same edit is available on the candidate view");
+        let fused_error = crate::graph_lens::put(&candidate, &fused_view, &fused_complement)
+            .test_unwrap_err("the fused candidate rejects the reserved id");
+
+        assert!(matches!(
+            sequential_error,
+            LensError::PutDomain(error)
+                if matches!(*error, panproto_inst::PutDomainError::AmbiguousReverseAnchor {
+                    elem: panproto_inst::ViewRef::Node(1),
+                    ref candidates,
+                } if candidates.is_empty())
+        ));
+        assert!(matches!(
+            fused_error,
+            LensError::PutDomain(error)
+                if matches!(*error, panproto_inst::PutDomainError::IdCollision {
+                    elem: panproto_inst::ViewRef::Node(1),
+                })
+        ));
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "a lossy first stage must remain explicit so the rightmost refusal wins"
+        );
+    }
+
+    #[test]
+    fn fusion_preserves_identity_extended_reverse_anchor_composition() {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = |vertex: &str| {
+            panproto_schema::SchemaBuilder::new(&protocol)
+                .vertex(vertex, "obj", None)
+                .test_unwrap("the vertex is valid")
+                .build()
+                .test_unwrap("the schema is valid")
+        };
+        let a = schema("a");
+        let b = schema("b");
+        let c = schema("c");
+        let relabel = |source: &Schema, target: &Schema, from: &str, to: &str| Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from(to)].into(),
+                vertex_remap: [(Name::from(from), Name::from(to))].into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source.clone(),
+            tgt_schema: target.clone(),
+        };
+        let first = relabel(&a, &b, "a", "b");
+        let second = relabel(&b, &c, "b", "c");
+        let source = panproto_inst::WInstance::new(
+            HashMap::from([(0, panproto_inst::Node::new(0, "a"))]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            Name::from("a"),
+        );
+
+        let (middle, first_complement) =
+            crate::asymmetric::get(&first, &source).test_unwrap("first tree get");
+        let (mut sequential_view, second_complement) =
+            crate::asymmetric::get(&second, &middle).test_unwrap("second tree get");
+        sequential_view
+            .nodes
+            .get_mut(&0)
+            .test_unwrap("root exists")
+            .anchor = Name::from("b");
+        sequential_view.schema_root = Name::from("b");
+        let intermediate = crate::asymmetric::put(&second, &sequential_view, &second_complement)
+            .test_unwrap("second put uses identity extension outside c");
+        let sequential = crate::asymmetric::put(&first, &intermediate, &first_complement)
+            .test_unwrap("first put maps b back to a");
+
+        let candidate = fuse(&first, &second).test_unwrap("the structural migrations compose");
+        let (mut fused_view, fused_complement) =
+            crate::asymmetric::get(&candidate, &source).test_unwrap("candidate tree get");
+        fused_view
+            .nodes
+            .get_mut(&0)
+            .test_unwrap("root exists")
+            .anchor = Name::from("b");
+        fused_view.schema_root = Name::from("b");
+        let fused = crate::asymmetric::put(&candidate, &fused_view, &fused_complement)
+            .test_unwrap("candidate put uses its own identity extension");
+
+        assert_eq!(sequential.nodes[&0].anchor, Name::from("a"));
+        assert_eq!(fused.nodes[&0].anchor, Name::from("b"));
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "two non-identity relabelings must remain atomic on outside-schema edits"
+        );
+    }
+
+    #[test]
+    fn fusion_accounts_for_extraneous_reverse_anchor_entries() {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .build()
+            .test_unwrap("the schema is valid");
+        let lens = |from: &str, to: &str| Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("a")].into(),
+                vertex_remap: [(Name::from(from), Name::from(to))].into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: schema.clone(),
+            tgt_schema: schema.clone(),
+        };
+        let first = lens("x", "y");
+        let second = lens("y", "z");
+        let source = panproto_inst::WInstance::new(
+            HashMap::from([(0, panproto_inst::Node::new(0, "a"))]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            Name::from("a"),
+        );
+        let (middle, first_complement) =
+            crate::asymmetric::get(&first, &source).test_unwrap("first tree get");
+        let (mut sequential_view, second_complement) =
+            crate::asymmetric::get(&second, &middle).test_unwrap("second tree get");
+        sequential_view.nodes.get_mut(&0).test_unwrap("root").anchor = Name::from("y");
+        sequential_view.schema_root = Name::from("y");
+        let intermediate = crate::asymmetric::put(&second, &sequential_view, &second_complement)
+            .test_unwrap("second put uses identity extension at y");
+        let sequential = crate::asymmetric::put(&first, &intermediate, &first_complement)
+            .test_unwrap("first put uses its raw reverse entry");
+
+        let candidate = fuse(&first, &second).test_unwrap("the raw migrations compose");
+        let (mut fused_view, fused_complement) =
+            crate::asymmetric::get(&candidate, &source).test_unwrap("candidate tree get");
+        fused_view.nodes.get_mut(&0).test_unwrap("root").anchor = Name::from("y");
+        fused_view.schema_root = Name::from("y");
+        let fused = crate::asymmetric::put(&candidate, &fused_view, &fused_complement)
+            .test_unwrap("candidate put uses its composed reverse map");
+
+        assert_eq!(sequential.nodes[&0].anchor, Name::from("x"));
+        assert_eq!(fused.nodes[&0].anchor, Name::from("y"));
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "raw remap entries outside the declared carrier still affect put"
+        );
+    }
+
+    #[test]
+    fn fusion_does_not_reintroduce_a_dropped_hyper_edge_declaration() {
+        let protocol = panproto_schema::Protocol::default();
+        let mut source = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .build()
+            .test_unwrap("the source schema is valid");
+        source.hyper_edges.insert(
+            Name::from("h"),
+            panproto_schema::HyperEdge {
+                id: Name::from("h"),
+                kind: Name::from("fan"),
+                signature: HashMap::from([
+                    (Name::from("p"), Name::from("a")),
+                    (Name::from("l"), Name::from("b")),
+                ]),
+                parent_label: Name::from("p"),
+            },
+        );
+        let mut middle = source.clone();
+        middle.hyper_edges.clear();
+        let first = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: middle.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source.clone(),
+            tgt_schema: middle.clone(),
+        };
+        let second = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: source.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: middle,
+            tgt_schema: source,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain a middle boundary that drops fan declarations"
+        );
+    }
+
+    #[test]
+    fn fusion_retains_intermediate_required_cell_validation() {
+        let protocol = panproto_schema::Protocol::default();
+        let base = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .edge("a", "b", "prop", Some("f"))
+            .test_unwrap("f is a valid edge")
+            .build()
+            .test_unwrap("the base schema is valid");
+        let required_edge = base
+            .edges
+            .keys()
+            .next()
+            .cloned()
+            .test_unwrap("the required edge exists");
+        let mut middle = base.clone();
+        middle.required.insert(Name::from("a"), vec![required_edge]);
+        let compiled = || CompiledMigration {
+            surviving_verts: base.vertices.keys().cloned().collect(),
+            surviving_edges: base.edges.keys().cloned().collect(),
+            ..CompiledMigration::default()
+        };
+        let first = Lens {
+            compiled: compiled(),
+            src_schema: base.clone(),
+            tgt_schema: middle.clone(),
+        };
+        let second = Lens {
+            compiled: compiled(),
+            src_schema: middle,
+            tgt_schema: base,
+        };
+
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the required-cell check at the middle boundary"
+        );
+    }
+
+    #[test]
+    fn fusion_retains_validation_on_the_second_middle_representation() {
+        let protocol = panproto_schema::Protocol::default();
+        let base = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .edge("a", "b", "prop", Some("f"))
+            .test_unwrap("f is a valid edge")
+            .build()
+            .test_unwrap("the base schema is valid");
+        let required_edge = base
+            .edges
+            .keys()
+            .next()
+            .cloned()
+            .test_unwrap("the required edge exists");
+        let mut second_source = base.clone();
+        second_source
+            .required
+            .insert(Name::from("a"), vec![required_edge]);
+        let compiled = || CompiledMigration {
+            surviving_verts: base.vertices.keys().cloned().collect(),
+            surviving_edges: base.edges.keys().cloned().collect(),
+            ..CompiledMigration::default()
+        };
+        let first = Lens {
+            compiled: compiled(),
+            src_schema: base.clone(),
+            tgt_schema: base.clone(),
+        };
+        let second = Lens {
+            compiled: compiled(),
+            src_schema: second_source,
+            tgt_schema: base,
+        };
+
+        assert!(
+            check_boundary(&first.tgt_schema, &second.src_schema).is_ok(),
+            "ordinary composition equates the middle carrier rather than its declarations"
+        );
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must inspect the schema that the atomic second put validates"
+        );
+    }
+
+    #[test]
+    fn fusion_retains_hyper_validation_on_the_second_middle_representation() {
+        let protocol = panproto_schema::Protocol::default();
+        let mut base = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("a", "obj", None)
+            .test_unwrap("a is a valid vertex")
+            .vertex("b", "obj", None)
+            .test_unwrap("b is a valid vertex")
+            .build()
+            .test_unwrap("the base schema is valid");
+        base.hyper_edges.insert(
+            Name::from("h"),
+            panproto_schema::HyperEdge {
+                id: Name::from("h"),
+                kind: Name::from("fan"),
+                signature: HashMap::from([
+                    (Name::from("p"), Name::from("a")),
+                    (Name::from("l"), Name::from("b")),
+                ]),
+                parent_label: Name::from("p"),
+            },
+        );
+        let mut second_source = base.clone();
+        second_source
+            .hyper_edges
+            .get_mut(&Name::from("h"))
+            .test_unwrap("h is present")
+            .parent_label = Name::from("l");
+        let compiled = || CompiledMigration {
+            surviving_verts: base.vertices.keys().cloned().collect(),
+            ..CompiledMigration::default()
+        };
+        let first = Lens {
+            compiled: compiled(),
+            src_schema: base.clone(),
+            tgt_schema: base.clone(),
+        };
+        let second = Lens {
+            compiled: compiled(),
+            src_schema: second_source,
+            tgt_schema: base,
+        };
+
+        assert!(
+            check_boundary(&first.tgt_schema, &second.src_schema).is_ok(),
+            "ordinary composition equates hyper-edge keys rather than declarations"
+        );
+        assert!(
+            tree_fusion(&first, &second).is_none(),
+            "fusion must retain the second middle representation's fan validation"
+        );
     }
 }

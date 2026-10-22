@@ -12,10 +12,10 @@ use panproto_inst::identity::{
     ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
 };
 use panproto_inst::{
-    BoundaryProtocols, CellFate, CheckKind, FInstance, FieldTransform, IdAllocator, IdRange,
-    InstError, PairResolution, PredicateRefusal, PutDomainError, RestrictError, RestrictPlan, Row,
-    RowId, SchemaRef, TableComplement, Value, ViewRef, Violation, functor_restrict_with_plan,
-    validate_table,
+    BoundaryProtocols, CellFate, CellPlan, CheckKind, EntityFunctor, FInstance, FieldTransform,
+    IdAllocator, IdRange, InstError, PairResolution, PredicateRefusal, PutDomainError,
+    RestrictError, RestrictPlan, Row, RowId, SchemaRef, TableComplement, Value, ViewRef, Violation,
+    functor_restrict_with_plan, validate_table,
 };
 use panproto_schema::{ConstraintValue, Edge, Protocol, ScalarKind, Schema};
 
@@ -406,6 +406,31 @@ pub fn obstruction_to_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>)
         return Some("the table plan has no table functor or cell layer".to_owned());
     };
 
+    if let Some(detail) = table_map_obstruction(lens, functor, cells) {
+        return Some(detail);
+    }
+    if let Some(detail) = relation_map_obstruction(functor) {
+        return Some(detail);
+    }
+    let field_vertices = functor
+        .source()
+        .all_columns()
+        .values()
+        .flat_map(BTreeMap::values)
+        .map(|edge| edge.tgt.clone())
+        .collect::<BTreeSet<_>>();
+    if let Some(detail) = table_validation_obstruction(
+        &lens.src_schema,
+        protocols.src,
+        functor.source(),
+        &field_vertices,
+    ) {
+        return Some(detail);
+    }
+    None
+}
+
+fn table_map_obstruction(lens: &Lens, functor: &EntityFunctor, cells: &CellPlan) -> Option<String> {
     let mut table_images = BTreeMap::new();
     for table in functor.source().tables() {
         let Some(image) = functor.table_map().get(table) else {
@@ -430,13 +455,33 @@ pub fn obstruction_to_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>)
             .keys()
             .cloned()
             .collect::<BTreeSet<_>>();
+        let target_columns = functor
+            .target()
+            .columns(image)
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
         let transforms = lens.compiled.value_transforms(table);
         let fates = cells.fates.get(table).map_or(&[][..], Vec::as_slice);
-        if let Some(detail) = table_column_obstruction(&transforms, &source_columns, fates) {
+        if let Some(detail) =
+            table_column_obstruction(&transforms, &source_columns, &target_columns, fates)
+        {
             return Some(format!("table `{table}` {detail}"));
         }
     }
+    functor
+        .target()
+        .tables()
+        .iter()
+        .find(|target| !table_images.contains_key(*target))
+        .map(|target| {
+            format!(
+                "target table `{target}` has no source preimage, so the table map is not bijective"
+            )
+        })
+}
 
+fn relation_map_obstruction(functor: &EntityFunctor) -> Option<String> {
     let mut relation_images = BTreeMap::new();
     for relation in functor.source().relations() {
         let Some(image) = functor.relation_map().get(relation) else {
@@ -452,24 +497,17 @@ pub fn obstruction_to_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>)
             ));
         }
     }
-    let field_vertices = lens
-        .src_schema
-        .edges
-        .keys()
-        .filter(|edge| {
-            edge.kind == "prop" && edge.name.is_some() && functor.source().is_table(&edge.src)
+    functor
+        .target()
+        .relations()
+        .iter()
+        .find(|target| !relation_images.contains_key(*target))
+        .map(|target| {
+            format!(
+                "target foreign key `{:?}` has no source preimage, so the relation map is not bijective",
+                target.name
+            )
         })
-        .map(|edge| edge.tgt.clone())
-        .collect::<BTreeSet<_>>();
-    if let Some(detail) = table_validation_obstruction(
-        &lens.src_schema,
-        protocols.src,
-        functor.source(),
-        &field_vertices,
-    ) {
-        return Some(detail);
-    }
-    None
 }
 
 fn table_validation_obstruction(
@@ -631,6 +669,7 @@ impl TableTransformState {
 fn table_column_obstruction(
     transforms: &[FieldTransform],
     source_columns: &BTreeSet<String>,
+    target_columns: &BTreeSet<String>,
     fates: &[CellFate],
 ) -> Option<String> {
     let mut state = TableTransformState::new(source_columns);
@@ -639,6 +678,34 @@ fn table_column_obstruction(
         if let Some(detail) = table_transform_step_obstruction(transform, step, &mut state) {
             return Some(detail);
         }
+    }
+    let mut output_columns = state.carriers.keys().cloned().collect::<BTreeSet<_>>();
+    for fate in fates {
+        match fate {
+            CellFate::Drop(source) => {
+                output_columns.remove(source);
+            }
+            CellFate::Rename(source, target) => {
+                output_columns.remove(source);
+                output_columns.insert(target.clone());
+            }
+        }
+    }
+    if let Some(target) = target_columns
+        .iter()
+        .find(|target| !output_columns.contains(*target))
+    {
+        return Some(format!(
+            "has target column `{target}` with no source preimage, so its cell cannot be reconstructed"
+        ));
+    }
+    if let Some(output) = output_columns
+        .iter()
+        .find(|output| !target_columns.contains(*output))
+    {
+        return Some(format!(
+            "produces column `{output}` outside the target table, so the column map is not bijective"
+        ));
     }
     let decoded = decode_source_origins(&state, &flat, fates);
     if let Some(source) = source_columns.iter().find(|source| {
@@ -1147,6 +1214,21 @@ pub fn compose(
 }
 
 /// The table fusion rule used by table path normalization.
+///
+/// A first-stage field transform or op-term assignment remains atomic. The
+/// intermediate finite-map adapter validates the first view against the
+/// second stage's relational source boundary; fusing would skip that check
+/// and could admit a field introduced outside the boundary. A second-stage
+/// value layer also remains atomic when the source and middle protocols or
+/// the first plan's relational boundaries differ, because their typed
+/// placeholders for absent cells may differ.
+/// Finally, the first target and second source relational schemas must be
+/// identical, the three entity functors must compose literally, and the
+/// second column map must be injective within each table, so fusion cannot
+/// change a many-to-one cell-map winner by removing the intermediate key
+/// order. The second source must also have no protocol-derived required-value
+/// obligation: an atomic second put validates that middle table, while the
+/// fused put does not.
 #[must_use]
 pub(crate) fn table_fusion(
     first: &Lens,
@@ -1155,8 +1237,32 @@ pub(crate) fn table_fusion(
     middle: &Protocol,
     target: &Protocol,
 ) -> Option<Lens> {
+    let first_writes_fields = first
+        .compiled
+        .field_transforms
+        .values()
+        .any(|transforms| !transforms.is_empty())
+        || first
+            .compiled
+            .op_term_assignments
+            .values()
+            .any(|assignments| !assignments.is_empty());
+    if first_writes_fields {
+        return None;
+    }
+    let second_has_value_layer = !second.compiled.conditional_survival.is_empty()
+        || second
+            .compiled
+            .field_transforms
+            .values()
+            .any(|transforms| !transforms.is_empty())
+        || second
+            .compiled
+            .op_term_assignments
+            .values()
+            .any(|assignments| !assignments.is_empty());
     let candidate = tree_fusion(first, second)?;
-    compile(
+    let first_plan = compile(
         first,
         BoundaryProtocols {
             src: source,
@@ -1164,7 +1270,7 @@ pub(crate) fn table_fusion(
         },
     )
     .ok()?;
-    compile(
+    let second_plan = compile(
         second,
         BoundaryProtocols {
             src: middle,
@@ -1172,7 +1278,7 @@ pub(crate) fn table_fusion(
         },
     )
     .ok()?;
-    compile(
+    let candidate_plan = compile(
         &candidate,
         BoundaryProtocols {
             src: source,
@@ -1180,7 +1286,100 @@ pub(crate) fn table_fusion(
         },
     )
     .ok()?;
+    let first_functor = first_plan.boundary.as_ref()?.table.as_ref()?;
+    let second_functor = second_plan.boundary.as_ref()?.table.as_ref()?;
+    let candidate_functor = candidate_plan.boundary.as_ref()?.table.as_ref()?;
+    if obstruction_to_isomorphism(
+        first,
+        BoundaryProtocols {
+            src: source,
+            tgt: middle,
+        },
+    )
+    .is_some()
+    {
+        return None;
+    }
+    if first_functor.target() != second_functor.source() {
+        return None;
+    }
+    let middle_field_vertices = second_functor
+        .source()
+        .all_columns()
+        .values()
+        .flat_map(BTreeMap::values)
+        .map(|edge| edge.tgt.clone())
+        .collect::<BTreeSet<_>>();
+    if table_validation_obstruction(
+        &second.src_schema,
+        middle,
+        second_functor.source(),
+        &middle_field_vertices,
+    )
+    .is_some()
+    {
+        return None;
+    }
+    if second_has_value_layer
+        && (source != middle || first_functor.source() != first_functor.target())
+    {
+        return None;
+    }
+    if !table_functors_compose(first_functor, second_functor, candidate_functor)
+        || !table_columns_are_injective(second_functor)
+    {
+        return None;
+    }
     Some(candidate)
+}
+
+fn table_columns_are_injective(functor: &panproto_inst::EntityFunctor) -> bool {
+    let mut images = BTreeSet::new();
+    functor
+        .column_map()
+        .iter()
+        .all(|((table, _), target)| images.insert((table.clone(), target.clone())))
+}
+
+fn table_functors_compose(
+    first: &panproto_inst::EntityFunctor,
+    second: &panproto_inst::EntityFunctor,
+    candidate: &panproto_inst::EntityFunctor,
+) -> bool {
+    let tables_agree = first.source().tables().iter().all(|source| {
+        first
+            .table_map()
+            .get(source)
+            .and_then(|middle| second.table_map().get(middle))
+            == candidate.table_map().get(source)
+    });
+    let relations_agree = first.source().relations().iter().all(|source| {
+        first
+            .relation_map()
+            .get(source)
+            .and_then(|middle| second.relation_map().get(middle))
+            == candidate.relation_map().get(source)
+    });
+    let columns_agree = first
+        .source()
+        .all_columns()
+        .iter()
+        .all(|(source_table, columns)| {
+            columns.keys().all(|source_column| {
+                let source_key = (source_table.clone(), source_column.clone());
+                let sequential = first
+                    .column_map()
+                    .get(&source_key)
+                    .and_then(|middle_column| {
+                        let middle_table = first.table_map().get(source_table)?;
+                        second
+                            .column_map()
+                            .get(&(middle_table.clone(), middle_column.clone()))
+                    });
+                sequential == candidate.column_map().get(&source_key)
+            })
+        });
+    tables_agree && relations_agree && columns_agree
 }
 
 fn compile(lens: &Lens, protocols: BoundaryProtocols<'_>) -> Result<RestrictPlan, LensError> {
@@ -1685,6 +1884,9 @@ fn restrict_finite_rows(
     }
     let (mut view, mut complement) = functor_restrict_with_plan(&scratch, plan)?;
     for (key, output) in absent {
+        if let Some(dropped) = complement.dropped_rows.get_mut(&key.0) {
+            dropped.row.remove(&key.1);
+        }
         complement.dropped_cells.remove(&key);
         complement.original_cells.remove(&key);
         if let Some(output) = output
@@ -2011,6 +2213,7 @@ fn violation_ref(error: &PutDomainError) -> Option<ViewRef> {
         | PutDomainError::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
         PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
         PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
+        PutDomainError::PlanCompilation { .. } => None,
     }
 }
 
@@ -2046,10 +2249,37 @@ where
 mod tests {
     use std::cell::Cell;
 
-    use panproto_inst::CompiledMigration;
-    use panproto_schema::SchemaBuilder;
+    use panproto_inst::{CompiledMigration, Value, wtype::FieldTransform};
+    use panproto_schema::{Constraint, ConstraintSemantics, ScalarKind, SchemaBuilder};
 
     use super::*;
+    use crate::tests::TestUnwrap;
+
+    #[test]
+    fn writer_prefers_the_last_explicit_rename_over_an_implicit_name() {
+        assert_eq!(cell_writer(&[], "x"), Some("x".to_owned()));
+        assert_eq!(cell_writer(&[CellFate::Drop("x".to_owned())], "x"), None);
+        assert_eq!(
+            cell_writer(
+                &[
+                    CellFate::Rename("y".to_owned(), "x".to_owned()),
+                    CellFate::Rename("z".to_owned(), "x".to_owned()),
+                ],
+                "x",
+            ),
+            Some("z".to_owned())
+        );
+        assert_eq!(
+            cell_writer(
+                &[
+                    CellFate::Rename("z".to_owned(), "x".to_owned()),
+                    CellFate::Rename("x".to_owned(), "y".to_owned()),
+                ],
+                "x",
+            ),
+            Some("z".to_owned())
+        );
+    }
 
     #[test]
     fn table_get_compiles_its_plan_once() {
@@ -2092,5 +2322,460 @@ mod tests {
         };
         assert!(bound.get(&source, &protocol).is_ok());
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn table_fusion_retains_the_intermediate_stray_cell_check() {
+        let protocol = Protocol {
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        };
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .build()
+            .test_unwrap("row schema must build");
+        let identity = || Lens {
+            compiled: CompiledMigration {
+                surviving_verts: schema.vertices.keys().cloned().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: schema.clone(),
+            tgt_schema: schema.clone(),
+        };
+        let mut first = identity();
+        first.compiled.field_transforms.insert(
+            "row".into(),
+            vec![FieldTransform::AddField {
+                key: "outside".to_owned(),
+                value: Value::Int(0),
+            }],
+        );
+        let second = identity();
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let source = FInstance::new()
+            .with_rows("row", [(RowId(0), Row::new())])
+            .test_unwrap("source row must be admitted");
+
+        let (intermediate, _) = get(&first, &source, context)
+            .test_unwrap("the first stage may produce an untyped field");
+        assert!(
+            get(&second, &intermediate, context).is_err(),
+            "the atomic second stage must reject the introduced stray cell"
+        );
+        assert!(
+            table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
+            "fusion must not erase the intermediate source-boundary check"
+        );
+    }
+
+    fn column_protocol(scalar: ScalarKind) -> Protocol {
+        Protocol {
+            value_kinds: BTreeMap::from([("value".to_owned(), scalar)]),
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        }
+    }
+
+    fn schema_with_columns(protocol: &Protocol, columns: &[&str]) -> Schema {
+        schema_with_column_kind(protocol, "value", columns)
+    }
+
+    fn schema_with_column_kind(protocol: &Protocol, value_kind: &str, columns: &[&str]) -> Schema {
+        let mut builder = SchemaBuilder::new(protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .vertex("value", value_kind, None)
+            .test_unwrap("value schema must build");
+        for column in columns {
+            builder = builder
+                .edge("row", "value", "property", Some(*column))
+                .test_unwrap("column must build");
+        }
+        builder.build().test_unwrap("column schema must build")
+    }
+
+    fn edge_named(schema: &Schema, name: &str) -> Edge {
+        schema
+            .edges
+            .keys()
+            .find(|edge| edge.name.as_deref() == Some(name))
+            .cloned()
+            .test_unwrap("named column exists")
+    }
+
+    fn mapped_lens(
+        source: &Schema,
+        target: &Schema,
+        edge_map: impl IntoIterator<Item = (Edge, Edge)>,
+    ) -> Lens {
+        Lens {
+            compiled: CompiledMigration {
+                surviving_verts: target.vertices.keys().cloned().collect(),
+                surviving_edges: target.edges.keys().cloned().collect(),
+                edge_remap: edge_map.into_iter().collect(),
+                ..CompiledMigration::default()
+            },
+            src_schema: source.clone(),
+            tgt_schema: target.clone(),
+        }
+    }
+
+    #[test]
+    fn table_fusion_rejects_a_second_stage_column_collision() {
+        let protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let source_schema = schema_with_columns(&protocol, &["a", "z"]);
+        let middle_schema = schema_with_columns(&protocol, &["x", "y"]);
+        let target_schema = schema_with_columns(&protocol, &["q"]);
+        let first = mapped_lens(
+            &source_schema,
+            &middle_schema,
+            [
+                (
+                    edge_named(&source_schema, "a"),
+                    edge_named(&middle_schema, "y"),
+                ),
+                (
+                    edge_named(&source_schema, "z"),
+                    edge_named(&middle_schema, "x"),
+                ),
+            ],
+        );
+        let second = mapped_lens(
+            &middle_schema,
+            &target_schema,
+            [
+                (
+                    edge_named(&middle_schema, "x"),
+                    edge_named(&target_schema, "q"),
+                ),
+                (
+                    edge_named(&middle_schema, "y"),
+                    edge_named(&target_schema, "q"),
+                ),
+            ],
+        );
+        let source = FInstance::new()
+            .with_rows(
+                "row",
+                [(
+                    RowId(0),
+                    Row::from([
+                        ("a".to_owned(), Value::Str("A".to_owned())),
+                        ("z".to_owned(), Value::Str("Z".to_owned())),
+                    ]),
+                )],
+            )
+            .test_unwrap("source row must be admitted");
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let (middle_view, _) = get(&first, &source, context).test_unwrap("first table get");
+        let (sequential, _) = get(&second, &middle_view, context).test_unwrap("second table get");
+        let candidate = mapped_lens(
+            &source_schema,
+            &target_schema,
+            [
+                (
+                    edge_named(&source_schema, "a"),
+                    edge_named(&target_schema, "q"),
+                ),
+                (
+                    edge_named(&source_schema, "z"),
+                    edge_named(&target_schema, "q"),
+                ),
+            ],
+        );
+        let (fused, _) = get(&candidate, &source, context).test_unwrap("fused table get");
+        assert_eq!(
+            sequential.row(RowId(0)).test_unwrap("expected a value")["q"],
+            Value::Str("A".to_owned())
+        );
+        assert_eq!(
+            fused.row(RowId(0)).test_unwrap("expected a value")["q"],
+            Value::Str("Z".to_owned())
+        );
+        assert!(
+            table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
+            "table fusion must retain the intermediate collision winner"
+        );
+    }
+
+    #[test]
+    fn table_fusion_retains_the_intermediate_placeholder_semantics() {
+        let source_protocol = column_protocol(ScalarKind::Bool);
+        let middle_protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let schema = schema_with_columns(&source_protocol, &["f"]);
+        let first = mapped_lens(&schema, &schema, std::iter::empty());
+        let mut second = mapped_lens(&schema, &schema, std::iter::empty());
+        second
+            .compiled
+            .conditional_survival
+            .insert("row".into(), panproto_expr::Expr::Var("f".into()));
+        let source = FInstance::new()
+            .with_rows("row", [(RowId(0), Row::new())])
+            .test_unwrap("source row must be admitted");
+        let (middle_view, _) = get(
+            &first,
+            &source,
+            BoundaryProtocols {
+                src: &source_protocol,
+                tgt: &middle_protocol,
+            },
+        )
+        .test_unwrap("the identity stage strips its typed placeholder");
+        assert!(
+            get(
+                &second,
+                &middle_view,
+                BoundaryProtocols {
+                    src: &middle_protocol,
+                    tgt: &middle_protocol,
+                },
+            )
+            .is_err(),
+            "the atomic second stage observes the middle protocol's integer placeholder"
+        );
+        let candidate =
+            tree_fusion(&first, &second).test_unwrap("graph/tree fusion admits the pair");
+        assert!(
+            get(
+                &candidate,
+                &source,
+                BoundaryProtocols {
+                    src: &source_protocol,
+                    tgt: &middle_protocol,
+                },
+            )
+            .is_ok(),
+            "the fused candidate instead observes the source protocol's Boolean placeholder"
+        );
+        assert!(
+            table_fusion(
+                &first,
+                &second,
+                &source_protocol,
+                &middle_protocol,
+                &middle_protocol,
+            )
+            .is_none(),
+            "table fusion must retain the intermediate placeholder type"
+        );
+    }
+
+    #[test]
+    fn table_fusion_retains_placeholder_semantics_across_value_kind_drift() {
+        let protocol = Protocol {
+            value_kinds: BTreeMap::from([
+                ("bool".to_owned(), ScalarKind::Bool),
+                (
+                    "int".to_owned(),
+                    ScalarKind::Int {
+                        bits: 64,
+                        signed: true,
+                    },
+                ),
+            ]),
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        };
+        let source_schema = schema_with_column_kind(&protocol, "bool", &["f"]);
+        let middle_schema = schema_with_column_kind(&protocol, "int", &["f"]);
+        let first = mapped_lens(&source_schema, &middle_schema, std::iter::empty());
+        let mut second = mapped_lens(&middle_schema, &middle_schema, std::iter::empty());
+        second
+            .compiled
+            .conditional_survival
+            .insert("row".into(), panproto_expr::Expr::Var("f".into()));
+        let source = FInstance::new()
+            .with_rows("row", [(RowId(0), Row::new())])
+            .test_unwrap("source row must be admitted");
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let (middle_view, _) = get(&first, &source, context).test_unwrap("first table get");
+        assert!(
+            get(&second, &middle_view, context).is_err(),
+            "the atomic second stage observes the middle integer placeholder"
+        );
+        let candidate =
+            tree_fusion(&first, &second).test_unwrap("graph/tree fusion admits the pair");
+        assert!(
+            get(&candidate, &source, context).is_ok(),
+            "the fused candidate instead observes the source Boolean placeholder"
+        );
+        assert!(
+            table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
+            "table fusion must retain placeholder kinds even under one protocol"
+        );
+    }
+
+    #[test]
+    fn table_fusion_retains_middle_required_value_validation() {
+        let mut protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        protocol.constraint_sorts.push("required".to_owned());
+        protocol
+            .constraint_semantics
+            .insert("required".to_owned(), ConstraintSemantics::RequiredValue);
+        let base = SchemaBuilder::new(&protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .vertex("row.f", "value", None)
+            .test_unwrap("value schema must build")
+            .edge("row", "row.f", "prop", Some("f"))
+            .test_unwrap("column must build")
+            .build()
+            .test_unwrap("column schema must build");
+        let mut second_source = base.clone();
+        second_source.constraints.insert(
+            Name::from("row.f"),
+            vec![Constraint {
+                sort: Name::from("required"),
+                value: "true".to_owned(),
+            }],
+        );
+        let first = mapped_lens(&base, &base, std::iter::empty());
+        let second = mapped_lens(&second_source, &base, std::iter::empty());
+        let candidate = mapped_lens(&base, &base, std::iter::empty());
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let source = FInstance::new()
+            .with_rows("row", [(RowId(0), Row::new())])
+            .test_unwrap("the optional source cell may be absent");
+        let (middle_view, _) = get(&first, &source, context).test_unwrap("first table get");
+        let (final_view, second_complement) =
+            get(&second, &middle_view, context).test_unwrap("second table get");
+        let atomic_put = put(&second, &final_view, &second_complement, context);
+        assert!(
+            atomic_put.is_err(),
+            "the atomic second put validates its required middle cell: {atomic_put:?}"
+        );
+        let (candidate_view, candidate_complement) =
+            get(&candidate, &source, context).test_unwrap("candidate table get");
+        assert!(
+            put(&candidate, &candidate_view, &candidate_complement, context).is_ok(),
+            "the fused candidate has no corresponding source validation"
+        );
+        assert!(
+            table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
+            "table fusion must retain protocol-derived required-value validation"
+        );
+    }
+
+    #[test]
+    fn table_isomorphism_requires_target_table_surjectivity() {
+        let protocol = Protocol {
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        };
+        let source = SchemaBuilder::new(&protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .build()
+            .test_unwrap("source schema must build");
+        let target = SchemaBuilder::new(&protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .vertex("target_only", "record", None)
+            .test_unwrap("target-only schema must build")
+            .build()
+            .test_unwrap("target schema must build");
+        let lens = mapped_lens(&source, &target, std::iter::empty());
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+
+        assert!(!is_isomorphism(&lens, context));
+        assert!(
+            obstruction_to_isomorphism(&lens, context)
+                .is_some_and(|detail| detail.contains("target table `target_only`"))
+        );
+
+        let target_view = FInstance::new()
+            .with_rows("target_only", [(RowId(0), Row::new())])
+            .test_unwrap("the target-only row must be admitted");
+        assert!(matches!(
+            put_without_complement(&lens, &target_view, context),
+            Err(LensError::NotAnIsomorphism { .. })
+        ));
+    }
+
+    #[test]
+    fn table_isomorphism_requires_target_relation_surjectivity() {
+        let protocol = Protocol {
+            non_value_kinds: ["record".to_owned()].into(),
+            ..Protocol::default()
+        };
+        let source = SchemaBuilder::new(&protocol)
+            .vertex("parent", "record", None)
+            .test_unwrap("parent schema must build")
+            .vertex("child", "record", None)
+            .test_unwrap("child schema must build")
+            .build()
+            .test_unwrap("source schema must build");
+        let target = SchemaBuilder::new(&protocol)
+            .vertex("parent", "record", None)
+            .test_unwrap("parent schema must build")
+            .vertex("child", "record", None)
+            .test_unwrap("child schema must build")
+            .edge("child", "parent", "foreign-key", Some("parent"))
+            .test_unwrap("target-only relation must build")
+            .build()
+            .test_unwrap("target schema must build");
+        let lens = mapped_lens(&source, &target, std::iter::empty());
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+
+        assert!(!is_isomorphism(&lens, context));
+        assert!(
+            obstruction_to_isomorphism(&lens, context)
+                .is_some_and(|detail| detail.contains("target foreign key"))
+        );
+    }
+
+    #[test]
+    fn table_isomorphism_requires_target_column_surjectivity() {
+        let protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let source = SchemaBuilder::new(&protocol)
+            .vertex("row", "record", None)
+            .test_unwrap("row schema must build")
+            .vertex("value", "value", None)
+            .test_unwrap("value schema must build")
+            .build()
+            .test_unwrap("source schema must build");
+        let target = schema_with_columns(&protocol, &["target_only"]);
+        let lens = mapped_lens(&source, &target, std::iter::empty());
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+
+        assert!(!is_isomorphism(&lens, context));
+        assert!(
+            obstruction_to_isomorphism(&lens, context)
+                .is_some_and(|detail| detail.contains("target column `target_only`"))
+        );
     }
 }

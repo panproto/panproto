@@ -361,7 +361,15 @@ pub enum LensError {
         detail: String,
     },
 
-    /// A protolens operation failed.
+    /// A checked protolens instantiation failed its declared source
+    /// precondition before either schema transform was evaluated.
+    #[error("protolens is not applicable: {reasons:?}")]
+    ProtolensInapplicable {
+        /// The complete set of failed precondition clauses.
+        reasons: Vec<String>,
+    },
+
+    /// A protolens operation other than source-precondition checking failed.
     #[error("protolens error: {0}")]
     ProtolensError(String),
 

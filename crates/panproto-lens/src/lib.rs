@@ -163,26 +163,29 @@ impl Lens {
     /// Whether this lens is an **isomorphism**, so that its complement is
     /// terminal and a source is determined by its view alone.
     ///
-    /// A lens with complement decomposes its source as `S ≅ V × C`. It is
-    /// invertible on the nose exactly when `C ≅ 1`, since `S ≅ V × 1 ≅ V`,
-    /// that is when every complement `get` produces has trivial residue
-    /// ([`Complement::residue_is_trivial`](panproto_inst::Complement::residue_is_trivial)).
+    /// A lens with complement decomposes its source as `S ≅ image(get) × C`.
+    /// It is invertible on the whole target on the nose when `C ≅ 1` and
+    /// `get` is onto: every complement `get` produces has trivial residue
+    /// ([`Complement::residue_is_trivial`](panproto_inst::Complement::residue_is_trivial)),
+    /// and every target coordinate has a source preimage.
     /// Survival is read as `get` reads it, through the vertex remap, so an
-    /// injective rename is not a drop. The conditions, each one way the
-    /// complement acquires residue:
+    /// injective rename is not a drop. The certified conditions are:
     ///
     /// 1. Every source vertex survives, and none survives only under a
     ///    predicate, so no node's data is set aside.
-    /// 2. No two source vertices share an image, so a view anchor
-    ///    determines the source anchor.
-    /// 3. Every source edge has an image in the target, and no two source
-    ///    edges share one, so a view arc determines its source edge.
-    /// 4. Every value-level transform is invertible, i.e. the composite
-    ///    [`coercion_class`](Self::coercion_class) is
-    ///    [`Iso`](panproto_gat::CoercionClass::Iso). A `Retraction`,
-    ///    `Projection`, or `Opaque` transform is not injective, so the
-    ///    fibre over a view value is not a point and the source cannot be
-    ///    recovered from it.
+    /// 2. The vertex map is bijective: no two source vertices share an image
+    ///    and every target vertex has a source preimage.
+    /// 3. The compiled restrict plan keeps every source edge as exactly one
+    ///    target edge, no two source edges share an image, and every target
+    ///    edge has a source preimage.
+    /// 4. Neither schema declares hyper-edges. A valid zero-child fan is
+    ///    currently tree-complement residue even under the identity lens.
+    /// 5. The migration has no value transforms or op-to-term assignments.
+    ///    This conservative boundary does not trust a declared
+    ///    [`Iso`](panproto_gat::CoercionClass::Iso) or an unchecked pair of
+    ///    expressions: if a transform changes a value, `get` records the old
+    ///    value as residue. Scalar and child-scalar `ApplyExpr` transforms are
+    ///    therefore outside this fragment.
     ///
     /// This classifies bijective lenses whose complement is `Unit`. That class
     /// is narrower than isomorphism in the category of lenses: `false` names
@@ -216,6 +219,7 @@ impl Lens {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashMap;
+    use std::fmt::Debug;
 
     use panproto_gat::Name;
     use panproto_inst::value::{FieldPresence, Value};
@@ -224,6 +228,48 @@ pub(crate) mod tests {
     use smallvec::SmallVec;
 
     use crate::Lens;
+
+    pub trait TestUnwrap {
+        type Value;
+
+        fn test_unwrap(self, context: &str) -> Self::Value;
+    }
+
+    impl<T, E: Debug> TestUnwrap for Result<T, E> {
+        type Value = T;
+
+        fn test_unwrap(self, context: &str) -> T {
+            match self {
+                Ok(value) => value,
+                Err(error) => panic!("{context}: {error:?}"),
+            }
+        }
+    }
+
+    impl<T> TestUnwrap for Option<T> {
+        type Value = T;
+
+        fn test_unwrap(self, context: &str) -> T {
+            self.unwrap_or_else(|| panic!("{context}"))
+        }
+    }
+
+    pub trait TestUnwrapErr {
+        type Error;
+
+        fn test_unwrap_err(self, context: &str) -> Self::Error;
+    }
+
+    impl<T, E> TestUnwrapErr for Result<T, E> {
+        type Error = E;
+
+        fn test_unwrap_err(self, context: &str) -> E {
+            match self {
+                Err(error) => error,
+                Ok(_) => panic!("{context}"),
+            }
+        }
+    }
 
     /// Build a 3-vertex schema: `post:body` (object) with two children
     /// `post:body.text` (string) and `post:body.createdAt` (string).

@@ -20,7 +20,8 @@ pub use super::protolens::{
     protolens_instance, protolens_schema,
 };
 pub use super::squares::{
-    GraphSquareObservation, SquareError, SquareResult, SquareRouteObservation,
-    TableSquareObservation, graph_put_square, graph_square, table_put_square, table_square,
+    GraphSquareObservation, RelationalTableMigration, SquareError, SquareResult,
+    SquareRouteObservation, TableSquareObservation, graph_put_square, graph_square,
+    relational_table_get, relational_table_put, table_put_square, table_square,
 };
 pub use super::tree::{TreeOperationalError, tree_check_put_domain, tree_get, tree_put};

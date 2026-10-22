@@ -1305,35 +1305,38 @@ fn native_synth_order_violation(
     embedding: &crate::encode::TreeEmbedding,
     complement: &Complement,
 ) -> Option<PutDomainError> {
-    let mut seen_synth = false;
-    let mut previous_key: Option<&SynthKey> = None;
-    let mut canonical = true;
-    let mut synthesized = Vec::new();
-    for (_, child, _) in &view.arcs {
-        let Some(edge) = embedding.arcs.get(child) else {
-            if seen_synth {
-                canonical = false;
+    #[derive(Default)]
+    struct SiblingOrder<'a> {
+        previous_key: Option<&'a SynthKey>,
+        synthesized: Vec<u32>,
+        invalid: bool,
+    }
+
+    let mut parents: BTreeMap<u32, SiblingOrder<'_>> = BTreeMap::new();
+    for (parent, child, _) in &view.arcs {
+        let state = parents.entry(*parent).or_default();
+        let synthesized = embedding.arcs.get(child).and_then(|edge| {
+            complement
+                .synthesized_edges
+                .get(edge)
+                .map(|key| (*edge, key))
+        });
+        let Some((edge, key)) = synthesized else {
+            if !state.synthesized.is_empty() {
+                state.invalid = true;
             }
             continue;
         };
-        let Some(key) = complement.synthesized_edges.get(edge) else {
-            if seen_synth {
-                canonical = false;
-            }
-            continue;
-        };
-        seen_synth = true;
-        synthesized.push(*edge);
-        if previous_key.is_some_and(|previous| previous > key) {
-            canonical = false;
+        if state.previous_key.is_some_and(|previous| previous > key) {
+            state.invalid = true;
         }
-        previous_key = Some(key);
+        state.previous_key = Some(key);
+        state.synthesized.push(edge);
     }
-    if canonical {
-        return None;
-    }
-    synthesized
-        .into_iter()
+    parents
+        .values()
+        .filter(|state| state.invalid)
+        .flat_map(|state| state.synthesized.iter().copied())
         .min()
         .map(|edge| PutDomainError::SynthesizedEdited {
             elem: ViewRef::Edge(edge),

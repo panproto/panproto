@@ -107,6 +107,12 @@ fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
             },
             "survival_predicate_refused",
         ),
+        (
+            PutDomainError::PlanCompilation {
+                detail: "incoherent edge image".into(),
+            },
+            "plan_compilation",
+        ),
     ]
 }
 
@@ -177,7 +183,7 @@ fn tag_of<T: Serialize>(value: &T) -> String {
 #[test]
 fn put_domain_error_serde_tags_and_order_are_fixed() {
     let errors = every_put_domain_error();
-    assert_eq!(errors.len(), 12);
+    assert_eq!(errors.len(), 13);
     for (index, (error, tag)) in errors.iter().enumerate() {
         assert_eq!(usize::from(error.variant_index()), index, "{tag}");
         assert_eq!(tag_of(error), *tag);
@@ -201,8 +207,8 @@ fn put_domain_error_serde_tags_and_order_are_fixed() {
         "elems is the last positional field"
     );
 
-    // A refused survival predicate is the last variant and carries its
-    // refusal whole, itself externally tagged.
+    // A refused survival predicate carries its refusal whole, itself
+    // externally tagged.
     let (refused, _) = &errors[11];
     assert_eq!(
         serde_json::to_string(refused).unwrap(),
@@ -216,6 +222,12 @@ fn put_domain_error_serde_tags_and_order_are_fixed() {
             refusal,
         });
     }
+
+    let (plan, _) = &errors[12];
+    assert_eq!(
+        serde_json::to_string(plan).unwrap(),
+        r#"{"plan_compilation":{"detail":"incoherent edge image"}}"#
+    );
 
     // The fan's reason is the shared `FanViolation`, carried whole.
     let (fan, _) = &errors[10];

@@ -431,7 +431,7 @@ fn a_fan_child_edge_maps_back_by_name_and_target() {
         );
     }
     let (view, complement) = lens.get(&source).unwrap();
-    let mut edited = view.clone();
+    let mut edited = view;
     edited.nodes.get_mut(&2).unwrap().anchor = "a".to_owned();
     edited.edges.get_mut(&1).unwrap().label.tgt = "a".to_owned();
     let refused = lens.check_put_domain(&edited, &complement).unwrap_err();

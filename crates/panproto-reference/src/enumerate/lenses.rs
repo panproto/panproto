@@ -1,6 +1,6 @@
 //! Complete finite scopes for the lens-law page.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::migration::Migration;
 use crate::model::{GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
@@ -674,6 +674,28 @@ impl WriterFixture {
         );
         table
     }
+
+    /// The writer fixed by this fixture without consulting either table
+    /// implementation: the last explicitly renamed source, else the
+    /// undisplaced same-named source column.
+    #[must_use]
+    pub fn expected_writer(&self, target: &str) -> Option<&'static str> {
+        let explicit = WRITER_SOURCES
+            .iter()
+            .zip(self.images)
+            .filter(|(source, image)| {
+                image.is_some_and(|image| image == target && image != **source)
+            })
+            .map(|(source, _)| *source)
+            .next_back();
+        explicit.or_else(|| {
+            WRITER_SOURCES
+                .iter()
+                .zip(self.images)
+                .find(|(source, _)| **source == target)
+                .and_then(|(source, image)| (image == Some(*source)).then_some(*source))
+        })
+    }
 }
 
 /// Kind of the writer carrier's column vertices.
@@ -731,6 +753,491 @@ pub const fn writer_count_certificate() -> (usize, usize, usize) {
     )
 }
 
+/// Exact number of edited writer cases with two explicit writers.
+///
+/// The two colliding mappings are `(a, a)` and `(b, b)`; each has nine
+/// source rows and two edited values.
+#[must_use]
+pub const fn last_explicit_writer_count_certificate() -> usize {
+    2 * WRITER_VALUES.len() * WRITER_VALUES.len() * WRITER_EDITS.len()
+}
+
+/// A target-only column with no source writer, edited to one carrier value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DerivedWriterFixture {
+    /// The edited value inserted at target column `z`.
+    pub edit: i64,
+}
+
+impl DerivedWriterFixture {
+    /// Source schema with columns `x` and `y`.
+    #[must_use]
+    pub fn source_schema(self) -> Schema {
+        writer_schema(&WRITER_SOURCES)
+    }
+
+    /// Target schema with the two source columns and derived column `z`.
+    #[must_use]
+    pub fn target_schema(self) -> Schema {
+        writer_schema(&["x", "y", "z"])
+    }
+
+    /// Identity migration on the source columns into the larger target.
+    #[must_use]
+    pub fn migration(self) -> Migration {
+        let target = self.target_schema();
+        Migration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges,
+            ..Migration::default()
+        }
+    }
+
+    /// One source row used by every derived-writer refusal.
+    #[must_use]
+    pub fn source(self) -> Table {
+        WriterFixture {
+            images: [Some("x"), Some("y")],
+            values: [0, 1],
+        }
+        .source()
+    }
+}
+
+/// Stream every edit of the target-only column in the writer alphabet.
+pub fn for_each_derived_writer_fixture(mut visit: impl FnMut(DerivedWriterFixture)) {
+    for edit in WRITER_EDITS {
+        visit(DerivedWriterFixture { edit });
+    }
+}
+
+/// Exact number of target-only-column refusal cases.
+#[must_use]
+pub const fn derived_writer_count_certificate() -> usize {
+    WRITER_EDITS.len()
+}
+
+/// One named construction witnessing table-complement coordinates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableComplementConstruction {
+    /// Stable construction name used in certificate diagnostics.
+    pub name: &'static str,
+    /// Source schema.
+    pub source_schema: Schema,
+    /// Target schema.
+    pub target_schema: Schema,
+    /// Migration from source to target.
+    pub migration: Migration,
+    /// Source table.
+    pub source: Table,
+}
+
+fn table_construction_schema(tables: &[&str], relations: &[SEdge]) -> Schema {
+    let mut schema = Schema::default();
+    for table in tables {
+        schema = schema.vertex(table, TABLE_FIXTURE_TABLE_KIND);
+    }
+    for relation in relations {
+        schema = schema.edge(
+            &relation.src,
+            &relation.tgt,
+            &relation.kind,
+            relation.name.as_deref(),
+        );
+    }
+    schema
+}
+
+const fn table_construction(
+    name: &'static str,
+    source_schema: Schema,
+    target_schema: Schema,
+    migration: Migration,
+    source: Table,
+) -> TableComplementConstruction {
+    TableComplementConstruction {
+        name,
+        source_schema,
+        target_schema,
+        migration,
+        source,
+    }
+}
+
+fn dropped_table_construction() -> TableComplementConstruction {
+    table_construction(
+        "dropped table row",
+        table_construction_schema(&["a", "b"], &[]),
+        table_construction_schema(&["a"], &[]),
+        Migration {
+            surviving_verts: ["a".to_owned()].into(),
+            ..Migration::default()
+        },
+        Table {
+            rows: BTreeMap::from([(0, ("b".to_owned(), BTreeMap::new()))]),
+            pairs: BTreeSet::new(),
+        },
+    )
+}
+
+fn dropped_column_construction() -> TableComplementConstruction {
+    let dropped_column = WriterFixture {
+        images: [None, Some("y")],
+        values: [1, 2],
+    };
+    table_construction(
+        "dropped column",
+        dropped_column.source_schema(),
+        dropped_column.target_schema(),
+        dropped_column.migration(),
+        dropped_column.source(),
+    )
+}
+
+fn swapped_columns_construction() -> TableComplementConstruction {
+    let swapped_columns = WriterFixture {
+        images: [Some("y"), Some("x")],
+        values: [1, 2],
+    };
+    table_construction(
+        "swapped column originals",
+        swapped_columns.source_schema(),
+        swapped_columns.target_schema(),
+        swapped_columns.migration(),
+        swapped_columns.source(),
+    )
+}
+
+fn dropped_pair_construction() -> TableComplementConstruction {
+    let dropped = SEdge::new("a", "b", "foreign-key", Some("dropped"));
+    table_construction(
+        "dropped foreign-key pair",
+        table_construction_schema(&["a", "b"], std::slice::from_ref(&dropped)),
+        table_construction_schema(&["a", "b"], &[]),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            ..Migration::default()
+        },
+        Table {
+            rows: BTreeMap::from([
+                (0, ("a".to_owned(), BTreeMap::new())),
+                (1, ("b".to_owned(), BTreeMap::new())),
+            ]),
+            pairs: [(dropped, 0, 1)].into(),
+        },
+    )
+}
+
+fn merged_pair_construction() -> TableComplementConstruction {
+    let first = SEdge::new("a", "b", "foreign-key", Some("first"));
+    let second = SEdge::new("a", "b", "foreign-key", Some("second"));
+    let joined = SEdge::new("a", "b", "foreign-key", Some("joined"));
+    table_construction(
+        "merged foreign-key origins",
+        table_construction_schema(&["a", "b"], &[first.clone(), second.clone()]),
+        table_construction_schema(&["a", "b"], std::slice::from_ref(&joined)),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            surviving_edges: [joined.clone()].into(),
+            edge_remap: [(first.clone(), joined.clone()), (second.clone(), joined)].into(),
+            ..Migration::default()
+        },
+        Table {
+            rows: BTreeMap::from([
+                (0, ("a".to_owned(), BTreeMap::new())),
+                (1, ("b".to_owned(), BTreeMap::new())),
+            ]),
+            pairs: [(first, 0, 1), (second, 0, 1)].into(),
+        },
+    )
+}
+
+fn merged_table_construction() -> TableComplementConstruction {
+    table_construction(
+        "merged table origins",
+        table_construction_schema(&["a", "b"], &[]),
+        table_construction_schema(&["t"], &[]),
+        Migration {
+            surviving_verts: ["t".to_owned()].into(),
+            vertex_remap: [
+                ("a".to_owned(), "t".to_owned()),
+                ("b".to_owned(), "t".to_owned()),
+            ]
+            .into(),
+            ..Migration::default()
+        },
+        Table {
+            rows: BTreeMap::from([
+                (0, ("a".to_owned(), BTreeMap::new())),
+                (1, ("b".to_owned(), BTreeMap::new())),
+            ]),
+            pairs: BTreeSet::new(),
+        },
+    )
+}
+
+fn contracted_pair_construction() -> TableComplementConstruction {
+    let left = SEdge::new("a", "m", "foreign-key", Some("left"));
+    let right = SEdge::new("m", "b", "foreign-key", Some("right"));
+    let contracted = SEdge::new("a", "b", "foreign-key", Some("contracted"));
+    table_construction(
+        "contracted foreign-key pair",
+        table_construction_schema(&["a", "m", "b"], &[left.clone(), right.clone()]),
+        table_construction_schema(&["a", "b"], std::slice::from_ref(&contracted)),
+        Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            surviving_edges: [contracted.clone()].into(),
+            resolver: [(("a".to_owned(), "b".to_owned()), contracted)].into(),
+            ..Migration::default()
+        },
+        Table {
+            rows: BTreeMap::from([
+                (0, ("a".to_owned(), BTreeMap::new())),
+                (1, ("m".to_owned(), BTreeMap::new())),
+                (2, ("b".to_owned(), BTreeMap::new())),
+            ]),
+            pairs: [(left, 0, 1), (right, 1, 2)].into(),
+        },
+    )
+}
+
+/// Stream the seven named constructions whose union witnesses every T.3
+/// residue coordinate, table provenance and synthesized foreign-key pairs.
+pub fn for_each_table_complement_construction(mut visit: impl FnMut(TableComplementConstruction)) {
+    for construction in [
+        dropped_table_construction(),
+        dropped_column_construction(),
+        swapped_columns_construction(),
+        dropped_pair_construction(),
+        merged_pair_construction(),
+        merged_table_construction(),
+        contracted_pair_construction(),
+    ] {
+        visit(construction);
+    }
+}
+
+/// Exact cardinality of [`for_each_table_complement_construction`].
+#[must_use]
+pub const fn table_complement_construction_count_certificate() -> usize {
+    7
+}
+
+/// A named refusal in the finite outside-domain certificate for table get.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TableGetRefusalCase {
+    /// An edge expands to a path, which one relational pair cannot encode.
+    NotTableRepresentable,
+    /// Graph survival and relational-functor survival disagree on a table.
+    SurvivalRulesDisagree,
+    /// A kept relation is mapped to no coherent target relation.
+    IncoherentEdgeImage,
+    /// Contracting through a hidden table finds no target relation.
+    NoEdgeFound,
+    /// Contracting through a hidden table finds two target relations.
+    AmbiguousEdge,
+    /// A contraction resolver names no coherent target relation.
+    IncoherentPairImage,
+    /// A source row names a table outside the relational boundary.
+    NonConforming,
+    /// A survival predicate refuses with a typed error.
+    PredicateRefusal,
+    /// A row transform refuses with a typed error.
+    TransformRefusal,
+}
+
+impl TableGetRefusalCase {
+    /// Every named refusal, in the order claimed by the law statement.
+    pub const ALL: [Self; 9] = [
+        Self::NotTableRepresentable,
+        Self::SurvivalRulesDisagree,
+        Self::IncoherentEdgeImage,
+        Self::NoEdgeFound,
+        Self::AmbiguousEdge,
+        Self::IncoherentPairImage,
+        Self::NonConforming,
+        Self::PredicateRefusal,
+        Self::TransformRefusal,
+    ];
+
+    /// Stable diagnostic name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NotTableRepresentable => "NotTableRepresentable",
+            Self::SurvivalRulesDisagree => "SurvivalRulesDisagree",
+            Self::IncoherentEdgeImage => "IncoherentEdgeImage",
+            Self::NoEdgeFound => "NoEdgeFound",
+            Self::AmbiguousEdge => "AmbiguousEdge",
+            Self::IncoherentPairImage => "IncoherentPairImage",
+            Self::NonConforming => "NonConforming",
+            Self::PredicateRefusal => "PredicateRefusal",
+            Self::TransformRefusal => "TransformRefusal",
+        }
+    }
+
+    /// Reference-owned schemas, migration and source for this refusal.
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn fixture(self) -> TableGetRefusalFixture {
+        let relation =
+            |src: &str, tgt: &str, name: &str| SEdge::new(src, tgt, "foreign-key", Some(name));
+        let table = |names: &[&str], edges: &[SEdge]| table_construction_schema(names, edges);
+        match self {
+            Self::NotTableRepresentable => {
+                let source_schema = table(&["a", "b"], &[relation("a", "b", "ab")]);
+                let target_schema = table(
+                    &["a", "m", "b"],
+                    &[relation("a", "m", "am"), relation("m", "b", "mb")],
+                );
+                TableGetRefusalFixture {
+                    source_schema,
+                    target_schema,
+                    migration: Migration {
+                        surviving_verts: ["a".to_owned(), "m".to_owned(), "b".to_owned()].into(),
+                        expansion_path: BTreeMap::from([(
+                            ("a".to_owned(), "b".to_owned()),
+                            vec!["m".to_owned()],
+                        )]),
+                        ..Migration::default()
+                    },
+                    source: Table::default(),
+                }
+            }
+            Self::SurvivalRulesDisagree => TableGetRefusalFixture {
+                source_schema: table(&["a", "b"], &[]),
+                target_schema: table(&["b"], &[]),
+                migration: Migration {
+                    surviving_verts: ["b".to_owned()].into(),
+                    vertex_remap: [("a".to_owned(), "b".to_owned())].into(),
+                    ..Migration::default()
+                },
+                source: Table::default(),
+            },
+            Self::IncoherentEdgeImage => {
+                let source_edge = relation("a", "b", "source");
+                let target_edge = relation("a", "b", "target");
+                let incoherent = relation("a", "b", "absent");
+                TableGetRefusalFixture {
+                    source_schema: table(&["a", "b"], std::slice::from_ref(&source_edge)),
+                    target_schema: table(&["a", "b"], &[target_edge]),
+                    migration: Migration {
+                        surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                        edge_remap: [(source_edge, incoherent)].into(),
+                        ..Migration::default()
+                    },
+                    source: Table::default(),
+                }
+            }
+            Self::NoEdgeFound | Self::AmbiguousEdge | Self::IncoherentPairImage => {
+                let left = relation("a", "m", "left");
+                let right = relation("m", "b", "right");
+                let target_edges = match self {
+                    Self::NoEdgeFound => Vec::new(),
+                    Self::AmbiguousEdge => {
+                        vec![relation("a", "b", "first"), relation("a", "b", "second")]
+                    }
+                    Self::IncoherentPairImage => vec![relation("a", "b", "only")],
+                    _ => unreachable!("grouped contraction refusal"),
+                };
+                let resolver = (self == Self::IncoherentPairImage).then(|| {
+                    (
+                        ("a".to_owned(), "b".to_owned()),
+                        relation("a", "b", "absent"),
+                    )
+                });
+                TableGetRefusalFixture {
+                    source_schema: table(&["a", "m", "b"], &[left.clone(), right.clone()]),
+                    target_schema: table(&["a", "b"], &target_edges),
+                    migration: Migration {
+                        surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                        resolver: resolver.into_iter().collect(),
+                        ..Migration::default()
+                    },
+                    source: Table {
+                        rows: [
+                            (0, ("a".to_owned(), BTreeMap::new())),
+                            (1, ("m".to_owned(), BTreeMap::new())),
+                            (2, ("b".to_owned(), BTreeMap::new())),
+                        ]
+                        .into(),
+                        pairs: [(left, 0, 1), (right, 1, 2)].into(),
+                    },
+                }
+            }
+            Self::NonConforming => TableGetRefusalFixture {
+                source_schema: table(&["a"], &[]),
+                target_schema: table(&["a"], &[]),
+                migration: Migration {
+                    surviving_verts: ["a".to_owned()].into(),
+                    ..Migration::default()
+                },
+                source: Table {
+                    rows: [(0, ("outside".to_owned(), BTreeMap::new()))].into(),
+                    pairs: BTreeSet::new(),
+                },
+            },
+            Self::PredicateRefusal | Self::TransformRefusal => {
+                let source_schema = writer_schema(&["x"]);
+                TableGetRefusalFixture {
+                    target_schema: source_schema.clone(),
+                    migration: Migration {
+                        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+                        surviving_edges: source_schema.edges.clone(),
+                        conditional: (self == Self::PredicateRefusal)
+                            .then(|| "t".to_owned())
+                            .into_iter()
+                            .collect(),
+                        transformed: (self == Self::TransformRefusal)
+                            .then(|| "t".to_owned())
+                            .into_iter()
+                            .collect(),
+                        ..Migration::default()
+                    },
+                    source_schema,
+                    source: Table {
+                        rows: [(
+                            0,
+                            (
+                                "t".to_owned(),
+                                BTreeMap::from([("x".to_owned(), Value::Int(1))]),
+                            ),
+                        )]
+                        .into(),
+                        pairs: BTreeSet::new(),
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Reference-owned data for one table-get refusal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableGetRefusalFixture {
+    /// Source schema.
+    pub source_schema: Schema,
+    /// Target schema.
+    pub target_schema: Schema,
+    /// Structural migration and reference value-layer markers.
+    pub migration: Migration,
+    /// Source table used when the refusal occurs during evaluation.
+    pub source: Table,
+}
+
+/// Stream every named outside-domain table-get refusal.
+pub fn for_each_table_get_refusal(mut visit: impl FnMut(TableGetRefusalCase)) {
+    for case in TableGetRefusalCase::ALL {
+        visit(case);
+    }
+}
+
+/// Exact number of named outside-domain table-get refusals.
+#[must_use]
+pub const fn table_get_refusal_count_certificate() -> usize {
+    TableGetRefusalCase::ALL.len()
+}
+
 /// Stream every expressible table fixture in the exact C11 alphabet.
 pub fn for_each_table_fixture(mut visit: impl FnMut(TableFixture)) {
     for columns in 0..=TABLE_FIXTURE_BOUND {
@@ -760,6 +1267,100 @@ pub fn for_each_table_fixture(mut visit: impl FnMut(TableFixture)) {
             }
         }
     }
+}
+
+/// Exact number of sources in the bounded two-table relational carrier.
+pub const RELATIONAL_TABLE_SOURCE_COUNT: usize = 1_831;
+
+/// Stream every source in the bounded two-table relational carrier.
+///
+/// Tables `a` and `b` each have two reserved ids. Every subset of those ids
+/// is present; every present row's scalar cell is absent, zero, or one; and
+/// every subset of the possible `a.ab -> b` relation pairs is present.
+pub fn for_each_relational_table_source(mut visit: impl FnMut(Table)) {
+    const A_IDS: [u32; 2] = [0, 1];
+    const B_IDS: [u32; 2] = [2, 3];
+
+    for a_mask in 0_u8..4 {
+        let a_ids: Vec<u32> = A_IDS
+            .into_iter()
+            .enumerate()
+            .filter_map(|(bit, id)| (a_mask & (1 << bit) != 0).then_some(id))
+            .collect();
+        for b_mask in 0_u8..4 {
+            let b_ids: Vec<u32> = B_IDS
+                .into_iter()
+                .enumerate()
+                .filter_map(|(bit, id)| (b_mask & (1 << bit) != 0).then_some(id))
+                .collect();
+            let row_count = a_ids.len() + b_ids.len();
+            for mut cell_code in 0..power(3, row_count) {
+                let mut base = Table::default();
+                for (table, ids, column) in [("a", &a_ids, "x"), ("b", &b_ids, "y")] {
+                    for id in ids {
+                        let mut cells = BTreeMap::new();
+                        match cell_code % 3 {
+                            0 => {}
+                            1 => {
+                                cells.insert(column.to_owned(), Value::Int(0));
+                            }
+                            2 => {
+                                cells.insert(column.to_owned(), Value::Int(1));
+                            }
+                            _ => unreachable!("the cell alphabet has size three"),
+                        }
+                        cell_code /= 3;
+                        base.rows.insert(*id, (table.to_owned(), cells));
+                    }
+                }
+                let pairs: Vec<(u32, u32)> = a_ids
+                    .iter()
+                    .flat_map(|source| b_ids.iter().map(move |target| (*source, *target)))
+                    .collect();
+                for pair_mask in 0..power(2, pairs.len()) {
+                    let mut source = base.clone();
+                    for (bit, &(source_id, target_id)) in pairs.iter().enumerate() {
+                        if pair_mask & (1 << bit) != 0 {
+                            source.pairs.insert((
+                                SEdge::new("a", "b", "relation", Some("ab")),
+                                source_id,
+                                target_id,
+                            ));
+                        }
+                    }
+                    visit(source);
+                }
+            }
+        }
+    }
+}
+
+const fn relational_choose_two(selected: usize) -> usize {
+    match selected {
+        0 | 2 => 1,
+        1 => 2,
+        _ => 0,
+    }
+}
+
+/// Derive the relational carrier size independently as
+/// `sum C(2,a) C(2,b) 3^(a+b) 2^(a*b)`.
+#[must_use]
+pub const fn relational_table_source_count_certificate() -> usize {
+    let mut count = 0;
+    let mut a = 0;
+    while a <= 2 {
+        let mut b = 0;
+        while b <= 2 {
+            count += relational_choose_two(a)
+                * relational_choose_two(b)
+                * power(3, a + b)
+                * power(2, a * b);
+            b += 1;
+        }
+        a += 1;
+    }
+    count
 }
 
 /// Independent closed-form counts for every `(columns, rows)` cell.
@@ -808,6 +1409,322 @@ pub const fn table_fixture_count_certificate() -> TableFixtureCounts {
         by_columns: columns_totals,
         total,
     }
+}
+
+/// One case in the complete finite certificate for the table-complement law.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TableComplementLawCase {
+    /// One projection-lens/source case from the broad table carrier.
+    Fixture(TableFixture),
+    /// One named construction isolating a complement coordinate.
+    Construction(Box<TableComplementConstruction>),
+    /// One named outside-domain refusal.
+    Refusal(TableGetRefusalCase),
+}
+
+/// Stream the broad table carrier followed by the seven coordinate-isolating
+/// table-complement constructions and every named outside-domain refusal.
+pub fn for_each_table_complement_law_case(mut visit: impl FnMut(TableComplementLawCase)) {
+    for_each_table_fixture(|fixture| visit(TableComplementLawCase::Fixture(fixture)));
+    for_each_table_complement_construction(|construction| {
+        visit(TableComplementLawCase::Construction(Box::new(construction)));
+    });
+    for_each_table_get_refusal(|case| visit(TableComplementLawCase::Refusal(case)));
+}
+
+/// Exact number of cases in [`for_each_table_complement_law_case`].
+#[must_use]
+pub const fn table_complement_law_count_certificate() -> usize {
+    table_fixture_count_certificate().total
+        + table_complement_construction_count_certificate()
+        + table_get_refusal_count_certificate()
+}
+
+fn table_fixture_view(fixture: &TableFixture) -> Table {
+    let mut view = fixture.source.clone();
+    for (_, cells) in view.rows.values_mut() {
+        cells.retain(|column, _| {
+            column
+                .strip_prefix('c')
+                .and_then(|suffix| suffix.parse::<usize>().ok())
+                .is_some_and(|index| fixture.retained & (1 << index) != 0)
+        });
+    }
+    view
+}
+
+/// One projection-lens get/put observation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableFixturePutCase {
+    /// Lens and source fixture.
+    pub fixture: TableFixture,
+    /// Unedited view or one member of its Single-Step Basis.
+    pub view: Table,
+}
+
+/// One concrete edit in the last-writer carrier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableWriterEditCase {
+    /// Writer mapping and source values.
+    pub fixture: WriterFixture,
+    /// Edited target column.
+    pub target: &'static str,
+    /// Replacement value.
+    pub edit: i64,
+}
+
+/// The five relation-pair observations needed by the table put theorem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TablePairPutCase {
+    /// Insert a pair whose only possible source would be a contraction.
+    InsertContracted,
+    /// Put an unedited synthesized pair.
+    SynthesizedUnedited,
+    /// Remove a synthesized pair.
+    SynthesizedRemoved,
+    /// Put an unedited pair with one direct and one contracted origin.
+    TwoOriginUnedited,
+    /// Remove a pair with one direct and one contracted origin.
+    TwoOriginRemoved,
+}
+
+/// A named refusal required by the table-put domain theorem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TablePutRefusalCase {
+    /// A complement stamped by another lens is rejected before restoration.
+    Identity,
+    /// Reusing a row id reserved by a dropped row is rejected.
+    IdCollision,
+    /// An inserted row with several source-table preimages is rejected.
+    AmbiguousReverseAnchor,
+    /// An edit through a transform without a valid inverse is rejected.
+    TransformNotInvertible,
+}
+
+impl TablePutRefusalCase {
+    /// Every named table-put refusal, in theorem order.
+    pub const ALL: [Self; 4] = [
+        Self::Identity,
+        Self::IdCollision,
+        Self::AmbiguousReverseAnchor,
+        Self::TransformNotInvertible,
+    ];
+
+    /// Stable diagnostic name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Identity => "Identity",
+            Self::IdCollision => "IdCollision",
+            Self::AmbiguousReverseAnchor => "AmbiguousReverseAnchor",
+            Self::TransformNotInvertible => "TransformNotInvertible",
+        }
+    }
+}
+
+/// Stream every named refusal required by the table-put domain theorem.
+pub fn for_each_table_put_refusal(mut visit: impl FnMut(TablePutRefusalCase)) {
+    for case in TablePutRefusalCase::ALL {
+        visit(case);
+    }
+}
+
+/// Exact number of named table-put refusals.
+#[must_use]
+pub const fn table_put_refusal_count_certificate() -> usize {
+    TablePutRefusalCase::ALL.len()
+}
+
+impl TablePairPutCase {
+    /// Every relation-pair observation in theorem order.
+    pub const ALL: [Self; 5] = [
+        Self::InsertContracted,
+        Self::SynthesizedUnedited,
+        Self::SynthesizedRemoved,
+        Self::TwoOriginUnedited,
+        Self::TwoOriginRemoved,
+    ];
+
+    /// Whether the source has the contracted `a -> m -> b` chain.
+    #[must_use]
+    pub const fn has_chain(self) -> bool {
+        !matches!(self, Self::InsertContracted)
+    }
+
+    /// Whether the source also has the direct `a -> b` pair.
+    #[must_use]
+    pub const fn has_direct(self) -> bool {
+        matches!(self, Self::TwoOriginUnedited | Self::TwoOriginRemoved)
+    }
+
+    /// Whether the edited view contains the target pair.
+    #[must_use]
+    pub const fn view_has_pair(self) -> bool {
+        matches!(
+            self,
+            Self::InsertContracted | Self::SynthesizedUnedited | Self::TwoOriginUnedited
+        )
+    }
+
+    /// Reference-owned schemas, migration and source for this observation.
+    #[must_use]
+    pub fn fixture(self) -> TablePairPutFixture {
+        let left = SEdge::new("a", "m", "foreign-key", Some("left"));
+        let right = SEdge::new("m", "b", "foreign-key", Some("right"));
+        let direct = SEdge::new("a", "b", "foreign-key", Some("direct"));
+        let image = SEdge::new("a", "b", "foreign-key", Some("image"));
+        let mut source_edges = vec![left.clone(), right.clone()];
+        if self.has_direct() {
+            source_edges.push(direct.clone());
+        }
+        let mut pairs = BTreeSet::new();
+        if self.has_chain() {
+            pairs.extend([(left, 0, 1), (right, 1, 2)]);
+        }
+        if self.has_direct() {
+            pairs.insert((direct.clone(), 0, 2));
+        }
+        TablePairPutFixture {
+            source_schema: table_construction_schema(&["a", "m", "b"], &source_edges),
+            target_schema: table_construction_schema(&["a", "b"], std::slice::from_ref(&image)),
+            migration: Migration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                surviving_edges: self
+                    .has_direct()
+                    .then(|| direct.clone())
+                    .into_iter()
+                    .collect(),
+                edge_remap: self
+                    .has_direct()
+                    .then(|| (direct, image.clone()))
+                    .into_iter()
+                    .collect(),
+                resolver: BTreeMap::from([(("a".to_owned(), "b".to_owned()), image.clone())]),
+                ..Migration::default()
+            },
+            source: Table {
+                rows: [
+                    (0, ("a".to_owned(), BTreeMap::new())),
+                    (1, ("m".to_owned(), BTreeMap::new())),
+                    (2, ("b".to_owned(), BTreeMap::new())),
+                ]
+                .into(),
+                pairs,
+            },
+            image,
+        }
+    }
+}
+
+/// Reference-owned data for one relation-pair put observation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TablePairPutFixture {
+    /// Source schema.
+    pub source_schema: Schema,
+    /// Target schema.
+    pub target_schema: Schema,
+    /// Migration that keeps the direct edge when present and contracts the chain.
+    pub migration: Migration,
+    /// Source table.
+    pub source: Table,
+    /// Target relation label.
+    pub image: SEdge,
+}
+
+/// One case in the complete finite certificate for table get and put.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TableGetPutLawCase {
+    /// One unedited or one-step-edited projection-lens view.
+    Fixture(TableFixturePutCase),
+    /// One last-writer edit.
+    Writer(TableWriterEditCase),
+    /// One edit to a target-only derived column.
+    Derived(DerivedWriterFixture),
+    /// One synthesized or two-origin relation-pair observation.
+    Pair(TablePairPutCase),
+    /// One named identity or put-domain refusal.
+    Refusal(TablePutRefusalCase),
+}
+
+/// Stream every projection observation, every writer edit, both target-only
+/// derived-column edits, all relation-pair observations and every named
+/// identity or put-domain refusal.
+pub fn for_each_table_get_put_law_case(mut visit: impl FnMut(TableGetPutLawCase)) {
+    for_each_table_fixture(|fixture| {
+        let view = table_fixture_view(&fixture);
+        visit(TableGetPutLawCase::Fixture(TableFixturePutCase {
+            fixture: fixture.clone(),
+            view: view.clone(),
+        }));
+        let columns: Vec<String> = (0..fixture.columns)
+            .filter(|column| fixture.retained & (1 << column) != 0)
+            .map(|column| format!("c{column}"))
+            .collect();
+        for edited in table_view_edits(&view, &columns, &[]) {
+            visit(TableGetPutLawCase::Fixture(TableFixturePutCase {
+                fixture: fixture.clone(),
+                view: edited,
+            }));
+        }
+    });
+    for_each_writer_fixture(|fixture| {
+        for target in fixture.target_columns() {
+            for edit in WRITER_EDITS {
+                visit(TableGetPutLawCase::Writer(TableWriterEditCase {
+                    fixture: fixture.clone(),
+                    target,
+                    edit,
+                }));
+            }
+        }
+    });
+    for_each_derived_writer_fixture(|fixture| visit(TableGetPutLawCase::Derived(fixture)));
+    for case in TablePairPutCase::ALL {
+        visit(TableGetPutLawCase::Pair(case));
+    }
+    for_each_table_put_refusal(|case| visit(TableGetPutLawCase::Refusal(case)));
+}
+
+/// Independently derive the number of projection get/put observations.
+///
+/// For `c` columns, `r` rows and a retained-column mask with `k` bits, each
+/// source assignment contributes one unedited view, `6*r*k` cell edits, `r`
+/// row deletions and one row insertion. The sum ranges over all masks.
+#[must_use]
+pub const fn table_fixture_get_put_count_certificate() -> usize {
+    let mut total = 0;
+    let mut columns = 0;
+    while columns <= TABLE_FIXTURE_BOUND {
+        let mut rows = 0;
+        while rows <= TABLE_FIXTURE_BOUND {
+            let assignments = power(7, columns * rows);
+            let mut retained = 0;
+            while retained < power(2, columns) {
+                let kept = retained.count_ones() as usize;
+                total += assignments * (2 + rows + 6 * rows * kept);
+                retained += 1;
+            }
+            rows += 1;
+        }
+        columns += 1;
+    }
+    total
+}
+
+/// Exact number of relation-pair observations.
+#[must_use]
+pub const fn table_pair_put_count_certificate() -> usize {
+    TablePairPutCase::ALL.len()
+}
+
+/// Exact number of observations in [`for_each_table_get_put_law_case`].
+#[must_use]
+pub const fn table_get_put_law_count_certificate() -> usize {
+    table_fixture_get_put_count_certificate()
+        + writer_count_certificate().2
+        + derived_writer_count_certificate()
+        + table_pair_put_count_certificate()
+        + table_put_refusal_count_certificate()
 }
 
 /// One of the two exact finite Delta-fragment fixtures of GF5.
@@ -1854,6 +2771,95 @@ pub fn c11_graph_state_count(schema: &Schema) -> usize {
     total
 }
 
+/// Every C11 table state over `schema`.
+///
+/// The states have rows `0..n-1` (`n <= 3`) assigned to schema vertices,
+/// each with either no cells or the single cell `f = 0`, and at most three
+/// distinct typed relation pairs. Unlike the graph carrier, relation pairs
+/// form a set, so a typed `(label, source row, target row)` occurs at most
+/// once.
+#[must_use]
+pub fn c11_table_states(schema: &Schema) -> Vec<Table> {
+    let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for rows in 0..=C11_MAX_NODES {
+        for mut anchor_code in 0..power(vertices.len(), rows) {
+            let anchors: Vec<&str> = (0..rows)
+                .map(|_| {
+                    let anchor = vertices[anchor_code % vertices.len()];
+                    anchor_code /= vertices.len();
+                    anchor
+                })
+                .collect();
+            let candidates = typed_candidates(schema, &anchors);
+            for values in 0..power(2, rows) {
+                let mut base = Table::default();
+                for (id, anchor) in anchors.iter().enumerate() {
+                    let cells = if values & (1 << id) != 0 {
+                        BTreeMap::from([(C11_FIELD.to_owned(), C11_VALUE)])
+                    } else {
+                        BTreeMap::new()
+                    };
+                    base.rows
+                        .insert(bounded_id(id), ((*anchor).to_owned(), cells));
+                }
+                for pairs in super::subsets(&candidates, C11_MAX_EDGES) {
+                    let mut table = base.clone();
+                    table.pairs.extend(
+                        pairs
+                            .into_iter()
+                            .map(|(src, tgt, edge)| (edge, bounded_id(src), bounded_id(tgt))),
+                    );
+                    out.push(table);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`c11_table_states`] by row-anchor multiplicities:
+///
+/// `sum_n sum_{k_1 + ... + k_v = n} multinomial(n; k) * 2^n`, multiplied by
+/// `sum_{m <= 3} choose(c, m)`, where
+/// `c = sum_{(x,y) in E} k_x k_y` is the number of distinct typed pairs.
+#[must_use]
+pub fn c11_table_state_count(schema: &Schema) -> usize {
+    let vertices: Vec<&String> = schema.vertices.keys().collect();
+    let mut total = 0;
+    for rows in 0..=C11_MAX_NODES {
+        for split in multiplicities(vertices.len(), rows) {
+            let arrangements = multinomial(rows, &split);
+            let typed: usize = schema
+                .edges
+                .iter()
+                .map(|edge| {
+                    let index = |v: &str| vertices.iter().position(|x| x.as_str() == v);
+                    match (index(&edge.src), index(&edge.tgt)) {
+                        (Some(src), Some(tgt)) => split[src] * split[tgt],
+                        _ => 0,
+                    }
+                })
+                .sum();
+            let pair_sets: usize = (0..=C11_MAX_EDGES.min(typed))
+                .map(|pairs| choose_usize(typed, pairs))
+                .sum();
+            total += arrangements * power(2, rows) * pair_sets;
+        }
+    }
+    total
+}
+
+fn choose_usize(n: usize, k: usize) -> usize {
+    if k > n {
+        return 0;
+    }
+    let k = k.min(n - k);
+    (0..k).fold(1, |coefficient, offset| {
+        coefficient * (n - offset) / (offset + 1)
+    })
+}
+
 /// Every vector of `parts` naturals summing to `total`.
 fn multiplicities(parts: usize, total: usize) -> Vec<Vec<usize>> {
     if parts == 0 {
@@ -2228,10 +3234,11 @@ fn stage(
     }
 }
 
-/// The 31 atomic stages of the C11 stage alphabet: the identity on every
-/// schema of [`sigma2_schemas`] (16) and on [`c11_fan_schema`], then `P`,
-/// `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`, `DropF`, `ReadF`, `Op`, `Ext`
-/// and `B`.
+/// The 31 atomic stages of the C11 stage alphabet.
+///
+/// These are the identity on every schema of [`sigma2_schemas`] (16) and on
+/// [`c11_fan_schema`], then `P`, `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`,
+/// `DropF`, `ReadF`, `Op`, `Ext` and `B`.
 #[must_use]
 pub fn c11_stages() -> Vec<C11Stage> {
     let mut out: Vec<C11Stage> = sigma2_schemas()
@@ -2305,11 +3312,12 @@ pub fn c11_stages() -> Vec<C11Stage> {
     let mut op_term = identity_migration(&a);
     op_term.transformed.insert("a".to_owned());
     out.push(stage("Op", a.clone(), a, op_term, C11Layer::OpTerm));
+    let bare_identity = identity_migration(&bare);
     out.push(stage(
         "Ext",
-        bare.clone(),
+        bare,
         ab.clone(),
-        identity_migration(&bare),
+        bare_identity,
         C11Layer::None,
     ));
     let mut incoherent = identity_migration(&ab);
@@ -2318,6 +3326,475 @@ pub fn c11_stages() -> Vec<C11Stage> {
         .insert(c11_edge("a", "b"), c11_edge("b", "a"));
     out.push(stage("B", ab.clone(), ab, incoherent, C11Layer::None));
     out
+}
+
+/// One schema-level case in the L.19 protolens certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProtolensSchemaCase {
+    /// One of the four elementary protolenses at one of the sixteen
+    /// [`sigma2_schemas`].
+    Elementary {
+        /// Index in the elementary protolens alphabet.
+        protolens: usize,
+        /// Index in [`sigma2_schemas`].
+        schema: usize,
+    },
+    /// An ordered two-clause false precondition whose transforms must not run.
+    FalsePrecondition,
+    /// A reachable 65,537-hop plan-compilation refusal.
+    ExpansionTooLong,
+}
+
+/// Stream the 66 schema-level cases of the L.19 protolens certificate.
+pub fn for_each_protolens_schema_case(mut visit: impl FnMut(ProtolensSchemaCase)) {
+    for protolens in 0..4 {
+        for schema in 0..sigma2_count() {
+            visit(ProtolensSchemaCase::Elementary { protolens, schema });
+        }
+    }
+    visit(ProtolensSchemaCase::FalsePrecondition);
+    visit(ProtolensSchemaCase::ExpansionTooLong);
+}
+
+/// Independent arithmetic count of [`for_each_protolens_schema_case`].
+#[must_use]
+pub const fn protolens_schema_case_count_certificate() -> usize {
+    4 * 16 + 2
+}
+
+/// How one compatible complement triple is bound to its lens.
+///
+/// The reference carrier distinguishes the two admissible provenance
+/// regimes. Production constructs the corresponding fingerprint or envelope;
+/// the reference model only chooses the row of the identity-composition table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComplementMonoidBinding {
+    /// All three complements carry the same legacy fingerprint.
+    Legacy,
+    /// All three complements carry the same verified identity envelope.
+    Verified,
+}
+
+/// One ordered triple in the finite compatible-complement carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComplementMonoidTriple {
+    /// Provenance regime shared by the three operands.
+    pub binding: ComplementMonoidBinding,
+    /// Three-bit mask selecting canonical resource bundles in the left operand.
+    pub left: u8,
+    /// Three-bit mask selecting canonical resource bundles in the middle operand.
+    pub middle: u8,
+    /// Three-bit mask selecting canonical resource bundles in the right operand.
+    pub right: u8,
+    /// Reference union of the three masks.
+    pub union: u8,
+}
+
+/// One coordinate on which complement composition is deliberately undefined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComplementMonoidRefusal {
+    /// Distinct nodes occupy the same dropped-node id.
+    DroppedNodes,
+    /// Distinct edge choices occupy the same contraction pair.
+    ContractionChoices,
+    /// Distinct parents are recorded for the same node.
+    OriginalParent,
+    /// Distinct field snapshots are recorded for the same node.
+    OriginalExtraFields,
+    /// Distinct edge labels are recorded for the same arc.
+    ArcEdges,
+    /// Distinct value snapshots are recorded for the same node.
+    OriginalValues,
+    /// Distinct surviving ancestors are recorded for the same node.
+    ContractedInto,
+    /// Distinct source anchors are recorded for the same node.
+    OriginalAnchors,
+    /// One synthesized id is assigned two distinct structural keys.
+    SynthesizedKeyById,
+    /// One structural key is assigned to two distinct synthesized ids.
+    SynthesizedIdByKey,
+    /// Two nonempty global arc orders disagree.
+    ArcOrder,
+    /// A data-bearing complement carries no provenance.
+    UnboundData,
+    /// Two legacy complements carry different fingerprints.
+    LegacyFingerprint,
+    /// A verified complement is paired with a legacy complement.
+    MixedProvenance,
+    /// Two verified complements carry different envelopes.
+    EnvelopeMismatch,
+}
+
+impl ComplementMonoidRefusal {
+    /// Every named off-domain coordinate in declaration order.
+    pub const ALL: [Self; 15] = [
+        Self::DroppedNodes,
+        Self::ContractionChoices,
+        Self::OriginalParent,
+        Self::OriginalExtraFields,
+        Self::ArcEdges,
+        Self::OriginalValues,
+        Self::ContractedInto,
+        Self::OriginalAnchors,
+        Self::SynthesizedKeyById,
+        Self::SynthesizedIdByKey,
+        Self::ArcOrder,
+        Self::UnboundData,
+        Self::LegacyFingerprint,
+        Self::MixedProvenance,
+        Self::EnvelopeMismatch,
+    ];
+}
+
+/// One case in the complete finite complement-monoid certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComplementMonoidCase {
+    /// A triple from the two provenance regimes and the three-atom powerset.
+    Compatible(ComplementMonoidTriple),
+    /// A named witness outside the partial operation's domain.
+    Refusal(ComplementMonoidRefusal),
+}
+
+/// Stream every ordered compatible triple, then every named refusal witness.
+///
+/// The compatible carrier contains two provenance regimes and three operands,
+/// each ranging over all eight subsets of three canonical resource bundles:
+/// `2 * 8^3 = 1024` triples. The union oracle is bitwise set union and is
+/// independent of the production merge implementation.
+pub fn for_each_complement_monoid_case(mut visit: impl FnMut(ComplementMonoidCase)) {
+    for binding in [
+        ComplementMonoidBinding::Legacy,
+        ComplementMonoidBinding::Verified,
+    ] {
+        for left in 0_u8..8 {
+            for middle in 0_u8..8 {
+                for right in 0_u8..8 {
+                    visit(ComplementMonoidCase::Compatible(ComplementMonoidTriple {
+                        binding,
+                        left,
+                        middle,
+                        right,
+                        union: left | middle | right,
+                    }));
+                }
+            }
+        }
+    }
+    for refusal in ComplementMonoidRefusal::ALL {
+        visit(ComplementMonoidCase::Refusal(refusal));
+    }
+}
+
+/// Independent arithmetic count of [`for_each_complement_monoid_case`].
+#[must_use]
+pub const fn complement_monoid_count_certificate() -> usize {
+    2 * 8 * 8 * 8 + ComplementMonoidRefusal::ALL.len()
+}
+
+/// One shape in the independent law-equivalence carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LawEquivalenceShape {
+    /// Graph instances with explicit node and edge presentation ids.
+    Graph,
+    /// Tree instances whose arc ids arise from their graph embedding.
+    Tree,
+    /// Table instances whose row and foreign-key ids arise from their graph embedding.
+    Table,
+}
+
+impl LawEquivalenceShape {
+    /// Every certified shape in declaration order.
+    pub const ALL: [Self; 3] = [Self::Graph, Self::Tree, Self::Table];
+}
+
+/// One way a synthesized index can fail to be a partial bijection into an instance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LawEquivalenceIncoherence {
+    /// Two present nodes carry the same synthesis key.
+    DuplicateNodeKey,
+    /// Two present edges carry the same synthesis key.
+    DuplicateEdgeKey,
+    /// The index names a node absent from the instance.
+    MissingNode,
+    /// The index names an edge absent from the instance.
+    MissingEdge,
+}
+
+impl LawEquivalenceIncoherence {
+    /// Every incoherent-index family rejected by the production comparison.
+    pub const ALL: [Self; 4] = [
+        Self::DuplicateNodeKey,
+        Self::DuplicateEdgeKey,
+        Self::MissingNode,
+        Self::MissingEdge,
+    ];
+}
+
+/// One case in the independent normalization certificate for law equivalence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LawEquivalenceOracleCase {
+    /// Compare two coherent presentations. `changed` changes one semantic cell,
+    /// not a presentation id, so the reference answer is `!changed`.
+    Pair {
+        /// Shape under comparison.
+        shape: LawEquivalenceShape,
+        /// First of three pairwise-disjoint presentation-id assignments.
+        left: u8,
+        /// Second presentation-id assignment.
+        right: u8,
+        /// Whether the right instance has a changed semantic cell.
+        changed: bool,
+    },
+    /// Check reflexivity, symmetry and both transitive bracketings on three
+    /// coherent presentations of one normalized value.
+    Triple {
+        /// Shape under comparison.
+        shape: LawEquivalenceShape,
+        /// First presentation-id assignment.
+        first: u8,
+        /// Second presentation-id assignment.
+        second: u8,
+        /// Third presentation-id assignment.
+        third: u8,
+    },
+    /// Check one complete family of incoherent synthesized metadata.
+    Incoherent {
+        /// Shape under comparison.
+        shape: LawEquivalenceShape,
+        /// Failed partial-bijection condition.
+        family: LawEquivalenceIncoherence,
+    },
+}
+
+/// Stream the complete finite carrier for the independent normalization oracle.
+///
+/// Each shape has `3 * 3 * 2 = 18` ordered coherent pairs, `3^3 = 27`
+/// coherent triples and four incoherent-index families. Thus the carrier has
+/// `3 * (18 + 27 + 4) = 147` cases.
+pub fn for_each_law_equivalence_oracle_case(mut visit: impl FnMut(LawEquivalenceOracleCase)) {
+    for shape in LawEquivalenceShape::ALL {
+        for left in 0..3 {
+            for right in 0..3 {
+                for changed in [false, true] {
+                    visit(LawEquivalenceOracleCase::Pair {
+                        shape,
+                        left,
+                        right,
+                        changed,
+                    });
+                }
+            }
+        }
+        for first in 0..3 {
+            for second in 0..3 {
+                for third in 0..3 {
+                    visit(LawEquivalenceOracleCase::Triple {
+                        shape,
+                        first,
+                        second,
+                        third,
+                    });
+                }
+            }
+        }
+        for family in LawEquivalenceIncoherence::ALL {
+            visit(LawEquivalenceOracleCase::Incoherent { shape, family });
+        }
+    }
+}
+
+/// Independent arithmetic count of [`for_each_law_equivalence_oracle_case`].
+#[must_use]
+pub const fn law_equivalence_oracle_case_count_certificate() -> usize {
+    LawEquivalenceShape::ALL.len() * (3 * 3 * 2 + 3 * 3 * 3 + LawEquivalenceIncoherence::ALL.len())
+}
+
+/// One boundary checked by the graph put-contract certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphPutContractCase {
+    /// A noncompiling migration must be reported as the first domain clause.
+    PlanCompilation,
+    /// An empty taken set returns the floor, including the last usable id.
+    EmptyAtFloor(u32),
+    /// A taken id below the floor does not advance the allocator.
+    TakenBelowFloor {
+        /// Recorded allocation floor.
+        floor: u32,
+        /// Occupied presentation id strictly below the floor.
+        taken: u32,
+    },
+    /// A taken id at or above the floor advances to its successor.
+    TakenAtOrAboveFloor {
+        /// Recorded allocation floor.
+        floor: u32,
+        /// Occupied presentation id at or above the floor.
+        taken: u32,
+    },
+    /// No fresh presentation id exists when the required successor is reserved.
+    ExhaustedByTaken(u32),
+}
+
+/// Stream all named plan-compilation and fresh-id boundary cases for L.3.
+pub fn for_each_graph_put_contract_case(mut visit: impl FnMut(GraphPutContractCase)) {
+    visit(GraphPutContractCase::PlanCompilation);
+    for floor in [0, 1, u32::MAX - 1] {
+        visit(GraphPutContractCase::EmptyAtFloor(floor));
+    }
+    visit(GraphPutContractCase::TakenBelowFloor { floor: 7, taken: 3 });
+    visit(GraphPutContractCase::TakenAtOrAboveFloor { floor: 7, taken: 7 });
+    visit(GraphPutContractCase::TakenAtOrAboveFloor {
+        floor: 7,
+        taken: 11,
+    });
+    for taken in [u32::MAX - 1, u32::MAX] {
+        visit(GraphPutContractCase::ExhaustedByTaken(taken));
+    }
+}
+
+/// Independent arithmetic count of [`for_each_graph_put_contract_case`].
+#[must_use]
+pub const fn graph_put_contract_case_count_certificate() -> usize {
+    1 + 3 + 1 + 2 + 2
+}
+
+/// A validation boundary in the graph/tree put-domain square.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeValidationCase {
+    /// Deleting a required child reports the missing cell.
+    RequiredDeletion {
+        /// Node that loses the required cell.
+        elem: u32,
+        /// Required field name.
+        field: &'static str,
+    },
+    /// Editing one key value to equal another reports both colliding nodes.
+    DuplicateKeyAfterEdit {
+        /// Vertex whose key is duplicated.
+        table: &'static str,
+        /// Single key-part field name.
+        field: &'static str,
+        /// First source key value and the value copied by the edit.
+        repeated_value: i64,
+        /// Distinct second source key value before the edit.
+        replaced_value: i64,
+        /// Colliding node ids, in report order.
+        elems: [u32; 2],
+    },
+    /// A native tree view whose fan names an absent child reports a malformed fan.
+    MalformedFan {
+        /// Parent node named by the typed refusal.
+        node: u32,
+        /// Fan label whose child is absent.
+        missing_label: &'static str,
+    },
+}
+
+/// Stream every independent validation witness for L.5 and L.9.
+pub fn for_each_tree_validation_case(mut visit: impl FnMut(TreeValidationCase)) {
+    visit(TreeValidationCase::RequiredDeletion {
+        elem: 0,
+        field: "b",
+    });
+    visit(TreeValidationCase::DuplicateKeyAfterEdit {
+        table: "a",
+        field: "b",
+        repeated_value: 1,
+        replaced_value: 2,
+        elems: [1, 2],
+    });
+    visit(TreeValidationCase::MalformedFan {
+        node: 0,
+        missing_label: "x",
+    });
+}
+
+/// Independent arithmetic count of [`for_each_tree_validation_case`].
+#[must_use]
+pub const fn tree_validation_case_count_certificate() -> usize {
+    3
+}
+
+/// Exact heterogeneous scope of the L.10 construction certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LensConstructionCountCertificate {
+    /// Atomic C11 stages classified by both graph and tree classifiers.
+    pub stage_classifications: usize,
+    /// Graph stages classified as complement-free isomorphisms.
+    pub graph_positive_stages: usize,
+    /// Successful graph complement-free restorations.
+    pub graph_restorations: usize,
+    /// Tree stages classified as complement-free isomorphisms.
+    pub tree_positive_stages: usize,
+    /// Positive nonfan tree stages with a nonempty finite state carrier.
+    pub tree_state_bearing_stages: usize,
+    /// Successful tree complement-free restorations.
+    pub tree_restorations: usize,
+    /// Distinct table projection lenses.
+    pub table_projection_lenses: usize,
+    /// Table projection source/lens cases.
+    pub table_projection_cases: usize,
+    /// Distinct table writer lenses.
+    pub table_writer_lenses: usize,
+    /// Table writer source/lens cases.
+    pub table_writer_cases: usize,
+    /// Focused symmetric-span acceptance and refusal assertions.
+    pub span_assertions: usize,
+}
+
+/// Independently pinned arithmetic metadata for the L.10 executable umbrella.
+#[must_use]
+pub const fn lens_construction_count_certificate() -> LensConstructionCountCertificate {
+    LensConstructionCountCertificate {
+        stage_classifications: 31,
+        graph_positive_stages: 18,
+        graph_restorations: 117_004,
+        tree_positive_stages: 18,
+        tree_state_bearing_stages: 17,
+        tree_restorations: 2_082,
+        table_projection_lenses: 7,
+        table_projection_cases: 9_921,
+        table_writer_lenses: 9,
+        table_writer_cases: 81,
+        span_assertions: 4,
+    }
+}
+
+/// One base case in the cross-shape law-equivalence certificate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LensEquivalenceCase {
+    /// One C11 stage applied to one bounded graph source.
+    Graph {
+        /// Index in [`c11_stages`].
+        stage: usize,
+        /// Bounded graph over the stage's source schema.
+        source: Graph,
+    },
+    /// One nonfan C11 stage applied to one bounded tree source.
+    Tree {
+        /// Index in [`c11_stages`].
+        stage: usize,
+        /// Bounded nonfan tree over the stage's source schema.
+        source: Tree,
+    },
+    /// One bounded table projection/source fixture.
+    Table(TableFixture),
+}
+
+/// Stream the graph, common-domain tree, and table bases used to certify
+/// observational equivalence across all three lens shapes.
+pub fn for_each_lens_equivalence_case(mut visit: impl FnMut(LensEquivalenceCase)) {
+    let stages = c11_stages();
+    for (stage, descriptor) in stages.iter().enumerate() {
+        for source in c11_graph_states(&descriptor.source) {
+            visit(LensEquivalenceCase::Graph { stage, source });
+        }
+        if descriptor.source != c11_fan_schema() {
+            for source in c11_tree_states(&descriptor.source) {
+                visit(LensEquivalenceCase::Tree { stage, source });
+            }
+        }
+    }
+    for_each_table_fixture(|fixture| visit(LensEquivalenceCase::Table(fixture)));
 }
 
 /// The six structural stages `P`, `D`, `R`, `W`, `C` and `X` of
@@ -2340,7 +3817,7 @@ fn c11_structural_stages() -> Vec<C11Stage> {
     stages.push(stage(
         "D",
         ab.clone(),
-        bare.clone(),
+        bare,
         Migration {
             surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
             ..Migration::default()
@@ -2349,7 +3826,7 @@ fn c11_structural_stages() -> Vec<C11Stage> {
     ));
     stages.push(stage(
         "R",
-        a.clone(),
+        a,
         c11_schema(&["b"], &[]),
         Migration {
             surviving_verts: ["b".to_owned()].into(),
@@ -2388,7 +3865,7 @@ fn c11_structural_stages() -> Vec<C11Stage> {
     ));
     stages.push(stage(
         "X",
-        ab.clone(),
+        ab,
         c11_schema(&["a", "b"], &[("a", "b"), ("b", "b")]),
         Migration {
             surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
@@ -2450,8 +3927,11 @@ impl crate::restrict::ValueLayer for C11SurvivalFalse {
     }
 }
 
-/// The transform value layer of stage `T`: get adds field [`C11_FIELD`]
-/// with [`C11_VALUE`]; put requires that field unedited and removes it.
+/// The transform value layer of stage `T`.
+///
+/// Get defaults an absent [`C11_FIELD`] to [`C11_VALUE`]. Put requires an inserted default to remain
+/// unedited and removes it, while a field already present in the source
+/// remains an ordinary editable coordinate.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct C11AddField;
 
@@ -2477,7 +3957,7 @@ impl crate::restrict::ValueLayer for C11AddField {
         crate::restrict::LayerRefusal,
     > {
         let mut fields = node.fields.clone();
-        fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+        fields.entry(C11_FIELD.to_owned()).or_insert(C11_VALUE);
         Ok((fields, node.value.clone()))
     }
 
@@ -2490,18 +3970,33 @@ impl crate::restrict::ValueLayer for C11AddField {
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
-        if view.fields.get(C11_FIELD) != Some(&C11_VALUE) {
+        if let Some(original_fields) = original_fields {
+            if !original_fields.contains_key(C11_FIELD)
+                && view.fields.get(C11_FIELD) != Some(&C11_VALUE)
+            {
+                return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
+                    field: C11_FIELD.to_owned(),
+                });
+            }
+            return Ok((
+                original_fields.clone(),
+                original_value
+                    .cloned()
+                    .unwrap_or_else(|| view.value.clone()),
+            ));
+        }
+        if !view.fields.contains_key(C11_FIELD) {
             return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
                 field: C11_FIELD.to_owned(),
             });
         }
         // Get records a node's source fields exactly when its view fields
-        // differ from them, so an unrecorded node's source fields are its
-        // view fields.
+        // differ from them. An unrecorded present field was therefore already
+        // present, or belongs to a new view node, and remains independently
+        // editable. An absent field was handled above because the next get
+        // would add it and violate PutGet.
         Ok((
-            original_fields
-                .cloned()
-                .unwrap_or_else(|| view.fields.clone()),
+            view.fields.clone(),
             original_value
                 .cloned()
                 .unwrap_or_else(|| view.value.clone()),
@@ -2510,9 +4005,10 @@ impl crate::restrict::ValueLayer for C11AddField {
 }
 
 /// The dropping value layer of stage `DropF`: get removes [`C11_FIELD`]
-/// and put restores a captured source row. With no captured row, put keeps
-/// the view, as the production graph lens does for an externally supplied
-/// complement.
+/// and put restores a captured source row.
+///
+/// With no captured row, put keeps the view, as the production graph lens
+/// does for an externally supplied complement.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct C11DropField;
 
@@ -2610,9 +4106,11 @@ impl crate::restrict::ValueLayer for C11ReadField {
 }
 
 /// The op-term layer of stage `Op`: get computes [`C11_FIELD`] as
-/// [`C11_VALUE`], and put restores the captured source row. This separate
-/// implementation keeps the op-term execution path distinct from `T` even
-/// though the two stages agree on the bounded carrier's forward value.
+/// [`C11_VALUE`], and put restores the captured source row.
+///
+/// This separate implementation keeps the op-term execution path distinct
+/// from `T` even though the two stages agree on the bounded carrier's forward
+/// value.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct C11OpTerm;
 
@@ -2690,6 +4188,220 @@ pub struct C11PathCounts {
     pub tree_stages: usize,
     /// `(stage, tree state)` pairs.
     pub stage_tree_states: usize,
+    /// `(word, tree state)` pairs for boundary-matched words, by length.
+    pub tree_word_states_by_length: [usize; 3],
+    /// `(word, table state)` pairs for boundary-matched words, by length.
+    pub table_word_states_by_length: [usize; 3],
+}
+
+/// Independently pinned cardinalities of the L.17 graph/tree square carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct C11TreeSquareCounts {
+    /// Atomic-stage tree sources on which both routes are attempted.
+    pub bases: usize,
+    /// One-step edited views generated from successful tree gets.
+    pub edited_views: usize,
+    /// Base and edited observations together.
+    pub observations: usize,
+}
+
+/// Exact finite bound of the L.17 graph/tree square certificate.
+///
+/// The base count is independently derived by [`c11_path_count_certificate`].
+/// The edited-view count is the frozen Single-Step Basis census over those
+/// bases; the exhaustive differential checks both coordinates separately.
+#[must_use]
+pub const fn c11_tree_square_count_certificate() -> C11TreeSquareCounts {
+    C11TreeSquareCounts {
+        bases: 2_548,
+        edited_views: 28_922,
+        observations: 31_470,
+    }
+}
+
+/// Which categorical or operational path form a certificate case observes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathLawForm {
+    /// The atomic path itself, used as the fusion baseline.
+    Sequential,
+    /// The identity at the source followed by the path.
+    LeftIdentity,
+    /// The path followed by the identity at the target.
+    RightIdentity,
+}
+
+/// Carrier on which a path law is evaluated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathLawCarrier {
+    /// General graph instances.
+    Graph,
+    /// Trees in the common graph/tree reference domain.
+    Tree,
+    /// Finite relational instances.
+    Table,
+}
+
+/// A named boundary excluded by the table fusion predicate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TableFusionBoundaryWitness {
+    /// A noninjective second-stage column map changes the collision winner.
+    ColumnMapInjectivity,
+    /// An absent cell receives a protocol-dependent typed placeholder.
+    TypedPlaceholder,
+    /// The middle schema imposes required-value validation.
+    RequiredValueValidation,
+    /// A target-only table, relation or column has no reverse source carrier.
+    TargetOnlyRelationalCarrier,
+}
+
+/// One case in the combined path-category and fusion certificate.
+///
+/// Words and source states are represented by their stable indices in the
+/// C11 enumeration. This keeps the carrier streaming: enumerating two million
+/// cases does not clone their graph, tree and table payloads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PathLawCase {
+    /// One boundary-matched word under left identity.
+    LeftIdentity {
+        /// Boundary-matched word in atomic-stage index coordinates.
+        word: Vec<usize>,
+    },
+    /// One boundary-matched word under right identity.
+    RightIdentity {
+        /// Boundary-matched word in atomic-stage index coordinates.
+        word: Vec<usize>,
+    },
+    /// One ordered triple, including triples with mismatched boundaries.
+    Associativity {
+        /// Ordered atomic-stage indices.
+        stages: [usize; 3],
+    },
+    /// One operational path/source case.
+    Operational {
+        /// The path form being observed.
+        form: PathLawForm,
+        /// The carrier being observed.
+        carrier: PathLawCarrier,
+        /// A boundary-matched word.
+        word: Vec<usize>,
+        /// Stable index in the bounded source enumeration for the first stage.
+        source: usize,
+    },
+    /// One independent named table-fusion boundary witness.
+    TableFusionBoundary(TableFusionBoundaryWitness),
+}
+
+fn c11_composable_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
+    let mut words = Vec::new();
+    let mut layer: Vec<Vec<usize>> = vec![Vec::new()];
+    for _ in 0..3 {
+        layer = layer
+            .iter()
+            .flat_map(|prefix| {
+                (0..stages.len()).map(move |stage| {
+                    let mut word = prefix.clone();
+                    word.push(stage);
+                    word
+                })
+            })
+            .collect();
+        words.extend(
+            layer
+                .iter()
+                .filter(|word| {
+                    word.windows(2)
+                        .all(|pair| stages[pair[0]].target == stages[pair[1]].source)
+                })
+                .cloned(),
+        );
+    }
+    words
+}
+
+/// Stream the combined finite carrier for L.13 through L.16.
+///
+/// The categorical component contains every boundary-matched word for each
+/// unit law and every ordered triple for associativity. The operational
+/// component contains the sequential, left-unit and right-unit graph paths,
+/// plus the common-domain tree and table fusion paths. Four named witnesses
+/// cover table-fusion boundaries that the column-free C11 tables cannot
+/// express.
+pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
+    let stages = c11_stages();
+    let words = c11_composable_words(&stages);
+    for word in &words {
+        visit(PathLawCase::LeftIdentity { word: word.clone() });
+        visit(PathLawCase::RightIdentity { word: word.clone() });
+    }
+    for first in 0..stages.len() {
+        for second in 0..stages.len() {
+            for third in 0..stages.len() {
+                visit(PathLawCase::Associativity {
+                    stages: [first, second, third],
+                });
+            }
+        }
+    }
+    for word in &words {
+        let first = &stages[word[0]];
+        let graph_sources = if first.source == c11_fan_schema() {
+            c11_fan_state_count()
+        } else {
+            c11_graph_state_count(&first.source)
+        };
+        for source in 0..graph_sources {
+            for form in [
+                PathLawForm::Sequential,
+                PathLawForm::LeftIdentity,
+                PathLawForm::RightIdentity,
+            ] {
+                visit(PathLawCase::Operational {
+                    form,
+                    carrier: PathLawCarrier::Graph,
+                    word: word.clone(),
+                    source,
+                });
+            }
+        }
+        if first.source != c11_fan_schema() {
+            for source in 0..c11_tree_state_count(&first.source) {
+                visit(PathLawCase::Operational {
+                    form: PathLawForm::Sequential,
+                    carrier: PathLawCarrier::Tree,
+                    word: word.clone(),
+                    source,
+                });
+            }
+            for source in 0..c11_table_state_count(&first.source) {
+                visit(PathLawCase::Operational {
+                    form: PathLawForm::Sequential,
+                    carrier: PathLawCarrier::Table,
+                    word: word.clone(),
+                    source,
+                });
+            }
+        }
+    }
+    for witness in [
+        TableFusionBoundaryWitness::ColumnMapInjectivity,
+        TableFusionBoundaryWitness::TypedPlaceholder,
+        TableFusionBoundaryWitness::RequiredValueValidation,
+        TableFusionBoundaryWitness::TargetOnlyRelationalCarrier,
+    ] {
+        visit(PathLawCase::TableFusionBoundary(witness));
+    }
+}
+
+/// Independent arithmetic cardinality of [`for_each_path_law_case`].
+#[must_use]
+pub fn path_law_case_count_certificate() -> usize {
+    let counts = c11_path_count_certificate();
+    2 * counts.composable()
+        + counts.stages.pow(3)
+        + 3 * counts.word_states()
+        + counts.tree_word_states()
+        + counts.table_word_states()
+        + 4
 }
 
 impl C11PathCounts {
@@ -2712,6 +4424,22 @@ impl C11PathCounts {
             + self.word_states_by_length[1]
             + self.word_states_by_length[2]
     }
+
+    /// Total number of boundary-matched `(word, tree state)` pairs.
+    #[must_use]
+    pub const fn tree_word_states(self) -> usize {
+        self.tree_word_states_by_length[0]
+            + self.tree_word_states_by_length[1]
+            + self.tree_word_states_by_length[2]
+    }
+
+    /// Total number of boundary-matched `(word, table state)` pairs.
+    #[must_use]
+    pub const fn table_word_states(self) -> usize {
+        self.table_word_states_by_length[0]
+            + self.table_word_states_by_length[1]
+            + self.table_word_states_by_length[2]
+    }
 }
 
 /// Compute the C11 path counts from endpoint products and the independent
@@ -2732,23 +4460,55 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
         })
         .collect();
     let mut weighted = state_weights.clone();
+    let tree_weights: Vec<usize> = stages
+        .iter()
+        .map(|stage| {
+            if stage.source == c11_fan_schema() {
+                0
+            } else {
+                c11_tree_state_count(&stage.source)
+            }
+        })
+        .collect();
+    let table_weights: Vec<usize> = stages
+        .iter()
+        .map(|stage| {
+            if stage.source == c11_fan_schema() {
+                0
+            } else {
+                c11_table_state_count(&stage.source)
+            }
+        })
+        .collect();
+    let mut tree_weighted = tree_weights.clone();
+    let mut table_weighted = table_weights.clone();
     let mut composable_by_length = [count, 0, 0];
     let mut word_states_by_length = [state_weights.iter().sum(), 0, 0];
+    let mut tree_word_states_by_length = [tree_weights.iter().sum(), 0, 0];
+    let mut table_word_states_by_length = [table_weights.iter().sum(), 0, 0];
     for length in 1..3 {
         let mut next_paths = vec![0_usize; count];
         let mut next_weighted = vec![0_usize; count];
+        let mut next_tree_weighted = vec![0_usize; count];
+        let mut next_table_weighted = vec![0_usize; count];
         for (earlier, left) in stages.iter().enumerate() {
             for (later, right) in stages.iter().enumerate() {
                 if left.target == right.source {
                     next_paths[later] += paths[earlier];
                     next_weighted[later] += weighted[earlier];
+                    next_tree_weighted[later] += tree_weighted[earlier];
+                    next_table_weighted[later] += table_weighted[earlier];
                 }
             }
         }
         composable_by_length[length] = next_paths.iter().sum();
         word_states_by_length[length] = next_weighted.iter().sum();
+        tree_word_states_by_length[length] = next_tree_weighted.iter().sum();
+        table_word_states_by_length[length] = next_table_weighted.iter().sum();
         paths = next_paths;
         weighted = next_weighted;
+        tree_weighted = next_tree_weighted;
+        table_weighted = next_table_weighted;
     }
     let tree_stages: Vec<&C11Stage> = stages
         .iter()
@@ -2765,6 +4525,8 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
             .iter()
             .map(|stage| c11_tree_state_count(&stage.source))
             .sum(),
+        tree_word_states_by_length,
+        table_word_states_by_length,
     }
 }
 
@@ -3147,9 +4909,13 @@ pub fn c11_graph_edit_count(
 #[cfg(test)]
 mod tests {
     use super::{
-        PartialLens, c11_path_count_certificate, c11_stages, partial_lens_count_certificate,
-        partial_lens_histogram, writer_count_certificate,
+        C11_FIELD, C11AddField, Node, PartialLens, c11_path_count_certificate, c11_stages,
+        derived_writer_count_certificate, for_each_derived_writer_fixture,
+        for_each_table_complement_construction, last_explicit_writer_count_certificate,
+        partial_lens_count_certificate, partial_lens_histogram,
+        table_complement_construction_count_certificate, writer_count_certificate,
     };
+    use crate::restrict::{PutFieldRefusal, ValueLayer};
 
     /// `GetPut` and `WeakPutGet` do not imply `PutTwice`: put `(1, 2)` gives
     /// source 0, whose complement is 0, and put `(1, 0)` is undefined.
@@ -3184,6 +4950,36 @@ mod tests {
     #[test]
     fn the_writer_carrier_has_its_certified_counts() {
         assert_eq!(writer_count_certificate(), (9, 81, 180));
+        assert_eq!(last_explicit_writer_count_certificate(), 36);
+        let mut derived = 0;
+        for_each_derived_writer_fixture(|_| derived += 1);
+        assert_eq!(derived, derived_writer_count_certificate());
+        assert_eq!(derived, 2);
+    }
+
+    #[test]
+    fn the_table_complement_construction_certificate_is_exact() {
+        let mut names = Vec::new();
+        for_each_table_complement_construction(|construction| names.push(construction.name));
+        assert_eq!(
+            names.len(),
+            table_complement_construction_count_certificate()
+        );
+        assert_eq!(names.len(), 7);
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 7, "construction names are unique");
+    }
+
+    #[test]
+    fn add_field_refuses_an_inserted_node_that_omits_the_derived_field() {
+        let node = Node::new(0, "a");
+        assert_eq!(
+            C11AddField.restore(&node, None, None),
+            Err(PutFieldRefusal::DerivedCellEdited {
+                field: C11_FIELD.to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -3208,5 +5004,15 @@ mod tests {
         assert_eq!(certificate.word_states(), 618_603);
         assert_eq!(certificate.tree_stages, 29);
         assert_eq!(certificate.stage_tree_states, 2_548);
+        assert_eq!(
+            certificate.tree_word_states_by_length,
+            [2_548, 3_876, 9_172]
+        );
+        assert_eq!(certificate.tree_word_states(), 15_596);
+        assert_eq!(
+            certificate.table_word_states_by_length,
+            [21_701, 27_561, 51_549]
+        );
+        assert_eq!(certificate.table_word_states(), 100_811);
     }
 }

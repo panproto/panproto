@@ -1,4 +1,4 @@
-//! The PutGet gate compares a user-edited view under the index of the
+//! The `PutGet` gate compares a user-edited view under the index of the
 //! complement it is put against.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

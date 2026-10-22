@@ -13,10 +13,10 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver,
-    FieldTransform, GEdge, GInstance, GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
-    IdAllocator, IdRange, InstError, PairResolution, PutDomainError, RestrictPlan, SynthKey,
-    ViewRef, canonical_label_shape, graph_restrict_with_plan,
+    BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, GEdge,
+    GInstance, GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdAllocator, IdRange,
+    InstError, PairResolution, PutDomainError, RestrictPlan, SynthKey, ViewRef,
+    canonical_label_shape, graph_restrict_with_plan,
 };
 use panproto_schema::{Edge, Schema};
 
@@ -288,7 +288,7 @@ pub fn put_without_complement(lens: &Lens, view: &GInstance) -> Result<GInstance
     put(lens, view, &complement)
 }
 
-/// Whether graph get leaves no source information in its complement.
+/// Whether graph get is bijective with no source information in its complement.
 ///
 /// This classifies bijective lenses whose complement is `Unit`, a class
 /// narrower than isomorphism in the category of lenses. A `false` result is
@@ -298,6 +298,8 @@ pub fn put_without_complement(lens: &Lens, view: &GInstance) -> Result<GInstance
 /// to the ordinary vertex, edge and value coordinates, it accounts for
 /// reified hyper-edges: a non-identity resolver changes a fan anchor or child
 /// label and graph get records that source coordinate in its complement.
+/// Both schema maps must also be onto: a target-only vertex or edge makes
+/// `get` non-surjective even though it does not add source residue.
 #[must_use]
 pub fn is_isomorphism(lens: &Lens) -> bool {
     obstruction_to_isomorphism(lens).is_none()
@@ -306,11 +308,14 @@ pub fn is_isomorphism(lens: &Lens) -> bool {
 /// The first graph coordinate that prevents complement-free reconstruction.
 ///
 /// The result is deterministic and concerns the same narrower, bijective
-/// (complement `Unit`) class as [`is_isomorphism`]. It reports an obstruction
-/// to complement-free put, not proof that no inverse lens exists, and does not
-/// decide whether the lens is forgetful. A pass means that no obstruction was
-/// found by the complete static graph classifier; it is not a claim about
-/// lenses outside the graph restrict domain.
+/// (complement `Unit`) class as [`is_isomorphism`]. The classified maps are
+/// bijections on source and target vertices and edges. The certified fragment
+/// is transform-free: even an apparently identity transform is refused until
+/// its operational semantics has a separate proof, since a transform that
+/// changes a value makes `get` record its source snapshot as residue. This
+/// reports an obstruction to complement-free put, not proof that no inverse
+/// lens exists, and does not decide whether the lens is forgetful. A pass is
+/// not a claim about lenses outside the graph restrict domain.
 #[must_use]
 pub fn obstruction_to_isomorphism(lens: &Lens) -> Option<String> {
     let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
@@ -337,26 +342,29 @@ pub fn obstruction_to_isomorphism(lens: &Lens) -> Option<String> {
             ));
         }
         let image = lens.compiled.vertex_remap.get(source).unwrap_or(source);
+        if !lens.tgt_schema.vertices.contains_key(image) {
+            return Some(format!(
+                "vertex `{source}` maps to `{image}`, which is absent from the target schema"
+            ));
+        }
         if let Some(other) = vertex_images.insert(image, source) {
             return Some(format!(
                 "vertices `{other}` and `{source}` both map to `{image}`, so a view node does not determine its source anchor"
             ));
         }
-        if lens
-            .compiled
-            .op_term_assignments
-            .get(source)
-            .is_some_and(|assignments| !assignments.is_empty())
-        {
-            return Some(format!(
-                "vertex `{source}` has term assignments that graph put does not invert without a complement"
-            ));
-        }
-        if let Some(transforms) = lens.compiled.field_transforms.get(source)
-            && let Some(detail) = graph_transform_obstruction(transforms)
-        {
-            return Some(format!("vertex `{source}` {detail}"));
-        }
+    }
+    let mut target_vertices = lens.tgt_schema.vertices.keys().collect::<Vec<_>>();
+    target_vertices.sort();
+    if let Some(target) = target_vertices
+        .into_iter()
+        .find(|target| !vertex_images.keys().any(|image| *image == *target))
+    {
+        return Some(format!(
+            "target vertex `{target}` has no source preimage, so the vertex map is not bijective"
+        ));
+    }
+    if let Some(detail) = graph_transform_program_obstruction(lens) {
+        return Some(detail);
     }
 
     for (source, fate) in &plan.edge_image.fates {
@@ -373,19 +381,61 @@ pub fn obstruction_to_isomorphism(lens: &Lens) -> Option<String> {
             ));
         }
     }
+    let mut target_edges = lens.tgt_schema.edges.keys().collect::<Vec<_>>();
+    target_edges.sort();
+    if let Some(target) = target_edges
+        .into_iter()
+        .find(|target| plan.edge_image.preimages(target).is_empty())
+    {
+        return Some(format!(
+            "target edge `{:?}` has no source preimage, so the edge map is not bijective",
+            target.name
+        ));
+    }
 
     if let Some(source) = lens.src_schema.hyper_edges.keys().min() {
         return Some(format!(
             "hyper-edge `{source}` admits a schema-valid parent-only fan, which graph restrict currently drops"
         ));
     }
-    if let Some(detail) = graph_validation_obstruction(&lens.src_schema) {
+    if let Some(target) = lens.tgt_schema.hyper_edges.keys().min() {
+        return Some(format!(
+            "target hyper-edge `{target}` has no admitted source preimage, so graph get is not surjective"
+        ));
+    }
+    if let Some(detail) = graph_validation_obstruction(&lens.src_schema, "source") {
+        return Some(detail);
+    }
+    if let Some(detail) = graph_validation_obstruction(&lens.tgt_schema, "target") {
         return Some(detail);
     }
     None
 }
 
-fn graph_validation_obstruction(schema: &panproto_schema::Schema) -> Option<String> {
+fn graph_transform_program_obstruction(lens: &Lens) -> Option<String> {
+    let mut term_anchors = lens.compiled.op_term_assignments.keys().collect::<Vec<_>>();
+    term_anchors.sort();
+    if let Some(anchor) = term_anchors
+        .into_iter()
+        .find(|anchor| !lens.compiled.op_term_assignments[*anchor].is_empty())
+    {
+        return Some(format!(
+            "vertex `{anchor}` has op-to-term assignments outside the certified transform-free graph fragment"
+        ));
+    }
+    let mut field_anchors = lens.compiled.field_transforms.keys().collect::<Vec<_>>();
+    field_anchors.sort();
+    field_anchors
+        .into_iter()
+        .find(|anchor| !lens.compiled.field_transforms[*anchor].is_empty())
+        .map(|anchor| {
+            format!(
+                "vertex `{anchor}` has value transforms outside the certified transform-free graph fragment"
+            )
+        })
+}
+
+fn graph_validation_obstruction(schema: &panproto_schema::Schema, side: &str) -> Option<String> {
     let mut required = schema
         .required
         .iter()
@@ -400,7 +450,7 @@ fn graph_validation_obstruction(schema: &panproto_schema::Schema) -> Option<Stri
             .as_ref()
             .map_or_else(|| edge.tgt.to_string(), Name::to_string);
         return Some(format!(
-            "vertex `{vertex}` requires field `{field}`, so graph put can refuse a finite source in which it is absent"
+            "{side} vertex `{vertex}` requires field `{field}`, so the graph carrier is not the unconstrained bijective fragment"
         ));
     }
 
@@ -414,65 +464,9 @@ fn graph_validation_obstruction(schema: &panproto_schema::Schema) -> Option<Stri
     keys.sort();
     keys.first().map(|(vertex, key)| {
         format!(
-            "vertex `{vertex}` declares key `{key}`, so graph put can refuse a finite source with duplicate key values"
+            "{side} vertex `{vertex}` declares key `{key}`, so the graph carrier is not the unconstrained bijective fragment"
         )
     })
-}
-
-fn graph_transform_obstruction(transforms: &[FieldTransform]) -> Option<String> {
-    for transform in transforms {
-        let detail = match transform {
-            FieldTransform::RenameField { old_key, new_key } if old_key == new_key => None,
-            FieldTransform::RenameField { .. } => Some(
-                "renames an open graph field and may overwrite an independently present target key"
-                    .to_owned(),
-            ),
-            FieldTransform::ApplyExpr {
-                inverse,
-                coercion_class,
-                ..
-            } if inverse.is_some()
-                && matches!(coercion_class, panproto_gat::CoercionClass::Iso) =>
-            {
-                None
-            }
-            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
-                graph_transform_obstruction(std::slice::from_ref(inner))
-            }
-            FieldTransform::MapReferences { rename_map, .. }
-                if rename_map
-                    .iter()
-                    .all(|(source, target)| target.as_deref() == Some(source.as_str())) =>
-            {
-                None
-            }
-            FieldTransform::Case { branches }
-                if branches.iter().all(|branch| branch.transforms.is_empty()) =>
-            {
-                None
-            }
-            FieldTransform::PathTransform { .. } => Some(
-                "has a nested path transform that graph put cannot invert without a complement"
-                    .to_owned(),
-            ),
-            FieldTransform::Case { .. } => Some(
-                "has a conditional transform that graph put cannot invert without a complement"
-                    .to_owned(),
-            ),
-            FieldTransform::AddField { .. }
-            | FieldTransform::DropField { .. }
-            | FieldTransform::KeepFields { .. }
-            | FieldTransform::MapReferences { .. }
-            | FieldTransform::ApplyExpr { .. }
-            | FieldTransform::ComputeField { .. } => {
-                Some("has a value transform without an operational graph inverse".to_owned())
-            }
-        };
-        if detail.is_some() {
-            return detail;
-        }
-    }
-    None
 }
 
 /// Every reason `view` lies outside the graph put domain.
@@ -493,8 +487,13 @@ pub fn check_put_domain(
     view: &GInstance,
     complement: &GraphComplement,
 ) -> Result<(), Vec<PutDomainError>> {
-    let Ok(plan) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) else {
-        return Ok(());
+    let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return Err(vec![PutDomainError::PlanCompilation {
+                detail: error.to_string(),
+            }]);
+        }
     };
     let mut found = id_collisions(view, complement);
     found.extend(synthesized_edits(view, complement, &plan));
@@ -1006,8 +1005,13 @@ fn restore(
     view: &GInstance,
     complement: &GraphComplement,
 ) -> Result<GInstance, Vec<PutDomainError>> {
-    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
-        .map_err(|_| Vec::new())?;
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled).map_err(
+        |error| {
+            vec![PutDomainError::PlanCompilation {
+                detail: error.to_string(),
+            }]
+        },
+    )?;
     restore_with_plan(lens, view, complement, &plan)
 }
 
@@ -1100,7 +1104,7 @@ fn restore_edges(
         if source.node(edge.src).is_none() || source.node(edge.tgt).is_none() {
             continue;
         }
-        match source_edge(lens, view, complement, plan, id, edge, &source) {
+        match source_edge(lens, view, complement, plan, id, edge, source) {
             Ok(label) => {
                 let restored = GEdge {
                     src: edge.src,
@@ -1746,7 +1750,10 @@ fn classify_transform_differences(
     }
 }
 
-fn fan_violations(source: &GInstance, schema: &panproto_schema::Schema) -> Vec<PutDomainError> {
+pub(crate) fn fan_violations(
+    source: &GInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<PutDomainError> {
     let mut nodes: Vec<u32> = source.nodes().keys().copied().collect();
     nodes.sort_unstable();
     nodes
@@ -1759,7 +1766,10 @@ fn fan_violations(source: &GInstance, schema: &panproto_schema::Schema) -> Vec<P
         .collect()
 }
 
-fn schema_violations(source: &GInstance, schema: &panproto_schema::Schema) -> Vec<PutDomainError> {
+pub(crate) fn schema_violations(
+    source: &GInstance,
+    schema: &panproto_schema::Schema,
+) -> Vec<PutDomainError> {
     let mut found = required_violations(source, schema);
     found.extend(key_violations(source, schema));
     found
@@ -2043,6 +2053,7 @@ fn violation_ref(error: &PutDomainError) -> Option<ViewRef> {
         | PutDomainError::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
         PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
         PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
+        PutDomainError::PlanCompilation { .. } => None,
     }
 }
 
@@ -2284,4 +2295,51 @@ fn bfs_contraction_path(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use panproto_inst::identity::{ComplementShape, IdentityCarrier};
+    use panproto_inst::{GInstance, GraphComplement, PutDomainError};
+
+    use super::{check_put_domain, put};
+    use crate::LensError;
+    use crate::tests::{identity_lens, three_node_schema};
+
+    #[test]
+    fn a_plan_compilation_failure_is_outside_the_graph_put_domain() {
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        let Some(source_edge) = schema.edges.keys().next().cloned() else {
+            panic!("the fixture must contain a schema edge");
+        };
+        let mut incoherent_image = source_edge.clone();
+        incoherent_image.tgt = "missing-target".into();
+        lens.compiled
+            .edge_remap
+            .insert(source_edge, incoherent_image);
+
+        let view = GInstance::new();
+        let mut complement = GraphComplement::empty();
+        complement.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
+
+        let Err(errors) = check_put_domain(&lens, &view, &complement) else {
+            panic!("an unexecutable lens must have no admitted graph views");
+        };
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0],
+            PutDomainError::PlanCompilation { detail }
+                if detail.contains("incoherent") || detail.contains("missing-target")
+        ));
+
+        let Err(error) = put(&lens, &view, &complement) else {
+            panic!("put must return the same typed plan-domain refusal");
+        };
+        assert!(matches!(
+            error,
+            LensError::PutDomain(error)
+                if matches!(*error, PutDomainError::PlanCompilation { .. })
+        ));
+    }
 }

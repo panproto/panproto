@@ -106,6 +106,17 @@ fn pair_for_id(embedding: &TableEmbedding, id: EdgeId) -> Option<&(Edge, RowId, 
         .find_map(|(pair, &edge_id)| (edge_id == id).then_some(pair))
 }
 
+/// Whether the protocol-indexed table plan leaves graph fields unchanged.
+///
+/// Protocol-free graph restriction cannot enact a column drop or rename, so
+/// either fate lies outside the exact common domain of the graph/table square.
+fn table_cells_are_graph_neutral(plan: &RestrictPlan) -> bool {
+    plan.boundary
+        .as_ref()
+        .and_then(|boundary| boundary.cells.as_ref())
+        .is_some_and(|cells| cells.fates.is_empty())
+}
+
 impl Lens {
     /// Whether restricting a tree-shaped graph preserves its tree result.
     ///
@@ -761,7 +772,14 @@ fn add_tree_arcs(
             tree.dropped_arcs
                 .push((original.src, original.tgt, original.edge.clone()));
         }
-        tree.original_parent.insert(original.tgt, original.src);
+        // Native tree `get` records an original parent only for a node that
+        // survived in the view produced by get. Use the complement rather
+        // than the caller's current (possibly edited) view to recover that
+        // get-time fact. A dropped child is restored from `dropped_arcs`;
+        // marking it as surviving makes tree `put` suppress that residue.
+        if !complement.dropped_nodes.contains_key(&original.tgt) {
+            tree.original_parent.insert(original.tgt, original.src);
+        }
         tree.arc_order.push((original.src, original.tgt));
         if complement.original_edges.contains_key(id) {
             tree.arc_edges
@@ -1006,27 +1024,45 @@ pub fn graph_get_via_tree(
     let Ok((tree, source_embedding)) = source.to_wtype_embedded(&lens.src_schema) else {
         return Ok(None);
     };
-    let Ok((tree_view, tree_complement)) = crate::asymmetric::get(lens, &tree) else {
-        return crate::graph_lens::get(lens, source).map(Some);
+    let (tree_view, tree_complement) = match crate::asymmetric::get(lens, &tree) {
+        Ok(result) => result,
+        Err(LensError::Restrict(panproto_inst::RestrictError::RootPruned)) => return Ok(None),
+        Err(_) => return crate::graph_lens::get(lens, source).map(Some),
     };
     if tree_view.fans.len() != tree.fans.len() {
         return Ok(None);
     }
     let mut view_embedding = source_embedding.clone();
-    view_embedding.arcs.retain(|child, _| {
-        tree.arcs
-            .iter()
-            .find(|(_, source_child, _)| source_child == child)
-            .is_some_and(|source_arc| tree_view.arcs.contains(source_arc))
-    });
-    for &(_, child, _) in &tree_view.arcs {
-        if !view_embedding.arcs.contains_key(&child) {
+    let source_parents: HashMap<u32, u32> = tree
+        .arcs
+        .iter()
+        .map(|&(parent, child, _)| (child, parent))
+        .collect();
+    let mut arcs = BTreeMap::new();
+    let mut last = None;
+    for &(parent, child, _) in &tree_view.arcs {
+        // The tree bridge's survival relation for an arc is its parent/child
+        // incidence, not its schema label: a migration may relabel an
+        // otherwise surviving arc. This follows the arc rule of
+        // `TreeEmbedding::observe_edit`. Its order guard retains an old id
+        // only while ascending edge ids still present the tree's child order;
+        // reparented, inserted, or reordered arcs receive fresh ids above the
+        // source embedding's floor.
+        let retained = source_embedding.arcs.get(&child).copied().filter(|id| {
+            source_parents.get(&child) == Some(&parent) && last.is_none_or(|old| *id > old)
+        });
+        let edge = if let Some(edge) = retained {
+            edge
+        } else {
             let Ok(edge) = view_embedding.allocate_edge() else {
                 return crate::graph_lens::get(lens, source).map(Some);
             };
-            view_embedding.arcs.insert(child, edge);
-        }
+            edge
+        };
+        arcs.insert(child, edge);
+        last = Some(edge);
     }
+    view_embedding.arcs = arcs;
     let Ok(view) = GInstance::from_wtype_under(&tree_view, &view_embedding, Some(&lens.tgt_schema))
     else {
         return Ok(None);
@@ -1102,6 +1138,17 @@ pub fn graph_get_via_table(
     if !lens.preserves_table_shape_with_plan(&plan) {
         return Ok(None);
     }
+    let Ok(table_plan) = RestrictPlan::compile_for_tables(
+        &lens.src_schema,
+        &lens.tgt_schema,
+        &lens.compiled,
+        protocols,
+    ) else {
+        return crate::graph_lens::get(lens, source).map(Some);
+    };
+    if !table_cells_are_graph_neutral(&table_plan) {
+        return Ok(None);
+    }
     let Ok((tables, source_embedding)) = source.try_to_finstance(&lens.src_schema) else {
         return Ok(None);
     };
@@ -1162,6 +1209,17 @@ pub fn graph_put_via_table(
     if crate::graph_lens::check_put_domain(lens, view, complement).is_err() {
         return crate::graph_lens::put(lens, view, complement).map(Some);
     }
+    let Ok(table_plan) = RestrictPlan::compile_for_tables(
+        &lens.src_schema,
+        &lens.tgt_schema,
+        &lens.compiled,
+        protocols,
+    ) else {
+        return crate::graph_lens::put(lens, view, complement).map(Some);
+    };
+    if !table_cells_are_graph_neutral(&table_plan) {
+        return Ok(None);
+    }
     let Ok((table_view, mut embedding)) = view.try_to_finstance(&lens.tgt_schema) else {
         return Ok(None);
     };
@@ -1182,7 +1240,7 @@ pub fn graph_put_via_table(
             return Ok(None);
         }
     }
-    embedding.next_edge = complement.id_floor.edge;
+    embedding.next_edge = embedding.next_edge.max(complement.id_floor.edge);
     let Ok(table_source) = crate::table_lens::put(lens, &table_view, &table_complement, protocols)
     else {
         return crate::graph_lens::put(lens, view, complement).map(Some);
@@ -1803,6 +1861,147 @@ mod tests {
         the_direct_tree_get_and_put_square_is_identical();
     }
 
+    #[test]
+    fn tree_dispatch_preserves_the_edge_id_of_a_relabelled_arc() {
+        let source_edge = structural_edge("a", "b", "e");
+        let target_edge = structural_edge("b", "a", "e");
+        let lens = Lens {
+            src_schema: structural_schema(
+                &[("a", "object"), ("b", "object")],
+                std::slice::from_ref(&source_edge),
+            ),
+            tgt_schema: structural_schema(
+                &[("a", "object"), ("b", "object")],
+                std::slice::from_ref(&target_edge),
+            ),
+            compiled: CompiledMigration {
+                surviving_verts: ["a".into(), "b".into()].into(),
+                surviving_edges: [target_edge.clone()].into(),
+                vertex_remap: [("a".into(), "b".into()), ("b".into(), "a".into())].into(),
+                edge_remap: [(source_edge.clone(), target_edge)].into(),
+                ..CompiledMigration::default()
+            },
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "b"))
+            .with_edge_id(EdgeId(0), 0, 1, source_edge);
+
+        let (direct_view, direct_complement) =
+            crate::graph_lens::get(&lens, &source).test_unwrap("direct graph get");
+        let (tree_view, tree_complement) = graph_get_via_tree(&lens, &source)
+            .test_unwrap("tree dispatch get")
+            .test_unwrap("the relabelled source remains tree-shaped");
+
+        assert!(
+            GInstance::identical(&tree_view, &direct_view),
+            "tree view: {tree_view:#?}\ndirect view: {direct_view:#?}"
+        );
+        assert_eq!(
+            GraphShape::complement_divergence(&tree_complement, &direct_complement),
+            None,
+            "tree complement: {tree_complement:#?}\ndirect complement: {direct_complement:#?}"
+        );
+        let restored = graph_put_via_tree(&lens, &tree_view, &tree_complement)
+            .test_unwrap("tree dispatch put")
+            .test_unwrap("the relabelled view remains tree-shaped");
+        assert!(
+            GInstance::identical(&restored, &source),
+            "restored graph: {restored:#?}\nsource graph: {source:#?}"
+        );
+    }
+
+    #[test]
+    fn tree_dispatch_restores_every_arc_into_a_pruned_subtree() {
+        let relation = structural_edge("a", "b", "e");
+        let lens = Lens {
+            src_schema: structural_schema(
+                &[("a", "object"), ("b", "object")],
+                std::slice::from_ref(&relation),
+            ),
+            tgt_schema: structural_schema(&[("a", "object")], &[]),
+            compiled: CompiledMigration {
+                surviving_verts: ["a".into()].into(),
+                ..CompiledMigration::default()
+            },
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(1, "a"))
+            .with_node(Node::new(0, "b"))
+            .with_node(Node::new(2, "b"))
+            .with_edge_id(EdgeId(0), 1, 0, relation.clone())
+            .with_edge_id(EdgeId(1), 1, 2, relation);
+        let (view, complement) = graph_get_via_tree(&lens, &source)
+            .test_unwrap("tree dispatch get")
+            .test_unwrap("the source is tree-shaped");
+        let restored = graph_put_via_tree(&lens, &view, &complement)
+            .test_unwrap("tree dispatch put")
+            .test_unwrap("the pruned view is tree-shaped");
+
+        assert!(
+            GInstance::identical(&restored, &source),
+            "restored graph: {restored:#?}\nsource graph: {source:#?}"
+        );
+    }
+
+    #[test]
+    fn graph_to_tree_parent_residue_uses_get_time_survival_not_the_edited_view() {
+        let surviving_child_edge = structural_edge("a", "b", "surviving-child");
+        let dropped_child_edge = structural_edge("a", "c", "dropped-child");
+        let lens = Lens {
+            src_schema: structural_schema(
+                &[("a", "object"), ("b", "object"), ("c", "object")],
+                &[surviving_child_edge.clone(), dropped_child_edge.clone()],
+            ),
+            tgt_schema: structural_schema(&[("a", "object"), ("b", "object")], &[]),
+            compiled: CompiledMigration {
+                surviving_verts: ["a".into(), "b".into()].into(),
+                ..CompiledMigration::default()
+            },
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "b"))
+            .with_node(Node::new(2, "c"))
+            .with_edge_id(EdgeId(0), 0, 1, surviving_child_edge.clone())
+            .with_edge_id(EdgeId(1), 0, 2, dropped_child_edge.clone());
+        let (mut edited_view, complement) = crate::graph_lens::get(&lens, &source)
+            .test_unwrap("graph get with one surviving and one dropped child");
+        assert!(edited_view.node(1).is_some());
+        assert!(complement.dropped_nodes.contains_key(&2));
+        assert!(!complement.dropped_nodes.contains_key(&1));
+
+        // Invert current-view presence relative to the get-time survival
+        // facts. The converter must read those facts from the complement:
+        // node 1 survived get even though this edited view removes it, while
+        // node 2 was dropped even though this edited view reuses its id.
+        edited_view
+            .remove_node(1)
+            .test_unwrap("remove the get-time surviving child");
+        edited_view
+            .insert_node(Node::new(2, "b"))
+            .test_unwrap("reuse the get-time dropped child's id");
+
+        let (tree, embedding) =
+            graph_complement_to_tree(&lens, &edited_view, &complement, &TreeEmbedding::default())
+                .test_unwrap("mixed graph complement converts to tree coordinates");
+        assert_eq!(
+            tree.original_parent,
+            HashMap::from([(1, 0)]),
+            "only the child that survived get has an original parent"
+        );
+        assert_eq!(
+            tree.dropped_arcs,
+            vec![(0, 1, surviving_child_edge), (0, 2, dropped_child_edge)],
+            "both schema-dropped arcs remain available as residue"
+        );
+        assert_eq!(
+            embedding.arcs,
+            BTreeMap::from([(1, EdgeId(0)), (2, EdgeId(1))]),
+            "both source arcs remain embedded independently of current node presence"
+        );
+    }
+
     fn structural_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let protocol = Protocol::default();
         let mut builder = SchemaBuilder::new(&protocol);
@@ -2178,7 +2377,7 @@ mod tests {
     }
 
     #[test]
-    fn a_root_pruned_tree_get_falls_back_to_the_graph_path() {
+    fn a_root_pruned_tree_get_declines_the_fast_route() {
         let lens = Lens {
             src_schema: structural_schema(&[("root", "object"), ("kept", "object")], &[]),
             tgt_schema: structural_schema(&[("kept", "object")], &[]),
@@ -2188,14 +2387,42 @@ mod tests {
             },
         };
         let source = GInstance::new().with_node(Node::new(9, "root"));
-        let graph = crate::graph_lens::get(&lens, &source).test_unwrap("test fixture");
-        let dispatched = graph_get_via_tree(&lens, &source)
-            .test_unwrap("test fixture")
-            .test_unwrap("RootPruned reruns the graph path");
-        assert!(GInstance::identical(&dispatched.0, &graph.0));
-        assert_eq!(
-            GraphShape::complement_divergence(&dispatched.1, &graph.1),
-            None
+        assert!(
+            graph_get_via_tree(&lens, &source)
+                .test_unwrap("test fixture")
+                .is_none(),
+            "RootPruned must decline so the caller performs a coherent graph get and put"
+        );
+    }
+
+    #[test]
+    fn a_pruned_root_above_a_surviving_child_declines_the_fast_route() {
+        let edge = structural_edge("b", "a", "e");
+        let lens = Lens {
+            src_schema: structural_schema(
+                &[("a", "obj"), ("b", "obj")],
+                std::slice::from_ref(&edge),
+            ),
+            tgt_schema: structural_schema(&[("a", "obj")], &[]),
+            compiled: CompiledMigration {
+                surviving_verts: ["a".into()].into(),
+                ..CompiledMigration::default()
+            },
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "b"))
+            .with_node(Node::new(1, "a"))
+            .with_edge_id(EdgeId(0), 0, 1, edge);
+        let (graph_view, graph_complement) =
+            crate::graph_lens::get(&lens, &source).test_unwrap("the graph route is defined");
+        let restored = crate::graph_lens::put(&lens, &graph_view, &graph_complement)
+            .test_unwrap("the graph route restores the dropped root and arc");
+        assert!(GInstance::identical(&restored, &source));
+        assert!(
+            graph_get_via_tree(&lens, &source)
+                .test_unwrap("the tree bridge classifies its exact domain")
+                .is_none(),
+            "the root-pruned tree route must not return the graph complement as a fast-route complement"
         );
     }
 

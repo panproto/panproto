@@ -1182,6 +1182,10 @@ fn graph_basis(
     basis.sort_by_key(|case| (case.mutation, case.ordinal));
     for (ordinal, case) in basis.iter_mut().enumerate() {
         case.ordinal = ordinal;
+        case.domain = match lens.check_put_domain(&case.view, complement) {
+            Ok(()) => DomainExpectation::Admitted,
+            Err(errors) => DomainExpectation::Refused(ReferenceLawError::PutDomain(errors)),
+        };
     }
     basis
 }
@@ -1796,11 +1800,15 @@ fn table_basis(
     let columns = &lens.plan().target_boundary().columns;
     let mut basis = Vec::new();
     let mut push = |mutation: Mutation, edited: Table| {
+        let domain = match super::table::check_put_domain(lens, &edited, complement) {
+            Ok(()) => DomainExpectation::Admitted,
+            Err(error) => DomainExpectation::Refused(TableLawError::Domain(error)),
+        };
         basis.push(BasisCase {
             ordinal: basis.len(),
             mutation,
             view: edited,
-            domain: DomainExpectation::Admitted,
+            domain,
         });
     };
     for (id, (table, cells)) in &view.rows {
@@ -2011,6 +2019,15 @@ fn tree_basis(
     basis.sort_by_key(|case| (case.mutation, case.ordinal));
     for (ordinal, case) in basis.iter_mut().enumerate() {
         case.ordinal = ordinal;
+        case.domain = match tree_check_put_domain(
+            lens,
+            &case.view,
+            &complement.embedding,
+            &complement.complement,
+        ) {
+            Ok(()) => DomainExpectation::Admitted,
+            Err(error) => DomainExpectation::Refused(reference_lens_error(error)),
+        };
     }
     basis
 }
@@ -2776,7 +2793,7 @@ pub struct LawReport<R> {
     /// Every generated mutation in canonical family/carrier order.
     pub basis_sequence: Vec<Mutation>,
     /// Positive candidates the put-domain predicate admits: the in-domain
-    /// mutations PutGet, Totality and PutTwice range over.
+    /// mutations `PutGet`, `Totality` and `PutTwice` range over.
     pub admitted: usize,
 }
 

@@ -630,6 +630,9 @@ fn graph_divergence(
     ib: &SynthIndex,
     derived: Option<&DerivedMap>,
 ) -> Option<String> {
+    if !graph_synth_index_coherent(a, ia) || !graph_synth_index_coherent(b, ib) {
+        return Some("synthesized metadata is incoherent".to_owned());
+    }
     let a_node_keys: BTreeSet<&SynthKey> = ia.nodes.values().collect();
     let b_node_keys: BTreeSet<&SynthKey> = ib.nodes.values().collect();
     if a_node_keys != b_node_keys {
@@ -733,7 +736,32 @@ fn graph_divergence(
     None
 }
 
+fn synth_map_is_injective<K: Ord>(map: &BTreeMap<K, SynthKey>) -> bool {
+    map.values().collect::<BTreeSet<_>>().len() == map.len()
+}
+
+fn graph_synth_index_coherent(instance: &GInstance, index: &SynthIndex) -> bool {
+    synth_map_is_injective(&index.nodes)
+        && synth_map_is_injective(&index.edges)
+        && index.nodes.keys().all(|id| instance.node(*id).is_some())
+        && index.edges.keys().all(|id| instance.edge(*id).is_some())
+}
+
+fn tree_synth_index_coherent(instance: &WInstance, index: &SynthIndex) -> bool {
+    let Ok((graph, _)) = GInstance::from_wtype_embedded(instance, None) else {
+        return false;
+    };
+    graph_synth_index_coherent(&graph, index)
+}
+
 fn graph_complement_divergence(a: &GraphComplement, b: &GraphComplement) -> Option<String> {
+    if !synth_map_is_injective(&a.synthesized_nodes)
+        || !synth_map_is_injective(&a.synthesized_edges)
+        || !synth_map_is_injective(&b.synthesized_nodes)
+        || !synth_map_is_injective(&b.synthesized_edges)
+    {
+        return Some("synthesized metadata is incoherent".to_owned());
+    }
     if !node_btree_equiv(&a.dropped_nodes, &b.dropped_nodes) {
         return Some("dropped_nodes differ".to_owned());
     }
@@ -825,6 +853,9 @@ fn tree_normalized(
     b: &WInstance,
     ib: &SynthIndex,
 ) -> Option<(WInstance, WInstance)> {
+    if !tree_synth_index_coherent(a, ia) || !tree_synth_index_coherent(b, ib) {
+        return None;
+    }
     let a_keys: BTreeSet<&SynthKey> = ia.nodes.values().collect();
     let b_keys: BTreeSet<&SynthKey> = ib.nodes.values().collect();
     if a_keys != b_keys {
@@ -1079,6 +1110,53 @@ mod tests {
     }
 
     #[test]
+    fn graph_equivalence_rejects_noninjective_synthesized_indices_symmetrically() {
+        let graph = GInstance::new()
+            .with_node(Node::new(1, "leaf"))
+            .with_node(Node::new(2, "leaf"));
+        let key = SynthKey::Expand {
+            source_edge: EdgeId(4),
+            hop: 0,
+        };
+        let duplicated = SynthIndex {
+            nodes: BTreeMap::from([(1, key.clone()), (2, key.clone())]),
+            edges: BTreeMap::new(),
+        };
+        let coherent = SynthIndex {
+            nodes: BTreeMap::from([(1, key)]),
+            edges: BTreeMap::new(),
+        };
+
+        assert!(!GraphShape::equivalent(
+            &graph,
+            &duplicated,
+            &graph,
+            &coherent,
+        ));
+        assert!(!GraphShape::equivalent(
+            &graph,
+            &coherent,
+            &graph,
+            &duplicated,
+        ));
+    }
+
+    #[test]
+    fn graph_complement_equivalence_rejects_noninjective_synthesis_metadata() {
+        let key = SynthKey::Expand {
+            source_edge: EdgeId(4),
+            hop: 0,
+        };
+        let mut duplicated = GraphComplement::empty();
+        duplicated.synthesized_nodes = BTreeMap::from([(1, key.clone()), (2, key.clone())]);
+        let mut coherent = GraphComplement::empty();
+        coherent.synthesized_nodes = BTreeMap::from([(1, key)]);
+
+        assert!(GraphShape::complement_divergence(&duplicated, &coherent).is_some());
+        assert!(GraphShape::complement_divergence(&coherent, &duplicated).is_some());
+    }
+
+    #[test]
     fn synthesized_indices_exclude_stale_complement_entries() {
         let label = edge("root", "leaf", "leaf");
         let graph = GInstance::new()
@@ -1172,6 +1250,39 @@ mod tests {
         };
 
         assert!(!TreeShape::equivalent(&tree, &baseline, &tree, &mismatched,));
+    }
+
+    #[test]
+    fn tree_equivalence_rejects_noninjective_synthesized_indices_symmetrically() {
+        let tree = panproto_inst::WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "root")),
+                (1, Node::new(1, "leaf")),
+                (2, Node::new(2, "leaf")),
+            ]),
+            vec![
+                (0, 1, edge("root", "leaf", "left")),
+                (0, 2, edge("root", "leaf", "right")),
+            ],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let key = SynthKey::Expand {
+            source_edge: EdgeId(4),
+            hop: 0,
+        };
+        let duplicated = SynthIndex {
+            nodes: BTreeMap::from([(1, key.clone()), (2, key.clone())]),
+            edges: BTreeMap::new(),
+        };
+        let coherent = SynthIndex {
+            nodes: BTreeMap::from([(1, key)]),
+            edges: BTreeMap::new(),
+        };
+
+        assert!(!TreeShape::equivalent(&tree, &duplicated, &tree, &coherent,));
+        assert!(!TreeShape::equivalent(&tree, &coherent, &tree, &duplicated,));
     }
 
     #[test]
