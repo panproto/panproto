@@ -43,7 +43,7 @@ Lens, plan, get, put, put domain and identity envelope are defined at the head o
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
+- Enumerator: `panproto_reference::enumerate::lenses::{for_each_lens_equivalence_case, c11_graph_states, c11_fan_states}; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lib.rs`
@@ -99,11 +99,12 @@ Lens, plan, get, complement and identity envelope are defined at the head of thi
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
+- Enumerator: `panproto_reference::enumerate::lenses::{for_each_lens_equivalence_case, c11_graph_states, c11_fan_states}; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
 - File: `crates/panproto-inst/src/graph_complement.rs`
+- File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/pages/lenses/domain.rs`
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
@@ -158,6 +159,7 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 - Property differential test: `randomized graph operation and boundary differentials; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=randomized_lens_law_differential) or test(=randomized_graph_put_contract)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
 - File: `crates/panproto-inst/src/graph_complement.rs`
+- File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/pages/lenses/domain.rs`
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`

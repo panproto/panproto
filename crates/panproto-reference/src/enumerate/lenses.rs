@@ -3785,7 +3785,12 @@ pub enum LensEquivalenceCase {
 pub fn for_each_lens_equivalence_case(mut visit: impl FnMut(LensEquivalenceCase)) {
     let stages = c11_stages();
     for (stage, descriptor) in stages.iter().enumerate() {
-        for source in c11_graph_states(&descriptor.source) {
+        let graph_sources = if descriptor.source == c11_fan_schema() {
+            c11_fan_states()
+        } else {
+            c11_graph_states(&descriptor.source)
+        };
+        for source in graph_sources {
             visit(LensEquivalenceCase::Graph { stage, source });
         }
         if descriptor.source != c11_fan_schema() {
@@ -4909,11 +4914,12 @@ pub fn c11_graph_edit_count(
 #[cfg(test)]
 mod tests {
     use super::{
-        C11_FIELD, C11AddField, Node, PartialLens, c11_path_count_certificate, c11_stages,
-        derived_writer_count_certificate, for_each_derived_writer_fixture,
-        for_each_table_complement_construction, last_explicit_writer_count_certificate,
-        partial_lens_count_certificate, partial_lens_histogram,
-        table_complement_construction_count_certificate, writer_count_certificate,
+        C11_FIELD, C11AddField, LensEquivalenceCase, Node, PartialLens, c11_path_count_certificate,
+        c11_stages, derived_writer_count_certificate, for_each_derived_writer_fixture,
+        for_each_lens_equivalence_case, for_each_table_complement_construction,
+        last_explicit_writer_count_certificate, partial_lens_count_certificate,
+        partial_lens_histogram, table_complement_construction_count_certificate,
+        writer_count_certificate,
     };
     use crate::restrict::{PutFieldRefusal, ValueLayer};
 
@@ -5014,5 +5020,13 @@ mod tests {
             [21_701, 27_561, 51_549]
         );
         assert_eq!(certificate.table_word_states(), 100_811);
+
+        let mut lens_equivalence_bases = [0_usize; 3];
+        for_each_lens_equivalence_case(|case| match case {
+            LensEquivalenceCase::Graph { .. } => lens_equivalence_bases[0] += 1,
+            LensEquivalenceCase::Tree { .. } => lens_equivalence_bases[1] += 1,
+            LensEquivalenceCase::Table(_) => lens_equivalence_bases[2] += 1,
+        });
+        assert_eq!(lens_equivalence_bases, [144_397, 2_548, 9_921]);
     }
 }
