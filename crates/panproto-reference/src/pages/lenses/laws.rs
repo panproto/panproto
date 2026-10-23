@@ -719,10 +719,14 @@ pub enum PutGetMode {
     Weak,
 }
 
-/// Declared domain status of one SSB candidate.
+/// Basis role of one SSB candidate.
+///
+/// Positive proposals are classified by [`LawShape::check_put_domain`] after
+/// generation. Deliberately refused cases instead carry an independently
+/// constructed, exact certificate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DomainExpectation<R> {
-    /// The candidate is in the put domain.
+    /// A positive proposal whose actual domain membership is checked later.
     Admitted,
     /// The candidate must be rejected with this exact typed refusal.
     Refused(R),
@@ -778,7 +782,7 @@ pub struct BasisCase<I, R> {
     pub mutation: Mutation,
     /// Edited view.
     pub view: I,
-    /// Expected domain classification.
+    /// Positive-proposal or exact-negative role in the basis.
     pub domain: DomainExpectation<R>,
 }
 
@@ -845,6 +849,10 @@ pub trait LawShape<L>: LensShape {
     }
 
     /// Deterministic Single-Step Basis in canonical order.
+    ///
+    /// `Admitted` cases are positive proposals. The checker intersects them
+    /// with the exact put domain before running the positive law gates.
+    /// `Refused` cases retain their independently designated certificate.
     fn single_step_basis(
         lens: &L,
         source: &Self::Instance,

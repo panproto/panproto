@@ -4629,6 +4629,179 @@ impl ClassifiedEditCensus {
     }
 }
 
+/// Classify one generated reference-basis candidate by the predicate's
+/// observed result. Positive basis cases remain part of the carrier when a
+/// stricter dynamic predicate refuses them; only designated negative cases
+/// carry an exact-refusal certificate.
+fn classify_reference_basis_case<R, C>(
+    expected: &DomainExpectation<R>,
+    observed: Result<(), R>,
+    context: C,
+) -> bool
+where
+    R: std::fmt::Debug + PartialEq,
+    C: FnOnce() -> String,
+{
+    match (expected, observed) {
+        (DomainExpectation::Admitted, Ok(())) => true,
+        (DomainExpectation::Admitted, Err(_)) => false,
+        (DomainExpectation::Refused(expected), Err(observed)) => {
+            assert_eq!(
+                &observed,
+                expected,
+                "designated reference-basis refusal differs for {}",
+                context()
+            );
+            false
+        }
+        (DomainExpectation::Refused(expected), Ok(())) => panic!(
+            "designated reference-basis negative was admitted for {}: expected {expected:?}",
+            context()
+        ),
+    }
+}
+
+#[test]
+fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
+    let stages = c11_stages();
+
+    let identity = c11_stage_index(&stages, "Id_h");
+    let pair = Pair::from_stage(&stages[identity]);
+    let labels = panproto_reference::enumerate::lenses::c11_fan_labels();
+    let mut hyper = RefNode::new(0, "h");
+    hyper.shape = RefNodeShape::HyperEdge;
+    let source = RefGraph {
+        nodes: BTreeMap::from([
+            (0, hyper),
+            (1, RefNode::new(1, "a")),
+            (2, RefNode::new(2, "b")),
+        ]),
+        edges: BTreeMap::from([
+            (
+                0,
+                RefGEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: labels[0].clone(),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                RefGEdge {
+                    src: 0,
+                    tgt: 2,
+                    label: labels[1].clone(),
+                    position: None,
+                },
+            ),
+        ]),
+    };
+    pair.with_reference(|lens| {
+        let lens = lens.expect("Id_h compiles");
+        let (view, complement) = RefGraphShape::get(lens, &source, &()).expect("Id_h gets");
+        let basis = RefGraphShape::single_step_basis(lens, &source, &view, &complement, &());
+        let case = basis
+            .iter()
+            .find(|case| {
+                case.mutation == RefMutation::RemoveNode
+                    && !case.view.nodes.contains_key(&1)
+                    && case.view.nodes.contains_key(&2)
+            })
+            .expect("the Id_h basis retains deletion of the fan parent");
+        assert!(matches!(case.domain, DomainExpectation::Admitted));
+        let observed = RefGraphShape::check_put_domain(lens, &case.view, &complement, &());
+        let Err(panproto_reference::lens::ReferenceLawError::PutDomain(errors)) = &observed else {
+            panic!("fan-parent deletion did not receive a put-domain refusal: {observed:?}");
+        };
+        assert_eq!(
+            errors.iter().map(ref_put_domain_reason).collect::<Vec<_>>(),
+            vec!["MalformedFan 0 MissingParent"]
+        );
+        assert!(!classify_reference_basis_case(
+            &case.domain,
+            observed,
+            || "Id_h fan-parent deletion".to_owned()
+        ));
+        let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
+        let (edits, census) = edits_of_reference_view(&pairs, &[identity], &source);
+        assert!(
+            edits.contains(&case.view),
+            "the strict path carrier dropped a predicate-refused positive proposal"
+        );
+        assert!(
+            census.refused.families[ref_mutation_index(RefMutation::RemoveNode)] > 0,
+            "the strict path census did not classify the fan-parent deletion as refused"
+        );
+    });
+
+    let transform = c11_stage_index(&stages, "T");
+    let pair = Pair::from_stage(&stages[transform]);
+    let source = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
+        edges: BTreeMap::new(),
+    };
+    pair.with_reference(|lens| {
+        let lens = lens.expect("T compiles");
+        let (view, complement) = RefGraphShape::get(lens, &source, &()).expect("T gets");
+        let basis = RefGraphShape::single_step_basis(lens, &source, &view, &complement, &());
+        let case = basis
+            .iter()
+            .find(|case| case.mutation == RefMutation::FieldEdit)
+            .expect("the T basis retains the derived-field edit");
+        assert!(matches!(case.domain, DomainExpectation::Admitted));
+        let observed = RefGraphShape::check_put_domain(lens, &case.view, &complement, &());
+        let Err(panproto_reference::lens::ReferenceLawError::PutDomain(errors)) = &observed else {
+            panic!("derived-field edit did not receive a put-domain refusal: {observed:?}");
+        };
+        assert_eq!(
+            errors.iter().map(ref_put_domain_reason).collect::<Vec<_>>(),
+            vec!["DerivedCellEdited Node(0) f"]
+        );
+        assert!(!classify_reference_basis_case(
+            &case.domain,
+            observed,
+            || "T derived-field edit".to_owned()
+        ));
+        let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
+        let (edits, census) = edits_of_reference_view(&pairs, &[transform], &source);
+        assert!(
+            edits.contains(&case.view),
+            "the strict path carrier dropped a predicate-refused derived-field proposal"
+        );
+        assert!(
+            census.refused.families[ref_mutation_index(RefMutation::FieldEdit)] > 0,
+            "the strict path census did not classify the derived-field edit as refused"
+        );
+    });
+}
+
+#[test]
+fn designated_reference_basis_negatives_require_ordered_exact_refusals() {
+    let expected = DomainExpectation::Refused(vec!["first", "second"]);
+    assert!(!classify_reference_basis_case(
+        &expected,
+        Err(vec!["first", "second"]),
+        || "ordered exact refusal".to_owned()
+    ));
+    assert!(
+        std::panic::catch_unwind(|| {
+            classify_reference_basis_case(&expected, Err(vec!["second", "first"]), || {
+                "reordered refusal".to_owned()
+            });
+        })
+        .is_err()
+    );
+    assert!(
+        std::panic::catch_unwind(|| {
+            classify_reference_basis_case(&expected, Ok(()), || {
+                "admitted designated negative".to_owned()
+            });
+        })
+        .is_err()
+    );
+}
+
 #[derive(Default)]
 struct AtomicClassifiedEditCensus {
     admitted: AtomicEditCensus,
@@ -4831,8 +5004,16 @@ fn add_tree_node_edits(
                 .iter()
                 .any(|fan| fan.parent == *id || fan.children.values().any(|child| child == id));
         if removable {
-            census.add(RefMutation::RemoveNode, 1);
-            census.add(RefMutation::RemoveEdge, 1);
+            let mut candidate = view.clone();
+            candidate.nodes.remove(id);
+            candidate.arcs.retain(|(_, child, _)| child != id);
+            let admitted = pair.with_reference(|lens| {
+                lens.is_ok_and(|lens| {
+                    RefTreeShape::check_put_domain(lens, &candidate, complement, &()).is_ok()
+                })
+            });
+            census.add(RefMutation::RemoveNode, usize::from(admitted));
+            census.add(RefMutation::RemoveEdge, usize::from(admitted));
         }
 
         if !tree_node_touches_synthesized_arc(view, complement, *id) {
@@ -5064,26 +5245,14 @@ fn reference_tree_path_edits(
         let Ok(lens) = lens else {
             return Some((Vec::new(), ClassifiedEditCensus::default()));
         };
-        let basis =
-            RefTreeShape::single_step_basis(lens, &final_source, &view, &complement, &());
+        let basis = RefTreeShape::single_step_basis(lens, &final_source, &view, &complement, &());
         let mut basis_census = ClassifiedEditCensus::default();
         for case in &basis {
             let observed = RefTreeShape::check_put_domain(lens, &case.view, &complement, &());
-            match (&case.domain, observed) {
-                (DomainExpectation::Admitted, Ok(())) => {
-                    basis_census.add(case.mutation, true);
-                }
-                (DomainExpectation::Refused(expected), Err(observed)) => {
-                    assert_eq!(
-                        &observed, expected,
-                        "declared final-tree refusal for path {word:?}"
-                    );
-                    basis_census.add(case.mutation, false);
-                }
-                (expected, observed) => panic!(
-                    "final-tree domain mismatch for path {word:?}: expected {expected:?}, observed {observed:?}"
-                ),
-            }
+            let admitted = classify_reference_basis_case(&case.domain, observed, || {
+                format!("final-tree path {word:?}, basis ordinal {}", case.ordinal)
+            });
+            basis_census.add(case.mutation, admitted);
         }
         assert_eq!(
             basis_census.admitted,
@@ -5128,21 +5297,10 @@ fn reference_table_path_edits(
             let mut basis_census = ClassifiedEditCensus::default();
             for case in &basis {
                 let observed = RefTableShape::check_put_domain(lens, &case.view, &complement, &());
-                match (&case.domain, observed) {
-                    (DomainExpectation::Admitted, Ok(())) => {
-                        basis_census.add(case.mutation, true);
-                    }
-                    (DomainExpectation::Refused(expected), Err(observed)) => {
-                        assert_eq!(
-                            &observed, expected,
-                            "declared final-table refusal for path {word:?}"
-                        );
-                        basis_census.add(case.mutation, false);
-                    }
-                    (expected, observed) => panic!(
-                        "final-table domain mismatch for path {word:?}: expected {expected:?}, observed {observed:?}"
-                    ),
-                }
+                let admitted = classify_reference_basis_case(&case.domain, observed, || {
+                    format!("final-table path {word:?}, basis ordinal {}", case.ordinal)
+                });
+                basis_census.add(case.mutation, admitted);
             }
             let mut edits: Vec<RefTable> = basis.into_iter().map(|case| case.view).collect();
             for (id, (table, cells)) in &view.rows {
@@ -5157,13 +5315,8 @@ fn reference_table_path_edits(
                 if edits.contains(&candidate) {
                     continue;
                 }
-                let admitted = RefTableShape::check_put_domain(
-                    lens,
-                    &candidate,
-                    &complement,
-                    &(),
-                )
-                .is_ok();
+                let admitted =
+                    RefTableShape::check_put_domain(lens, &candidate, &complement, &()).is_ok();
                 basis_census.add(RefMutation::ValueEdit, admitted);
                 edits.push(candidate);
             }
@@ -5390,29 +5543,16 @@ fn edits_of_reference_view(
         let Ok(lens) = lens else {
             return (Vec::new(), ClassifiedEditCensus::default());
         };
-        let basis =
-            RefGraphShape::single_step_basis(lens, &final_source, &view, &complement, &());
+        let basis = RefGraphShape::single_step_basis(lens, &final_source, &view, &complement, &());
         let mut census = ClassifiedEditCensus::default();
         for case in &basis {
             let observed = RefGraphShape::check_put_domain(lens, &case.view, &complement, &());
-            match (&case.domain, observed) {
-                (DomainExpectation::Admitted, Ok(())) => census.add(case.mutation, true),
-                (DomainExpectation::Refused(expected), Err(observed)) => {
-                    assert_eq!(
-                        &observed, expected,
-                        "declared final-graph refusal for path {word:?}"
-                    );
-                    census.add(case.mutation, false);
-                }
-                (expected, observed) => panic!(
-                    "final-graph domain mismatch for path {word:?}: expected {expected:?}, observed {observed:?}"
-                ),
-            }
+            let admitted = classify_reference_basis_case(&case.domain, observed, || {
+                format!("final-graph path {word:?}, basis ordinal {}", case.ordinal)
+            });
+            census.add(case.mutation, admitted);
         }
-        (
-            basis.into_iter().map(|case| case.view).collect(),
-            census,
-        )
+        (basis.into_iter().map(|case| case.view).collect(), census)
     })
 }
 
@@ -6747,21 +6887,10 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
                 for case in &basis {
                     let observed =
                         RefTreeShape::check_put_domain(lens, &case.view, &complement, &());
-                    match (&case.domain, observed) {
-                        (DomainExpectation::Admitted, Ok(())) => {
-                            basis_census.add(case.mutation, true);
-                        }
-                        (DomainExpectation::Refused(expected), Err(observed)) => {
-                            assert_eq!(
-                                &observed, expected,
-                                "declared tree-square refusal at stage {stage}"
-                            );
-                            basis_census.add(case.mutation, false);
-                        }
-                        (expected, observed) => panic!(
-                            "tree-square domain mismatch at stage {stage}: expected {expected:?}, observed {observed:?}"
-                        ),
-                    }
+                    let admitted = classify_reference_basis_case(&case.domain, observed, || {
+                        format!("tree square stage {stage}, basis ordinal {}", case.ordinal)
+                    });
+                    basis_census.add(case.mutation, admitted);
                 }
                 assert_eq!(
                     basis_census.admitted,

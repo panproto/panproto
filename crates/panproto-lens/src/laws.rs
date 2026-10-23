@@ -4,10 +4,10 @@
 //! - **`GetPut`**: `put(s, get(s)) = s`: round-tripping with an unmodified
 //!   view recovers the original source.
 //! - **`PutGet`**: `get(put(s, v)) = v`: what you put is what you get back.
-//! - **Totality** against every declared put-domain outcome in the finite
-//!   single-step basis: admitted views put successfully, while declared
-//!   refusals match both the complete ordered domain report and raw put's
-//!   first violation.
+//! - **Totality** over the finite single-step basis: positive proposals that
+//!   the exact domain predicate admits put successfully, while deliberately
+//!   refused cases match both the complete ordered domain report and raw
+//!   put's first violation.
 //! - **`PutTwice`** complement stability.
 //! - **Congruence** under coherent synthesized-object reindexing.
 //!
@@ -197,7 +197,10 @@ pub struct SmallScope {
 /// Candidate views for one mutation family.
 #[derive(Clone, Debug)]
 pub enum MutationCases<I> {
-    /// Positive candidates, in deterministic order.
+    /// Positive proposals, in deterministic order.
+    ///
+    /// The exact put-domain predicate decides which proposals belong to the
+    /// domain before the positive law gates run.
     Cases(Vec<I>),
     /// Why this family cannot be exercised.
     Skip(SkipReason),
@@ -1090,11 +1093,11 @@ pub fn check_put_get_for_shape<S: LawShape>(
     Ok(())
 }
 
-/// Check every generated mutation against its declared put-domain outcome.
+/// Check predicate-admitted positive proposals and exact negative certificates.
 ///
-/// A pass means that every admitted candidate could be put, and every declared
-/// refusal matched both the complete ordered domain report and raw put's first
-/// violation, throughout the finite single-step basis.
+/// A pass means that every predicate-admitted positive proposal could be put,
+/// and every declared refusal matched both the complete ordered domain report
+/// and raw put's first violation, throughout the finite single-step basis.
 ///
 /// # Errors
 ///
