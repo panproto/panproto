@@ -5,12 +5,14 @@
 //! The shape-only families are the lens checker's own families under an
 //! identity lens; the families that depend on the lens read the
 //! resolution's complement instead: its span nodes and occurrence edges
-//! are the synthesized carriers, the node ids held in its redirected
-//! fragments are the reserved ids, and a resolution contracts nothing.
+//! are the synthesized carriers, its redirected holders mark edits whose
+//! closure depends on source reassembly, and a resolution contracts
+//! nothing. Families without a complement-independent exact certificate
+//! are skipped.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use panproto_inst::resolution_complement::ResolutionComplement;
+use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
 use panproto_inst::{
     EdgeId, FInstance, FieldPresence, GEdge, GInstance, HYPER_PARENT_KIND, Node, NodeShape, RowId,
     Value, WInstance,
@@ -18,11 +20,24 @@ use panproto_inst::{
 use panproto_lens::{Mutation, SkipReason};
 use panproto_schema::{Edge, Protocol, Schema};
 
+use super::error::ResolveDomainError;
+
+/// One deliberately refused view and its complete ordered domain report.
+#[derive(Clone, Debug)]
+pub struct NegativeCase<I> {
+    /// The view presented to the put-domain predicate and raw `put`.
+    pub view: I,
+    /// Every expected refusal, in canonical report order.
+    pub expected: Vec<ResolveDomainError>,
+}
+
 /// The candidates of one family, or why it has none.
 #[derive(Clone, Debug)]
 pub enum Cases<I> {
     /// Candidate views, in deterministic order.
     Views(Vec<I>),
+    /// Deliberately refused views with independent exact certificates.
+    Negative(Vec<NegativeCase<I>>),
     /// Why the family is not run.
     Skip(SkipReason),
 }
@@ -32,6 +47,14 @@ fn collected<I>(views: Vec<I>) -> Cases<I> {
         Cases::Skip(SkipReason::NoCandidate)
     } else {
         Cases::Views(views)
+    }
+}
+
+fn collected_negative<I>(cases: Vec<NegativeCase<I>>) -> Cases<I> {
+    if cases.is_empty() {
+        Cases::Skip(SkipReason::NoCandidate)
+    } else {
+        Cases::Negative(cases)
     }
 }
 
@@ -169,15 +192,23 @@ fn sorted_vertices(schema: &Schema) -> Vec<panproto_gat::Name> {
     anchors
 }
 
-/// The synthesized carriers and reserved ids a complement names.
+/// The synthesized carriers and redirect-sensitive holders a complement
+/// names.
 #[derive(Debug, Default)]
 pub struct Presentation {
     /// Synthesized nodes: span nodes.
     pub nodes: BTreeSet<u32>,
     /// Synthesized edges: occurrence edges.
     pub edges: BTreeSet<EdgeId>,
-    /// Node ids reserved by redirected fragments, with their anchors.
-    pub reserved: Vec<(u32, panproto_gat::Name)>,
+    /// Recorded occurrence data by synthesized edge id.
+    pub occurrences: BTreeMap<EdgeId, Vec<RefOccurrence>>,
+    /// Holders whose complete source fragments live in the redirect residue.
+    ///
+    /// Edits of occurrences at these holders are deliberately absent from
+    /// the exact-negative basis. Whether such an edit is admitted, and which
+    /// collateral carriers a refusal names, depends on fragment reassembly
+    /// rank rather than on the occurrence record alone.
+    pub redirect_holders: BTreeSet<u32>,
     /// Every edge id the complement names, in or out of the view.
     pub edge_ids: BTreeSet<EdgeId>,
 }
@@ -187,17 +218,6 @@ impl Presentation {
     #[must_use]
     pub fn of(complement: &ResolutionComplement) -> Self {
         let index = complement.synth_index();
-        let mut reserved: Vec<(u32, panproto_gat::Name)> = complement
-            .redirected
-            .values()
-            .flat_map(|fragment| {
-                fragment
-                    .nodes
-                    .iter()
-                    .map(|(id, node)| (*id, node.anchor.clone()))
-            })
-            .collect();
-        reserved.sort();
         let edge_ids = complement
             .occurrences
             .keys()
@@ -206,11 +226,28 @@ impl Presentation {
                 panproto_inst::ViewRef::Edge(id) => Some(*id),
                 _ => None,
             })
+            .chain(complement.redirected.values().flat_map(|fragment| {
+                fragment
+                    .attachment
+                    .iter()
+                    .map(|attachment| EdgeId(attachment.source_slot))
+                    .chain(fragment.arcs.iter().map(|arc| EdgeId(arc.source_slot)))
+            }))
             .collect();
+        let occurrences = complement
+            .occurrences
+            .iter()
+            .filter_map(|(carrier, records)| match carrier {
+                panproto_inst::ViewRef::Edge(id) => Some((*id, records.clone())),
+                _ => None,
+            })
+            .collect();
+        let redirect_holders = complement.redirected.keys().copied().collect();
         Self {
             nodes: index.nodes.keys().copied().collect(),
             edges: index.edges.keys().copied().collect(),
-            reserved,
+            occurrences,
+            redirect_holders,
             edge_ids,
         }
     }
@@ -237,6 +274,23 @@ pub fn graph_cases(
     mutation: Mutation,
 ) -> Cases<GInstance> {
     let synth = presentation;
+    match mutation {
+        Mutation::RemoveSynthesized => {
+            return collected_negative(graph_synthesized(view, synth, true));
+        }
+        Mutation::EditSynthesized => {
+            return collected_negative(graph_synthesized(view, synth, false));
+        }
+        // A resolution contracts nothing. A redirected root id also cannot
+        // be isolated from its source-slot residue by a local graph edit: a
+        // real attachment at a fresh edge id can re-embed at another compact
+        // arc rank, so there is no complement-independent exact witness.
+        Mutation::AddContractedEdge | Mutation::ReservedIdReuse => {
+            return Cases::Skip(SkipReason::NoCandidate);
+        }
+        Mutation::MalformedFan => return collected_negative(graph_malformed_fan(view, synth)),
+        _ => {}
+    }
     let views = match mutation {
         Mutation::ValueEdit => graph_value(schema, view, synth),
         Mutation::FieldEdit => graph_field(view, synth),
@@ -250,11 +304,11 @@ pub fn graph_cases(
         Mutation::Reorder => graph_reorder(view, synth),
         Mutation::AddParallelEdge => graph_add_edges(schema, view, synth, true, false),
         Mutation::AddSelfLoop => graph_add_edges(schema, view, synth, false, true),
-        Mutation::RemoveSynthesized => graph_synthesized(view, synth, true),
-        Mutation::EditSynthesized => graph_synthesized(view, synth, false),
-        Mutation::AddContractedEdge => Vec::new(),
-        Mutation::ReservedIdReuse => graph_reserved(view, synth),
-        Mutation::MalformedFan => graph_malformed_fan(view, synth),
+        Mutation::RemoveSynthesized
+        | Mutation::EditSynthesized
+        | Mutation::AddContractedEdge
+        | Mutation::ReservedIdReuse
+        | Mutation::MalformedFan => unreachable!("negative families returned above"),
     };
     collected(views)
 }
@@ -576,87 +630,119 @@ fn graph_reorder(view: &GInstance, synth: &Presentation) -> Vec<GInstance> {
     views
 }
 
-fn graph_synthesized(view: &GInstance, synth: &Presentation, remove: bool) -> Vec<GInstance> {
-    let mut views = Vec::new();
-    for &id in &synth.nodes {
-        let mut next = view.clone();
-        if remove {
-            let incident: Vec<_> = next
-                .out_edges(id)
-                .iter()
-                .chain(next.in_edges(id))
-                .copied()
-                .collect();
-            for edge in incident {
-                let _ = next.remove_edge(edge);
-            }
-            if next.remove_node(id).is_ok() {
-                views.push(next);
-            }
-        } else if let Some(node) = next.node_mut(id) {
-            node.value = Some(FieldPresence::Present(Value::Int(1)));
-            views.push(next);
-        }
+fn certifiable_occurrence<'a>(
+    view: &GInstance,
+    synth: &'a Presentation,
+    edge: EdgeId,
+) -> Option<&'a RefOccurrence> {
+    let target = view.edge(edge)?.tgt;
+    if synth.nodes.contains(&target) {
+        // Materialized standoff spans can disappear with their occurrence,
+        // so their complete refusal is not intrinsic to the edge record.
+        return None;
     }
+    let [record] = synth.occurrences.get(&edge)?.as_slice() else {
+        return None;
+    };
+    if matches!(record.holder, panproto_inst::ViewRef::Node(holder) if synth.redirect_holders.contains(&holder))
+    {
+        // Removing a redirect occurrence is a semantic edit. Editing it can
+        // shift arbitrary later fragment, fan and structural carriers during
+        // reassembly. Neither case has an edge-local exact certificate.
+        return None;
+    }
+    let group_size = synth
+        .occurrences
+        .values()
+        .flatten()
+        .filter(|candidate| {
+            candidate.holder == record.holder && candidate.reference == record.reference
+        })
+        .count();
+    (group_size == 1).then_some(record)
+}
+
+fn graph_synthesized(
+    view: &GInstance,
+    synth: &Presentation,
+    remove: bool,
+) -> Vec<NegativeCase<GInstance>> {
+    let mut cases = Vec::new();
     for &id in &synth.edges {
+        if certifiable_occurrence(view, synth, id).is_none() {
+            continue;
+        }
         let mut next = view.clone();
-        if remove && next.remove_edge(id).is_ok() {
-            views.push(next);
-        } else if !remove && next.edge(id).is_some() {
-            let _ = next.set_edge_position(id, Some(1));
-            views.push(next);
+        let changed = if remove {
+            next.remove_edge(id).is_ok()
+        } else {
+            next.edge(id).is_some() && next.set_edge_position(id, Some(0)).is_ok()
+        };
+        if changed {
+            cases.push(NegativeCase {
+                view: next,
+                expected: vec![ResolveDomainError::SynthesizedEdited {
+                    carrier: panproto_inst::ViewRef::Edge(id),
+                }],
+            });
         }
     }
-    views
+    cases
 }
 
-fn graph_reserved(view: &GInstance, synth: &Presentation) -> Vec<GInstance> {
-    let mut views = Vec::new();
-    for (id, anchor) in &synth.reserved {
-        if view.node(*id).is_none() {
-            let mut next = view.clone();
-            if next.insert_node(Node::new(*id, anchor.clone())).is_ok() {
-                views.push(next);
-            }
-        }
-    }
-    views
+fn fan_edges(view: &GInstance, fan: u32) -> Vec<EdgeId> {
+    let mut edges: Vec<EdgeId> = view
+        .out_edges(fan)
+        .iter()
+        .copied()
+        .filter(|edge| {
+            view.edge(*edge).is_some_and(|edge| {
+                matches!(
+                    edge.edge.kind.as_ref(),
+                    HYPER_PARENT_KIND | panproto_inst::HYPER_LABEL_KIND
+                )
+            })
+        })
+        .collect();
+    edges.sort_unstable();
+    edges
 }
 
-fn graph_malformed_fan(view: &GInstance, synth: &Presentation) -> Vec<GInstance> {
+fn graph_malformed_fan(view: &GInstance, synth: &Presentation) -> Vec<NegativeCase<GInstance>> {
     let Some(fresh) =
         fresh_u32(view.edges().keys().chain(&synth.edge_ids).map(|id| id.0)).map(EdgeId)
     else {
         return Vec::new();
     };
-    let mut views = Vec::new();
-    for id in sorted_nodes(view) {
-        let Some(node) = view.node(id) else {
-            continue;
-        };
-        if matches!(node.shape, NodeShape::HyperEdge) {
-            let mut parents: Vec<_> = view
-                .out_edges(id)
-                .iter()
-                .copied()
-                .filter(|edge| {
-                    view.edge(*edge)
-                        .is_some_and(|edge| edge.edge.kind.as_ref() == HYPER_PARENT_KIND)
-                })
-                .collect();
-            parents.sort_unstable();
-            for edge in parents {
-                let mut next = view.clone();
-                let Some(duplicate) = view.edge(edge).cloned() else {
-                    continue;
-                };
-                if next.insert_edge(fresh, duplicate).is_ok() {
-                    views.push(next);
-                }
-            }
-        }
+    let malformed = sorted_nodes(view).into_iter().rfind(|id| {
+        view.node(*id)
+            .is_some_and(|node| matches!(node.shape, NodeShape::HyperEdge))
+    });
+    let Some(malformed) = malformed else {
+        return Vec::new();
+    };
+    // A malformed earlier fan can shift every later fan during source
+    // reconstruction. The last fan is the one position whose refusal is
+    // independent of that rank-sensitive suffix.
+    let Some(parent) = fan_edges(view, malformed).into_iter().find(|edge| {
+        view.edge(*edge)
+            .is_some_and(|edge| edge.edge.kind.as_ref() == HYPER_PARENT_KIND)
+    }) else {
+        return Vec::new();
+    };
+    let Some(duplicate) = view.edge(parent).cloned() else {
+        return Vec::new();
+    };
+    let mut next = view.clone();
+    if next.insert_edge(fresh, duplicate).is_err() {
+        return Vec::new();
     }
-    views
+    vec![NegativeCase {
+        view: next,
+        expected: vec![ResolveDomainError::NoPlacement {
+            carrier: panproto_inst::ViewRef::Node(malformed),
+        }],
+    }]
 }
 
 fn rebuild_tree(
@@ -1137,6 +1223,13 @@ fn table_reconnect(view: &FInstance) -> Vec<FInstance> {
                         views.push(next);
                     }
                 }
+                if *other != src && view.table_of(*other) == Some(&edge.src) {
+                    let mut next = view.clone();
+                    next.remove_foreign_key(edge, src, tgt);
+                    if next.insert_foreign_key(edge.clone(), *other, tgt).is_ok() {
+                        views.push(next);
+                    }
+                }
             }
         }
     }
@@ -1167,17 +1260,20 @@ fn table_relabel_pair(schema: &Schema, view: &FInstance) -> Vec<FInstance> {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+    use panproto_inst::resolution_complement::RefOccurrence;
     use panproto_inst::{
-        EdgeId, FInstance, FieldPresence, GEdge, GInstance, Node, RowId, Value, WInstance,
+        EdgeId, FInstance, FieldPresence, GEdge, GInstance, HYPER_PARENT_KIND, Node, NodeShape,
+        RowId, Value, ViewRef, WInstance,
     };
     use panproto_lens::{
-        GraphShape, LawShape, Lens, LensShape, Mutation, MutationCases, TableShape, TreeShape,
+        GraphShape, LawShape, Lens, LensShape, Mutation, MutationCases, SkipReason, TableShape,
+        TreeShape,
     };
     use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
-    use super::{Cases, Presentation, graph_cases, table_cases, tree_cases};
+    use super::{Cases, Presentation, ResolveDomainError, graph_cases, table_cases, tree_cases};
 
     fn prop(src: &str, tgt: &str, name: &str) -> Edge {
         Edge {
@@ -1270,6 +1366,226 @@ pub(super) mod tests {
     ];
 
     #[test]
+    fn unique_nonredirect_occurrence_has_an_exact_nonvacuous_refusal_certificate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let mut view = GInstance::new();
+        view.insert_node(Node::new(1, "post"))?;
+        view.insert_node(Node::new(5, "user"))?;
+        let edge = EdgeId(7);
+        view.insert_edge(
+            edge,
+            GEdge::new(
+                1,
+                5,
+                Edge {
+                    src: "post".into(),
+                    tgt: "user".into(),
+                    kind: "ref".into(),
+                    name: Some("author_ref".into()),
+                },
+            ),
+        )?;
+        let record = RefOccurrence {
+            holder: ViewRef::Node(1),
+            reference: "author_ref".into(),
+            index: 0,
+            literal: Value::Str("u1".to_owned()),
+            form: None,
+            context: None,
+        };
+        let mut presentation = Presentation {
+            edges: BTreeSet::from([edge]),
+            occurrences: BTreeMap::from([(edge, vec![record])]),
+            ..Presentation::default()
+        };
+
+        let Cases::Negative(cases) =
+            graph_cases(&schema, &view, &presentation, Mutation::RemoveSynthesized)
+        else {
+            panic!("a unique nonredirect occurrence must produce a refusal witness");
+        };
+        assert_eq!(cases.len(), 1);
+        assert_eq!(
+            cases[0].expected,
+            vec![ResolveDomainError::SynthesizedEdited {
+                carrier: ViewRef::Edge(edge),
+            }]
+        );
+        assert!(cases[0].view.edge(edge).is_none());
+
+        presentation.redirect_holders.insert(1);
+        assert!(matches!(
+            graph_cases(&schema, &view, &presentation, Mutation::RemoveSynthesized),
+            Cases::Skip(SkipReason::NoCandidate)
+        ));
+        Ok(())
+    }
+
+    fn occurrence(holder: u32, reference: &str, index: u32) -> RefOccurrence {
+        RefOccurrence {
+            holder: ViewRef::Node(holder),
+            reference: reference.into(),
+            index,
+            literal: Value::Str("literal".to_owned()),
+            form: None,
+            context: None,
+        }
+    }
+
+    fn occurrence_view(edges: &[(u32, u32, u32)]) -> Result<GInstance, panproto_inst::InstError> {
+        let mut view = GInstance::new();
+        for id in edges.iter().flat_map(|(_, src, tgt)| [*src, *tgt]) {
+            if view.node(id).is_none() {
+                view.insert_node(Node::new(id, if id < 10 { "holder" } else { "target" }))?;
+            }
+        }
+        let label = Edge {
+            src: "holder".into(),
+            tgt: "target".into(),
+            kind: "ref".into(),
+            name: Some("reference".into()),
+        };
+        for &(edge, src, tgt) in edges {
+            view.insert_edge(EdgeId(edge), GEdge::new(src, tgt, label.clone()))?;
+        }
+        Ok(view)
+    }
+
+    #[test]
+    fn redirect_occurrences_are_omitted_before_collateral_slots_or_fans_can_shift()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let view = occurrence_view(&[(20, 1, 10), (21, 1, 11)])?;
+        let presentation = Presentation {
+            edges: [EdgeId(20), EdgeId(21)].into_iter().collect(),
+            occurrences: BTreeMap::from([
+                (EdgeId(20), vec![occurrence(1, "first", 0)]),
+                (EdgeId(21), vec![occurrence(1, "second", 0)]),
+            ]),
+            redirect_holders: BTreeSet::from([1]),
+            ..Presentation::default()
+        };
+        for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+            assert!(
+                matches!(
+                    graph_cases(&schema, &view, &presentation, mutation),
+                    Cases::Skip(SkipReason::NoCandidate)
+                ),
+                "{mutation:?} must not guess a redirect reassembly closure"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_occurrence_rank_and_standoff_span_targets_are_omitted()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let view = occurrence_view(&[(20, 1, 10), (21, 1, 11), (22, 2, 12)])?;
+        let presentation = Presentation {
+            nodes: BTreeSet::from([12]),
+            edges: [EdgeId(20), EdgeId(21), EdgeId(22)].into_iter().collect(),
+            occurrences: BTreeMap::from([
+                (EdgeId(20), vec![occurrence(1, "alias", 0)]),
+                (EdgeId(21), vec![occurrence(1, "alias", 1)]),
+                (EdgeId(22), vec![occurrence(2, "standoff", 0)]),
+            ]),
+            ..Presentation::default()
+        };
+        for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+            assert!(
+                matches!(
+                    graph_cases(&schema, &view, &presentation, mutation),
+                    Cases::Skip(SkipReason::NoCandidate)
+                ),
+                "{mutation:?} must omit rank-sensitive duplicates and span targets"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn distinct_nonredirect_aliases_keep_independent_exact_certificates()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let view = occurrence_view(&[(20, 1, 10), (21, 1, 11)])?;
+        let presentation = Presentation {
+            edges: [EdgeId(20), EdgeId(21)].into_iter().collect(),
+            occurrences: BTreeMap::from([
+                (EdgeId(20), vec![occurrence(1, "alias-a", 0)]),
+                (EdgeId(21), vec![occurrence(1, "alias-b", 0)]),
+            ]),
+            ..Presentation::default()
+        };
+        for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+            let Cases::Negative(cases) = graph_cases(&schema, &view, &presentation, mutation)
+            else {
+                panic!("{mutation:?} must retain independent aliases");
+            };
+            assert_eq!(cases.len(), 2, "{mutation:?}");
+            assert_eq!(
+                cases
+                    .iter()
+                    .map(|case| case.expected.clone())
+                    .collect::<Vec<_>>(),
+                vec![
+                    vec![ResolveDomainError::SynthesizedEdited {
+                        carrier: ViewRef::Edge(EdgeId(20)),
+                    }],
+                    vec![ResolveDomainError::SynthesizedEdited {
+                        carrier: ViewRef::Edge(EdgeId(21)),
+                    }],
+                ],
+                "{mutation:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_fan_basis_uses_only_the_last_fan_to_avoid_cascade_prediction()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let mut view = GInstance::new();
+        view.insert_node(Node::new(0, "doc"))?;
+        for fan in [2, 4] {
+            view.insert_node(Node::new(fan, "fan").with_shape(NodeShape::HyperEdge))?;
+            view.insert_edge(
+                EdgeId(10 + fan),
+                GEdge::new(
+                    fan,
+                    0,
+                    Edge {
+                        src: "fan".into(),
+                        tgt: "doc".into(),
+                        kind: HYPER_PARENT_KIND.into(),
+                        name: None,
+                    },
+                ),
+            )?;
+        }
+        let Cases::Negative(cases) = graph_cases(
+            &schema,
+            &view,
+            &Presentation::default(),
+            Mutation::MalformedFan,
+        ) else {
+            panic!("the last well-formed fan must have a malformed witness");
+        };
+        assert_eq!(cases.len(), 1);
+        assert_eq!(
+            cases[0].expected,
+            vec![ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(4),
+            }]
+        );
+        assert_eq!(cases[0].view.out_edges(2).len(), 1);
+        assert_eq!(cases[0].view.out_edges(4).len(), 2);
+        Ok(())
+    }
+
+    #[test]
     fn shape_only_families_match_the_lens_checker_under_an_identity_lens()
     -> Result<(), Box<dyn std::error::Error>> {
         let schema = small_schema()?;
@@ -1284,8 +1600,23 @@ pub(super) mod tests {
         for mutation in SHAPE_ONLY {
             let ours = match graph_cases(&schema, &view, &Presentation::default(), mutation) {
                 Cases::Views(views) => views,
+                Cases::Negative(_) => {
+                    panic!("shape-only graph family {mutation:?} became negative")
+                }
                 Cases::Skip(_) => Vec::new(),
             };
+            assert!(
+                GraphShape::negative_mutation_cases(
+                    &lens,
+                    &view,
+                    &view,
+                    &complement,
+                    &(),
+                    mutation,
+                )
+                .is_empty(),
+                "shape-only graph family {mutation:?} became negative"
+            );
             let theirs =
                 match GraphShape::mutation_cases(&lens, &view, &view, &complement, &(), mutation) {
                     MutationCases::Cases(views) => views,
@@ -1424,8 +1755,23 @@ pub(super) mod tests {
         for mutation in SHAPE_ONLY {
             let ours = match graph_cases(&schema, &view, &Presentation::default(), mutation) {
                 Cases::Views(views) => views,
+                Cases::Negative(_) => {
+                    panic!("shape-only graph family {mutation:?} became negative")
+                }
                 Cases::Skip(_) => Vec::new(),
             };
+            assert!(
+                GraphShape::negative_mutation_cases(
+                    &lens,
+                    &view,
+                    &view,
+                    &complement,
+                    &(),
+                    mutation,
+                )
+                .is_empty(),
+                "shape-only graph family {mutation:?} became negative"
+            );
             let theirs =
                 match GraphShape::mutation_cases(&lens, &view, &view, &complement, &(), mutation) {
                     MutationCases::Cases(views) => views,
@@ -1452,8 +1798,23 @@ pub(super) mod tests {
         for mutation in SHAPE_ONLY {
             let ours = match tree_cases(&schema, &view, mutation) {
                 Cases::Views(views) => views,
+                Cases::Negative(_) => {
+                    panic!("shape-only tree family {mutation:?} became negative")
+                }
                 Cases::Skip(_) => Vec::new(),
             };
+            assert!(
+                TreeShape::negative_mutation_cases(
+                    &lens,
+                    &view,
+                    &view,
+                    &complement,
+                    &(),
+                    mutation,
+                )
+                .is_empty(),
+                "shape-only tree family {mutation:?} became negative"
+            );
             let theirs =
                 match TreeShape::mutation_cases(&lens, &view, &view, &complement, &(), mutation) {
                     MutationCases::Cases(views) => views,
@@ -1568,8 +1929,23 @@ pub(super) mod tests {
         for mutation in SHAPE_ONLY {
             let ours = match table_cases(&schema, &protocol, &view, mutation) {
                 Cases::Views(views) => views,
+                Cases::Negative(_) => {
+                    panic!("shape-only table family {mutation:?} became negative")
+                }
                 Cases::Skip(_) => Vec::new(),
             };
+            assert!(
+                TableShape::negative_mutation_cases(
+                    &lens,
+                    &view,
+                    &view,
+                    &complement,
+                    &context,
+                    mutation,
+                )
+                .is_empty(),
+                "shape-only table family {mutation:?} became negative"
+            );
             let theirs = match TableShape::mutation_cases(
                 &lens,
                 &view,

@@ -14,7 +14,8 @@ use super::table::TableComplement;
 use super::tree::{TreeOperationalError, tree_check_put_domain, tree_get, tree_put};
 use crate::encode::TreeEmbedding;
 use crate::fan::FanViolation;
-use crate::model::{GEdge, Graph, Node, NodeShape, Table, Tree};
+use crate::keys::{KeyEquality, SqlCollation};
+use crate::model::{GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
 use crate::restrict::{
     Complement, EdgeFate, PairResolution, RestrictError, SynthKey, floor_of, is_fan_kind,
     reverse_anchor,
@@ -314,7 +315,12 @@ impl LensShape for TreeShape {
         right: &Tree,
         right_index: &SynthIndex,
     ) -> bool {
-        normalized_tree(left, left_index, right_index).is_some_and(|tree| tree == *right)
+        normalized_tree(left, left_index, right_index).is_some_and(|tree| {
+            tree.nodes == right.nodes
+                && tree_ordered_arcs(&tree) == tree_ordered_arcs(right)
+                && tree.fans == right.fans
+                && tree.root == right.root
+        })
     }
 
     fn divergence(
@@ -328,8 +334,8 @@ impl LensShape for TreeShape {
         };
         if left.nodes != right.nodes {
             Some(instance_divergence("tree nodes differ"))
-        } else if left.arcs != right.arcs {
-            Some(instance_divergence("tree arcs or their order differ"))
+        } else if tree_ordered_arcs(&left) != tree_ordered_arcs(right) {
+            Some(instance_divergence("tree per-parent arc sequences differ"))
         } else if left.fans != right.fans {
             Some(instance_divergence("tree fans differ"))
         } else if left.root != right.root {
@@ -360,6 +366,21 @@ impl LensShape for TreeShape {
                 .then(|| complement_divergence("tree embeddings differ"))
         })
     }
+}
+
+/// Each parent's ordered child/label sequence.
+///
+/// The flat arc vector may interleave arcs from different parents without
+/// changing the tree. Order within one parent's sequence remains observable.
+fn tree_ordered_arcs(tree: &Tree) -> BTreeMap<u32, Vec<(u32, SEdge)>> {
+    let mut by_parent: BTreeMap<u32, Vec<(u32, SEdge)>> = BTreeMap::new();
+    for (parent, child, label) in &tree.arcs {
+        by_parent
+            .entry(*parent)
+            .or_default()
+            .push((*child, label.clone()));
+    }
+    by_parent
 }
 
 fn synthesized_alignment(
@@ -736,15 +757,15 @@ pub enum Mutation {
     AddParallelEdge,
     /// Insert a graph self-loop.
     AddSelfLoop,
-    /// Remove a synthesized carrier; this is a negative case.
+    /// Remove a synthesized carrier.
     RemoveSynthesized,
-    /// Edit a synthesized carrier; this is a negative case.
+    /// Edit a synthesized carrier.
     EditSynthesized,
-    /// Insert an edge explained only by contraction; this is a negative case.
+    /// Insert an edge explained only by contraction.
     AddContractedEdge,
-    /// Reuse a complement-reserved id; this is a negative case.
+    /// Reuse a complement-reserved id.
     ReservedIdReuse,
-    /// Make a graph fan malformed; this is a negative case.
+    /// Make a graph fan malformed.
     MalformedFan,
 }
 
@@ -814,6 +835,15 @@ pub trait LawShape<L>: LensShape {
         context: &Self::Context,
     ) -> Result<(), Self::Refusal>;
 
+    /// Normalize a complete checker refusal to the exact refusal returned by
+    /// the raw, first-error put API.
+    ///
+    /// Most law adapters use the same refusal for both APIs. Shapes whose
+    /// checker reports several violations override this hook.
+    fn first_put_refusal(refusal: &Self::Refusal) -> Option<Self::Refusal> {
+        Some(refusal.clone())
+    }
+
     /// Deterministic Single-Step Basis in canonical order.
     fn single_step_basis(
         lens: &L,
@@ -861,6 +891,16 @@ fn reference_lens_error(error: LensError) -> ReferenceLawError {
         LensError::PutDomain(error) => ReferenceLawError::PutDomain(vec![error]),
         LensError::PutDomainReport(errors) => ReferenceLawError::PutDomain(errors),
         LensError::TreeOperational(error) => ReferenceLawError::TreeOperational(error),
+    }
+}
+
+fn reference_first_put_error(refusal: &ReferenceLawError) -> Option<ReferenceLawError> {
+    match refusal {
+        ReferenceLawError::PutDomain(errors) => errors
+            .first()
+            .cloned()
+            .map(|error| ReferenceLawError::PutDomain(vec![error])),
+        other => Some(other.clone()),
     }
 }
 
@@ -1084,22 +1124,34 @@ fn alternate_value(value: Option<&Value>) -> Value {
 }
 
 fn fresh_graph_node(view: &Graph, complement: &Complement) -> Option<u32> {
-    let id = floor_of(
-        view.nodes
-            .keys()
-            .chain(complement.dropped_nodes.keys())
-            .copied(),
-    );
+    let recorded_edge_endpoints = complement
+        .dropped_edges
+        .values()
+        .chain(complement.original_edges.values())
+        .flat_map(|edge| [edge.src, edge.tgt]);
+    let occupied = view
+        .nodes
+        .keys()
+        .chain(complement.dropped_nodes.keys())
+        .chain(complement.original_anchors.keys())
+        .chain(complement.original_fields.keys())
+        .chain(complement.original_values.keys())
+        .chain(complement.synthesized_nodes.keys())
+        .copied()
+        .chain(recorded_edge_endpoints);
+    let id = complement.floor.0.max(floor_of(occupied));
     (id != u32::MAX).then_some(id)
 }
 
 fn fresh_graph_edge(view: &Graph, complement: &Complement) -> Option<u32> {
-    let id = floor_of(
-        view.edges
-            .keys()
-            .chain(complement.dropped_edges.keys())
-            .copied(),
-    );
+    let occupied = view
+        .edges
+        .keys()
+        .chain(complement.dropped_edges.keys())
+        .chain(complement.original_edges.keys())
+        .chain(complement.synthesized_edges.keys())
+        .copied();
+    let id = complement.floor.1.max(floor_of(occupied));
     (id != u32::MAX).then_some(id)
 }
 
@@ -1122,11 +1174,20 @@ fn push_graph_refused(
     view: Graph,
     error: PutDomainError,
 ) {
+    push_graph_refused_report(basis, mutation, view, vec![error]);
+}
+
+fn push_graph_refused_report(
+    basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
+    mutation: Mutation,
+    view: Graph,
+    errors: Vec<PutDomainError>,
+) {
     basis.push(BasisCase {
         ordinal: basis.len(),
         mutation,
         view,
-        domain: DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![error])),
+        domain: DomainExpectation::Refused(ReferenceLawError::PutDomain(errors)),
     });
 }
 
@@ -1177,15 +1238,11 @@ fn graph_basis(
     graph_edge_topology_cases(lens, view, complement, &mut basis);
     graph_edge_presentation_cases(lens, view, complement, &mut basis);
     graph_edge_order_cases(lens, view, complement, &mut basis);
-    graph_synthesized_negative_cases(view, complement, &mut basis);
+    graph_synthesized_negative_cases(lens, view, complement, &mut basis);
     graph_other_negative_cases(lens, view, complement, &mut basis);
     basis.sort_by_key(|case| (case.mutation, case.ordinal));
     for (ordinal, case) in basis.iter_mut().enumerate() {
         case.ordinal = ordinal;
-        case.domain = match lens.check_put_domain(&case.view, complement) {
-            Ok(()) => DomainExpectation::Admitted,
-            Err(errors) => DomainExpectation::Refused(ReferenceLawError::PutDomain(errors)),
-        };
     }
     basis
 }
@@ -1210,18 +1267,46 @@ fn uniquely_representable_anchor(lens: &GraphLens<'_>, anchor: &str) -> bool {
 }
 
 fn uniquely_representable_edge(lens: &GraphLens<'_>, label: &crate::model::SEdge) -> bool {
+    graph_direct_edge_preimages(lens, label) == 1
+}
+
+fn graph_direct_edge_preimages(lens: &GraphLens<'_>, label: &crate::model::SEdge) -> usize {
     lens.plan
         .fates
         .values()
         .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == label))
         .count()
-        == 1
 }
 
 fn graph_relabel_is_structural(view: &Graph, id: u32, anchor: &str) -> bool {
     view.edges.values().all(|edge| {
         (edge.src != id || edge.label.src == anchor) && (edge.tgt != id || edge.label.tgt == anchor)
     })
+}
+
+fn edge_label_is_fan_neutral(lens: &GraphLens<'_>, label: &SEdge) -> bool {
+    !is_fan_kind(&label.kind)
+        && lens.plan.fates.iter().all(|(source, fate)| {
+            !matches!(fate, EdgeFate::Keep(image) if image == label) || !is_fan_kind(&source.kind)
+        })
+}
+
+fn graph_edge_is_fan_neutral(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    src: u32,
+    tgt: u32,
+    label: &SEdge,
+) -> bool {
+    edge_label_is_fan_neutral(lens, label)
+        && view
+            .nodes
+            .get(&src)
+            .is_some_and(|node| node.shape != NodeShape::HyperEdge)
+        && view
+            .nodes
+            .get(&tgt)
+            .is_some_and(|node| node.shape != NodeShape::HyperEdge)
 }
 
 fn graph_payload_cases(
@@ -1307,12 +1392,9 @@ fn graph_edge_topology_cases(
     basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
 ) {
     if let Some(edge_id) = fresh_graph_edge(view, complement) {
-        for label in lens
-            .tgt
-            .edges
-            .iter()
-            .filter(|label| uniquely_representable_edge(lens, label))
-        {
+        for label in lens.tgt.edges.iter().filter(|label| {
+            edge_label_is_fan_neutral(lens, label) && uniquely_representable_edge(lens, label)
+        }) {
             for (src, _) in view
                 .nodes
                 .iter()
@@ -1323,6 +1405,9 @@ fn graph_edge_topology_cases(
                     .iter()
                     .filter(|(_, node)| node.anchor == label.tgt)
                 {
+                    if !graph_edge_is_fan_neutral(lens, view, *src, *tgt, label) {
+                        continue;
+                    }
                     if view
                         .edges
                         .values()
@@ -1346,23 +1431,24 @@ fn graph_edge_topology_cases(
         }
     }
 
-    for (id, _) in view
-        .edges
-        .iter()
-        .filter(|(id, _)| !complement.synthesized_edges.contains_key(id))
-    {
+    for (id, _) in view.edges.iter().filter(|(id, edge)| {
+        !complement.synthesized_edges.contains_key(id)
+            && graph_edge_is_fan_neutral(lens, view, edge.src, edge.tgt, &edge.label)
+    }) {
         let mut edited = view.clone();
         edited.edges.remove(id);
         push_graph_admitted(basis, Mutation::RemoveEdge, edited);
     }
 
-    for (id, edge) in view
-        .edges
-        .iter()
-        .filter(|(id, _)| !complement.synthesized_edges.contains_key(id))
-    {
+    for (id, edge) in view.edges.iter().filter(|(id, edge)| {
+        !complement.synthesized_edges.contains_key(id)
+            && graph_edge_is_fan_neutral(lens, view, edge.src, edge.tgt, &edge.label)
+    }) {
         for (source, node) in &view.nodes {
-            if *source != edge.src && node.anchor == edge.label.src {
+            if *source != edge.src
+                && node.anchor == edge.label.src
+                && graph_edge_is_fan_neutral(lens, view, *source, edge.tgt, &edge.label)
+            {
                 let mut edited = view.clone();
                 if let Some(edited_edge) = edited.edges.get_mut(id) {
                     edited_edge.src = *source;
@@ -1371,7 +1457,10 @@ fn graph_edge_topology_cases(
             }
         }
         for (target, node) in &view.nodes {
-            if *target != edge.tgt && node.anchor == edge.label.tgt {
+            if *target != edge.tgt
+                && node.anchor == edge.label.tgt
+                && graph_edge_is_fan_neutral(lens, view, edge.src, *target, &edge.label)
+            {
                 let mut edited = view.clone();
                 if let Some(edited_edge) = edited.edges.get_mut(id) {
                     edited_edge.tgt = *target;
@@ -1397,6 +1486,7 @@ fn graph_edge_presentation_cases(
             **label != edge.label
                 && label.src == edge.label.src
                 && label.tgt == edge.label.tgt
+                && graph_edge_is_fan_neutral(lens, view, edge.src, edge.tgt, label)
                 && uniquely_representable_edge(lens, label)
         }) {
             {
@@ -1429,11 +1519,10 @@ fn graph_edge_order_cases(
     }
 
     if let Some(id) = fresh_graph_edge(view, complement) {
-        for (_, edge) in view
-            .edges
-            .iter()
-            .filter(|(id, _)| !complement.synthesized_edges.contains_key(id))
-        {
+        for (_, edge) in view.edges.iter().filter(|(id, edge)| {
+            !complement.synthesized_edges.contains_key(id)
+                && graph_edge_is_fan_neutral(lens, view, edge.src, edge.tgt, &edge.label)
+        }) {
             let mut edited = view.clone();
             edited.edges.insert(id, edge.clone());
             push_graph_admitted(basis, Mutation::AddParallelEdge, edited);
@@ -1441,17 +1530,19 @@ fn graph_edge_order_cases(
     }
 
     if let Some(edge_id) = fresh_graph_edge(view, complement) {
-        for label in lens
-            .tgt
-            .edges
-            .iter()
-            .filter(|label| label.src == label.tgt && uniquely_representable_edge(lens, label))
-        {
+        for label in lens.tgt.edges.iter().filter(|label| {
+            label.src == label.tgt
+                && edge_label_is_fan_neutral(lens, label)
+                && uniquely_representable_edge(lens, label)
+        }) {
             for (node, _) in view
                 .nodes
                 .iter()
                 .filter(|(_, node)| node.anchor == label.src)
             {
+                if !graph_edge_is_fan_neutral(lens, view, *node, *node, label) {
+                    continue;
+                }
                 let mut edited = view.clone();
                 edited.edges.insert(
                     edge_id,
@@ -1469,52 +1560,32 @@ fn graph_edge_order_cases(
 }
 
 fn graph_synthesized_negative_cases(
+    lens: &GraphLens<'_>,
     view: &Graph,
     complement: &Complement,
     basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
 ) {
-    for id in complement.synthesized_edges.keys().copied() {
-        let mut edited = view.clone();
-        edited.edges.remove(&id);
-        push_graph_refused(
-            basis,
-            Mutation::RemoveSynthesized,
-            edited,
-            PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Edge(id),
-            },
-        );
-
-        if let Some(edge) = view.edges.get(&id) {
-            let mut edited = view.clone();
-            if let Some(edited_edge) = edited.edges.get_mut(&id) {
-                edited_edge.label.kind = format!("{}#", edge.label.kind);
-            }
-            push_graph_refused(
-                basis,
-                Mutation::EditSynthesized,
-                edited,
-                PutDomainError::SynthesizedEdited {
-                    elem: ViewRef::Edge(id),
-                },
-            );
-        }
-    }
     for id in complement.synthesized_nodes.keys().copied() {
         let mut removed = view.clone();
         removed.nodes.remove(&id);
-        push_graph_refused(
-            basis,
-            Mutation::RemoveSynthesized,
-            removed,
-            PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Node(id),
-            },
-        );
+        let mut errors = vec![PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Node(id),
+        }];
+        errors.extend(removed.edges.iter().filter_map(|(edge, value)| {
+            ((value.src == id || value.tgt == id)
+                && complement.synthesized_edges.contains_key(edge))
+            .then_some(PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Edge(*edge),
+            })
+        }));
+        removed
+            .edges
+            .retain(|_, edge| edge.src != id && edge.tgt != id);
+        push_graph_refused_report(basis, Mutation::RemoveSynthesized, removed, errors);
         if view.nodes.contains_key(&id) {
             let mut edited = view.clone();
             if let Some(edited_node) = edited.nodes.get_mut(&id) {
-                edited_node.anchor.push('#');
+                edited_node.value = Some(Presence::Present(Value::Int(1)));
             }
             push_graph_refused(
                 basis,
@@ -1526,6 +1597,241 @@ fn graph_synthesized_negative_cases(
             );
         }
     }
+    for id in complement.synthesized_edges.keys().copied() {
+        let mut removed = view.clone();
+        removed.edges.remove(&id);
+        push_graph_refused(
+            basis,
+            Mutation::RemoveSynthesized,
+            removed,
+            PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Edge(id),
+            },
+        );
+
+        if let Some(edge) = view.edges.get(&id)
+            && let Some(replacement) = lens.tgt.edges.iter().find(|replacement| {
+                replacement.src == edge.label.src
+                    && replacement.tgt == edge.label.tgt
+                    && *replacement != &edge.label
+                    && isolated_graph_synthesized_edge_replacement(
+                        lens,
+                        view,
+                        complement,
+                        edge.src,
+                        edge.tgt,
+                        replacement,
+                    )
+            })
+        {
+            let mut edited = view.clone();
+            if let Some(edited_edge) = edited.edges.get_mut(&id) {
+                edited_edge.label.clone_from(replacement);
+            }
+            push_graph_refused(
+                basis,
+                Mutation::EditSynthesized,
+                edited,
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(id),
+                },
+            );
+        }
+    }
+}
+
+fn graph_source_anchor(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    id: u32,
+) -> Option<String> {
+    let node = view.nodes.get(&id)?;
+    if let Some(recorded) = complement.original_anchors.get(&id)
+        && lens.m.vertex_image(recorded) == node.anchor
+    {
+        return Some(recorded.clone());
+    }
+    let preimages = reverse_anchor(lens.src, lens.m, &node.anchor);
+    let [source] = preimages.as_slice() else {
+        return None;
+    };
+    Some(source.clone())
+}
+
+fn isolated_graph_synthesized_edge_replacement(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    source: u32,
+    target: u32,
+    replacement: &crate::model::SEdge,
+) -> bool {
+    if !graph_edge_is_fan_neutral(lens, view, source, target, replacement) {
+        return false;
+    }
+    // Presentation nodes are discarded before source-edge representability
+    // is checked, so their incident edge cannot add an independent refusal.
+    if complement.synthesized_nodes.contains_key(&source)
+        || complement.synthesized_nodes.contains_key(&target)
+    {
+        return true;
+    }
+    let (Some(source_anchor), Some(target_anchor)) = (
+        graph_source_anchor(lens, view, complement, source),
+        graph_source_anchor(lens, view, complement, target),
+    ) else {
+        return false;
+    };
+    lens.plan
+        .fates
+        .iter()
+        .filter(|(edge, fate)| {
+            edge.src == source_anchor
+                && edge.tgt == target_anchor
+                && matches!(fate, EdgeFate::Keep(image) if image == replacement)
+        })
+        .count()
+        == 1
+}
+
+fn validation_neutral_graph_anchor(lens: &GraphLens<'_>, target: &str) -> bool {
+    let preimages = reverse_anchor(lens.src, lens.m, target);
+    let [source] = preimages.as_slice() else {
+        return false;
+    };
+    lens.src.vertices.get(source) == lens.tgt.vertices.get(target)
+        && lens.src.vertices.contains_key(source)
+        && lens.m.conditional.is_empty()
+        && lens.m.transformed.is_empty()
+        && lens.src.required.values().all(Vec::is_empty)
+        && lens.src.constraints.values().all(Vec::is_empty)
+        && lens.src.keys.values().all(Vec::is_empty)
+        && lens.src.references.is_empty()
+}
+
+fn graph_node_restore_is_identity(lens: &GraphLens<'_>, candidate: &Node) -> bool {
+    lens.vl
+        .restore(candidate, None, None)
+        .is_ok_and(|(fields, value)| fields == candidate.fields && value == candidate.value)
+}
+
+fn graph_reserved_node_isolated(view: &Graph, complement: &Complement, id: u32) -> bool {
+    let incident_edges: BTreeSet<_> = view
+        .edges
+        .iter()
+        .chain(&complement.dropped_edges)
+        .chain(&complement.original_edges)
+        .filter(|(_, edge)| edge.src == id || edge.tgt == id)
+        .map(|(edge, _)| *edge)
+        .collect();
+    // Original or synthesized state keyed by the id can contribute another
+    // refusal. The exact witness predicate separately excludes dropped
+    // incident edges, whose endpoint typing or graph-wide effects would need
+    // an independent proof.
+    !complement
+        .original_edges
+        .values()
+        .any(|edge| edge.src == id || edge.tgt == id)
+        && !complement.original_anchors.contains_key(&id)
+        && !complement.original_fields.contains_key(&id)
+        && !complement.original_values.contains_key(&id)
+        && !complement.synthesized_nodes.iter().any(|(node, key)| {
+            *node == id
+                || match key {
+                    SynthKey::Contract { src, tgt, .. }
+                    | SynthKey::ContractExpand { src, tgt, .. } => *src == id || *tgt == id,
+                    SynthKey::Expand { source_edge, .. } => incident_edges.contains(source_edge),
+                }
+        })
+        && !complement.synthesized_edges.iter().any(|(edge, key)| {
+            incident_edges.contains(edge)
+                || match key {
+                    SynthKey::Contract { src, tgt, .. }
+                    | SynthKey::ContractExpand { src, tgt, .. } => *src == id || *tgt == id,
+                    SynthKey::Expand { source_edge, .. } => incident_edges.contains(source_edge),
+                }
+        })
+}
+
+fn graph_reserved_node_witness_is_structurally_exact(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    candidate: &Node,
+) -> bool {
+    let id = candidate.id;
+    complement
+        .dropped_nodes
+        .get(&id)
+        .is_some_and(|node| node.shape != NodeShape::HyperEdge)
+        && !view.nodes.contains_key(&id)
+        && view
+            .edges
+            .values()
+            .all(|edge| edge.src != id && edge.tgt != id)
+        && complement
+            .dropped_edges
+            .values()
+            .all(|edge| edge.src != id && edge.tgt != id)
+        && candidate == &tree_node_for_anchor(id, lens.tgt, &candidate.anchor)
+        && validation_neutral_graph_anchor(lens, &candidate.anchor)
+        && graph_node_restore_is_identity(lens, candidate)
+        && graph_reserved_node_isolated(view, complement, id)
+}
+
+fn graph_reserved_edge_isolated(complement: &Complement, id: u32) -> bool {
+    !complement.original_edges.contains_key(&id)
+        && !complement.synthesized_edges.contains_key(&id)
+        && !complement
+            .synthesized_nodes
+            .values()
+            .chain(complement.synthesized_edges.values())
+            .any(|key| matches!(key, SynthKey::Expand { source_edge, .. } if *source_edge == id))
+}
+
+fn graph_reserved_edge_witness(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    id: u32,
+    edge: &GEdge,
+) -> Option<GEdge> {
+    if view.edges.contains_key(&id) || !graph_reserved_edge_isolated(complement, id) {
+        return None;
+    }
+    let (Some(source_node), Some(target_node)) =
+        (view.nodes.get(&edge.src), view.nodes.get(&edge.tgt))
+    else {
+        return None;
+    };
+    if source_node.shape == NodeShape::HyperEdge
+        || target_node.shape == NodeShape::HyperEdge
+        || complement.synthesized_nodes.contains_key(&edge.src)
+        || complement.synthesized_nodes.contains_key(&edge.tgt)
+        || !validation_neutral_graph_anchor(lens, &source_node.anchor)
+        || !validation_neutral_graph_anchor(lens, &target_node.anchor)
+    {
+        return None;
+    }
+    let (Some(source_anchor), Some(target_anchor)) = (
+        graph_source_anchor(lens, view, complement, edge.src),
+        graph_source_anchor(lens, view, complement, edge.tgt),
+    ) else {
+        return None;
+    };
+    let label = lens.tgt.edges.iter().find(|label| {
+        label.src == source_node.anchor
+            && label.tgt == target_node.anchor
+            && graph_edge_is_fan_neutral(lens, view, edge.src, edge.tgt, label)
+            && independent_edge_refusal(lens, (&source_anchor, &target_anchor), label, id).is_none()
+    })?;
+    Some(GEdge {
+        src: edge.src,
+        tgt: edge.tgt,
+        label: label.clone(),
+        position: None,
+    })
 }
 
 fn graph_other_negative_cases(
@@ -1534,60 +1840,98 @@ fn graph_other_negative_cases(
     complement: &Complement,
     basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
 ) {
+    graph_contracted_negative_cases(lens, view, complement, basis);
+    graph_reserved_negative_cases(lens, view, complement, basis);
+    graph_malformed_fan_negative_cases(view, complement, basis);
+}
+
+fn graph_contracted_negative_cases(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
+) {
     if let Some(id) = fresh_graph_edge(view, complement) {
-        for (_, key) in complement
-            .synthesized_edges
-            .iter()
-            .filter(|(_, key)| matches!(key, SynthKey::Contract { .. }))
-        {
-            let SynthKey::Contract { src, tgt, edge } = key else {
-                unreachable!();
+        for pair in lens.plan.pairs.values() {
+            let PairResolution::Label(edge) = &pair.resolution else {
+                continue;
             };
-            let mut edited = view.clone();
-            edited.edges.insert(
-                id,
-                GEdge {
-                    src: *src,
-                    tgt: *tgt,
-                    label: edge.clone(),
-                    position: None,
-                },
-            );
-            push_graph_refused(
-                basis,
-                Mutation::AddContractedEdge,
-                edited,
-                PutDomainError::ContractedEdgeInserted {
-                    elem: ViewRef::Edge(id),
-                },
-            );
+            if graph_direct_edge_preimages(lens, edge) != 0
+                || is_fan_kind(&edge.kind)
+                || pair.region.iter().any(|source| is_fan_kind(&source.kind))
+                || !validation_neutral_graph_anchor(lens, &edge.src)
+                || !validation_neutral_graph_anchor(lens, &edge.tgt)
+            {
+                continue;
+            }
+            let sources = ordinary_graph_nodes(view, complement)
+                .filter(|(_, node)| node.anchor == pair.target.0)
+                .map(|(node, _)| *node);
+            let targets: Vec<_> = ordinary_graph_nodes(view, complement)
+                .filter(|(_, node)| node.anchor == pair.target.1)
+                .map(|(node, _)| *node)
+                .collect();
+            for src in sources {
+                for tgt in &targets {
+                    let mut edited = view.clone();
+                    edited.edges.insert(
+                        id,
+                        GEdge {
+                            src,
+                            tgt: *tgt,
+                            label: edge.clone(),
+                            position: None,
+                        },
+                    );
+                    push_graph_refused(
+                        basis,
+                        Mutation::AddContractedEdge,
+                        edited,
+                        PutDomainError::ContractedEdgeInserted {
+                            elem: ViewRef::Edge(id),
+                        },
+                    );
+                }
+            }
         }
     }
+}
 
-    if let Some((_, template)) = ordinary_graph_nodes(view, complement).next() {
-        for id in complement.dropped_nodes.keys() {
-            let mut edited = view.clone();
-            let mut node = template.clone();
-            node.id = *id;
-            edited.nodes.insert(*id, node);
-            push_graph_refused(
-                basis,
-                Mutation::ReservedIdReuse,
-                edited,
-                PutDomainError::IdCollision {
-                    elem: ViewRef::Node(*id),
-                },
-            );
-        }
+fn graph_reserved_negative_cases(
+    lens: &GraphLens<'_>,
+    view: &Graph,
+    complement: &Complement,
+    basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
+) {
+    for id in complement.dropped_nodes.keys() {
+        let Some(candidate) = lens
+            .tgt
+            .vertices
+            .keys()
+            .map(|anchor| tree_node_for_anchor(*id, lens.tgt, anchor))
+            .find(|candidate| {
+                graph_reserved_node_witness_is_structurally_exact(lens, view, complement, candidate)
+            })
+        else {
+            continue;
+        };
+        let mut edited = view.clone();
+        edited.nodes.insert(*id, candidate);
+        push_graph_refused(
+            basis,
+            Mutation::ReservedIdReuse,
+            edited,
+            PutDomainError::IdCollision {
+                elem: ViewRef::Node(*id),
+            },
+        );
     }
     for (id, edge) in &complement.dropped_edges {
-        if independent_edge_refusal(lens, (&edge.label.src, &edge.label.tgt), &edge.label, *id)
-            .is_some()
-        {
+        let Some(candidate) = graph_reserved_edge_witness(lens, view, complement, *id, edge) else {
             continue;
-        }
+        };
         let mut edited = view.clone();
-        edited.edges.insert(*id, edge.clone());
+        edited.edges.insert(*id, candidate);
         push_graph_refused(
             basis,
             Mutation::ReservedIdReuse,
@@ -1597,26 +1941,42 @@ fn graph_other_negative_cases(
             },
         );
     }
+}
 
+fn graph_malformed_fan_negative_cases(
+    view: &Graph,
+    complement: &Complement,
+    basis: &mut Vec<BasisCase<Graph, ReferenceLawError>>,
+) {
     for (id, _) in view.nodes.iter().filter(|(id, node)| {
         node.shape == NodeShape::HyperEdge && !complement.synthesized_nodes.contains_key(id)
     }) {
-        let Some(edge) = view.edges.iter().find_map(|(edge, value)| {
-            (value.src == *id && is_fan_kind(&value.label.kind)).then_some(*edge)
+        let Some((_, parent)) = view.edges.iter().find(|(_, value)| {
+            value.src == *id && value.label.kind == crate::restrict::HYPER_PARENT
         }) else {
             continue;
         };
+        let Some(edge) = fresh_graph_edge(view, complement) else {
+            break;
+        };
         let mut edited = view.clone();
-        if let Some(edited_node) = edited.nodes.get_mut(id) {
-            edited_node.shape = NodeShape::Plain;
-        }
+        edited.edges.insert(edge, parent.clone());
+        let mut parents: Vec<_> = edited
+            .edges
+            .iter()
+            .filter(|(_, value)| {
+                value.src == *id && value.label.kind == crate::restrict::HYPER_PARENT
+            })
+            .map(|(edge, _)| *edge)
+            .collect();
+        parents.sort_unstable();
         push_graph_refused(
             basis,
             Mutation::MalformedFan,
             edited,
             PutDomainError::MalformedFan {
                 node: *id,
-                reason: FanViolation::ReservedKindOutsideFan { edge },
+                reason: FanViolation::MultipleParents { edges: parents },
             },
         );
     }
@@ -1696,13 +2056,6 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
         complement: &Complement,
         (): &(),
     ) -> Result<Graph, ReferenceLawError> {
-        lens.verify_identity(
-            complement,
-            crate::pages::representation::canonical::ComplementShape::Graph,
-        )
-        .map_err(reference_lens_error)?;
-        lens.check_put_domain(view, complement)
-            .map_err(ReferenceLawError::PutDomain)?;
         lens.put(view, complement).map_err(reference_lens_error)
     }
 
@@ -1714,6 +2067,10 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
     ) -> Result<(), ReferenceLawError> {
         lens.check_put_domain(view, complement)
             .map_err(ReferenceLawError::PutDomain)
+    }
+
+    fn first_put_refusal(refusal: &ReferenceLawError) -> Option<ReferenceLawError> {
+        reference_first_put_error(refusal)
     }
 
     fn single_step_basis(
@@ -1788,6 +2145,34 @@ pub enum TableLawError {
     Domain(super::table::TableCheckError),
 }
 
+fn table_first_put_error(
+    error: &super::table::TableCheckError,
+) -> Option<super::table::TablePutError> {
+    match error {
+        super::table::TableCheckError::Domain {
+            violations,
+            unresolved_collations,
+        } => violations.first().cloned().map_or_else(
+            || {
+                (!unresolved_collations.is_empty()).then(|| {
+                    super::table::TablePutError::NamedCollationUnresolved {
+                        names: unresolved_collations.clone(),
+                    }
+                })
+            },
+            |error| Some(super::table::TablePutError::Domain(error)),
+        ),
+        super::table::TableCheckError::NamedCollationUnresolved { names } => {
+            Some(super::table::TablePutError::NamedCollationUnresolved {
+                names: names.clone(),
+            })
+        }
+        super::table::TableCheckError::Operational(error) => {
+            Some(super::table::TablePutError::Operational(error.clone()))
+        }
+    }
+}
+
 /// The table Single-Step Basis: for each view row in ascending id, each
 /// target column of its table in ascending name set to the alternate of its
 /// cell; one empty row at the least id neither in the view nor reserved, in
@@ -1797,22 +2182,23 @@ fn table_basis(
     view: &Table,
     complement: &TableComplement,
 ) -> Vec<BasisCase<Table, TableLawError>> {
-    let columns = &lens.plan().target_boundary().columns;
+    let target = lens.plan().target_boundary();
     let mut basis = Vec::new();
     let mut push = |mutation: Mutation, edited: Table| {
-        let domain = match super::table::check_put_domain(lens, &edited, complement) {
-            Ok(()) => DomainExpectation::Admitted,
-            Err(error) => DomainExpectation::Refused(TableLawError::Domain(error)),
-        };
         basis.push(BasisCase {
             ordinal: basis.len(),
             mutation,
             view: edited,
-            domain,
+            domain: DomainExpectation::Admitted,
         });
     };
     for (id, (table, cells)) in &view.rows {
-        for column in columns.get(table).into_iter().flat_map(BTreeMap::keys) {
+        for column in target
+            .columns
+            .get(table)
+            .into_iter()
+            .flat_map(BTreeMap::keys)
+        {
             let mut edited = view.clone();
             let mut row = cells.clone();
             row.insert(column.clone(), alternate_value(cells.get(column)));
@@ -1820,14 +2206,8 @@ fn table_basis(
             push(Mutation::ValueEdit, edited);
         }
     }
-    let fresh = floor_of(
-        view.rows
-            .keys()
-            .chain(complement.dropped_rows.keys())
-            .copied(),
-    );
-    if fresh != u32::MAX {
-        for table in columns.keys() {
+    if let Ok(fresh) = super::table::fresh_view_row_id(view, complement) {
+        for table in &target.tables {
             let mut edited = view.clone();
             edited.rows.insert(fresh, (table.clone(), BTreeMap::new()));
             push(Mutation::AddNode, edited);
@@ -1839,7 +2219,269 @@ fn table_basis(
         edited.pairs.retain(|(_, s, t)| s != id && t != id);
         push(Mutation::RemoveNode, edited);
     }
+
+    // A named SQL collation is deliberately opaque to the finite reference
+    // evaluator. Its exact unresolved set is candidate-local, so the
+    // independent basis does not claim an empty set merely from the shape of
+    // a structural edit. Named-collation lenses are covered by the mixed
+    // refusal oracle below; their structural negative basis remains
+    // conservatively empty.
+    if !table_source_has_named_collation(lens) {
+        table_synthesized_negative_cases(lens, view, complement, &mut basis);
+        table_contracted_negative_cases(lens, view, &mut basis);
+        table_reserved_negative_cases(lens, view, complement, &mut basis);
+    }
+    basis.sort_by_key(|case| (case.mutation, case.ordinal));
+    for (ordinal, case) in basis.iter_mut().enumerate() {
+        case.ordinal = ordinal;
+    }
     basis
+}
+
+fn push_table_refused(
+    basis: &mut Vec<BasisCase<Table, TableLawError>>,
+    mutation: Mutation,
+    view: Table,
+    violations: Vec<PutDomainError>,
+    unresolved_collations: BTreeSet<String>,
+) {
+    basis.push(BasisCase {
+        ordinal: basis.len(),
+        mutation,
+        view,
+        domain: DomainExpectation::Refused(TableLawError::Domain(
+            super::table::TableCheckError::Domain {
+                violations,
+                unresolved_collations,
+            },
+        )),
+    });
+}
+
+fn table_source_has_named_collation(lens: &super::table::TableLens<'_>) -> bool {
+    lens.source_schema().keys.values().flatten().any(|key| {
+        key.equality.iter().any(|equality| {
+            matches!(
+                equality,
+                KeyEquality::Sql {
+                    collation: SqlCollation::Named(_),
+                    ..
+                }
+            )
+        })
+    })
+}
+
+fn table_direct_pair_preimages(
+    lens: &super::table::TableLens<'_>,
+    label: &crate::model::SEdge,
+) -> usize {
+    lens.plan()
+        .restrict_plan()
+        .fates
+        .values()
+        .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == label))
+        .count()
+}
+
+fn validation_neutral_table_anchor(lens: &super::table::TableLens<'_>, target: &str) -> bool {
+    let preimages: Vec<_> = lens
+        .plan()
+        .functor()
+        .tables
+        .iter()
+        .filter(|(_, image)| image.as_str() == target)
+        .map(|(source, _)| source)
+        .collect();
+    let [source] = preimages.as_slice() else {
+        return false;
+    };
+    let source_schema = lens.source_schema();
+    let target_schema = lens.target_schema();
+    source_schema.vertices.get(*source) == target_schema.vertices.get(target)
+        && source_schema.vertices.contains_key(*source)
+        && lens.migration().conditional.is_empty()
+        && lens.migration().transformed.is_empty()
+        && source_schema.required.values().all(Vec::is_empty)
+        && source_schema.constraints.values().all(Vec::is_empty)
+        && source_schema.keys.values().all(Vec::is_empty)
+        && source_schema.references.is_empty()
+}
+
+fn table_pair_endpoints_neutral(
+    lens: &super::table::TableLens<'_>,
+    label: &crate::model::SEdge,
+) -> bool {
+    validation_neutral_table_anchor(lens, &label.src)
+        && validation_neutral_table_anchor(lens, &label.tgt)
+}
+
+fn table_synthesized_negative_cases(
+    lens: &super::table::TableLens<'_>,
+    view: &Table,
+    complement: &TableComplement,
+    basis: &mut Vec<BasisCase<Table, TableLawError>>,
+) {
+    for pair @ (label, source, target) in &complement.synthesized_fk_pairs {
+        if !view.pairs.contains(pair) || !table_pair_endpoints_neutral(lens, label) {
+            continue;
+        }
+        let refusal = PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Pair(Box::new(label.clone()), *source, *target),
+        };
+        let mut removed = view.clone();
+        removed.pairs.remove(pair);
+        push_table_refused(
+            basis,
+            Mutation::RemoveSynthesized,
+            removed,
+            vec![refusal.clone()],
+            BTreeSet::new(),
+        );
+
+        if table_direct_pair_preimages(lens, label) != 1 {
+            continue;
+        }
+        for (other_source, (table, _)) in &view.rows {
+            if *other_source == *source || table != &label.src {
+                continue;
+            }
+            let mut edited = view.clone();
+            edited.pairs.remove(pair);
+            if edited.pairs.insert((label.clone(), *other_source, *target)) {
+                push_table_refused(
+                    basis,
+                    Mutation::EditSynthesized,
+                    edited,
+                    vec![refusal.clone()],
+                    BTreeSet::new(),
+                );
+            }
+        }
+        for (other_target, (table, _)) in &view.rows {
+            if *other_target == *target || table != &label.tgt {
+                continue;
+            }
+            let mut edited = view.clone();
+            edited.pairs.remove(pair);
+            if edited.pairs.insert((label.clone(), *source, *other_target)) {
+                push_table_refused(
+                    basis,
+                    Mutation::EditSynthesized,
+                    edited,
+                    vec![refusal.clone()],
+                    BTreeSet::new(),
+                );
+            }
+        }
+    }
+}
+
+fn table_contracted_negative_cases(
+    lens: &super::table::TableLens<'_>,
+    view: &Table,
+    basis: &mut Vec<BasisCase<Table, TableLawError>>,
+) {
+    for pair in lens.plan().restrict_plan().pairs.values() {
+        let PairResolution::Label(label) = &pair.resolution else {
+            continue;
+        };
+        if table_direct_pair_preimages(lens, label) != 0
+            || !table_pair_endpoints_neutral(lens, label)
+        {
+            continue;
+        }
+        let sources = view
+            .rows
+            .iter()
+            .filter(|(_, (table, _))| table == &pair.target.0)
+            .map(|(id, _)| *id);
+        let targets: Vec<_> = view
+            .rows
+            .iter()
+            .filter(|(_, (table, _))| table == &pair.target.1)
+            .map(|(id, _)| *id)
+            .collect();
+        for source in sources {
+            for target in &targets {
+                let elem = (label.clone(), source, *target);
+                if view.pairs.contains(&elem) {
+                    continue;
+                }
+                let mut edited = view.clone();
+                edited.pairs.insert(elem);
+                push_table_refused(
+                    basis,
+                    Mutation::AddContractedEdge,
+                    edited,
+                    vec![PutDomainError::ContractedEdgeInserted {
+                        elem: ViewRef::Pair(Box::new(label.clone()), source, *target),
+                    }],
+                    BTreeSet::new(),
+                );
+            }
+        }
+    }
+}
+
+fn table_reserved_negative_cases(
+    lens: &super::table::TableLens<'_>,
+    view: &Table,
+    complement: &TableComplement,
+    basis: &mut Vec<BasisCase<Table, TableLawError>>,
+) {
+    let neutral_table = lens
+        .plan()
+        .target_boundary()
+        .tables
+        .iter()
+        .find(|table| {
+            validation_neutral_table_anchor(lens, table.as_str())
+                && lens
+                    .plan()
+                    .target_boundary()
+                    .columns
+                    .get(*table)
+                    .is_none_or(BTreeMap::is_empty)
+        })
+        .cloned();
+    let Some(neutral_table) = neutral_table else {
+        return;
+    };
+    for id in complement.dropped_rows.keys() {
+        let residue_isolated = !complement.dropped_cells.keys().any(|(row, _)| row == id)
+            && !complement
+                .dropped_fk_pairs
+                .values()
+                .flatten()
+                .any(|(source, target)| source == id || target == id)
+            && !complement
+                .original_fk_edges
+                .keys()
+                .any(|(_, source, target)| source == id || target == id)
+            && !complement.original_tables.contains_key(id)
+            && !complement.original_cells.keys().any(|(row, _)| row == id)
+            && !complement
+                .synthesized_fk_pairs
+                .iter()
+                .any(|(_, source, target)| source == id || target == id);
+        if view.rows.contains_key(id) || !residue_isolated {
+            continue;
+        }
+        let mut edited = view.clone();
+        edited
+            .rows
+            .insert(*id, (neutral_table.clone(), BTreeMap::new()));
+        push_table_refused(
+            basis,
+            Mutation::ReservedIdReuse,
+            edited,
+            vec![PutDomainError::IdCollision {
+                elem: ViewRef::Row(*id),
+            }],
+            BTreeSet::new(),
+        );
+    }
 }
 
 impl<'a> LawShape<super::table::TableLens<'a>> for TableShape {
@@ -1870,6 +2512,13 @@ impl<'a> LawShape<super::table::TableLens<'a>> for TableShape {
         (): &(),
     ) -> Result<(), TableLawError> {
         super::table::check_put_domain(lens, view, complement).map_err(TableLawError::Domain)
+    }
+
+    fn first_put_refusal(refusal: &TableLawError) -> Option<TableLawError> {
+        match refusal {
+            TableLawError::Domain(error) => table_first_put_error(error).map(TableLawError::Put),
+            other => Some(other.clone()),
+        }
     }
 
     fn single_step_basis(
@@ -2084,16 +2733,30 @@ fn validation_neutral_tree_anchor(lens: &GraphLens<'_>, target: &str) -> bool {
     };
     lens.src.vertices.get(source) == lens.tgt.vertices.get(target)
         && lens.src.vertices.contains_key(source)
-        && !lens.m.conditional.contains(source)
-        && !lens.m.transformed.contains(source)
-        && lens.src.required.get(source).is_none_or(Vec::is_empty)
-        && lens.src.constraints.get(source).is_none_or(Vec::is_empty)
-        && lens.src.keys.get(source).is_none_or(Vec::is_empty)
-        && !lens
-            .src
-            .references
-            .values()
-            .any(|reference| reference.holder == *source && !reference.nullable)
+        && lens.m.conditional.is_empty()
+        && lens.m.transformed.is_empty()
+        && lens.src.required.values().all(Vec::is_empty)
+        && lens.src.constraints.values().all(Vec::is_empty)
+        && lens.src.keys.values().all(Vec::is_empty)
+        && lens.src.references.is_empty()
+}
+
+fn tree_arc_is_fan_neutral(
+    lens: &GraphLens<'_>,
+    view: &Tree,
+    parent: u32,
+    child: u32,
+    label: &SEdge,
+) -> bool {
+    edge_label_is_fan_neutral(lens, label)
+        && view
+            .nodes
+            .get(&parent)
+            .is_some_and(|node| node.shape != NodeShape::HyperEdge)
+        && view
+            .nodes
+            .get(&child)
+            .is_some_and(|node| node.shape != NodeShape::HyperEdge)
 }
 
 fn tree_source_anchor(
@@ -2120,9 +2783,15 @@ fn isolated_tree_attachment(
     view: &Tree,
     complement: &TreeLawComplement,
     parent: u32,
+    child: u32,
 ) -> Option<crate::model::SEdge> {
     let graph = &complement.complement;
-    if graph.synthesized_nodes.contains_key(&parent) {
+    if graph.synthesized_nodes.contains_key(&parent)
+        || view
+            .nodes
+            .get(&parent)
+            .is_none_or(|node| node.shape == NodeShape::HyperEdge)
+    {
         return None;
     }
     let node = view.nodes.get(&parent)?;
@@ -2130,7 +2799,13 @@ fn isolated_tree_attachment(
     for prefer_unique in [true, false] {
         for label in &lens.tgt.edges {
             if uniquely_representable_edge(lens, label) != prefer_unique
+                || !edge_label_is_fan_neutral(lens, label)
+                || !validation_neutral_tree_anchor(lens, &label.src)
                 || !validation_neutral_tree_anchor(lens, &label.tgt)
+                || !graph_node_restore_is_identity(
+                    lens,
+                    &tree_node_for_anchor(child, lens.tgt, &label.tgt),
+                )
             {
                 continue;
             }
@@ -2188,6 +2863,9 @@ fn isolated_tree_synthesized_edge_replacement(
     child: u32,
     replacement: &crate::model::SEdge,
 ) -> bool {
+    if !tree_arc_is_fan_neutral(lens, view, parent, child, replacement) {
+        return false;
+    }
     let graph = &complement.complement;
     // Presentation nodes are discarded before source-edge representability
     // is checked, so an incident arc cannot add an independent refusal.
@@ -2322,12 +3000,9 @@ fn tree_node_cases(
 ) {
     let fresh_node = fresh_tree_node(view, complement);
     if let Some(id) = fresh_node {
-        for label in lens
-            .tgt
-            .edges
-            .iter()
-            .filter(|label| uniquely_representable_edge(lens, label))
-        {
+        for label in lens.tgt.edges.iter().filter(|label| {
+            edge_label_is_fan_neutral(lens, label) && uniquely_representable_edge(lens, label)
+        }) {
             for (parent, _) in view
                 .nodes
                 .iter()
@@ -2337,6 +3012,9 @@ fn tree_node_cases(
                 edited
                     .nodes
                     .insert(id, tree_node_for_anchor(id, lens.tgt, &label.tgt));
+                if !tree_arc_is_fan_neutral(lens, &edited, *parent, id, label) {
+                    continue;
+                }
                 let insertion = edited
                     .arcs
                     .iter()
@@ -2395,7 +3073,9 @@ fn tree_edge_cases(
     let graph = &complement.complement;
     for (index, (parent, child, label)) in view.arcs.iter().enumerate() {
         let edge = complement.embedding.arcs.get(child);
-        if edge.is_some_and(|edge| graph.synthesized_edges.contains_key(edge)) {
+        if edge.is_some_and(|edge| graph.synthesized_edges.contains_key(edge))
+            || !tree_arc_is_fan_neutral(lens, view, *parent, *child, label)
+        {
             continue;
         }
         for (next_parent, node) in &view.nodes {
@@ -2419,6 +3099,7 @@ fn tree_edge_cases(
             *replacement != label
                 && replacement.src == label.src
                 && replacement.tgt == label.tgt
+                && tree_arc_is_fan_neutral(lens, view, view.arcs[index].0, *child, replacement)
                 && uniquely_representable_edge(lens, replacement)
         }) {
             {
@@ -2541,7 +3222,7 @@ fn tree_synthesized_negative_cases(
         );
         let mut edited = view.clone();
         if let Some(node) = edited.nodes.get_mut(&id) {
-            node.anchor.push('#');
+            node.value = Some(Presence::Present(Value::Int(1)));
         }
         push_tree_refused(
             basis,
@@ -2576,7 +3257,22 @@ fn tree_other_negative_cases(
                 .fates()
                 .values()
                 .any(|fate| matches!(fate, EdgeFate::Keep(image) if image == edge))
+                || is_fan_kind(&edge.kind)
+                || lens
+                    .src
+                    .edges
+                    .iter()
+                    .any(|source| is_fan_kind(&source.kind))
+                || view
+                    .nodes
+                    .get(src)
+                    .is_none_or(|node| node.shape == NodeShape::HyperEdge)
+                || !validation_neutral_tree_anchor(lens, &edge.src)
                 || !validation_neutral_tree_anchor(lens, &edge.tgt)
+                || !graph_node_restore_is_identity(
+                    lens,
+                    &tree_node_for_anchor(id, lens.tgt, &edge.tgt),
+                )
             {
                 continue;
             }
@@ -2612,7 +3308,7 @@ fn tree_other_negative_cases(
         let Some(parent) = isolated_reserved_tree_parent(complement, *id) else {
             continue;
         };
-        let Some(label) = isolated_tree_attachment(lens, view, complement, parent) else {
+        let Some(label) = isolated_tree_attachment(lens, view, complement, parent, *id) else {
             continue;
         };
         let mut edited = view.clone();
@@ -2809,13 +3505,6 @@ impl<'a> LawShape<GraphLens<'a>> for TreeShape {
         complement: &TreeLawComplement,
         (): &(),
     ) -> Result<Tree, ReferenceLawError> {
-        lens.verify_identity(
-            &complement.complement,
-            crate::pages::representation::canonical::ComplementShape::WType,
-        )
-        .map_err(reference_lens_error)?;
-        tree_check_put_domain(lens, view, &complement.embedding, &complement.complement)
-            .map_err(reference_lens_error)?;
         tree_put(lens, view, &complement.embedding, &complement.complement)
             .map_err(reference_lens_error)
     }
@@ -2828,6 +3517,10 @@ impl<'a> LawShape<GraphLens<'a>> for TreeShape {
     ) -> Result<(), ReferenceLawError> {
         tree_check_put_domain(lens, view, &complement.embedding, &complement.complement)
             .map_err(reference_lens_error)
+    }
+
+    fn first_put_refusal(refusal: &ReferenceLawError) -> Option<ReferenceLawError> {
+        reference_first_put_error(refusal)
     }
 
     fn single_step_basis(
@@ -3309,13 +4002,14 @@ where
                     refusal,
                 );
             }
-            (DomainExpectation::Refused(expected), Err(observed)) if *expected == observed => {}
+            (DomainExpectation::Refused(expected), Err(observed))
+                if S::first_put_refusal(expected).as_ref() == Some(&observed) => {}
             (DomainExpectation::Refused(expected), Err(observed)) => {
                 return GateReport {
                     gate: LawGate::Totality,
                     status: LawGateStatus::Failed(LawFailure::DomainMismatch {
                         case: candidate.ordinal,
-                        expected: Some(expected.clone()),
+                        expected: S::first_put_refusal(expected).or_else(|| Some(expected.clone())),
                         observed: Some(observed),
                     }),
                 };
@@ -3325,7 +4019,7 @@ where
                     gate: LawGate::Totality,
                     status: LawGateStatus::Failed(LawFailure::DomainMismatch {
                         case: candidate.ordinal,
-                        expected: Some(expected.clone()),
+                        expected: S::first_put_refusal(expected).or_else(|| Some(expected.clone())),
                         observed: None,
                     }),
                 };
@@ -3454,6 +4148,9 @@ where
         if !matches!(candidate.domain, DomainExpectation::Admitted) {
             continue;
         }
+        if S::check_put_domain(lens, &candidate.view, &complement, context).is_err() {
+            continue;
+        }
         cases += 1;
         let restored = match S::put(lens, &candidate.view, &complement, context) {
             Ok(restored) => restored,
@@ -3552,6 +4249,1711 @@ pub fn put(
 }
 
 #[cfg(test)]
+mod refusal_normalization_tests {
+    use std::collections::BTreeSet;
+
+    use super::{
+        PutDomainError, ReferenceLawError, ViewRef, reference_first_put_error,
+        table_first_put_error,
+    };
+    use crate::encode::TableEncodeError;
+    use crate::model::SEdge;
+    use crate::pages::lenses::table::{TableCheckError, TableOperationalError, TablePutError};
+
+    fn collision(row: u32) -> PutDomainError {
+        PutDomainError::IdCollision {
+            elem: ViewRef::Row(row),
+        }
+    }
+
+    #[test]
+    fn graph_and_tree_complete_reports_normalize_to_the_first_violation() {
+        let complete = ReferenceLawError::PutDomain(vec![collision(2), collision(3)]);
+        assert_eq!(
+            reference_first_put_error(&complete),
+            Some(ReferenceLawError::PutDomain(vec![collision(2)]))
+        );
+        assert_eq!(
+            reference_first_put_error(&ReferenceLawError::PutDomain(Vec::new())),
+            None
+        );
+    }
+
+    #[test]
+    fn table_complete_report_prefers_the_first_known_violation() {
+        let unresolved_collations = BTreeSet::from(["named_ci".to_owned()]);
+        let complete = TableCheckError::Domain {
+            violations: vec![collision(2), collision(3)],
+            unresolved_collations,
+        };
+        assert_eq!(
+            table_first_put_error(&complete),
+            Some(TablePutError::Domain(collision(2)))
+        );
+    }
+
+    #[test]
+    fn table_unresolved_only_operational_and_empty_reports_normalize_exactly() {
+        let names = BTreeSet::from(["named_ci".to_owned()]);
+        assert_eq!(
+            table_first_put_error(&TableCheckError::Domain {
+                violations: Vec::new(),
+                unresolved_collations: names.clone(),
+            }),
+            Some(TablePutError::NamedCollationUnresolved {
+                names: names.clone(),
+            })
+        );
+        assert_eq!(
+            table_first_put_error(&TableCheckError::NamedCollationUnresolved {
+                names: names.clone(),
+            }),
+            Some(TablePutError::NamedCollationUnresolved { names })
+        );
+
+        let pair = (SEdge::new("a", "b", "fk", Some("fk")), 1, 2);
+        let operational =
+            TableOperationalError::BaselineEncoding(TableEncodeError::MalformedTable {
+                pair: Box::new(pair),
+            });
+        assert_eq!(
+            table_first_put_error(&TableCheckError::Operational(operational.clone())),
+            Some(TablePutError::Operational(operational))
+        );
+        assert_eq!(
+            table_first_put_error(&TableCheckError::Domain {
+                violations: Vec::new(),
+                unresolved_collations: BTreeSet::new(),
+            }),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
+mod graph_basis_tests {
+    use std::collections::BTreeMap;
+    use std::fmt::Debug;
+
+    use super::{BasisCase, DomainExpectation, Mutation, ReferenceLawError, ViewRef, graph_basis};
+    use crate::migration::Migration;
+    use crate::model::{GEdge, Graph, Node, NodeShape, SEdge};
+    use crate::pages::lenses::domain::PutDomainError;
+    use crate::pages::lenses::graph::{GraphLens, LensError};
+    use crate::restrict::{
+        Complement, LayerRefusal, NoValueLayer, PredicateRefusal, PutFieldRefusal, SynthKey,
+        ValueLayer, ValueLayerSemantics, compile,
+    };
+    use crate::schema::{
+        Cardinality, HyperEdge, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved,
+        RefSource, Reference, ResolveMode, Schema,
+    };
+    use crate::validation::{Semantics, Violation};
+    use crate::value::{Presence, Value};
+
+    struct SelectiveRestoreLayer;
+
+    impl ValueLayer for SelectiveRestoreLayer {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            ValueLayerSemantics {
+                domain: "panproto-reference/selective-restore-test",
+                version: 1,
+                canonical_payload: Vec::new(),
+            }
+        }
+
+        fn survives(&self, _: &Graph, _: &Node) -> Result<bool, PredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &Graph,
+            node: &Node,
+        ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
+            Ok((node.fields.clone(), node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &Node,
+            _: Option<&BTreeMap<String, Value>>,
+            _: Option<&Option<Presence>>,
+        ) -> Result<(BTreeMap<String, Value>, Option<Presence>), PutFieldRefusal> {
+            match view.anchor.as_str() {
+                "a" => Err(PutFieldRefusal::TransformNotInvertible {
+                    field: "refused".to_owned(),
+                }),
+                "b" => {
+                    let mut fields = view.fields.clone();
+                    fields.insert("changed".to_owned(), Value::Bool(true));
+                    Ok((fields, view.value.clone()))
+                }
+                _ => Ok((view.fields.clone(), view.value.clone())),
+            }
+        }
+    }
+
+    struct GraphSensitivePredicateLayer;
+
+    impl ValueLayer for GraphSensitivePredicateLayer {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            ValueLayerSemantics {
+                domain: "panproto-reference/graph-sensitive-predicate-test",
+                version: 1,
+                canonical_payload: Vec::new(),
+            }
+        }
+
+        fn survives(&self, source: &Graph, _: &Node) -> Result<bool, PredicateRefusal> {
+            Ok(!source.nodes.values().any(|node| node.anchor == "candidate"))
+        }
+
+        fn transform(
+            &self,
+            _: &Graph,
+            node: &Node,
+        ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
+            Ok((node.fields.clone(), node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &Node,
+            _: Option<&BTreeMap<String, Value>>,
+            _: Option<&Option<Presence>>,
+        ) -> Result<(BTreeMap<String, Value>, Option<Presence>), PutFieldRefusal> {
+            Ok((view.fields.clone(), view.value.clone()))
+        }
+    }
+
+    fn insert_nullable_reference(schema: &mut Schema) {
+        schema.keys.entry("b".to_owned()).or_default().push(Key {
+            id: "reference-target".to_owned(),
+            parts: vec![KeyPart::Path(Vec::new())],
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+            equality: Vec::new(),
+        });
+        let reference = Reference {
+            id: "nullable-ref".to_owned(),
+            holder: "a".to_owned(),
+            source: RefSource::KeyValue {
+                parts: vec![Vec::new()],
+            },
+            target_vertex: "b".to_owned(),
+            target_key: Some("reference-target".to_owned()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: true,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        };
+        schema.references.insert(reference.id.clone(), reference);
+    }
+
+    fn isolated_reserved_graph_fixture() -> (Schema, Schema, Migration, Graph) {
+        let kept = SEdge::new("a", "b", "source", Some("kept"));
+        let hidden = SEdge::new("a", "b", "source", Some("hidden"));
+        let target = SEdge::new("a", "b", "target", Some("ab"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("dropped", "record")
+            .edge("a", "b", "source", Some("kept"))
+            .edge("a", "b", "source", Some("hidden"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "target", Some("ab"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            edge_remap: [(kept.clone(), target)].into(),
+            ..Migration::default()
+        };
+        let source = Graph {
+            nodes: [
+                (1, Node::new(1, "a")),
+                (2, Node::new(2, "b")),
+                (3, Node::new(3, "dropped")),
+            ]
+            .into(),
+            edges: [
+                (
+                    4,
+                    GEdge {
+                        src: 1,
+                        tgt: 2,
+                        label: kept,
+                        position: None,
+                    },
+                ),
+                (
+                    5,
+                    GEdge {
+                        src: 1,
+                        tgt: 2,
+                        label: hidden,
+                        position: None,
+                    },
+                ),
+            ]
+            .into(),
+        };
+        (source_schema, target_schema, migration, source)
+    }
+
+    fn indirect_key_reserved_edge_fixture() -> (Schema, Schema, Migration, Graph, SEdge) {
+        let kept = SEdge::new("a", "b", "source", Some("kept"));
+        let hidden = SEdge::new("a", "b", "source", Some("hidden"));
+        let target = SEdge::new("a", "b", "target", Some("ab"));
+        let mut source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "string")
+            .edge("a", "b", "source", Some("kept"))
+            .edge("a", "b", "source", Some("hidden"));
+        source_schema.keys.insert(
+            "a".to_owned(),
+            vec![Key {
+                id: "indirect".to_owned(),
+                parts: vec![KeyPart::Path(vec![kept.clone()])],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "string")
+            .edge("a", "b", "target", Some("ab"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            edge_remap: [(kept.clone(), target.clone())].into(),
+            ..Migration::default()
+        };
+        let source = Graph {
+            nodes: [
+                (1, Node::new(1, "a")),
+                (
+                    2,
+                    Node::new(2, "b").with_value(Value::Str("same".to_owned())),
+                ),
+                (3, Node::new(3, "a")),
+                (
+                    4,
+                    Node::new(4, "b").with_value(Value::Str("same".to_owned())),
+                ),
+            ]
+            .into(),
+            edges: [
+                (
+                    5,
+                    GEdge {
+                        src: 3,
+                        tgt: 4,
+                        label: hidden,
+                        position: None,
+                    },
+                ),
+                (
+                    6,
+                    GEdge {
+                        src: 1,
+                        tgt: 2,
+                        label: kept,
+                        position: None,
+                    },
+                ),
+            ]
+            .into(),
+        };
+        (source_schema, target_schema, migration, source, target)
+    }
+
+    fn fan_kind_reserved_edge_fixture() -> (Schema, Schema, Migration, Graph, SEdge) {
+        let source_kept = SEdge::new("a", "b", crate::restrict::HYPER_PARENT, Some("source-kept"));
+        let target_kept = SEdge::new("a", "b", "ordinary", Some("target-kept"));
+        let hidden = SEdge::new("a", "b", "ordinary", Some("hidden"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", crate::restrict::HYPER_PARENT, Some("source-kept"))
+            .edge("a", "b", "ordinary", Some("hidden"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "ordinary", Some("target-kept"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            edge_remap: [(source_kept, target_kept.clone())].into(),
+            ..Migration::default()
+        };
+        let source = Graph {
+            nodes: [(1, Node::new(1, "a")), (2, Node::new(2, "b"))].into(),
+            edges: [(
+                5,
+                GEdge {
+                    src: 1,
+                    tgt: 2,
+                    label: hidden,
+                    position: None,
+                },
+            )]
+            .into(),
+        };
+        (source_schema, target_schema, migration, source, target_kept)
+    }
+
+    fn assert_reserved_node_residue_is_rejected(
+        lens: &GraphLens<'_>,
+        view: &Graph,
+        complement: &Complement,
+    ) {
+        let candidate = super::tree_node_for_anchor(3, lens.tgt, "a");
+        assert!(super::graph_reserved_node_witness_is_structurally_exact(
+            lens, view, complement, &candidate,
+        ));
+        let mut collateral = complement.clone();
+        collateral.original_fields.insert(3, BTreeMap::new());
+        assert!(
+            !super::graph_reserved_node_witness_is_structurally_exact(
+                lens,
+                view,
+                &collateral,
+                &candidate,
+            ),
+            "node-keyed residue prevents an independently isolated collision witness"
+        );
+        let mut incident = complement.clone();
+        incident.dropped_edges.insert(
+            6,
+            GEdge {
+                src: 3,
+                tgt: 2,
+                label: SEdge::new("a", "b", "source", Some("hidden")),
+                position: None,
+            },
+        );
+        assert!(
+            !super::graph_reserved_node_witness_is_structurally_exact(
+                lens, view, &incident, &candidate,
+            ),
+            "even endpoint-compatible incident residue is outside the local proof"
+        );
+    }
+
+    fn dropped_only_graph() -> Graph {
+        Graph {
+            nodes: [(7, Node::new(7, "dropped"))].into(),
+            ..Graph::default()
+        }
+    }
+
+    fn without_reserved_graph_node_residue(mut complement: Complement, id: u32) -> Complement {
+        assert!(
+            complement.dropped_nodes.remove(&id).is_some(),
+            "the counterfactual removes exactly the reserved dropped node"
+        );
+        complement
+    }
+
+    fn without_reserved_graph_edge_residue(mut complement: Complement, id: u32) -> Complement {
+        complement.dropped_edges.remove(&id);
+        complement.original_edges.remove(&id);
+        complement.synthesized_edges.remove(&id);
+        complement.synthesized_nodes.retain(
+            |_, key| !matches!(key, SynthKey::Expand { source_edge, .. } if *source_edge == id),
+        );
+        complement.synthesized_edges.retain(
+            |_, key| !matches!(key, SynthKey::Expand { source_edge, .. } if *source_edge == id),
+        );
+        complement
+    }
+
+    fn assert_reserved_graph_counterfactual(
+        lens: &GraphLens<'_>,
+        case: &BasisCase<Graph, ReferenceLawError>,
+        complement: &Complement,
+        stripped: &Complement,
+    ) {
+        assert_exact_graph_negative(lens, complement, case);
+        assert_eq!(lens.check_put_domain(&case.view, stripped), Ok(()));
+        let restored = must(lens.put(&case.view, stripped));
+        assert_eq!(
+            crate::pages::validation::implementation::validate_graph(
+                lens.src,
+                lens.constraint_semantics(),
+                &restored,
+            )
+            .status,
+            crate::pages::validation::implementation::CheckStatus::Passed
+        );
+        let (regotten, regotten_complement) = must(lens.get(&restored));
+        assert!(<super::GraphShape as super::LensShape>::equivalent(
+            &case.view,
+            &<super::GraphShape as super::LensShape>::synth_index(&case.view, stripped),
+            &regotten,
+            &<super::GraphShape as super::LensShape>::synth_index(&regotten, &regotten_complement,),
+        ));
+    }
+
+    fn assert_reserved_graph_counterfactuals(
+        lens: &GraphLens<'_>,
+        cases: &[BasisCase<Graph, ReferenceLawError>],
+        complement: &Complement,
+    ) {
+        for (reference, stripped) in [
+            (
+                ViewRef::Node(3),
+                without_reserved_graph_node_residue(complement.clone(), 3),
+            ),
+            (
+                ViewRef::Edge(5),
+                without_reserved_graph_edge_residue(complement.clone(), 5),
+            ),
+        ] {
+            let expected = DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![
+                PutDomainError::IdCollision { elem: reference },
+            ]));
+            let case = cases
+                .iter()
+                .find(|case| case.domain == expected)
+                .unwrap_or_else(|| panic!("missing reserved-carrier witness"));
+            assert_reserved_graph_counterfactual(lens, case, complement, &stripped);
+        }
+    }
+
+    fn must<T, E: Debug>(result: Result<T, E>) -> T {
+        result.unwrap_or_else(|error| panic!("unexpected error: {error:?}"))
+    }
+
+    fn assert_exact_graph_negative(
+        lens: &GraphLens<'_>,
+        complement: &Complement,
+        case: &BasisCase<Graph, ReferenceLawError>,
+    ) -> Vec<PutDomainError> {
+        let DomainExpectation::Refused(ReferenceLawError::PutDomain(expected)) = &case.domain
+        else {
+            panic!("negative case lacks an independent complete refusal")
+        };
+        let Some(first) = expected.first() else {
+            panic!("a refused graph declaration must contain a violation")
+        };
+        assert_eq!(
+            lens.check_put_domain(&case.view, complement),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            lens.put(&case.view, complement),
+            Err(LensError::PutDomain(first.clone()))
+        );
+        expected.clone()
+    }
+
+    #[test]
+    fn graph_synthesized_negatives_are_exact_node_first_and_raw_first() {
+        let source_edge = SEdge::new("a", "b", "source", Some("ab"));
+        let ax = SEdge::new("a", "x", "hop", Some("ax"));
+        let ax_alternate = SEdge::new("a", "x", "hop", Some("ax-alternate"));
+        let xb = SEdge::new("x", "b", "hop", Some("xb"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "source", Some("ab"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("x", "record")
+            .vertex("b", "record")
+            .edge("a", "x", "hop", Some("ax"))
+            .edge("a", "x", "hop", Some("ax-alternate"))
+            .edge("x", "b", "hop", Some("xb"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            resolver: [
+                (("a".to_owned(), "x".to_owned()), ax),
+                (("x".to_owned(), "b".to_owned()), xb),
+            ]
+            .into(),
+            expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["x".to_owned()])].into(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = Graph {
+            nodes: [(1, Node::new(1, "a")), (2, Node::new(2, "b"))].into(),
+            edges: [(
+                3,
+                GEdge {
+                    src: 1,
+                    tgt: 2,
+                    label: source_edge,
+                    position: None,
+                },
+            )]
+            .into(),
+        };
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(complement.synthesized_nodes.len(), 1);
+        assert_eq!(complement.synthesized_edges.len(), 2);
+
+        let cases = graph_basis(&lens, &view, &complement);
+        let removed: Vec<_> = cases
+            .iter()
+            .filter(|case| case.mutation == Mutation::RemoveSynthesized)
+            .collect();
+        assert_eq!(removed.len(), 3);
+        let complete = assert_exact_graph_negative(&lens, &complement, removed[0]);
+        assert_eq!(complete.len(), 3);
+        assert!(matches!(
+            complete.as_slice(),
+            [
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Node(_)
+                },
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(_)
+                },
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(_)
+                }
+            ]
+        ));
+        for case in &removed[1..] {
+            assert_exact_graph_negative(&lens, &complement, case);
+        }
+
+        let edited: Vec<_> = cases
+            .iter()
+            .filter(|case| case.mutation == Mutation::EditSynthesized)
+            .collect();
+        assert_eq!(edited.len(), 2, "node and alternate-label edge witnesses");
+        for case in edited {
+            assert_exact_graph_negative(&lens, &complement, case);
+        }
+        assert!(cases.iter().all(|case| {
+            case.mutation != Mutation::ReservedIdReuse
+                || !matches!(
+                    &case.domain,
+                    DomainExpectation::Refused(ReferenceLawError::PutDomain(errors))
+                        if errors.iter().any(|error| matches!(error,
+                            PutDomainError::IdCollision { elem: ViewRef::Edge(3) }))
+                )
+        }));
+        assert!(target_schema.edges.contains(&ax_alternate));
+    }
+
+    #[test]
+    fn graph_contracted_edge_negative_is_exact_and_nonvacuous() {
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .edge("a", "m", "fk", Some("am"))
+            .edge("m", "b", "fk", Some("mb"));
+        let target_label = SEdge::new("a", "b", "fk", Some("ab"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "fk", Some("ab"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            resolver: [(("a".to_owned(), "b".to_owned()), target_label)].into(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = Graph {
+            nodes: [(1, Node::new(1, "a")), (2, Node::new(2, "b"))].into(),
+            ..Graph::default()
+        };
+        let (view, complement) = must(lens.get(&source));
+        let cases: Vec<_> = graph_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|case| case.mutation == Mutation::AddContractedEdge)
+            .collect();
+        assert_eq!(cases.len(), 1);
+        assert_exact_graph_negative(&lens, &complement, &cases[0]);
+    }
+
+    #[test]
+    fn graph_malformed_fan_negative_is_exact_and_nonvacuous() {
+        let mut schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record");
+        schema.hyper_edges.insert(
+            "h".to_owned(),
+            HyperEdge {
+                kind: "fan".to_owned(),
+                signature: [("l".to_owned(), "b".to_owned())].into(),
+                parent_label: "p".to_owned(),
+            },
+        );
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&schema, &schema, &migration));
+        let lens = must(GraphLens::new(
+            &schema,
+            &schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let mut fan = Node::new(2, "h");
+        fan.shape = NodeShape::HyperEdge;
+        let source = Graph {
+            nodes: [(0, Node::new(0, "a")), (1, Node::new(1, "b")), (2, fan)].into(),
+            edges: [
+                (
+                    3,
+                    GEdge {
+                        src: 2,
+                        tgt: 0,
+                        label: SEdge::new("h", "a", crate::restrict::HYPER_PARENT, Some("p")),
+                        position: None,
+                    },
+                ),
+                (
+                    4,
+                    GEdge {
+                        src: 2,
+                        tgt: 1,
+                        label: SEdge::new("h", "b", crate::restrict::HYPER_LABEL, Some("l")),
+                        position: None,
+                    },
+                ),
+            ]
+            .into(),
+        };
+        let (view, complement) = must(lens.get(&source));
+        let cases: Vec<_> = graph_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|case| case.mutation == Mutation::MalformedFan)
+            .collect();
+        assert_eq!(cases.len(), 1);
+        let complete = assert_exact_graph_negative(&lens, &complement, &cases[0]);
+        assert!(matches!(
+            complete.as_slice(),
+            [PutDomainError::MalformedFan {
+                node: 2,
+                reason: crate::fan::FanViolation::MultipleParents { edges }
+            }] if edges.len() == 2 && edges[0] == 3
+        ));
+    }
+
+    #[test]
+    fn graph_reserved_node_and_edge_negatives_are_exact_and_isolated() {
+        let (source_schema, target_schema, migration, source) = isolated_reserved_graph_fixture();
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            complement.dropped_nodes.keys().copied().collect::<Vec<_>>(),
+            vec![3]
+        );
+        assert_eq!(
+            complement.dropped_edges.keys().copied().collect::<Vec<_>>(),
+            vec![5]
+        );
+        assert_reserved_node_residue_is_rejected(&lens, &view, &complement);
+
+        let cases: Vec<_> = graph_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+            .collect();
+        assert_eq!(cases.len(), 2);
+        let reports: Vec<_> = cases
+            .iter()
+            .map(|case| assert_exact_graph_negative(&lens, &complement, case))
+            .collect();
+        assert!(reports.contains(&vec![PutDomainError::IdCollision {
+            elem: ViewRef::Node(3),
+        }]));
+        assert!(reports.contains(&vec![PutDomainError::IdCollision {
+            elem: ViewRef::Edge(5),
+        }]));
+
+        assert_reserved_graph_counterfactuals(&lens, &cases, &complement);
+    }
+
+    #[test]
+    fn graph_reserved_edge_omits_an_indirect_key_collision() {
+        let (source_schema, target_schema, migration, source, target) =
+            indirect_key_reserved_edge_fixture();
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+
+        let stripped = without_reserved_graph_edge_residue(complement, 5);
+        let mut counterfactual = view;
+        counterfactual.edges.insert(
+            5,
+            GEdge {
+                src: 3,
+                tgt: 4,
+                label: target,
+                position: None,
+            },
+        );
+        assert_eq!(
+            lens.check_put_domain(&counterfactual, &stripped),
+            Err(vec![PutDomainError::DuplicateKey {
+                table: "a".to_owned(),
+                key: vec![("kept".to_owned(), Value::Str("same".to_owned()))],
+                elems: vec![ViewRef::Node(1), ViewRef::Node(3)],
+            }])
+        );
+    }
+
+    #[test]
+    fn graph_reserved_edge_omits_a_fan_reserved_label() {
+        let (source_schema, target_schema, migration, source, kept) =
+            fan_kind_reserved_edge_fixture();
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+
+        let mut counterfactual = view;
+        counterfactual.edges.insert(
+            5,
+            GEdge {
+                src: 1,
+                tgt: 2,
+                label: kept,
+                position: None,
+            },
+        );
+        assert_eq!(
+            lens.check_put_domain(&counterfactual, &complement),
+            Err(vec![
+                PutDomainError::IdCollision {
+                    elem: ViewRef::Edge(5),
+                },
+                PutDomainError::MalformedFan {
+                    node: 1,
+                    reason: crate::fan::FanViolation::ReservedKindOutsideFan { edge: 5 },
+                },
+            ])
+        );
+        let stripped = without_reserved_graph_edge_residue(complement, 5);
+        assert_eq!(
+            lens.check_put_domain(&counterfactual, &stripped),
+            Err(vec![PutDomainError::MalformedFan {
+                node: 1,
+                reason: crate::fan::FanViolation::ReservedKindOutsideFan { edge: 5 },
+            }])
+        );
+    }
+
+    #[test]
+    fn graph_reserved_node_searches_for_an_identity_restoring_anchor() {
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("c", "record")
+            .vertex("dropped", "record");
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("c", "record");
+        let migration = Migration {
+            surviving_verts: ["a", "b", "c"].into_iter().map(str::to_owned).collect(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let layer = SelectiveRestoreLayer;
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &layer,
+        ));
+        let source = Graph {
+            nodes: [(7, Node::new(7, "dropped"))].into(),
+            ..Graph::default()
+        };
+        let (view, complement) = must(lens.get(&source));
+        let cases: Vec<_> = graph_basis(&lens, &view, &complement)
+            .into_iter()
+            .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+            .collect();
+        assert_eq!(cases.len(), 1);
+        assert_eq!(cases[0].view.nodes[&7].anchor, "c");
+        assert_exact_graph_negative(&lens, &complement, &cases[0]);
+
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("dropped", "record");
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record");
+        let migration = Migration {
+            surviving_verts: ["a", "b"].into_iter().map(str::to_owned).collect(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &layer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0,
+            "a refusing restore and b changing restore leave no exact witness"
+        );
+    }
+
+    #[test]
+    fn graph_reserved_node_omits_an_unrelated_graph_sensitive_predicate() {
+        let source_schema = Schema::default()
+            .vertex("watcher", "record")
+            .vertex("candidate", "record")
+            .vertex("dropped", "record");
+        let target_schema = Schema::default()
+            .vertex("watcher", "record")
+            .vertex("candidate", "record");
+        let migration = Migration {
+            surviving_verts: ["watcher", "candidate"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            conditional: ["watcher".to_owned()].into(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let layer = GraphSensitivePredicateLayer;
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &layer,
+        ));
+        let source = Graph {
+            nodes: [(1, Node::new(1, "watcher")), (7, Node::new(7, "dropped"))].into(),
+            ..Graph::default()
+        };
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+
+        let stripped = without_reserved_graph_node_residue(complement, 7);
+        let mut counterfactual = view;
+        counterfactual.nodes.insert(7, Node::new(7, "candidate"));
+        assert_eq!(
+            lens.check_put_domain(&counterfactual, &stripped),
+            Err(vec![PutDomainError::SurvivalPredicateFails {
+                elem: ViewRef::Node(1),
+            }])
+        );
+    }
+
+    #[test]
+    fn graph_reserved_node_omits_an_indirect_required_value_constraint() {
+        let required_field = SEdge::new("a", "b", "prop", Some("f"));
+        let mut constrained_source = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "string")
+            .vertex("dropped", "record")
+            .edge("a", "b", "prop", Some("f"));
+        constrained_source.constraints.insert(
+            "b".to_owned(),
+            vec![("required".to_owned(), "true".to_owned())],
+        );
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "string")
+            .edge("a", "b", "prop", Some("f"));
+        let migration = Migration {
+            surviving_verts: ["a", "b"].into_iter().map(str::to_owned).collect(),
+            surviving_edges: [required_field].into(),
+            ..Migration::default()
+        };
+        let semantics = BTreeMap::from([("required".to_owned(), Semantics::RequiredValue)]);
+        let plan = must(compile(&constrained_source, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &constrained_source,
+            &target_schema,
+            &migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ));
+        let source = dropped_only_graph();
+        let (view, complement) = must(lens.get(&source));
+        assert!(
+            !super::validation_neutral_graph_anchor(&lens, "a"),
+            "a constraint on b is still global oracle state"
+        );
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+        let stripped = without_reserved_graph_node_residue(complement, 7);
+        let mut counterfactual = view;
+        counterfactual
+            .nodes
+            .insert(7, super::tree_node_for_anchor(7, lens.tgt, "a"));
+        assert_eq!(
+            lens.check_put_domain(&counterfactual, &stripped),
+            Err(vec![PutDomainError::MissingRequiredCell {
+                elem: ViewRef::Node(7),
+                field: "f".to_owned(),
+            }])
+        );
+    }
+
+    #[test]
+    fn graph_reserved_node_omits_a_nullable_reference() {
+        let mut referenced_source = Schema::default()
+            .vertex("a", "string")
+            .vertex("b", "string")
+            .vertex("dropped", "record");
+        insert_nullable_reference(&mut referenced_source);
+        let referenced_target = Schema::default()
+            .vertex("a", "string")
+            .vertex("b", "string");
+        let referenced_migration = Migration {
+            surviving_verts: ["a", "b"].into_iter().map(str::to_owned).collect(),
+            ..Migration::default()
+        };
+        let plan = must(compile(
+            &referenced_source,
+            &referenced_target,
+            &referenced_migration,
+        ));
+        let lens = must(GraphLens::new(
+            &referenced_source,
+            &referenced_target,
+            &referenced_migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = dropped_only_graph();
+        let (view, complement) = must(lens.get(&source));
+        assert!(
+            !super::validation_neutral_graph_anchor(&lens, "a"),
+            "nullable references can still observe a present scalar key"
+        );
+        assert_eq!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+
+        let stripped = without_reserved_graph_node_residue(complement, 7);
+        let mut counterfactual = view;
+        counterfactual
+            .nodes
+            .insert(7, super::tree_node_for_anchor(7, lens.tgt, "a"));
+        let restored = must(lens.put(&counterfactual, &stripped));
+        let validation = crate::pages::validation::implementation::validate_graph(
+            lens.src,
+            lens.constraint_semantics(),
+            &restored,
+        );
+        assert_eq!(
+            validation.status,
+            crate::pages::validation::implementation::CheckStatus::Failed
+        );
+        assert!(validation.diagnostics.iter().any(|diagnostic| matches!(
+            &diagnostic.violation,
+            Violation::DanglingReference(reference, _) if reference == "nullable-ref"
+        )));
+    }
+
+    #[test]
+    fn graph_reserved_node_basis_rejects_a_fully_dropped_fan_replacement() {
+        let mut source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record");
+        source_schema.hyper_edges.insert(
+            "h".to_owned(),
+            HyperEdge {
+                kind: "fan".to_owned(),
+                signature: [("l".to_owned(), "b".to_owned())].into(),
+                parent_label: "p".to_owned(),
+            },
+        );
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record");
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            ..Migration::default()
+        };
+        let plan = must(compile(&source_schema, &target_schema, &migration));
+        let lens = must(GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let mut fan = Node::new(2, "h");
+        fan.shape = NodeShape::HyperEdge;
+        let source = Graph {
+            nodes: [(0, Node::new(0, "a")), (1, Node::new(1, "b")), (2, fan)].into(),
+            edges: [(
+                3,
+                GEdge {
+                    src: 2,
+                    tgt: 0,
+                    label: SEdge::new("h", "a", crate::restrict::HYPER_PARENT, Some("p")),
+                    position: None,
+                },
+            )]
+            .into(),
+        };
+        let (view, complement) = must(lens.get(&source));
+        assert!(complement.dropped_nodes.contains_key(&2));
+        assert_eq!(complement.dropped_edges.len(), 1);
+
+        let mut replacement = view.clone();
+        let candidate = Node::new(2, "a");
+        replacement.nodes.insert(2, candidate.clone());
+        assert!(
+            !super::graph_reserved_node_witness_is_structurally_exact(
+                &lens,
+                &view,
+                &complement,
+                &candidate,
+            ),
+            "fan-shaped residue prevents an independently isolated collision witness"
+        );
+        assert_eq!(
+            lens.check_put_domain(&replacement, &complement),
+            Err(vec![
+                PutDomainError::IdCollision {
+                    elem: ViewRef::Node(2),
+                },
+                PutDomainError::MalformedFan {
+                    node: 2,
+                    reason: crate::fan::FanViolation::ReservedKindOutsideFan { edge: 3 },
+                },
+            ])
+        );
+        let mut stripped = complement.clone();
+        assert!(stripped.dropped_nodes.remove(&2).is_some());
+        assert_eq!(
+            lens.check_put_domain(&replacement, &stripped),
+            Err(vec![PutDomainError::MalformedFan {
+                node: 2,
+                reason: crate::fan::FanViolation::ReservedKindOutsideFan { edge: 3 },
+            }])
+        );
+        assert!(
+            graph_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .all(|case| {
+                    case.domain
+                        != DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![
+                            PutDomainError::IdCollision {
+                                elem: ViewRef::Node(2),
+                            },
+                        ]))
+                }),
+            "a mixed collision/fan failure is not a singleton reserved-id basis case"
+        );
+    }
+}
+
+#[cfg(test)]
+mod table_basis_tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fmt::Debug;
+
+    use super::{
+        BasisCase, DomainExpectation, Mutation, TableLawError, push_table_refused, table_basis,
+        table_first_put_error,
+    };
+    use crate::keys::{KeyEquality, SqlCollation, SqlPad};
+    use crate::migration::Migration;
+    use crate::model::{SEdge, Table};
+    use crate::pages::lenses::domain::{PutDomainError, ViewRef};
+    use crate::pages::lenses::table::{
+        self, TableBoundaries, TableCheckError, TableComplement, TableLens, TablePutError,
+    };
+    use crate::rel::{self, RelSchema};
+    use crate::restrict::NoValueLayer;
+    use crate::schema::{Key, KeyPart, KeyRole, KeyScope, Schema};
+    use crate::value::Value;
+
+    fn without_reserved_table_row_residue(
+        mut complement: TableComplement,
+        id: u32,
+    ) -> TableComplement {
+        complement.dropped_rows.remove(&id);
+        complement.dropped_cells.retain(|(row, _), _| *row != id);
+        for pairs in complement.dropped_fk_pairs.values_mut() {
+            pairs.retain(|(source, target)| *source != id && *target != id);
+        }
+        complement
+            .dropped_fk_pairs
+            .retain(|_, pairs| !pairs.is_empty());
+        complement
+            .original_fk_edges
+            .retain(|(_, source, target), _| *source != id && *target != id);
+        complement.original_tables.remove(&id);
+        complement.original_cells.retain(|(row, _), _| *row != id);
+        complement
+            .synthesized_fk_pairs
+            .retain(|(_, source, target)| *source != id && *target != id);
+        complement
+    }
+
+    fn assert_reserved_table_counterfactual(
+        lens: &TableLens<'_>,
+        case: &BasisCase<Table, TableLawError>,
+        complement: &TableComplement,
+        stripped: &TableComplement,
+    ) {
+        let DomainExpectation::Refused(TableLawError::Domain(expected)) = &case.domain else {
+            panic!("reserved table witness must declare a complete refusal")
+        };
+        assert_eq!(
+            table::check_put_domain(lens, &case.view, complement),
+            Err(expected.clone())
+        );
+        assert_eq!(table::check_put_domain(lens, &case.view, stripped), Ok(()));
+        let restored = must(table::put(lens, &case.view, stripped));
+        let validation = must(crate::pages::validation::implementation::validate_table(
+            lens.source_schema(),
+            &BTreeMap::new(),
+            &restored,
+        ));
+        assert_eq!(
+            validation.status,
+            crate::pages::validation::implementation::CheckStatus::Passed
+        );
+        let (regotten, regotten_complement) = must(lens.get(&restored));
+        assert!(<super::TableShape as super::LensShape>::equivalent(
+            &case.view,
+            &<super::TableShape as super::LensShape>::synth_index(&case.view, stripped),
+            &regotten,
+            &<super::TableShape as super::LensShape>::synth_index(&regotten, &regotten_complement,),
+        ));
+    }
+
+    fn named_collision_schemas() -> (Schema, Schema, Migration) {
+        let key_column = SEdge::new("kept", "scalar", "field", Some("key"));
+        let mut source = Schema::default()
+            .vertex("kept", "record")
+            .vertex("dropped", "record")
+            .vertex("scalar", "string")
+            .edge("kept", "scalar", "field", Some("key"));
+        source.keys.insert(
+            "kept".to_owned(),
+            vec![Key {
+                id: "kept-key".to_owned(),
+                parts: vec![KeyPart::Path(vec![key_column.clone()])],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: vec![KeyEquality::Sql {
+                    collation: SqlCollation::Named("named_ci".to_owned()),
+                    pad: SqlPad::NoPad,
+                }],
+            }],
+        );
+        let target = Schema::default()
+            .vertex("kept", "record")
+            .vertex("scalar", "string")
+            .edge("kept", "scalar", "field", Some("key"));
+        let migration = Migration {
+            surviving_verts: ["kept".to_owned(), "scalar".to_owned()].into(),
+            surviving_edges: [key_column].into(),
+            ..Migration::default()
+        };
+        (source, target, migration)
+    }
+
+    fn named_collision_source() -> Table {
+        Table {
+            rows: [
+                (
+                    1,
+                    (
+                        "kept".to_owned(),
+                        [("key".to_owned(), Value::Str("alpha".to_owned()))].into(),
+                    ),
+                ),
+                (2, ("dropped".to_owned(), BTreeMap::new())),
+            ]
+            .into(),
+            ..Table::default()
+        }
+    }
+
+    fn contracted_table_pair_fixture() -> (Schema, Schema, Migration, Table) {
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .edge("a", "m", "fk", Some("am"))
+            .edge("m", "b", "fk", Some("mb"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "fk", Some("ab"));
+        let label = SEdge::new("a", "b", "fk", Some("ab"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            resolver: [(("a".to_owned(), "b".to_owned()), label)].into(),
+            ..Migration::default()
+        };
+        let source = Table {
+            rows: [
+                (1, ("a".to_owned(), BTreeMap::new())),
+                (3, ("b".to_owned(), BTreeMap::new())),
+            ]
+            .into(),
+            ..Table::default()
+        };
+        (source_schema, target_schema, migration, source)
+    }
+
+    fn must<T, E: Debug>(result: Result<T, E>) -> T {
+        result.unwrap_or_else(|error| panic!("unexpected error: {error:?}"))
+    }
+
+    fn record_boundary(schema: &Schema) -> RelSchema {
+        must(rel::classify(
+            schema,
+            &BTreeSet::new(),
+            &BTreeSet::from(["record".to_owned()]),
+        ))
+    }
+
+    fn record_string_boundary(schema: &Schema) -> RelSchema {
+        must(rel::classify(
+            schema,
+            &BTreeSet::from(["string".to_owned()]),
+            &BTreeSet::from(["record".to_owned()]),
+        ))
+    }
+
+    fn assert_exact_table_negatives(
+        lens: &TableLens<'_>,
+        complement: &TableComplement,
+        cases: &[BasisCase<Table, TableLawError>],
+        mutation: Mutation,
+    ) {
+        let selected: Vec<_> = cases
+            .iter()
+            .filter(|case| case.mutation == mutation)
+            .collect();
+        assert!(
+            !selected.is_empty(),
+            "{mutation:?} fixture must be nonvacuous"
+        );
+        for case in selected {
+            let DomainExpectation::Refused(TableLawError::Domain(expected)) = &case.domain else {
+                panic!("negative case lacks an independent complete refusal")
+            };
+            assert_eq!(
+                table::check_put_domain(lens, &case.view, complement),
+                Err(expected.clone())
+            );
+            assert_eq!(
+                table::put(lens, &case.view, complement).err(),
+                table_first_put_error(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn table_mixed_domain_report_keeps_unrelated_named_collation_evidence() {
+        let (source_schema, target_schema, migration) = named_collision_schemas();
+        let source_boundary = record_string_boundary(&source_schema);
+        let target_boundary = record_string_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = named_collision_source();
+        let (view, complement) = must(lens.get(&source));
+        let mut edited = view.clone();
+        edited.rows.insert(
+            2,
+            (
+                "kept".to_owned(),
+                [("key".to_owned(), Value::Str("beta".to_owned()))].into(),
+            ),
+        );
+        let violation = PutDomainError::IdCollision {
+            elem: ViewRef::Row(2),
+        };
+        let unresolved = BTreeSet::from(["named_ci".to_owned()]);
+        let expected = TableCheckError::Domain {
+            violations: vec![violation.clone()],
+            unresolved_collations: unresolved.clone(),
+        };
+        let mut cases = Vec::new();
+        push_table_refused(
+            &mut cases,
+            Mutation::ReservedIdReuse,
+            edited.clone(),
+            vec![violation.clone()],
+            unresolved,
+        );
+
+        assert_eq!(
+            cases[0].domain,
+            DomainExpectation::Refused(TableLawError::Domain(expected.clone()))
+        );
+        assert_eq!(
+            table::check_put_domain(&lens, &edited, &complement),
+            Err(expected)
+        );
+        assert_eq!(
+            table::put(&lens, &edited, &complement),
+            Err(TablePutError::Domain(violation))
+        );
+        assert_eq!(
+            table_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| matches!(
+                    case.mutation,
+                    Mutation::RemoveSynthesized
+                        | Mutation::EditSynthesized
+                        | Mutation::AddContractedEdge
+                        | Mutation::ReservedIdReuse
+                ))
+                .count(),
+            0,
+            "the independent basis must not guess candidate-local collation evidence"
+        );
+    }
+
+    #[test]
+    fn table_synthesized_pair_negatives_are_exact_and_nonvacuous() {
+        let am = SEdge::new("a", "m", "fk", Some("am"));
+        let mb = SEdge::new("m", "b", "fk", Some("mb"));
+        let direct = SEdge::new("a", "b", "fk", Some("ab"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .edge("a", "m", "fk", Some("am"))
+            .edge("m", "b", "fk", Some("mb"))
+            .edge("a", "b", "fk", Some("ab"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "fk", Some("ab"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            surviving_edges: [direct.clone()].into(),
+            resolver: [(("a".to_owned(), "b".to_owned()), direct.clone())].into(),
+            ..Migration::default()
+        };
+        let source_boundary = record_boundary(&source_schema);
+        let target_boundary = record_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = Table {
+            rows: [
+                (1, ("a".to_owned(), BTreeMap::new())),
+                (2, ("m".to_owned(), BTreeMap::new())),
+                (3, ("b".to_owned(), BTreeMap::new())),
+                (4, ("a".to_owned(), BTreeMap::new())),
+                (5, ("b".to_owned(), BTreeMap::new())),
+            ]
+            .into(),
+            pairs: [(am, 1, 2), (mb, 2, 3), (direct, 1, 3)].into(),
+        };
+        let (view, complement) = must(lens.get(&source));
+        let cases = table_basis(&lens, &view, &complement);
+        assert_exact_table_negatives(&lens, &complement, &cases, Mutation::RemoveSynthesized);
+        assert_exact_table_negatives(&lens, &complement, &cases, Mutation::EditSynthesized);
+    }
+
+    #[test]
+    fn table_contracted_pair_negative_is_exact_and_nonvacuous() {
+        let (source_schema, target_schema, migration, source) = contracted_table_pair_fixture();
+        let source_boundary = record_boundary(&source_schema);
+        let target_boundary = record_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        let cases = table_basis(&lens, &view, &complement);
+        assert_exact_table_negatives(&lens, &complement, &cases, Mutation::AddContractedEdge);
+    }
+
+    #[test]
+    fn table_contracted_pair_omits_unrelated_key_state() {
+        let (mut source_schema, target_schema, migration, source) = contracted_table_pair_fixture();
+        source_schema.keys.insert(
+            "m".to_owned(),
+            vec![Key {
+                id: "unrelated".to_owned(),
+                parts: vec![KeyPart::Path(Vec::new())],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let source_boundary = record_boundary(&source_schema);
+        let target_boundary = record_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            table_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn table_reserved_row_negative_is_exact_and_nonvacuous() {
+        let source_schema = Schema::default()
+            .vertex("kept", "record")
+            .vertex("dropped", "record");
+        let target_schema = Schema::default().vertex("kept", "record");
+        let migration = Migration {
+            surviving_verts: ["kept".to_owned()].into(),
+            ..Migration::default()
+        };
+        let source_boundary = record_boundary(&source_schema);
+        let target_boundary = record_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = Table {
+            rows: [
+                (1, ("kept".to_owned(), BTreeMap::new())),
+                (2, ("dropped".to_owned(), BTreeMap::new())),
+            ]
+            .into(),
+            ..Table::default()
+        };
+        let (view, complement) = must(lens.get(&source));
+        let cases = table_basis(&lens, &view, &complement);
+        assert_exact_table_negatives(&lens, &complement, &cases, Mutation::ReservedIdReuse);
+        let reserved: Vec<_> = cases
+            .iter()
+            .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+            .collect();
+        assert_eq!(reserved.len(), 1);
+        let stripped = without_reserved_table_row_residue(complement.clone(), 2);
+        assert_reserved_table_counterfactual(&lens, reserved[0], &complement, &stripped);
+    }
+
+    #[test]
+    fn table_reserved_row_omits_an_empty_witness_for_a_nonempty_table() {
+        let column = SEdge::new("kept", "scalar", "field", Some("value"));
+        let source_schema = Schema::default()
+            .vertex("kept", "record")
+            .vertex("dropped", "record")
+            .vertex("scalar", "string")
+            .edge("kept", "scalar", "field", Some("value"));
+        let target_schema = Schema::default()
+            .vertex("kept", "record")
+            .vertex("scalar", "string")
+            .edge("kept", "scalar", "field", Some("value"));
+        let migration = Migration {
+            surviving_verts: ["kept".to_owned(), "scalar".to_owned()].into(),
+            surviving_edges: [column].into(),
+            ..Migration::default()
+        };
+        let source_boundary = record_string_boundary(&source_schema);
+        let target_boundary = record_string_boundary(&target_schema);
+        let plan = must(table::compile_for_tables(
+            &source_schema,
+            &target_schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ));
+        let lens = must(TableLens::new_at_boundary(
+            &source_schema,
+            &target_schema,
+            TableBoundaries::new(&source_boundary, &target_boundary),
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ));
+        let source = Table {
+            rows: [
+                (
+                    1,
+                    (
+                        "kept".to_owned(),
+                        [("value".to_owned(), Value::Str("present".to_owned()))].into(),
+                    ),
+                ),
+                (2, ("dropped".to_owned(), BTreeMap::new())),
+            ]
+            .into(),
+            ..Table::default()
+        };
+        let (view, complement) = must(lens.get(&source));
+        assert_eq!(
+            complement.dropped_rows.keys().copied().collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert_eq!(
+            table_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|case| case.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+    }
+}
+
+#[cfg(test)]
 mod locality_tests {
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -3562,7 +5964,7 @@ mod locality_tests {
         tree_locality_divergence, tree_put, tree_source_arcs,
     };
     use crate::encode::TreeEmbedding;
-    use crate::enumerate::lenses::{C11Stage, c11_edge, c11_stages};
+    use crate::enumerate::lenses::{C11Layer, C11Stage, c11_edge, c11_stages};
     use crate::migration::Migration;
     use crate::model::{GEdge, Node, SEdge, Tree};
     use crate::pages::lenses::graph::{GraphLens, LensError};
@@ -3578,7 +5980,7 @@ mod locality_tests {
         SEdge::new("r", "leaf", "child", Some("child"))
     }
 
-    fn insert_nonnullable_reference(schema: &mut Schema) {
+    fn insert_reference(schema: &mut Schema, nullable: bool) {
         schema.keys.entry("b".to_owned()).or_default().push(Key {
             id: "reference-target".to_owned(),
             parts: vec![KeyPart::Path(Vec::new())],
@@ -3596,7 +5998,7 @@ mod locality_tests {
             target_key: Some("reference-target".to_owned()),
             edge: None,
             cardinality: Cardinality::One,
-            nullable: false,
+            nullable,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
@@ -3605,6 +6007,10 @@ mod locality_tests {
             scope_via: None,
         };
         schema.references.insert(reference.id.clone(), reference);
+    }
+
+    fn insert_nonnullable_reference(schema: &mut Schema) {
+        insert_reference(schema, false);
     }
 
     fn contraction_source() -> Tree {
@@ -3938,6 +6344,73 @@ mod locality_tests {
     }
 
     #[test]
+    fn tree_equivalence_ignores_only_cross_parent_arc_interleaving() {
+        let branch = SEdge::new("r", "r", "child", Some("branch"));
+        let child = label();
+        let nodes: BTreeMap<u32, Node> = [
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "r")),
+            (2, Node::new(2, "r")),
+            (3, Node::new(3, "leaf")),
+            (4, Node::new(4, "leaf")),
+        ]
+        .into();
+        let left = Tree {
+            nodes: nodes.clone(),
+            arcs: vec![
+                (0, 1, branch.clone()),
+                (1, 3, child.clone()),
+                (0, 2, branch.clone()),
+                (2, 4, child.clone()),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let interleaved = Tree {
+            nodes: nodes.clone(),
+            arcs: vec![
+                (0, 1, branch.clone()),
+                (0, 2, branch.clone()),
+                (1, 3, child.clone()),
+                (2, 4, child.clone()),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let reordered_siblings = Tree {
+            nodes,
+            arcs: vec![
+                (0, 2, branch.clone()),
+                (1, 3, child.clone()),
+                (0, 1, branch),
+                (2, 4, child),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let index = super::SynthIndex::default();
+
+        assert!(<super::TreeShape as super::LensShape>::equivalent(
+            &left,
+            &index,
+            &interleaved,
+            &index,
+        ));
+        assert!(<super::TreeShape as super::LensShape>::equivalent(
+            &interleaved,
+            &index,
+            &left,
+            &index,
+        ));
+        assert!(!<super::TreeShape as super::LensShape>::equivalent(
+            &left,
+            &index,
+            &reordered_siblings,
+            &index,
+        ));
+    }
+
+    #[test]
     fn exact_three_sibling_permutation_is_part_of_tree_locality() {
         let source = ordered(&[1, 2, 3]);
         let edited = ordered(&[2, 3, 1]);
@@ -4260,6 +6733,63 @@ mod locality_tests {
     }
 
     #[test]
+    fn contracted_tree_a_to_b_requires_a_neutral_source_endpoint() {
+        let am = SEdge::new("a", "m", "rel", Some("am"));
+        let mb = SEdge::new("m", "b", "rel", Some("mb"));
+        let ab = SEdge::new("a", "b", "rel", Some("ab"));
+        let base = C11Stage {
+            name: "a-to-b-contraction".to_owned(),
+            source: Schema::default()
+                .vertex("a", "record")
+                .vertex("m", "record")
+                .vertex("b", "record")
+                .edge("a", "m", "rel", Some("am"))
+                .edge("m", "b", "rel", Some("mb")),
+            target: Schema::default()
+                .vertex("a", "record")
+                .vertex("b", "record")
+                .edge("a", "b", "rel", Some("ab")),
+            migration: Migration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                resolver: [(("a".to_owned(), "b".to_owned()), ab)].into(),
+                ..Migration::default()
+            },
+            layer: C11Layer::None,
+        };
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "a")),
+                (1, Node::new(1, "m")),
+                (2, Node::new(2, "b")),
+            ]
+            .into(),
+            arcs: vec![(0, 1, am), (1, 2, mb)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        assert_eq!(
+            stage_tree_basis(&base, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            1
+        );
+
+        let mut mismatched = base;
+        mismatched
+            .source
+            .vertices
+            .insert("a".to_owned(), "other-record".to_owned());
+        assert_eq!(
+            stage_tree_basis(&mismatched, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::AddContractedEdge)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
     fn synthesized_tree_edge_edits_use_endpoint_specific_preimages() {
         let (stage, replacement) = adversarial_contraction_edit_stage(true);
 
@@ -4360,7 +6890,7 @@ mod locality_tests {
     }
 
     #[test]
-    fn reserved_tree_basis_skips_required_key_and_predicate_anchors() {
+    fn reserved_tree_basis_skips_validation_observable_anchors() {
         let stages = c11_stages();
         let Some(project) = stages.iter().find(|stage| stage.name == "P") else {
             panic!("the projection stage exists");
@@ -4402,9 +6932,20 @@ mod locality_tests {
         predicate.migration.conditional.insert("a".to_owned());
         variants.push(predicate);
 
+        let mut indirect_constraint = base.clone();
+        indirect_constraint.source.constraints.insert(
+            "b".to_owned(),
+            vec![("required".to_owned(), "true".to_owned())],
+        );
+        variants.push(indirect_constraint);
+
         let mut nonnullable = base.clone();
         insert_nonnullable_reference(&mut nonnullable.source);
         variants.push(nonnullable);
+
+        let mut nullable = base.clone();
+        insert_reference(&mut nullable.source, true);
+        variants.push(nullable);
 
         for variant in variants {
             assert_eq!(
@@ -4415,6 +6956,162 @@ mod locality_tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn reserved_tree_a_to_b_attachment_skips_parent_side_state() {
+        let attachment = SEdge::new("a", "b", "rel", Some("attach"));
+        let dropped = SEdge::new("a", "d", "rel", Some("drop"));
+        let base = C11Stage {
+            name: "parent-state".to_owned(),
+            source: Schema::default()
+                .vertex("a", "record")
+                .vertex("b", "record")
+                .vertex("d", "record")
+                .edge("a", "b", "rel", Some("attach"))
+                .edge("a", "d", "rel", Some("drop")),
+            target: Schema::default()
+                .vertex("a", "record")
+                .vertex("b", "record")
+                .edge("a", "b", "rel", Some("attach")),
+            migration: Migration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                surviving_edges: [attachment].into(),
+                ..Migration::default()
+            },
+            layer: C11Layer::None,
+        };
+        let source = Tree {
+            nodes: [(0, Node::new(0, "a")), (2, Node::new(2, "d"))].into(),
+            arcs: vec![(0, 2, dropped)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        assert_eq!(
+            stage_tree_basis(&base, &source)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            1
+        );
+
+        let mut keyed = base.clone();
+        keyed.source.keys.insert(
+            "a".to_owned(),
+            vec![Key {
+                id: "parent-key".to_owned(),
+                parts: vec![KeyPart::Path(Vec::new())],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let mut conditional = base;
+        conditional.migration.conditional.insert("a".to_owned());
+        for stage in [keyed, conditional] {
+            assert_eq!(
+                stage_tree_basis(&stage, &source)
+                    .iter()
+                    .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_tree_attachment_omits_a_fan_reserved_label() {
+        let source_kept = SEdge::new("a", "b", crate::restrict::HYPER_LABEL, Some("source-kept"));
+        let target_kept = SEdge::new("a", "b", "ordinary", Some("target-kept"));
+        let hidden = SEdge::new("a", "d", "ordinary", Some("hidden"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("d", "record")
+            .edge("a", "b", crate::restrict::HYPER_LABEL, Some("source-kept"))
+            .edge("a", "d", "ordinary", Some("hidden"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "ordinary", Some("target-kept"));
+        let migration = Migration {
+            surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+            edge_remap: [(source_kept, target_kept.clone())].into(),
+            ..Migration::default()
+        };
+        let plan = compile(&source_schema, &target_schema, &migration)
+            .unwrap_or_else(|error| panic!("the fan-kind fixture compiles: {error:?}"));
+        let lens = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap_or_else(|error| panic!("the fan-kind lens constructs: {error:?}"));
+        let source = Tree {
+            nodes: [(0, Node::new(0, "a")), (2, Node::new(2, "d"))].into(),
+            arcs: vec![(0, 2, hidden)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the fan-kind source has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        assert_eq!(
+            tree_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::ReservedIdReuse)
+                .count(),
+            0
+        );
+
+        let mut counterfactual = view;
+        counterfactual.nodes.insert(2, Node::new(2, "b"));
+        counterfactual.arcs.push((0, 2, target_kept));
+        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain(
+            &lens,
+            &counterfactual,
+            &complement.embedding,
+            &complement.complement,
+        ) else {
+            panic!("the bypassed fan-kind attachment must be refused");
+        };
+        assert!(matches!(
+            observed.as_slice(),
+            [
+                PutDomainError::IdCollision {
+                    elem: ViewRef::Node(2)
+                },
+                PutDomainError::MalformedFan {
+                    node: 0,
+                    reason: crate::fan::FanViolation::ReservedKindOutsideFan { .. }
+                }
+            ]
+        ));
+
+        let stripped = without_reserved_tree_residue(complement, 2);
+        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain(
+            &lens,
+            &counterfactual,
+            &stripped.embedding,
+            &stripped.complement,
+        ) else {
+            panic!("removing the collision residue leaves the fan refusal");
+        };
+        assert!(matches!(
+            observed.as_slice(),
+            [PutDomainError::MalformedFan {
+                node: 0,
+                reason: crate::fan::FanViolation::ReservedKindOutsideFan { .. }
+            }]
+        ));
     }
 
     #[test]

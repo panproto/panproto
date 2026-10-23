@@ -7847,8 +7847,54 @@ use panproto_reference::lens::{
     Mutation as RefMutation, TableShape as RefTableShape, TreeShape as RefTreeShape,
 };
 
-/// One candidate's admission: admitted, or every refusal in report order.
-type Admission = Result<(), Vec<String>>;
+/// The complete normalized table-domain outcome. Named collations remain
+/// alongside known violations: retaining one must never erase the other.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TableDomainVerdict {
+    Admitted,
+    Refused {
+        violations: Vec<String>,
+        unresolved_collations: BTreeSet<String>,
+    },
+    Operational(String),
+}
+
+/// The raw table put's result. This is intentionally separate from the
+/// complete checker report because raw put returns only its first known
+/// violation, before any unresolved named-collation result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TableRawVerdict {
+    Admitted,
+    Domain(String),
+    NamedCollationUnresolved(BTreeSet<String>),
+    Operational(String),
+}
+
+/// One candidate's admission. Graph and tree candidates carry their complete
+/// ordered refusal vectors. Table candidates additionally carry raw-put
+/// precedence and unresolved-collation evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Admission {
+    Admitted,
+    Refused(Vec<String>),
+    Table {
+        domain: TableDomainVerdict,
+        raw: TableRawVerdict,
+    },
+}
+
+impl Admission {
+    const fn is_admitted(&self) -> bool {
+        matches!(
+            self,
+            Self::Admitted
+                | Self::Table {
+                    domain: TableDomainVerdict::Admitted,
+                    raw: TableRawVerdict::Admitted,
+                }
+        )
+    }
+}
 
 /// The admission census of one source: each candidate's verdict, in the
 /// order the reference basis and then the production basis list them, and
@@ -7873,7 +7919,7 @@ fn admitted_positive<I>(candidates: &[Candidate<I>], verdicts: &[Admission]) -> 
     candidates
         .iter()
         .zip(verdicts)
-        .filter(|(candidate, verdict)| candidate.positive_reference && verdict.is_ok())
+        .filter(|(candidate, verdict)| candidate.positive_reference && verdict.is_admitted())
         .count()
 }
 
@@ -7898,8 +7944,22 @@ fn graph_candidates(pair: &Pair, source: &RefGraph) -> Vec<Candidate<RefGraph>> 
     let production_source = prod_graph(source);
     if let Ok((view, complement)) = graph_lens::get(&pair.production, &production_source) {
         for mutation in Mutation::ALL {
-            if let MutationCases::Cases(views) =
-                <panproto_lens::GraphShape as LawShape>::mutation_cases(
+            match <panproto_lens::GraphShape as LawShape>::mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &(),
+                mutation,
+            ) {
+                MutationCases::Cases(views) => out.extend(views.iter().map(|view| Candidate {
+                    view: ref_graph(view),
+                    positive_reference: false,
+                })),
+                MutationCases::Skip(_) => {}
+            }
+            out.extend(
+                <panproto_lens::GraphShape as LawShape>::negative_mutation_cases(
                     &pair.production,
                     &production_source,
                     &view,
@@ -7907,12 +7967,12 @@ fn graph_candidates(pair: &Pair, source: &RefGraph) -> Vec<Candidate<RefGraph>> 
                     &(),
                     mutation,
                 )
-            {
-                out.extend(views.iter().map(|view| Candidate {
-                    view: ref_graph(view),
+                .iter()
+                .map(|case| Candidate {
+                    view: ref_graph(&case.view),
                     positive_reference: false,
-                }));
-            }
+                }),
+            );
         }
     }
     out
@@ -7933,7 +7993,10 @@ fn production_graph_admissions(
                 &prod_graph(&candidate.view),
                 &complement,
             )
-            .map_err(|errors| errors.iter().map(put_domain_reason).collect())
+            .map_or_else(
+                |errors| Admission::Refused(errors.iter().map(put_domain_reason).collect()),
+                |()| Admission::Admitted,
+            )
         })
         .collect();
     let admitted = admitted_positive(candidates, &verdicts);
@@ -7953,8 +8016,10 @@ fn reference_graph_admissions(
         let verdicts: Vec<Admission> = candidates
             .iter()
             .map(|candidate| {
-                RefGraphLens::check_put_domain(lens, &candidate.view, &complement)
-                    .map_err(|errors| errors.iter().map(ref_put_domain_reason).collect())
+                RefGraphLens::check_put_domain(lens, &candidate.view, &complement).map_or_else(
+                    |errors| Admission::Refused(errors.iter().map(ref_put_domain_reason).collect()),
+                    |()| Admission::Admitted,
+                )
             })
             .collect();
         let admitted = admitted_positive(candidates, &verdicts);
@@ -7983,8 +8048,22 @@ fn tree_candidates(pair: &Pair, source: &RefTree) -> Vec<Candidate<RefTree>> {
     let production_source = prod_tree(source);
     if let Ok((view, complement)) = panproto_lens::get(&pair.production, &production_source) {
         for mutation in Mutation::ALL {
-            if let MutationCases::Cases(views) =
-                <panproto_lens::TreeShape as LawShape>::mutation_cases(
+            match <panproto_lens::TreeShape as LawShape>::mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &(),
+                mutation,
+            ) {
+                MutationCases::Cases(views) => out.extend(views.iter().map(|view| Candidate {
+                    view: ref_tree(view),
+                    positive_reference: false,
+                })),
+                MutationCases::Skip(_) => {}
+            }
+            out.extend(
+                <panproto_lens::TreeShape as LawShape>::negative_mutation_cases(
                     &pair.production,
                     &production_source,
                     &view,
@@ -7992,12 +8071,12 @@ fn tree_candidates(pair: &Pair, source: &RefTree) -> Vec<Candidate<RefTree>> {
                     &(),
                     mutation,
                 )
-            {
-                out.extend(views.iter().map(|view| Candidate {
-                    view: ref_tree(view),
+                .iter()
+                .map(|case| Candidate {
+                    view: ref_tree(&case.view),
                     positive_reference: false,
-                }));
-            }
+                }),
+            );
         }
     }
     out
@@ -8018,7 +8097,10 @@ fn production_tree_admissions(
                 &prod_tree(&candidate.view),
                 &complement,
             )
-            .map_err(|errors| errors.iter().map(put_domain_reason).collect())
+            .map_or_else(
+                |errors| Admission::Refused(errors.iter().map(put_domain_reason).collect()),
+                |()| Admission::Admitted,
+            )
         })
         .collect();
     let admitted = admitted_positive(candidates, &verdicts);
@@ -8038,13 +8120,14 @@ fn reference_tree_admissions(
         let verdicts: Vec<Admission> = candidates
             .iter()
             .map(|candidate| {
-                RefTreeShape::check_put_domain(lens, &candidate.view, &complement, &()).map_err(
+                RefTreeShape::check_put_domain(lens, &candidate.view, &complement, &()).map_or_else(
                     |error| match error {
                         panproto_reference::lens::ReferenceLawError::PutDomain(errors) => {
-                            errors.iter().map(ref_put_domain_reason).collect()
+                            Admission::Refused(errors.iter().map(ref_put_domain_reason).collect())
                         }
-                        other => vec![format!("{other:?}")],
+                        other => Admission::Refused(vec![format!("{other:?}")]),
                     },
+                    |()| Admission::Admitted,
                 )
             })
             .collect();
@@ -8053,18 +8136,469 @@ fn reference_tree_admissions(
     })
 }
 
+/// One table candidate in reference coordinates. A candidate may be shared
+/// by the two independently generated bases, so origin flags and negative
+/// families are merged when its exact table presentation is deduplicated.
+struct TableCandidate {
+    view: RefTable,
+    positive_reference: bool,
+    negative_families: BTreeSet<usize>,
+}
+
+fn push_table_candidate(
+    candidates: &mut Vec<TableCandidate>,
+    view: RefTable,
+    positive_reference: bool,
+    negative_family: Option<usize>,
+) {
+    if let Some(candidate) = candidates
+        .iter_mut()
+        .find(|candidate| candidate.view == view)
+    {
+        candidate.positive_reference |= positive_reference;
+        if let Some(family) = negative_family {
+            candidate.negative_families.insert(family);
+        }
+        return;
+    }
+    candidates.push(TableCandidate {
+        view,
+        positive_reference,
+        negative_families: negative_family.into_iter().collect(),
+    });
+}
+
+/// The deterministic union of the independent reference and production table
+/// bases. Positive candidates are retained only when their own side's exact
+/// predicate admits them; deliberately negative candidates are retained
+/// unconditionally so that the differential checks their full refusal.
+fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> {
+    let mut candidates = Vec::new();
+    pair.with_reference(|lens, _| {
+        if let Ok((view, complement)) = RefTableShape::get(lens, source, &()) {
+            for case in RefTableShape::single_step_basis(lens, source, &view, &complement, &()) {
+                match case.domain {
+                    DomainExpectation::Admitted => {
+                        if RefTableShape::check_put_domain(lens, &case.view, &complement, &())
+                            .is_ok()
+                        {
+                            push_table_candidate(&mut candidates, case.view, true, None);
+                        }
+                    }
+                    DomainExpectation::Refused(_) => push_table_candidate(
+                        &mut candidates,
+                        case.view,
+                        false,
+                        Some(ref_mutation_index(case.mutation)),
+                    ),
+                }
+            }
+        }
+    });
+
+    let production_source = prod_table(source);
+    if let Ok((view, complement)) =
+        table_lens::get(&pair.production, &production_source, pair.protocols())
+    {
+        let context = panproto_lens::TableContext {
+            src: pair.protocol.clone(),
+            tgt: pair.protocol.clone(),
+        };
+        for mutation in Mutation::ALL {
+            match <panproto_lens::TableShape as LawShape>::mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &context,
+                mutation,
+            ) {
+                MutationCases::Cases(views) => {
+                    for candidate in views {
+                        if table_lens::check_put_domain(
+                            &pair.production,
+                            &candidate,
+                            &complement,
+                            pair.protocols(),
+                        )
+                        .is_ok()
+                        {
+                            push_table_candidate(
+                                &mut candidates,
+                                ref_table(&candidate),
+                                false,
+                                None,
+                            );
+                        }
+                    }
+                }
+                MutationCases::Skip(_) => {}
+            }
+            let family = Mutation::ALL
+                .iter()
+                .position(|candidate| *candidate == mutation)
+                .expect("Mutation::ALL contains the iterated mutation");
+            for case in <panproto_lens::TableShape as LawShape>::negative_mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &context,
+                mutation,
+            ) {
+                push_table_candidate(&mut candidates, ref_table(&case.view), false, Some(family));
+            }
+        }
+    }
+    candidates
+}
+
+fn production_table_domain_verdict(result: Result<(), Vec<PutDomainError>>) -> TableDomainVerdict {
+    result.map_or_else(
+        |violations| TableDomainVerdict::Refused {
+            violations: violations.iter().map(put_domain_reason).collect(),
+            unresolved_collations: BTreeSet::new(),
+        },
+        |()| TableDomainVerdict::Admitted,
+    )
+}
+
+fn reference_table_domain_verdict(result: Result<(), TableCheckError>) -> TableDomainVerdict {
+    match result {
+        Ok(()) => TableDomainVerdict::Admitted,
+        Err(TableCheckError::Domain {
+            violations,
+            unresolved_collations,
+        }) => TableDomainVerdict::Refused {
+            violations: violations.iter().map(ref_put_domain_reason).collect(),
+            unresolved_collations,
+        },
+        Err(TableCheckError::NamedCollationUnresolved { names }) => TableDomainVerdict::Refused {
+            violations: Vec::new(),
+            unresolved_collations: names,
+        },
+        Err(TableCheckError::Operational(error)) => {
+            TableDomainVerdict::Operational(format!("{error:?}"))
+        }
+    }
+}
+
+fn production_table_raw_verdict(result: Result<FInstance, LensError>) -> TableRawVerdict {
+    match result {
+        Ok(_) => TableRawVerdict::Admitted,
+        Err(LensError::PutDomain(error)) => {
+            TableRawVerdict::Domain(put_domain_reason(error.as_ref()))
+        }
+        Err(error) => TableRawVerdict::Operational(format!("{error:?}")),
+    }
+}
+
+fn reference_table_raw_verdict(result: Result<RefTable, TablePutError>) -> TableRawVerdict {
+    match result {
+        Ok(_) => TableRawVerdict::Admitted,
+        Err(TablePutError::Domain(error)) => TableRawVerdict::Domain(ref_put_domain_reason(&error)),
+        Err(TablePutError::NamedCollationUnresolved { names }) => {
+            TableRawVerdict::NamedCollationUnresolved(names)
+        }
+        Err(error) => TableRawVerdict::Operational(format!("{error:?}")),
+    }
+}
+
+fn production_table_admissions(
+    pair: &TablePair,
+    source: &RefTable,
+    candidates: &[TableCandidate],
+) -> Option<AdmissionCensus> {
+    let (_, complement) =
+        table_lens::get(&pair.production, &prod_table(source), pair.protocols()).ok()?;
+    let verdicts: Vec<_> = candidates
+        .iter()
+        .map(|candidate| {
+            let view = prod_table(&candidate.view);
+            Admission::Table {
+                domain: production_table_domain_verdict(table_lens::check_put_domain(
+                    &pair.production,
+                    &view,
+                    &complement,
+                    pair.protocols(),
+                )),
+                raw: production_table_raw_verdict(table_lens::put(
+                    &pair.production,
+                    &view,
+                    &complement,
+                    pair.protocols(),
+                )),
+            }
+        })
+        .collect();
+    let admitted = candidates
+        .iter()
+        .zip(&verdicts)
+        .filter(|(candidate, verdict)| candidate.positive_reference && verdict.is_admitted())
+        .count();
+    Some(AdmissionCensus { verdicts, admitted })
+}
+
+fn reference_table_admissions(
+    pair: &TablePair,
+    source: &RefTable,
+    candidates: &[TableCandidate],
+) -> Option<AdmissionCensus> {
+    pair.with_reference(|lens, _| {
+        let (_, complement) = lens.get(source).ok()?;
+        let verdicts: Vec<_> = candidates
+            .iter()
+            .map(|candidate| Admission::Table {
+                domain: reference_table_domain_verdict(
+                    panproto_reference::table::check_put_domain(lens, &candidate.view, &complement),
+                ),
+                raw: reference_table_raw_verdict(RefTableLens::put(
+                    lens,
+                    &candidate.view,
+                    &complement,
+                )),
+            })
+            .collect();
+        let admitted = candidates
+            .iter()
+            .zip(&verdicts)
+            .filter(|(candidate, verdict)| candidate.positive_reference && verdict.is_admitted())
+            .count();
+        Some(AdmissionCensus { verdicts, admitted })
+    })
+}
+
+fn assert_observed_table_negative(mutation: Mutation, verdict: &Admission) {
+    let Admission::Table {
+        domain:
+            TableDomainVerdict::Refused {
+                violations,
+                unresolved_collations: _,
+            },
+        raw: TableRawVerdict::Domain(raw),
+    } = verdict
+    else {
+        panic!(
+            "declared table negative family {} was not refused by both the complete checker and raw put: {verdict:?}",
+            mutation.as_str()
+        );
+    };
+    let first = violations.first().unwrap_or_else(|| {
+        panic!(
+            "declared table negative family {} had no known domain violation",
+            mutation.as_str()
+        )
+    });
+    assert_eq!(
+        raw,
+        first,
+        "declared table negative family {} raw put did not return the first ordered violation",
+        mutation.as_str()
+    );
+}
+
+#[test]
+fn table_admission_normalization_preserves_complete_reports_and_raw_precedence() {
+    use panproto_reference::lens::{PutDomainError as RefPutDomainError, ViewRef as RefViewRef};
+
+    let collision = RefPutDomainError::IdCollision {
+        elem: RefViewRef::Row(2),
+    };
+    let synthesized = RefPutDomainError::SynthesizedEdited {
+        elem: RefViewRef::Row(5),
+    };
+    let unresolved = BTreeSet::from(["case_fold".to_owned(), "locale".to_owned()]);
+    let complete = reference_table_domain_verdict(Err(TableCheckError::Domain {
+        violations: vec![collision.clone(), synthesized.clone()],
+        unresolved_collations: unresolved.clone(),
+    }));
+    assert_eq!(
+        complete,
+        TableDomainVerdict::Refused {
+            violations: vec![
+                ref_put_domain_reason(&collision),
+                ref_put_domain_reason(&synthesized),
+            ],
+            unresolved_collations: unresolved.clone(),
+        },
+        "a complete table report retains both ordered violations and unresolved collations"
+    );
+    assert_eq!(
+        reference_table_raw_verdict(Err(TablePutError::Domain(collision.clone()))),
+        TableRawVerdict::Domain(ref_put_domain_reason(&collision)),
+        "raw put returns the first known violation before unresolved collations"
+    );
+    assert_eq!(
+        reference_table_domain_verdict(Err(TableCheckError::NamedCollationUnresolved {
+            names: unresolved.clone(),
+        })),
+        TableDomainVerdict::Refused {
+            violations: Vec::new(),
+            unresolved_collations: unresolved.clone(),
+        },
+        "an unresolved-only checker result is not mistaken for admission"
+    );
+    assert_eq!(
+        reference_table_raw_verdict(Err(TablePutError::NamedCollationUnresolved {
+            names: unresolved.clone(),
+        })),
+        TableRawVerdict::NamedCollationUnresolved(unresolved)
+    );
+
+    let report = |violations| {
+        reference_table_domain_verdict(Err(TableCheckError::Domain {
+            violations,
+            unresolved_collations: BTreeSet::new(),
+        }))
+    };
+    let exact = report(vec![collision.clone(), synthesized.clone()]);
+    assert_ne!(exact, report(vec![collision.clone()]), "missing refusal");
+    assert_ne!(
+        exact,
+        report(vec![
+            collision.clone(),
+            synthesized.clone(),
+            RefPutDomainError::ContractedEdgeInserted {
+                elem: RefViewRef::Row(7),
+            },
+        ]),
+        "extra refusal"
+    );
+    assert_ne!(
+        exact,
+        report(vec![synthesized.clone(), collision.clone()]),
+        "reordered refusal"
+    );
+    assert_ne!(
+        exact,
+        report(vec![collision.clone(), collision]),
+        "duplicate refusal"
+    );
+    assert_ne!(
+        exact,
+        report(vec![
+            RefPutDomainError::IdCollision {
+                elem: RefViewRef::Row(3),
+            },
+            synthesized,
+        ]),
+        "wrong-coordinate refusal"
+    );
+}
+
+fn table_admission_fixture_census(pair: &TablePair, source: &RefTable) -> [usize; EDIT_FAMILIES] {
+    let candidates = table_candidates(pair, source);
+    let production = production_table_admissions(pair, source, &candidates)
+        .expect("the production fixture get must succeed");
+    let reference = reference_table_admissions(pair, source, &candidates)
+        .expect("the reference fixture get must succeed");
+    assert_eq!(
+        production, reference,
+        "the complete table admission census must agree on the dedicated fixture"
+    );
+    let mut counts = [0_usize; EDIT_FAMILIES];
+    for (candidate, verdict) in candidates.into_iter().zip(&reference.verdicts) {
+        for family in candidate.negative_families {
+            assert_observed_table_negative(Mutation::ALL[family], verdict);
+            counts[family] += 1;
+        }
+    }
+    counts
+}
+
+#[test]
+fn table_negative_admission_families_are_nonvacuous() {
+    let dropped = named_table_construction("dropped table row");
+    let dropped_pair = TablePair::new(
+        dropped.source_schema,
+        dropped.target_schema,
+        dropped.migration,
+        TABLE_FIXTURE_VALUE_KIND,
+        ScalarKind::Any,
+    );
+
+    let contracted = TablePairPutCase::InsertContracted.fixture();
+    let contracted_pair = TablePair::new(
+        contracted.source_schema,
+        contracted.target_schema,
+        contracted.migration,
+        TABLE_FIXTURE_VALUE_KIND,
+        ScalarKind::Any,
+    );
+
+    let mut synthesized = TablePairPutCase::SynthesizedRemoved.fixture();
+    let direct = RefSEdge::new("a", "b", "foreign-key", Some("direct"));
+    synthesized.source_schema.edges.insert(direct.clone());
+    synthesized.migration.surviving_edges.insert(direct.clone());
+    synthesized
+        .migration
+        .edge_remap
+        .insert(direct, synthesized.image.clone());
+    synthesized
+        .source
+        .rows
+        .insert(3, ("a".to_owned(), BTreeMap::new()));
+    synthesized
+        .source
+        .rows
+        .insert(4, ("b".to_owned(), BTreeMap::new()));
+    let synthesized_pair = TablePair::new(
+        synthesized.source_schema,
+        synthesized.target_schema,
+        synthesized.migration,
+        TABLE_FIXTURE_VALUE_KIND,
+        ScalarKind::Any,
+    );
+
+    let mut total = [0_usize; EDIT_FAMILIES];
+    for counts in [
+        table_admission_fixture_census(&dropped_pair, &dropped.source),
+        table_admission_fixture_census(&contracted_pair, &contracted.source),
+        table_admission_fixture_census(&synthesized_pair, &synthesized.source),
+    ] {
+        for (sum, count) in total.iter_mut().zip(counts) {
+            *sum += count;
+        }
+    }
+    for mutation in [
+        Mutation::RemoveSynthesized,
+        Mutation::EditSynthesized,
+        Mutation::AddContractedEdge,
+        Mutation::ReservedIdReuse,
+    ] {
+        let family = Mutation::ALL
+            .iter()
+            .position(|candidate| *candidate == mutation)
+            .expect("Mutation::ALL contains each table negative family");
+        assert!(
+            total[family] > 0,
+            "table negative family {} must have a differential admission witness",
+            mutation.as_str()
+        );
+    }
+}
+
 /// Running totals of the admission census over the reference side.
-#[derive(Default)]
 struct AdmissionTally {
     candidates: std::sync::atomic::AtomicUsize,
     admitted: std::sync::atomic::AtomicUsize,
 }
 
-/// The admission census of one L.8 case on one side: graph cases, and tree
-/// cases inside the reference tree lens's domain; `None` for the other
-/// families. The reference side adds to `tally`.
+impl Default for AdmissionTally {
+    fn default() -> Self {
+        Self {
+            candidates: std::sync::atomic::AtomicUsize::new(0),
+            admitted: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+/// The admission census of one L.8 case on one side: graph and table cases,
+/// and tree cases inside the reference tree lens's domain. The reference side
+/// adds the deduplicated union to `tally`.
 fn law_admissions(
     pairs: &[Pair],
+    table_pairs: &[Vec<TablePair>],
     case: &LawCase,
     production: bool,
     tally: &AdmissionTally,
@@ -8085,6 +8619,23 @@ fn law_admissions(
             } else {
                 reference_tree_admissions(&pairs[*stage], tree, &candidates)
             }
+        }
+        LawCase::Table(fixture) => {
+            let pair = &table_pairs[fixture.columns][fixture.retained];
+            let candidates = table_candidates(pair, &fixture.source);
+            let census = if production {
+                production_table_admissions(pair, &fixture.source, &candidates)
+            } else {
+                reference_table_admissions(pair, &fixture.source, &candidates)
+            };
+            if !production && let Some(census) = &census {
+                for (candidate, verdict) in candidates.iter().zip(&census.verdicts) {
+                    for &family in &candidate.negative_families {
+                        assert_observed_table_negative(Mutation::ALL[family], verdict);
+                    }
+                }
+            }
+            census
         }
         _ => None,
     };
@@ -8246,25 +8797,25 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         context,
         |_, case| vec![case],
         |context: &LawContext, case: &&LawCase| {
-            let (pairs, _, _) = context;
+            let (pairs, table_pairs, _) = context;
             (
                 production_law_case(context, case),
-                law_admissions(pairs, case, true, &tally),
+                law_admissions(pairs, table_pairs, case, true, &tally),
             )
         },
         |context: &LawContext, case: &&LawCase| {
-            let (pairs, _, _) = context;
+            let (pairs, table_pairs, _) = context;
             (
                 reference_law_case(context, case),
-                law_admissions(pairs, case, false, &tally),
+                law_admissions(pairs, table_pairs, case, false, &tally),
             )
         },
         |production, reference| production == reference,
     ));
     println!(
-        "L.8 admission census (graph and tree families): candidates={}, admitted positive reference-basis candidates={}",
+        "L.8 admission census (graph, tree and table families): candidates={}, admitted positive reference-basis candidates={}",
         tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
-        tally.admitted.load(std::sync::atomic::Ordering::Relaxed)
+        tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
     );
     assert_eq!(compared, u64::try_from(cases.len()).unwrap());
 }

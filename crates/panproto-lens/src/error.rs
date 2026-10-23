@@ -471,11 +471,14 @@ pub enum LawViolation {
         detail: String,
     },
 
-    /// A view declared in-domain could not be put.
+    /// A generated candidate disagreed with its declared put-domain outcome.
+    ///
+    /// This covers both an admitted view whose put failed and a declared
+    /// refusal whose complete ordered report or raw first violation differed.
     Totality {
-        /// The mutation family that exposed partiality.
+        /// The mutation family that exposed the disagreement.
         mutation: crate::laws::Mutation,
-        /// The operational error returned by put.
+        /// The put failure or exact-negative certificate mismatch.
         error: String,
     },
 

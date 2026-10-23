@@ -949,6 +949,21 @@ impl<'a> TableLens<'a> {
         self.tp
     }
 
+    /// Source schema inspected by the independent finite law certificate.
+    pub(super) const fn source_schema(&self) -> &Schema {
+        self.src
+    }
+
+    /// Target schema inspected by the independent finite law certificate.
+    pub(super) const fn target_schema(&self) -> &Schema {
+        self.tgt
+    }
+
+    /// Migration inspected by the independent finite law certificate.
+    pub(super) const fn migration(&self) -> &Migration {
+        self.m
+    }
+
     /// Forward table-lens direction under this exact compiled boundary.
     ///
     /// # Errors

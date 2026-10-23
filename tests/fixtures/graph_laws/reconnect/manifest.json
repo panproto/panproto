@@ -1,1 +1,1 @@
-{"format_version":2,"mutation":"reconnect","expected":"ran","observation":{"ran":2,"shape_cannot_express":0,"no_candidate":4,"in_domain":27,"in_domain_ok":27,"negative":0,"negative_ok":0},"refusal":null}
+{"format_version":3,"mutation":"reconnect","expected":"ran","observation":{"ran":2,"shape_cannot_express":0,"no_candidate":4,"in_domain":27,"in_domain_ok":27,"negative":0,"negative_ok":0},"refusal":null,"certificates":[]}

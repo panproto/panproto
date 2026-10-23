@@ -11,9 +11,7 @@ use panproto_inst::{
     Node, PutDomainError, RowId, Value, WInstance,
 };
 use panproto_lens::graph_lens;
-use panproto_lens::laws::{
-    FamilyReport, LawReport, LawShape, Mutation, MutationCases, SkipReason, SmallScope,
-};
+use panproto_lens::laws::{FamilyReport, LawReport, LawShape, Mutation, SkipReason, SmallScope};
 use panproto_lens::symmetric::{SymmetricLens, TraceObservation, check_observational_equality};
 use panproto_lens::table_lens;
 use panproto_lens::{GraphShape, Lens, LensError, LensShape, TableContext, TableShape, TreeShape};
@@ -80,6 +78,13 @@ struct Manifest {
     expected: Expected,
     observation: FrozenObservation,
     refusal: Option<ExpectedRefusal>,
+    certificates: Vec<Vec<PutDomainError>>,
+}
+
+#[derive(Debug, Default)]
+struct RefusalObservations {
+    grouped: BTreeMap<(Mutation, ExpectedRefusal), u32>,
+    certificates: BTreeMap<Mutation, Vec<Vec<PutDomainError>>>,
 }
 
 fn fixture_root(shape: &str) -> PathBuf {
@@ -570,34 +575,57 @@ fn observed_counts(reports: &[LawReport], mutation: Mutation) -> FrozenObservati
     }
 }
 
-fn record_exact_refusals(
-    refusals: &mut BTreeMap<(Mutation, ExpectedRefusal), u32>,
+fn record_declared_refusal(
+    refusals: &mut RefusalObservations,
     mutation: Mutation,
-    errors: &[PutDomainError],
+    expected: &[PutDomainError],
 ) {
-    for expected in ExpectedRefusal::ALL {
-        if !errors.is_empty() && errors.iter().all(|error| expected.matches(error)) {
-            *refusals.entry((mutation, expected)).or_default() += 1;
+    refusals
+        .certificates
+        .entry(mutation)
+        .or_default()
+        .push(expected.to_vec());
+    for refusal in ExpectedRefusal::ALL {
+        if expected.iter().all(|error| refusal.matches(error)) {
+            *refusals.grouped.entry((mutation, refusal)).or_default() += 1;
         }
     }
 }
 
 fn graph_refusal_observations(
     fixtures: &[(impl AsRef<str>, (Lens, GInstance))],
-) -> BTreeMap<(Mutation, ExpectedRefusal), u32> {
-    let mut refusals = BTreeMap::new();
+) -> RefusalObservations {
+    let mut refusals = RefusalObservations::default();
     for (_, (lens, source)) in fixtures {
         let (view, complement) = graph_lens::get(lens, source).expect("graph corpus get");
         for mutation in Mutation::ALL {
-            let MutationCases::Cases(candidates) =
-                GraphShape::mutation_cases(lens, source, &view, &complement, &(), mutation)
-            else {
-                continue;
-            };
-            for candidate in candidates {
-                if let Err(errors) = graph_lens::check_put_domain(lens, &candidate, &complement) {
-                    record_exact_refusals(&mut refusals, mutation, &errors);
-                }
+            let cases = GraphShape::negative_mutation_cases(
+                lens,
+                source,
+                &view,
+                &complement,
+                &(),
+                mutation,
+            );
+            for case in cases {
+                assert!(
+                    !case.expected.is_empty(),
+                    "{mutation:?} declared an empty negative graph certificate"
+                );
+                assert_eq!(
+                    graph_lens::check_put_domain(lens, &case.view, &complement),
+                    Err(case.expected.clone()),
+                    "{mutation:?} graph predicate drifted from its declared ordered refusal"
+                );
+                assert!(
+                    matches!(
+                        graph_lens::put(lens, &case.view, &complement),
+                        Err(LensError::PutDomain(error))
+                            if error.as_ref() == &case.expected[0]
+                    ),
+                    "{mutation:?} graph put did not return the declared first refusal"
+                );
+                record_declared_refusal(&mut refusals, mutation, &case.expected);
             }
         }
     }
@@ -607,8 +635,8 @@ fn graph_refusal_observations(
 fn table_refusal_observations(
     fixtures: &[(Lens, FInstance)],
     protocol: &Protocol,
-) -> BTreeMap<(Mutation, ExpectedRefusal), u32> {
-    let mut refusals = BTreeMap::new();
+) -> RefusalObservations {
+    let mut refusals = RefusalObservations::default();
     let context = TableContext {
         src: protocol.clone(),
         tgt: protocol.clone(),
@@ -621,28 +649,40 @@ fn table_refusal_observations(
         let (view, complement) =
             table_lens::get(lens, source, boundary()).expect("table corpus get");
         for mutation in Mutation::ALL {
-            let MutationCases::Cases(candidates) =
-                TableShape::mutation_cases(lens, source, &view, &complement, &context, mutation)
-            else {
-                continue;
-            };
-            for candidate in candidates {
-                if let Err(errors) =
-                    table_lens::check_put_domain(lens, &candidate, &complement, boundary())
-                {
-                    record_exact_refusals(&mut refusals, mutation, &errors);
-                }
+            let cases = TableShape::negative_mutation_cases(
+                lens,
+                source,
+                &view,
+                &complement,
+                &context,
+                mutation,
+            );
+            for case in cases {
+                assert!(
+                    !case.expected.is_empty(),
+                    "{mutation:?} declared an empty negative table certificate"
+                );
+                assert_eq!(
+                    table_lens::check_put_domain(lens, &case.view, &complement, boundary()),
+                    Err(case.expected.clone()),
+                    "{mutation:?} table predicate drifted from its declared ordered refusal"
+                );
+                assert!(
+                    matches!(
+                        table_lens::put(lens, &case.view, &complement, boundary()),
+                        Err(LensError::PutDomain(error))
+                            if error.as_ref() == &case.expected[0]
+                    ),
+                    "{mutation:?} table put did not return the declared first refusal"
+                );
+                record_declared_refusal(&mut refusals, mutation, &case.expected);
             }
         }
     }
     refusals
 }
 
-fn assert_manifests(
-    shape: &str,
-    reports: &[LawReport],
-    refusals: &BTreeMap<(Mutation, ExpectedRefusal), u32>,
-) {
+fn assert_manifests(shape: &str, reports: &[LawReport], refusals: &RefusalObservations) {
     reports.iter().for_each(assert_report_partition);
     let manifests = read_manifests(shape);
     let public = Mutation::ALL
@@ -652,17 +692,27 @@ fn assert_manifests(
     assert_eq!(manifests.keys().cloned().collect::<BTreeSet<_>>(), public);
 
     for (directory, manifest) in manifests {
-        assert_eq!(manifest.format_version, 2, "{shape}/{directory}");
+        assert_eq!(manifest.format_version, 3, "{shape}/{directory}");
         assert_eq!(manifest.mutation.as_str(), directory, "{shape}/{directory}");
         let families = reports_for(reports, manifest.mutation).collect::<Vec<_>>();
+        let certificates = refusals
+            .certificates
+            .get(&manifest.mutation)
+            .cloned()
+            .unwrap_or_default();
+        let observation = observed_counts(reports, manifest.mutation);
         assert_eq!(
-            observed_counts(reports, manifest.mutation),
-            manifest.observation,
+            &certificates, &manifest.certificates,
+            "{shape}/{directory} drifted from its frozen ordered negative certificates"
+        );
+        assert_eq!(
+            observation, manifest.observation,
             "{shape}/{directory} drifted from its frozen executable observation"
         );
         match manifest.expected {
             Expected::Ran => {
                 assert_eq!(manifest.refusal, None, "{shape}/{directory}");
+                assert!(manifest.certificates.is_empty(), "{shape}/{directory}");
                 assert!(
                     manifest.observation.in_domain > 0
                         && manifest.observation.in_domain_ok == manifest.observation.in_domain,
@@ -674,12 +724,17 @@ fn assert_manifests(
                     .refusal
                     .expect("typed-refusal manifest names its exact error variant");
                 assert!(
+                    !manifest.certificates.is_empty(),
+                    "{shape}/{directory} must freeze at least one exact certificate"
+                );
+                assert!(
                     manifest.observation.negative > 0
                         && manifest.observation.negative_ok == manifest.observation.negative,
                     "{shape}/{directory} has a missing or inexact typed-refusal witness: {families:?}"
                 );
                 assert_eq!(
                     refusals
+                        .grouped
                         .get(&(manifest.mutation, expected))
                         .copied()
                         .unwrap_or_default(),
@@ -689,6 +744,7 @@ fn assert_manifests(
             }
             Expected::ShapeCannotExpress => {
                 assert_eq!(manifest.refusal, None, "{shape}/{directory}");
+                assert!(manifest.certificates.is_empty(), "{shape}/{directory}");
                 assert!(families.is_empty(), "{shape}/{directory} unexpectedly ran");
                 assert!(reports.iter().all(|report| {
                     report

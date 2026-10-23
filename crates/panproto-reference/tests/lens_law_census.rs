@@ -17,10 +17,23 @@ use panproto_reference::pages::lenses::{
 use panproto_reference::restrict::{Complement, SynthKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefusalCoordinate {
+    Alpha,
+    Beta,
+    Gamma,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Refusal {
     OutsideDomain,
     Different,
     DesignatedAndExtra,
+    Complete(Vec<RefusalCoordinate>),
+    First(RefusalCoordinate),
+}
+
+fn exact_complete_refusal() -> Refusal {
+    Refusal::Complete(vec![RefusalCoordinate::Alpha, RefusalCoordinate::Beta])
 }
 
 fn success<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
@@ -62,6 +75,21 @@ enum NegativeRefusal {
     #[default]
     Designated,
     Extra,
+    CompleteThenFirst,
+    CompleteThenWrongFirst,
+    MissingComplete,
+    ReorderedComplete,
+    DuplicatedComplete,
+    WrongCoordinateComplete,
+    EmptyThenSuccess,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum BasisPolarity {
+    #[default]
+    Conventional,
+    RefusedValueEdit,
+    AdmittedEditSynthesized,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -70,6 +98,7 @@ struct BooleanContext {
     locality: LocalityBehavior,
     admitted_put: AdmittedPut,
     negative_refusal: NegativeRefusal,
+    basis_polarity: BasisPolarity,
 }
 
 impl LensShape for BooleanShape {
@@ -154,8 +183,22 @@ impl LawShape<PathContractKind> for BooleanShape {
         if context.admitted_put == AdmittedPut::Refuse && view.value == 1 {
             return Err(Refusal::Different);
         }
-        if context.negative_refusal == NegativeRefusal::Extra && view.value == 2 {
-            return Err(Refusal::DesignatedAndExtra);
+        if view.value == 2 {
+            match context.negative_refusal {
+                NegativeRefusal::Extra => return Err(Refusal::DesignatedAndExtra),
+                NegativeRefusal::CompleteThenFirst
+                | NegativeRefusal::MissingComplete
+                | NegativeRefusal::ReorderedComplete
+                | NegativeRefusal::DuplicatedComplete
+                | NegativeRefusal::WrongCoordinateComplete => {
+                    return Err(Refusal::First(RefusalCoordinate::Alpha));
+                }
+                NegativeRefusal::CompleteThenWrongFirst => {
+                    return Err(Refusal::First(RefusalCoordinate::Beta));
+                }
+                NegativeRefusal::EmptyThenSuccess => return Ok(*view),
+                NegativeRefusal::Designated => {}
+            }
         }
         let [complement] = complement.as_slice() else {
             return Err(Refusal::OutsideDomain);
@@ -182,8 +225,39 @@ impl LawShape<PathContractKind> for BooleanShape {
         if context.admitted_put == AdmittedPut::Refuse && view.value == 1 {
             return Err(Refusal::Different);
         }
-        if context.negative_refusal == NegativeRefusal::Extra && view.value == 2 {
-            return Err(Refusal::DesignatedAndExtra);
+        if view.value == 2 {
+            match context.negative_refusal {
+                NegativeRefusal::Extra => return Err(Refusal::DesignatedAndExtra),
+                NegativeRefusal::CompleteThenFirst | NegativeRefusal::CompleteThenWrongFirst => {
+                    return Err(exact_complete_refusal());
+                }
+                NegativeRefusal::MissingComplete => {
+                    return Err(Refusal::Complete(vec![RefusalCoordinate::Alpha]));
+                }
+                NegativeRefusal::ReorderedComplete => {
+                    return Err(Refusal::Complete(vec![
+                        RefusalCoordinate::Beta,
+                        RefusalCoordinate::Alpha,
+                    ]));
+                }
+                NegativeRefusal::DuplicatedComplete => {
+                    return Err(Refusal::Complete(vec![
+                        RefusalCoordinate::Alpha,
+                        RefusalCoordinate::Alpha,
+                        RefusalCoordinate::Beta,
+                    ]));
+                }
+                NegativeRefusal::WrongCoordinateComplete => {
+                    return Err(Refusal::Complete(vec![
+                        RefusalCoordinate::Alpha,
+                        RefusalCoordinate::Gamma,
+                    ]));
+                }
+                NegativeRefusal::EmptyThenSuccess => {
+                    return Err(Refusal::Complete(Vec::new()));
+                }
+                NegativeRefusal::Designated => {}
+            }
         }
         let [complement] = complement.as_slice() else {
             return Err(Refusal::OutsideDomain);
@@ -191,6 +265,13 @@ impl LawShape<PathContractKind> for BooleanShape {
         path_contract_put_domain(*lens, view.value, *complement)
             .then_some(())
             .ok_or(Refusal::OutsideDomain)
+    }
+
+    fn first_put_refusal(refusal: &Refusal) -> Option<Refusal> {
+        match refusal {
+            Refusal::Complete(report) => report.first().copied().map(Refusal::First),
+            other => Some(other.clone()),
+        }
     }
 
     fn single_step_basis(
@@ -207,9 +288,33 @@ impl LawShape<PathContractKind> for BooleanShape {
                 value: 1 - view.value,
                 untouched: view.untouched,
             },
-            domain: DomainExpectation::Admitted,
+            domain: if context.basis_polarity == BasisPolarity::RefusedValueEdit {
+                DomainExpectation::Refused(Refusal::Different)
+            } else {
+                DomainExpectation::Admitted
+            },
         }];
-        if context.negative_basis == NegativeBasis::Include {
+        if context.basis_polarity == BasisPolarity::AdmittedEditSynthesized {
+            basis.push(BasisCase {
+                ordinal: 1,
+                mutation: Mutation::EditSynthesized,
+                view: BooleanInstance {
+                    value: 1 - view.value,
+                    untouched: view.untouched,
+                },
+                domain: DomainExpectation::Admitted,
+            });
+        } else if context.negative_basis == NegativeBasis::Include {
+            let refusal = match context.negative_refusal {
+                NegativeRefusal::CompleteThenFirst
+                | NegativeRefusal::CompleteThenWrongFirst
+                | NegativeRefusal::MissingComplete
+                | NegativeRefusal::ReorderedComplete
+                | NegativeRefusal::DuplicatedComplete
+                | NegativeRefusal::WrongCoordinateComplete => exact_complete_refusal(),
+                NegativeRefusal::EmptyThenSuccess => Refusal::Complete(Vec::new()),
+                NegativeRefusal::Designated | NegativeRefusal::Extra => Refusal::OutsideDomain,
+            };
             basis.push(BasisCase {
                 ordinal: 1,
                 mutation: Mutation::EditSynthesized,
@@ -217,7 +322,7 @@ impl LawShape<PathContractKind> for BooleanShape {
                     value: 2,
                     untouched: view.untouched,
                 },
-                domain: DomainExpectation::Refused(Refusal::OutsideDomain),
+                domain: DomainExpectation::Refused(refusal),
             });
         }
         basis
@@ -689,6 +794,186 @@ fn totality_excludes_refused_positive_candidates_and_retains_negative_ones() {
             observed: Some(Refusal::DesignatedAndExtra),
         })
     ));
+}
+
+#[test]
+fn totality_checks_the_complete_report_and_the_raw_first_refusal_separately() {
+    let source = BooleanInstance {
+        value: 0,
+        untouched: 7,
+    };
+    let exact = check_laws_report::<BooleanShape, _>(
+        &PathContractKind::Identity,
+        &source,
+        &BooleanContext {
+            negative_basis: NegativeBasis::Include,
+            negative_refusal: NegativeRefusal::CompleteThenFirst,
+            ..BooleanContext::default()
+        },
+    );
+    let exact_totality = exact
+        .gates
+        .iter()
+        .find(|gate| gate.gate == LawGate::Totality)
+        .unwrap_or_else(|| panic!("totality gate expected"));
+    assert_eq!(exact_totality.status, LawGateStatus::Passed { cases: 2 });
+
+    let wrong_first = check_laws_report::<BooleanShape, _>(
+        &PathContractKind::Identity,
+        &source,
+        &BooleanContext {
+            negative_basis: NegativeBasis::Include,
+            negative_refusal: NegativeRefusal::CompleteThenWrongFirst,
+            ..BooleanContext::default()
+        },
+    );
+    let wrong_totality = wrong_first
+        .gates
+        .iter()
+        .find(|gate| gate.gate == LawGate::Totality)
+        .unwrap_or_else(|| panic!("totality gate expected"));
+    assert_eq!(
+        wrong_totality.status,
+        LawGateStatus::Failed(LawFailure::DomainMismatch {
+            case: 1,
+            expected: Some(Refusal::First(RefusalCoordinate::Alpha)),
+            observed: Some(Refusal::First(RefusalCoordinate::Beta)),
+        })
+    );
+}
+
+#[test]
+fn totality_rejects_every_complete_report_sequence_corruption() {
+    let source = BooleanInstance {
+        value: 0,
+        untouched: 7,
+    };
+    let cases = [
+        (
+            NegativeRefusal::MissingComplete,
+            Refusal::Complete(vec![RefusalCoordinate::Alpha]),
+        ),
+        (
+            NegativeRefusal::ReorderedComplete,
+            Refusal::Complete(vec![RefusalCoordinate::Beta, RefusalCoordinate::Alpha]),
+        ),
+        (
+            NegativeRefusal::DuplicatedComplete,
+            Refusal::Complete(vec![
+                RefusalCoordinate::Alpha,
+                RefusalCoordinate::Alpha,
+                RefusalCoordinate::Beta,
+            ]),
+        ),
+        (
+            NegativeRefusal::WrongCoordinateComplete,
+            Refusal::Complete(vec![RefusalCoordinate::Alpha, RefusalCoordinate::Gamma]),
+        ),
+    ];
+    for (negative_refusal, observed) in cases {
+        let report = check_laws_report::<BooleanShape, _>(
+            &PathContractKind::Identity,
+            &source,
+            &BooleanContext {
+                negative_basis: NegativeBasis::Include,
+                negative_refusal,
+                ..BooleanContext::default()
+            },
+        );
+        let totality = report
+            .gates
+            .iter()
+            .find(|gate| gate.gate == LawGate::Totality)
+            .unwrap_or_else(|| panic!("totality gate expected"));
+        assert_eq!(
+            totality.status,
+            LawGateStatus::Failed(LawFailure::DomainMismatch {
+                case: 1,
+                expected: Some(exact_complete_refusal()),
+                observed: Some(observed),
+            })
+        );
+    }
+}
+
+#[test]
+fn totality_rejects_an_empty_complete_refusal_even_when_raw_put_succeeds() {
+    let report = check_laws_report::<BooleanShape, _>(
+        &PathContractKind::Identity,
+        &BooleanInstance {
+            value: 0,
+            untouched: 7,
+        },
+        &BooleanContext {
+            negative_basis: NegativeBasis::Include,
+            negative_refusal: NegativeRefusal::EmptyThenSuccess,
+            ..BooleanContext::default()
+        },
+    );
+    let totality = report
+        .gates
+        .iter()
+        .find(|gate| gate.gate == LawGate::Totality)
+        .unwrap_or_else(|| panic!("totality gate expected"));
+    assert_eq!(
+        totality.status,
+        LawGateStatus::Failed(LawFailure::DomainMismatch {
+            case: 1,
+            expected: Some(Refusal::Complete(Vec::new())),
+            observed: None,
+        })
+    );
+}
+
+#[test]
+fn basis_domain_polarity_is_independent_of_mutation_family_names() {
+    let source = BooleanInstance {
+        value: 0,
+        untouched: 7,
+    };
+    let refused_positive = check_laws_report::<BooleanShape, _>(
+        &PathContractKind::Identity,
+        &source,
+        &BooleanContext {
+            admitted_put: AdmittedPut::Refuse,
+            basis_polarity: BasisPolarity::RefusedValueEdit,
+            ..BooleanContext::default()
+        },
+    );
+    assert_eq!(refused_positive.basis_sequence, vec![Mutation::ValueEdit]);
+    assert_eq!(refused_positive.admitted, 0);
+    assert_eq!(
+        refused_positive
+            .gates
+            .iter()
+            .find(|gate| gate.gate == LawGate::Totality)
+            .unwrap_or_else(|| panic!("totality gate expected"))
+            .status,
+        LawGateStatus::Passed { cases: 1 }
+    );
+
+    let admitted_negative = check_laws_report::<BooleanShape, _>(
+        &PathContractKind::Identity,
+        &source,
+        &BooleanContext {
+            basis_polarity: BasisPolarity::AdmittedEditSynthesized,
+            ..BooleanContext::default()
+        },
+    );
+    assert_eq!(
+        admitted_negative.basis_sequence,
+        vec![Mutation::ValueEdit, Mutation::EditSynthesized]
+    );
+    assert_eq!(admitted_negative.admitted, 2);
+    assert_eq!(
+        admitted_negative
+            .gates
+            .iter()
+            .find(|gate| gate.gate == LawGate::Totality)
+            .unwrap_or_else(|| panic!("totality gate expected"))
+            .status,
+        LawGateStatus::Passed { cases: 2 }
+    );
 }
 
 #[test]

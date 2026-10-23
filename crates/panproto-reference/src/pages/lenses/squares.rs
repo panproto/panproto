@@ -133,6 +133,24 @@ fn graph_put_error(error: LensError) -> SquareError {
     }
 }
 
+fn is_graph_put_domain_refusal(error: &SquareError) -> bool {
+    match error {
+        SquareError::PutDomain(_) => true,
+        SquareError::PutDomainReport(errors) => !errors.is_empty(),
+        _ => false,
+    }
+}
+
+struct GraphPutDomainRefusal(SquareError);
+
+fn graph_put_error_with_provenance(
+    error: LensError,
+) -> (SquareError, Option<GraphPutDomainRefusal>) {
+    let error = graph_put_error(error);
+    let refusal = is_graph_put_domain_refusal(&error).then(|| GraphPutDomainRefusal(error.clone()));
+    (error, refusal)
+}
+
 const fn route_is_outside(route: &SquareRouteObservation) -> bool {
     matches!(&route.get, Err(SquareError::OutsideExactDomain(_)))
         || matches!(&route.put, Some(Err(SquareError::OutsideExactDomain(_))))
@@ -158,6 +176,16 @@ fn tree_shape_error(reason: crate::encode::NotATree) -> SquareError {
             SquareError::TreeOperational(TreeOperationalError::RestoredNotATree { reason: other })
         }
     }
+}
+
+fn graph_put_readback(
+    restored: Graph,
+    root: u32,
+    source_schema: &crate::schema::Schema,
+) -> Result<(Tree, Graph), SquareError> {
+    graph_to_tree(&restored, root, &schema_parent_name(Some(source_schema)))
+        .map(|tree| (tree, restored))
+        .map_err(tree_shape_error)
 }
 
 fn square_fresh_after(ids: impl Iterator<Item = u32>, floor: u32) -> Option<u32> {
@@ -370,31 +398,36 @@ fn graph_square_impl(
     };
     let fast_state = fast_tree_state(lens, source);
 
-    let graph_put_pair = graph_get
-        .as_ref()
-        .ok()
-        .and_then(|(default_view, complement)| {
-            let (view, root) = match put_view {
-                None => (Ok(default_view.clone()), source.root),
-                Some((edited, embedding)) => {
-                    let fast = fast_state.as_ref().ok()?;
+    // Keep the graph put's own refusal separate from errors produced while
+    // constructing its input or reading its successful result back as a tree.
+    // Only a put-domain error from the former is the pre-dispatch refusal that
+    // the fast route exposes.
+    let (graph_put_pair, graph_put_refusal) = match graph_get.as_ref() {
+        Err(_) => (None, None),
+        Ok((default_view, complement)) => {
+            let prepared = match put_view {
+                None => Some((Ok(default_view.clone()), source.root)),
+                Some((edited, embedding)) => fast_state.as_ref().ok().map(|fast| {
                     (
                         square_tree_view_graph(lens, edited, embedding, &fast.complement)
                             .map_err(SquareError::TreeOperational),
                         edited.root,
                     )
-                }
+                }),
             };
-            Some(view.and_then(|view| {
-                lens.put(&view, complement)
-                    .map_err(graph_put_error)
-                    .and_then(|restored| {
-                        graph_to_tree(&restored, root, &schema_parent_name(Some(lens.src)))
-                            .map(|tree| (tree, restored))
-                            .map_err(tree_shape_error)
-                    })
-            }))
-        });
+            match prepared {
+                None => (None, None),
+                Some((Err(error), _)) => (Some(Err(error)), None),
+                Some((Ok(view), root)) => match lens.put(&view, complement) {
+                    Err(error) => {
+                        let (error, refusal) = graph_put_error_with_provenance(error);
+                        (Some(Err(error)), refusal)
+                    }
+                    Ok(restored) => (Some(graph_put_readback(restored, root, lens.src)), None),
+                },
+            }
+        }
+    };
 
     let native_fast_put_pair = fast_state.as_ref().ok().map(|fast| {
         let (view, embedding) = put_view.unwrap_or((&fast.view, &fast.embedding));
@@ -405,8 +438,8 @@ fn graph_square_impl(
     // exposes that route's exact error; a distinct tree-domain refusal is not
     // observable through the fast entry point. Model that fallback here, and
     // compare the native tree put only after the graph precheck succeeds.
-    let fast_put_pair = match graph_put_pair.as_ref() {
-        Some(Err(error)) => Some(Err(error.clone())),
+    let fast_put_pair = match graph_put_refusal.as_ref() {
+        Some(GraphPutDomainRefusal(error)) => Some(Err(error.clone())),
         _ => native_fast_put_pair,
     };
     // A caller-supplied tree presentation is in the square's common domain
@@ -416,7 +449,11 @@ fn graph_square_impl(
     // order.  Treat that presentation loss as an exact-domain refusal rather
     // than as a failure of either lens implementation.
     let presentation = graph_square_presentation(lens, put_view, &fast_state);
-    let presentation_error = presentation_domain_error(presentation.as_ref());
+    // A graph put-domain refusal precedes dispatch to the native tree route and
+    // therefore remains the observable fast-route result. Presentation loss
+    // matters only after that precheck succeeds.
+    let presentation_error =
+        graph_presentation_domain_error(graph_put_refusal.as_ref(), presentation.as_ref());
     let graph_put = graph_put_pair.as_ref().map(|result| match result {
         Ok((_, graph)) => Ok(graph.clone()),
         Err(error) => Err(error.clone()),
@@ -504,6 +541,17 @@ fn presentation_domain_error(
     match presentation {
         Some(Err(error @ SquareError::OutsideExactDomain(_))) => Some(error.clone()),
         _ => None,
+    }
+}
+
+fn graph_presentation_domain_error(
+    graph_put_refusal: Option<&GraphPutDomainRefusal>,
+    presentation: Option<&Result<(), SquareError>>,
+) -> Option<SquareError> {
+    if graph_put_refusal.is_some() {
+        None
+    } else {
+        presentation_domain_error(presentation)
     }
 }
 
@@ -1120,14 +1168,18 @@ mod graph_square_tests {
     use std::collections::BTreeMap;
 
     use super::{
-        GraphSquareObservation, SquareError, SquareResult, SquareRouteObservation,
-        classify_graph_observation, graph_put_square, graph_square, presentation_domain_error,
+        GraphIdentityError, GraphSquareObservation, LensError, PutDomainError, SquareError,
+        SquareResult, SquareRouteObservation, TreeOperationalError, ViewRef,
+        classify_graph_observation, fast_tree_state, graph_presentation_domain_error,
+        graph_put_error_with_provenance, graph_put_readback, graph_put_square, graph_square,
+        graph_square_presentation, is_graph_put_domain_refusal, presentation_domain_error,
         square_tree_view_graph,
     };
+    use crate::fan::FanViolation;
     use crate::migration::Migration;
-    use crate::model::{Fan, Graph, Node, SEdge, Tree};
+    use crate::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Tree};
     use crate::pages::lenses::graph::GraphLens;
-    use crate::restrict::{Complement, NoValueLayer, compile};
+    use crate::restrict::{Complement, HYPER_LABEL, HYPER_PARENT, NoValueLayer, compile};
     use crate::schema::{HyperEdge, Schema};
 
     fn ordered(children: &[u32]) -> Tree {
@@ -1191,7 +1243,7 @@ mod graph_square_tests {
     }
 
     #[test]
-    fn only_exact_domain_refusals_override_the_native_fast_put() {
+    fn only_graph_put_domain_refusals_precede_exact_presentation_refusals() {
         let operational = Err(SquareError::NotAnIsomorphism {
             detail: "native and presentation errors remain independently observable".to_owned(),
         });
@@ -1202,6 +1254,51 @@ mod graph_square_tests {
         ));
         assert_eq!(
             presentation_domain_error(Some(&outside)),
+            Some(SquareError::OutsideExactDomain(
+                "the presentation cannot preserve child order"
+            ))
+        );
+
+        assert_eq!(
+            graph_presentation_domain_error(None, Some(&outside)),
+            Some(SquareError::OutsideExactDomain(
+                "the presentation cannot preserve child order"
+            ))
+        );
+
+        let violation = PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Edge(4),
+        };
+        let nonempty = SquareError::PutDomainReport(vec![violation.clone()]);
+        assert!(is_graph_put_domain_refusal(&nonempty));
+        let (_, Some(put_domain)) =
+            graph_put_error_with_provenance(LensError::PutDomainReport(vec![violation]))
+        else {
+            panic!("a nonempty graph put-domain report must carry refusal provenance");
+        };
+        assert_eq!(
+            graph_presentation_domain_error(Some(&put_domain), Some(&outside)),
+            None
+        );
+
+        let empty = SquareError::PutDomainReport(Vec::new());
+        assert!(!is_graph_put_domain_refusal(&empty));
+        let (_, empty_provenance) =
+            graph_put_error_with_provenance(LensError::PutDomainReport(Vec::new()));
+        assert!(empty_provenance.is_none());
+
+        let identity = SquareError::GraphIdentity(GraphIdentityError::UnboundComplement);
+        assert!(!is_graph_put_domain_refusal(&identity));
+        let (_, identity_provenance) = graph_put_error_with_provenance(LensError::Identity(
+            GraphIdentityError::UnboundComplement,
+        ));
+        assert!(identity_provenance.is_none());
+
+        let readback =
+            SquareError::TreeOperational(TreeOperationalError::IdsExhausted { nodes: false });
+        assert!(!is_graph_put_domain_refusal(&readback));
+        assert_eq!(
+            graph_presentation_domain_error(None, Some(&outside)),
             Some(SquareError::OutsideExactDomain(
                 "the presentation cannot preserve child order"
             ))
@@ -1262,6 +1359,145 @@ mod graph_square_tests {
                 "the durable embedding does not represent the edited tree presentation"
             )))
         ));
+    }
+
+    #[test]
+    fn graph_put_refusal_precedes_simultaneous_sibling_presentation_loss() {
+        let image = SEdge::new("r", "leaf", "child", Some("leaf"));
+        let source_schema = Schema::default()
+            .vertex("r", "obj")
+            .vertex("m", "obj")
+            .vertex("leaf", "obj")
+            .edge("r", "m", "child", Some("m"))
+            .edge("m", "leaf", "child", Some("leaf"));
+        let target_schema = Schema::default()
+            .vertex("r", "obj")
+            .vertex("leaf", "obj")
+            .edge("r", "leaf", "child", Some("leaf"));
+        let migration = Migration {
+            surviving_verts: ["r".to_owned(), "leaf".to_owned()].into(),
+            resolver: [(("r".to_owned(), "leaf".to_owned()), image.clone())].into(),
+            ..Migration::default()
+        };
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "r")),
+                (1, Node::new(1, "m")),
+                (2, Node::new(2, "leaf")),
+                (3, Node::new(3, "m")),
+                (4, Node::new(4, "leaf")),
+            ]
+            .into(),
+            arcs: vec![
+                (0, 1, SEdge::new("r", "m", "child", Some("m"))),
+                (1, 2, SEdge::new("m", "leaf", "child", Some("leaf"))),
+                (0, 3, SEdge::new("r", "m", "child", Some("m"))),
+                (3, 4, SEdge::new("m", "leaf", "child", Some("leaf"))),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("contraction plan must compile");
+        };
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ) else {
+            panic!("contraction lens must bind");
+        };
+        let Some(Ok((mut edited, _, embedding))) = super::super::tree_get(&lens, &source) else {
+            panic!("contraction tree get must succeed");
+        };
+        assert_eq!(edited.arcs, vec![(0, 2, image.clone()), (0, 4, image)]);
+        edited.arcs.reverse();
+        let Some((_, _, edited_edge)) = edited.arcs.iter_mut().find(|(_, child, _)| *child == 2)
+        else {
+            panic!("the first contracted child must remain present");
+        };
+        edited_edge.kind.push_str("-edited");
+
+        let fast_state = fast_tree_state(&lens, &source);
+        assert!(matches!(
+            graph_square_presentation(&lens, Some((&edited, &embedding)), &fast_state),
+            Some(Err(SquareError::OutsideExactDomain(
+                "the durable embedding does not represent the edited tree presentation"
+            )))
+        ));
+
+        let result = graph_put_square(&lens, &source, &edited, &embedding);
+        let SquareResult::Commutes(observation) = result else {
+            panic!("graph put refusal must precede presentation loss: {result:#?}");
+        };
+        let expected = SquareError::PutDomain(PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Edge(4),
+        });
+        assert_eq!(observation.graph.put, Some(Err(expected.clone())));
+        assert_eq!(observation.fast.put, Some(Err(expected.clone())));
+        assert_eq!(observation.graph_tree_put, Some(Err(expected.clone())));
+        assert_eq!(observation.fast_tree_put, Some(Err(expected)));
+    }
+
+    #[test]
+    fn post_put_malformed_fan_readback_has_no_refusal_provenance() {
+        let schema = Schema::default().vertex("r", "obj").vertex("a", "obj");
+        let mut malformed = Graph::default();
+        malformed.nodes.insert(0, Node::new(0, "r"));
+        malformed.nodes.insert(1, Node::new(1, "a"));
+        let mut fan = Node::new(2, "h");
+        fan.shape = NodeShape::HyperEdge;
+        malformed.nodes.insert(2, fan);
+        let edge = |src, tgt, label| GEdge {
+            src,
+            tgt,
+            label,
+            position: None,
+        };
+        malformed
+            .edges
+            .insert(0, edge(0, 1, SEdge::new("r", "a", "prop", None)));
+        malformed
+            .edges
+            .insert(1, edge(2, 0, SEdge::new("h", "r", HYPER_PARENT, None)));
+        malformed
+            .edges
+            .insert(2, edge(2, 1, SEdge::new("h", "a", HYPER_LABEL, Some("x"))));
+        malformed
+            .edges
+            .insert(3, edge(2, 1, SEdge::new("h", "a", "prop", None)));
+
+        // A full square cannot produce this conjunction: graph put checks
+        // `MalformedFan` before returning, while presentation readback checks
+        // the same malformed carrier before it can compare sibling order.
+        // Exercise the successful-put readback arm itself instead. Its error
+        // has the same public shape as a domain refusal, but this helper cannot
+        // manufacture the `GraphPutDomainRefusal` token required for precedence.
+        let readback = graph_put_readback(malformed, 0, &schema);
+        assert_eq!(
+            readback,
+            Err(SquareError::PutDomain(PutDomainError::MalformedFan {
+                node: 2,
+                reason: FanViolation::ForeignIncidentEdge { edge: 3 },
+            }))
+        );
+        let Err(readback_error) = &readback else {
+            panic!("the malformed fan must fail tree readback");
+        };
+        assert!(is_graph_put_domain_refusal(readback_error));
+
+        let outside = Err(SquareError::OutsideExactDomain(
+            "the presentation cannot preserve child order",
+        ));
+        assert_eq!(
+            graph_presentation_domain_error(None, Some(&outside)),
+            Some(SquareError::OutsideExactDomain(
+                "the presentation cannot preserve child order"
+            ))
+        );
     }
 
     #[test]

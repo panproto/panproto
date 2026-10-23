@@ -102,13 +102,13 @@ pub use graph_lens::{
 pub use graph_protolens::AppliedGraphProtolens;
 pub use identity::ComplementIdentity;
 pub use laws::{
-    FamilyReport, LawReport, LawShape, LensClassification, Mutation, MutationCases, SkipReason,
-    SmallScope, check_congruence, check_congruence_for_shape, check_get_put,
-    check_get_put_for_shape, check_laws, check_laws_exhaustive, check_laws_report, check_locality,
-    check_locality_for_shape, check_put_get, check_put_get_for_shape, check_put_injectivity,
-    check_put_injectivity_for_shape, check_put_put, check_put_twice, check_put_twice_for_shape,
-    check_totality, check_totality_for_shape, check_weak_put_get, check_weak_put_get_for_shape,
-    instances_equivalent,
+    FamilyReport, LawReport, LawShape, LensClassification, Mutation, MutationCases,
+    NegativeMutationCase, SkipReason, SmallScope, check_congruence, check_congruence_for_shape,
+    check_get_put, check_get_put_for_shape, check_laws, check_laws_exhaustive, check_laws_report,
+    check_locality, check_locality_for_shape, check_put_get, check_put_get_for_shape,
+    check_put_injectivity, check_put_injectivity_for_shape, check_put_put, check_put_twice,
+    check_put_twice_for_shape, check_totality, check_totality_for_shape, check_weak_put_get,
+    check_weak_put_get_for_shape, instances_equivalent,
 };
 pub use lens_graph::LensGraph;
 pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};

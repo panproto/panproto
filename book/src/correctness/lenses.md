@@ -158,6 +158,7 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 - Exhaustive differential test: `graph operation and boundary certificates; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=lens_equivalence_law_certificate) or test(=graph_put_contract_certificate)'`
 - Property differential test: `randomized graph operation and boundary differentials; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=randomized_lens_law_differential) or test(=randomized_graph_put_contract)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
 - File: `crates/panproto-inst/src/graph_complement.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
@@ -400,11 +401,11 @@ None.
 
 ### Statement
 
-For a lens $\ell$, a source $s$ and its Single-Step Basis, the law report runs, in order, and returns the first violation: GetPut, $\operatorname{put}_\ell(\operatorname{get}_\ell(s)) = s$; PutGet, strict on every coordinate in every contraction mode: for every basis view $v'$ in the declared domain on which put succeeds, the view of $\operatorname{put}_\ell(v', c)$ is equivalent to $v'$ under [L-lenses-7](#L-lenses-7); Totality, every basis view in the declared domain puts without error and every negative basis view is refused with its designated reason (`SynthesizedEdited`, `ContractedEdgeInserted`, `IdCollision` or `MalformedFan`); PutTwice, for $s' = \operatorname{put}_\ell(v', c)$ and $(\_, c') = \operatorname{get}_\ell(s')$, $\operatorname{put}_\ell(v', \rho(c')) = s'$ with $\rho$ the coherent rekeying from the index of $\operatorname{get}_\ell(s')$ to that of $v'$; and Congruence, coherently renumbered view and complement pairs have equal domain verdicts and equivalent puts. Shapes skip what they cannot express. GetPut and WeakPutGet together do not imply PutTwice; GetPut at the once-put source together with exact PutGet does.
+A **negative certificate** for a negative basis view is its designated complete ordered put-domain report. For a lens $\ell$, a source $s$ and its Single-Step Basis, the law report runs five gates in order and returns the first violation. GetPut is first and requires $\operatorname{put}_\ell(\operatorname{get}_\ell(s)) = s$. PutGet follows, strict on every coordinate in every contraction mode: for every basis view $v'$ in the declared domain on which put succeeds, the view of $\operatorname{put}_\ell(v', c)$ is equivalent to $v'$ under [L-lenses-7](#L-lenses-7). At Totality, every basis view in the declared domain puts without error. For every negative basis view, the domain predicate must return the negative certificate, and a direct call to put must return the negative certificate's first violation. PutTwice then requires $\operatorname{put}_\ell(v', \rho(c')) = s'$ for $s' = \operatorname{put}_\ell(v', c)$ and $(\_, c') = \operatorname{get}_\ell(s')$, with $\rho$ the coherent rekeying from the index of $\operatorname{get}_\ell(s')$ to that of $v'$. Congruence is last: coherently renumbered view and complement pairs have equal domain verdicts and equivalent puts. Shapes skip what they cannot express. GetPut and WeakPutGet together do not imply PutTwice; GetPut at the once-put source together with exact PutGet does.
 
 ### Outside the domain
 
-A get that refuses makes the report a refusal before any gate runs. An operation that refuses inside GetPut, PutGet or PutTwice is reported as that operation's refusal; inside Totality a refused admitted view is the Totality violation. A negative basis view returning a reason other than its designated one fails Totality.
+A get that refuses makes the report a refusal before any gate runs. An operation that refuses inside GetPut, PutGet or PutTwice is reported as that operation's refusal; inside Totality a refused admitted view is the Totality violation. A negative basis view whose complete ordered put-domain report differs from its negative certificate, or for which put itself does not return the negative certificate's first violation, fails Totality.
 
 ### Definitions used
 
@@ -413,7 +414,7 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 ### Proof
 
 1. The report runs the gates in the stated order and returns at the first failure (definition of the checker).
-2. A put refused on an admitted view is skipped by PutGet and reported by Totality, which checks exactly the admitted views (definition of the two gates); so the first failing gate is Totality, not PutGet, for that case.
+2. A put refused on an admitted view is skipped by PutGet and reported by Totality. For a negative basis view, Totality compares the complete ordered put-domain report with the negative certificate, then checks the violation returned by put itself against the negative certificate's first violation (definition of PutGet and Totality). Totality thus requires equality in report length and order and equality of each violation, including its variant, element coordinate and variant-specific payload, together with equality between the negative certificate's first violation and the violation returned by put itself.
 3. PutTwice not implied: on the partial lens with $\operatorname{get}(s_0) = (a, x)$, $\operatorname{get}(s_1) = (a, y)$, $\operatorname{put}(a, x) = s_0$, $\operatorname{put}(a, y) = s_1$, $\operatorname{put}(a, z) = s_0$, $\operatorname{put}(b, y) = s_1$, $\operatorname{put}(b, z) = s_0$ and $\operatorname{put}(b, x)$ undefined, GetPut holds (the first two equations); WeakPutGet holds because every defined put returns a source whose view is $a$ and $\operatorname{put}(a, \cdot)$ returns the same source on each complement where it was defined; PutTwice fails at $(b, z)$: $s' = s_0$, $\operatorname{get}(s_0) = (a, x)$ and $\operatorname{put}(b, x)$ is undefined.
 4. Implication: let $s' = \operatorname{put}(v, c)$ be defined with $\operatorname{get}(s') = (v', c')$. Exact PutGet gives $v' = v$; GetPut at $s'$ gives $\operatorname{put}(v', c') = s'$; substituting, $\operatorname{put}(v, c') = s'$, which is PutTwice.
 5. With synthesized carriers the rekeyed form follows in the same way: indexed PutGet gives equal key sets, so $\rho$ is a bijection on synthesized ids with $\operatorname{index}(v, \rho(c')) = \operatorname{index}(v)$, the states $(v, \rho(c'))$ and $(v', c')$ are coherently congruent, Congruence transports put across them, and GetPut at $s'$ identifies the result with $s'$.
@@ -994,6 +995,7 @@ A protolens is a schema-indexed family of lenses given by a precondition and a c
 - Property differential test: `randomized_protolens_schema_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_protolens_schema_differential)'`
 - File: `crates/panproto-lens/src/protolens.rs`
 - File: `crates/panproto-lens/src/graph_protolens.rs`
+- File: `crates/panproto-lens/src/error.rs`
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
@@ -1038,6 +1040,7 @@ Protolens and instantiation are those of [L-lenses-19](#L-lenses-19); get and th
 - Property differential test: `randomized_protolens_instance_differential; 256 generated schema/state coordinates, with all four elementary protolens families checked at every coordinate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_protolens_instance_differential)'`
 - File: `crates/panproto-lens/src/protolens.rs`
 - File: `crates/panproto-lens/src/graph_protolens.rs`
+- File: `crates/panproto-lens/src/table_protolens.rs`
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 

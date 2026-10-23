@@ -1653,6 +1653,7 @@ fn native_restore_start(
 fn native_restore_visible(
     lens: &GraphLens<'_>,
     complement: &Complement,
+    carrier_complement: &Complement,
     state: &mut NativeRestoreState,
 ) {
     let anchor_of = |node: u32| {
@@ -1667,7 +1668,7 @@ fn native_restore_visible(
         .presented
         .nodes
         .iter()
-        .filter(|(id, _)| !complement.synthesized_nodes.contains_key(id))
+        .filter(|(id, _)| !carrier_complement.synthesized_nodes.contains_key(id))
     {
         match lens.vl.restore(
             node,
@@ -1699,7 +1700,7 @@ fn native_restore_visible(
         .presented
         .edges
         .iter()
-        .filter(|(id, _)| !complement.synthesized_edges.contains_key(id))
+        .filter(|(id, _)| !carrier_complement.synthesized_edges.contains_key(id))
     {
         match native_edge_label(lens, complement, &state.presented, *id, edge, &anchor_of) {
             Ok(label) => {
@@ -1712,6 +1713,95 @@ fn native_restore_visible(
                 );
             }
             Err(error) => state.errors.push(error),
+        }
+    }
+}
+
+fn native_synth_key_depends_on_collision(
+    key: &SynthKey,
+    collisions: &BTreeSet<u32>,
+    incident_source_edges: &BTreeSet<u32>,
+) -> bool {
+    match key {
+        SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
+            collisions.contains(src) || collisions.contains(tgt)
+        }
+        SynthKey::Expand { source_edge, .. } => incident_source_edges.contains(source_edge),
+    }
+}
+
+/// Remove only source residue whose meaning is shadowed by a visible node
+/// with the same id. Structural checks have already read the original
+/// complement; this ephemeral copy lets the restored-source clauses inspect
+/// the visible replacement instead of the dropped source node.
+fn native_collision_counterfactual(
+    presented: &Graph,
+    complement: &Complement,
+) -> Option<(Complement, BTreeSet<u32>)> {
+    let collisions: BTreeSet<_> = presented
+        .nodes
+        .keys()
+        .filter(|id| complement.dropped_nodes.contains_key(id))
+        .copied()
+        .collect();
+    if collisions.is_empty() {
+        return None;
+    }
+
+    let incident_source_edges: BTreeSet<_> = complement
+        .dropped_edges
+        .iter()
+        .chain(&complement.original_edges)
+        .filter(|(_, edge)| collisions.contains(&edge.src) || collisions.contains(&edge.tgt))
+        .map(|(id, _)| *id)
+        .collect();
+    let mut counterfactual = complement.clone();
+    counterfactual
+        .dropped_nodes
+        .retain(|id, _| !collisions.contains(id));
+    counterfactual
+        .dropped_edges
+        .retain(|_, edge| !collisions.contains(&edge.src) && !collisions.contains(&edge.tgt));
+    counterfactual
+        .original_edges
+        .retain(|_, edge| !collisions.contains(&edge.src) && !collisions.contains(&edge.tgt));
+    counterfactual
+        .original_anchors
+        .retain(|id, _| !collisions.contains(id));
+    counterfactual
+        .original_fields
+        .retain(|id, _| !collisions.contains(id));
+    counterfactual
+        .original_values
+        .retain(|id, _| !collisions.contains(id));
+    counterfactual.synthesized_nodes.retain(|_, key| {
+        !native_synth_key_depends_on_collision(key, &collisions, &incident_source_edges)
+    });
+    counterfactual.synthesized_edges.retain(|_, key| {
+        !native_synth_key_depends_on_collision(key, &collisions, &incident_source_edges)
+    });
+    Some((counterfactual, collisions))
+}
+
+fn native_reanchor_collisions(
+    lens: &GraphLens<'_>,
+    complement: &Complement,
+    collisions: &BTreeSet<u32>,
+    state: &mut NativeRestoreState,
+) {
+    for id in collisions {
+        state.anchors.remove(id);
+        let Some(node) = state.presented.nodes.get(id) else {
+            continue;
+        };
+        match native_source_anchor(lens, complement, node) {
+            Ok(anchor) => {
+                state.anchors.insert(*id, anchor);
+            }
+            Err(candidates) => state.errors.push(PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(*id),
+                candidates,
+            }),
         }
     }
 }
@@ -1752,8 +1842,15 @@ fn native_restore(
 ) -> Result<(Tree, Graph), TreeRestoreError> {
     let mut state = native_restore_start(lens, view, embedding, complement)
         .map_err(TreeRestoreError::Operational)?;
-    native_restore_visible(lens, complement, &mut state);
-    native_restore_residue(complement, &mut state);
+    let collision_counterfactual = native_collision_counterfactual(&state.presented, complement);
+    let restore_complement = collision_counterfactual
+        .as_ref()
+        .map_or(complement, |(counterfactual, _)| counterfactual);
+    if let Some((counterfactual, collisions)) = &collision_counterfactual {
+        native_reanchor_collisions(lens, counterfactual, collisions, &mut state);
+    }
+    native_restore_visible(lens, restore_complement, complement, &mut state);
+    native_restore_residue(restore_complement, &mut state);
     state.errors.extend(native_source_violations(
         lens,
         &state.presented,
@@ -2087,12 +2184,17 @@ fn target_parent_name(lens: &GraphLens<'_>, hyper: &str) -> Option<Name> {
 mod allocation_tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::{fresh_after, native_view_graph, take_fresh, tree_get};
+    use super::{
+        fresh_after, native_collision_counterfactual, native_view_graph, take_fresh,
+        tree_check_put_domain, tree_get, tree_put,
+    };
     use crate::migration::Migration;
-    use crate::model::{Fan, Node, SEdge, Tree};
-    use crate::pages::lenses::graph::GraphLens;
-    use crate::restrict::{Complement, HYPER_LABEL, HYPER_PARENT, NoValueLayer, compile};
-    use crate::schema::{HyperEdge, Schema};
+    use crate::model::{Fan, GEdge, Graph, Node, SEdge, Tree};
+    use crate::pages::lenses::domain::{PutDomainError, ViewRef};
+    use crate::pages::lenses::graph::{GraphLens, LensError};
+    use crate::restrict::{Complement, HYPER_LABEL, HYPER_PARENT, NoValueLayer, SynthKey, compile};
+    use crate::schema::{HyperEdge, Key, KeyPart, KeyRole, KeyScope, Schema};
+    use crate::value::Value;
 
     #[test]
     fn tree_view_carriers_use_max_minus_one_but_never_reserved_max() {
@@ -2265,6 +2367,269 @@ mod allocation_tests {
         assert_eq!(
             graph.edges.keys().copied().collect::<Vec<_>>(),
             vec![70, 71]
+        );
+    }
+
+    #[test]
+    fn native_tree_collision_reports_the_visible_replacements_duplicate_key() {
+        let hidden = SEdge::new("r", "d", "child", Some("hidden"));
+        let visible = SEdge::new("r", "r", "child", Some("visible"));
+        let mut source_schema = Schema::default()
+            .vertex("r", "string")
+            .vertex("d", "string")
+            .edge("r", "d", "child", Some("hidden"))
+            .edge("r", "r", "child", Some("visible"));
+        source_schema.keys.insert(
+            "r".to_owned(),
+            vec![Key {
+                id: "r-key".to_owned(),
+                parts: vec![KeyPart::Path(Vec::new())],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let target_schema =
+            Schema::default()
+                .vertex("r", "string")
+                .edge("r", "r", "child", Some("visible"));
+        let migration = Migration {
+            surviving_verts: ["r".to_owned()].into(),
+            surviving_edges: [visible.clone()].into(),
+            ..Migration::default()
+        };
+        let Ok(plan) = compile(&source_schema, &target_schema, &migration) else {
+            panic!("the collision fixture must compile");
+        };
+        let Ok(lens) = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        ) else {
+            panic!("the collision fixture must bind");
+        };
+        let source = Tree {
+            nodes: [
+                (
+                    0,
+                    Node::new(0, "r").with_value(Value::Str("same".to_owned())),
+                ),
+                (1, Node::new(1, "d")),
+            ]
+            .into(),
+            arcs: vec![(0, 1, hidden)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((mut view, complement, embedding))) = tree_get(&lens, &source) else {
+            panic!("the collision fixture must have a tree view");
+        };
+        assert_eq!(
+            complement.dropped_nodes.keys().copied().collect::<Vec<_>>(),
+            vec![1]
+        );
+        view.nodes.insert(
+            1,
+            Node::new(1, "r").with_value(Value::Str("same".to_owned())),
+        );
+        view.arcs.push((0, 1, visible));
+        let expected = vec![
+            PutDomainError::IdCollision {
+                elem: ViewRef::Node(1),
+            },
+            PutDomainError::DuplicateKey {
+                table: "r".to_owned(),
+                key: vec![(String::new(), Value::Str("same".to_owned()))],
+                elems: vec![ViewRef::Node(0), ViewRef::Node(1)],
+            },
+        ];
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &embedding, &complement),
+            Err(LensError::PutDomainReport(expected.clone()))
+        );
+        assert_eq!(
+            tree_put(&lens, &view, &embedding, &complement),
+            Err(LensError::PutDomain(expected[0].clone()))
+        );
+    }
+
+    fn insert_collision_synth_keys(complement: &mut Complement, label: &SEdge) {
+        complement.synthesized_nodes = [
+            (
+                30,
+                SynthKey::Contract {
+                    src: 1,
+                    tgt: 7,
+                    edge: label.clone(),
+                },
+            ),
+            (
+                31,
+                SynthKey::ContractExpand {
+                    src: 7,
+                    tgt: 3,
+                    hop: 0,
+                },
+            ),
+            (
+                32,
+                SynthKey::Expand {
+                    source_edge: 10,
+                    hop: 0,
+                },
+            ),
+            (
+                33,
+                SynthKey::Expand {
+                    source_edge: 12,
+                    hop: 0,
+                },
+            ),
+            (
+                34,
+                SynthKey::Contract {
+                    src: 7,
+                    tgt: 8,
+                    edge: label.clone(),
+                },
+            ),
+        ]
+        .into();
+        complement.synthesized_edges = [
+            (
+                40,
+                SynthKey::Expand {
+                    source_edge: 20,
+                    hop: 0,
+                },
+            ),
+            (
+                41,
+                SynthKey::Expand {
+                    source_edge: 12,
+                    hop: 1,
+                },
+            ),
+        ]
+        .into();
+    }
+
+    fn multiple_collision_fixture() -> (Graph, Complement) {
+        let label = SEdge::new("r", "r", "child", Some("visible"));
+        let edge = |src, tgt| GEdge {
+            src,
+            tgt,
+            label: label.clone(),
+            position: None,
+        };
+        let presented = Graph {
+            nodes: [(1, Node::new(1, "r")), (3, Node::new(3, "r"))].into(),
+            edges: BTreeMap::new(),
+        };
+        let mut complement = Complement {
+            dropped_nodes: [
+                (1, Node::new(1, "d")),
+                (3, Node::new(3, "d")),
+                (9, Node::new(9, "d")),
+            ]
+            .into(),
+            dropped_edges: [(10, edge(0, 1)), (11, edge(3, 4)), (12, edge(5, 6))].into(),
+            original_edges: [(20, edge(1, 8)), (21, edge(5, 6))].into(),
+            original_anchors: [(1, "d".to_owned()), (7, "r".to_owned())].into(),
+            original_fields: [(3, BTreeMap::new()), (7, BTreeMap::new())].into(),
+            original_values: [(1, None), (7, None)].into(),
+            ..Complement::default()
+        };
+        insert_collision_synth_keys(&mut complement, &label);
+        (presented, complement)
+    }
+
+    #[test]
+    fn collision_counterfactual_strips_multiple_nodes_and_incident_keys_only() {
+        let (presented, complement) = multiple_collision_fixture();
+        let Some((counterfactual, collisions)) =
+            native_collision_counterfactual(&presented, &complement)
+        else {
+            panic!("both visible ids collide with dropped source nodes");
+        };
+        assert_eq!(collisions, BTreeSet::from([1, 3]));
+        assert_eq!(
+            counterfactual
+                .dropped_nodes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![9]
+        );
+        assert_eq!(
+            counterfactual
+                .dropped_edges
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![12]
+        );
+        assert_eq!(
+            counterfactual
+                .original_edges
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![21]
+        );
+        assert_eq!(
+            counterfactual
+                .synthesized_nodes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![33, 34]
+        );
+        assert_eq!(
+            counterfactual.synthesized_nodes[&33],
+            SynthKey::Expand {
+                source_edge: 12,
+                hop: 0,
+            },
+            "reference graph edge ids are stable, so a surviving expansion key is not reindexed"
+        );
+        assert_eq!(
+            counterfactual.synthesized_edges,
+            [(
+                41,
+                SynthKey::Expand {
+                    source_edge: 12,
+                    hop: 1,
+                },
+            )]
+            .into()
+        );
+        assert_eq!(
+            counterfactual
+                .original_anchors
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![7]
+        );
+        assert_eq!(
+            counterfactual
+                .original_fields
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![7]
+        );
+        assert_eq!(
+            counterfactual
+                .original_values
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![7]
         );
     }
 }

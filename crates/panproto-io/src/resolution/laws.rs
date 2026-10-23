@@ -14,7 +14,7 @@ use panproto_inst::{GInstance, SynthIndex, ViewRef};
 use panproto_lens::{FamilyReport, Mutation, SkipReason};
 use serde::{Deserialize, Serialize};
 
-use super::cases::{Cases, Presentation, graph_cases, table_cases, tree_cases};
+use super::cases::{Cases, NegativeCase, Presentation, graph_cases, table_cases, tree_cases};
 use super::error::{ResolveDomainError, ResolveError};
 use super::rekey::Renaming;
 use super::verify::{compacted_index, extend_index, same_instance, view_diff};
@@ -47,7 +47,8 @@ pub enum ResolutionLawViolation {
         /// What differs.
         detail: String,
     },
-    /// Put fails on an admitted view.
+    /// Put fails on an admitted view, or a certified refusal differs from
+    /// its complete ordered domain report.
     #[error("Totality ({mutation:?}): {error}")]
     Totality {
         /// The family of the edit.
@@ -79,33 +80,17 @@ pub enum ResolutionLawViolation {
 fn lift<I>(cases: Cases<I>, wrap: impl Fn(I) -> AnyInstance) -> Cases<AnyInstance> {
     match cases {
         Cases::Views(views) => Cases::Views(views.into_iter().map(wrap).collect()),
+        Cases::Negative(cases) => Cases::Negative(
+            cases
+                .into_iter()
+                .map(|case| NegativeCase {
+                    view: wrap(case.view),
+                    expected: case.expected,
+                })
+                .collect(),
+        ),
         Cases::Skip(reason) => Cases::Skip(reason),
     }
-}
-
-/// Whether a refusal is the one a negative family is meant to draw.
-const fn intended_negative(error: &ResolveDomainError, mutation: Mutation) -> bool {
-    matches!(
-        (mutation, error),
-        (
-            Mutation::RemoveSynthesized | Mutation::EditSynthesized,
-            ResolveDomainError::SynthesizedEdited { .. }
-        ) | (
-            Mutation::ReservedIdReuse | Mutation::MalformedFan,
-            ResolveDomainError::NoPlacement { .. }
-        )
-    )
-}
-
-const fn is_negative(mutation: Mutation) -> bool {
-    matches!(
-        mutation,
-        Mutation::RemoveSynthesized
-            | Mutation::EditSynthesized
-            | Mutation::AddContractedEdge
-            | Mutation::ReservedIdReuse
-            | Mutation::MalformedFan
-    )
 }
 
 /// The synthesized index of a view under a complement.
@@ -178,8 +163,7 @@ impl Resolution {
         }
     }
 
-    /// Every admitted candidate of the non-negative families, with its
-    /// family.
+    /// Every candidate explicitly classified as admitted, with its family.
     fn admitted_candidates(
         &self,
         view: &AnyInstance,
@@ -187,7 +171,7 @@ impl Resolution {
         ctx: &ResolveContext<'_>,
     ) -> Vec<(Mutation, AnyInstance)> {
         let mut admitted = Vec::new();
-        for mutation in Mutation::ALL.into_iter().filter(|m| !is_negative(*m)) {
+        for mutation in Mutation::ALL {
             if let Cases::Views(views) = self.cases(view, complement, mutation) {
                 admitted.extend(
                     views
@@ -237,7 +221,7 @@ pub fn check_resolution_laws(
     get_put(resolution, source, &view, &complement, ctx)?;
     let admitted = resolution.admitted_candidates(&view, &complement, ctx);
     put_get(resolution, &view, &complement, &admitted, *options, ctx)?;
-    totality(resolution, &complement, &admitted, ctx)?;
+    totality(resolution, &view, &complement, &admitted, ctx)?;
     put_twice(resolution, &view, &complement, &admitted, *options, ctx)?;
     congruence(resolution, &view, &complement, &admitted, ctx)?;
     Ok(report(resolution, &view, &complement, ctx))
@@ -290,6 +274,7 @@ fn put_get(
 
 fn totality(
     resolution: &Resolution,
+    view: &AnyInstance,
     complement: &ResolutionComplement,
     admitted: &[(Mutation, AnyInstance)],
     ctx: &ResolveContext<'_>,
@@ -300,6 +285,17 @@ fn totality(
                 mutation: *mutation,
                 error,
             });
+        }
+    }
+    for mutation in Mutation::ALL {
+        let Cases::Negative(candidates) = resolution.cases(view, complement, mutation) else {
+            continue;
+        };
+        for candidate in candidates {
+            if let Err(failure) = exact_negative_oracle(resolution, &candidate, complement, ctx) {
+                let (_, error) = *failure;
+                return Err(ResolutionLawViolation::Totality { mutation, error });
+            }
         }
     }
     Ok(())
@@ -528,31 +524,99 @@ fn same_complement(a: &ResolutionComplement, b: &ResolutionComplement) -> bool {
     a.is_some() && a == b
 }
 
-/// Record one generated candidate in its family's counted domain.
-///
-/// Negative families count every generated candidate as negative; only a
-/// nonempty vector consisting entirely of that family's intended refusals
-/// satisfies the negative oracle. Positive families count only admitted
-/// candidates, and `put_succeeds` is evaluated only for such a candidate.
-fn record_candidate(
-    family: &mut FamilyReport,
-    mutation: Mutation,
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum NegativeOracleMismatch {
+    EmptyCertificate,
+    ReportAdmitted,
+    ReportDiff {
+        expected: Vec<ResolveDomainError>,
+        found: Vec<ResolveDomainError>,
+    },
+    RawFirstDiff {
+        expected: ResolveDomainError,
+        found: ResolveDomainError,
+    },
+    RawNonDomain,
+    RawSucceeded,
+}
+
+fn representative_negative_error(
+    expected: &[ResolveDomainError],
     verdict: &Result<(), Vec<ResolveDomainError>>,
-    put_succeeds: impl FnOnce() -> bool,
-) {
-    if is_negative(mutation) {
-        family.negative += 1;
-        if let Err(errors) = verdict
-            && !errors.is_empty()
-            && errors
-                .iter()
-                .all(|error| intended_negative(error, mutation))
-        {
-            family.negative_ok += 1;
+    raw_put: &Result<(), ResolveError>,
+) -> ResolveError {
+    if let Err(error) = raw_put {
+        return error.clone();
+    }
+    let refusal = verdict
+        .as_ref()
+        .err()
+        .and_then(|found| found.first())
+        .or_else(|| expected.first())
+        .cloned()
+        .unwrap_or(ResolveDomainError::ContextMismatch { at: None });
+    ResolveError::PutDomain(refusal)
+}
+
+fn exact_negative_result(
+    expected: &[ResolveDomainError],
+    verdict: &Result<(), Vec<ResolveDomainError>>,
+    raw_put: &Result<(), ResolveError>,
+) -> Result<(), Box<(NegativeOracleMismatch, ResolveError)>> {
+    let failure = |mismatch| {
+        Err(Box::new((
+            mismatch,
+            representative_negative_error(expected, verdict, raw_put),
+        )))
+    };
+    let Some(first) = expected.first() else {
+        return failure(NegativeOracleMismatch::EmptyCertificate);
+    };
+    match verdict {
+        Err(found) if found == expected => {}
+        Err(found) => {
+            return failure(NegativeOracleMismatch::ReportDiff {
+                expected: expected.to_vec(),
+                found: found.clone(),
+            });
         }
-    } else if verdict.is_ok() {
+        Ok(()) => return failure(NegativeOracleMismatch::ReportAdmitted),
+    }
+    match raw_put {
+        Err(ResolveError::PutDomain(found)) if found == first => Ok(()),
+        Err(ResolveError::PutDomain(found)) => failure(NegativeOracleMismatch::RawFirstDiff {
+            expected: first.clone(),
+            found: found.clone(),
+        }),
+        Err(_) => failure(NegativeOracleMismatch::RawNonDomain),
+        Ok(()) => failure(NegativeOracleMismatch::RawSucceeded),
+    }
+}
+
+fn exact_negative_oracle(
+    resolution: &Resolution,
+    candidate: &NegativeCase<AnyInstance>,
+    complement: &ResolutionComplement,
+    ctx: &ResolveContext<'_>,
+) -> Result<(), Box<(NegativeOracleMismatch, ResolveError)>> {
+    let verdict = resolution.check_put_domain(&candidate.view, complement, ctx);
+    let raw_put = resolution.put(&candidate.view, complement, ctx).map(|_| ());
+    exact_negative_result(&candidate.expected, &verdict, &raw_put)
+}
+
+fn record_positive(
+    family: &mut FamilyReport,
+    resolution: &Resolution,
+    candidate: &AnyInstance,
+    complement: &ResolutionComplement,
+    ctx: &ResolveContext<'_>,
+) {
+    if resolution
+        .check_put_domain(candidate, complement, ctx)
+        .is_ok()
+    {
         family.in_domain += 1;
-        if put_succeeds() {
+        if resolution.put(candidate, complement, ctx).is_ok() {
             family.in_domain_ok += 1;
         }
     }
@@ -567,8 +631,9 @@ fn report(
     let mut ran = Vec::new();
     let mut skipped = Vec::new();
     for mutation in Mutation::ALL {
-        let candidates = match resolution.cases(view, complement, mutation) {
-            Cases::Views(views) => views,
+        let cases = match resolution.cases(view, complement, mutation) {
+            Cases::Views(views) => (Some(views), None),
+            Cases::Negative(cases) => (None, Some(cases)),
             Cases::Skip(reason) => {
                 skipped.push((mutation, reason));
                 continue;
@@ -581,11 +646,18 @@ fn report(
             negative: 0,
             negative_ok: 0,
         };
-        for candidate in candidates {
-            let verdict = resolution.check_put_domain(&candidate, complement, ctx);
-            record_candidate(&mut family, mutation, &verdict, || {
-                resolution.put(&candidate, complement, ctx).is_ok()
-            });
+        if let Some(candidates) = cases.0 {
+            for candidate in candidates {
+                record_positive(&mut family, resolution, &candidate, complement, ctx);
+            }
+        }
+        if let Some(candidates) = cases.1 {
+            for candidate in candidates {
+                family.negative += 1;
+                if exact_negative_oracle(resolution, &candidate, complement, ctx).is_ok() {
+                    family.negative_ok += 1;
+                }
+            }
         }
         ran.push(family);
     }
@@ -680,45 +752,26 @@ mod tests {
     }
 
     #[test]
-    fn negative_families_and_their_intended_refusals_are_exact() {
-        let synthesized = ResolveDomainError::SynthesizedEdited {
+    fn lift_preserves_explicit_negative_certificates() -> Result<(), panproto_inst::InstError> {
+        let mut graph = GInstance::new();
+        graph.insert_node(Node::new(1, "node"))?;
+        let expected = vec![ResolveDomainError::NoPlacement {
             carrier: ViewRef::Node(1),
+        }];
+        let lifted = lift(
+            Cases::Negative(vec![NegativeCase {
+                view: graph.clone(),
+                expected: expected.clone(),
+            }]),
+            AnyInstance::Graph,
+        );
+        let Cases::Negative(cases) = lifted else {
+            panic!("lifting must preserve explicit negative polarity");
         };
-        let unplaced = ResolveDomainError::NoPlacement {
-            carrier: ViewRef::Node(1),
-        };
-        let unrepresentable = ResolveDomainError::UnrepresentableReference {
-            carrier: ViewRef::Node(1),
-            reference: "r".into(),
-        };
-        for mutation in Mutation::ALL {
-            let negative = matches!(
-                mutation,
-                Mutation::RemoveSynthesized
-                    | Mutation::EditSynthesized
-                    | Mutation::AddContractedEdge
-                    | Mutation::ReservedIdReuse
-                    | Mutation::MalformedFan
-            );
-            assert_eq!(is_negative(mutation), negative, "{mutation:?}");
-            assert_eq!(
-                intended_negative(&synthesized, mutation),
-                matches!(
-                    mutation,
-                    Mutation::RemoveSynthesized | Mutation::EditSynthesized
-                ),
-                "synthesized: {mutation:?}"
-            );
-            assert_eq!(
-                intended_negative(&unplaced, mutation),
-                matches!(mutation, Mutation::ReservedIdReuse | Mutation::MalformedFan),
-                "placement: {mutation:?}"
-            );
-            assert!(
-                !intended_negative(&unrepresentable, mutation),
-                "another refusal is never intended: {mutation:?}"
-            );
-        }
+        assert_eq!(cases.len(), 1);
+        assert_eq!(cases[0].expected, expected);
+        assert!(matches!(&cases[0].view, AnyInstance::Graph(found) if found == &graph));
+        Ok(())
     }
 
     #[test]
@@ -786,71 +839,149 @@ mod tests {
         assert!(!same_complement(&b, &a));
     }
 
-    fn empty_family(mutation: Mutation) -> FamilyReport {
-        FamilyReport {
-            mutation,
-            in_domain: 0,
-            in_domain_ok: 0,
-            negative: 0,
-            negative_ok: 0,
+    fn negative_failure(
+        result: Result<(), Box<(NegativeOracleMismatch, ResolveError)>>,
+    ) -> (NegativeOracleMismatch, ResolveError) {
+        match result {
+            Ok(()) => panic!("negative oracle unexpectedly accepted the candidate"),
+            Err(failure) => *failure,
         }
     }
 
     #[test]
-    fn candidate_accounting_distinguishes_both_domains_and_both_verdicts() {
-        let unplaced = ResolveDomainError::NoPlacement {
+    fn exact_negative_oracle_rejects_every_report_and_raw_put_mismatch() {
+        let first = ResolveDomainError::NoPlacement {
             carrier: ViewRef::Node(1),
         };
-        let unrelated = ResolveDomainError::UnrepresentableReference {
+        let second = ResolveDomainError::SynthesizedEdited {
+            carrier: ViewRef::Edge(EdgeId(2)),
+        };
+        let expected = vec![first.clone(), second.clone()];
+        let exact_report = Err(expected.clone());
+        let exact_raw = Err(ResolveError::PutDomain(first.clone()));
+        assert!(exact_negative_result(&expected, &exact_report, &exact_raw).is_ok());
+
+        let extra = ResolveDomainError::ContextMismatch { at: None };
+        let wrong_coordinate = ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(9),
+        };
+        let mixed = ResolveDomainError::UnrepresentableReference {
             carrier: ViewRef::Node(1),
             reference: "r".into(),
         };
+        let (kind, representative) =
+            negative_failure(exact_negative_result(&expected, &Ok(()), &exact_raw));
+        assert_eq!(kind, NegativeOracleMismatch::ReportAdmitted);
+        assert!(matches!(
+            representative,
+            ResolveError::PutDomain(refusal) if refusal == first
+        ));
 
-        let mut admitted = empty_family(Mutation::FieldEdit);
-        record_candidate(&mut admitted, Mutation::FieldEdit, &Ok(()), || true);
-        assert_eq!((admitted.in_domain, admitted.in_domain_ok), (1, 1));
-        assert_eq!((admitted.negative, admitted.negative_ok), (0, 0));
-
-        let mut put_failed = empty_family(Mutation::FieldEdit);
-        record_candidate(&mut put_failed, Mutation::FieldEdit, &Ok(()), || false);
-        assert_eq!((put_failed.in_domain, put_failed.in_domain_ok), (1, 0));
-
-        let mut refused = empty_family(Mutation::FieldEdit);
-        record_candidate(
-            &mut refused,
-            Mutation::FieldEdit,
-            &Err(vec![unrelated.clone()]),
-            || panic!("put is not evaluated for a refused positive candidate"),
-        );
-        assert_eq!(refused, empty_family(Mutation::FieldEdit));
-
-        let mut negative_admitted = empty_family(Mutation::ReservedIdReuse);
-        record_candidate(
-            &mut negative_admitted,
-            Mutation::ReservedIdReuse,
-            &Ok(()),
-            || panic!("put is not evaluated for a negative candidate"),
-        );
-        assert_eq!(
-            (negative_admitted.negative, negative_admitted.negative_ok),
-            (1, 0)
-        );
-
-        let mut intended = empty_family(Mutation::ReservedIdReuse);
-        record_candidate(
-            &mut intended,
-            Mutation::ReservedIdReuse,
-            &Err(vec![unplaced]),
-            || panic!("put is not evaluated for a negative candidate"),
-        );
-        assert_eq!((intended.negative, intended.negative_ok), (1, 1));
-
-        for errors in [Vec::new(), vec![unrelated]] {
-            let mut wrong = empty_family(Mutation::ReservedIdReuse);
-            record_candidate(&mut wrong, Mutation::ReservedIdReuse, &Err(errors), || {
-                panic!("put is not evaluated for a negative candidate")
-            });
-            assert_eq!((wrong.negative, wrong.negative_ok), (1, 0));
+        let bad_reports = [
+            Err(vec![first.clone()]),
+            Err(vec![first.clone(), second.clone(), extra]),
+            Err(vec![second.clone(), first.clone()]),
+            Err(vec![first.clone(), first.clone(), second.clone()]),
+            Err(vec![wrong_coordinate, second.clone()]),
+            Err(vec![first.clone(), mixed]),
+        ];
+        for report in bad_reports {
+            let (kind, _) = negative_failure(exact_negative_result(&expected, &report, &exact_raw));
+            assert!(
+                matches!(kind, NegativeOracleMismatch::ReportDiff { .. }),
+                "a mismatched complete report must fail"
+            );
         }
+        assert_eq!(
+            negative_failure(exact_negative_result(&[], &Err(Vec::new()), &exact_raw)).0,
+            NegativeOracleMismatch::EmptyCertificate
+        );
+
+        let non_domain = ResolveError::ShapeMismatch {
+            expected: panproto_inst::InstanceShapeKind::Graph,
+            found: panproto_inst::InstanceShapeKind::Tree,
+        };
+        let (kind, representative) = negative_failure(exact_negative_result(
+            &expected,
+            &exact_report,
+            &Err(ResolveError::PutDomain(second.clone())),
+        ));
+        assert_eq!(
+            kind,
+            NegativeOracleMismatch::RawFirstDiff {
+                expected: first.clone(),
+                found: second.clone(),
+            }
+        );
+        assert!(matches!(
+            representative,
+            ResolveError::PutDomain(found) if found == second
+        ));
+
+        let (kind, representative) = negative_failure(exact_negative_result(
+            &expected,
+            &exact_report,
+            &Err(non_domain),
+        ));
+        assert_eq!(kind, NegativeOracleMismatch::RawNonDomain);
+        assert!(matches!(
+            representative,
+            ResolveError::ShapeMismatch {
+                expected: panproto_inst::InstanceShapeKind::Graph,
+                found: panproto_inst::InstanceShapeKind::Tree,
+            }
+        ));
+
+        let (kind, representative) =
+            negative_failure(exact_negative_result(&expected, &exact_report, &Ok(())));
+        assert_eq!(kind, NegativeOracleMismatch::RawSucceeded);
+        assert!(matches!(
+            representative,
+            ResolveError::PutDomain(found) if found == first
+        ));
+    }
+
+    #[test]
+    fn explicit_negative_polarity_has_no_mutation_name_input() {
+        let refusal = ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Node(1),
+        };
+        assert!(
+            exact_negative_result(
+                std::slice::from_ref(&refusal),
+                &Err(vec![refusal.clone()]),
+                &Err(ResolveError::PutDomain(refusal.clone())),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn totality_keeps_the_resolve_error_wire_shape() {
+        let violation = ResolutionLawViolation::Totality {
+            mutation: Mutation::RemoveSynthesized,
+            error: ResolveError::PutDomain(ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(7),
+            }),
+        };
+        let serialized = match serde_json::to_value(&violation) {
+            Ok(value) => value,
+            Err(error) => panic!("serialize law violation: {error}"),
+        };
+        assert_eq!(
+            serialized,
+            serde_json::json!({
+                "totality": {
+                    "mutation": "remove_synthesized",
+                    "error": {
+                        "put_domain": {
+                            "no_placement": {
+                                "carrier": { "node": 7 }
+                            }
+                        }
+                    }
+                }
+            })
+        );
     }
 }

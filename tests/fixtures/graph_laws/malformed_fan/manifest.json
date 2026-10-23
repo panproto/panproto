@@ -1,1 +1,1 @@
-{"format_version":2,"mutation":"malformed_fan","expected":"typed_refusal","observation":{"ran":1,"shape_cannot_express":0,"no_candidate":5,"in_domain":0,"in_domain_ok":0,"negative":1,"negative_ok":1},"refusal":"malformed_fan"}
+{"format_version":3,"mutation":"malformed_fan","expected":"typed_refusal","observation":{"ran":1,"shape_cannot_express":0,"no_candidate":5,"in_domain":0,"in_domain_ok":0,"negative":1,"negative_ok":1},"refusal":"malformed_fan","certificates":[[{"malformed_fan":{"node":24,"reason":{"multiple_parents":{"edges":[2,5]}}}}]]}

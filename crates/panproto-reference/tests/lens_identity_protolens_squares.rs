@@ -402,9 +402,10 @@ fn assert_recursive_basis_families(lens: &GraphLens<'_>, fixture: &RecursiveCont
         );
     }
     assert!(
-        graph_laws
+        !graph_laws
             .basis_families
-            .contains_key(&Mutation::ReservedIdReuse)
+            .contains_key(&Mutation::ReservedIdReuse),
+        "incident dropped edges are outside the local reserved-node proof"
     );
     assert!(
         !tree_laws
@@ -419,8 +420,9 @@ fn assert_recursive_put_domain_refusals(
     fixture: &RecursiveContractionFixture,
 ) {
     let (view, complement) = observation.graph.get.as_ref().unwrap();
-    // GraphShape can reuse a dropped node id without adding an edge, so its
-    // SSB has a genuine exact IdCollision witness.
+    // The graph checker reports only IdCollision here, but the replacement
+    // changes the source anchor at the endpoint of restored dropped edges.
+    // Thus this counterfactual is not a structurally valid source witness.
     let mut exact_graph = view.clone();
     let mut colliding = exact_graph.nodes[&0].clone();
     colliding.id = 1;
@@ -432,6 +434,23 @@ fn assert_recursive_put_domain_refusals(
                 elem: ViewRef::Node(1),
             },
         ])
+    );
+    let mut stripped = complement.clone();
+    assert!(
+        stripped.dropped_nodes.remove(&1).is_some(),
+        "the counterfactual removes exactly the colliding dropped node"
+    );
+    assert_eq!(lens.check_put_domain(&exact_graph, &stripped), Ok(()));
+    let restored = lens.put(&exact_graph, &stripped).unwrap();
+    assert_eq!(
+        panproto_reference::validation::validate_graph(
+            &fixture.source_schema,
+            &BTreeMap::new(),
+            &restored,
+        )
+        .status,
+        panproto_reference::validation::CheckStatus::Failed,
+        "the checker-admitted replacement must expose its edge-endpoint mismatch"
     );
 
     // Reusing a dropped edge id also inserts an edge with no unique source
@@ -1161,19 +1180,8 @@ fn edited_three_sibling_order_is_outside_the_exact_position_free_graph_square() 
     });
     assert_eq!(root_children(&edited), desired);
 
-    let mut expected_tree = source.clone();
-    expected_tree.arcs.sort_by_key(|(parent, child, _)| {
-        if *parent == 0 {
-            desired
-                .iter()
-                .position(|candidate| candidate == child)
-                .unwrap()
-        } else {
-            usize::MAX
-        }
-    });
     let result = graph_put_square(&lens, &source, &edited, &embedding);
-    let SquareResult::Mismatch(observation) = result else {
+    let SquareResult::Refused(observation) = result else {
         panic!("edited three-sibling reorder did not expose the square boundary: {result:#?}");
     };
 
@@ -1187,12 +1195,23 @@ fn edited_three_sibling_order_is_outside_the_exact_position_free_graph_square() 
     );
     // F.B compares tree child sequence with position-free graph
     // `ordered_out_edges`. Stable embedded EdgeIds therefore present the
-    // source order on the direct graph route, while native Tree PutGet must
-    // preserve the caller's admitted reorder. The two presentations are an
-    // intentional outside-the-identical-square mismatch; neither route may
-    // smuggle order through `GEdge.position` or renumber identity carriers.
+    // source order on the direct graph route, while the unchanged durable
+    // embedding cannot represent the caller's sequence-only reorder. The
+    // edit is outside the exact common domain; neither route may smuggle
+    // order through `GEdge.position` or renumber identity carriers.
     assert_eq!(observation.graph_tree_put, Some(Ok(source)));
-    assert_eq!(observation.fast_tree_put, Some(Ok(expected_tree)));
+    assert!(matches!(
+        observation.fast_tree_put,
+        Some(Err(SquareError::OutsideExactDomain(
+            "the durable embedding does not represent the edited tree presentation"
+        )))
+    ));
+    assert!(matches!(
+        observation.fast.put,
+        Some(Err(SquareError::OutsideExactDomain(
+            "the durable embedding does not represent the edited tree presentation"
+        )))
+    ));
     assert_eq!(
         observation
             .graph
@@ -1204,7 +1223,6 @@ fn edited_three_sibling_order_is_outside_the_exact_position_free_graph_square() 
             .ordered_out_edges(0),
         vec![0, 1, 2, 3]
     );
-    assert_eq!(observation.graph.put, observation.fast.put);
 }
 
 #[test]
@@ -1232,7 +1250,7 @@ fn graph_put_square_transports_an_exact_synthesized_edit_error() {
 }
 
 #[test]
-fn tree_put_domain_rejects_noncanonical_synthesized_arc_order_exactly() {
+fn tree_put_domain_accepts_cross_parent_synthesized_arc_interleavings() {
     let (source_schema, target_schema, migration, source) = expansion_fixture(false);
     let plan = compile(&source_schema, &target_schema, &migration).unwrap();
     let lens = graph_lens(&source_schema, &target_schema, &migration, &plan);
@@ -1248,11 +1266,7 @@ fn tree_put_domain_rejects_noncanonical_synthesized_arc_order_exactly() {
             &embedding,
             &complement,
         ),
-        Err(LensError::PutDomainReport(vec![
-            panproto_reference::lens::PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Edge(1),
-            },
-        ]))
+        Ok(())
     );
 
     let (source_schema, target_schema, migration, _, source) = full_mutation_fixture();
@@ -1270,9 +1284,129 @@ fn tree_put_domain_rejects_noncanonical_synthesized_arc_order_exactly() {
     mixed.arcs.insert(0, synthesized);
     assert_eq!(
         panproto_reference::lens::tree_check_put_domain(&lens, &mixed, &embedding, &complement,),
+        Ok(())
+    );
+}
+
+#[test]
+fn tree_put_domain_rejects_a_synthesized_arc_before_a_kept_sibling() {
+    let direct = SEdge::new("r", "leaf", "child", Some("leaf"));
+    let source_schema = Schema::default()
+        .vertex("r", "obj")
+        .vertex("m", "obj")
+        .vertex("leaf", "obj")
+        .edge("r", "leaf", "child", Some("leaf"))
+        .edge("r", "m", "child", Some("m"))
+        .edge("m", "leaf", "child", Some("leaf"));
+    let target_schema = Schema::default()
+        .vertex("r", "obj")
+        .vertex("leaf", "obj")
+        .edge("r", "leaf", "child", Some("leaf"));
+    let migration = Migration {
+        surviving_verts: ["r".to_owned(), "leaf".to_owned()].into(),
+        surviving_edges: [direct.clone()].into(),
+        resolver: [(("r".to_owned(), "leaf".to_owned()), direct.clone())].into(),
+        ..Migration::default()
+    };
+    let source = Tree {
+        nodes: [
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "leaf")),
+            (2, Node::new(2, "m")),
+            (3, Node::new(3, "leaf")),
+        ]
+        .into(),
+        arcs: vec![
+            (0, 1, direct.clone()),
+            (0, 2, SEdge::new("r", "m", "child", Some("m"))),
+            (2, 3, SEdge::new("m", "leaf", "child", Some("leaf"))),
+        ],
+        fans: Vec::new(),
+        root: 0,
+    };
+    let plan = compile(&source_schema, &target_schema, &migration).unwrap();
+    let lens = graph_lens(&source_schema, &target_schema, &migration, &plan);
+    let (mut view, complement, embedding) = panproto_reference::lens::tree_get(&lens, &source)
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.arcs, vec![(0, 1, direct.clone()), (0, 3, direct)]);
+    assert_eq!(
+        complement
+            .synthesized_edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![3]
+    );
+
+    view.arcs.swap(0, 1);
+    assert_eq!(
+        panproto_reference::lens::tree_check_put_domain(&lens, &view, &embedding, &complement,),
         Err(LensError::PutDomainReport(vec![
             panproto_reference::lens::PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Edge(5),
+                elem: ViewRef::Edge(3),
+            },
+        ]))
+    );
+}
+
+#[test]
+fn tree_put_domain_rejects_same_parent_synthesized_key_reordering() {
+    let image = SEdge::new("r", "leaf", "child", Some("leaf"));
+    let source_schema = Schema::default()
+        .vertex("r", "obj")
+        .vertex("m", "obj")
+        .vertex("leaf", "obj")
+        .edge("r", "m", "child", Some("m"))
+        .edge("m", "leaf", "child", Some("leaf"));
+    let target_schema = Schema::default()
+        .vertex("r", "obj")
+        .vertex("leaf", "obj")
+        .edge("r", "leaf", "child", Some("leaf"));
+    let migration = Migration {
+        surviving_verts: ["r".to_owned(), "leaf".to_owned()].into(),
+        resolver: [(("r".to_owned(), "leaf".to_owned()), image.clone())].into(),
+        ..Migration::default()
+    };
+    let source = Tree {
+        nodes: [
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "m")),
+            (2, Node::new(2, "leaf")),
+            (3, Node::new(3, "m")),
+            (4, Node::new(4, "leaf")),
+        ]
+        .into(),
+        arcs: vec![
+            (0, 1, SEdge::new("r", "m", "child", Some("m"))),
+            (1, 2, SEdge::new("m", "leaf", "child", Some("leaf"))),
+            (0, 3, SEdge::new("r", "m", "child", Some("m"))),
+            (3, 4, SEdge::new("m", "leaf", "child", Some("leaf"))),
+        ],
+        fans: Vec::new(),
+        root: 0,
+    };
+    let plan = compile(&source_schema, &target_schema, &migration).unwrap();
+    let lens = graph_lens(&source_schema, &target_schema, &migration, &plan);
+    let (mut view, complement, embedding) = panproto_reference::lens::tree_get(&lens, &source)
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.arcs, vec![(0, 2, image.clone()), (0, 4, image)]);
+    assert_eq!(
+        complement
+            .synthesized_edges
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![4, 5]
+    );
+
+    view.arcs.reverse();
+    assert_eq!(
+        panproto_reference::lens::tree_check_put_domain(&lens, &view, &embedding, &complement,),
+        Err(LensError::PutDomainReport(vec![
+            panproto_reference::lens::PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Edge(4),
             },
         ]))
     );
@@ -1483,7 +1617,7 @@ fn two_contracted_siblings_follow_graph_carrier_order_against_a_manual_oracle() 
 }
 
 #[test]
-fn root_pruning_is_the_exact_documented_tree_only_difference() {
+fn root_pruning_is_the_exact_documented_tree_domain_refusal() {
     let source_schema = Schema::default()
         .vertex("root", "obj")
         .vertex("leaf", "obj")
@@ -1502,16 +1636,16 @@ fn root_pruning_is_the_exact_documented_tree_only_difference() {
     let plan = compile(&source_schema, &target_schema, &migration).unwrap();
     let lens = graph_lens(&source_schema, &target_schema, &migration, &plan);
     let result = graph_square(&lens, &source);
-    let SquareResult::Mismatch(observation) = result else {
-        panic!("root pruning must be the typed tree-only mismatch: {result:?}");
+    let SquareResult::Refused(observation) = result else {
+        panic!("root pruning must be the typed tree-domain refusal: {result:?}");
     };
     let graph_view = &observation.graph.get.as_ref().unwrap().0;
     assert_eq!(graph_view.nodes, [(1, Node::new(1, "leaf"))].into());
     assert!(graph_view.edges.is_empty());
     assert_eq!(
         observation.fast.get,
-        Err(SquareError::Restrict(
-            panproto_reference::restrict::RestrictError::RootPruned { root: 0 },
+        Err(SquareError::OutsideExactDomain(
+            "the tree route prunes the distinguished root"
         ))
     );
     assert_eq!(

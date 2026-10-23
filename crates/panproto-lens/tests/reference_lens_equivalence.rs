@@ -294,32 +294,24 @@ fn tree_oracle(left: &WInstance, li: &SynthIndex, right: &WInstance, ri: &SynthI
     {
         return false;
     }
+    let per_parent_order = |tree: &WInstance, index: &SynthIndex| {
+        let mut order: BTreeMap<StableId, Vec<(StableId, Edge)>> = BTreeMap::new();
+        for (parent, child, edge) in &tree.arcs {
+            order
+                .entry(stable_node(*parent, index))
+                .or_default()
+                .push((stable_node(*child, index), edge.clone()));
+        }
+        order
+    };
+    let left_order = per_parent_order(left, li);
+    let right_order = per_parent_order(right, ri);
     let Ok(left) = GInstance::from_wtype(left) else {
         return false;
     };
     let Ok(right) = GInstance::from_wtype(right) else {
         return false;
     };
-    let left_order: Vec<_> = left
-        .edges_sorted()
-        .map(|(_, edge)| {
-            (
-                stable_node(edge.src, li),
-                stable_node(edge.tgt, li),
-                edge.edge.clone(),
-            )
-        })
-        .collect();
-    let right_order: Vec<_> = right
-        .edges_sorted()
-        .map(|(_, edge)| {
-            (
-                stable_node(edge.src, ri),
-                stable_node(edge.tgt, ri),
-                edge.edge.clone(),
-            )
-        })
-        .collect();
     graph_oracle(&left, li, &right, ri) && left_order == right_order
 }
 

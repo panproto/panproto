@@ -590,6 +590,30 @@ fn the_law_report_counts_each_family_by_its_contract_class() {
 }
 
 #[test]
+fn redirected_occurrence_basis_ignores_collateral_source_slot_order() {
+    let (resolution, _) = posts_resolution(|reference| {
+        reference.mode = ResolveMode::Redirect;
+    });
+    let mut source = posts_tree();
+    source.arcs.rotate_left(4);
+    let report = check_resolution_laws(
+        &resolution,
+        &AnyInstance::Tree(source),
+        &ResolveOptions::default(),
+        &ctx(),
+    )
+    .expect("redirect fragment rank is outside the exact-negative basis");
+    for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+        assert!(
+            report
+                .skipped
+                .contains(&(mutation, SkipReason::NoCandidate)),
+            "{mutation:?} must not predict collateral source-slot refusals"
+        );
+    }
+}
+
+#[test]
 fn resolution_compiles_a_valid_provider_spec() {
     let (resolution, posts) = posts_resolution(|_| {});
     assert_eq!(resolution.spec().kind, ResolutionKind::TreeToGraph);
@@ -986,7 +1010,20 @@ fn resolution_duplicates_are_kept() {
         .map(|record| record.index)
         .collect();
     assert_eq!(indexes, vec![0, 1]);
-    laws_hold(&resolution, &source, ResolveOptions::default());
+    let report = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx())
+        .expect("duplicate occurrence ranks satisfy the laws");
+    for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+        let family = report
+            .ran
+            .iter()
+            .find(|family| family.mutation == mutation)
+            .expect("the other holder has one independently certifiable occurrence");
+        assert_eq!(
+            (family.negative, family.negative_ok),
+            (1, 1),
+            "{mutation:?} must omit both duplicate-rank carriers"
+        );
+    }
 }
 
 #[test]
@@ -2004,7 +2041,16 @@ fn put_writes_each_reference_form() {
     let resolution = links(ResolveMode::Redirect, OnUnresolved::Error);
     let source = AnyInstance::Tree(links_tree("#i1"));
     let (mut view, complement) = get(&resolution, &source);
-    laws_hold(&resolution, &source, ResolveOptions::default());
+    let report = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx())
+        .expect("mixed redirect reference forms satisfy the laws");
+    for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+        assert!(
+            report
+                .skipped
+                .contains(&(mutation, SkipReason::NoCandidate)),
+            "{mutation:?} must not predict mixed redirect-reference closure"
+        );
+    }
     view.set_endpoints(occurrence_edge(&complement, 4), 0, 2)
         .expect("relink to i2");
     view.set_endpoints(occurrence_edge(&complement, 5), 0, 2)
@@ -3278,7 +3324,16 @@ fn standoff_reconnect_writes_text_start_and_end() {
     let resolution = notes(&nested_declarations(false), &[]);
     let source = AnyInstance::Tree(nested_tree((0, 6), (7, 11), "héllo wörld"));
     let (mut view, complement) = get(&resolution, &source);
-    laws_hold(&resolution, &source, ResolveOptions::default());
+    let report = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx())
+        .expect("mixed standoff and redirect occurrences satisfy the laws");
+    for mutation in [Mutation::RemoveSynthesized, Mutation::EditSynthesized] {
+        assert!(
+            report
+                .skipped
+                .contains(&(mutation, SkipReason::NoCandidate)),
+            "{mutation:?} must not predict standoff-span or redirect closure"
+        );
+    }
     let (outer_edge, outer_span) = span_of(&view, &complement, 1, "outer");
     let (inner_edge, inner_span) = span_of(&view, &complement, 2, "inner_ref");
     assert_ne!(outer_span, inner_span);
@@ -6375,6 +6430,20 @@ fn fans_survive_get_and_put_of_added_references() {
 }
 
 #[test]
+fn malformed_fan_exact_basis_stops_before_a_later_fan_cascade() {
+    let resolution = fanned_posts_resolution(ResolveMode::AddEdge);
+    let source = AnyInstance::Tree(fanned_posts_tree(&[("post", 5), ("user", 1), ("post", 7)]));
+    let report = check_resolution_laws(&resolution, &source, &ResolveOptions::default(), &ctx())
+        .expect("the last-fan certificate is exact");
+    let family = report
+        .ran
+        .iter()
+        .find(|family| family.mutation == Mutation::MalformedFan)
+        .expect("a fanned view has one conservative malformed witness");
+    assert_eq!((family.negative, family.negative_ok), (1, 1));
+}
+
+#[test]
 fn fans_of_redirected_posts_return_to_their_slots() {
     let resolution = fanned_posts_resolution(ResolveMode::Redirect);
     let source = AnyInstance::Tree(fanned_posts_tree(&[("user", 1), ("post", 5), ("post", 7)]));
@@ -6528,7 +6597,11 @@ fn negative_families_are_refused_for_their_intended_reason() {
             count(Mutation::EditSynthesized),
             complement.occurrences.len()
         );
-        assert_eq!(count(Mutation::MalformedFan), fan_parents);
+        assert_eq!(
+            count(Mutation::MalformedFan),
+            usize::from(fan_parents > 0),
+            "only the last fan has a refusal independent of later rank shifts"
+        );
         assert!(
             report.ran.iter().any(|family| family.in_domain > 0),
             "some single edit is in the put domain: {:?}",

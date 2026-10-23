@@ -1,1 +1,1 @@
-{"format_version":2,"mutation":"add_node","expected":"ran","observation":{"ran":4,"shape_cannot_express":0,"no_candidate":0,"in_domain":7,"in_domain_ok":7,"negative":0,"negative_ok":0},"refusal":null}
+{"format_version":3,"mutation":"add_node","expected":"ran","observation":{"ran":4,"shape_cannot_express":0,"no_candidate":0,"in_domain":7,"in_domain_ok":7,"negative":0,"negative_ok":0},"refusal":null,"certificates":[]}

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use panproto_inst::{
     EdgeId, GEdge, GInstance, GraphComplement, PutDomainError, SynthIndex, SynthKey, WInstance,
 };
+use panproto_schema::Edge;
 
 use crate::derived::{DerivedMap, extra_fields_equiv_modulo};
 use crate::{Complement, Lens, LensError};
@@ -613,10 +614,26 @@ fn tree_divergence(
             return Some(format!("node {id} differs"));
         }
     }
-    if left.arcs != right.arcs {
-        return Some("ordered arcs differ".to_owned());
+    if tree_ordered_arcs(&left) != tree_ordered_arcs(&right) {
+        return Some("per-parent ordered arcs differ".to_owned());
     }
     (left.fans != right.fans).then(|| "ordered fans differ".to_owned())
+}
+
+/// Each parent's ordered child/label sequence.
+///
+/// A tree's flat arc vector is an encoding of these sequences. Interleaving
+/// arcs belonging to distinct parents changes only that encoding, whereas
+/// changing the order within one parent changes the observable tree.
+fn tree_ordered_arcs(instance: &WInstance) -> BTreeMap<u32, Vec<(u32, Edge)>> {
+    let mut by_parent: BTreeMap<u32, Vec<(u32, Edge)>> = BTreeMap::new();
+    for (parent, child, edge) in &instance.arcs {
+        by_parent
+            .entry(*parent)
+            .or_default()
+            .push((*child, edge.clone()));
+    }
+    by_parent
 }
 
 #[allow(
@@ -1015,6 +1032,65 @@ mod tests {
                 hop: 1,
             })
         );
+    }
+
+    #[test]
+    fn tree_equivalence_ignores_only_cross_parent_arc_interleaving() {
+        let branch = edge("root", "branch", "branch");
+        let leaf = edge("branch", "leaf", "leaf");
+        let nodes = HashMap::from([
+            (0, Node::new(0, "root")),
+            (1, Node::new(1, "branch")),
+            (2, Node::new(2, "branch")),
+            (3, Node::new(3, "leaf")),
+            (4, Node::new(4, "leaf")),
+        ]);
+        let left = panproto_inst::WInstance::new(
+            nodes.clone(),
+            vec![
+                (0, 1, branch.clone()),
+                (1, 3, leaf.clone()),
+                (0, 2, branch.clone()),
+                (2, 4, leaf.clone()),
+            ],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let interleaved = panproto_inst::WInstance::new(
+            nodes.clone(),
+            vec![
+                (0, 1, branch.clone()),
+                (0, 2, branch.clone()),
+                (1, 3, leaf.clone()),
+                (2, 4, leaf),
+            ],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let reordered_siblings = panproto_inst::WInstance::new(
+            nodes,
+            vec![
+                (0, 2, branch.clone()),
+                (1, 3, edge("branch", "leaf", "leaf")),
+                (0, 1, branch),
+                (2, 4, edge("branch", "leaf", "leaf")),
+            ],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let index = SynthIndex::default();
+
+        assert!(TreeShape::equivalent(&left, &index, &interleaved, &index));
+        assert!(TreeShape::equivalent(&interleaved, &index, &left, &index));
+        assert!(!TreeShape::equivalent(
+            &left,
+            &index,
+            &reordered_siblings,
+            &index
+        ));
     }
 
     #[test]

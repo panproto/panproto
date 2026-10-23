@@ -5,7 +5,7 @@
 //! direction restores the original source instance from a (possibly modified)
 //! view plus the complement.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
@@ -13,7 +13,7 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    EdgeFate, Fan, FanResolver, FanViolation, GInstance, InstError, Node, PutDomainError,
+    EdgeFate, EdgeId, Fan, FanResolver, FanViolation, GInstance, InstError, Node, PutDomainError,
     RestrictError, RestrictPlan, SynthKey, ViewRef, WInstance, canonical_label_shape,
     wtype_restrict_with_plan,
 };
@@ -854,20 +854,102 @@ pub fn check_put_domain(
 /// edge (and without the view subtree below each), and the complement
 /// without the dropped nodes a view node collides with, so that the view
 /// node is restored in their place.
+fn remove_reserved_node_residue(complement: &mut Complement, ids: &BTreeSet<u32>) {
+    let mut incident_source_edges = BTreeSet::new();
+    let mut source_edge_reindex = BTreeMap::new();
+    let mut retained_index = 0_usize;
+    for (old_index, (parent, child)) in complement.arc_order.iter().enumerate() {
+        let Ok(old_index) = u32::try_from(old_index) else {
+            retained_index += usize::from(!ids.contains(parent) && !ids.contains(child));
+            continue;
+        };
+        if ids.contains(parent) || ids.contains(child) {
+            incident_source_edges.insert(EdgeId(old_index));
+        } else {
+            if let Ok(new_index) = u32::try_from(retained_index) {
+                source_edge_reindex.insert(EdgeId(old_index), EdgeId(new_index));
+            }
+            retained_index += 1;
+        }
+    }
+    let mentions_collision = |elem: &ViewRef| match elem {
+        ViewRef::Node(node) => ids.contains(node),
+        ViewRef::Arc { parent, child } => ids.contains(parent) || ids.contains(child),
+        ViewRef::Edge(_) | ViewRef::Row(_) | ViewRef::Pair { .. } => false,
+    };
+    complement.dropped_nodes.retain(|id, _| !ids.contains(id));
+    complement
+        .dropped_arcs
+        .retain(|(parent, child, _)| !ids.contains(parent) && !ids.contains(child));
+    complement.dropped_fans.retain(|fan| {
+        !ids.contains(&fan.parent) && fan.children.values().all(|child| !ids.contains(child))
+    });
+    complement
+        .contraction_choices
+        .retain(|(parent, child), _| !ids.contains(parent) && !ids.contains(child));
+    complement
+        .original_parent
+        .retain(|child, parent| !ids.contains(child) && !ids.contains(parent));
+    complement
+        .arc_edges
+        .retain(|(parent, child), _| !ids.contains(parent) && !ids.contains(child));
+    complement
+        .arc_order
+        .retain(|(parent, child)| !ids.contains(parent) && !ids.contains(child));
+    complement
+        .original_extra_fields
+        .retain(|id, _| !ids.contains(id));
+    complement.original_values.retain(|id, _| !ids.contains(id));
+    complement.synthesized_nodes.retain(|id| !ids.contains(id));
+    complement
+        .contracted_into
+        .retain(|source, target| !ids.contains(source) && !ids.contains(target));
+    complement
+        .original_anchors
+        .retain(|id, _| !ids.contains(id));
+    complement.synthesized_keys.retain(|node, key| {
+        !ids.contains(node)
+            && match key {
+                SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } => {
+                    !ids.contains(src) && !ids.contains(tgt)
+                }
+                SynthKey::Expand { source_edge, .. } => {
+                    if incident_source_edges.contains(source_edge) {
+                        false
+                    } else if let Some(reindexed) = source_edge_reindex.get(source_edge) {
+                        *source_edge = *reindexed;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                SynthKey::ResolutionReference { holder, .. } => !mentions_collision(holder),
+                SynthKey::ResolutionSpan { text, .. } => !mentions_collision(text.site().holder()),
+            }
+    });
+}
+
 fn restorable_part(
     view: &WInstance,
     complement: &Complement,
     found: &[PutDomainError],
 ) -> (WInstance, Complement) {
     let mut complement = complement.clone();
+    let collisions = found
+        .iter()
+        .filter_map(|violation| match violation {
+            PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            } => Some(*id),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if !collisions.is_empty() {
+        remove_reserved_node_residue(&mut complement, &collisions);
+    }
     let mut unrestorable: Vec<u32> = Vec::new();
     for violation in found {
         match violation {
-            PutDomainError::IdCollision {
-                elem: ViewRef::Node(id),
-            } => {
-                complement.dropped_nodes.remove(id);
-            }
             PutDomainError::AmbiguousReverseAnchor {
                 elem: ViewRef::Node(id),
                 ..
@@ -1153,37 +1235,71 @@ fn synthesized_arc_endpoint_removed(
         })
 }
 
-/// Synthesized arcs moved before a kept sibling.
+/// The canonical synthesized-arc order for every parent.
 ///
-/// Tree get emits each parent's children as its kept arcs followed by its
-/// synthesized first hops, so in a view `get` produced no kept arc follows a
-/// synthesized arc of the same parent. A view where one does has moved the
-/// synthesized arc: the next `get` of the restored source would order the
-/// siblings back. Each synthesized arc with a later kept sibling is
-/// reported.
+/// Tree get emits each parent's kept arcs before its synthesized arcs, and
+/// emits those synthesized arcs in [`SynthKey`] order. The flat arc vector
+/// may interleave distinct parents arbitrarily: only a parent's own child
+/// sequence is observable. If one parent violates either ordering rule, the
+/// smallest synthesized key among all invalid parents supplies the one
+/// canonical tree-coordinate witness.
 fn synthesized_sibling_order(view: &WInstance, complement: &Complement) -> Vec<PutDomainError> {
-    let synthesized = |parent: u32, child: u32, edge: &Edge| {
-        complement.contraction_choices.get(&(parent, child)) == Some(edge)
-            || complement.synthesized_nodes.contains(&child)
-    };
-    let mut found = Vec::new();
-    for (index, (parent, child, edge)) in view.arcs.iter().enumerate() {
-        if !synthesized(*parent, *child, edge) {
-            continue;
-        }
-        let kept_after = view.arcs[index + 1..]
-            .iter()
-            .any(|(p, c, e)| p == parent && !synthesized(*p, *c, e));
-        if kept_after {
-            found.push(PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Arc {
-                    parent: *parent,
-                    child: *child,
-                },
-            });
-        }
+    #[derive(Default)]
+    struct SiblingOrder {
+        previous_key: Option<SynthKey>,
+        synthesized: Vec<(SynthKey, u32, u32)>,
+        invalid: bool,
     }
-    found
+
+    let Ok((_, embedding)) = GInstance::from_wtype_embedded(view, None) else {
+        return Vec::new();
+    };
+    // Expansion-chain arcs are named by the synthesized node key (and the
+    // terminal successor of that key), not by a presentation-dependent
+    // `Contract` key. This is the same normalization TreeShape uses.
+    let mut indexed_complement = complement.clone();
+    indexed_complement
+        .contraction_choices
+        .retain(|&(parent, child), _| {
+            !complement.synthesized_keys.contains_key(&parent)
+                && !complement.synthesized_keys.contains_key(&child)
+        });
+    let index = indexed_complement.synth_index(&embedding);
+
+    let mut parents: BTreeMap<u32, SiblingOrder> = BTreeMap::new();
+    for (parent, child, _) in &view.arcs {
+        let state = parents.entry(*parent).or_default();
+        let key = embedding
+            .arcs
+            .get(child)
+            .and_then(|edge| index.edges.get(edge));
+        let Some(key) = key else {
+            if !state.synthesized.is_empty() {
+                state.invalid = true;
+            }
+            continue;
+        };
+        if state
+            .previous_key
+            .as_ref()
+            .is_some_and(|previous| previous > key)
+        {
+            state.invalid = true;
+        }
+        state.previous_key = Some(key.clone());
+        state.synthesized.push((key.clone(), *parent, *child));
+    }
+
+    parents
+        .into_values()
+        .filter(|state| state.invalid)
+        .flat_map(|state| state.synthesized)
+        .min()
+        .map(|(_, parent, child)| PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Arc { parent, child },
+        })
+        .into_iter()
+        .collect()
 }
 
 /// Whether the view arc `(parent, child, edge)` is one `get` put there: an
@@ -2988,6 +3104,70 @@ mod tests {
     use super::*;
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
 
+    #[test]
+    fn collision_residue_reindexes_surviving_expansions_for_all_collisions() {
+        let mut complement = Complement::empty();
+        complement.arc_order = vec![(0, 2), (0, 4), (3, 5), (4, 6)];
+        complement.synthesized_nodes = [2, 3, 10, 11, 12, 13].into();
+        complement.synthesized_keys = BTreeMap::from([
+            (
+                10,
+                SynthKey::Expand {
+                    source_edge: EdgeId(0),
+                    hop: 0,
+                },
+            ),
+            (
+                11,
+                SynthKey::Expand {
+                    source_edge: EdgeId(1),
+                    hop: 0,
+                },
+            ),
+            (
+                12,
+                SynthKey::Expand {
+                    source_edge: EdgeId(3),
+                    hop: 0,
+                },
+            ),
+            (
+                13,
+                SynthKey::Expand {
+                    source_edge: EdgeId(2),
+                    hop: 0,
+                },
+            ),
+        ]);
+
+        let collisions = BTreeSet::from([2, 3]);
+        remove_reserved_node_residue(&mut complement, &collisions);
+        assert_eq!(
+            complement.synthesized_nodes,
+            HashSet::from([10, 11, 12, 13])
+        );
+        assert_eq!(
+            complement.synthesized_keys,
+            BTreeMap::from([
+                (
+                    11,
+                    SynthKey::Expand {
+                        source_edge: EdgeId(0),
+                        hop: 0,
+                    },
+                ),
+                (
+                    12,
+                    SynthKey::Expand {
+                        source_edge: EdgeId(1),
+                        hop: 0,
+                    },
+                ),
+            ])
+        );
+        assert_eq!(complement.arc_order, vec![(0, 4), (4, 6)]);
+    }
+
     /// The native tree put-domain checker must expose every validation
     /// obligation that the graph presentation exposes. These focused cases
     /// protect the common-domain premise used by the graph/tree square; the
@@ -3322,6 +3502,29 @@ mod tests {
             )
         }
 
+        fn two_contracted_siblings() -> WInstance {
+            WInstance::new(
+                [
+                    (0, Node::new(0, "r")),
+                    (2, Node::new(2, "m")),
+                    (3, Node::new(3, "y")),
+                    (4, Node::new(4, "m")),
+                    (5, Node::new(5, "y")),
+                ]
+                .into_iter()
+                .collect(),
+                vec![
+                    (0, 2, prop("r", "m", "m")),
+                    (2, 3, prop("m", "y", "y")),
+                    (0, 4, prop("r", "m", "m")),
+                    (4, 5, prop("m", "y", "y")),
+                ],
+                Vec::new(),
+                0,
+                "r".into(),
+            )
+        }
+
         #[test]
         fn a_synthesized_arc_moved_before_a_kept_sibling_is_refused() {
             let lens = lens();
@@ -3348,11 +3551,63 @@ mod tests {
                 );
             }
             let refused = check_put_domain(&lens, &moved, &complement).unwrap_err();
-            assert!(
-                refused
-                    .iter()
-                    .any(|error| matches!(error, PutDomainError::SynthesizedEdited { .. })),
-                "{refused:?}"
+            assert_eq!(
+                refused,
+                vec![PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Arc {
+                        parent: 0,
+                        child: 3,
+                    },
+                }]
+            );
+        }
+
+        #[test]
+        fn synthesized_arcs_from_different_parents_may_interleave() {
+            let left = prop("r", "x", "x");
+            let right = prop("m", "y", "y");
+            let view = WInstance::new(
+                [
+                    (0, Node::new(0, "r")),
+                    (1, Node::new(1, "x")),
+                    (2, Node::new(2, "m")),
+                    (3, Node::new(3, "y")),
+                ]
+                .into_iter()
+                .collect(),
+                vec![
+                    (2, 3, right.clone()),
+                    (0, 2, prop("r", "m", "m")),
+                    (0, 1, left.clone()),
+                ],
+                Vec::new(),
+                0,
+                "r".into(),
+            );
+            let mut complement = Complement::empty();
+            complement.contraction_choices = HashMap::from([((0, 1), left), ((2, 3), right)]);
+
+            assert_eq!(synthesized_sibling_order(&view, &complement), Vec::new());
+        }
+
+        #[test]
+        fn same_parent_synthesized_arcs_follow_key_order() {
+            let lens = lens();
+            let (mut view, complement) = get(&lens, &two_contracted_siblings()).unwrap();
+            assert_eq!(
+                view.arcs,
+                vec![(0, 3, prop("r", "y", "c")), (0, 5, prop("r", "y", "c")),]
+            );
+            view.arcs.reverse();
+
+            assert_eq!(
+                check_put_domain(&lens, &view, &complement),
+                Err(vec![PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Arc {
+                        parent: 0,
+                        child: 3,
+                    },
+                }])
             );
         }
 
