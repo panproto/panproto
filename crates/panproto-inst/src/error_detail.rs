@@ -11,6 +11,8 @@
 //! crate defines project onto them, and this crate cannot depend on
 //! `panproto-lens`, which re-exports both.
 
+use std::cmp::Ordering;
+
 use panproto_gat::CompositionError;
 use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
@@ -240,6 +242,126 @@ impl PutDomainError {
             Self::PlanCompilation { .. } => 12,
         }
     }
+
+    /// Compare two violations in the canonical order of a complete put-domain
+    /// report.
+    ///
+    /// The primary keys are the error variant and the named view element.
+    /// Errors at the same element use only the semantic tie-breakers required
+    /// to make independently generated reports agree: duplicate keys compare
+    /// by table and canonical key value, and missing required cells compare by
+    /// field. Other ties retain their generator order under Rust's stable
+    /// slice sort, including the clause order of malformed-fan reports.
+    #[must_use]
+    pub fn report_cmp(&self, other: &Self) -> Ordering {
+        self.variant_index()
+            .cmp(&other.variant_index())
+            .then_with(|| self.report_ref().cmp(&other.report_ref()))
+            .then_with(|| self.report_detail_cmp(other))
+    }
+
+    /// Put a complete report into canonical order and remove exact repeats
+    /// without disturbing the order of distinct semantic ties.
+    pub fn sort_report(errors: &mut Vec<Self>) {
+        errors.sort_by(Self::report_cmp);
+        let mut unique = Vec::with_capacity(errors.len());
+        let mut run_start = 0;
+        for error in errors.drain(..) {
+            if unique
+                .last()
+                .is_none_or(|previous: &Self| previous.report_cmp(&error).is_ne())
+            {
+                run_start = unique.len();
+            }
+            if !unique[run_start..]
+                .iter()
+                .any(|previous| previous.report_exact_eq(&error))
+            {
+                unique.push(error);
+            }
+        }
+        *errors = unique;
+    }
+
+    fn report_ref(&self) -> Option<ViewRef> {
+        match self {
+            Self::IdCollision { elem }
+            | Self::SynthesizedEdited { elem }
+            | Self::ContractedEdgeInserted { elem }
+            | Self::UnrepresentableViewEdge { elem }
+            | Self::AmbiguousReverseAnchor { elem, .. }
+            | Self::SurvivalPredicateFails { elem }
+            | Self::DerivedCellEdited { elem, .. }
+            | Self::TransformNotInvertible { elem, .. }
+            | Self::MissingRequiredCell { elem, .. }
+            | Self::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
+            Self::DuplicateKey { elems, .. } => elems.iter().min().cloned(),
+            Self::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
+            Self::PlanCompilation { .. } => None,
+        }
+    }
+
+    fn report_detail_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (
+                Self::DuplicateKey {
+                    table: left_table,
+                    key: left_key,
+                    ..
+                },
+                Self::DuplicateKey {
+                    table: right_table,
+                    key: right_key,
+                    ..
+                },
+            ) => left_table
+                .cmp(right_table)
+                .then_with(|| canonical_key_cmp(left_key, right_key)),
+            (
+                Self::MissingRequiredCell {
+                    field: left_field, ..
+                },
+                Self::MissingRequiredCell {
+                    field: right_field, ..
+                },
+            ) => left_field.cmp(right_field),
+            _ => Ordering::Equal,
+        }
+    }
+
+    fn report_exact_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::DuplicateKey {
+                    table: left_table,
+                    key: left_key,
+                    elems: left_elems,
+                },
+                Self::DuplicateKey {
+                    table: right_table,
+                    key: right_key,
+                    elems: right_elems,
+                },
+            ) => {
+                left_table == right_table
+                    && canonical_key_cmp(left_key, right_key).is_eq()
+                    && left_elems == right_elems
+            }
+            _ => self == other,
+        }
+    }
+}
+
+fn canonical_key_cmp(left: &[(String, Value)], right: &[(String, Value)]) -> Ordering {
+    left.iter()
+        .zip(right)
+        .find_map(|((left_name, left_value), (right_name, right_value))| {
+            let ordering = left_name
+                .cmp(right_name)
+                .then_with(|| left_value.canonical_cmp(right_value));
+            ordering.is_ne().then_some(ordering)
+        })
+        .unwrap_or_else(|| left.len().cmp(&right.len()))
 }
 
 /// The structured detail of an error, as every binding receives it.
@@ -448,6 +570,117 @@ impl RestrictError {
 #[cfg(test)]
 mod tests {
     use super::{ErrorDetail, PutDomainError};
+    use crate::{FanViolation, Value, ViewRef};
+
+    #[test]
+    fn put_domain_reports_use_semantic_detail_ties_and_stable_clause_order() {
+        let node = ViewRef::Node(0);
+        let mut errors = vec![
+            PutDomainError::MissingRequiredCell {
+                elem: node.clone(),
+                field: "z".to_owned(),
+            },
+            PutDomainError::MissingRequiredCell {
+                elem: node.clone(),
+                field: "a".to_owned(),
+            },
+            PutDomainError::DuplicateKey {
+                table: "z".into(),
+                key: vec![("k".to_owned(), Value::Int(0))],
+                elems: vec![node.clone(), ViewRef::Node(2)],
+            },
+            PutDomainError::DuplicateKey {
+                table: "a".into(),
+                key: vec![("k".to_owned(), Value::Int(1))],
+                elems: vec![node.clone(), ViewRef::Node(3)],
+            },
+        ];
+
+        PutDomainError::sort_report(&mut errors);
+        assert!(matches!(
+            &errors[0],
+            PutDomainError::DuplicateKey { table, .. } if table.as_str() == "a"
+        ));
+        assert!(matches!(
+            &errors[1],
+            PutDomainError::DuplicateKey { table, .. } if table.as_str() == "z"
+        ));
+        assert!(matches!(
+            &errors[2],
+            PutDomainError::MissingRequiredCell { field, .. } if field == "a"
+        ));
+        assert!(matches!(
+            &errors[3],
+            PutDomainError::MissingRequiredCell { field, .. } if field == "z"
+        ));
+
+        let same_key_site = vec![node.clone(), ViewRef::Node(1)];
+        let mut key_order = vec![
+            PutDomainError::DuplicateKey {
+                table: "t".into(),
+                key: vec![("k".to_owned(), Value::Int(10))],
+                elems: same_key_site.clone(),
+            },
+            PutDomainError::DuplicateKey {
+                table: "t".into(),
+                key: vec![("k".to_owned(), Value::Int(2))],
+                elems: same_key_site,
+            },
+        ];
+        PutDomainError::sort_report(&mut key_order);
+        assert!(matches!(
+            &key_order[0],
+            PutDomainError::DuplicateKey { key, .. }
+                if matches!(key.as_slice(), [(name, Value::Int(2))] if name == "k")
+        ));
+
+        let mut stable_ties = vec![
+            PutDomainError::DerivedCellEdited {
+                elem: node.clone(),
+                field: "z".to_owned(),
+            },
+            PutDomainError::DerivedCellEdited {
+                elem: node.clone(),
+                field: "a".to_owned(),
+            },
+        ];
+        PutDomainError::sort_report(&mut stable_ties);
+        assert!(matches!(
+            stable_ties.as_slice(),
+            [
+                PutDomainError::DerivedCellEdited { field: first, .. },
+                PutDomainError::DerivedCellEdited { field: second, .. }
+            ] if first == "z" && second == "a"
+        ));
+
+        let first = PutDomainError::MalformedFan {
+            node: 4,
+            reason: FanViolation::UnknownLabel {
+                label: "first".into(),
+            },
+        };
+        let second = PutDomainError::MalformedFan {
+            node: 4,
+            reason: FanViolation::MissingParent,
+        };
+        let mut clauses = vec![first.clone(), second.clone(), first.clone()];
+        PutDomainError::sort_report(&mut clauses);
+        assert_eq!(clauses, vec![first, second]);
+
+        let duplicate_with = |value| PutDomainError::DuplicateKey {
+            table: "t".into(),
+            key: vec![("k".to_owned(), Value::Float(value))],
+            elems: vec![node.clone(), ViewRef::Node(1)],
+        };
+        let mut signed_zeroes = vec![duplicate_with(0.0), duplicate_with(-0.0)];
+        PutDomainError::sort_report(&mut signed_zeroes);
+        assert_eq!(signed_zeroes.len(), 2);
+
+        let nan = duplicate_with(f64::from_bits(0x7ff8_0000_0000_0042));
+        let mut repeated_nan = vec![nan.clone(), nan];
+        PutDomainError::sort_report(&mut repeated_nan);
+        assert_eq!(repeated_nan.len(), 1);
+    }
 
     #[test]
     fn plan_compilation_domain_error_has_a_stable_wire_shape_and_order()

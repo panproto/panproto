@@ -798,10 +798,13 @@ pub(crate) fn put_with_identity(
 ///   source schema's key, required-cell or hyper-edge fan declarations.
 ///
 /// All violations are reported, ordered by variant (the declaration order
-/// of [`PutDomainError`]) and then by the element's [`ViewRef`]. The value
-/// checks run on every view node whose restoration a structural violation
-/// leaves determined, so a structural violation elsewhere in the view hides
-/// none of them: a view node colliding with a dropped node is checked as
+/// of [`PutDomainError`]) and then by the element's [`ViewRef`]. Duplicate
+/// keys at the same element are ordered by table and canonical key; missing
+/// required cells at the same element are ordered by field. Other ties retain
+/// their discovery order. The value checks run on every view node whose
+/// restoration a structural violation leaves determined, so a structural
+/// violation elsewhere in the view hides none of them: a view node colliding
+/// with a dropped node is checked as
 /// the view holds it, and only a node with no single source anchor, or
 /// under an arc with no single source edge, is left out together with the
 /// view subtree below it, since `put` has nothing to restore it as. Put is
@@ -1001,32 +1004,8 @@ fn restorable_part(
 
 /// Sort violations into report order and drop repeats.
 fn in_report_order(mut found: Vec<PutDomainError>) -> Vec<PutDomainError> {
-    found.sort_by(|a, b| {
-        a.variant_index()
-            .cmp(&b.variant_index())
-            .then_with(|| violation_ref(a).cmp(&violation_ref(b)))
-    });
-    found.dedup();
+    PutDomainError::sort_report(&mut found);
     found
-}
-
-/// The element a violation names, as a [`ViewRef`].
-fn violation_ref(violation: &PutDomainError) -> Option<ViewRef> {
-    match violation {
-        PutDomainError::IdCollision { elem }
-        | PutDomainError::SynthesizedEdited { elem }
-        | PutDomainError::ContractedEdgeInserted { elem }
-        | PutDomainError::UnrepresentableViewEdge { elem }
-        | PutDomainError::AmbiguousReverseAnchor { elem, .. }
-        | PutDomainError::SurvivalPredicateFails { elem }
-        | PutDomainError::SurvivalPredicateRefused { elem, .. }
-        | PutDomainError::DerivedCellEdited { elem, .. }
-        | PutDomainError::TransformNotInvertible { elem, .. }
-        | PutDomainError::MissingRequiredCell { elem, .. } => Some(elem.clone()),
-        PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
-        PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
-        PutDomainError::PlanCompilation { .. } => None,
-    }
 }
 
 /// The violations read off the view and complement alone: id collisions,

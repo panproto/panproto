@@ -38,6 +38,46 @@ enum TreeRestoreError {
     Operational(TreeOperationalError),
 }
 
+#[derive(Clone, Copy)]
+enum NativeDomainProjection {
+    Graph,
+    Tree,
+}
+
+#[derive(Clone)]
+struct NativeDomainError {
+    graph: PutDomainError,
+    tree: PutDomainError,
+}
+
+impl NativeDomainError {
+    fn same(error: PutDomainError) -> Self {
+        Self {
+            graph: error.clone(),
+            tree: error,
+        }
+    }
+
+    const fn coordinates(graph: PutDomainError, tree: PutDomainError) -> Self {
+        Self { graph, tree }
+    }
+}
+
+fn native_domain_report(
+    errors: Vec<NativeDomainError>,
+    projection: NativeDomainProjection,
+) -> Vec<PutDomainError> {
+    let mut errors: Vec<_> = errors
+        .into_iter()
+        .map(|error| match projection {
+            NativeDomainProjection::Graph => error.graph,
+            NativeDomainProjection::Tree => error.tree,
+        })
+        .collect();
+    PutDomainError::sort_report(&mut errors);
+    errors
+}
+
 #[derive(Clone)]
 enum NativeEndpoint {
     Source(u32),
@@ -1100,6 +1140,19 @@ fn native_field_refusal(elem: ViewRef, refusal: PutFieldRefusal) -> PutDomainErr
     }
 }
 
+fn native_arc_error(error: &PutDomainError, parent: u32, child: u32) -> PutDomainError {
+    let elem = ViewRef::Arc { parent, child };
+    match error {
+        PutDomainError::ContractedEdgeInserted { .. } => {
+            PutDomainError::ContractedEdgeInserted { elem }
+        }
+        PutDomainError::UnrepresentableViewEdge { .. } => {
+            PutDomainError::UnrepresentableViewEdge { elem }
+        }
+        _ => error.clone(),
+    }
+}
+
 fn native_source_anchor(
     lens: &GraphLens<'_>,
     complement: &Complement,
@@ -1236,7 +1289,8 @@ fn native_synth_violations(
     view: &Graph,
     complement: &Complement,
     source_anchor: &dyn Fn(u32) -> Option<Name>,
-) -> Vec<PutDomainError> {
+    current_arcs: &BTreeMap<u32, (u32, u32)>,
+) -> Vec<NativeDomainError> {
     let id_of_key = |key: &SynthKey| {
         complement
             .synthesized_nodes
@@ -1272,9 +1326,9 @@ fn native_synth_violations(
             },
         );
         if !unchanged {
-            errors.push(PutDomainError::SynthesizedEdited {
+            errors.push(NativeDomainError::same(PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Node(*id),
-            });
+            }));
         }
     }
     for (id, key) in &complement.synthesized_edges {
@@ -1292,23 +1346,97 @@ fn native_synth_violations(
             },
         );
         if !unchanged {
-            errors.push(PutDomainError::SynthesizedEdited {
+            let graph = PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Edge(*id),
-            });
+            };
+            let tree = native_original_synth_arc(complement, key).map_or_else(
+                || graph.clone(),
+                |(parent, child)| PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Arc { parent, child },
+                },
+            );
+            errors.push(NativeDomainError::coordinates(graph, tree));
+        }
+    }
+    for (id, (parent, child)) in current_arcs {
+        let touches_synthesized = complement.synthesized_nodes.contains_key(parent)
+            || complement.synthesized_nodes.contains_key(child);
+        let recorded = complement
+            .synthesized_edges
+            .get(id)
+            .and_then(|key| native_original_synth_arc(complement, key))
+            == Some((*parent, *child));
+        if touches_synthesized && !recorded {
+            errors.push(NativeDomainError::coordinates(
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(*id),
+                },
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Arc {
+                        parent: *parent,
+                        child: *child,
+                    },
+                },
+            ));
         }
     }
     errors
+}
+
+fn native_synth_node(complement: &Complement, key: &SynthKey) -> Option<u32> {
+    complement
+        .synthesized_nodes
+        .iter()
+        .find_map(|(node, candidate)| (candidate == key).then_some(*node))
+}
+
+fn native_original_synth_arc(complement: &Complement, key: &SynthKey) -> Option<(u32, u32)> {
+    match key {
+        SynthKey::Contract { src, tgt, .. } => Some((*src, *tgt)),
+        SynthKey::Expand { source_edge, hop } => {
+            let edge = complement.dropped_edges.get(source_edge)?;
+            let parent = if *hop == 0 {
+                edge.src
+            } else {
+                native_synth_node(
+                    complement,
+                    &SynthKey::Expand {
+                        source_edge: *source_edge,
+                        hop: *hop - 1,
+                    },
+                )?
+            };
+            let child = native_synth_node(complement, key).unwrap_or(edge.tgt);
+            Some((parent, child))
+        }
+        SynthKey::ContractExpand { src, tgt, hop } => {
+            let parent = if *hop == 0 {
+                *src
+            } else {
+                native_synth_node(
+                    complement,
+                    &SynthKey::ContractExpand {
+                        src: *src,
+                        tgt: *tgt,
+                        hop: *hop - 1,
+                    },
+                )?
+            };
+            let child = native_synth_node(complement, key).unwrap_or(*tgt);
+            Some((parent, child))
+        }
+    }
 }
 
 fn native_synth_order_violation(
     view: &Tree,
     embedding: &crate::encode::TreeEmbedding,
     complement: &Complement,
-) -> Option<PutDomainError> {
+) -> Option<NativeDomainError> {
     #[derive(Default)]
     struct SiblingOrder<'a> {
         previous_key: Option<&'a SynthKey>,
-        synthesized: Vec<u32>,
+        synthesized: Vec<(u32, u32)>,
         invalid: bool,
     }
 
@@ -1331,15 +1459,39 @@ fn native_synth_order_violation(
             state.invalid = true;
         }
         state.previous_key = Some(key);
-        state.synthesized.push(edge);
+        state.synthesized.push((edge, *child));
     }
-    parents
-        .values()
-        .filter(|state| state.invalid)
-        .flat_map(|state| state.synthesized.iter().copied())
-        .min()
-        .map(|edge| PutDomainError::SynthesizedEdited {
-            elem: ViewRef::Edge(edge),
+    let candidates: Vec<_> = parents
+        .into_iter()
+        .filter(|(_, state)| state.invalid)
+        .flat_map(|(parent, state)| {
+            state
+                .synthesized
+                .into_iter()
+                .filter_map(move |(edge, child)| {
+                    let key = complement.synthesized_edges.get(&edge)?.clone();
+                    Some((key, parent, child, edge))
+                })
+        })
+        .collect();
+    let graph_edge = candidates.iter().map(|candidate| candidate.3).min()?;
+    candidates
+        .into_iter()
+        .min_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        })
+        .map(|(_, parent, child, _)| {
+            NativeDomainError::coordinates(
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(graph_edge),
+                },
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Arc { parent, child },
+                },
+            )
         })
 }
 
@@ -1581,9 +1733,10 @@ fn tree_shape_error(reason: crate::encode::NotATree) -> TreeRestoreError {
 
 struct NativeRestoreState {
     presented: Graph,
+    current_arcs: BTreeMap<u32, (u32, u32)>,
     anchors: BTreeMap<u32, Name>,
     restored: Graph,
-    errors: Vec<PutDomainError>,
+    errors: Vec<NativeDomainError>,
 }
 
 fn native_restore_start(
@@ -1592,24 +1745,39 @@ fn native_restore_start(
     embedding: &crate::encode::TreeEmbedding,
     complement: &Complement,
 ) -> Result<NativeRestoreState, TreeOperationalError> {
-    let presented = native_view_graph(lens, view, embedding, complement)?;
+    let (presented, current_arcs) = native_view_graph(lens, view, embedding, complement)?;
     let node_collisions = presented
         .nodes
         .keys()
         .filter(|id| complement.dropped_nodes.contains_key(id))
-        .map(|id| PutDomainError::IdCollision {
-            elem: ViewRef::Node(*id),
+        .map(|id| {
+            NativeDomainError::same(PutDomainError::IdCollision {
+                elem: ViewRef::Node(*id),
+            })
         });
     let edge_collisions = presented
         .edges
         .keys()
         .filter(|id| complement.dropped_edges.contains_key(id))
-        .map(|id| PutDomainError::IdCollision {
-            elem: ViewRef::Edge(*id),
+        .map(|id| {
+            let graph = PutDomainError::IdCollision {
+                elem: ViewRef::Edge(*id),
+            };
+            let tree = current_arcs.get(id).map_or_else(
+                || graph.clone(),
+                |(parent, child)| PutDomainError::IdCollision {
+                    elem: ViewRef::Arc {
+                        parent: *parent,
+                        child: *child,
+                    },
+                },
+            );
+            NativeDomainError::coordinates(graph, tree)
         });
     let errors = node_collisions.chain(edge_collisions).collect();
     let mut state = NativeRestoreState {
         presented,
+        current_arcs,
         anchors: BTreeMap::new(),
         restored: Graph::default(),
         errors,
@@ -1624,10 +1792,12 @@ fn native_restore_start(
             Ok(anchor) => {
                 state.anchors.insert(*id, anchor);
             }
-            Err(candidates) => state.errors.push(PutDomainError::AmbiguousReverseAnchor {
-                elem: ViewRef::Node(*id),
-                candidates,
-            }),
+            Err(candidates) => state.errors.push(NativeDomainError::same(
+                PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(*id),
+                    candidates,
+                },
+            )),
         }
     }
     let anchor_of = |node: u32| {
@@ -1646,6 +1816,7 @@ fn native_restore_start(
         &state.presented,
         complement,
         &anchor_of,
+        &state.current_arcs,
     ));
     Ok(state)
 }
@@ -1693,15 +1864,17 @@ fn native_restore_visible(
             }
             Err(refusal) => state
                 .errors
-                .push(native_field_refusal(ViewRef::Node(*id), refusal)),
+                .push(NativeDomainError::same(native_field_refusal(
+                    ViewRef::Node(*id),
+                    refusal,
+                ))),
         }
     }
-    for (id, edge) in state
-        .presented
-        .edges
-        .iter()
-        .filter(|(id, _)| !carrier_complement.synthesized_edges.contains_key(id))
-    {
+    for (id, edge) in state.presented.edges.iter().filter(|(id, edge)| {
+        !carrier_complement.synthesized_edges.contains_key(id)
+            && !carrier_complement.synthesized_nodes.contains_key(&edge.src)
+            && !carrier_complement.synthesized_nodes.contains_key(&edge.tgt)
+    }) {
         match native_edge_label(lens, complement, &state.presented, *id, edge, &anchor_of) {
             Ok(label) => {
                 state.restored.edges.insert(
@@ -1712,7 +1885,15 @@ fn native_restore_visible(
                     },
                 );
             }
-            Err(error) => state.errors.push(error),
+            Err(error) => {
+                let tree = state.current_arcs.get(id).map_or_else(
+                    || error.clone(),
+                    |(parent, child)| native_arc_error(&error, *parent, *child),
+                );
+                state
+                    .errors
+                    .push(NativeDomainError::coordinates(error, tree));
+            }
         }
     }
 }
@@ -1798,10 +1979,12 @@ fn native_reanchor_collisions(
             Ok(anchor) => {
                 state.anchors.insert(*id, anchor);
             }
-            Err(candidates) => state.errors.push(PutDomainError::AmbiguousReverseAnchor {
-                elem: ViewRef::Node(*id),
-                candidates,
-            }),
+            Err(candidates) => state.errors.push(NativeDomainError::same(
+                PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(*id),
+                    candidates,
+                },
+            )),
         }
     }
 }
@@ -1839,6 +2022,7 @@ fn native_restore(
     view: &Tree,
     embedding: &crate::encode::TreeEmbedding,
     complement: &Complement,
+    projection: NativeDomainProjection,
 ) -> Result<(Tree, Graph), TreeRestoreError> {
     let mut state = native_restore_start(lens, view, embedding, complement)
         .map_err(TreeRestoreError::Operational)?;
@@ -1851,16 +2035,14 @@ fn native_restore(
     }
     native_restore_visible(lens, restore_complement, complement, &mut state);
     native_restore_residue(restore_complement, &mut state);
-    state.errors.extend(native_source_violations(
-        lens,
-        &state.presented,
-        complement,
-        &state.restored,
-    ));
-    state.errors.sort_by(PutDomainError::report_cmp);
-    state.errors.dedup();
-    if !state.errors.is_empty() {
-        return Err(TreeRestoreError::Domain(state.errors));
+    state.errors.extend(
+        native_source_violations(lens, &state.presented, complement, &state.restored)
+            .into_iter()
+            .map(NativeDomainError::same),
+    );
+    let errors = native_domain_report(state.errors, projection);
+    if !errors.is_empty() {
+        return Err(TreeRestoreError::Domain(errors));
     }
 
     let parent_name = |hyper: &str| source_parent_name(lens, hyper);
@@ -1904,10 +2086,29 @@ pub(super) fn tree_put_with_graph(
     c: &Complement,
 ) -> Result<(crate::model::Tree, Graph), LensError> {
     lens.verify_identity(c, ComplementShape::WType)?;
-    native_restore(lens, view, emb, c).map_err(|error| match error {
+    native_restore(lens, view, emb, c, NativeDomainProjection::Graph).map_err(|error| match error {
         TreeRestoreError::Domain(errors) => LensError::PutDomain(errors[0].clone()),
         TreeRestoreError::Operational(error) => LensError::TreeOperational(error),
     })
+}
+
+/// Execute tree put with native tree-coordinate domain diagnostics.
+///
+/// This route is private to the law oracle. Public tree operations and
+/// representation squares retain their graph-coordinate diagnostics.
+pub(super) fn tree_put_law(
+    lens: &GraphLens<'_>,
+    view: &crate::model::Tree,
+    emb: &crate::encode::TreeEmbedding,
+    c: &Complement,
+) -> Result<crate::model::Tree, LensError> {
+    lens.verify_identity(c, ComplementShape::WType)?;
+    native_restore(lens, view, emb, c, NativeDomainProjection::Tree)
+        .map(|(tree, _)| tree)
+        .map_err(|error| match error {
+            TreeRestoreError::Domain(errors) => LensError::PutDomain(errors[0].clone()),
+            TreeRestoreError::Operational(error) => LensError::TreeOperational(error),
+        })
 }
 
 /// Definition: the identity-free tree put-domain predicate.
@@ -1926,7 +2127,22 @@ pub fn tree_check_put_domain(
     emb: &crate::encode::TreeEmbedding,
     c: &Complement,
 ) -> Result<(), LensError> {
-    native_restore(lens, view, emb, c)
+    native_restore(lens, view, emb, c, NativeDomainProjection::Graph)
+        .map(|_| ())
+        .map_err(|error| match error {
+            TreeRestoreError::Domain(errors) => LensError::PutDomainReport(errors),
+            TreeRestoreError::Operational(error) => LensError::TreeOperational(error),
+        })
+}
+
+/// Check the tree put domain in native tree coordinates for the law oracle.
+pub(super) fn tree_check_put_domain_law(
+    lens: &GraphLens<'_>,
+    view: &crate::model::Tree,
+    emb: &crate::encode::TreeEmbedding,
+    c: &Complement,
+) -> Result<(), LensError> {
+    native_restore(lens, view, emb, c, NativeDomainProjection::Tree)
         .map(|_| ())
         .map_err(|error| match error {
             TreeRestoreError::Domain(errors) => LensError::PutDomainReport(errors),
@@ -2009,6 +2225,8 @@ struct NativeViewState {
     used_edges: BTreeSet<u32>,
 }
 
+type NativeViewGraph = Result<(Graph, BTreeMap<u32, (u32, u32)>), TreeOperationalError>;
+
 fn native_view_fan(
     lens: &GraphLens<'_>,
     view: &Tree,
@@ -2084,7 +2302,7 @@ fn native_view_graph(
     view: &crate::model::Tree,
     emb: &crate::encode::TreeEmbedding,
     c: &Complement,
-) -> Result<Graph, TreeOperationalError> {
+) -> NativeViewGraph {
     let next_node = fresh_after(
         view.nodes
             .keys()
@@ -2115,6 +2333,7 @@ fn native_view_graph(
         next_edge,
         used_edges: BTreeSet::new(),
     };
+    let mut current_arcs = BTreeMap::new();
     for (p, ch, label) in &view.arcs {
         let id = if let Some(id) = emb
             .arcs
@@ -2135,11 +2354,12 @@ fn native_view_graph(
                 position: None,
             },
         );
+        current_arcs.insert(id, (*p, *ch));
     }
     for index in 0..view.fans.len() {
         native_view_fan(lens, view, emb, index, &mut state)?;
     }
-    Ok(state.graph)
+    Ok((state.graph, current_arcs))
 }
 
 const fn ids_exhausted(nodes: bool) -> TreeOperationalError {
@@ -2295,7 +2515,8 @@ mod allocation_tests {
             next_node: 3,
             next_edge: 1,
         };
-        let Ok(graph) = native_view_graph(&lens, &view, &embedding, &Complement::default()) else {
+        let Ok((graph, _)) = native_view_graph(&lens, &view, &embedding, &Complement::default())
+        else {
             panic!("duplicate presentation ids must be reallocated");
         };
         assert_eq!(
@@ -2357,7 +2578,8 @@ mod allocation_tests {
             next_node: 40,
             next_edge: 70,
         };
-        let Ok(graph) = native_view_graph(&lens, &view, &embedding, &Complement::default()) else {
+        let Ok((graph, _)) = native_view_graph(&lens, &view, &embedding, &Complement::default())
+        else {
             panic!("high durable counters must remain allocatable");
         };
         assert_eq!(

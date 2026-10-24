@@ -67,13 +67,23 @@ fn key_values_cmp(
     left.len().cmp(&right.len())
 }
 
-/// An instance element: graph nodes and edges, table rows and pairs.
+/// An instance element: graph nodes and edges, tree arcs, table rows and pairs.
+///
+/// The declaration order is the shared shape-native order used by production.
+/// Canonical validation tags are assigned explicitly and do not depend on it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ViewRef {
     /// A node.
     Node(u32),
     /// An edge.
     Edge(u32),
+    /// A tree arc, named by its parent and child node ids.
+    Arc {
+        /// The parent node id.
+        parent: u32,
+        /// The child node id.
+        child: u32,
+    },
     /// A row.
     Row(u32),
     /// A foreign-key pair.
@@ -175,7 +185,7 @@ impl PutDomainError {
             Self::SurvivalPredicateFails { elem } => (5, Some(elem.clone())),
             Self::DerivedCellEdited { elem, .. } => (6, Some(elem.clone())),
             Self::TransformNotInvertible { elem, .. } => (7, Some(elem.clone())),
-            Self::DuplicateKey { elems, .. } => (8, elems.first().cloned()),
+            Self::DuplicateKey { elems, .. } => (8, elems.iter().min().cloned()),
             Self::MissingRequiredCell { elem, .. } => (9, Some(elem.clone())),
             Self::MalformedFan { node, .. } => (10, Some(ViewRef::Node(*node))),
             Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
@@ -211,6 +221,31 @@ impl PutDomainError {
                 ) => left_field.cmp(right_field),
                 _ => Ordering::Equal,
             })
+    }
+
+    /// Stable-sort a complete report and remove exact repeats within each
+    /// comparator-equivalent run.
+    ///
+    /// `report_cmp` deliberately ignores non-ordering payloads such as an
+    /// ambiguous anchor's candidate list. Adjacent `Vec::dedup` is therefore
+    /// insufficient for a run shaped `A, B, A`: the two exact `A` values need
+    /// not become adjacent under the stable sort.
+    pub(super) fn sort_report(errors: &mut Vec<Self>) {
+        errors.sort_by(Self::report_cmp);
+        let mut unique = Vec::with_capacity(errors.len());
+        let mut run_start = 0;
+        for error in errors.drain(..) {
+            let new_run = unique
+                .last()
+                .is_some_and(|previous| Self::report_cmp(previous, &error) != Ordering::Equal);
+            if new_run {
+                run_start = unique.len();
+            }
+            if !unique[run_start..].contains(&error) {
+                unique.push(error);
+            }
+        }
+        *errors = unique;
     }
 }
 
@@ -252,4 +287,44 @@ pub(super) fn required_value_violations(
         .into_iter()
         .map(|(elem, field)| PutDomainError::MissingRequiredCell { elem, field })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PutDomainError, ViewRef};
+    use crate::model::SEdge;
+
+    #[test]
+    fn view_reference_order_matches_the_shape_native_contract() {
+        let node = ViewRef::Node(u32::MAX);
+        let edge = ViewRef::Edge(u32::MAX);
+        let arc = ViewRef::Arc {
+            parent: u32::MAX,
+            child: u32::MAX,
+        };
+        let row = ViewRef::Row(0);
+        let pair = ViewRef::Pair(Box::new(SEdge::new("a", "b", "r", None)), 0, 0);
+
+        assert!(node < edge);
+        assert!(edge < arc);
+        assert!(arc < row);
+        assert!(row < pair);
+    }
+
+    #[test]
+    fn report_sort_removes_nonadjacent_exact_repeats_inside_a_tie_run() {
+        let first = PutDomainError::AmbiguousReverseAnchor {
+            elem: ViewRef::Node(7),
+            candidates: vec!["a".to_owned()],
+        };
+        let second = PutDomainError::AmbiguousReverseAnchor {
+            elem: ViewRef::Node(7),
+            candidates: vec!["b".to_owned()],
+        };
+        let mut errors = vec![first.clone(), second.clone(), first.clone()];
+
+        PutDomainError::sort_report(&mut errors);
+
+        assert_eq!(errors, vec![first, second]);
+    }
 }

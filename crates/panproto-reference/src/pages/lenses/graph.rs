@@ -500,8 +500,7 @@ impl GraphLens<'_> {
         self.restore_unchecked(view, c)
             .map(|_| ())
             .map_err(|mut errors| {
-                errors.sort_by(PutDomainError::report_cmp);
-                errors.dedup();
+                PutDomainError::sort_report(&mut errors);
                 errors
             })
     }
@@ -543,7 +542,7 @@ impl GraphLens<'_> {
         self.restore_unchecked(view, c)
             .map(|source| (source, status))
             .map_err(|mut errors| {
-                errors.sort_by(PutDomainError::report_cmp);
+                PutDomainError::sort_report(&mut errors);
                 LensError::PutDomain(errors.remove(0))
             })
     }
@@ -838,8 +837,7 @@ impl GraphLens<'_> {
                 .into_iter()
                 .map(move |reason| PutDomainError::MalformedFan { node, reason })
         }));
-        errs.sort_by(PutDomainError::report_cmp);
-        errs.dedup();
+        PutDomainError::sort_report(&mut errs);
         errs
     }
 }

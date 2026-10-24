@@ -516,6 +516,7 @@ fn ref_view_ref(elem: &panproto_reference::lens::ViewRef) -> String {
     match elem {
         R::Node(id) => format!("Node({id})"),
         R::Edge(id) => format!("Edge({id})"),
+        R::Arc { parent, child } => format!("Arc({parent},{child})"),
         R::Row(id) => format!("Row({id})"),
         R::Pair(edge, src, tgt) => format!("Pair({edge:?},{src},{tgt})"),
     }
@@ -3851,284 +3852,6 @@ fn reference_tree_law_reason(error: &panproto_reference::lens::ReferenceLawError
     }
 }
 
-fn ref_tree_view_ref(
-    elem: &panproto_reference::lens::ViewRef,
-    view: &RefTree,
-    complement: &panproto_reference::lens::TreeLawComplement,
-) -> String {
-    use panproto_reference::lens::ViewRef as R;
-
-    let R::Edge(edge) = elem else {
-        return ref_view_ref(elem);
-    };
-    let durable_child = complement
-        .embedding
-        .arcs
-        .iter()
-        .find_map(|(child, candidate)| (*candidate == *edge).then_some(*child));
-    let replayed_arc = durable_child
-        .and_then(|child| {
-            view.arcs
-                .iter()
-                .find(|(_, candidate, _)| *candidate == child)
-                .map(|(parent, child, _)| (*parent, *child))
-        })
-        .or_else(|| ref_tree_fresh_arc(*edge, view, complement));
-    let Some((view_parent, child)) = replayed_arc.or_else(|| {
-        durable_child.map(|child| {
-            let parent = view
-                .arcs
-                .iter()
-                .find_map(|(parent, candidate, _)| (*candidate == child).then_some(*parent))
-                .unwrap_or(child);
-            (parent, child)
-        })
-    }) else {
-        return ref_view_ref(elem);
-    };
-    let synthesized_parent = complement
-        .complement
-        .synthesized_edges
-        .get(edge)
-        .and_then(|key| match key {
-            RefSynthKey::Contract { src, .. } | RefSynthKey::ContractExpand { src, hop: 0, .. } => {
-                Some(*src)
-            }
-            RefSynthKey::Expand {
-                source_edge,
-                hop: 0,
-            } => complement
-                .source_arcs
-                .get(source_edge)
-                .map(|(parent, _)| *parent),
-            RefSynthKey::Expand { source_edge, hop } => {
-                let predecessor = RefSynthKey::Expand {
-                    source_edge: *source_edge,
-                    hop: *hop - 1,
-                };
-                complement
-                    .complement
-                    .synthesized_nodes
-                    .iter()
-                    .find_map(|(node, key)| (key == &predecessor).then_some(*node))
-            }
-            RefSynthKey::ContractExpand { src, tgt, hop } => {
-                let predecessor = RefSynthKey::ContractExpand {
-                    src: *src,
-                    tgt: *tgt,
-                    hop: *hop - 1,
-                };
-                complement
-                    .complement
-                    .synthesized_nodes
-                    .iter()
-                    .find_map(|(node, key)| (key == &predecessor).then_some(*node))
-            }
-        });
-    let parent = synthesized_parent.unwrap_or(view_parent);
-    format!("Arc({parent},{child})")
-}
-
-fn ref_tree_fresh_arc(
-    wanted: u32,
-    view: &RefTree,
-    complement: &panproto_reference::lens::TreeLawComplement,
-) -> Option<(u32, u32)> {
-    let graph = &complement.complement;
-    let existing = complement
-        .embedding
-        .arcs
-        .values()
-        .copied()
-        .chain(graph.dropped_edges.keys().copied())
-        .chain(graph.synthesized_edges.keys().copied())
-        .chain(
-            complement
-                .embedding
-                .fans
-                .iter()
-                .flat_map(|(_, parent, children)| {
-                    std::iter::once(*parent).chain(children.values().copied())
-                }),
-        )
-        .max();
-    let reserved = graph
-        .floor
-        .1
-        .max(complement.embedding.next_edge)
-        .checked_sub(1);
-    let mut next = existing
-        .into_iter()
-        .chain(reserved)
-        .max()
-        .map_or(Some(0), |id| id.checked_add(1))
-        .filter(|id| *id != u32::MAX);
-    let mut used = BTreeSet::new();
-    for (parent, child, _) in &view.arcs {
-        let id = complement
-            .embedding
-            .arcs
-            .get(child)
-            .copied()
-            .filter(|id| used.insert(*id))
-            .or_else(|| {
-                let id = next?;
-                next = id.checked_add(1).filter(|next| *next != u32::MAX);
-                used.insert(id);
-                Some(id)
-            })?;
-        if id == wanted {
-            return Some((*parent, *child));
-        }
-    }
-    None
-}
-
-#[test]
-fn tree_refusal_coordinates_recover_every_missing_synthesized_hop() {
-    use panproto_reference::lens::ViewRef as R;
-
-    let mut view = RefTree {
-        nodes: BTreeMap::new(),
-        arcs: Vec::new(),
-        fans: Vec::new(),
-        root: 0,
-    };
-    let mut complement = panproto_reference::lens::TreeLawComplement::default();
-    complement.source_arcs.insert(3, (10, 11));
-    complement.complement.synthesized_nodes.insert(
-        20,
-        RefSynthKey::Expand {
-            source_edge: 3,
-            hop: 0,
-        },
-    );
-    complement.complement.synthesized_nodes.insert(
-        30,
-        RefSynthKey::ContractExpand {
-            src: 5,
-            tgt: 9,
-            hop: 0,
-        },
-    );
-    let synthesized = [
-        (
-            40,
-            20,
-            RefSynthKey::Expand {
-                source_edge: 3,
-                hop: 0,
-            },
-        ),
-        (
-            41,
-            11,
-            RefSynthKey::Expand {
-                source_edge: 3,
-                hop: 1,
-            },
-        ),
-        (
-            42,
-            30,
-            RefSynthKey::ContractExpand {
-                src: 5,
-                tgt: 9,
-                hop: 0,
-            },
-        ),
-        (
-            43,
-            9,
-            RefSynthKey::ContractExpand {
-                src: 5,
-                tgt: 9,
-                hop: 1,
-            },
-        ),
-        (
-            44,
-            8,
-            RefSynthKey::Contract {
-                src: 7,
-                tgt: 8,
-                edge: RefSEdge::new("a", "b", "e", None),
-            },
-        ),
-    ];
-    for (edge, child, key) in synthesized {
-        complement.embedding.arcs.insert(child, edge);
-        complement.complement.synthesized_edges.insert(edge, key);
-    }
-
-    for (edge, expected) in [
-        (40, "Arc(10,20)"),
-        (41, "Arc(20,11)"),
-        (42, "Arc(5,30)"),
-        (43, "Arc(30,9)"),
-        (44, "Arc(7,8)"),
-    ] {
-        assert_eq!(
-            ref_tree_view_ref(&R::Edge(edge), &view, &complement),
-            expected,
-            "synthesized edge {edge} must retain its tree carrier coordinate after removal"
-        );
-    }
-
-    view.arcs.push((
-        99,
-        20,
-        RefSEdge::new("outside", "outside", "reparented", None),
-    ));
-    assert_eq!(
-        ref_tree_view_ref(&R::Edge(40), &view, &complement),
-        "Arc(10,20)",
-        "a reparented synthesized child still names the original synthesized arc"
-    );
-
-    assert_fresh_tree_arc_uses_replayed_carrier_allocation();
-}
-
-fn assert_fresh_tree_arc_uses_replayed_carrier_allocation() {
-    use panproto_reference::lens::ViewRef as R;
-
-    let fresh_view = RefTree {
-        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "a"))]),
-        arcs: vec![(0, 1, RefSEdge::new("a", "a", "e", None))],
-        fans: Vec::new(),
-        root: 0,
-    };
-    assert_eq!(
-        ref_tree_view_ref(
-            &R::Edge(0),
-            &fresh_view,
-            &panproto_reference::lens::TreeLawComplement::default(),
-        ),
-        "Arc(0,1)",
-        "a newly inserted tree arc is named through replayed carrier allocation"
-    );
-}
-
-fn reference_tree_put_law_reason(
-    error: &panproto_reference::lens::ReferenceLawError,
-    view: &RefTree,
-    complement: &panproto_reference::lens::TreeLawComplement,
-) -> Reason {
-    match error {
-        panproto_reference::lens::ReferenceLawError::PutDomain(errors) => {
-            errors.first().map_or_else(
-                || Reason::PutDomain("empty put-domain report".to_owned()),
-                |error| {
-                    Reason::PutDomain(ref_put_domain_reason_with(error, &|elem| {
-                        ref_tree_view_ref(elem, view, complement)
-                    }))
-                },
-            )
-        }
-        _ => reference_tree_law_reason(error),
-    }
-}
-
 fn reference_table_law_reason(error: &panproto_reference::lens::TableLawError) -> Reason {
     use panproto_reference::lens::TableLawError as Error;
     match error {
@@ -4178,9 +3901,8 @@ fn reference_tree_path_outcome(
                 let stage = word[at];
                 let put = pairs[stage].with_reference(|lens| {
                     let lens = lens.map_err(Reason::Restrict)?;
-                    RefTreeShape::put(lens, &restored, &complements[at], &()).map_err(|error| {
-                        reference_tree_put_law_reason(&error, &restored, &complements[at])
-                    })
+                    RefTreeShape::put(lens, &restored, &complements[at], &())
+                        .map_err(|error| reference_tree_law_reason(&error))
                 });
                 match put {
                     Ok(next) => restored = next,
@@ -4555,9 +4277,10 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     let edits = edits.into_inner();
     assert_eq!(edit_families.total(), edits);
     println!(
-        "C11 paths final SSB: edits={edits}, admitted families={:?}, refused families={:?}",
-        edit_families.admitted.named(),
-        edit_families.refused.named()
+        "C11 paths final SSB: edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named()
     );
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
@@ -4611,22 +4334,62 @@ impl Default for AtomicEditCensus {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ClassifiedEditCensus {
-    admitted: EditCensus,
-    refused: EditCensus,
+    admitted_positive: EditCensus,
+    refused_positive: EditCensus,
+    designated_negative: EditCensus,
 }
 
 impl ClassifiedEditCensus {
-    const fn add(&mut self, mutation: RefMutation, admitted: bool) {
+    const fn add_admitted_positive(&mut self, mutation: RefMutation) {
+        self.admitted_positive.add(mutation, 1);
+    }
+
+    const fn add_refused_positive(&mut self, mutation: RefMutation) {
+        self.refused_positive.add(mutation, 1);
+    }
+
+    const fn add_designated_negative(&mut self, mutation: RefMutation) {
+        self.designated_negative.add(mutation, 1);
+    }
+
+    const fn add_positive(&mut self, mutation: RefMutation, admitted: bool) {
         if admitted {
-            self.admitted.add(mutation, 1);
+            self.add_admitted_positive(mutation);
         } else {
-            self.refused.add(mutation, 1);
+            self.add_refused_positive(mutation);
+        }
+    }
+
+    const fn add_reference_basis(
+        &mut self,
+        mutation: RefMutation,
+        partition: ReferenceBasisPartition,
+    ) {
+        match partition {
+            ReferenceBasisPartition::AdmittedPositive => {
+                self.add_admitted_positive(mutation);
+            }
+            ReferenceBasisPartition::RefusedPositive => {
+                self.add_refused_positive(mutation);
+            }
+            ReferenceBasisPartition::DesignatedNegative => {
+                self.add_designated_negative(mutation);
+            }
         }
     }
 
     fn total(&self) -> usize {
-        self.admitted.total() + self.refused.total()
+        self.admitted_positive.total()
+            + self.refused_positive.total()
+            + self.designated_negative.total()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReferenceBasisPartition {
+    AdmittedPositive,
+    RefusedPositive,
+    DesignatedNegative,
 }
 
 /// Classify one generated reference-basis candidate by the predicate's
@@ -4637,14 +4400,14 @@ fn classify_reference_basis_case<R, C>(
     expected: &DomainExpectation<R>,
     observed: Result<(), R>,
     context: C,
-) -> bool
+) -> ReferenceBasisPartition
 where
     R: std::fmt::Debug + PartialEq,
     C: FnOnce() -> String,
 {
     match (expected, observed) {
-        (DomainExpectation::Admitted, Ok(())) => true,
-        (DomainExpectation::Admitted, Err(_)) => false,
+        (DomainExpectation::Admitted, Ok(())) => ReferenceBasisPartition::AdmittedPositive,
+        (DomainExpectation::Admitted, Err(_)) => ReferenceBasisPartition::RefusedPositive,
         (DomainExpectation::Refused(expected), Err(observed)) => {
             assert_eq!(
                 &observed,
@@ -4652,7 +4415,7 @@ where
                 "designated reference-basis refusal differs for {}",
                 context()
             );
-            false
+            ReferenceBasisPartition::DesignatedNegative
         }
         (DomainExpectation::Refused(expected), Ok(())) => panic!(
             "designated reference-basis negative was admitted for {}: expected {expected:?}",
@@ -4661,11 +4424,8 @@ where
     }
 }
 
-#[test]
-fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
-    let stages = c11_stages();
-
-    let identity = c11_stage_index(&stages, "Id_h");
+fn assert_fan_parent_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
+    let identity = c11_stage_index(stages, "Id_h");
     let pair = Pair::from_stage(&stages[identity]);
     let labels = panproto_reference::enumerate::lenses::c11_fan_labels();
     let mut hyper = RefNode::new(0, "h");
@@ -4718,11 +4478,12 @@ fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
             errors.iter().map(ref_put_domain_reason).collect::<Vec<_>>(),
             vec!["MalformedFan 0 MissingParent"]
         );
-        assert!(!classify_reference_basis_case(
-            &case.domain,
-            observed,
-            || "Id_h fan-parent deletion".to_owned()
-        ));
+        assert_eq!(
+            classify_reference_basis_case(&case.domain, observed, || {
+                "Id_h fan-parent deletion".to_owned()
+            }),
+            ReferenceBasisPartition::RefusedPositive
+        );
         let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
         let (edits, census) = edits_of_reference_view(&pairs, &[identity], &source);
         assert!(
@@ -4730,12 +4491,14 @@ fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
             "the strict path carrier dropped a predicate-refused positive proposal"
         );
         assert!(
-            census.refused.families[ref_mutation_index(RefMutation::RemoveNode)] > 0,
+            census.refused_positive.families[ref_mutation_index(RefMutation::RemoveNode)] > 0,
             "the strict path census did not classify the fan-parent deletion as refused"
         );
     });
+}
 
-    let transform = c11_stage_index(&stages, "T");
+fn assert_derived_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
+    let transform = c11_stage_index(stages, "T");
     let pair = Pair::from_stage(&stages[transform]);
     let source = RefGraph {
         nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
@@ -4758,11 +4521,12 @@ fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
             errors.iter().map(ref_put_domain_reason).collect::<Vec<_>>(),
             vec!["DerivedCellEdited Node(0) f"]
         );
-        assert!(!classify_reference_basis_case(
-            &case.domain,
-            observed,
-            || "T derived-field edit".to_owned()
-        ));
+        assert_eq!(
+            classify_reference_basis_case(&case.domain, observed, || {
+                "T derived-field edit".to_owned()
+            }),
+            ReferenceBasisPartition::RefusedPositive
+        );
         let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
         let (edits, census) = edits_of_reference_view(&pairs, &[transform], &source);
         assert!(
@@ -4770,20 +4534,28 @@ fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
             "the strict path carrier dropped a predicate-refused derived-field proposal"
         );
         assert!(
-            census.refused.families[ref_mutation_index(RefMutation::FieldEdit)] > 0,
+            census.refused_positive.families[ref_mutation_index(RefMutation::FieldEdit)] > 0,
             "the strict path census did not classify the derived-field edit as refused"
         );
     });
 }
 
 #[test]
+fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
+    let stages = c11_stages();
+    assert_fan_parent_refusal_remains_in_strict_carrier(&stages);
+    assert_derived_refusal_remains_in_strict_carrier(&stages);
+}
+
+#[test]
 fn designated_reference_basis_negatives_require_ordered_exact_refusals() {
     let expected = DomainExpectation::Refused(vec!["first", "second"]);
-    assert!(!classify_reference_basis_case(
-        &expected,
-        Err(vec!["first", "second"]),
-        || "ordered exact refusal".to_owned()
-    ));
+    assert_eq!(
+        classify_reference_basis_case(&expected, Err(vec!["first", "second"]), || {
+            "ordered exact refusal".to_owned()
+        }),
+        ReferenceBasisPartition::DesignatedNegative
+    );
     assert!(
         std::panic::catch_unwind(|| {
             classify_reference_basis_case(&expected, Err(vec!["second", "first"]), || {
@@ -4802,22 +4574,114 @@ fn designated_reference_basis_negatives_require_ordered_exact_refusals() {
     );
 }
 
+#[test]
+fn projection_table_path_partitions_positive_and_negative_basis_cases() {
+    let stages = c11_stages();
+    let projection = c11_stage_index(&stages, "P");
+    assert_eq!(
+        projection, 17,
+        "P remains path stage 17 in the C11 alphabet"
+    );
+    let pairs: Vec<_> = stages.iter().map(TablePair::from_stage).collect();
+    let source = RefTable {
+        rows: BTreeMap::from([
+            (0, ("a".to_owned(), BTreeMap::new())),
+            (1, ("b".to_owned(), BTreeMap::new())),
+        ]),
+        pairs: BTreeSet::new(),
+    };
+
+    pairs[projection].with_reference(|lens, _| {
+        let (view, complement) = RefTableShape::get(lens, &source, &()).expect("P gets the table");
+        let basis = RefTableShape::single_step_basis(lens, &source, &view, &complement, &());
+        let reserved = basis
+            .iter()
+            .find(|case| case.mutation == RefMutation::ReservedIdReuse)
+            .expect("P carries the dropped row as a designated negative");
+        let DomainExpectation::Refused(panproto_reference::lens::TableLawError::Domain(
+            TableCheckError::Domain {
+                violations,
+                unresolved_collations,
+            },
+        )) = &reserved.domain
+        else {
+            panic!("P's reserved-row case lacks an exact domain certificate");
+        };
+        assert_eq!(
+            violations
+                .iter()
+                .map(ref_put_domain_reason)
+                .collect::<Vec<_>>(),
+            vec!["IdCollision Row(1)"],
+            "the designated negative carries the exact ordered row-residue refusal"
+        );
+        assert_eq!(
+            unresolved_collations,
+            &BTreeSet::new(),
+            "the row-residue refusal has no named-collation component"
+        );
+
+        let mut without_row_residue = complement;
+        assert!(
+            without_row_residue.dropped_rows.remove(&1).is_some(),
+            "the counterfactual removes the exact dropped row"
+        );
+        assert_eq!(
+            RefTableShape::check_put_domain(lens, &reserved.view, &without_row_residue, &(),),
+            Ok(()),
+            "the retained reserved-id candidate is admitted once its row residue is removed"
+        );
+        assert!(
+            !RefTableShape::single_step_basis(lens, &source, &view, &without_row_residue, &(),)
+                .iter()
+                .any(|case| case.mutation == RefMutation::ReservedIdReuse),
+            "removing the dropped-row residue removes its reserved-id counterfactual"
+        );
+    });
+
+    let (edits, census) = reference_table_path_edits(&pairs, &[projection], &source);
+    assert_eq!(edits.len(), 4, "P's focused strict carrier is frozen");
+    assert_eq!(
+        census.total(),
+        edits.len(),
+        "the three census buckets partition the strict carrier"
+    );
+    assert_eq!(
+        census.admitted_positive.families,
+        [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "P admits exactly one AddNode and one RemoveNode proposal"
+    );
+    assert_eq!(
+        census.refused_positive.families,
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "P refuses exactly the manual ValueEdit proposal"
+    );
+    assert_eq!(
+        census.designated_negative.families,
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+        "P designates exactly one ReservedIdReuse negative"
+    );
+}
+
 #[derive(Default)]
 struct AtomicClassifiedEditCensus {
-    admitted: AtomicEditCensus,
-    refused: AtomicEditCensus,
+    admitted_positive: AtomicEditCensus,
+    refused_positive: AtomicEditCensus,
+    designated_negative: AtomicEditCensus,
 }
 
 impl AtomicClassifiedEditCensus {
     fn add(&self, census: &ClassifiedEditCensus) {
-        self.admitted.add(&census.admitted);
-        self.refused.add(&census.refused);
+        self.admitted_positive.add(&census.admitted_positive);
+        self.refused_positive.add(&census.refused_positive);
+        self.designated_negative.add(&census.designated_negative);
     }
 
     fn into_inner(self) -> ClassifiedEditCensus {
         ClassifiedEditCensus {
-            admitted: self.admitted.into_inner(),
-            refused: self.refused.into_inner(),
+            admitted_positive: self.admitted_positive.into_inner(),
+            refused_positive: self.refused_positive.into_inner(),
+            designated_negative: self.designated_negative.into_inner(),
         }
     }
 }
@@ -5116,20 +4980,52 @@ fn tree_edit_census(
     census
 }
 
-fn table_edit_census(
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ClassifiedTablePositive {
+    mutation: RefMutation,
+    view: RefTable,
+    admitted: bool,
+}
+
+fn observe_table_positive(
+    lens: &RefTableLens<'_>,
+    complement: &RefTableComplement,
+    mutation: RefMutation,
+    view: RefTable,
+) -> ClassifiedTablePositive {
+    let admitted = RefTableShape::check_put_domain(lens, &view, complement, &()).is_ok();
+    ClassifiedTablePositive {
+        mutation,
+        view,
+        admitted,
+    }
+}
+
+fn independent_fresh_table_row_id(view: &RefTable, complement: &RefTableComplement) -> Option<u32> {
+    let mut candidate = complement.id_floor;
+    loop {
+        if candidate == u32::MAX {
+            return None;
+        }
+        if !view.rows.contains_key(&candidate) && !complement.dropped_rows.contains_key(&candidate)
+        {
+            return Some(candidate);
+        }
+        candidate = candidate.checked_add(1)?;
+    }
+}
+
+/// Independently construct the complete positive table basis, followed by
+/// the intentional C11-field extension. Each candidate carries the observed
+/// dynamic-domain classification, so equality below is extensional rather
+/// than merely an equality of per-family counts.
+fn independent_table_positive_basis(
     pair: &TablePair,
+    lens: &RefTableLens<'_>,
     view: &RefTable,
     complement: &RefTableComplement,
-) -> ClassifiedEditCensus {
-    let mut census = ClassifiedEditCensus::default();
-    let admitted = |candidate: &RefTable| {
-        pair.with_reference(|lens, _| {
-            RefTableShape::check_put_domain(lens, candidate, complement, &()).is_ok()
-        })
-    };
-    let mut record = |mutation, candidate: &RefTable| {
-        census.add(mutation, admitted(candidate));
-    };
+) -> Vec<ClassifiedTablePositive> {
+    let mut candidates = Vec::new();
     for (id, (table, cells)) in &view.rows {
         for column in pair
             .boundaries
@@ -5147,45 +5043,26 @@ fn table_edit_census(
             };
             row.insert(column.clone(), alternate);
             candidate.rows.insert(*id, (table.clone(), row));
-            record(RefMutation::ValueEdit, &candidate);
-        }
-        if !pair
-            .boundaries
-            .1
-            .columns
-            .get(table)
-            .is_some_and(|columns| columns.contains_key(C11_FIELD))
-        {
-            let mut candidate = view.clone();
-            let mut row = cells.clone();
-            if row.contains_key(C11_FIELD) {
-                row.remove(C11_FIELD);
-            } else {
-                row.insert(C11_FIELD.to_owned(), C11_VALUE);
-            }
-            candidate.rows.insert(*id, (table.clone(), row));
-            record(RefMutation::ValueEdit, &candidate);
+            candidates.push(observe_table_positive(
+                lens,
+                complement,
+                RefMutation::ValueEdit,
+                candidate,
+            ));
         }
     }
-    let has_fresh_row = panproto_reference::restrict::floor_of(
-        view.rows
-            .keys()
-            .chain(complement.dropped_rows.keys())
-            .copied(),
-    ) != u32::MAX;
-    if has_fresh_row {
-        let fresh = panproto_reference::restrict::floor_of(
-            view.rows
-                .keys()
-                .chain(complement.dropped_rows.keys())
-                .copied(),
-        );
-        for table in pair.boundaries.1.columns.keys() {
+    if let Some(fresh) = independent_fresh_table_row_id(view, complement) {
+        for table in &pair.boundaries.1.tables {
             let mut candidate = view.clone();
             candidate
                 .rows
                 .insert(fresh, (table.clone(), BTreeMap::new()));
-            record(RefMutation::AddNode, &candidate);
+            candidates.push(observe_table_positive(
+                lens,
+                complement,
+                RefMutation::AddNode,
+                candidate,
+            ));
         }
     }
     for id in view.rows.keys() {
@@ -5194,7 +5071,49 @@ fn table_edit_census(
         candidate
             .pairs
             .retain(|(_, src, tgt)| src != id && tgt != id);
-        record(RefMutation::RemoveNode, &candidate);
+        candidates.push(observe_table_positive(
+            lens,
+            complement,
+            RefMutation::RemoveNode,
+            candidate,
+        ));
+    }
+
+    for (id, (table, cells)) in &view.rows {
+        if pair
+            .boundaries
+            .1
+            .columns
+            .get(table)
+            .is_some_and(|columns| columns.contains_key(C11_FIELD))
+        {
+            continue;
+        }
+        let mut candidate = view.clone();
+        let mut row = cells.clone();
+        if row.contains_key(C11_FIELD) {
+            row.remove(C11_FIELD);
+        } else {
+            row.insert(C11_FIELD.to_owned(), C11_VALUE);
+        }
+        candidate.rows.insert(*id, (table.clone(), row));
+        if candidates.iter().any(|existing| existing.view == candidate) {
+            continue;
+        }
+        candidates.push(observe_table_positive(
+            lens,
+            complement,
+            RefMutation::ValueEdit,
+            candidate,
+        ));
+    }
+    candidates
+}
+
+fn table_positive_census(candidates: &[ClassifiedTablePositive]) -> ClassifiedEditCensus {
+    let mut census = ClassifiedEditCensus::default();
+    for candidate in candidates {
+        census.add_positive(candidate.mutation, candidate.admitted);
     }
     census
 }
@@ -5249,19 +5168,110 @@ fn reference_tree_path_edits(
         let mut basis_census = ClassifiedEditCensus::default();
         for case in &basis {
             let observed = RefTreeShape::check_put_domain(lens, &case.view, &complement, &());
-            let admitted = classify_reference_basis_case(&case.domain, observed, || {
+            let partition = classify_reference_basis_case(&case.domain, observed, || {
                 format!("final-tree path {word:?}, basis ordinal {}", case.ordinal)
             });
-            basis_census.add(case.mutation, admitted);
+            basis_census.add_reference_basis(case.mutation, partition);
         }
         assert_eq!(
-            basis_census.admitted,
+            basis_census.admitted_positive,
             tree_edit_census(&pairs[last], &view, &complement),
             "independent admitted final-tree edit census for path {word:?}"
         );
         let edits = basis.into_iter().map(|case| case.view).collect();
         Some((edits, basis_census))
     })
+}
+
+fn reference_table_final_edits(
+    pair: &TablePair,
+    lens: &RefTableLens<'_>,
+    word: &[usize],
+    final_source: &RefTable,
+    view: &RefTable,
+    complement: &RefTableComplement,
+) -> (Vec<RefTable>, ClassifiedEditCensus) {
+    let basis = RefTableShape::single_step_basis(lens, final_source, view, complement, &());
+    let mut basis_census = ClassifiedEditCensus::default();
+    let mut positive_basis = Vec::new();
+    let mut designated_negatives = Vec::new();
+    for case in &basis {
+        let observed = RefTableShape::check_put_domain(lens, &case.view, complement, &());
+        let partition = classify_reference_basis_case(&case.domain, observed, || {
+            format!("final-table path {word:?}, basis ordinal {}", case.ordinal)
+        });
+        basis_census.add_reference_basis(case.mutation, partition);
+        match partition {
+            ReferenceBasisPartition::AdmittedPositive
+            | ReferenceBasisPartition::RefusedPositive => {
+                positive_basis.push(ClassifiedTablePositive {
+                    mutation: case.mutation,
+                    view: case.view.clone(),
+                    admitted: partition == ReferenceBasisPartition::AdmittedPositive,
+                });
+            }
+            ReferenceBasisPartition::DesignatedNegative => {
+                designated_negatives.push((case.mutation, case.view.clone()));
+            }
+        }
+    }
+    let mut edits: Vec<RefTable> = basis.into_iter().map(|case| case.view).collect();
+    for (id, (table, cells)) in &view.rows {
+        let mut candidate = view.clone();
+        let mut row = cells.clone();
+        if row.contains_key(C11_FIELD) {
+            row.remove(C11_FIELD);
+        } else {
+            row.insert(C11_FIELD.to_owned(), C11_VALUE);
+        }
+        candidate.rows.insert(*id, (table.clone(), row));
+        assert!(
+            !designated_negatives
+                .iter()
+                .any(|(_, negative)| negative == &candidate),
+            "manual C11-field positive collides with a designated negative for path {word:?}"
+        );
+        if positive_basis
+            .iter()
+            .any(|existing| existing.view == candidate)
+        {
+            continue;
+        }
+        let admitted = RefTableShape::check_put_domain(lens, &candidate, complement, &()).is_ok();
+        basis_census.add_positive(RefMutation::ValueEdit, admitted);
+        positive_basis.push(ClassifiedTablePositive {
+            mutation: RefMutation::ValueEdit,
+            view: candidate.clone(),
+            admitted,
+        });
+        edits.push(candidate);
+    }
+    let independent = independent_table_positive_basis(pair, lens, view, complement);
+    assert_eq!(
+        positive_basis, independent,
+        "independent extensional positive final-table basis for path {word:?}"
+    );
+    let independent_census = table_positive_census(&independent);
+    assert_eq!(
+        basis_census.admitted_positive, independent_census.admitted_positive,
+        "independent admitted-positive final-table edit census for path {word:?}"
+    );
+    assert_eq!(
+        basis_census.refused_positive, independent_census.refused_positive,
+        "independent refused-positive final-table edit census for path {word:?}"
+    );
+    assert_eq!(
+        independent_census.designated_negative.total(),
+        0,
+        "the independent table edit census contains only positive proposals"
+    );
+    assert_eq!(
+        designated_negatives.len(),
+        basis_census.designated_negative.total(),
+        "every designated final-table negative has one ordered exact-refusal certificate for path {word:?}"
+    );
+    assert_eq!(edits.len(), basis_census.total());
+    (edits, basis_census)
 }
 
 fn reference_table_path_edits(
@@ -5292,41 +5302,7 @@ fn reference_table_path_edits(
     let complement = final_complement.expect("a path word has a final complement");
     pairs[last]
         .try_with_reference(|lens, _| {
-            let basis =
-                RefTableShape::single_step_basis(lens, &final_source, &view, &complement, &());
-            let mut basis_census = ClassifiedEditCensus::default();
-            for case in &basis {
-                let observed = RefTableShape::check_put_domain(lens, &case.view, &complement, &());
-                let admitted = classify_reference_basis_case(&case.domain, observed, || {
-                    format!("final-table path {word:?}, basis ordinal {}", case.ordinal)
-                });
-                basis_census.add(case.mutation, admitted);
-            }
-            let mut edits: Vec<RefTable> = basis.into_iter().map(|case| case.view).collect();
-            for (id, (table, cells)) in &view.rows {
-                let mut candidate = view.clone();
-                let mut row = cells.clone();
-                if row.contains_key(C11_FIELD) {
-                    row.remove(C11_FIELD);
-                } else {
-                    row.insert(C11_FIELD.to_owned(), C11_VALUE);
-                }
-                candidate.rows.insert(*id, (table.clone(), row));
-                if edits.contains(&candidate) {
-                    continue;
-                }
-                let admitted =
-                    RefTableShape::check_put_domain(lens, &candidate, &complement, &()).is_ok();
-                basis_census.add(RefMutation::ValueEdit, admitted);
-                edits.push(candidate);
-            }
-            assert_eq!(
-                basis_census,
-                table_edit_census(&pairs[last], &view, &complement),
-                "independent final-table edit census for path {word:?}"
-            );
-            assert_eq!(edits.len(), basis_census.total());
-            (edits, basis_census)
+            reference_table_final_edits(&pairs[last], lens, word, &final_source, &view, &complement)
         })
         .unwrap_or_else(|_| (Vec::new(), ClassifiedEditCensus::default()))
 }
@@ -5407,13 +5383,14 @@ fn tree_path_normal_forms_match_independent_atomic_folds() {
     );
     assert_eq!(edit_families.total(), edits);
     println!(
-        "L16 tree fusion: bases={}, inside={}, outside={}, final edits={}, admitted families={:?}, refused families={:?}",
+        "L16 tree fusion: bases={}, inside={}, outside={}, final edits={}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
         units.len(),
         units.len() - outside,
         outside,
         edits,
-        edit_families.admitted.named(),
-        edit_families.refused.named()
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named()
     );
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
@@ -5482,23 +5459,37 @@ fn table_path_normal_forms_match_independent_atomic_folds() {
     let edits = edits.into_inner();
     assert_eq!(edit_families.total(), edits);
     assert_eq!(
-        edit_families.admitted.families,
+        edit_families.admitted_positive.families,
         [0, 0, 19_258, 28_445, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the admitted table-path mutation-family census is part of the certificate"
     );
     assert_eq!(
-        edit_families.refused.families,
+        edit_families.refused_positive.families,
         [28_445, 0, 1_035, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the refused table-path mutation-family census is part of the certificate"
     );
+    assert_eq!(
+        edit_families.designated_negative.families,
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 168, 0, 573, 271, 0],
+        "the designated-negative table-path mutation-family census is part of the certificate"
+    );
     println!(
-        "L16 table fusion: bases={}, final edits={}, admitted families={:?}, refused families={:?}",
+        "L16 table fusion: bases={}, final edits={}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
         units.len(),
         edits,
-        edit_families.admitted.named(),
-        edit_families.refused.named()
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named()
     );
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
+}
+
+/// Direct entry point for rebinding the exhaustive table-path basis
+/// partition without rerunning the graph, tree, or category certificates.
+#[test]
+#[ignore = "exhaustive table-path subcertificate; run explicitly when rebinding its census"]
+fn table_path_basis_partition_certificate_exhaustive() {
+    table_path_normal_forms_match_independent_atomic_folds();
 }
 
 /// The per-thread context of the path differential: the lens pairs and the
@@ -5547,10 +5538,10 @@ fn edits_of_reference_view(
         let mut census = ClassifiedEditCensus::default();
         for case in &basis {
             let observed = RefGraphShape::check_put_domain(lens, &case.view, &complement, &());
-            let admitted = classify_reference_basis_case(&case.domain, observed, || {
+            let partition = classify_reference_basis_case(&case.domain, observed, || {
                 format!("final-graph path {word:?}, basis ordinal {}", case.ordinal)
             });
-            census.add(case.mutation, admitted);
+            census.add_reference_basis(case.mutation, partition);
         }
         (basis.into_iter().map(|case| case.view).collect(), census)
     })
@@ -6845,9 +6836,10 @@ fn assert_graph_square_census(
     assert_eq!(edits, certificate.edited_views);
     assert_eq!(bases + edits, certificate.observations);
     println!(
-        "C11 graph/tree square: bases={bases}, edits={edits}, admitted families={:?}, refused families={:?}, total={}",
-        edit_families.admitted.named(),
-        edit_families.refused.named(),
+        "C11 graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named(),
         bases + edits
     );
     assert_eq!(compared, u64::try_from(certificate.observations).unwrap());
@@ -6887,13 +6879,13 @@ fn graph_square_agrees_with_the_reference_exhaustively() {
                 for case in &basis {
                     let observed =
                         RefTreeShape::check_put_domain(lens, &case.view, &complement, &());
-                    let admitted = classify_reference_basis_case(&case.domain, observed, || {
+                    let partition = classify_reference_basis_case(&case.domain, observed, || {
                         format!("tree square stage {stage}, basis ordinal {}", case.ordinal)
                     });
-                    basis_census.add(case.mutation, admitted);
+                    basis_census.add_reference_basis(case.mutation, partition);
                 }
                 assert_eq!(
-                    basis_census.admitted,
+                    basis_census.admitted_positive,
                     tree_edit_census(&pairs[*stage], &view, &complement),
                     "independent admitted tree-square edit census at stage {stage}"
                 );
@@ -6991,6 +6983,27 @@ fn graph_square_falls_back_before_a_distinct_tree_refusal() {
             3,
             panproto_reference::enumerate::lenses::c11_edge("a", "a"),
         ));
+
+        assert_eq!(
+            RefTreeShape::check_put_domain(lens, &view, &complement, &()),
+            Err(panproto_reference::lens::ReferenceLawError::PutDomain(
+                vec![
+                    panproto_reference::lens::PutDomainError::SynthesizedEdited {
+                        elem: panproto_reference::lens::ViewRef::Arc {
+                            parent: 0,
+                            child: 1,
+                        },
+                    },
+                    panproto_reference::lens::PutDomainError::ContractedEdgeInserted {
+                        elem: panproto_reference::lens::ViewRef::Arc {
+                            parent: 0,
+                            child: 3,
+                        },
+                    },
+                ],
+            )),
+            "the tree law route reports the complete ordered native-arc refusal before the square projects its first graph-coordinate refusal"
+        );
 
         let result =
             panproto_reference::lens::graph_put_square(lens, &source, &view, &complement.embedding);
@@ -8298,9 +8311,9 @@ fn push_table_candidate(
 }
 
 /// The deterministic union of the independent reference and production table
-/// bases. Positive candidates are retained only when their own side's exact
-/// predicate admits them; deliberately negative candidates are retained
-/// unconditionally so that the differential checks their full refusal.
+/// bases. Every positive proposal is retained even when its own side's exact
+/// predicate refuses it; deliberately negative candidates are likewise
+/// retained so that the differential checks the complete admission partition.
 fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> {
     let mut candidates = Vec::new();
     pair.with_reference(|lens, _| {
@@ -8308,11 +8321,7 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
             for case in RefTableShape::single_step_basis(lens, source, &view, &complement, &()) {
                 match case.domain {
                     DomainExpectation::Admitted => {
-                        if RefTableShape::check_put_domain(lens, &case.view, &complement, &())
-                            .is_ok()
-                        {
-                            push_table_candidate(&mut candidates, case.view, true, None);
-                        }
+                        push_table_candidate(&mut candidates, case.view, true, None);
                     }
                     DomainExpectation::Refused(_) => push_table_candidate(
                         &mut candidates,
@@ -8344,21 +8353,7 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
             ) {
                 MutationCases::Cases(views) => {
                     for candidate in views {
-                        if table_lens::check_put_domain(
-                            &pair.production,
-                            &candidate,
-                            &complement,
-                            pair.protocols(),
-                        )
-                        .is_ok()
-                        {
-                            push_table_candidate(
-                                &mut candidates,
-                                ref_table(&candidate),
-                                false,
-                                None,
-                            );
-                        }
+                        push_table_candidate(&mut candidates, ref_table(&candidate), false, None);
                     }
                 }
                 MutationCases::Skip(_) => {}

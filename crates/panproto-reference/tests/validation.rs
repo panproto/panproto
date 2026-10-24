@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use panproto_reference::keys::{KeyEquality, SqlCollation, SqlPad};
 use panproto_reference::lens::ViewRef;
 use panproto_reference::model::{Fan, GEdge, Graph, Node, SEdge, Table, Tree};
+use panproto_reference::restrict::{HYPER_LABEL, HYPER_PARENT};
 use panproto_reference::schema::{
     Cardinality, DeclarationError, HyperEdge, Key, KeyPart, KeyRole, KeyScope, OnUnresolved,
     PathSyntax, RefGuard, RefSource, Reference, ResolveMode, Schema, TargetSet,
@@ -1147,8 +1148,136 @@ fn tree_validation_distinguishes_findings_from_shape_refusals() {
             && diagnostic.subject == Some(ViewRef::Node(2))
             && diagnostic.violation == Violation::ParentMismatch(Some(0), Some(1))
     }));
-    assert_eq!(report.identity[&ViewRef::Edge(0)], NativeRef::TreeArc(0));
-    assert_eq!(report.identity[&ViewRef::Edge(1)], NativeRef::TreeArc(1));
+    for arc in [
+        ViewRef::Arc {
+            parent: 0,
+            child: 2,
+        },
+        ViewRef::Arc {
+            parent: 1,
+            child: 2,
+        },
+    ] {
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.check.kind == CheckKind::EdgeDeclared
+                && diagnostic.subject.as_ref() == Some(&arc)
+                && diagnostic.elements == vec![arc.clone()]
+                && matches!(diagnostic.violation, Violation::UndeclaredEdge { .. })
+        }));
+    }
+    assert_eq!(
+        report.identity[&ViewRef::Arc {
+            parent: 0,
+            child: 2,
+        }],
+        NativeRef::TreeArc(0)
+    );
+    assert_eq!(
+        report.identity[&ViewRef::Arc {
+            parent: 1,
+            child: 2,
+        }],
+        NativeRef::TreeArc(1)
+    );
+}
+
+#[test]
+fn reserved_vocabulary_tree_arc_keeps_native_arc_structural_semantics() {
+    for kind in [HYPER_PARENT, HYPER_LABEL] {
+        let reserved = SEdge::new("wrong", "v", kind, Some("ordinary"));
+        let arc = ViewRef::Arc {
+            parent: 0,
+            child: 1,
+        };
+        let mut schema = Schema::default().vertex("v", "object");
+        schema
+            .constraints
+            .insert("v".to_owned(), vec![("max".to_owned(), "0".to_owned())]);
+        let semantics = BTreeMap::from([("max".to_owned(), Semantics::MaxOutDegree)]);
+        let tree = Tree {
+            nodes: [(0, Node::new(0, "v")), (1, Node::new(1, "v"))].into(),
+            arcs: vec![(0, 1, reserved.clone())],
+            fans: Vec::new(),
+            root: 0,
+        };
+
+        let report = validation::validate_tree(&schema, &semantics, &tree).unwrap();
+        let at_arc: BTreeSet<_> = report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.subject.as_ref() == Some(&arc))
+            .map(|diagnostic| diagnostic.check.kind)
+            .collect();
+        assert_eq!(
+            at_arc,
+            BTreeSet::from([
+                CheckKind::ReservedVocabulary,
+                CheckKind::EdgeDeclared,
+                CheckKind::EndpointCoherence,
+            ]),
+            "a reserved native tree arc still receives every ordinary arc check"
+        );
+        assert!(
+            report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.subject.as_ref() == Some(&arc)
+                    && diagnostic.elements == vec![arc.clone()]
+                    && diagnostic.violation == Violation::UndeclaredEdge(reserved.clone())
+            }),
+            "the undeclared reserved label is reported at the native Arc"
+        );
+        assert!(
+            report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.subject.as_ref() == Some(&arc)
+                    && diagnostic.elements == vec![ViewRef::Node(0), arc.clone()]
+                    && diagnostic.violation
+                        == Violation::IncoherentEndpoint(true, "wrong".to_owned(), "v".to_owned())
+            }),
+            "endpoint coherence is not suppressed by reserved vocabulary"
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.check.kind == CheckKind::FanWellFormed),
+            "an ordinary reserved arc is not a reified graph fan"
+        );
+        assert!(
+            report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.check.kind == CheckKind::OutDegree
+                    && diagnostic.subject == Some(ViewRef::Node(0))
+                    && diagnostic.elements == vec![ViewRef::Node(0), arc.clone()]
+                    && diagnostic.violation
+                        == Violation::OutDegree(None, None, Some(0), 1, vec![arc.clone()])
+            }),
+            "native tree degree counts the reserved ordinary arc"
+        );
+
+        let schedule = validation::trusted_schedule(
+            &ValidationInput::Tree {
+                schema,
+                semantics,
+                instance: tree,
+            },
+            &ValidationTrust::default(),
+        );
+        assert_eq!(
+            schedule.verify_instances(&schedule.instances()),
+            Ok(()),
+            "the reserved-Arc report attaches to its exact native schedule"
+        );
+        assert_eq!(
+            scheduled_run(&schedule, CheckKind::OutDegree, Some(&ViewRef::Node(0))).reads,
+            vec![ViewRef::Node(0), arc.clone()],
+            "the exact tree dependency trace reads the native Arc"
+        );
+        assert!(
+            !schedule
+                .runs()
+                .iter()
+                .any(|run| run.instance.check.kind == CheckKind::FanWellFormed),
+            "the trusted schedule has no graph-fan instance for the native Arc"
+        );
+    }
 }
 
 fn check(kind: CheckKind, vertex: &str) -> CheckKey {
@@ -1579,7 +1708,17 @@ fn assert_tree_schedule_dependencies() {
             Some(&ViewRef::Node(2))
         )
         .reads,
-        vec![ViewRef::Node(2), ViewRef::Edge(1), ViewRef::Edge(3)]
+        vec![
+            ViewRef::Node(2),
+            ViewRef::Arc {
+                parent: 1,
+                child: 2,
+            },
+            ViewRef::Arc {
+                parent: 3,
+                child: 2,
+            },
+        ]
     );
     assert_eq!(
         scheduled_run(
@@ -1593,10 +1732,22 @@ fn assert_tree_schedule_dependencies() {
             ViewRef::Node(1),
             ViewRef::Node(2),
             ViewRef::Node(3),
-            ViewRef::Edge(0),
-            ViewRef::Edge(1),
-            ViewRef::Edge(2),
-            ViewRef::Edge(3),
+            ViewRef::Arc {
+                parent: 0,
+                child: 1,
+            },
+            ViewRef::Arc {
+                parent: 0,
+                child: 3,
+            },
+            ViewRef::Arc {
+                parent: 1,
+                child: 2,
+            },
+            ViewRef::Arc {
+                parent: 3,
+                child: 2,
+            },
         ]
     );
     assert_eq!(
@@ -1611,7 +1762,11 @@ fn assert_tree_schedule_dependencies() {
     assert!(tree_schedule.runs().iter().any(|run| {
         run.instance.check.kind == CheckKind::ReservedVocabulary
             && run.instance.check.decl == SchemaRef::Edge(arc.clone())
-            && run.instance.subject == Some(ViewRef::Node(0))
+            && run.instance.subject
+                == Some(ViewRef::Arc {
+                    parent: 0,
+                    child: 1,
+                })
             && run.diagnostics.is_empty()
     }));
 }
@@ -2575,6 +2730,46 @@ fn native_pair_and_fan_identities_are_preserved() {
     assert_eq!(
         report.identity.get(&ViewRef::Edge(1)),
         Some(&NativeRef::TreeFanChild(0, "child".to_owned()))
+    );
+
+    let mut mixed = scope::valid_tree_fan_case();
+    let ordinary = SEdge::new("parent", "child", "child", Some("ordinary"));
+    mixed.schema.edges.insert(ordinary.clone());
+    mixed.instance.arcs.push((0, 1, ordinary));
+    let report =
+        validation::validate_tree(&mixed.schema, &BTreeMap::new(), &mixed.instance).unwrap();
+    assert_eq!(
+        report.identity.get(&ViewRef::Arc {
+            parent: 0,
+            child: 1,
+        }),
+        Some(&NativeRef::TreeArc(0))
+    );
+    assert_eq!(
+        report.identity.get(&ViewRef::Edge(1)),
+        Some(&NativeRef::TreeFanParent(0))
+    );
+    assert_eq!(
+        report.identity.get(&ViewRef::Edge(2)),
+        Some(&NativeRef::TreeFanChild(0, "child".to_owned()))
+    );
+    let schedule = validation::trusted_schedule(
+        &ValidationInput::Tree {
+            schema: mixed.schema,
+            semantics: BTreeMap::new(),
+            instance: mixed.instance,
+        },
+        &ValidationTrust::default(),
+    );
+    assert_eq!(
+        schedule.verify_instances(&schedule.instances()),
+        Ok(()),
+        "ordinary Arc and synthesized fan Edge runs share one exact schedule"
+    );
+    assert_eq!(
+        scheduled_run(&schedule, CheckKind::FanWellFormed, Some(&ViewRef::Node(2)),).reads,
+        vec![ViewRef::Node(2), ViewRef::Edge(1), ViewRef::Edge(2)],
+        "the synthesized fan presentation retains graph Edge coordinates"
     );
 }
 

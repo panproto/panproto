@@ -831,7 +831,10 @@ fn table_ref_in_graph(reference: ViewRef, pair_ids: &PairIds) -> Result<ViewRef,
             .ok_or(SquareError::OutsideExactDomain(
                 "a table put error names a pair without a graph presentation",
             )),
-        other => Ok(other),
+        ViewRef::Arc { .. } => Err(SquareError::OutsideExactDomain(
+            "a table put error cannot name a tree arc",
+        )),
+        other @ (ViewRef::Node(_) | ViewRef::Edge(_)) => Ok(other),
     }
 }
 

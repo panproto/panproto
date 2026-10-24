@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::domain::{PutDomainError, ViewRef};
 use super::graph::{GraphLens, IdentityError, LensError};
 use super::table::TableComplement;
-use super::tree::{TreeOperationalError, tree_check_put_domain, tree_get, tree_put};
+use super::tree::{TreeOperationalError, tree_check_put_domain_law, tree_get, tree_put_law};
 use crate::encode::TreeEmbedding;
 use crate::fan::FanViolation;
 use crate::keys::{KeyEquality, SqlCollation};
@@ -3166,6 +3166,14 @@ fn tree_synthesized_negative_cases(
         else {
             continue;
         };
+        let Some(index) = view
+            .arcs
+            .iter()
+            .position(|(_, candidate, _)| *candidate == child)
+        else {
+            continue;
+        };
+        let parent = view.arcs[index].0;
         let mut removed = view.clone();
         removed.arcs.retain(|(_, candidate, _)| *candidate != child);
         push_tree_refused(
@@ -3173,19 +3181,14 @@ fn tree_synthesized_negative_cases(
             Mutation::RemoveSynthesized,
             removed,
             PutDomainError::SynthesizedEdited {
-                elem: ViewRef::Edge(id),
+                elem: ViewRef::Arc { parent, child },
             },
         );
-        if let Some(index) = view
-            .arcs
-            .iter()
-            .position(|(_, candidate, _)| *candidate == child)
         {
             let original = &view.arcs[index].2;
             // A different target edge with a unique source preimage is the
             // only structural edit known to isolate this synthesized edge.
             // Without one, there is no sound one-coordinate witness to emit.
-            let parent = view.arcs[index].0;
             if let Some(replacement) = lens.tgt.edges.iter().find(|replacement| {
                 replacement.src == original.src
                     && replacement.tgt == original.tgt
@@ -3206,7 +3209,7 @@ fn tree_synthesized_negative_cases(
                     Mutation::EditSynthesized,
                     edited,
                     PutDomainError::SynthesizedEdited {
-                        elem: ViewRef::Edge(id),
+                        elem: ViewRef::Arc { parent, child },
                     },
                 );
             }
@@ -3251,7 +3254,7 @@ fn tree_other_negative_cases(
 ) {
     let graph = &complement.complement;
     let next_edge = fresh_tree_edge(complement);
-    if let (Some(id), Some(edge_id)) = (fresh_tree_node(view, complement), next_edge) {
+    if let (Some(id), Some(_)) = (fresh_tree_node(view, complement), next_edge) {
         for (_, key) in graph
             .synthesized_edges
             .iter()
@@ -3295,7 +3298,10 @@ fn tree_other_negative_cases(
                 Mutation::AddContractedEdge,
                 edited,
                 PutDomainError::ContractedEdgeInserted {
-                    elem: ViewRef::Edge(edge_id),
+                    elem: ViewRef::Arc {
+                        parent: *src,
+                        child: id,
+                    },
                 },
             );
         }
@@ -3513,7 +3519,7 @@ impl<'a> LawShape<GraphLens<'a>> for TreeShape {
         complement: &TreeLawComplement,
         (): &(),
     ) -> Result<Tree, ReferenceLawError> {
-        tree_put(lens, view, &complement.embedding, &complement.complement)
+        tree_put_law(lens, view, &complement.embedding, &complement.complement)
             .map_err(reference_lens_error)
     }
 
@@ -3523,7 +3529,7 @@ impl<'a> LawShape<GraphLens<'a>> for TreeShape {
         complement: &TreeLawComplement,
         (): &(),
     ) -> Result<(), ReferenceLawError> {
-        tree_check_put_domain(lens, view, &complement.embedding, &complement.complement)
+        tree_check_put_domain_law(lens, view, &complement.embedding, &complement.complement)
             .map_err(reference_lens_error)
     }
 
@@ -5968,15 +5974,17 @@ mod locality_tests {
     use super::{
         DomainExpectation, EdgeFate, LawGateStatus, Mutation, PutDomainError, ReferenceLawError,
         TreeLawComplement, ViewRef, check_tree_laws, collision_free_tree_rekey, fresh_tree_edge,
-        fresh_tree_node, reference_lens_error, tree_basis, tree_check_put_domain,
-        tree_locality_divergence, tree_put, tree_source_arcs,
+        fresh_tree_node, reference_lens_error, tree_basis, tree_locality_divergence,
+        tree_source_arcs,
     };
     use crate::encode::TreeEmbedding;
     use crate::enumerate::lenses::{C11Layer, C11Stage, c11_edge, c11_stages};
     use crate::migration::Migration;
     use crate::model::{GEdge, Node, SEdge, Tree};
     use crate::pages::lenses::graph::{GraphLens, LensError};
-    use crate::pages::lenses::tree::TreeOperationalError;
+    use crate::pages::lenses::tree::{
+        TreeOperationalError, tree_check_put_domain, tree_check_put_domain_law, tree_put,
+    };
     use crate::restrict::{Complement, NoValueLayer, SynthKey, compile};
     use crate::schema::{
         Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
@@ -6328,6 +6336,372 @@ mod locality_tests {
         assert_eq!(
             reference_lens_error(LensError::TreeOperational(exhausted.clone())),
             ReferenceLawError::TreeOperational(exhausted)
+        );
+    }
+
+    #[test]
+    fn tree_law_reports_and_raw_put_use_native_arc_order() {
+        let represented = SEdge::new("r", "r", "child", Some("represented"));
+        let unrepresentable = SEdge::new("r", "r", "child", Some("unrepresentable"));
+        let schema =
+            Schema::default()
+                .vertex("r", "record")
+                .edge("r", "r", "child", Some("represented"));
+        let migration = Migration {
+            surviving_verts: ["r".to_owned()].into(),
+            surviving_edges: [represented.clone()].into(),
+            ..Migration::default()
+        };
+        let plan = compile(&schema, &schema, &migration)
+            .unwrap_or_else(|error| panic!("the identity fixture compiles: {error:?}"));
+        let lens = GraphLens::new(
+            &schema,
+            &schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap_or_else(|error| panic!("the identity lens constructs: {error:?}"));
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "r")),
+                (1, Node::new(1, "r")),
+                (2, Node::new(2, "r")),
+            ]
+            .into(),
+            // Carrier edge 0 names Arc(0,2), while carrier edge 1 names
+            // Arc(0,1): graph-id and native tree orders are opposite.
+            arcs: vec![(0, 2, represented.clone()), (0, 1, represented)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((mut view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the fixture has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        for (_, _, label) in &mut view.arcs {
+            label.clone_from(&unrepresentable);
+        }
+
+        let graph_order = vec![
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(0),
+            },
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(1),
+            },
+        ];
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(graph_order))
+        );
+
+        let native_order = vec![
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Arc {
+                    parent: 0,
+                    child: 1,
+                },
+            },
+            PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Arc {
+                    parent: 0,
+                    child: 2,
+                },
+            },
+        ];
+        assert_eq!(
+            <super::TreeShape as super::LawShape<GraphLens<'_>>>::check_put_domain(
+                &lens,
+                &view,
+                &complement,
+                &(),
+            ),
+            Err(ReferenceLawError::PutDomain(native_order.clone()))
+        );
+        let raw = <super::TreeShape as super::LawShape<GraphLens<'_>>>::put(
+            &lens,
+            &view,
+            &complement,
+            &(),
+        );
+        assert_eq!(
+            raw,
+            Err(ReferenceLawError::PutDomain(vec![native_order[0].clone()]))
+        );
+        assert_eq!(
+            <super::TreeShape as super::LawShape<GraphLens<'_>>>::first_put_refusal(
+                &ReferenceLawError::PutDomain(native_order)
+            ),
+            raw.err()
+        );
+    }
+
+    #[test]
+    fn tree_law_structural_reparent_names_the_presented_arc() {
+        let child = SEdge::new("r", "leaf", "child", Some("child"));
+        let branch = SEdge::new("r", "x", "child", Some("branch"));
+        let schema = Schema::default()
+            .vertex("r", "record")
+            .vertex("x", "record")
+            .vertex("leaf", "record")
+            .edge("r", "leaf", "child", Some("child"))
+            .edge("r", "x", "child", Some("branch"));
+        let migration = Migration {
+            surviving_verts: schema.vertices.keys().cloned().collect(),
+            surviving_edges: schema.edges.clone(),
+            ..Migration::default()
+        };
+        let plan = compile(&schema, &schema, &migration)
+            .unwrap_or_else(|error| panic!("the identity fixture compiles: {error:?}"));
+        let lens = GraphLens::new(
+            &schema,
+            &schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap_or_else(|error| panic!("the identity lens constructs: {error:?}"));
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "r")),
+                (1, Node::new(1, "leaf")),
+                (2, Node::new(2, "x")),
+            ]
+            .into(),
+            arcs: vec![(0, 1, child), (0, 2, branch)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((mut view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the fixture has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        let Some(arc) = view.arcs.iter_mut().find(|(_, child, _)| *child == 1) else {
+            panic!("the child arc is present");
+        };
+        arc.0 = 2;
+
+        let edge = complement.embedding.arcs[&1];
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(vec![
+                PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Edge(edge),
+                },
+            ]))
+        );
+        let native = PutDomainError::UnrepresentableViewEdge {
+            elem: ViewRef::Arc {
+                parent: 2,
+                child: 1,
+            },
+        };
+        assert_eq!(
+            tree_check_put_domain_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(vec![native.clone()]))
+        );
+        assert_eq!(
+            super::tree_put_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomain(native))
+        );
+    }
+
+    #[test]
+    fn tree_law_synthesized_reparent_retains_original_and_current_arcs() {
+        let source_edge = SEdge::new("a", "b", "rel", Some("path"));
+        let branch = SEdge::new("a", "a", "rel", Some("branch"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "rel", Some("path"))
+            .edge("a", "a", "rel", Some("branch"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .edge("a", "m", "rel", Some("path-in"))
+            .edge("m", "b", "rel", Some("path-out"))
+            .edge("a", "a", "rel", Some("branch"));
+        let migration = Migration {
+            surviving_verts: ["a", "m", "b"].into_iter().map(str::to_owned).collect(),
+            surviving_edges: [branch.clone()].into(),
+            expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["m".to_owned()])].into(),
+            ..Migration::default()
+        };
+        let plan = compile(&source_schema, &target_schema, &migration)
+            .unwrap_or_else(|error| panic!("the expansion fixture compiles: {error:?}"));
+        let lens = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap_or_else(|error| panic!("the expansion lens constructs: {error:?}"));
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "a")),
+                (1, Node::new(1, "b")),
+                (2, Node::new(2, "a")),
+            ]
+            .into(),
+            arcs: vec![(0, 1, source_edge), (0, 2, branch)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((mut view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the fixture has an expanded tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        let Some((&synthesized, _)) = complement.complement.synthesized_nodes.iter().next() else {
+            panic!("the expanded path has an intermediate node");
+        };
+        let Some(arc) = view
+            .arcs
+            .iter_mut()
+            .find(|(parent, child, _)| *parent == 0 && *child == synthesized)
+        else {
+            panic!("the expanded path has its first synthesized arc");
+        };
+        arc.0 = 2;
+        let edge = complement.embedding.arcs[&synthesized];
+
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(vec![
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(edge),
+                },
+            ]))
+        );
+        let native = vec![
+            PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Arc {
+                    parent: 0,
+                    child: synthesized,
+                },
+            },
+            PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Arc {
+                    parent: 2,
+                    child: synthesized,
+                },
+            },
+        ];
+        assert_eq!(
+            tree_check_put_domain_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(native.clone()))
+        );
+        assert_eq!(
+            super::tree_put_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomain(native[0].clone()))
+        );
+    }
+
+    #[test]
+    fn tree_law_sibling_order_uses_the_minimum_synth_key_and_arc() {
+        let path = SEdge::new("a", "b", "rel", Some("path"));
+        let source_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "rel", Some("path"));
+        let target_schema = Schema::default()
+            .vertex("a", "record")
+            .vertex("m", "record")
+            .vertex("b", "record")
+            .edge("a", "m", "rel", Some("path-in"))
+            .edge("m", "b", "rel", Some("path-out"));
+        let migration = Migration {
+            surviving_verts: ["a", "m", "b"].into_iter().map(str::to_owned).collect(),
+            expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["m".to_owned()])].into(),
+            ..Migration::default()
+        };
+        let plan = compile(&source_schema, &target_schema, &migration)
+            .unwrap_or_else(|error| panic!("the expansion fixture compiles: {error:?}"));
+        let lens = GraphLens::new(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap_or_else(|error| panic!("the expansion lens constructs: {error:?}"));
+        let source = Tree {
+            nodes: [
+                (0, Node::new(0, "a")),
+                (1, Node::new(1, "b")),
+                (2, Node::new(2, "b")),
+            ]
+            .into(),
+            arcs: vec![(0, 1, path.clone()), (0, 2, path)],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let Some(Ok((mut view, graph, embedding))) = super::tree_get(&lens, &source) else {
+            panic!("the fixture has an expanded tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(&source),
+        };
+        let mut siblings: Vec<_> = view
+            .arcs
+            .iter()
+            .enumerate()
+            .filter(|(_, (parent, child, _))| {
+                *parent == 0 && complement.complement.synthesized_nodes.contains_key(child)
+            })
+            .map(|(index, (_, child, _))| (index, *child))
+            .collect();
+        siblings.sort_by_key(|(_, child)| {
+            let edge = complement.embedding.arcs[child];
+            complement.complement.synthesized_edges[&edge].clone()
+        });
+        let [(left_index, minimum_child), (right_index, _)] = siblings.as_slice() else {
+            panic!("the two expansions have two synthesized siblings");
+        };
+        view.arcs.swap(*left_index, *right_index);
+        let edge = complement.embedding.arcs[minimum_child];
+
+        assert_eq!(
+            tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(vec![
+                PutDomainError::SynthesizedEdited {
+                    elem: ViewRef::Edge(edge),
+                },
+            ]))
+        );
+        let native = PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Arc {
+                parent: 0,
+                child: *minimum_child,
+            },
+        };
+        assert_eq!(
+            tree_check_put_domain_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomainReport(vec![native.clone()]))
+        );
+        assert_eq!(
+            super::tree_put_law(&lens, &view, &complement.embedding, &complement.complement,),
+            Err(LensError::PutDomain(native))
         );
     }
 
@@ -6797,6 +7171,50 @@ mod locality_tests {
         );
     }
 
+    fn assert_endpoint_mismatched_contraction_has_no_synth_edit(source: &Tree) {
+        let (mismatched, replacement) = adversarial_contraction_edit_stage(false);
+        let Ok(plan) = compile(
+            &mismatched.source,
+            &mismatched.target,
+            &mismatched.migration,
+        ) else {
+            panic!("the endpoint-mismatched contraction compiles");
+        };
+        assert_eq!(
+            plan.fates()
+                .values()
+                .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == &replacement))
+                .count(),
+            1
+        );
+        let semantics = BTreeMap::new();
+        let Ok(lens) = GraphLens::new(
+            &mismatched.source,
+            &mismatched.target,
+            &mismatched.migration,
+            &plan,
+            &semantics,
+            &NoValueLayer,
+        ) else {
+            panic!("the endpoint-mismatched lens constructs");
+        };
+        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, source) else {
+            panic!("the endpoint-mismatched contraction has a tree view");
+        };
+        let complement = TreeLawComplement {
+            complement: graph,
+            embedding,
+            source_arcs: tree_source_arcs(source),
+        };
+        assert_eq!(
+            tree_basis(&lens, &view, &complement)
+                .iter()
+                .filter(|candidate| candidate.mutation == Mutation::EditSynthesized)
+                .count(),
+            0
+        );
+    }
+
     #[test]
     fn synthesized_tree_edge_edits_use_endpoint_specific_preimages() {
         let (stage, replacement) = adversarial_contraction_edit_stage(true);
@@ -6844,7 +7262,7 @@ mod locality_tests {
             expected.as_slice(),
             [PutDomainError::SynthesizedEdited { .. }]
         ));
-        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain(
+        let Err(LensError::PutDomainReport(graph_observed)) = tree_check_put_domain(
             &lens,
             &edited[0].view,
             &complement.embedding,
@@ -6852,49 +7270,22 @@ mod locality_tests {
         ) else {
             panic!("the synthesized edit must be refused");
         };
+        assert!(matches!(
+            graph_observed.as_slice(),
+            [PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Edge(_)
+            }]
+        ));
+        let Err(LensError::PutDomainReport(observed)) = tree_check_put_domain_law(
+            &lens,
+            &edited[0].view,
+            &complement.embedding,
+            &complement.complement,
+        ) else {
+            panic!("the law route must report the synthesized edit");
+        };
         assert_eq!(&observed, expected);
-
-        let (mismatched, replacement) = adversarial_contraction_edit_stage(false);
-        let Ok(plan) = compile(
-            &mismatched.source,
-            &mismatched.target,
-            &mismatched.migration,
-        ) else {
-            panic!("the endpoint-mismatched contraction compiles");
-        };
-        assert_eq!(
-            plan.fates()
-                .values()
-                .filter(|fate| matches!(fate, EdgeFate::Keep(image) if image == &replacement))
-                .count(),
-            1
-        );
-        let semantics = BTreeMap::new();
-        let Ok(lens) = GraphLens::new(
-            &mismatched.source,
-            &mismatched.target,
-            &mismatched.migration,
-            &plan,
-            &semantics,
-            &NoValueLayer,
-        ) else {
-            panic!("the endpoint-mismatched lens constructs");
-        };
-        let Some(Ok((view, graph, embedding))) = super::tree_get(&lens, &source) else {
-            panic!("the endpoint-mismatched contraction has a tree view");
-        };
-        let complement = TreeLawComplement {
-            complement: graph,
-            embedding,
-            source_arcs: tree_source_arcs(&source),
-        };
-        assert_eq!(
-            tree_basis(&lens, &view, &complement)
-                .iter()
-                .filter(|candidate| candidate.mutation == Mutation::EditSynthesized)
-                .count(),
-            0
-        );
+        assert_endpoint_mismatched_contraction_has_no_synth_edit(&source);
     }
 
     #[test]
@@ -7444,11 +7835,17 @@ mod locality_tests {
             vec![(0, 3), (0, 1)]
         );
         let expected = PutDomainError::ContractedEdgeInserted {
+            elem: ViewRef::Arc {
+                parent: 0,
+                child: 3,
+            },
+        };
+        let graph_expected = PutDomainError::ContractedEdgeInserted {
             elem: ViewRef::Edge(3),
         };
         assert_eq!(
             candidate.domain,
-            DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![expected.clone()]))
+            DomainExpectation::Refused(ReferenceLawError::PutDomain(vec![expected]))
         );
         let Err(LensError::PutDomainReport(errors)) = tree_check_put_domain(
             &lens,
@@ -7458,7 +7855,7 @@ mod locality_tests {
         ) else {
             panic!("the inserted contracted edge must be the complete domain report");
         };
-        assert_eq!(errors, vec![expected.clone()]);
+        assert_eq!(errors, vec![graph_expected.clone()]);
         assert_eq!(
             tree_put(
                 &lens,
@@ -7466,7 +7863,7 @@ mod locality_tests {
                 &complement.embedding,
                 &complement.complement,
             ),
-            Err(LensError::PutDomain(expected))
+            Err(LensError::PutDomain(graph_expected))
         );
 
         let report = check_tree_laws(&lens, &source);

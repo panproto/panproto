@@ -471,7 +471,9 @@ fn graph_validation_obstruction(schema: &panproto_schema::Schema, side: &str) ->
 
 /// Every reason `view` lies outside the graph put domain.
 ///
-/// Reports are sorted by variant and then by their graph element. A
+/// Reports are sorted by variant and then by their graph element. Duplicate
+/// keys at one element are ordered by table and canonical key; missing cells
+/// at one element are ordered by field. Other ties retain discovery order. A
 /// successful result guarantees that [`put`] has a determined source
 /// anchor and edge label for every restored object. Decidable put domains
 /// follow the precedents of `kohu2018axiomatic`, Definition 3.2 and Theorems
@@ -522,7 +524,6 @@ pub fn check_put_domain(
         }
     }
     sort_violations(&mut found);
-    found.dedup();
     if found.is_empty() { Ok(()) } else { Err(found) }
 }
 
@@ -2023,38 +2024,7 @@ fn first_put_error(mut errors: Vec<PutDomainError>) -> LensError {
 }
 
 fn sort_violations(found: &mut Vec<PutDomainError>) {
-    // The sort is stable: the fan violations of one node keep the order
-    // `FanDomain::violations_at` lists them in.
-    found.sort_by(|a, b| {
-        a.variant_index()
-            .cmp(&b.variant_index())
-            .then_with(|| violation_ref(a).cmp(&violation_ref(b)))
-            .then_with(|| match (a, b) {
-                (PutDomainError::MalformedFan { .. }, PutDomainError::MalformedFan { .. }) => {
-                    std::cmp::Ordering::Equal
-                }
-                _ => a.to_string().cmp(&b.to_string()),
-            })
-    });
-    found.dedup();
-}
-
-fn violation_ref(error: &PutDomainError) -> Option<ViewRef> {
-    match error {
-        PutDomainError::IdCollision { elem }
-        | PutDomainError::SynthesizedEdited { elem }
-        | PutDomainError::ContractedEdgeInserted { elem }
-        | PutDomainError::UnrepresentableViewEdge { elem }
-        | PutDomainError::AmbiguousReverseAnchor { elem, .. }
-        | PutDomainError::SurvivalPredicateFails { elem }
-        | PutDomainError::DerivedCellEdited { elem, .. }
-        | PutDomainError::TransformNotInvertible { elem, .. }
-        | PutDomainError::MissingRequiredCell { elem, .. }
-        | PutDomainError::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
-        PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
-        PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
-        PutDomainError::PlanCompilation { .. } => None,
-    }
+    PutDomainError::sort_report(found);
 }
 
 fn merge_map<K, V, F>(

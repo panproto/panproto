@@ -617,9 +617,31 @@ pub mod implementation {
         incomplete: &mut Vec<IncompleteCheck>,
     ) {
         structural_nodes(schema, g, out, incomplete);
-        structural_edges(schema, g, out);
-        structural_fans(schema, g, out);
+        structural_edges(schema, g, shape, out);
+        structural_fans(schema, g, shape, out);
         structural_required_and_positions(schema, g, shape, out);
+    }
+
+    // A tree's graph presentation also contains every native arc verbatim.
+    // Reserved vocabulary does not turn such an Arc into a graph fan carrier:
+    // only carriers sourced at the synthesized HyperEdge node belong to the
+    // presentation fan. Original HyperEdge-shaped tree nodes were flattened
+    // before that node was allocated, so the source shape separates the two.
+    fn is_presentation_fan_edge(shape: InstanceShape, graph: &Graph, edge: &GEdge) -> bool {
+        is_fan_kind(&edge.label.kind)
+            && (shape != InstanceShape::Tree
+                || graph
+                    .nodes
+                    .get(&edge.src)
+                    .is_some_and(|node| node.shape == NodeShape::HyperEdge))
+    }
+
+    fn is_presentation_fan_node(shape: InstanceShape, graph: &Graph, node: u32) -> bool {
+        shape != InstanceShape::Tree
+            || graph
+                .nodes
+                .get(&node)
+                .is_some_and(|item| item.shape == NodeShape::HyperEdge)
     }
 
     fn structural_nodes(
@@ -702,8 +724,17 @@ pub mod implementation {
         }
     }
 
-    fn structural_edges(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) {
-        for (id, e) in g.edges.iter().filter(|(_, e)| !is_fan_kind(&e.label.kind)) {
+    fn structural_edges(
+        schema: &Schema,
+        g: &Graph,
+        shape: InstanceShape,
+        out: &mut Vec<Diagnostic>,
+    ) {
+        for (id, e) in g
+            .edges
+            .iter()
+            .filter(|(_, edge)| !is_presentation_fan_edge(shape, g, edge))
+        {
             let me = ViewRef::Edge(*id);
             if !schema.edges.contains(&e.label) {
                 out.push(diag(
@@ -742,8 +773,16 @@ pub mod implementation {
         }
     }
 
-    fn structural_fans(schema: &Schema, g: &Graph, out: &mut Vec<Diagnostic>) {
-        for f in fan_candidates(g) {
+    fn structural_fans(
+        schema: &Schema,
+        g: &Graph,
+        shape: InstanceShape,
+        out: &mut Vec<Diagnostic>,
+    ) {
+        for f in fan_candidates(g)
+            .into_iter()
+            .filter(|node| is_presentation_fan_node(shape, g, *node))
+        {
             let he = g.nodes[&f].anchor.clone();
             for v in violations_at(g, f, Some(schema)) {
                 let elements = fan_violation_elements(f, &v);
@@ -1093,6 +1132,7 @@ pub mod implementation {
     struct ConstraintSite<'a> {
         schema: &'a Schema,
         graph: &'a Graph,
+        shape: InstanceShape,
         vertex: &'a str,
         node: u32,
         declaration: &'a SchemaRef,
@@ -1103,6 +1143,7 @@ pub mod implementation {
         schema: &Schema,
         sem: &BTreeMap<Name, Semantics>,
         g: &Graph,
+        shape: InstanceShape,
         out: &mut Vec<Diagnostic>,
         inc: &mut Vec<IncompleteCheck>,
         context: &ValidationContext,
@@ -1122,6 +1163,7 @@ pub mod implementation {
                     let site = ConstraintSite {
                         schema,
                         graph: g,
+                        shape,
                         vertex: v,
                         node: *id,
                         declaration: &decl,
@@ -1179,7 +1221,9 @@ pub mod implementation {
             .graph
             .edges
             .iter()
-            .filter(|(_, edge)| edge.src == site.node && !is_fan_kind(&edge.label.kind))
+            .filter(|(_, edge)| {
+                edge.src == site.node && !is_presentation_fan_edge(site.shape, site.graph, edge)
+            })
             .map(|(id, _)| ViewRef::Edge(*id))
             .collect();
         let found = u32::try_from(counted.len()).unwrap_or(u32::MAX);
@@ -2291,6 +2335,8 @@ pub mod implementation {
     }
 
     fn write_view(writer: &mut crate::canonical::Writer, reference: &ViewRef) {
+        // These are compatibility tags, independent of `ViewRef` declaration
+        // order. Arc was added after the four established graph/table tags.
         match reference {
             ViewRef::Node(id) => {
                 writer.tag(0);
@@ -2310,6 +2356,190 @@ pub mod implementation {
                 writer.u32(*source);
                 writer.u32(*target);
             }
+            ViewRef::Arc { parent, child } => {
+                writer.tag(4);
+                writer.u32(*parent);
+                writer.u32(*child);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod view_encoding_tests {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use super::{
+            NativeRef, Node, SEdge, Schema, Tree, TreeEmbedding, ValidationInput, ViewRef,
+            Violation, changed_refs, tree_identity, tree_violation, write_view,
+        };
+
+        fn bytes(reference: &ViewRef) -> Vec<u8> {
+            let mut writer = crate::canonical::Writer::default();
+            write_view(&mut writer, reference);
+            writer.bytes
+        }
+
+        #[test]
+        fn canonical_view_tags_preserve_old_tags_and_append_arc() {
+            assert_eq!(bytes(&ViewRef::Node(7))[0], 0);
+            assert_eq!(bytes(&ViewRef::Edge(7))[0], 1);
+            assert_eq!(bytes(&ViewRef::Row(7))[0], 2);
+            assert_eq!(
+                bytes(&ViewRef::Pair(
+                    Box::new(SEdge::new("a", "b", "r", None)),
+                    7,
+                    8,
+                ))[0],
+                3
+            );
+            assert_eq!(
+                bytes(&ViewRef::Arc {
+                    parent: 7,
+                    child: 8,
+                }),
+                [
+                    vec![4],
+                    7_u32.to_le_bytes().to_vec(),
+                    8_u32.to_le_bytes().to_vec()
+                ]
+                .concat()
+            );
+        }
+
+        fn tree_input(tree: Tree) -> ValidationInput {
+            ValidationInput::Tree {
+                schema: Schema::default(),
+                semantics: BTreeMap::new(),
+                instance: tree,
+            }
+        }
+
+        fn two_arc_tree() -> Tree {
+            Tree {
+                nodes: [
+                    (0, Node::new(0, "v")),
+                    (1, Node::new(1, "v")),
+                    (2, Node::new(2, "v")),
+                ]
+                .into(),
+                arcs: vec![
+                    (0, 1, SEdge::new("v", "v", "child", Some("a"))),
+                    (0, 2, SEdge::new("v", "v", "child", Some("b"))),
+                ],
+                fans: Vec::new(),
+                root: 0,
+            }
+        }
+
+        #[test]
+        fn changed_tree_slots_name_old_and_new_native_arcs() {
+            let prior = two_arc_tree();
+
+            let mut relabelled = prior.clone();
+            relabelled.arcs[0].2.name = Some("changed".to_owned());
+            assert_eq!(
+                changed_refs(&tree_input(prior.clone()), &tree_input(relabelled)),
+                Some(vec![ViewRef::Arc {
+                    parent: 0,
+                    child: 1,
+                }])
+            );
+
+            let mut reconnected = prior.clone();
+            reconnected.arcs[0].0 = 2;
+            assert_eq!(
+                changed_refs(&tree_input(prior.clone()), &tree_input(reconnected)),
+                Some(vec![
+                    ViewRef::Arc {
+                        parent: 0,
+                        child: 1,
+                    },
+                    ViewRef::Arc {
+                        parent: 2,
+                        child: 1,
+                    },
+                ])
+            );
+
+            let mut reordered = prior.clone();
+            reordered.arcs.swap(0, 1);
+            assert_eq!(
+                changed_refs(&tree_input(prior), &tree_input(reordered)),
+                Some(vec![
+                    ViewRef::Arc {
+                        parent: 0,
+                        child: 1,
+                    },
+                    ViewRef::Arc {
+                        parent: 0,
+                        child: 2,
+                    },
+                ])
+            );
+        }
+
+        #[test]
+        fn nested_tree_violation_refs_preserve_physical_arc_multiplicity() {
+            let arcs = BTreeMap::from([(0, (0, 1)), (1, (0, 1))]);
+            assert_eq!(
+                tree_violation(
+                    &Violation::OutDegree(
+                        None,
+                        None,
+                        None,
+                        2,
+                        vec![ViewRef::Edge(0), ViewRef::Edge(1), ViewRef::Edge(2)],
+                    ),
+                    &arcs,
+                ),
+                Violation::OutDegree(
+                    None,
+                    None,
+                    None,
+                    2,
+                    vec![
+                        ViewRef::Arc {
+                            parent: 0,
+                            child: 1,
+                        },
+                        ViewRef::Arc {
+                            parent: 0,
+                            child: 1,
+                        },
+                        ViewRef::Edge(2),
+                    ],
+                )
+            );
+        }
+
+        #[test]
+        fn duplicate_endpoint_identity_uses_the_first_physical_arc() {
+            let label = SEdge::new("v", "v", "child", None);
+            let tree = Tree {
+                nodes: [(0, Node::new(0, "v")), (1, Node::new(1, "v"))].into(),
+                arcs: vec![(0, 1, label.clone()), (0, 1, label)],
+                fans: Vec::new(),
+                root: 0,
+            };
+            let identity = tree_identity(&tree, &TreeEmbedding::default());
+            assert_eq!(
+                identity.get(&ViewRef::Arc {
+                    parent: 0,
+                    child: 1,
+                }),
+                Some(&NativeRef::TreeArc(0))
+            );
+            assert_eq!(
+                identity
+                    .iter()
+                    .filter(|(reference, _)| matches!(reference, ViewRef::Arc { .. }))
+                    .map(|(reference, _)| reference.clone())
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([ViewRef::Arc {
+                    parent: 0,
+                    child: 1,
+                }])
+            );
         }
     }
 
@@ -2649,6 +2879,7 @@ pub mod implementation {
             schema,
             sem,
             graph,
+            shape,
             &mut diagnostics,
             &mut incomplete,
             context,
@@ -2803,11 +3034,73 @@ pub mod implementation {
                         NativeRef::TablePair(Box::new(label.clone()), *source, *target),
                     )
                 }),
-                ViewRef::Row(_) | ViewRef::Pair(_, _, _) => None,
+                ViewRef::Row(_) | ViewRef::Pair(_, _, _) | ViewRef::Arc { .. } => None,
             })
             .collect();
         let mut native = finish_report(report.shape, report.diagnostics, report.incomplete);
         native.identity = identity;
+        native
+    }
+
+    fn tree_ref(reference: &ViewRef, arcs: &BTreeMap<u32, (u32, u32)>) -> ViewRef {
+        match reference {
+            ViewRef::Edge(edge) => arcs.get(edge).map_or_else(
+                || ViewRef::Edge(*edge),
+                |(parent, child)| ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                },
+            ),
+            other => other.clone(),
+        }
+    }
+
+    fn tree_violation(violation: &Violation, arcs: &BTreeMap<u32, (u32, u32)>) -> Violation {
+        let refs = |items: &[ViewRef]| items.iter().map(|item| tree_ref(item, arcs)).collect();
+        match violation {
+            Violation::OutDegree(edge, min, max, found, items) => {
+                Violation::OutDegree(edge.clone(), *min, *max, *found, refs(items))
+            }
+            Violation::KeyOrder(key, items) => Violation::KeyOrder(key.clone(), refs(items)),
+            Violation::AmbiguousReference(reference, key, candidates) => {
+                Violation::AmbiguousReference(reference.clone(), key.clone(), refs(candidates))
+            }
+            Violation::Cycle(items) => Violation::Cycle(refs(items)),
+            other => other.clone(),
+        }
+    }
+
+    fn tree_report(mut report: Report, tree: &Tree, embedding: &TreeEmbedding) -> Report {
+        let arcs: BTreeMap<_, _> = tree
+            .arcs
+            .iter()
+            .enumerate()
+            .map(|(index, (parent, child, _))| {
+                (u32::try_from(index).unwrap_or(u32::MAX), (*parent, *child))
+            })
+            .collect();
+        for diagnostic in &mut report.diagnostics {
+            diagnostic.subject = diagnostic
+                .subject
+                .as_ref()
+                .map(|subject| tree_ref(subject, &arcs));
+            diagnostic.elements = diagnostic
+                .elements
+                .iter()
+                .map(|element| tree_ref(element, &arcs))
+                .collect();
+            diagnostic.elements.sort();
+            diagnostic.elements.dedup();
+            diagnostic.violation = tree_violation(&diagnostic.violation, &arcs);
+        }
+        for incomplete in &mut report.incomplete {
+            incomplete.subject = incomplete
+                .subject
+                .as_ref()
+                .map(|subject| tree_ref(subject, &arcs));
+        }
+        let mut native = finish_report(report.shape, report.diagnostics, report.incomplete);
+        native.identity = tree_identity(tree, embedding);
         native
     }
 
@@ -2874,11 +3167,15 @@ pub mod implementation {
         for (parent, child, label) in &tree.arcs {
             children.entry(*parent).or_default().push(*child);
             if is_fan_kind(&label.kind) {
+                let arc = ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                };
                 diagnostics.push(diag(
                     CheckKind::ReservedVocabulary,
                     SchemaRef::Edge(label.clone()),
-                    Some(ViewRef::Node(*parent)),
-                    vec![ViewRef::Node(*parent), ViewRef::Node(*child)],
+                    Some(arc.clone()),
+                    vec![arc],
                     Violation::ReservedVocabulary,
                 ));
             }
@@ -3075,12 +3372,14 @@ pub mod implementation {
             .keys()
             .map(|node| (ViewRef::Node(*node), NativeRef::TreeNode(*node)))
             .collect();
-        identity.extend(tree.arcs.iter().enumerate().map(|(index, _)| {
-            (
-                ViewRef::Edge(u32::try_from(index).unwrap_or(u32::MAX)),
-                NativeRef::TreeArc(index),
-            )
-        }));
+        for (index, (parent, child, _)) in tree.arcs.iter().enumerate() {
+            identity
+                .entry(ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                })
+                .or_insert(NativeRef::TreeArc(index));
+        }
         for (index, (node, parent, children)) in embedding.fans.iter().enumerate() {
             identity.insert(ViewRef::Node(*node), NativeRef::TreeFan(index));
             identity.insert(ViewRef::Edge(*parent), NativeRef::TreeFanParent(index));
@@ -3137,10 +3436,7 @@ pub mod implementation {
                     validate_graph_as(schema, sem, &graph, InstanceShape::Tree, context);
                 report.diagnostics.extend(tree_diagnostics);
                 report.incomplete.extend(tree_incomplete);
-                let mut native =
-                    finish_report(InstanceShape::Tree, report.diagnostics, report.incomplete);
-                native.identity = tree_identity(tree, &embedding);
-                Ok(native)
+                Ok(tree_report(report, tree, &embedding))
             }
             Err(error) => Err(ShapeRefusal::Tree(error)),
         }
@@ -3724,11 +4020,12 @@ pub mod implementation {
             ValidationInput::Tree { instance, .. } => instance
                 .arcs
                 .iter()
-                .enumerate()
-                .filter(|(_, (_, _, edge))| !is_fan_kind(&edge.kind))
-                .map(|(index, (parent, child, edge))| {
+                .map(|(parent, child, edge)| {
                     (
-                        ViewRef::Edge(u32::try_from(index).unwrap_or(u32::MAX)),
+                        ViewRef::Arc {
+                            parent: *parent,
+                            child: *child,
+                        },
                         edge.clone(),
                         ViewRef::Node(*parent),
                         ViewRef::Node(*child),
@@ -3761,8 +4058,18 @@ pub mod implementation {
                         .edges
                         .into_iter()
                         .map(|(id, edge)| {
+                            let subject = usize::try_from(id)
+                                .ok()
+                                .and_then(|index| instance.arcs.get(index))
+                                .map_or_else(
+                                    || ViewRef::Edge(id),
+                                    |(parent, child, _)| ViewRef::Arc {
+                                        parent: *parent,
+                                        child: *child,
+                                    },
+                                );
                             (
-                                ViewRef::Edge(id),
+                                subject,
                                 edge.label,
                                 ViewRef::Node(edge.src),
                                 ViewRef::Node(edge.tgt),
@@ -3853,9 +4160,11 @@ pub mod implementation {
             instance
                 .arcs
                 .iter()
-                .enumerate()
-                .filter(|(_, (_, child, _))| *child == *subject_id)
-                .map(|(index, _)| ViewRef::Edge(u32::try_from(index).unwrap_or(u32::MAX))),
+                .filter(|(_, child, _)| *child == *subject_id)
+                .map(|(parent, child, _)| ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                }),
         );
         reads
     }
@@ -3871,11 +4180,14 @@ pub mod implementation {
         let mut frontier = vec![*subject_id];
         let mut visited = BTreeSet::from([*subject_id]);
         while let Some(child) = frontier.pop() {
-            for (index, (parent, found_child, _)) in instance.arcs.iter().enumerate() {
+            for (parent, found_child, _) in &instance.arcs {
                 if *found_child != child {
                     continue;
                 }
-                reads.push(ViewRef::Edge(u32::try_from(index).unwrap_or(u32::MAX)));
+                reads.push(ViewRef::Arc {
+                    parent: *parent,
+                    child: *found_child,
+                });
                 reads.push(ViewRef::Node(*parent));
                 if visited.insert(*parent) {
                     frontier.push(*parent);
@@ -4086,8 +4398,11 @@ pub mod implementation {
             );
         }
         if let ValidationInput::Tree { instance, .. } = input {
-            for (index, (parent, child, edge)) in instance.arcs.iter().enumerate() {
-                let subject = ViewRef::Node(*parent);
+            for (parent, child, edge) in &instance.arcs {
+                let subject = ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                };
                 insert_plan_run(
                     runs,
                     CheckKey {
@@ -4096,11 +4411,7 @@ pub mod implementation {
                     },
                     Some(subject.clone()),
                     Requirement::Required,
-                    vec![
-                        subject,
-                        ViewRef::Node(*child),
-                        ViewRef::Edge(u32::try_from(index).unwrap_or(u32::MAX)),
-                    ],
+                    vec![subject],
                 );
             }
         }
@@ -4112,7 +4423,10 @@ pub mod implementation {
         runs: &mut BTreeMap<CheckInstance, CheckRun>,
     ) {
         if let Some(graph) = planning_graph(input) {
-            for id in fan_candidates(&graph) {
+            for id in fan_candidates(&graph)
+                .into_iter()
+                .filter(|node| is_presentation_fan_node(input.shape(), &graph, *node))
+            {
                 let subject = match input {
                     ValidationInput::Table { .. } => ViewRef::Row(id),
                     ValidationInput::Graph { .. } | ValidationInput::Tree { .. } => {
@@ -4203,7 +4517,7 @@ pub mod implementation {
     const fn subject_id(subject: &ViewRef) -> Option<u32> {
         match subject {
             ViewRef::Node(id) | ViewRef::Row(id) => Some(*id),
-            ViewRef::Edge(_) | ViewRef::Pair(_, _, _) => None,
+            ViewRef::Edge(_) | ViewRef::Pair(_, _, _) | ViewRef::Arc { .. } => None,
         }
     }
 
@@ -5043,7 +5357,15 @@ pub mod implementation {
                 let arc_count = left.arcs.len().max(right.arcs.len());
                 for index in 0..arc_count {
                     if left.arcs.get(index) != right.arcs.get(index) {
-                        changed.insert(ViewRef::Edge(u32::try_from(index).ok()?));
+                        for (parent, child, _) in [left.arcs.get(index), right.arcs.get(index)]
+                            .into_iter()
+                            .flatten()
+                        {
+                            changed.insert(ViewRef::Arc {
+                                parent: *parent,
+                                child: *child,
+                            });
+                        }
                     }
                 }
                 let fan_count = left.fans.len().max(right.fans.len());

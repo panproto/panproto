@@ -1054,7 +1054,9 @@ fn structural_column_output(source: &str, fates: &[CellFate]) -> Option<String> 
 
 /// Every reason `view` lies outside the table put domain.
 ///
-/// Reports are sorted by variant, table element and rendered detail.
+/// Reports are sorted by variant and table element. Duplicate keys at one
+/// element are ordered by table and canonical key; missing cells at one
+/// element are ordered by field. Other ties retain discovery order.
 /// The domain is the run-time-checked constraint domain of
 /// `trankatohu2020programmable`, and a total source-view put domain with strong
 /// `PutGet` is the domain of `kohu2018axiomatic`, Definition 3.2 and Theorems 2.2
@@ -2158,63 +2160,7 @@ fn first_put_error(mut errors: Vec<PutDomainError>) -> LensError {
 }
 
 fn sort_violations(found: &mut Vec<PutDomainError>) {
-    found.sort_by(|a, b| {
-        a.variant_index()
-            .cmp(&b.variant_index())
-            .then_with(|| violation_ref(a).cmp(&violation_ref(b)))
-            .then_with(|| violation_detail_cmp(a, b))
-    });
-    found.dedup();
-}
-
-fn violation_detail_cmp(left: &PutDomainError, right: &PutDomainError) -> std::cmp::Ordering {
-    match (left, right) {
-        (
-            PutDomainError::DuplicateKey {
-                table: left_table,
-                key: left_key,
-                ..
-            },
-            PutDomainError::DuplicateKey {
-                table: right_table,
-                key: right_key,
-                ..
-            },
-        ) => left_table
-            .cmp(right_table)
-            .then_with(|| canonical_key_cmp(left_key, right_key)),
-        _ => left.to_string().cmp(&right.to_string()),
-    }
-}
-
-fn canonical_key_cmp(left: &[(String, Value)], right: &[(String, Value)]) -> std::cmp::Ordering {
-    left.iter()
-        .zip(right)
-        .find_map(|((left_name, left_value), (right_name, right_value))| {
-            let ordering = left_name
-                .cmp(right_name)
-                .then_with(|| left_value.canonical_cmp(right_value));
-            ordering.is_ne().then_some(ordering)
-        })
-        .unwrap_or_else(|| left.len().cmp(&right.len()))
-}
-
-fn violation_ref(error: &PutDomainError) -> Option<ViewRef> {
-    match error {
-        PutDomainError::IdCollision { elem }
-        | PutDomainError::SynthesizedEdited { elem }
-        | PutDomainError::ContractedEdgeInserted { elem }
-        | PutDomainError::UnrepresentableViewEdge { elem }
-        | PutDomainError::AmbiguousReverseAnchor { elem, .. }
-        | PutDomainError::SurvivalPredicateFails { elem }
-        | PutDomainError::DerivedCellEdited { elem, .. }
-        | PutDomainError::TransformNotInvertible { elem, .. }
-        | PutDomainError::MissingRequiredCell { elem, .. }
-        | PutDomainError::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
-        PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
-        PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
-        PutDomainError::PlanCompilation { .. } => None,
-    }
+    PutDomainError::sort_report(found);
 }
 
 fn merge_map<K, V, F>(

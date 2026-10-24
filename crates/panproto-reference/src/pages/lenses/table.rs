@@ -1240,8 +1240,7 @@ impl TableLens<'_> {
         if has_every_view_row && !predicate_refused {
             errs.extend(self.forward_violations(view, c, &out)?);
         }
-        errs.sort_by(PutDomainError::report_cmp);
-        errs.dedup();
+        PutDomainError::sort_report(&mut errs);
         let unresolved_collations = self.candidate_named_collations(view, c);
         Ok(TableRestoration {
             source: out,
@@ -1382,8 +1381,7 @@ impl TableLens<'_> {
         ));
         let graph_lens_errs = key_violations(self.src, &g, view);
         errs.extend(graph_lens_errs);
-        errs.sort_by(PutDomainError::report_cmp);
-        errs.dedup();
+        PutDomainError::sort_report(&mut errs);
         Ok(errs)
     }
 
