@@ -1,0 +1,835 @@
+# Sharded cargo-mutants campaign for one frozen lane commit.
+#
+# This workflow runs only on a push to a `mutants/**` branch. Such a branch is
+# the lane commit plus one commit that adds exactly this file and
+# `.github/mutants-campaign.json`; every job checks that before it does
+# anything else. The campaign file names the lane commit, the package, the
+# explicit `--file` scope of each test group, the test-binary selection of each
+# group, the shard count, the timeout policy and the environment.
+#
+# Execution is cargo-mutants copied-tree mode with exactly
+# `--copy-vcs=false --gitignore=false --jobs 1`; no job passes `--in-place`,
+# any `--copy-target*` option or `--in-diff`. Each shard runs its own baseline,
+# so its test timeout is derived from that baseline. Each job hashes every
+# tracked file before and after its cargo work and requires both the checkout
+# and those bytes to match the lane commit. Closure is computed from the raw
+# `outcomes.json` files: zero missed, zero timeouts, every planned mutant
+# tested exactly once, and compiler diagnostics retained for every unviable.
+#
+# Every test process runs through a target runner that caps its data limit
+# (RLIMIT_DATA: heap and private writable mappings) at the campaign's
+# `test_memory_limit_mib` (default and maximum 3584, so that four parallel
+# test processes stay inside a 16 GB runner). A mutant that allocates without
+# bound then fails its test with an allocation failure instead of exhausting
+# the runner, which would lose the whole shard. Mutant test runs pass
+# `--max-fail=1:immediate`: the first failing test ends the run and
+# terminates the tests still running, so a mutant that one test kills is
+# caught even when it also makes another, concurrently running test hang.
+#
+# The campaign may name `priority_binaries`: test targets of the package whose
+# tests nextest schedules before every other test (priority 100). The harness
+# generates that nextest configuration from the campaign alone, passes it as a
+# tool config (`--tool-config-file panproto-mutants:<path>`, below the
+# candidate's own `.config/nextest.toml`, which stays in force and unedited),
+# and records its SHA-256 in the plan, in every shard and in the aggregate,
+# which requires all of them to agree. The plan job checks, with one test
+# thread, that the priority tests of each group start before any other test.
+# A deadline-guarded binary run first then fails fast under a mutant that
+# makes some unguarded test of the group endless, and `--max-fail=1:immediate`
+# ends the run there instead of at the mutant timeout.
+
+name: Mutants
+
+on:
+  push:
+    branches:
+      - "mutants/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CAMPAIGN_FILE: .github/mutants-campaign.json
+  CARGO_TERM_COLOR: never
+  # Checks that HEAD is the lane commit plus one commit adding exactly the two
+  # harness files, and that the checked-out bytes equal the lane commit's.
+  VERIFY_IDENTITY: |
+    set -euo pipefail
+    lane="$(jq -er '.lane_commit' "$CAMPAIGN_FILE")"
+    [[ "$lane" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::lane_commit must be a full SHA"; exit 1; }
+    head="$(git rev-parse 'HEAD^{commit}')"
+    parents="$(git rev-list --parents -n 1 HEAD | wc -w)"
+    [ "$parents" -eq 2 ] || { echo "::error::harness commit must have exactly one parent"; exit 1; }
+    [ "$(git rev-parse 'HEAD^')" = "$lane" ] || { echo "::error::HEAD^ is not the lane commit"; exit 1; }
+    short="${lane:0:8}"
+    case "$GITHUB_REF_NAME" in
+      mutants/*-"$short") ;;
+      *) echo "::error::branch name must end in -$short"; exit 1 ;;
+    esac
+    echo "lane commit:   $lane"
+    echo "lane tree:     $(git rev-parse "$lane^{tree}")"
+    echo "harness head:  $head"
+    echo "git diff --stat lane HEAD:"
+    git diff --stat "$lane" HEAD
+    changed="$(git diff --name-only "$lane" HEAD | LC_ALL=C sort)"
+    expected="$(printf '%s\n' .github/mutants-campaign.json .github/workflows/mutants.yml | LC_ALL=C sort)"
+    [ "$changed" = "$expected" ] || { echo "::error::harness commit touches paths other than the two harness files"; exit 1; }
+    lane_crates="$(git rev-parse "$lane:crates")"
+    head_crates="$(git rev-parse "HEAD:crates")"
+    echo "crates/ tree:  lane $lane_crates, head $head_crates"
+    [ "$lane_crates" = "$head_crates" ] || { echo "::error::crates/ tree differs from the lane commit"; exit 1; }
+    git diff --exit-code --stat "$lane" -- . \
+      ':(exclude).github/mutants-campaign.json' ':(exclude).github/workflows/mutants.yml' \
+      || { echo "::error::checked-out bytes differ from the lane commit"; exit 1; }
+    status="$(git status --porcelain=v1 --untracked-files=all)"
+    [ -z "$status" ] || { echo "::error::checkout is not clean"; echo "$status"; exit 1; }
+    echo "identity verified"
+  # Installs the per-test memory cap as the cargo target runner, checks that
+  # it holds, and records it in $1/memcap.txt.
+  INSTALL_MEMCAP: |
+    set -euo pipefail
+    out="$1"
+    mkdir -p "$out"
+    limit="$(jq -er '.test_memory_limit_mib // 3584' "$CAMPAIGN_FILE")"
+    if ! [[ "$limit" =~ ^[0-9]+$ ]] || [ "$limit" -lt 512 ] || [ "$limit" -gt 3584 ]; then
+      echo "::error::test_memory_limit_mib must be an integer in [512, 3584]"; exit 1
+    fi
+    runner="$RUNNER_TEMP/memcap-runner"
+    printf '%s\n' '#!/usr/bin/env bash' \
+      '# Run one test process with RLIMIT_DATA capped, so that a mutant that' \
+      '# allocates without bound fails its test instead of exhausting the runner.' \
+      "ulimit -d $((limit * 1024)) || exit 126" \
+      'exec "$@"' > "$runner"
+    chmod +x "$runner"
+    triple="$(rustc -vV | sed -n 's/^host: //p')"
+    var="CARGO_TARGET_$(printf '%s' "$triple" | tr '[:lower:]-' '[:upper:]_')_RUNNER"
+    "$runner" python3 -c 'bytearray(64 << 20)'
+    if "$runner" python3 -c "bytearray(($limit + 256) << 20)" 2>/dev/null; then
+      echo "::error::the per-test memory cap does not hold"; exit 1
+    fi
+    echo "$var=$runner" >> "$GITHUB_ENV"
+    {
+      echo "runner_variable=$var"
+      echo "limit_mib=$limit"
+      echo "rlimit_data_kib=$("$runner" bash -c 'ulimit -d')"
+      echo "self_test=64 MiB allocated; $((limit + 256)) MiB refused"
+      cat "$runner"
+    } | tee "$out/memcap.txt"
+  # Generates the harness nextest tool config from the campaign's
+  # `priority_binaries`, records it and its SHA-256 in $1, and exports
+  # MUTANTS_NEXTEST_TOOL_CONFIG (empty when the campaign names none).
+  INSTALL_PRIORITY: |
+    set -euo pipefail
+    out="$1"
+    mkdir -p "$out"
+    package="$(jq -er '.package' "$CAMPAIGN_FILE")"
+    [[ "$package" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "::error::invalid package name"; exit 1; }
+    kind="$(jq -r '.priority_binaries | type' "$CAMPAIGN_FILE")"
+    if [ "$kind" = "null" ]; then
+      echo "MUTANTS_NEXTEST_TOOL_CONFIG=" >> "$GITHUB_ENV"
+      echo "none" | tee "$out/nextest-tool-config.sha256"
+      exit 0
+    fi
+    [ "$kind" = "array" ] || { echo "::error::priority_binaries must be an array"; exit 1; }
+    bins=()
+    while IFS= read -r bin; do bins+=("$bin"); done < <(jq -r '.priority_binaries[]' "$CAMPAIGN_FILE")
+    [ "${#bins[@]}" -ge 1 ] || { echo "::error::priority_binaries must not be empty"; exit 1; }
+    [ "$(printf '%s\n' "${bins[@]}" | LC_ALL=C sort -u | wc -l)" -eq "${#bins[@]}" ] \
+      || { echo "::error::priority_binaries has duplicates"; exit 1; }
+    targets="$(cargo metadata --no-deps --format-version 1 --offline 2>/dev/null || cargo metadata --no-deps --format-version 1)"
+    terms=()
+    for bin in "${bins[@]}"; do
+      [[ "$bin" =~ ^[a-z0-9_]+$ ]] || { echo "::error::invalid priority binary $bin"; exit 1; }
+      jq -e --arg p "$package" --arg b "$bin" \
+        '[.packages[] | select(.name == $p) | .targets[] | select(.name == $b and (.kind | index("test")))] | length == 1' \
+        <<<"$targets" >/dev/null || { echo "::error::$bin is not a test target of $package"; exit 1; }
+      terms+=("binary_id(=$package::$bin)")
+    done
+    filter="package(=$package) & ($(printf '%s | ' "${terms[@]}" | sed 's/ | $//'))"
+    config="$RUNNER_TEMP/nextest-tool-config.toml"
+    printf '%s\n' \
+      '# Generated by the mutants harness from the campaign'"'"'s priority_binaries.' \
+      '# Layered below the candidate'"'"'s .config/nextest.toml as a tool config.' \
+      '[[profile.default.overrides]]' \
+      "filter = '$filter'" \
+      'priority = 100' > "$config"
+    cp "$config" "$out/nextest-tool-config.toml"
+    sha256sum "$config" | cut -d' ' -f1 | tee "$out/nextest-tool-config.sha256"
+    cat "$config"
+    echo "MUTANTS_NEXTEST_TOOL_CONFIG=panproto-mutants:$config" >> "$GITHUB_ENV"
+  # Writes a SHA-256 manifest of every tracked file's working-tree bytes to $1.
+  SNAPSHOT: |
+    set -euo pipefail
+    git ls-files -z | LC_ALL=C sort -z | xargs -0 sha256sum > "$1"
+    printf 'files=%s manifest_sha256=%s\n' "$(wc -l < "$1")" "$(sha256sum "$1" | cut -d' ' -f1)"
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  plan:
+    name: Plan, inventory and baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      tools_key: ${{ steps.config.outputs.tools_key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify branch identity
+        run: bash -c "$VERIFY_IDENTITY"
+      - name: Read campaign configuration
+        id: config
+        run: |
+          jq . "$CAMPAIGN_FILE"
+          toolchain="$(jq -er '.toolchain' "$CAMPAIGN_FILE")"
+          mutants="$(jq -er '.cargo_mutants_version' "$CAMPAIGN_FILE")"
+          nextest="$(jq -er '.cargo_nextest_version' "$CAMPAIGN_FILE")"
+          echo "tools_key=mutants-tools-${RUNNER_OS}-rust-${toolchain}-cm-${mutants}-nx-${nextest}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned toolchain
+        run: |
+          toolchain="$(jq -er '.toolchain' "$CAMPAIGN_FILE")"
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+      - name: Restore pinned cargo tools
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.mutants-tools
+          key: ${{ steps.config.outputs.tools_key }}
+      - name: Install pinned cargo tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --root ~/.mutants-tools "cargo-mutants@$(jq -er '.cargo_mutants_version' "$CAMPAIGN_FILE")"
+          cargo install --locked --root ~/.mutants-tools "cargo-nextest@$(jq -er '.cargo_nextest_version' "$CAMPAIGN_FILE")"
+      - name: Export environment
+        run: |
+          echo "$HOME/.mutants-tools/bin" >> "$GITHUB_PATH"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/target" >> "$GITHUB_ENV"
+          jq -er '.env | to_entries[] | "\(.key)=\(.value)"' "$CAMPAIGN_FILE" | while IFS= read -r line; do
+            [[ "$line" =~ ^[A-Z_][A-Z0-9_]*=[^[:cntrl:]]*$ ]] || { echo "::error::invalid env entry"; exit 1; }
+            echo "$line" >> "$GITHUB_ENV"
+          done
+      - name: Install the per-test memory cap
+        run: bash -c "$INSTALL_MEMCAP" _ "$RUNNER_TEMP/plan"
+      - name: Generate the nextest priority configuration
+        run: bash -c "$INSTALL_PRIORITY" _ "$RUNNER_TEMP/plan"
+      - name: Record tool versions
+        run: |
+          mkdir -p "$RUNNER_TEMP/plan"
+          {
+            rustc -vV
+            cargo -V
+            cargo mutants --version
+            cargo nextest --version | head -n 1
+          } | tee "$RUNNER_TEMP/plan/versions.txt"
+          [ "$(cargo mutants --version)" = "cargo-mutants $(jq -er '.cargo_mutants_version' "$CAMPAIGN_FILE")" ]
+          df -h / | tee "$RUNNER_TEMP/plan/df-start.txt"
+      - name: Pre-run byte authority
+        run: bash -c "$SNAPSHOT" _ "$RUNNER_TEMP/plan/authority-pre.sha256"
+      - name: Validate campaign and build the mutant inventory
+        id: plan
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, subprocess, sys, tomllib
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "plan"
+
+          def fail(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          cfg = json.loads(pathlib.Path(os.environ["CAMPAIGN_FILE"]).read_text())
+          if cfg.get("schema_version") != 1:
+              fail("campaign schema_version must be 1")
+          if cfg.get("test_tool") != "nextest":
+              fail("test_tool must be nextest")
+          shards = cfg["shards"]
+          if not isinstance(shards, int) or not 1 <= shards <= 256:
+              fail("shards must be an integer in [1, 256]")
+          if cfg["sharding"] not in ("round-robin", "slice"):
+              fail("sharding must be round-robin or slice")
+          timeouts = cfg["timeouts"]
+          if timeouts.get("policy") != "baseline":
+              fail("timeout policy must be baseline-derived")
+          for key in ("timeout_multiplier", "build_timeout_multiplier", "minimum_test_timeout"):
+              if not isinstance(timeouts.get(key), (int, float)) or timeouts[key] <= 0:
+                  fail(f"timeouts.{key} must be positive")
+
+          forbidden = ("--in-place", "--copy-target", "--in-diff", "--copy-vcs", "--gitignore",
+                       "--jobs", "-j", "--shard", "--sharding", "--output", "-o", "--baseline",
+                       "--timeout", "--file", "-f", "--re", "--exclude", "--examine", "--package", "-p",
+                       "--max-fail", "--fail-fast", "--no-fail-fast", "--ff", "--nff",
+                       "--config-file", "--tool-config-file", "--user-config-file")
+          def check_passthrough(group, key):
+              for token in group.get(key, []):
+                  if not isinstance(token, str) or not token.startswith("-"):
+                      fail(f"{group['name']}.{key}: {token!r} is not an option")
+                  stem = token.split("=", 1)[0]
+                  if stem in forbidden or any(stem.startswith(f) for f in ("--in-place", "--copy-target", "--in-diff")):
+                      fail(f"{group['name']}.{key}: {token!r} is reserved to the harness")
+
+          config_path = pathlib.Path(".cargo/mutants.toml")
+          config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
+          if config.get("exclude_re", []) != cfg["allowed_exclude_re"]:
+              fail(".cargo/mutants.toml exclude_re differs from the campaign's allowed non-semantic list")
+          for key in ("examine_re", "examine_globs", "in_place", "copy_target"):
+              if key in config:
+                  fail(f".cargo/mutants.toml sets {key}, which the harness does not allow")
+
+          package = cfg["package"]
+          names_seen, files_seen = set(), set()
+          for group in cfg["groups"]:
+              name = group["name"]
+              if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name) or name in names_seen:
+                  fail(f"invalid or duplicate group name {name!r}")
+              names_seen.add(name)
+              if not group["files"]:
+                  fail(f"{name}: empty --file scope")
+              for path in group["files"]:
+                  if path in files_seen:
+                      fail(f"{path} appears in two groups")
+                  files_seen.add(path)
+                  if not re.fullmatch(r"crates/[A-Za-z0-9_./-]+\.rs", path) or ".." in path or not pathlib.Path(path).is_file():
+                      fail(f"{name}: {path} is not a tracked Rust source file")
+              check_passthrough(group, "cargo_args")
+              check_passthrough(group, "test_args")
+
+          features = cfg.get("features", [])
+          def base_argv(group):
+              argv = ["cargo", "mutants", "--package", package]
+              for path in group["files"]:
+                  argv += ["--file", path]
+              if features:
+                  argv.append("--features=" + ",".join(features))
+              return argv
+
+          def listing(argv):
+              result = subprocess.run(argv + ["--list", "--json"], check=True, capture_output=True, text=True)
+              return json.loads(result.stdout)
+
+          plan = {"campaign": cfg["campaign"], "lane_commit": cfg["lane_commit"], "shards": shards,
+                  "sharding": cfg["sharding"], "groups": {}}
+          for group in cfg["groups"]:
+              records = listing(base_argv(group))
+              names = [record["name"] for record in records]
+              if len(names) != len(set(names)):
+                  fail(f"{group['name']}: duplicate mutant names")
+              per_file = {path: 0 for path in group["files"]}
+              for record in records:
+                  if record["file"] not in per_file:
+                      fail(f"{group['name']}: mutant outside the --file scope: {record['name']}")
+                  per_file[record["file"]] += 1
+              empty = [path for path, count in per_file.items() if count == 0]
+              if empty:
+                  fail(f"{group['name']}: scope files yield no mutants: {empty}")
+              by_shard, covered = {}, []
+              for k in range(shards):
+                  part = [r["name"] for r in listing(base_argv(group) + ["--shard", f"{k}/{shards}", "--sharding", cfg["sharding"]])]
+                  by_shard[str(k)] = part
+                  covered += part
+              if sorted(covered) != sorted(names) or len(covered) != len(set(covered)):
+                  fail(f"{group['name']}: shard listings do not partition the inventory")
+              plan["groups"][group["name"]] = {
+                  "files": group["files"], "per_file": per_file, "total": len(names),
+                  "names": names, "shards": by_shard,
+              }
+              (out / f"inventory-{group['name']}.json").write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+              print(f"{group['name']}: {len(names)} mutants; per file {per_file}; per shard "
+                    f"{[len(by_shard[str(k)]) for k in range(shards)]}")
+          (out / "plan.json").write_text(json.dumps(plan, indent=1, sort_keys=True) + "\n")
+          active = [k for k in range(shards) if any(g["shards"][str(k)] for g in plan["groups"].values())]
+          total = sum(g["total"] for g in plan["groups"].values())
+          print(f"total mutants: {total}; active shards: {len(active)} of {shards}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+              handle.write("matrix=" + json.dumps({"shard": active}) + "\n")
+          PY
+      - name: Baseline per group
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, sys, time
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "plan"
+          cfg = json.loads(pathlib.Path(os.environ["CAMPAIGN_FILE"]).read_text())
+          timeouts = cfg["timeouts"]
+          features = cfg.get("features", [])
+          tool_config = os.environ.get("MUTANTS_NEXTEST_TOOL_CONFIG", "")
+          tool_args = [f"--tool-config-file={tool_config}"] if tool_config else []
+          if bool(tool_config) != ("priority_binaries" in cfg):
+              print("::error::the nextest tool config does not match the campaign's priority_binaries")
+              sys.exit(1)
+          results = {}
+          for group in cfg["groups"]:
+              common = ["--package", cfg["package"], *group.get("cargo_args", [])]
+              if features:
+                  common.append("--features=" + ",".join(features))
+              build = ["cargo", "nextest", "run", "--no-run", *common]
+              test = ["cargo", "nextest", "run", *common, *group.get("test_args", []), *tool_args,
+                      "--no-tests=fail", "--no-fail-fast"]
+              start = time.monotonic()
+              subprocess.run(build, check=True)
+              build_seconds = time.monotonic() - start
+              start = time.monotonic()
+              log = out / f"baseline-{group['name']}.log"
+              with log.open("w") as handle:
+                  status = subprocess.run(test, stdout=handle, stderr=subprocess.STDOUT).returncode
+              test_seconds = time.monotonic() - start
+              print(log.read_text()[-4000:])
+              if status != 0:
+                  print(f"::error::baseline tests fail for group {group['name']} (exit {status})")
+                  sys.exit(1)
+              derived = max(timeouts["minimum_test_timeout"], timeouts["timeout_multiplier"] * test_seconds)
+              results[group["name"]] = {
+                  "build_argv": build, "test_argv": test, "build_seconds": round(build_seconds, 3),
+                  "test_seconds": round(test_seconds, 3), "derived_test_timeout_seconds": round(derived, 3),
+              }
+              print(f"{group['name']}: build {build_seconds:.1f}s, tests {test_seconds:.1f}s, "
+                    f"derived test timeout {derived:.1f}s")
+          (out / "baseline.json").write_text(json.dumps(results, indent=1, sort_keys=True) + "\n")
+          PY
+      - name: Check the priority order per group
+        if: env.MUTANTS_NEXTEST_TOOL_CONFIG != ''
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, subprocess, sys
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "plan"
+          cfg = json.loads(pathlib.Path(os.environ["CAMPAIGN_FILE"]).read_text())
+          tool = ["--tool-config-file=" + os.environ["MUTANTS_NEXTEST_TOOL_CONFIG"]]
+          priority = {f"{cfg['package']}::{b}" for b in cfg["priority_binaries"]}
+          features = cfg.get("features", [])
+          start = re.compile(r"^\s*START \[[^\]]*\] \(\s*\d+/\s*\d+\) (\S+) (\S+)\s*$")
+          report = {}
+          for group in cfg["groups"]:
+              common = ["--package", cfg["package"], *group.get("cargo_args", [])]
+              if features:
+                  common.append("--features=" + ",".join(features))
+              listed = json.loads(subprocess.run(
+                  ["cargo", "nextest", "list", *common, *group.get("test_args", []), *tool, "--message-format", "json"],
+                  check=True, capture_output=True, text=True).stdout)
+              selected = []
+              for binary_id, suite in listed["rust-suites"].items():
+                  for test, case in suite["testcases"].items():
+                      if case["filter-match"]["status"] == "matches":
+                          selected.append((binary_id, test))
+              first = sorted(t for t in selected if t[0] in priority)
+              if not first:
+                  report[group["name"]] = {"selected": len(selected), "priority_tests": 0}
+                  continue
+              argv = ["cargo", "nextest", "run", *common, *group.get("test_args", []), *tool,
+                      "--test-threads=1", "--verbose", "--no-tests=fail", "--no-fail-fast"]
+              log = out / f"priority-order-{group['name']}.log"
+              with log.open("w") as handle:
+                  status = subprocess.run(argv, stdout=handle, stderr=subprocess.STDOUT).returncode
+              started = [m.groups() for m in map(start.match, log.read_text().splitlines()) if m]
+              head = started[:len(first)]
+              ok = (status == 0 and len(started) == len(selected)
+                    and sorted(head) == first and all(t[0] not in priority for t in started[len(first):]))
+              report[group["name"]] = {"selected": len(selected), "priority_tests": len(first), "exit": status,
+                                       "started": len(started), "priority_first": ok, "argv": argv,
+                                       "first_started": [" ".join(t) for t in head]}
+              print(f"{group['name']}: {len(first)} priority tests of {len(selected)}; started first: {ok}")
+              if not ok:
+                  print(log.read_text()[-4000:])
+                  print(f"::error::{group['name']}: the priority tests did not start before every other test")
+                  sys.exit(1)
+          (out / "priority-check.json").write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+          PY
+      - name: Post-run byte authority
+        run: |
+          bash -c "$SNAPSHOT" _ "$RUNNER_TEMP/plan/authority-post.sha256"
+          cmp "$RUNNER_TEMP/plan/authority-pre.sha256" "$RUNNER_TEMP/plan/authority-post.sha256"
+          bash -c "$VERIFY_IDENTITY"
+          df -h / | tee "$RUNNER_TEMP/plan/df-end.txt"
+          cp "$CAMPAIGN_FILE" "$RUNNER_TEMP/plan/campaign.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-plan
+          path: ${{ runner.temp }}/plan
+          if-no-files-found: error
+          retention-days: 30
+
+  shard:
+    name: Shard ${{ matrix.shard }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify branch identity
+        run: bash -c "$VERIFY_IDENTITY"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned toolchain
+        run: |
+          toolchain="$(jq -er '.toolchain' "$CAMPAIGN_FILE")"
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+      - name: Restore pinned cargo tools
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.mutants-tools
+          key: ${{ needs.plan.outputs.tools_key }}
+      - name: Install pinned cargo tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --root ~/.mutants-tools "cargo-mutants@$(jq -er '.cargo_mutants_version' "$CAMPAIGN_FILE")"
+          cargo install --locked --root ~/.mutants-tools "cargo-nextest@$(jq -er '.cargo_nextest_version' "$CAMPAIGN_FILE")"
+      - name: Export environment
+        run: |
+          echo "$HOME/.mutants-tools/bin" >> "$GITHUB_PATH"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/target" >> "$GITHUB_ENV"
+          jq -er '.env | to_entries[] | "\(.key)=\(.value)"' "$CAMPAIGN_FILE" | while IFS= read -r line; do
+            [[ "$line" =~ ^[A-Z_][A-Z0-9_]*=[^[:cntrl:]]*$ ]] || { echo "::error::invalid env entry"; exit 1; }
+            echo "$line" >> "$GITHUB_ENV"
+          done
+      - name: Install the per-test memory cap
+        run: bash -c "$INSTALL_MEMCAP" _ "$RUNNER_TEMP/shard"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mutants-plan
+          path: ${{ runner.temp }}/plan
+      - name: Generate the nextest priority configuration
+        run: |
+          bash -c "$INSTALL_PRIORITY" _ "$RUNNER_TEMP/shard"
+          cmp "$RUNNER_TEMP/plan/nextest-tool-config.sha256" "$RUNNER_TEMP/shard/nextest-tool-config.sha256"
+          if [ -f "$RUNNER_TEMP/plan/nextest-tool-config.toml" ]; then
+            cmp "$RUNNER_TEMP/plan/nextest-tool-config.toml" "$RUNNER_TEMP/shard/nextest-tool-config.toml"
+          fi
+      - name: Record tool versions
+        run: |
+          mkdir -p "$RUNNER_TEMP/shard"
+          {
+            rustc -vV
+            cargo -V
+            cargo mutants --version
+            cargo nextest --version | head -n 1
+          } | tee "$RUNNER_TEMP/shard/versions.txt"
+          cmp "$RUNNER_TEMP/plan/versions.txt" "$RUNNER_TEMP/shard/versions.txt"
+          df -h / | tee "$RUNNER_TEMP/shard/df-start.txt"
+      - name: Pre-run byte authority
+        run: bash -c "$SNAPSHOT" _ "$RUNNER_TEMP/shard/authority-pre.sha256"
+      - name: Run cargo-mutants shard
+        run: |
+          python - <<'PY'
+          import datetime, json, os, pathlib, subprocess, sys, time
+
+          k = int(os.environ["SHARD"])
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          out = temp / "shard"
+          out.mkdir(parents=True, exist_ok=True)
+          cfg = json.loads(pathlib.Path(os.environ["CAMPAIGN_FILE"]).read_text())
+          plan = json.loads((temp / "plan" / "plan.json").read_text())
+          n = cfg["shards"]
+          timeouts = cfg["timeouts"]
+          features = cfg.get("features", [])
+
+          def fail(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          def now():
+              return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+          runner_variable = next(
+              (key for key in os.environ if key.startswith("CARGO_TARGET_") and key.endswith("_RUNNER")), "")
+
+          def validate(argv):
+              if any(t == "--in-place" or t.startswith("--in-place=") for t in argv):
+                  fail("copied-tree execution must never pass --in-place")
+              if any(t.startswith("--copy-target") or t.startswith("--in-diff") for t in argv):
+                  fail("--copy-target and --in-diff are forbidden")
+              if [t for t in argv if t.startswith("--copy-vcs")] != ["--copy-vcs=false"]:
+                  fail("exactly one --copy-vcs=false is required")
+              if [t for t in argv if t.startswith("--gitignore")] != ["--gitignore=false"]:
+                  fail("exactly one --gitignore=false is required")
+              jobs = [i for i, t in enumerate(argv) if t == "--jobs"]
+              if len(jobs) != 1 or argv[jobs[0] + 1] != "1" or any(t.startswith("--jobs=") for t in argv):
+                  fail("exactly one --jobs 1 pair is required")
+              if [t for t in argv if "max-fail" in t or "fail-fast" in t] != ["--cargo-test-arg=--max-fail=1:immediate"]:
+                  fail("exactly one --cargo-test-arg=--max-fail=1:immediate is required")
+              if not os.environ.get(runner_variable, "").endswith("/memcap-runner"):
+                  fail(f"{runner_variable} does not name the memory-cap runner")
+              configs = [t for t in argv if "config-file" in t]
+              if configs != ([f"--cargo-test-arg=--tool-config-file={tool_config}"] if tool_config else []):
+                  fail("the nextest config arguments are not exactly the harness tool config")
+
+          tool_config = os.environ.get("MUTANTS_NEXTEST_TOOL_CONFIG", "")
+          if bool(tool_config) != ("priority_binaries" in cfg):
+              fail("the nextest tool config does not match the campaign's priority_binaries")
+
+          runs = []
+          ok = True
+          for group in cfg["groups"]:
+              name = group["name"]
+              expected = plan["groups"][name]["shards"][str(k)]
+              selection = ["cargo", "mutants", "--package", cfg["package"]]
+              for path in group["files"]:
+                  selection += ["--file", path]
+              if features:
+                  selection.append("--features=" + ",".join(features))
+              shard_args = ["--shard", f"{k}/{n}", "--sharding", cfg["sharding"]]
+              if not expected:
+                  runs.append({"group": name, "skipped": True, "planned": 0})
+                  continue
+              live = json.loads(subprocess.run(selection + shard_args + ["--list", "--json"], check=True,
+                                               capture_output=True, text=True).stdout)
+              if [r["name"] for r in live] != expected:
+                  fail(f"{name}: live shard selection differs from the plan")
+              group_out = out / "groups" / name
+              group_out.mkdir(parents=True)
+              argv = [
+                  "cargo", "mutants",
+                  "--copy-vcs=false", "--gitignore=false", "--jobs", "1",
+                  *selection[2:], *shard_args,
+                  "--no-shuffle", "--baseline", "run", "--test-tool", "nextest",
+                  "--timeout-multiplier", str(timeouts["timeout_multiplier"]),
+                  "--build-timeout-multiplier", str(timeouts["build_timeout_multiplier"]),
+                  "--minimum-test-timeout", str(timeouts["minimum_test_timeout"]),
+                  "--cap-lints=" + str(cfg.get("cap_lints", True)).lower(),
+                  "--cargo-test-arg=--max-fail=1:immediate",
+                  "--output", str(group_out),
+              ]
+              if tool_config:
+                  argv.append(f"--cargo-test-arg=--tool-config-file={tool_config}")
+              argv += [f"--cargo-arg={a}" for a in group.get("cargo_args", [])]
+              argv += [f"--cargo-test-arg={a}" for a in group.get("test_args", [])]
+              validate(argv)
+              print(f"::group::{name}: {len(expected)} mutants")
+              print(" ".join(argv), flush=True)
+              started, t0 = now(), time.monotonic()
+              with (group_out / "console.log").open("w") as log:
+                  process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                  for line in process.stdout:
+                      sys.stdout.write(line)
+                      log.write(line)
+                  status = process.wait()
+              seconds = time.monotonic() - t0
+              print("::endgroup::")
+              # 0 = all caught, 2 = missed mutants, 3 = timeouts; the aggregate
+              # judges those from outcomes.json. Anything else is an infra failure.
+              completed = status in (0, 2, 3)
+              ok = ok and completed
+              runs.append({"group": name, "planned": len(expected), "argv": argv, "exit": status,
+                           "completed": completed, "start": started, "end": now(), "seconds": round(seconds, 3)})
+              print(f"{name}: exit {status} after {seconds:.1f}s")
+          (out / "runs.json").write_text(json.dumps({"shard": k, "shards": n, "runs": runs}, indent=1) + "\n")
+          if not ok:
+              fail("a cargo-mutants invocation ended with an infrastructure exit status")
+          PY
+      - name: Post-run byte authority
+        if: always()
+        run: |
+          bash -c "$SNAPSHOT" _ "$RUNNER_TEMP/shard/authority-post.sha256"
+          cmp "$RUNNER_TEMP/shard/authority-pre.sha256" "$RUNNER_TEMP/shard/authority-post.sha256"
+          bash -c "$VERIFY_IDENTITY"
+          echo "authority=unchanged" > "$RUNNER_TEMP/shard/authority-result.txt"
+          df -h / | tee "$RUNNER_TEMP/shard/df-end.txt"
+          du -sh "$CARGO_TARGET_DIR" | tee "$RUNNER_TEMP/shard/target-size.txt" || true
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate and close
+    needs: [plan, shard]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mutants-*
+          path: ${{ runner.temp }}/in
+      - name: Merge outcomes and check closure
+        run: |
+          python - <<'PY'
+          import collections, hashlib, json, os, pathlib, re, sys
+
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          src = temp / "in"
+          dst = temp / "aggregate"
+          dst.mkdir()
+          plan = json.loads((src / "mutants-plan" / "plan.json").read_text())
+          baseline = json.loads((src / "mutants-plan" / "baseline.json").read_text())
+          problems = []
+          counts = collections.Counter()
+          per_group = {}
+          merged = []
+          unviable = []
+          shard_rows = []
+          seen = collections.defaultdict(list)
+          error_line = re.compile(r"^error(\[E\d{4}\])?: ")
+          plan_config = src / "mutants-plan" / "nextest-tool-config.sha256"
+          tool_config_sha = plan_config.read_text().strip() if plan_config.is_file() else None
+          if tool_config_sha is None:
+              problems.append("plan: nextest-tool-config.sha256 missing")
+          elif tool_config_sha != "none":
+              config_bytes = (src / "mutants-plan" / "nextest-tool-config.toml").read_bytes()
+              if hashlib.sha256(config_bytes).hexdigest() != tool_config_sha:
+                  problems.append("plan: nextest tool config bytes do not match the recorded SHA-256")
+              check = src / "mutants-plan" / "priority-check.json"
+              if not check.is_file():
+                  problems.append("plan: priority-check.json missing")
+              else:
+                  for group_name, row in json.loads(check.read_text()).items():
+                      if row["priority_tests"] and not row.get("priority_first"):
+                          problems.append(f"plan: {group_name}: priority tests did not start first")
+          for k in range(plan["shards"]):
+              planned_any = any(g["shards"][str(k)] for g in plan["groups"].values())
+              shard_dir = src / f"mutants-shard-{k}"
+              if not planned_any:
+                  continue
+              if not (shard_dir / "runs.json").is_file():
+                  problems.append(f"shard {k}: no runs.json (job failed or artifact missing)")
+                  continue
+              authority = shard_dir / "authority-result.txt"
+              if not authority.is_file() or authority.read_text().strip() != "authority=unchanged":
+                  problems.append(f"shard {k}: post-run byte authority not confirmed")
+              shard_config = shard_dir / "nextest-tool-config.sha256"
+              if not shard_config.is_file() or shard_config.read_text().strip() != tool_config_sha:
+                  problems.append(f"shard {k}: nextest tool config differs from the plan's")
+              runs = json.loads((shard_dir / "runs.json").read_text())["runs"]
+              for run in runs:
+                  if run.get("skipped"):
+                      continue
+                  name = run["group"]
+                  if not run["completed"]:
+                      problems.append(f"shard {k} {name}: cargo-mutants exit {run['exit']}")
+                  outdir = shard_dir / "groups" / name / "mutants.out"
+                  outcomes_path = outdir / "outcomes.json"
+                  if not outcomes_path.is_file():
+                      problems.append(f"shard {k} {name}: outcomes.json missing")
+                      continue
+                  outcomes = json.loads(outcomes_path.read_text())
+                  if outcomes.get("cargo_mutants_version") != "27.1.0":
+                      problems.append(f"shard {k} {name}: cargo-mutants version {outcomes.get('cargo_mutants_version')}")
+                  baseline_test = None
+                  tested = []
+                  mutant_seconds = []
+                  for outcome in outcomes["outcomes"]:
+                      scenario = outcome["scenario"]
+                      phases = {p["phase"]: p for p in outcome["phase_results"]}
+                      if scenario == "Baseline":
+                          if outcome["summary"] != "Success":
+                              problems.append(f"shard {k} {name}: baseline {outcome['summary']}")
+                          baseline_test = phases.get("Test", {}).get("duration")
+                          continue
+                      mutant = scenario["Mutant"]
+                      summary = outcome["summary"]
+                      counts[summary] += 1
+                      per_group.setdefault(name, collections.Counter())[summary] += 1
+                      tested.append(mutant["name"])
+                      seen[(name, mutant["name"])].append(k)
+                      seconds = sum(p["duration"] for p in outcome["phase_results"])
+                      mutant_seconds.append(seconds)
+                      merged.append({"group": name, "shard": k, "name": mutant["name"], "file": mutant["file"],
+                                     "summary": summary, "seconds": round(seconds, 3),
+                                     "log_path": f"mutants-shard-{k}/groups/{name}/mutants.out/{outcome['log_path']}"})
+                      if summary == "Unviable":
+                          log = (outdir / outcome["log_path"]).read_text(errors="replace")
+                          lines = log.splitlines()
+                          errors = []
+                          for i, line in enumerate(lines):
+                              if error_line.match(line):
+                                  block = [line]
+                                  for follow in lines[i + 1:i + 4]:
+                                      if follow.strip().startswith("-->"):
+                                          block.append(follow.strip())
+                                  errors.append(" ".join(block))
+                          build = phases.get("Build", phases.get("Check", {}))
+                          record = {"group": name, "shard": k, "name": mutant["name"],
+                                    "build_argv": build.get("argv"), "build_status": build.get("process_status"),
+                                    "log_path": merged[-1]["log_path"],
+                                    "log_sha256": hashlib.sha256(log.encode()).hexdigest(),
+                                    "diagnostics": errors}
+                          specific = [e for e in errors if not e.startswith("error: could not compile")]
+                          if not specific or mutant["name"] not in log or "Build" not in phases:
+                              problems.append(f"unviable without compiler evidence: {mutant['name']}")
+                          unviable.append(record)
+                  if tested != plan["groups"][name]["shards"][str(k)]:
+                      problems.append(f"shard {k} {name}: tested set differs from the planned shard")
+                  shard_rows.append({"shard": k, "group": name, "mutants": len(tested), "exit": run["exit"],
+                                     "wall_seconds": run["seconds"], "baseline_test_seconds": baseline_test,
+                                     "mean_mutant_seconds": round(sum(mutant_seconds) / len(mutant_seconds), 3) if mutant_seconds else None,
+                                     "start": run["start"], "end": run["end"]})
+          for name, group in plan["groups"].items():
+              for mutant in group["names"]:
+                  hits = seen.get((name, mutant), [])
+                  if len(hits) != 1:
+                      problems.append(f"{mutant}: tested {len(hits)} times (shards {hits})")
+          extra = [key for key in seen if key[1] not in set(plan["groups"][key[0]]["names"])]
+          for key in extra:
+              problems.append(f"unplanned mutant tested: {key[1]}")
+          for summary in ("MissedMutant", "Timeout", "Failure"):
+              if counts[summary]:
+                  problems.append(f"{counts[summary]} mutants with outcome {summary}")
+          for row in merged:
+              if row["summary"] in ("MissedMutant", "Timeout", "Failure"):
+                  print(f"::error::{row['summary']}: {row['name']}")
+          total = sum(g["total"] for g in plan["groups"].values())
+          summary = {"campaign": plan["campaign"], "lane_commit": plan["lane_commit"], "planned": total,
+                     "tested": sum(counts.values()), "counts": dict(counts),
+                     "per_group": {k: dict(v) for k, v in per_group.items()},
+                     "equivalent_survivors": 0, "baseline_plan_job": baseline,
+                     "nextest_tool_config_sha256": tool_config_sha,
+                     "shards": shard_rows, "problems": problems, "closed": not problems}
+          (dst / "summary.json").write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n")
+          (dst / "outcomes-merged.json").write_text(json.dumps(merged, indent=1) + "\n")
+          (dst / "unviable-evidence.json").write_text(json.dumps(unviable, indent=1) + "\n")
+          md = [f"## Mutants: {plan['campaign']}", "", f"Lane commit `{plan['lane_commit']}`, {total} planned, "
+                f"{sum(counts.values())} tested. Nextest tool config SHA-256: `{tool_config_sha}`.", "",
+                "| outcome | count |", "|---|---|"]
+          md += [f"| {key} | {value} |" for key, value in sorted(counts.items())]
+          md += ["", "| shard | group | mutants | wall s | baseline test s | mean s/mutant | exit |", "|---|---|---|---|---|---|---|"]
+          md += [f"| {r['shard']} | {r['group']} | {r['mutants']} | {r['wall_seconds']} | {r['baseline_test_seconds']} | "
+                 f"{r['mean_mutant_seconds']} | {r['exit']} |" for r in shard_rows]
+          if unviable:
+              md += ["", "### Unviable mutants and compiler evidence", ""]
+              for record in unviable:
+                  md.append(f"- `{record['name']}`: " + "; ".join(f"`{d}`" for d in record["diagnostics"][:3]))
+          md += ["", "### Closure", ""] + ([f"- {p}" for p in problems] or ["Closed: zero missed, zero timeouts, exact single coverage, every unviable evidenced."])
+          text = "\n".join(md) + "\n"
+          (dst / "summary.md").write_text(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
+              handle.write(text)
+          print(text)
+          if problems:
+              sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-aggregate
+          path: ${{ runner.temp }}/aggregate
+          if-no-files-found: error
+          retention-days: 30

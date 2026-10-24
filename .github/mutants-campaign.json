@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "campaign": "lens-laws-final-lens-0b9509a2",
+  "lane": "lens-laws-s-lens",
+  "lane_commit": "0b9509a26314ceae24686496f4696e9ebb0ade4c",
+  "package": "panproto-lens",
+  "features": [],
+  "toolchain": "1.98.0",
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "test_tool": "nextest",
+  "shards": 40,
+  "sharding": "round-robin",
+  "cap_lints": true,
+  "test_memory_limit_mib": 3584,
+  "timeouts": {
+    "policy": "baseline",
+    "timeout_multiplier": 3,
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120
+  },
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "env": {
+    "PROPTEST_CASES": "32",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "CARGO_INCREMENTAL": "1",
+    "CARGO_PROFILE_DEV_OPT_LEVEL": "3",
+    "CARGO_PROFILE_DEV_DEBUG": "0"
+  },
+  "groups": [
+    {
+      "name": "lens-laws",
+      "files": [
+        "crates/panproto-lens/src/asymmetric.rs",
+        "crates/panproto-lens/src/compose.rs",
+        "crates/panproto-lens/src/dispatch.rs",
+        "crates/panproto-lens/src/error.rs",
+        "crates/panproto-lens/src/graph_lens.rs",
+        "crates/panproto-lens/src/graph_protolens.rs",
+        "crates/panproto-lens/src/graph_symmetric.rs",
+        "crates/panproto-lens/src/identity.rs",
+        "crates/panproto-lens/src/laws.rs",
+        "crates/panproto-lens/src/lens_path.rs",
+        "crates/panproto-lens/src/lens_shape.rs",
+        "crates/panproto-lens/src/lib.rs",
+        "crates/panproto-lens/src/protolens.rs",
+        "crates/panproto-lens/src/table_lens.rs",
+        "crates/panproto-lens/src/table_protolens.rs",
+        "crates/panproto-lens/src/table_shape.rs",
+        "crates/panproto-lens/src/table_symmetric.rs"
+      ],
+      "cargo_args": [
+        "--lib",
+        "--test=a_graph_lens_refuses_a_source_outside_the_fan_domain",
+        "--test=an_identity_lens_over_fans_records_no_fan_edge",
+        "--test=autolens_corpus",
+        "--test=fresh_view_ids_withhold_the_top_id",
+        "--test=graph_lens_laws",
+        "--test=identity_policy_and_composition_follow_their_tables",
+        "--test=law_corpus",
+        "--test=law_reference",
+        "--test=normal_form_around_synthesizing_stages",
+        "--test=put_preserves_view_edits_under_rename_field",
+        "--test=put_preserves_view_edits_with_child_vertices",
+        "--test=reference_complement_monoid",
+        "--test=reference_graph_put_contract",
+        "--test=reference_lens_constructions",
+        "--test=reference_lens_equivalence",
+        "--test=reference_lenses",
+        "--test=reference_table_square_relational",
+        "--test=reference_tree_validation",
+        "--test=shape_preservation",
+        "--test=strategy_anchors_are_a_seed",
+        "--test=table_lens_laws",
+        "--test=tree_get_and_put_follow_the_restrict_engine",
+        "--test=tree_lenses_through_contraction",
+        "--test=tree_put_restores_exactly_what_get_set_aside"
+      ],
+      "test_args": [
+        "--filterset=not (test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate) | test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))"
+      ]
+    }
+  ],
+  "priority_binaries": [
+    "reference_graph_put_contract",
+    "reference_lens_equivalence",
+    "reference_complement_monoid",
+    "reference_tree_validation",
+    "reference_table_square_relational",
+    "reference_lens_constructions",
+    "law_corpus",
+    "reference_lenses"
+  ],
+  "_scope": "Final lenses-law CI-only mutation of every panproto-lens production file named by the lenses correctness page. The campaign mutates whole files through --file in copied-tree mode; it never uses --in-diff or in-place mutation.",
+  "_selection_note": "Every panproto-lens library and integration-test target runs. The separately recorded hour-scale L8 umbrella, path umbrella, and long table agreement sweep, plus timing and multiprocess tests, are excluded from each mutant run; focused certificates, law-corpus checks, and the dedicated randomized differentials remain selected and are scheduled first. The frozen final candidate is 0b9509a26314ceae24686496f4696e9ebb0ade4c."
+}
