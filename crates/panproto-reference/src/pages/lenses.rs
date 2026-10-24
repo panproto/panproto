@@ -24,9 +24,10 @@ pub use self::laws::{
     check_table_laws, check_tree_laws, compare_fusion,
 };
 pub use self::lens::{
-    GraphLens, GraphSquareObservation, IdentityError, IdentityStatus, InstantiatedLens, LensError,
-    Protolens, ProtolensApplication, ProtolensError, SchemaPrecondition, SquareError, SquareResult,
-    SquareRouteObservation, TableSquareObservation, TreeOperationalError, graph_lens_identity,
+    ComplementAtom, ComplementComposeRefusal, ComplementModel, GraphLens, GraphSquareObservation,
+    IdentityError, IdentityStatus, InstantiatedLens, LensError, Protolens, ProtolensApplication,
+    ProtolensError, SchemaPrecondition, SquareError, SquareResult, SquareRouteObservation,
+    TableSquareObservation, TreeOperationalError, compose_complement, graph_lens_identity,
     graph_put_square, graph_square, protolens_instance, protolens_schema, put, table_put_square,
     table_square, tree_check_put_domain, tree_get, tree_put,
 };

@@ -1,10 +1,10 @@
 # Lenses
 
-This page proves the laws of panproto's asymmetric lenses in their three instance shapes (graphs, tables and trees), of the lens path category built from them, of the commuting squares that relate the shapes, and of the protolens constructions that produce lenses from schemas. Each block states a law with its domain, proves it from the definitions below, and names the executable reference semantics and the differential tests that compare the production code with it.
+This page proves the laws of panproto's asymmetric lenses in their three instance shapes: graphs, tables and trees. It also proves the laws of the lens path category built from them, the commuting squares that relate the shapes, and the protolens constructions that produce lenses from schemas. Each block states a law with its domain, proves it from the definitions below, and names the executable reference semantics and the differential tests that compare the production code with it.
 
 A **lens** is a triple $\ell = (m, S, T)$ of a compiled migration $m$, a source schema $S$ and a target schema $T$. Its **plan** $P_\ell$ is the result of compiling $(S, T, m)$: the edge image (the fate of every source edge: kept as a target edge, dropped, contracted or expanded), the contraction plan, and the fan resolver. Compilation either succeeds or refuses with a typed plan error, and it reads no instance. A **source** is an instance of $S$ and a **view** an instance of $T$; the shapes are graphs (nodes and edges with ids), tables (rows with ids and foreign-key pairs) and trees (nodes, ordered arcs and fans).
 
-The **get** of $\ell$ maps a source $s$ to a pair $(v, c)$ of a view and a **complement**: the part of $s$ outside the image of get, together with the coordinates get forgets (recorded anchors, fields, values and edge labels), the synthesized objects get created, an id floor and an identity envelope. The **identity envelope** $\iota(\ell, \sigma)$ of a lens at a shape $\sigma$ is a digest of the canonical bytes of $S$, $T$ and $m$ together with $\sigma$ and the complement format version; get stamps it on every complement it returns. The **put** of $\ell$ maps a view and a complement to a source. Its **domain** at a complement $c$ is the set $D_\ell(c)$ of views on which the put-domain predicate reports no violation; the predicate returns every violation, sorted by the report order (the variant, then the element), and put returns the first one when the view is outside the domain. A put first verifies the envelope of the complement it receives, so a complement produced by another lens or shape is refused before the domain is read.
+The **get** of $\ell$ maps a source $s$ to a pair $(v, c)$ of a view and a **complement**: the part of $s$ outside the image of get, together with the coordinates get forgets (recorded anchors, fields, values and edge labels), the synthesized objects get created, an id floor and an identity envelope. The **identity envelope** $\iota(\ell, \sigma)$ of a lens at a shape $\sigma$ is a digest of the canonical bytes of $S$, $T$ and $m$ together with $\sigma$ and the complement format version; get stamps it on every complement it returns. The **put** of $\ell$ maps a view and a complement to a source. Its **domain** at a complement $c$ is the set $D_\ell(c)$ of views on which the put-domain predicate reports no violation. The predicate returns every violation in a canonical stable order: variant declaration order; then the declared shape-native `ViewRef` order (`Node`, `Edge`, `Arc`, `Row`, `Pair`, with payload order), using the least element for `DuplicateKey`, the fan node for `MalformedFan`, and no element for `PlanCompilation`; then table and canonical key value for `DuplicateKey`, or field for `MissingRequiredCell`. Other comparator ties retain discovery order. After sorting, exact repeats are removed within each comparator-equivalent run. This removal includes repetitions that were separated in discovery order by a distinct violation with the same comparator keys. Duplicate-key identity uses canonical value identity, so equal NaN bit patterns deduplicate while signed zeroes remain distinct. Put returns the first violation when the view is outside the domain. A put first verifies the envelope of the complement it receives, so a complement produced by another lens or shape is refused before the domain is read.
 
 We write $s \subseteq s'$ for **subinstance**: every node and edge of $s$ is a node and edge of $s'$ with the same id and the same content. A subinstance is **endpoint closed** when every edge it holds has both endpoints in it. A lens is on the **Delta fragment** when every surviving vertex and edge keeps its own name, the target schema is a subschema of the source schema, and the migration states no resolver, expansion, fan resolver, survival predicate or transform.
 
@@ -43,7 +43,7 @@ Lens, plan, get, put, put domain and identity envelope are defined at the head o
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::{for_each_lens_equivalence_case, c11_graph_states, c11_fan_states}; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_lens_equivalence_case; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/lib.rs`
@@ -73,7 +73,7 @@ None.
 
 ### Statement
 
-Let $\ell$ be a lens whose plan compiles and $s$ a schema-valid source graph on which graph get succeeds, with $\operatorname{get}_\ell(s) = (v, c)$. Then $c$ holds, field for field: in `dropped_nodes` the nodes of $s$ absent from $v$, and in `dropped_edges` the edges of $s$ absent from $v$ (expanded source edges included); in `original_edges` exactly the surviving edges whose source label the preimage rule of [L-lenses-4](#L-lenses-4) would not return from their view label and endpoints; in `original_anchors` exactly the surviving nodes whose source anchor the unique reverse vertex map would not return; in `original_extra_fields` exactly the surviving nodes whose view fields differ from their source fields, with the source fields; in `original_values` exactly the surviving nodes whose view value differs from its source value, with the source value; in `synthesized_nodes` and `synthesized_edges` the objects get created, each under its synthesis key; the id floor of $s$; and the identity envelope $\iota(\ell, \text{graph})$. The pair $(v, c)$ determines $s$: get paired with its complement is injective on the sources where it succeeds.
+Let $\ell$ be a lens whose plan compiles and $s$ a schema-valid source graph on which graph get succeeds, with $\operatorname{get}_\ell(s) = (v, c)$. Then $c$ holds the following information, field for field. The `dropped_nodes` field contains the nodes of $s$ absent from $v$, while `dropped_edges` contains the edges of $s$ absent from $v$ (expanded source edges included). The `original_edges` field contains exactly the surviving edges whose source label the preimage rule of [L-lenses-4](#L-lenses-4) would not return from their view label and endpoints. The `original_anchors` field contains exactly the surviving nodes whose source anchor the unique reverse vertex map would not return. The `original_extra_fields` field contains exactly the surviving nodes whose view fields differ from their source fields, with the source fields; `original_values` contains exactly the surviving nodes whose view value differs from its source value, with the source value. The `synthesized_nodes` and `synthesized_edges` fields contain the objects get created, each under its synthesis key. The remaining fields hold the id floor of $s$ and the identity envelope $\iota(\ell, \text{graph})$. The pair $(v, c)$ determines $s$: get paired with its complement is injective on the sources where it succeeds.
 
 ### Outside the domain
 
@@ -99,7 +99,7 @@ Lens, plan, get, complement and identity envelope are defined at the head of thi
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::{for_each_lens_equivalence_case, c11_graph_states, c11_fan_states}; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_lens_equivalence_case; bound: schemas=16, stages=31, nodes=3, edges=3, graph_states=116208, fan_states=9940, stage_states=144397`
 - Exhaustive differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
@@ -154,11 +154,14 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::{c11_graph_states, for_each_graph_put_contract_case}; bound: schemas=16, stages=31, graph_stage_states=144397, boundary_cases=9, plan_compilation=1, empty_floor=3, taken_below_floor=1, advancing=2, exhaustion=2`
-- Exhaustive differential test: `graph operation and boundary certificates; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=lens_equivalence_law_certificate) or test(=graph_put_contract_certificate)'`
-- Property differential test: `randomized graph operation and boundary differentials; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=randomized_lens_law_differential) or test(=randomized_graph_put_contract)'`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_graph_put_contract_case; bound: schemas=16, stages=31, graph_stage_states=144397, boundary_cases=9, plan_compilation=1, empty_floor=3, taken_below_floor=1, advancing=2, exhaustion=2`
+- Exhaustive differential test: `graph_put_contract_certificate; command: cargo nextest run --release -p panproto-lens --test reference_graph_put_contract --no-tests=fail -E 'test(=graph_put_contract_certificate)'`
+- Property differential test: `randomized_graph_put_contract; command: cargo nextest run --release -p panproto-lens --test reference_graph_put_contract --no-tests=fail -E 'test(=randomized_graph_put_contract)'`
+- Graph-carrier differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
+- Graph-carrier property test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
 - File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-inst/src/graph_complement.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
@@ -185,7 +188,18 @@ None.
 
 ### Statement
 
-For a lens $\ell$, a complement $c$ produced by $\operatorname{get}_\ell$ and a view $v$, the put-domain predicate returns every violation of the following clauses, sorted by report order, and $v \in D_\ell(c)$ exactly when it returns none: (1) `IdCollision`, a view node or edge whose id is a dropped id; (2) `SynthesizedEdited`, a synthesized object missing from the view or changed, unless an endpoint of its chain was removed; (3) the edge back-mapping: a non-synthesized view edge maps back to its recorded label when `original_edges` records it with the same endpoints, else to the unique source edge whose fate keeps its label between preimages of its endpoints' anchors, and otherwise refuses with `ContractedEdgeInserted` (when the endpoints form a planned pair resolving to its label) or `UnrepresentableViewEdge`; a fan edge maps back through its hyper-edge's labels; (4) `AmbiguousReverseAnchor`, a view-added or re-anchored node whose anchor has more than one preimage; (5) `SurvivalPredicateFails` and `SurvivalPredicateRefused`; (6) `TransformNotInvertible` and `DerivedCellEdited`; (7) `DuplicateKey` and `MissingRequiredCell`; (8) `MalformedFan`. On the domain, put restores: the non-synthesized view nodes with their recorded anchors (when the recorded anchor's image is the view anchor), fields and values, the dropped nodes, the view edges with their mapped-back labels, and the dropped edges minus the cascade, which removes the dropped edges incident to a surviving source node absent from the view. On the Delta fragment, for every source $s$ with $\operatorname{get}_\ell(s) = (v, c)$ and every endpoint-closed $v' \subseteq v$ that lies in $D_\ell(c)$, $r = \operatorname{put}_\ell(v', c)$ is the largest endpoint-closed subinstance of $s$ whose view is $v'$, and every endpoint-closed subinstance $t \subseteq s$ whose view is a subinstance of $v'$ is a subinstance of $r$.
+For a lens $\ell$, a complement $c$ produced by $\operatorname{get}_\ell$ and a view $v$, the put-domain predicate returns every violation of the following clauses, sorted by report order, and $v \in D_\ell(c)$ exactly when it returns none:
+
+1. `IdCollision`, a view node or edge whose id is a dropped id;
+2. `SynthesizedEdited`, a synthesized object missing from the view or changed, unless an endpoint of its chain was removed;
+3. the edge back-mapping: a non-synthesized view edge maps back to its recorded label when `original_edges` records it with the same endpoints, else to the unique source edge whose fate keeps its label between preimages of its endpoints' anchors, and otherwise refuses with `ContractedEdgeInserted` (when the endpoints form a planned pair resolving to its label) or `UnrepresentableViewEdge`; a fan edge maps back through its hyper-edge's labels;
+4. `AmbiguousReverseAnchor`, a view-added or re-anchored node whose anchor has more than one preimage;
+5. `SurvivalPredicateFails` and `SurvivalPredicateRefused`;
+6. `TransformNotInvertible` and `DerivedCellEdited`;
+7. `DuplicateKey` and `MissingRequiredCell`;
+8. `MalformedFan`.
+
+The structural clauses read the original view and complement. We call the filtered state read by the later clauses the **restorable counterfactual**. It retains what put can still restore without erasing the structural violations already found. In particular, a colliding view object is treated as the source representative at its reused id; [L-lenses-5](#L-lenses-5) specifies the tree counterfactual needed to realize that rule without retaining shadowed source residue. On the domain, put restores: the non-synthesized view nodes with their recorded anchors (when the recorded anchor's image is the view anchor), fields and values, the dropped nodes, the view edges with their mapped-back labels, and the dropped edges minus the cascade, which removes the dropped edges incident to a surviving source node absent from the view. On the Delta fragment, for every source $s$ with $\operatorname{get}_\ell(s) = (v, c)$ and every endpoint-closed $v' \subseteq v$ that lies in $D_\ell(c)$, $r = \operatorname{put}_\ell(v', c)$ is the largest endpoint-closed subinstance of $s$ whose view is $v'$, and every endpoint-closed subinstance $t \subseteq s$ whose view is a subinstance of $v'$ is a subinstance of $r$.
 
 ### Outside the domain
 
@@ -197,10 +211,10 @@ Lens, put domain, report order, subinstance, endpoint closed and the Delta fragm
 
 ### Proof
 
-1. The predicate evaluates each clause over every view element and collects the violations, then sorts them by the report order; restoration runs only when the list is empty (definition of the predicate and of checked put). The clauses are exactly (1) to (8).
-2. Restoration builds the source from the view nodes, the dropped nodes, the mapped-back view edges and the dropped edges, then removes the cascade (definition of restoration). Each mapped-back label exists because clause (3) admitted the edge.
+1. The predicate evaluates the structural clauses over every view element, evaluates the remaining clauses on the restorable counterfactual, and collects all violations before checked put makes a decision. It then applies the report comparator from the head of this page with a stable sort and removes exact repeats within each comparator-equivalent run. This includes a repeat separated before sorting by another violation with the same comparator keys. Restoration by checked put runs only when the resulting report is empty (definition of the predicate and of checked put). The clauses are exactly (1) to (8).
+2. Graph restoration keeps a colliding view node in the restorable part, so the visible node occupies the dropped node's id when the later clauses inspect the counterfactual source. It removes only a node with no single source anchor, together with its incident edges, or an edge with no single source label. Restoration then builds the source from the remaining view nodes, the dropped nodes, the mapped-back view edges and the dropped edges, and removes the cascade (definition of restoration). Each mapped-back label exists because clause (3) admitted the edge. The native tree implementation realizes the same collision rule by the residue transformation proved in [L-lenses-5](#L-lenses-5).
 3. Now let $\ell$ be on the Delta fragment. Then get keeps a node exactly when its anchor is a surviving vertex, keeps an edge exactly when both endpoints are kept and its label is a surviving edge, changes no anchor, field, value or label, and synthesizes nothing (definition of get with no remap, resolver, expansion, fan resolver, predicate or transform). So $c$ records no `original_*` entry, `dropped_nodes` is the set of nodes with a non-surviving anchor, and `dropped_edges` is the set of edges not kept.
-4. Let $v' \subseteq v$ be endpoint closed and suppose $v' \in D_\ell(c)$. This premise includes the key, required-cell and fan clauses, which a deletion can violate even when $s$ is valid. The structural clauses can also be read directly: $v'$ uses only ids of $v$, no synthesized object exists on the Delta fragment, and every edge maps back to its own uniquely surviving label. Put therefore defines $r = \operatorname{put}_\ell(v', c)$.
+4. Let $v' \subseteq v$ be endpoint closed and suppose $v' \in D_\ell(c)$. This premise includes the key, required-cell and fan clauses, which a deletion can violate even when $s$ is valid. The structural clauses can also be read directly: $v'$ uses only ids of $v$, no synthesized object exists on the Delta fragment, and every edge maps back to its own uniquely surviving label. Thus, put defines $r = \operatorname{put}_\ell(v', c)$.
 5. By step 2, $r$ consists of the nodes of $v'$, the dropped nodes, the edges of $v'$, and the dropped edges not incident to a node of $v$ absent from $v'$. Every element of $r$ is an element of $s$ with the same content (step 3), and $r$ is endpoint closed: a kept dropped edge has no endpoint among the removed surviving nodes, and its other endpoints are dropped nodes or nodes of $v'$.
 6. The view of $r$ is $v'$: the kept nodes of $r$ are those with a surviving anchor, which are the nodes of $v'$ (dropped nodes have non-surviving anchors by step 3); the kept edges of $r$ are those with both endpoints kept and a surviving label, which are the edges of $v'$ together with any dropped edge between two nodes of $v'$ with a surviving label. Such a dropped edge would have been kept by get on $s$ (its endpoints are in $v \supseteq v'$ and its label survives), contradicting step 3, so there is none.
 7. Universal property: let $t \subseteq s$ be endpoint closed with view $w \subseteq v'$. A node $x$ of $t$ with a surviving anchor is in $w$, hence in $v'$, hence in $r$; a node with a non-surviving anchor is a dropped node, hence in $r$. An edge $e$ of $t$ kept by get on $t$ is in $w \subseteq v'$, hence in $r$. An edge $e$ of $t$ not kept is a dropped edge of $s$ (a non-surviving label or a non-surviving endpoint gives the same verdict in $s$); it is missing from $r$ only if it is incident to a node $y$ of $v$ absent from $v'$. But $y$ is an endpoint of $e$, so $y$ is in $t$ (endpoint closure) with a surviving anchor, so $y \in w \subseteq v'$, a contradiction. Hence $t \subseteq r$.
@@ -217,6 +231,8 @@ Lens, put domain, report order, subinstance, endpoint closed and the Delta fragm
 - Exhaustive differential test: `the_cascade_agrees_with_the_reference_on_the_gf5_scope; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=the_cascade_agrees_with_the_reference_on_the_gf5_scope)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-inst/src/graph_complement.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/pages/lenses/domain.rs`
@@ -241,7 +257,7 @@ None.
 
 ### Statement
 
-Tree put runs a native tree put-domain predicate before restoring and reports the corresponding `PutDomainError` variants of graph put. These include `IdCollision` for a view node that reuses a dropped node's id and `AmbiguousReverseAnchor` for a view-added or re-anchored node whose anchor has several preimages. The tree complement records a surviving node's source anchor exactly when the unique reverse vertex map would not return it. Tree put applies that recorded anchor only when its image under the vertex map equals the node's view anchor. Thus, a view relabel is kept rather than reverted. The complement also records the source arc order and the contracted or expanded arcs that the view alone does not identify. Its identity envelope records `ComplementShape::WType`, and tree put verifies that envelope against the lens before reading the domain. This envelope is distinct from the `ComplementShape::Graph` envelope used along the graph route. For nonfan schemas in the certified tree domain (the lens keeps the tree shape and the root survives), tree get and put agree with graph get and put on the tree's graph form.
+Tree put runs a native tree put-domain predicate before restoring and reports the corresponding `PutDomainError` variants of graph put. These include `IdCollision` for a view node that reuses a dropped node's id and `AmbiguousReverseAnchor` for a view-added or re-anchored node whose anchor has several preimages. The native production predicate and the private reference law adapter name an arc by `ViewRef::Arc { parent, child }`. The public reference tree operations and the representation square retain the stable graph-coordinate API, which reports `ViewRef::Edge(id)`. These coordinates are not literally equal; the square compares reports only after applying the durable-embedding graph projection. A reparented synthesized arc has both its original and current arc as native witnesses. A sibling-order refusal uses the least synthesis key and arc natively, while the public projection uses the least embedded edge id. The tree complement records a surviving node's source anchor exactly when the unique reverse vertex map would not return it. Tree put applies that recorded anchor only when its image under the vertex map equals the node's view anchor. Thus, a view relabel is kept rather than reverted. The complement also records the source arc order and the contracted or expanded arcs that the view alone does not identify. Its identity envelope records `ComplementShape::WType`, and tree put verifies that envelope against the lens before reading the domain. This envelope is distinct from the `ComplementShape::Graph` envelope used along the graph route. For nonfan schemas in the certified tree domain (the lens keeps the tree shape and the root survives), tree get and put agree with graph get and put on the tree's graph form.
 
 ### Outside the domain
 
@@ -253,11 +269,11 @@ Lens, put domain and report order are defined at the head of this page; the clau
 
 ### Proof
 
-1. Tree put verifies the envelope, then runs its native structural pass on tree nodes, arcs, synthesis keys and contraction choices. It removes structurally unrestorable subtrees, reassembles the determined part, and runs the value, predicate, key, required-cell and fan checks on that restored tree. It sorts the accumulated violations by the common variant-and-element order and refuses with the first one (definition of tree put).
-2. A view node whose id is a key of `dropped_nodes` is detected by the native structural pass, so tree put returns `IdCollision` for it (step 1).
-3. The same pass constructs the reverse-anchor fibres and returns `AmbiguousReverseAnchor` for a view-added or re-anchored node with several preimages (step 1).
-4. Tree get records a surviving node's source anchor exactly when the reverse vertex map does not return it (definition of tree get, the same recording rule as graph get, [L-lenses-2](#L-lenses-2) step 3); tree restoration applies the recorded anchor exactly when its image equals the view anchor, else the unique reverse anchor (definition of tree restoration).
-5. On the nonfan tree lens domain, no edge between survivors is dropped. The graph restriction of the tree's graph form therefore keeps exactly the arcs whose endpoints survive, and unique tree paths make its contraction choices equal to the native tree choices. Graph edge ids correspond to tree arc coordinates, while the tree complement preserves source arc order and contraction labels. The native structural and value passes of step 1 inspect the same restored nodes and source labels as graph restoration after this coordinate translation. Each route verifies its own shape-specific envelope. Thus their views, domain reports and restored sources agree under the embedding.
+1. Tree put verifies the envelope, then runs its native structural pass on the original tree nodes, arcs, synthesis keys and contraction choices. It removes structurally unrestorable subtrees, reassembles the determined part, and runs the value, predicate, key, required-cell and fan checks on that restored tree. It applies the canonical stable sort and exact-repeat removal from the head of this page to the accumulated violations, and refuses with the first one (definition of tree put).
+2. A view node whose id is a key of `dropped_nodes` is detected by the native structural pass, so the original report retains `IdCollision` for it. Before the restored-source clauses run, the implementation gathers every such node id into one ordered set and removes from an ephemeral complement only those dropped nodes and the residue directly incident on or dependent on them: dropped arcs and fans, contraction and parent choices, recorded arcs and arc order, original anchors, fields and values, contraction targets, colliding synthesized carriers, and synthesis keys that mention a colliding endpoint, holder or incident source edge. It scans the original source arc order once, deletes incident source edges, and rewrites each surviving `Expand.source_edge` to its rank in the retained order. Processing all collisions together makes the transformation deterministic; unrelated complement state, including noncolliding synthesized carriers and keys, is preserved. The independent reference performs the same simultaneous collision and dependency filtering on its graph complement. Its surviving `Expand.source_edge` values do not require reindexing because they are stable graph edge ids rather than source arc-order positions.
+3. The same structural pass constructs the reverse-anchor fibres and reports `AmbiguousReverseAnchor` for a view-added or re-anchored node with several preimages. Such a node and the view subtree below it are absent from the restorable counterfactual because put has no determined source anchor for them (step 1).
+4. Tree get records a surviving node's source anchor exactly when the reverse vertex map does not return it (definition of tree get, the same recording rule as graph get, [L-lenses-2](#L-lenses-2) step 3); tree restoration applies the recorded anchor exactly when its image equals the view anchor, else the unique reverse anchor (definition of tree restoration). The structural synthesis checks still read the original complement. A synthesized reparent thus retains both its original and current native arc witnesses, while the sibling-order rule selects the least synthesis key and arc independently of discovery order.
+5. On the nonfan tree lens domain, no edge between survivors is dropped. The graph restriction of the tree's graph form thus keeps exactly the arcs whose endpoints survive, and unique tree paths make its contraction choices equal to the native tree choices. The durable embedding maps an arc-local native witness to its public graph edge and applies the graph-specific minimum-edge rule to a sibling-order witness. After this explicit projection, the native structural and value passes of step 1 inspect the same restored nodes and source labels as graph restoration. Each route verifies its own shape-specific envelope. Thus their views, projected domain reports and restored sources agree under the embedding.
 
 ### Executable counterpart
 
@@ -268,14 +284,20 @@ Lens, put domain and report order are defined at the head of this page; the clau
 - Reference: `panproto_reference::lens::put`
 - Reference: `panproto_reference::lens::tree_get`
 - Reference: `panproto_reference::lens::tree_put`
-- Enumerator: `panproto_reference::enumerate::lenses::{c11_tree_states, for_each_tree_validation_case}; bound: named_validation_cases=3, required_deletions=1, duplicate_key_edits=1, malformed_fans=1; common-domain carrier: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
-- Exhaustive differential test: `tree-domain and validation certificates; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=lens_equivalence_law_certificate) or test(=tree_validation_reference_certificate)'`
-- Property differential test: `randomized tree-domain and validation differentials; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=randomized_lens_law_differential) or test(=randomized_tree_validation_square)'`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_tree_validation_case; bound: named_validation_cases=3, required_deletions=1, duplicate_key_edits=1, malformed_fans=1, schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
+- Exhaustive differential test: `tree_validation_reference_certificate; command: cargo nextest run --release -p panproto-lens --test reference_tree_validation --no-tests=fail -E 'test(=tree_validation_reference_certificate)'`
+- Property differential test: `randomized_tree_validation_square; command: cargo nextest run --release -p panproto-lens --test reference_tree_validation --no-tests=fail -E 'test(=randomized_tree_validation_square)'`
+- Common-domain differential test: `lens_equivalence_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_equivalence_law_certificate)'`
+- Common-domain property test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-lens/src/lens_shape.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/pages/lenses/domain.rs`
+- File: `crates/panproto-reference/src/pages/lenses/laws.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_tree_validation.rs`
 
@@ -296,7 +318,7 @@ None.
 
 ### Statement
 
-On internally coherent tree complements, modulo merge equivalence, `ComplementCompose` forms a partial commutative monoid: the empty complement is a two-sided unit, and merge is commutative and associative where defined. Internal coherence means that each synthesized id names one synthesis key and each synthesis key names one id within each operand. Merge equivalence compares the source fingerprint, identity envelope, id floor, keyed maps, sequence fields and arc order, using value equivalence for stored values and set equality for the deduplicated sequences. Merge is defined exactly when (i) the identity bindings combine, (ii) shared keyed entries agree, (iii) the two coherent operands remain jointly coherent, and (iv) two nonempty arc-order records are equal. It retains the left representative of an equivalent shared value, deduplicates the sequence fields, and takes the maximum id floor. Merge is not cancellative and is not lens composition. Composing two lenses yields the lens path of the two stages ([L-lenses-15](#L-lenses-15)); its behaviour is the sequential fold, and fusion is applied only where it preserves that behaviour ([L-lenses-16](#L-lenses-16)).
+On internally coherent tree complements, modulo merge equivalence, `ComplementCompose` forms a partial commutative monoid: the empty complement is a two-sided unit, and merge is commutative and associative where defined. Internal coherence means that each synthesized id names one synthesis key and each synthesis key names one id within each operand. Merge equivalence compares the source fingerprint, identity envelope, id floor, keyed maps, sequence fields and arc order, using value equivalence for stored values and set equality for the deduplicated sequences. Merge is defined exactly when (i) the identity bindings combine, (ii) shared keyed entries agree, (iii) the two coherent operands remain jointly coherent, and (iv) two nonempty arc-order records are equal. It retains the left representative of an equivalent shared value, deduplicates the sequence fields, and takes the maximum id floor. Merge is not cancellative and is not lens composition. Composing two lenses yields the lens path of the two stages ([L-lenses-13](#L-lenses-13)); its behaviour is the sequential fold, and fusion is applied only where it preserves that behaviour ([L-lenses-16](#L-lenses-16)).
 
 ### Outside the domain
 
@@ -318,8 +340,7 @@ Complement is defined at the head of this page. Agreement on a shared key means 
 ### Executable counterpart
 
 - Law ID: `lenses.l6`
-- Reference: `panproto_reference::enumerate::lenses::ComplementMonoidTriple`
-- Reference: `panproto_reference::enumerate::lenses::ComplementMonoidRefusal`
+- Reference: `panproto_reference::lens::compose_complement`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_complement_monoid_case; bound: provenance_regimes=2, atom_subsets=8, ordered_triples=1024, named_refusals=15, cases=1039`
 - Exhaustive differential test: `complement_partial_monoid_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_complement_monoid --no-tests=fail -E 'test(=complement_partial_monoid_law_certificate)'`
 - Property differential test: `randomized_complement_partial_monoid_differential; command: cargo nextest run --release -p panproto-lens --test reference_complement_monoid --no-tests=fail -E 'test(=randomized_complement_partial_monoid_differential)'`
@@ -327,6 +348,8 @@ Complement is defined at the head of this page. Agreement on a shared key means 
 - File: `crates/panproto-lens/src/graph_lens.rs`
 - File: `crates/panproto-lens/src/table_lens.rs`
 - File: `crates/panproto-lens/src/compose.rs`
+- File: `crates/panproto-reference/src/pages/lenses.rs`
+- File: `crates/panproto-reference/src/pages/lenses/lens.rs`
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
@@ -362,7 +385,7 @@ Complement and synthesis key are defined at the head of this page and in [L-lens
 ### Proof
 
 1. Equivalence first verifies that each synthesized id has one key and each key has one id. It returns inequivalent when either index is incoherent or when the two coherent indices' node or edge key sets differ (definition).
-2. With equal key sets, each key names exactly one id on each side (keys are unique within a coherent index, [L-lenses-2](#L-lenses-2) step 2), so the renaming is a bijection on synthesized ids and the identity elsewhere.
+2. With equal key sets, each key names exactly one id on each side by coherence from step 1, so the renaming is a bijection on synthesized ids and the identity elsewhere.
 3. After renaming, the comparison is equality of the two graphs' node and edge maps, which compares every listed coordinate (definition).
 4. On coherent indices, equivalence is thus an equivalence relation: reflexive (equal key sets, identity renaming), symmetric (the inverse bijection), and transitive (composition of bijections preserves key sets). Table embedding is deterministic and tree normalization uses the same bijection, so the argument applies to all three shapes.
 5. The complement comparison normalizes synthesized presentation ids to keys in the dropped and original maps, including the tree arc-order and arc-label coordinates, then compares every restoration field (definition). Suppose both complements have first verified against the same lens and source schema. Their excluded source fingerprint and identity envelope then have the same required meaning, while the id floor does not enter restoration. Thus observationally equivalent complements give equal restored values on every view for which both puts pass their domain checks ([L-lenses-4](#L-lenses-4)). Without that common-binding premise, the relation makes no claim about put success.
@@ -405,7 +428,7 @@ Let $\operatorname{get}_\ell(s) = (v, c)$, and let $B$ be the ordered Single-Ste
 
 $$A_c = \{b \in B^+ \mid v_b \in D_\ell(c)\}.$$
 
-A case in $B^+ \setminus A_c$ remains in the generated-basis counts, but PutGet, Totality and PutTwice omit it. Each $b \in B^-$ carries a **negative certificate** $\nu_b$: a nonempty complete ordered put-domain report constructed without consulting either the domain predicate or $\operatorname{put}_\ell$.
+A case in $B^+ \setminus A_c$ remains in the generated-basis counts, but PutGet, Totality and PutTwice omit it. Each $b \in B^-$ carries a **negative certificate** $\nu_b$: a nonempty complete ordered put-domain report constructed without consulting either the domain predicate or $\operatorname{put}_\ell$. A tree certificate uses native `Arc { parent, child }` coordinates. The public graph/tree square instead applies the durable-embedding graph projection and reports `Edge(id)`, so the two APIs do not compare a literal arc value with a literal edge value.
 
 The law report runs five gates in order and returns the first violation. GetPut is first and requires $\operatorname{put}_\ell(\operatorname{get}_\ell(s)) = s$. PutGet follows, strict on every coordinate in every contraction mode: for every $b \in A_c$ on which put succeeds, the view of $\operatorname{put}_\ell(v_b, c)$ is equivalent to $v_b$ under [L-lenses-7](#L-lenses-7). The Totality gate requires every view in $A_c$ to put without error. For each $b \in B^-$, the domain predicate evaluated at $(v_b, c)$ must return $\nu_b$, and $\operatorname{put}_\ell(v_b, c)$ must return the first violation in $\nu_b$. For each $b \in A_c$, PutTwice then requires $\operatorname{put}_\ell(v_b, \rho(c')) = s'$ for $s' = \operatorname{put}_\ell(v_b, c)$ and $(v', c') = \operatorname{get}_\ell(s')$, with $\rho$ the coherent rekeying from the index of $v'$ to that of $v_b$. Congruence is last: coherently renumbered view and complement pairs have equal domain verdicts and equivalent puts. Shapes skip what they cannot express. GetPut and WeakPutGet together do not imply PutTwice; GetPut at the once-put source together with exact PutGet does.
 
@@ -420,7 +443,7 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 ### Proof
 
 1. The report runs the gates in the stated order and returns at the first failure (definition of the checker).
-2. The checker constructs $A_c$ by retaining exactly those positive cases whose views the domain predicate admits. PutGet skips $b \in A_c$ if $\operatorname{put}_\ell(v_b, c)$ refuses, and Totality reports that refusal. For a negative basis view, Totality compares the complete ordered put-domain report with the negative certificate, then checks the violation returned by put itself against the negative certificate's first violation (definition of PutGet and Totality). Totality thus requires equality in report length and order and equality of each violation, including its variant, element coordinate and variant-specific payload, together with equality between the negative certificate's first violation and the violation returned by put itself.
+2. The checker constructs $A_c$ by retaining exactly those positive cases whose views the domain predicate admits. PutGet skips $b \in A_c$ if $\operatorname{put}_\ell(v_b, c)$ refuses, and Totality reports that refusal. For a negative basis view, both the independent certificate and the observed report use the canonical stable sort and exact-repeat removal from the head of this page. Totality compares those complete reports, then checks the violation returned by put itself against the certificate's first violation (definition of PutGet and Totality). It thus requires equality in report length and order and equality of each violation, including its variant, shape-native element coordinate and variant-specific payload. The tree checker keeps native arc provenance here; conversion to a public graph-edge coordinate belongs to the representation square, not to this equality.
 3. PutTwice not implied: on the partial lens with $\operatorname{get}(s_0) = (a, x)$, $\operatorname{get}(s_1) = (a, y)$, $\operatorname{put}(a, x) = s_0$, $\operatorname{put}(a, y) = s_1$, $\operatorname{put}(a, z) = s_0$, $\operatorname{put}(b, y) = s_1$, $\operatorname{put}(b, z) = s_0$ and $\operatorname{put}(b, x)$ undefined, GetPut holds (the first two equations); WeakPutGet holds because every defined put returns a source whose view is $a$ and $\operatorname{put}(a, \cdot)$ returns the same source on each complement where it was defined; PutTwice fails at $(b, z)$: $s' = s_0$, $\operatorname{get}(s_0) = (a, x)$ and $\operatorname{put}(b, x)$ is undefined.
 4. Implication: let $s' = \operatorname{put}(v, c)$ be defined with $\operatorname{get}(s') = (v', c')$. Exact PutGet gives $v' = v$; GetPut at $s'$ gives $\operatorname{put}(v', c') = s'$; substituting, $\operatorname{put}(v, c') = s'$, which is PutTwice.
 5. With synthesized carriers the rekeyed form follows in the same way: indexed PutGet gives equal key sets, so $\rho$ is a bijection on synthesized ids with $\operatorname{index}(v, \rho(c')) = \operatorname{index}(v)$, the states $(v, \rho(c'))$ and $(v', c')$ are coherently congruent, Congruence transports put across them, and GetPut at $s'$ identifies the result with $s'$.
@@ -438,7 +461,12 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 - File: `crates/panproto-lens/src/laws.rs`
 - File: `crates/panproto-lens/src/lens_shape.rs`
 - File: `crates/panproto-lens/src/table_shape.rs`
+- File: `crates/panproto-lens/src/asymmetric.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
 ### Mutation equivalences
@@ -471,7 +499,7 @@ The graph form and embedding are those of [L-lenses-5](#L-lenses-5); the square 
 ### Proof
 
 1. On a tree-shaped input the walk from a surviving node through dropped nodes to the next surviving node is unique, so the graph contraction stage and tree ancestor contraction choose the same pairs, labels and expansions (definition of the contraction plan on a tree).
-2. With no subtree drop and the root kept, every surviving tree node keeps its parent arc or acquires the contracted arc of step 1. The graph view is therefore the graph form of the tree view, as shown in [L-lenses-5](#L-lenses-5), step 5.
+2. With no subtree drop and the root kept, every surviving tree node keeps its parent arc or acquires the contracted arc of step 1. The graph view is thus the graph form of the tree view, as shown in [L-lenses-5](#L-lenses-5), step 5.
 3. Synthesized objects receive ids in ascending synthesis-key order from the floor on both routes (definition of allocation), so the mapped ids coincide.
 4. The two complements correspond field for field under the conversion of [L-lenses-17](#L-lenses-17), so the two puts restore the same source ([L-lenses-5](#L-lenses-5) step 5).
 
@@ -482,14 +510,19 @@ The graph form and embedding are those of [L-lenses-5](#L-lenses-5); the square 
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::{c11_tree_states, for_each_tree_validation_case}; bound: named_validation_cases=2 in the nonfan square plus 1 separate fan case; common-domain carrier: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
-- Exhaustive differential test: `graph/tree square and validation certificates; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively) or test(=tree_validation_reference_certificate)'`
-- Property differential test: `randomized graph/tree square and validation differentials; command: cargo nextest run --release -p panproto-lens --no-tests=fail -E 'test(=randomized_graph_square_differential) or test(=randomized_tree_validation_square)'`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_tree_validation_case; bound: named_validation_cases=3, schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548`
+- Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_graph_square_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
+- Validation differential test: `tree_validation_reference_certificate; command: cargo nextest run --release -p panproto-lens --test reference_tree_validation --no-tests=fail -E 'test(=tree_validation_reference_certificate)'`
+- Validation property test: `randomized_tree_validation_square; command: cargo nextest run --release -p panproto-lens --test reference_tree_validation --no-tests=fail -E 'test(=randomized_tree_validation_square)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/squares.rs`
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_tree_validation.rs`
 
@@ -560,7 +593,7 @@ None.
 
 ### Statement
 
-For a table lens whose plan compiles and a source table on which table get succeeds, the complement holds, in serialized field order: `dropped_rows`, the rows of dropped tables and the rows failing selection, each with its source table and cells; `dropped_cells`, each source column of a surviving row of which the view row holds no cell of that name, renamed columns included, with its source value; `dropped_fk_pairs`, per source edge, the pairs absent from the view; `original_fk_edges`, a view pair recorded exactly when the preimage rule of [L-lenses-4](#L-lenses-4) would not return its source edge, with more than one element exactly when the edge map merged pairs; `original_tables`, a row recorded exactly when the unique reverse vertex map would not return its source table; `original_cells`, each source column of a surviving row whose view cell of that name holds another value, with the source value; `synthesized_fk_pairs`, the contracted pairs; the row id floor; and the identity envelope. The residue is the dropped and original maps; the synthesized pairs, floor and identity are not residue; the reserved row ids are the keys of `dropped_rows`. The envelope semantically fixes the source schema, target schema, migration, functor complement shape and format version.
+For a table lens whose plan compiles and a source table on which table get succeeds, the complement holds the following entries in serialized field order. First, `dropped_rows` holds the rows of dropped tables and the rows failing selection, each with its source table and cells; `dropped_cells` holds each source column of a surviving row of which the view row holds no cell of that name, renamed columns included, with its source value; and `dropped_fk_pairs` holds, per source edge, the pairs absent from the view. Next, `original_fk_edges` holds a view pair recorded exactly when the preimage rule of [L-lenses-4](#L-lenses-4) would not return its source edge, with more than one element exactly when the edge map merged pairs; `original_tables` holds a row recorded exactly when the unique reverse vertex map would not return its source table; and `original_cells` holds each source column of a surviving row whose view cell of that name holds another value, with the source value. The final entries are `synthesized_fk_pairs` (the contracted pairs), the row id floor, and the identity envelope. The residue is the dropped and original maps; the synthesized pairs, floor and identity are not residue; the reserved row ids are the keys of `dropped_rows`. The envelope semantically fixes the source schema, target schema, migration, functor complement shape and format version.
 
 ### Outside the domain
 
@@ -582,7 +615,6 @@ Complement, identity envelope and the preimage rule are defined at the head of t
 ### Executable counterpart
 
 - Law ID: `lenses.t3`
-- Reference: `panproto_reference::table::TableComplement`
 - Reference: `panproto_reference::table::get`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_table_complement_law_case; bound: fixture_cases=9921, named_constructions=7, named_typed_refusals=9, cases=9937`
 - Exhaustive differential test: `table_complement_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_complement_law_certificate)'`
@@ -635,15 +667,18 @@ The table complement is that of [L-lenses-11](#L-lenses-11). The last writer of 
 - Reference: `panproto_reference::table::compile_for_tables`
 - Reference: `panproto_reference::table::get`
 - Reference: `panproto_reference::table::TableLens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::for_each_table_get_put_law_case; bound: projection_observations=156513, edited_writer_views=180 (including two_explicit_writer_edits=36), derived_column_edits=2, relation_pair_observations=5, named_identity_and_domain_refusals=4, cases=156704`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_table_get_put_law_case; bound: projection_observations=156513, edited_writer_views=180, two_explicit_writer_edits=36, derived_column_edits=2, relation_pair_observations=5, named_identity_and_domain_refusals=4, cases=156704`
 - Exhaustive differential test: `table_get_put_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_get_put_law_certificate)'`
 - Exact pair-domain report test: `table_pair_puts_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_pair_puts_agree_with_the_reference)'`
 - Named identity and domain refusal test: `table_put_refusals_are_typed_and_complete; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_put_refusals_are_typed_and_complete)'`
 - Property differential test: `randomized_table_get_put_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_table_get_put_law_differential)'`
 - File: `crates/panproto-lens/src/table_lens.rs`
 - File: `crates/panproto-lens/src/table_shape.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-inst/src/table_complement.rs`
 - File: `crates/panproto-reference/src/pages/lenses/table.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
 ### Mutation equivalences
@@ -856,12 +891,25 @@ Lens path and composition are defined in [L-lenses-13](#L-lenses-13). The normal
 - Property differential test: `randomized_path_fusion_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_path_fusion_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
 - File: `crates/panproto-lens/src/compose.rs`
+- File: `crates/panproto-lens/src/asymmetric.rs`
+- File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-lens/src/table_lens.rs`
+- File: `crates/panproto-lens/src/lens_shape.rs`
+- File: `crates/panproto-lens/src/table_shape.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
+- File: `crates/panproto-reference/src/pages/lenses/graph.rs`
+- File: `crates/panproto-reference/src/pages/lenses/laws.rs`
+- File: `crates/panproto-reference/src/pages/lenses/table.rs`
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 
 The bounded predicate census includes `DropF;ReadF`: composing the migrations returns `ComposeUnboundField` because the second stage reads `f` after the first drops it, so normalization retains the two atomic stages. It also includes a separate `Op` stage, which exercises op-term execution rather than treating that route as another field transform. Named witnesses exercise every graph fusion predicate, including target surjectivity, source coverage, middle validation, staged error precedence and identity extension outside the declared schema; the table certificate separately exercises protocol-context compilation. On graph and table carriers, the certificate compares every final-stage Single-Step Basis view, including declared refusals. On the tree carrier, it does the same inside the reference tree domain; outside that common domain, it compares the production normal form with an unfused production fold on get and the unedited put. The certificate runs the fold comparison on every counted path-state.
 
-The table path carrier uses C11 relational boundaries with no declared columns, so its finite-map preflight covers unknown tables and stray cells but cannot itself express literal column-map composition. The executable umbrella therefore adds four independent named constructions: a noninjective second-stage column map, protocol-dependent placeholders, required-value validation at the middle boundary and a target-only relational carrier. Each construction builds a public `LensPath`, runs its table normal form and pins the pair as two atomic groups. These witnesses put the conditions in the advertised command rather than relying on private unit-test filters.
+The table path carrier uses C11 relational boundaries with no declared columns, so its finite-map preflight covers unknown tables and stray cells but cannot itself express literal column-map composition. The executable umbrella thus adds four independent named constructions: a noninjective second-stage column map, protocol-dependent placeholders, required-value validation at the middle boundary and a target-only relational carrier. Each construction builds a public `LensPath`, runs its table normal form and pins the pair as two atomic groups. These witnesses put the conditions in the advertised command rather than relying on private unit-test filters.
 
 ### Mutation equivalences
 
@@ -880,7 +928,7 @@ None.
 
 ### Statement
 
-For a tree $W$ and a lens, consider two routes: (i) graph get and put applied to the graph form of $W$, and (ii) tree get and put applied to $W$ and mapped back through the recorded embedding. Wherever both routes lie in their exact common domain, they agree on views, complements under the field-for-field conversion, put results and errors; child order is compared separately. The round trip is exact on ids: reading the graph form of $W$ as a tree returns $W$, while taking the graph form of a tree read from a tree-shaped graph $G$ returns $G$ through the embedding.
+For a tree $W$ and a lens, consider two routes: (i) graph get and put applied to the graph form of $W$, and (ii) tree get and put applied to $W$ and mapped back through the recorded embedding. Wherever both routes lie in their exact common domain, they agree on views, complements under the field-for-field conversion, put results and errors; child order is compared separately. Error agreement is stated in public graph coordinates: the square applies the durable-embedding graph projection to the native tree report before comparing it with the graph route. This projection reports `Edge(id)` for an arc violation and applies the graph-specific minimum-edge rule for sibling order; it does not equate a raw `Arc { parent, child }` value with a raw edge value. The round trip is exact on ids: reading the graph form of $W$ as a tree returns $W$, while taking the graph form of a tree read from a tree-shaped graph $G$ returns $G$ through the embedding.
 
 ### Outside the domain
 
@@ -893,20 +941,27 @@ The graph form, the embedding and the conversion of complements are those of [L-
 ### Proof
 
 1. The graph form of a tree assigns each node its id and each arc and fan edge an id recorded in the embedding; reading the graph back as a tree inverts this assignment when the embedding represents the tree's presentation (definition of the encoding), which gives the exact round trip. A sibling reorder that retains the old arc ids is detected as a presentation-domain refusal before the square compares its routes.
-2. In the common domain, [L-lenses-9](#L-lenses-9) gives equal views and corresponding complements on the two routes, and [L-lenses-5](#L-lenses-5) step 5 gives equal puts.
-3. An error on the fast route makes dispatch rerun the graph route, so the error a caller sees is the graph route's (definition of dispatch), and the error square holds by construction.
+2. `graph_square` compares graph get and the unedited put with the tree fast route. `graph_put_square` performs the same comparison for a caller-supplied edited tree presentation and its durable embedding. In their common domain, [L-lenses-9](#L-lenses-9) gives equal views and corresponding complements on the two routes, and [L-lenses-5](#L-lenses-5) step 5 gives equal puts after the explicit arc-to-edge projection.
+3. A graph put-domain refusal is checked before dispatch enters the tree engine, so it remains the exact observable public error. If the graph precheck succeeds but the fast route refuses, dispatch reruns the graph route. If the fast route cannot preserve the edited presentation, the square rejects the input as outside its exact presentation domain. Thus the public square compares graph-coordinate results or reports the input outside its exact presentation domain; the native arc-coordinate law certificate remains the separate claim of [L-lenses-8](#L-lenses-8).
 
 ### Executable counterpart
 
 - Law ID: `lenses.fb-graph-square`
 - Reference: `panproto_reference::lens::graph_square`
 - Reference: `panproto_reference::lens::graph_put_square`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_states + panproto_reference::lens::TreeShape::single_step_basis; manifest: panproto_reference::enumerate::lenses::c11_tree_square_count_certificate; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548, edited_views=28922, observations=31470`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_tree_square_count_certificate; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_states=2548, edited_views=28922, observations=31470`
 - Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_graph_square_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
+- File: `crates/panproto-lens/src/asymmetric.rs`
+- File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/squares.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 
 ### Mutation equivalences
 
@@ -925,7 +980,16 @@ None.
 
 ### Statement
 
-For a table instance and a lens, the graph and table routes are compared only when both the graph plan and the protocol-indexed table plan compile and the lens satisfies the **table-shape criterion**: (i) no edge fate is `Expand` or `Unresolved`, no contraction expands, and no fan is retargeted; (ii) explicit edge images are injective; (iii) no vertex fibre combines an implicit self-image with another source table; (iv) every structurally inferred kept edge is also an edge of the table functor; (v) every required or to-one target edge has exactly one lift from each source table in the fibre over its holder; and (vi) the protocol-indexed cell plan is graph-neutral, with no `Drop` or `Rename` fate. On a particular source, a synthesized contracted pair must also be distinct from every direct pair with the same target coordinates. Under these conditions, the graph route (graph get and put of the graph form of the table) and the table route (table get and put, mapped back through the table embedding) give identical views, complements under the field-for-field conversion, and put results wherever both routes are in their exact common domain.
+For a table instance and a lens, the graph and table routes are compared only when both the graph plan and the protocol-indexed table plan compile and the lens satisfies the **table-shape criterion**:
+
+1. no edge fate is `Expand` or `Unresolved`, no contraction expands, and no fan is retargeted;
+2. explicit edge images are injective;
+3. no vertex fibre combines an implicit self-image with another source table;
+4. every structurally inferred kept edge is also an edge of the table functor;
+5. every required or to-one target edge has exactly one lift from each source table in the fibre over its holder; and
+6. the protocol-indexed cell plan is graph-neutral, with no `Drop` or `Rename` fate.
+
+On a particular source, a synthesized contracted pair must also be distinct from every direct pair with the same target coordinates. Under these conditions, the graph route (graph get and put of the graph form of the table) and the table route (table get and put, mapped back through the table embedding) give identical views, complements under the field-for-field conversion, and put results wherever both routes are in their exact common domain.
 
 ### Outside the domain
 
@@ -938,24 +1002,34 @@ The graph form of a table maps each row to the node with its id and each pair to
 ### Proof
 
 1. The graph form maps rows to nodes with their ids and cells to fields. It maps pairs in ascending order and records the assigned edge ids. Reading along that embedding recovers the table exactly, which proves the carrier part of the square.
-2. Under table-shape preservation, graph restriction keeps a node exactly when table restriction keeps its row and keeps an edge exactly when table restriction keeps its pair. A graph-neutral cell plan leaves every column coordinate unchanged, so cell absence and scalar values also agree. The two gets therefore produce the same view under the embedding. A column drop or rename is instead a structural table operation with no protocol-free graph counterpart, which is why condition (vi) excludes it.
+2. Under table-shape preservation, graph restriction keeps a node exactly when table restriction keeps its row and keeps an edge exactly when table restriction keeps its pair. A graph-neutral cell plan leaves every column coordinate unchanged, so cell absence and scalar values also agree. The two gets thus produce the same view under the embedding. A column drop or rename is instead a structural table operation with no protocol-free graph counterpart, which is why condition 6 excludes it.
 3. Each residue coordinate has the same source witness on both routes. Dropped rows correspond to dropped nodes, dropped pairs to dropped edges, original tables to original anchors, dropped and original cells to graph fields, and synthesized pairs to synthesized edges. The identity envelope and id floors are preserved by the conversion. Thus [L-lenses-11](#L-lenses-11) gives equal complements coordinate by coordinate.
-4. Put first checks those equal envelopes and domains. It then restores rows and nodes, cells and fields, and pairs and edges from corresponding residue coordinates; a changed target cell uses the same last-writer preimage on both routes by [L-lenses-12](#L-lenses-12). Insertions, deletions and relation edits therefore produce the same source, while a reserved row id produces the corresponding `IdCollision` on both routes.
+4. Put first checks those equal envelopes and domains. It then restores rows and nodes, cells and fields, and pairs and edges from corresponding residue coordinates; a changed target cell uses the same last-writer preimage on both routes by [L-lenses-12](#L-lenses-12). Insertions, deletions and relation edits thus produce the same source, while a reserved row id produces the corresponding `IdCollision` on both routes.
 5. The independent finite certificate represents rows, cells and relation pairs directly rather than calling either lens engine. For each table, it chooses a subset of two row ids; for each present row, it chooses an absent cell, zero or one; and it chooses every subset of the possible relation pairs. The closed form is $\sum_{a=0}^{2}\sum_{b=0}^{2}\binom{2}{a}\binom{2}{b}3^{a+b}2^{ab}=1{,}831$ source states. Across five migrations this gives 9,155 migration-state pairs. For identity, relation projection and table projection, the edit basis changes each visible cell, row and relation coordinate once, inserts one fresh row into each target table, and attempts every reserved-id collision after table projection. For column rename and column projection, it proves the exact-domain boundary by requiring a decline on all 1,831 states apiece. Exact assertions pin 61,126 observations, with per-migration counts $[24{,}957, 1{,}831, 1{,}831, 18{,}837, 13{,}670]$.
 
 ### Executable counterpart
 
 - Law ID: `lenses.fb-table-square`
+- Reference: `panproto_reference::lens::table_square`
+- Reference: `panproto_reference::lens::table_put_square`
 - Reference: `panproto_reference::lens::relational_table_get`
 - Reference: `panproto_reference::lens::relational_table_put`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_relational_table_source; bound: tables=2, row_ids_per_table=2, scalar_cell_states=3, relations=1, source_states=1831, migrations=5, migration_states=9155`
-- Exhaustive differential test: `graph_and_table_routes_commute_on_the_independent_relational_carrier; bound: observations=61126, per_migration=[24957,1831,1831,18837,13670]; command: cargo nextest run --release -p panproto-lens --test reference_table_square_relational --no-tests=fail -E 'test(=graph_and_table_routes_commute_on_the_independent_relational_carrier)'`
+- Exhaustive differential test: `graph_and_table_routes_commute_on_the_independent_relational_carrier; command: cargo nextest run --release -p panproto-lens --test reference_table_square_relational --no-tests=fail -E 'test(=graph_and_table_routes_commute_on_the_independent_relational_carrier)'`
+- Fixture-square differential test: `table_square_agrees_with_the_reference_on_the_fixture_scope; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=table_square_agrees_with_the_reference_on_the_fixture_scope)'`
 - Property differential test: `randomized_relational_table_square_differential; command: cargo nextest run --release -p panproto-lens --test reference_table_square_relational --no-tests=fail -E 'test(=randomized_relational_table_square_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
 - File: `crates/panproto-lens/src/table_lens.rs`
+- File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/error_detail.rs`
+- File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-lens/tests/reference_table_square_relational.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/src/pages/lenses/squares.rs`
 - File: `crates/panproto-reference/src/pages/lenses/lens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/domain.rs`
+- File: `crates/panproto-reference/src/pages/lenses/graph.rs`
+- File: `crates/panproto-reference/src/pages/lenses/table.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
 ### Mutation equivalences
@@ -989,14 +1063,14 @@ A protolens is a schema-indexed family of lenses given by a precondition and a c
 
 1. Production's `instantiate_checked` and the reference schema-instantiation operation evaluate the precondition on $S$ and return the refusal when it does not hold, without evaluating either transform or constructing the migration (definition). The false-precondition witness registers counting, rejecting drivers for both transforms; both counters remain zero, while production retains the two failed clauses in their declared order and the reference retains the ordered conjunction. Production's lower-level `instantiate` remains available only for callers that have already discharged this precondition.
 2. Otherwise it computes $F(S)$ and $G(S)$, constructs the migration between them, and binds the three as a lens (definition). In the four elementary cases of the executable certificate, $F$ is the identity, so the lens source is $S$.
-3. Compiling the plan of that lens is the plan compilation of [L-lenses-3](#L-lenses-3) step 1, which either succeeds or refuses. The plan-refusal witness starts with one direct source edge and uses a public enrichment transform to replace it with a path through 65,536 fresh intermediate vertices. Both compilers therefore calculate 65,537 hops and return `ExpansionTooLong` with the same endpoints and count.
+3. Compiling the plan of that lens is the plan compilation of [L-lenses-3](#L-lenses-3) step 1, which either succeeds or refuses. The plan-refusal witness starts with one direct source edge and uses a public enrichment transform to replace it with a path through 65,536 fresh intermediate vertices. Both compilers thus calculate 65,537 hops and return `ExpansionTooLong` with the same endpoints and count.
 4. The executable oracle constructs each bounded reference target and migration from the elementary operation itself, without reading production's applicability verdict, target schema or compiled migration. On success, the differential compares the schemas exactly and the migrations by their exact observable semantics, quotienting only a resolver entry that repeats the unique direct target edge. The two boundary witnesses compare the refusal categories, clause order, transform-call counts and normalized plan-error payloads exactly.
 
 ### Executable counterpart
 
 - Law ID: `lenses.protolens-schema-transform`
 - Reference: `panproto_reference::lens::protolens_schema`
-- Enumerator: `panproto_reference::enumerate::lenses::for_each_protolens_schema_case; bound: cases=66, elementary cases=64, refusal witnesses=2, failed precondition clauses=2, expansion intermediates=65536, expansion hops=65537`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_protolens_schema_case; bound: cases=66, elementary_cases=64, refusal_witnesses=2, failed_precondition_clauses=2, expansion_intermediates=65536, expansion_hops=65537`
 - Exhaustive differential test: `protolens_transforms_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=protolens_transforms_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_protolens_schema_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_protolens_schema_differential)'`
 - File: `crates/panproto-lens/src/protolens.rs`
@@ -1041,9 +1115,9 @@ Protolens and instantiation are those of [L-lenses-19](#L-lenses-19); get and th
 
 - Law ID: `lenses.protolens-instance-transform`
 - Reference: `panproto_reference::lens::protolens_instance`
-- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, protolenses=4, nodes=3, edges=3, graph_states=116208, protolens-state cases=464832`
+- Enumerator: `panproto_reference::enumerate::lenses::c11_graph_states; bound: schemas=16, protolenses=4, nodes=3, edges=3, graph_states=116208, protolens_state_cases=464832`
 - Exhaustive differential test: `protolens_transforms_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=protolens_transforms_agree_with_the_reference_exhaustively)'`
-- Property differential test: `randomized_protolens_instance_differential; 256 generated schema/state coordinates, with all four elementary protolens families checked at every coordinate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_protolens_instance_differential)'`
+- Property differential test: `randomized_protolens_instance_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_protolens_instance_differential)'`
 - File: `crates/panproto-lens/src/protolens.rs`
 - File: `crates/panproto-lens/src/graph_protolens.rs`
 - File: `crates/panproto-lens/src/table_protolens.rs`

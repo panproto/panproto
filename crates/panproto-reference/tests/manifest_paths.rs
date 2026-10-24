@@ -56,19 +56,19 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
             counts[index] += 1;
             counts
         });
-    assert_eq!(status_counts, [8, 4, 21]);
+    assert_eq!(status_counts, [9, 3, 21]);
 
     let laws: Vec<_> = manifest
         .pages
         .values()
         .flat_map(|page| &page.laws)
         .collect();
-    assert_eq!(laws.len(), 206);
+    assert_eq!(laws.len(), 205);
     assert_eq!(
         laws.iter()
             .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Phase3)
             .count(),
-        192
+        191
     );
     assert_eq!(
         laws.iter()
@@ -78,7 +78,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        322
+        331
     );
 
     for page in manifest.pages.values().filter(|page| {
@@ -106,8 +106,15 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .flat_map(|law| &law.references)
         .cloned()
         .collect();
-    assert_eq!(partial_laws.len(), 58);
-    assert_eq!(partial_paths.len(), 45);
+    assert_eq!(partial_laws.len(), 38);
+    assert_eq!(
+        partial_laws
+            .iter()
+            .map(|law| law.references.len())
+            .sum::<usize>(),
+        65,
+    );
+    assert_eq!(partial_paths.len(), 27);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -117,9 +124,109 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 183);
-    assert_eq!(documented.len(), 183);
+    assert_eq!(expected.len(), 192);
+    assert_eq!(documented.len(), 192);
     assert_eq!(documented, expected);
+}
+
+#[test]
+fn lenses_law_to_public_path_incidences_are_exact() {
+    let manifest_text = std::fs::read_to_string(
+        repository_root().join("notes/graph-parity/records/correctness_manifest.json"),
+    )
+    .unwrap();
+    let manifest = panproto_reference::manifest::load(&manifest_text).unwrap();
+    let page = &manifest.pages["lenses"];
+    let expected = [
+        (
+            "lenses.l5",
+            vec![
+                "panproto_reference::lens::GraphLens::check_put_domain".to_owned(),
+                "panproto_reference::lens::GraphLens::put".to_owned(),
+                "panproto_reference::lens::get".to_owned(),
+                "panproto_reference::lens::put".to_owned(),
+                "panproto_reference::lens::tree_get".to_owned(),
+                "panproto_reference::lens::tree_put".to_owned(),
+            ],
+        ),
+        (
+            "lenses.l6",
+            vec!["panproto_reference::lens::compose_complement".to_owned()],
+        ),
+        (
+            "lenses.t3",
+            vec!["panproto_reference::table::get".to_owned()],
+        ),
+        (
+            "lenses.path-left-identity",
+            vec![
+                "panproto_reference::path::LensPath::then".to_owned(),
+                "panproto_reference::path::get_path".to_owned(),
+                "panproto_reference::path::put_path".to_owned(),
+            ],
+        ),
+        (
+            "lenses.path-right-identity",
+            vec![
+                "panproto_reference::path::LensPath::then".to_owned(),
+                "panproto_reference::path::get_path".to_owned(),
+                "panproto_reference::path::put_path".to_owned(),
+            ],
+        ),
+        (
+            "lenses.path-associativity",
+            vec![
+                "panproto_reference::path::LensPath::then".to_owned(),
+                "panproto_reference::path::get_path".to_owned(),
+                "panproto_reference::path::put_path".to_owned(),
+            ],
+        ),
+        (
+            "lenses.fusion-soundness",
+            vec![
+                "panproto_reference::path::get_path".to_owned(),
+                "panproto_reference::path::put_path".to_owned(),
+                "panproto_reference::lens::TreeShape::get".to_owned(),
+                "panproto_reference::lens::TreeShape::put".to_owned(),
+                "panproto_reference::lens::TableShape::get".to_owned(),
+                "panproto_reference::lens::TableShape::put".to_owned(),
+            ],
+        ),
+        (
+            "lenses.fb-graph-square",
+            vec![
+                "panproto_reference::lens::graph_square".to_owned(),
+                "panproto_reference::lens::graph_put_square".to_owned(),
+            ],
+        ),
+        (
+            "lenses.fb-table-square",
+            vec![
+                "panproto_reference::lens::table_square".to_owned(),
+                "panproto_reference::lens::table_put_square".to_owned(),
+                "panproto_reference::lens::relational_table_get".to_owned(),
+                "panproto_reference::lens::relational_table_put".to_owned(),
+            ],
+        ),
+    ];
+    for (id, references) in expected {
+        let law = page.laws.iter().find(|law| law.id == id).unwrap();
+        assert_eq!(law.references, references, "unexpected references for {id}");
+    }
+    assert_eq!(page.laws.len(), 20);
+    assert_eq!(
+        page.laws
+            .iter()
+            .map(|law| law.references.len())
+            .sum::<usize>(),
+        67,
+    );
+    let unique_paths = page
+        .laws
+        .iter()
+        .flat_map(|law| &law.references)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unique_paths.len(), 26);
 }
 
 #[test]

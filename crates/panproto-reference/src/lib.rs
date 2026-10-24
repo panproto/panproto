@@ -38,9 +38,11 @@
 //! | The fan domain | [`fan::violations_at`] | `representation.md` |
 //! | Get and put of the graph lens | [`restrict::get`], [`lens::GraphLens::put`] | `lenses.md` |
 //! | The graph put domain | [`lens::GraphLens::check_put_domain`] | `lenses.md` |
-//! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`], [`table::TableComplement`] | `lenses.md` |
+//! | Complement composition | [`lens::compose_complement`] | `lenses.md` |
+//! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`] | `lenses.md` |
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |
 //! | Get and put of the tree lens | [`lens::tree_get`], [`lens::tree_put`] | `lenses.md` |
+//! | Shape-specific path folds | [`lens::TreeShape::get`], [`lens::TreeShape::put`], [`lens::TableShape::get`], [`lens::TableShape::put`] | `lenses.md` |
 //! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`] | `resolution.md` |
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |
 //! | The edit algebra: invert, compose | [`edit::Delta::invert`], [`edit::Delta::compose`] | `edits.md` |
@@ -61,7 +63,7 @@
 //! | Coercion of a lexeme under a declared kind | [`coerce::coerce`] | `values.md` |
 //! | Coercion of a value | [`coerce::coerce_value`] | `values.md` |
 //! | Discriminator and numeral-dialect coercion | [`coerce::coerce_tagged`], [`coerce::coerce_dialect`] | `values.md` |
-//! | Exact decimals and integers, the GDA total order | [`exact::DecimalValue::cmp_numeric`], [`exact::Decimal::compare_total`] | `values.md` |
+//! | Exact decimals and integers, the GDA total order | [`exact::DecimalValue::cmp_numeric`], [`exact::Decimal::cmp_numeric`], [`exact::Decimal::compare_total`] | `values.md` |
 //! | Temporal parsing, order and epoch counts | [`temporal::parse_display`], [`temporal::display_parse`], [`temporal::cmp_chronological`], [`temporal::from_epoch_count`], [`temporal::to_epoch_count`] | `values.md` |
 //! | Byte-text mappings | [`bytes::latin1_encode`], [`bytes::latin1_decode`], [`bytes::encode_base64`], [`bytes::decode_base64`] | `values.md` |
 //! | Declared key equality and sort order | [`keys::key_equivalence`], [`keys::sort_order`], [`keys::key_order`] | `keys-and-registration.md` |
@@ -69,14 +71,15 @@
 //! | URI, standoff and rebinding references | [`resolution::rfc3986`], [`resolution::standoff_form`], [`resolution::standoff_inverse`], [`resolution::nearest_preceding`] | `resolution.md` |
 //! | Bounded XML expansion and tabular edge cases | [`xml::expand_entities`], [`tabular::missing_token_cst`], [`tabular::one_column_empty_cst`], [`tabular::tsv_quote_cst`] | `value-io.md` |
 //! | Canonical and preserving value-I/O laws | [`value_io::round_trip`], [`value_io::preserve`], [`value_io::duplicate_member`] | `value-io.md` |
-//! | Injectivity witnesses of the canonical byte encoders | [`canonical::decode_value`], [`canonical::decode_graph`], [`canonical::decode_table`], [`canonical::decode_tree`] | `representation.md` |
+//! | Injectivity witnesses of the canonical byte encoders | [`canonical::decode_value`], [`canonical::value_bytes`], [`canonical::decode_graph`], [`canonical::decode_table`], [`canonical::decode_tree`] | `representation.md` |
 //! | Decimal bytes and the exact identity-envelope layout | [`canonical::decimal_bytes`], [`canonical::identity`] | `values.md`, `representation.md` |
-//! | Binary16, nearest/exact readings and computed NaNs | [`float::binary16`], [`float::nearest_reading`], [`float::exact_reading`], [`float::computed_nan`] | `values.md` |
+//! | Binary16, exact readings and computed NaNs | [`float::binary16`], [`float::exact_reading`], [`float::computed_nan`] | `values.md` |
 //! | Byte-text round-trip predicates | [`bytes::latin1_decode_encode`], [`bytes::latin1_encode_decode`], [`bytes::padded_bytes_decode_encode`], [`bytes::padded_text_encode_decode`], [`bytes::optional`] | `values.md` |
 //! | Temporal canonical bytes and unwritten zero offsets | [`temporal::canonical_bytes`], [`temporal::unwritten_zulu`] | `values.md` |
 //! | Representation equality and expression evaluation | [`value::representation`], [`value::eval`] | `values.md` |
 //! | Reification and tree edit application | [`encode::reify`], [`edit::apply_tree`] | `representation.md`, `edits.md` |
-//! | Protolens operations and observable squares | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`], [`lens::graph_square`], [`lens::table_square`] | `lenses.md` |
+//! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
+//! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
 //! | Declared equality, refinement, target sets and lexical boundaries | [`keys::representation_refines`], [`keys::target_set`], [`keys::index_and_null_match`], [`keys::lexical_space`], [`keys::annotated_format`], [`keys::xml_noncdata`] | `keys-and-registration.md` |
 //! | Theory morphisms, quotients and recomposition | [`theory::check_morphism`], [`theory::quotient`], [`theory::recompose`] | `theories.md` |
