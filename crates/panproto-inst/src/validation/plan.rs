@@ -1052,6 +1052,22 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Record an incomplete dependent without also failing a static check.
+    fn dependent_finding(
+        &mut self,
+        key: &CheckKey,
+        reason: &super::report::IncompleteReason,
+    ) {
+        let spec = self.checks.get(key);
+        self.findings.push(IncompleteCheck {
+            class: spec.map_or_else(|| key.kind.class(), |s| s.class),
+            check: key.clone(),
+            requirement: spec.map_or(Requirement::Required, |s| s.requirement),
+            subject: None,
+            reason: reason.clone(),
+        });
+    }
+
     fn ill_formed(&mut self, detail: String, dependents: &[CheckKey]) {
         self.finding(
             CheckKind::DeclarationInterpretable,
@@ -1281,6 +1297,14 @@ impl Builder<'_> {
             ),
             Ok(None) => {}
             Err(reason) => {
+                let absent_lexical_selector = matches!(
+                    &semantics,
+                    ConstraintSemantics::LexicalSpace
+                )
+                    && matches!(
+                        &reason,
+                        super::report::IncompleteReason::UnsupportedDeclaration { .. }
+                    );
                 self.add_on(
                     key.clone(),
                     Compiled::Structural,
@@ -1289,14 +1313,18 @@ impl Builder<'_> {
                     &ALL_SHAPES,
                     default,
                 );
-                self.finding(CheckKind::DeclarationInterpretable, &reason, &[key]);
+                if absent_lexical_selector {
+                    self.dependent_finding(&key, &reason);
+                } else {
+                    self.finding(CheckKind::DeclarationInterpretable, &reason, &[key]);
+                }
             }
         }
     }
 
     /// The compiled form of one constraint whose value reads under its
     /// meaning: `Ok(None)` when it compiles to no check, `Err` with the
-    /// static finding when it cannot be evaluated.
+    /// incomplete reason when it cannot be evaluated.
     #[allow(clippy::too_many_lines)]
     fn compile_constraint(
         &self,
