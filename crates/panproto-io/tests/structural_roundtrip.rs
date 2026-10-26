@@ -41,7 +41,7 @@ fn open_schema(name: &str) -> Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -304,7 +304,7 @@ json_structural!(
 
 fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
     let reg = registry();
-    if reg.native_repr(protocol).expect("known protocol") != NativeRepr::Functor {
+    if reg.native_repr(protocol).expect("known protocol") != NativeRepr::Table {
         return;
     }
     let proto = Protocol {
@@ -314,10 +314,13 @@ fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
+    // The schema declares the table the rows are read into: a codec whose
+    // configured table is not a vertex of the schema refuses to anchor rows
+    // outside it.
     let schema = SchemaBuilder::new(&proto)
-        .vertex("table", "table", None)
+        .vertex(table, "table", None)
         .expect("table vertex")
         .build()
         .expect("build schema");
@@ -330,11 +333,10 @@ fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
     let inst2 = reg
         .parse_functor(protocol, &schema, &emitted)
         .unwrap_or_else(|e| panic!("{protocol}: re-parse_functor failed: {e}"));
-    let rows1 = inst.tables.get(table).expect("table missing in original");
-    let rows2 = inst2
-        .tables
-        .get(table)
-        .expect("table missing after round-trip");
+    assert!(inst.has_table(table), "table missing in original");
+    assert!(inst2.has_table(table), "table missing after round-trip");
+    let rows1 = inst.rows(table);
+    let rows2 = inst2.rows(table);
     assert_eq!(rows1.len(), rows2.len(), "{protocol}: row count diverged");
     for (i, (a, b)) in rows1.iter().zip(rows2.iter()).enumerate() {
         assert_eq!(a, b, "{protocol}: row {i} content diverged");

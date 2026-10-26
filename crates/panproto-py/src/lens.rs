@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 
 use panproto_core::gat::Name;
 use panproto_core::inst::FieldTransform;
-use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
+use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, LensPath, Stringency};
 
 /// Parse a Python-side stringency string into the engine [`Stringency`].
 ///
@@ -150,8 +150,15 @@ impl PyLens {
     }
 
     /// Compose this lens with another: ``self ; other``.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If the boundary schemas differ, or the composite has more than
+    ///     one normal-form group, which no single ``Lens`` can hold.
     fn compose(&self, other: &Self) -> PyResult<Self> {
         let composed = lens::compose(&self.inner, &other.inner)
+            .and_then(LensPath::into_single)
             .map_err(|e| crate::error::LensError::new_err(format!("compose failed: {e}")))?;
         Ok(Self {
             inner: Arc::new(composed),
@@ -464,12 +471,22 @@ impl PyProtolensChain {
     }
 
     /// Instantiate against a concrete schema to produce a ``Lens``.
+    ///
+    /// The stages are instantiated in order, each against the target
+    /// schema of the one before, and the resulting path is returned as one
+    /// lens.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If a stage does not instantiate, or the path has more than one
+    ///     normal-form group, which no single ``Lens`` can hold.
     fn instantiate(&self, schema: &PySchema, protocol: &PyProtocol) -> PyResult<PyLens> {
-        let mut lens_obj: Option<Lens> = None;
+        let mut lens_path: Option<LensPath> = None;
         for stage in self.stages.iter() {
-            let running_schema = lens_obj
+            let running_schema = lens_path
                 .as_ref()
-                .map_or_else(|| schema.inner.as_ref(), |lens| &lens.tgt_schema);
+                .map_or_else(|| schema.inner.as_ref(), LensPath::tgt_schema);
             let mut stage_lens = stage
                 .chain
                 .instantiate(running_schema, &protocol.inner)
@@ -480,21 +497,18 @@ impl PyProtolensChain {
                 &mut stage_lens.compiled.field_transforms,
                 &stage.field_transforms,
             );
-            lens_obj = Some(match lens_obj {
-                Some(accumulated) => lens::compose(&accumulated, &stage_lens).map_err(|e| {
+            let stage_path = LensPath::single(stage_lens);
+            lens_path = Some(match lens_path {
+                Some(accumulated) => accumulated.then(&stage_path).map_err(|e| {
                     crate::error::LensError::new_err(format!("instantiate failed: {e}"))
                 })?,
-                None => stage_lens,
+                None => stage_path,
             });
         }
-        let lens_obj = match lens_obj {
-            Some(lens) => lens,
-            None => lens::ProtolensChain::new(Vec::new())
-                .instantiate(&schema.inner, &protocol.inner)
-                .map_err(|e| {
-                    crate::error::LensError::new_err(format!("instantiate failed: {e}"))
-                })?,
-        };
+        let lens_obj = lens_path
+            .unwrap_or_else(|| LensPath::identity(&schema.inner))
+            .into_single()
+            .map_err(|e| crate::error::LensError::new_err(format!("instantiate failed: {e}")))?;
         Ok(PyLens {
             inner: Arc::new(lens_obj),
         })

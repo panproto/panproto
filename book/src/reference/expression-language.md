@@ -55,7 +55,7 @@ Type inference is best effort. Application, field access, and indexing generally
 | Utility | `DefaultVal`, `Clamp`, `TruncateStr` | `DefaultVal` substitutes only for null. |
 | Coercion | `IntToFloat`, `FloatToInt`, `IntToStr`, `FloatToStr`, `StrToInt`, `StrToFloat` | String parses can return `ParseError`. `FloatToInt` can return `FloatNotRepresentable`. |
 | Inspection | `TypeOf`, `IsNull`, `IsList` | Inspect runtime values. |
-| Instance traversal | `Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor` | The pure evaluator returns `NoInstanceContext`. Use [`eval_with_instance`](https://docs.rs/panproto-inst/latest/panproto_inst/instance_env/fn.eval_with_instance.html), `eval_with_element_ops`, or another `BuiltinResolver` to supply graph context. |
+| Instance traversal | `Edge`, `Edges`, `Children`, `HasEdge`, `EdgeCount`, `Anchor` | The pure evaluator returns `NoInstanceContext`. Use [`eval_with_instance`](https://docs.rs/panproto-inst/latest/panproto_inst/instance_env/fn.eval_with_instance.html), `eval_with_element_ops`, or another `BuiltinResolver` to supply graph context. |
 
 ## Evaluation errors
 

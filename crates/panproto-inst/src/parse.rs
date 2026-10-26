@@ -62,12 +62,18 @@ pub fn parse_json(
 
     walk_json(schema, root_vertex, json_val, root_id, &mut state, "$")?;
 
+    // The root may resolve through a transparent indirection to another
+    // vertex; the schema root is the vertex the root node is anchored to.
+    let schema_root = state.nodes.get(&root_id).map_or_else(
+        || panproto_gat::Name::from(root_vertex),
+        |node| node.anchor.clone(),
+    );
     Ok(WInstance::new(
         state.nodes,
         state.arcs,
         Vec::new(),
         root_id,
-        panproto_gat::Name::from(root_vertex),
+        schema_root,
     ))
 }
 
@@ -213,7 +219,9 @@ fn parse_array(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    let node = Node::new(node_id, vertex_id);
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
     state.nodes.insert(node_id, node);
 
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
@@ -419,6 +427,13 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         // chase; render it with its identity so it stays distinguishable
         // from a concrete null.
         Value::LabeledNull(id) => json!({ "$labeledNull": id }),
+        // A JSON number in `serde_json::Value` is an `i64`, `u64` or
+        // `f64`, which cannot hold every exact value, so the exact values
+        // are written as their lexical form: the decimal with its scale,
+        // the integer's digits, the date or time in RFC 3339.
+        Value::Decimal(d) => json!(d.to_string()),
+        Value::BigInt(b) => json!(b.to_string()),
+        Value::Temporal(t) => json!(t.to_string()),
     }
 }
 
@@ -584,6 +599,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -657,7 +673,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -700,7 +716,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), list_vertex_kind.into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -806,6 +822,22 @@ mod tests {
     }
 
     #[test]
+    fn value_to_json_writes_exact_values_as_their_lexical_form() {
+        use crate::value::{BigIntValue, DecimalValue, Temporal};
+        let decimal = Value::Decimal(DecimalValue::parse("1.50").unwrap());
+        let big = Value::integer(BigIntValue::parse("18446744073709551615").unwrap());
+        let when = Value::Temporal(Temporal::parse("2026-09-28T12:34:56.789+05:30").unwrap());
+        assert_eq!(
+            value_to_json(&Value::List(vec![decimal, big, when])),
+            json!([
+                "1.50",
+                "18446744073709551615",
+                "2026-09-28T12:34:56.789+05:30"
+            ])
+        );
+    }
+
+    #[test]
     fn value_json_round_trip_is_faithful_for_arrays() {
         // The composition value_to_json ∘ json_value_to_value should be
         // the identity on the JSON subalgebra (up to the Int/Float
@@ -884,7 +916,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "field".into(), "long".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("event", "record", Some("Event"))

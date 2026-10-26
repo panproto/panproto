@@ -1,0 +1,583 @@
+{
+  "contexts": {
+    "graph_instance": "panproto 2026-09 graph instance v1",
+    "lens": "panproto 2026-09 compiled lens identity v1",
+    "schema": "panproto 2026-09 schema identity v2",
+    "vcs_graph_complement": "panproto 2026-09 vcs graph_complement v1",
+    "vcs_graph_dataset": "panproto 2026-09 vcs graph_dataset v1",
+    "vcs_graph_edit_log": "panproto 2026-09 vcs graph_editlog v1"
+  },
+  "envelope_version": 2,
+  "schemas": [
+    {
+      "name": "atproto/app.bsky.actor.profile",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/app.bsky.actor.profile.json",
+      "digest": "455ea7c3d9d55ae80bc15fd4e6fa2f26bd3860faf96387877b007138aa5a74b6"
+    },
+    {
+      "name": "atproto/app.bsky.feed.like",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/app.bsky.feed.like.json",
+      "digest": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b"
+    },
+    {
+      "name": "atproto/app.bsky.feed.post",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/app.bsky.feed.post.json",
+      "digest": "41103b03f0d15a3aef13e107e1129d4aa88ef2db97188fb196905c19c5d23bc9"
+    },
+    {
+      "name": "atproto/app.bsky.feed.repost",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/app.bsky.feed.repost.json",
+      "digest": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2"
+    },
+    {
+      "name": "atproto/app.bsky.graph.follow",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/app.bsky.graph.follow.json",
+      "digest": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3"
+    },
+    {
+      "name": "atproto/com.atproto.repo.createRecord",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/com.atproto.repo.createRecord.json",
+      "digest": "ba9fe9381e746da737b5efdef418b3d8bac47e82798f9de8a5fe6617011888c2"
+    },
+    {
+      "name": "atproto/site.standard.document",
+      "protocol": "atproto",
+      "source": "fixtures/atproto/lexicons/site.standard.document.json",
+      "digest": "9420c16bfaf1d2f50a8ac207b50270fef55db7eb4e4c4bf4056c6b914f709809"
+    },
+    {
+      "name": "atproto-tests/app.bsky.actor.profile",
+      "protocol": "atproto",
+      "source": "tests/fixtures/atproto/app.bsky.actor.profile.json",
+      "digest": "21d5b5c9987cef4816c84c51e241a746cfb87c91b1044ad09089728712450891"
+    },
+    {
+      "name": "atproto-tests/app.bsky.feed.post",
+      "protocol": "atproto",
+      "source": "tests/fixtures/atproto/app.bsky.feed.post.json",
+      "digest": "3d473928cd9ef9a7525821b1d26027bbe81e971aa82fd9ec0c0c35d8dd4302db"
+    },
+    {
+      "name": "graphql/swapi",
+      "protocol": "graphql",
+      "source": "fixtures/graphql/swapi.graphql",
+      "digest": "7141720e3a5cf89eb6af6556562511a548e26e7bf1dab434d4ba31c56f44281a"
+    },
+    {
+      "name": "jsonschema/github-workflow",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/github-workflow.json",
+      "digest": "3b7b0067fe71f36934482a6861b6e0f2deb1df8d7fd5ad05e9127e9b62c087c8"
+    },
+    {
+      "name": "jsonschema/package",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/package.json",
+      "digest": "2e7cdf894b2446d481ddb712a91ee8ff50f538af8bfb324223d90c4c663e7cae"
+    },
+    {
+      "name": "jsonschema/tsconfig",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/tsconfig.json",
+      "digest": "acb8af73dfee55ebc59c652d4bca27aadbd6cb66e7aa395f0d6ad4b02a7775da"
+    },
+    {
+      "name": "protobuf/common",
+      "protocol": "protobuf",
+      "source": "fixtures/protobuf/common.proto",
+      "digest": "717ead34be701df934b8311a304703cf267933a1c6d6f546ce9cef6e596e269c"
+    },
+    {
+      "name": "protobuf/descriptor",
+      "protocol": "protobuf",
+      "source": "fixtures/protobuf/descriptor.proto",
+      "digest": "36c983eec34c6dd3a7b1a969d8d97f9aedc73d2f6ed0d05a967496efb9372b98"
+    },
+    {
+      "name": "protobuf/resource",
+      "protocol": "protobuf",
+      "source": "fixtures/protobuf/resource.proto",
+      "digest": "21bc7743f2f23f598ee798cf1f96ffad765373e902da307bd92f95120b1262a5"
+    },
+    {
+      "name": "protobuf/trace",
+      "protocol": "protobuf",
+      "source": "fixtures/protobuf/trace.proto",
+      "digest": "2362e4f91d1bb3ce3b7dfbf75d9cd0576655fa22efc67ef77cbc762f5fc1f62b"
+    },
+    {
+      "name": "sql/sakila-postgres",
+      "protocol": "sql",
+      "source": "fixtures/sql/sakila-postgres.sql",
+      "digest": "abef2d4037749815a491128f0634a41e565a62cdbec47cf4727e9ab64d003f22"
+    },
+    {
+      "name": "sql/sakila-sqlite",
+      "protocol": "sql",
+      "source": "fixtures/sql/sakila-sqlite.sql",
+      "digest": "bcece7515010757e585885612d9a4ac078abe8c217bc551acd41767c8c31474e"
+    },
+    {
+      "name": "sql-tests/users",
+      "protocol": "sql",
+      "source": "tests/fixtures/sql/users.sql",
+      "digest": "29c4c2dd13c8a0568aee97cac34b73938bbf194b92182935e537903c065b1f7e"
+    },
+    {
+      "name": "sql-tests/users_posts",
+      "protocol": "sql",
+      "source": "tests/fixtures/sql/users_posts.sql",
+      "digest": "5704342411e7722fd488bfb542a1992978efac9cb13167a090b0c576f7092338"
+    }
+  ],
+  "lenses": [
+    {
+      "name": "complement_upgrade/contract",
+      "kind": "migration",
+      "case": "tests/fixtures/complement_upgrade/contract",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "63e666555ca92425b53db763a6f2af7b58037d56f1f4dac6f5b74062795ea987",
+        "target_schema": "3a09686f05099d8e7753ada92b4a1e49d6030bf1f4be9a4e6f0234aea7c7ebcb",
+        "lens": "021ab3a417387cd111fb17dd5c2abd63d80c1af21a9739831963c209a83c2265",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "complement_upgrade/drop_field",
+      "kind": "migration",
+      "case": "tests/fixtures/complement_upgrade/drop_field",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "55402d6bd33df7f0d496a60934fcc2a4aa8fad56c7088b4be0651e3fac49b596",
+        "target_schema": "ff562082bf69961e63ed8c4fac24ac34d5070794cf37f243ded9af1ccd07e384",
+        "lens": "837e2fe796e239231cbf7cccd130d7a387f92b9bb6bc5bd197386b485ca25001",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "complement_upgrade/ordered_list",
+      "kind": "migration",
+      "case": "tests/fixtures/complement_upgrade/ordered_list",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "099468b404c36f1396cb9fb065852078834255e8446c165ae6a9ad8e423d7d4d",
+        "target_schema": "c45197ed7827a46aad24151eb6a3c084dd5a5438479358776dbddab1910f287d",
+        "lens": "a3df0500eaa9a5953ecbc7639f1afa28fb4fd4a64a68744fe17b322ebc289a50",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "complement_upgrade/rename_vertex",
+      "kind": "migration",
+      "case": "tests/fixtures/complement_upgrade/rename_vertex",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "ff562082bf69961e63ed8c4fac24ac34d5070794cf37f243ded9af1ccd07e384",
+        "target_schema": "e26aa16ff59567326afafa1e2344cd610628542d0a8f5763f68ced49ee1b090a",
+        "lens": "8d5218031cb1b52fdebce67d0153e053314296d2cc5731ae18224d9a42559024",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-repost",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/app.bsky.feed.repost",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "target_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "lens": "d114e891315cf7d49847b4a7e4dd95b88cbe4fd8dba0a93d61c39d2379de19d2",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-like",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/app.bsky.feed.like",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "target_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "lens": "5436e8a2c8e577466ea5634cfc41d55b0bbe8e44966b702976a69153e3ad88b3",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-follow",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/app.bsky.graph.follow",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "target_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "lens": "d114e891315cf7d49847b4a7e4dd95b88cbe4fd8dba0a93d61c39d2379de19d2",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/profile-tests-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto-tests/app.bsky.actor.profile",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "21d5b5c9987cef4816c84c51e241a746cfb87c91b1044ad09089728712450891",
+        "target_schema": "3214ecbc5b777caa3eab5e2fbb1c5b80d188fb3f425aef39f97c53a08d1d21ba",
+        "lens": "db92a69be9e4feb95f5368115ff4ba57448b8711b75b94e743b94ca95e79a738",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/users-posts-to-users",
+      "kind": "auto",
+      "protocol": "sql",
+      "src": "sql-tests/users_posts",
+      "tgt": "sql-tests/users",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "5704342411e7722fd488bfb542a1992978efac9cb13167a090b0c576f7092338",
+        "target_schema": "c93c592e4b63bb246bb18c4298b86401a423567d6287407fff8ea63f3232ed1c",
+        "lens": "d7e31e0bea7ef37d7ea0d0671e6045aa58be88ea12f93dac713b039d416b8cb7",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-descriptor",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/descriptor",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "21bc7743f2f23f598ee798cf1f96ffad765373e902da307bd92f95120b1262a5",
+        "target_schema": "ea14c6911c30eadcb27402438ae345038e90c5088162d0a76aebfb2241676937",
+        "lens": "a97838a9d55832a1119f32cd409b315e1aa45a0bd517c12a78c702e35c243329",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/trace-to-descriptor",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/trace",
+      "tgt": "protobuf/descriptor",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "2362e4f91d1bb3ce3b7dfbf75d9cd0576655fa22efc67ef77cbc762f5fc1f62b",
+        "target_schema": "2362e4f91d1bb3ce3b7dfbf75d9cd0576655fa22efc67ef77cbc762f5fc1f62b",
+        "lens": "1f408f5fcef77fd3b4068e7309ab2751c7d92cf056757c17e001aeca059c9ab3",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/users-to-sakila-postgres",
+      "kind": "auto",
+      "protocol": "sql",
+      "src": "sql-tests/users",
+      "tgt": "sql/sakila-postgres",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "29c4c2dd13c8a0568aee97cac34b73938bbf194b92182935e537903c065b1f7e",
+        "target_schema": "1cb5d4346546a03d1f0005f74348549a55d6d7da51dd23d7ed7e0d93db81c06b",
+        "lens": "45967bdec46ae82f6425b1a239b17906386ae1be8df3563175781a2d01748193",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/profile-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.actor.profile",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "455ea7c3d9d55ae80bc15fd4e6fa2f26bd3860faf96387877b007138aa5a74b6",
+        "target_schema": "2691e59f7ef9155e27e7ea85784c1cdc97611fc8be2c11ab9c4f73fc05598fcf",
+        "lens": "cbb16a2ff68a44e5e4b5f8d5da74097f644c1a7acbb8b04bdef685da91cb654d",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "target_schema": "c5ba9ed2d47c1571a4b5270735a4d8e369dcb6a4a84a8ef5125dde181894ea42",
+        "lens": "aac3b75aba18e8f50a1933c31f7295fea9d6a3cdc657b35cee91732fcb9bca6a",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "6b77912a52307838076deb4c4ee5e9fed9abfa9cd560c228d2e50eb26a9f612b",
+        "target_schema": "544164818a01a2069a9e8033cfa97530cc2c359bb280cc0ed886fe26093e25e1",
+        "lens": "858732b8bfb1ae984022dcfc946973e3784555a16ea19ecae07064b90b98bb6c",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "target_schema": "8cc75e79c0de5f6404f55ed8dda8434a5fd4b20e17d9b648dd40a0b91e3e74ed",
+        "lens": "15b1cd13eabc12c157b0dd81a9289229735d2dd6fb0931236d6ff867c789309c",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-follow",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/app.bsky.graph.follow",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "target_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "lens": "5436e8a2c8e577466ea5634cfc41d55b0bbe8e44966b702976a69153e3ad88b3",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "50674e8089b845c64f3ae079ab4b6f8a9e0e0d73b9f7aef9a4ad6884c200b2c2",
+        "target_schema": "6444188c320d0647d0c973b2d9406e9cb5cf2b9637eefff3f517da65db07567a",
+        "lens": "e0c9360c012fb703c9eb8c3d286f5c883c7bf91a4f2a75f5974b83f603a3a295",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "target_schema": "3a8352fa82728c87ab1317c2048f59f21ee367bece461496320a3dc0eeff306d",
+        "lens": "c83c71a078486e6995dc64e2390f1658ce0ef195eea04349b34abc2f04848d79",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-like",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.feed.like",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "target_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "lens": "a01712efa78082085faf6eb961a47c894cb964c04f8d5fbd5408941ec252586e",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-repost",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.feed.repost",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "target_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "lens": "a01712efa78082085faf6eb961a47c894cb964c04f8d5fbd5408941ec252586e",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "2c7b98564e8e447d335164c70275ddc0c1a0a7da273e92373116e668bb05edc3",
+        "target_schema": "d4aea14bf50e2477044379a139effd87bb8e28f6559d060baaef844f620a4fda",
+        "lens": "f429111abf8821dba521e1382d017a1c9ac7945328a097d426e9182c96edabb2",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/profile-tests-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto-tests/app.bsky.actor.profile",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "21d5b5c9987cef4816c84c51e241a746cfb87c91b1044ad09089728712450891",
+        "target_schema": "5fe3107cadd6d97b8658c4edec26373b5ed89bae2380097bac88b6239db7c3ab",
+        "lens": "d42663457aeb99a51c34ca0f96963cf7e9812c4ebd62eb337cebb40813b5647c",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-common",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/common",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "21bc7743f2f23f598ee798cf1f96ffad765373e902da307bd92f95120b1262a5",
+        "target_schema": "848fb575a5c09f9ebd217e98cedd3612f71fd259c9d3f1f6c3a5f672a6870049",
+        "lens": "3a7fbf3e165850fd8b18ecd5a92fd1ee1a53614376d2de7132da5a35d19bac41",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-trace",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/trace",
+      "shape": "wtype",
+      "envelope": {
+        "version": 2,
+        "source_schema": "21bc7743f2f23f598ee798cf1f96ffad765373e902da307bd92f95120b1262a5",
+        "target_schema": "ea14c6911c30eadcb27402438ae345038e90c5088162d0a76aebfb2241676937",
+        "lens": "a97838a9d55832a1119f32cd409b315e1aa45a0bd517c12a78c702e35c243329",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    }
+  ]
+}

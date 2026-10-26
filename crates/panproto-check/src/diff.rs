@@ -5,10 +5,12 @@
 //! purely structural; it does not yet classify changes as breaking or
 //! non-breaking (that is handled by [`crate::classify()`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
-use panproto_schema::{Constraint, Edge, RecursionPoint, Schema, UsageMode, Variant};
+use panproto_schema::{
+    Constraint, Edge, Key, RecursionPoint, Reference, Schema, UsageMode, Variant,
+};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +36,7 @@ pub struct SchemaDiff {
 
     // --- Constraints ---
     /// Constraints that changed between old and new, keyed by vertex ID.
-    pub modified_constraints: HashMap<String, ConstraintDiff>,
+    pub modified_constraints: BTreeMap<String, ConstraintDiff>,
 
     // --- Hyper-edges ---
     /// Hyper-edge IDs added in the new schema.
@@ -46,13 +48,13 @@ pub struct SchemaDiff {
 
     // --- Required edges ---
     /// Per-vertex: required edges added in the new schema.
-    pub added_required: HashMap<String, Vec<Edge>>,
+    pub added_required: BTreeMap<String, Vec<Edge>>,
     /// Per-vertex: required edges removed from the old schema.
-    pub removed_required: HashMap<String, Vec<Edge>>,
+    pub removed_required: BTreeMap<String, Vec<Edge>>,
 
     // --- NSIDs ---
     /// Vertex-to-NSID mappings added in the new schema.
-    pub added_nsids: HashMap<String, String>,
+    pub added_nsids: BTreeMap<String, String>,
     /// Vertex IDs whose NSID mapping was removed.
     pub removed_nsids: Vec<String>,
     /// NSID mappings that changed: `(vertex_id, old_nsid, new_nsid)`.
@@ -139,6 +141,29 @@ pub struct SchemaDiff {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified_policies: Vec<String>,
 
+    // --- Declarations ---
+    /// Keys declared in the new schema but not the old, as
+    /// `(vertex_id, key)`, sorted by vertex then key id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_keys: Vec<(String, Key)>,
+    /// Keys declared in the old schema but not the new, as
+    /// `(vertex_id, key)`, sorted by vertex then key id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_keys: Vec<(String, Key)>,
+    /// Keys declared in both schemas, on the same vertex with the same id,
+    /// whose parts, role or scope changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_keys: Vec<KeyChange>,
+    /// References declared in the new schema but not the old, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_references: Vec<Reference>,
+    /// References declared in the old schema but not the new, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_references: Vec<Reference>,
+    /// References declared in both schemas with the same id that differ.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_references: Vec<ReferenceChange>,
+
     // --- Renames ---
     /// Vertex renames as `(old_id, new_id)` pairs, populated by
     /// [`apply_renames`] from an external rename detector. When set, the
@@ -214,11 +239,11 @@ pub struct HyperEdgeChange {
     /// Kind change: `(old_kind, new_kind)`, or `None` if unchanged.
     pub kind_change: Option<(String, String)>,
     /// Signature labels added: label → `vertex_id`.
-    pub signature_added: HashMap<String, String>,
+    pub signature_added: BTreeMap<String, String>,
     /// Signature labels removed: label → `vertex_id`.
-    pub signature_removed: HashMap<String, String>,
+    pub signature_removed: BTreeMap<String, String>,
     /// Signature labels whose vertex changed: label → (`old_vid`, `new_vid`).
-    pub signature_changed: HashMap<String, (String, String)>,
+    pub signature_changed: BTreeMap<String, (String, String)>,
     /// Parent label change: `(old, new)`, or `None` if unchanged.
     pub parent_label_change: Option<(String, String)>,
 }
@@ -247,6 +272,30 @@ pub struct RecursionPointChange {
     pub new_target: String,
 }
 
+/// Records a key, declared on the same vertex with the same id in both
+/// schemas, whose parts, role or scope changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyChange {
+    /// The keyed vertex ID.
+    pub vertex_id: String,
+    /// The key as the old schema declares it.
+    pub old: Key,
+    /// The key as the new schema declares it.
+    pub new: Key,
+}
+
+/// Records a reference, declared with the same id in both schemas, that
+/// changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferenceChange {
+    /// The reference ID.
+    pub id: String,
+    /// The reference as the old schema declares it.
+    pub old: Reference,
+    /// The reference as the new schema declares it.
+    pub new: Reference,
+}
+
 /// Records a span whose left or right vertex changed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanChange {
@@ -262,7 +311,7 @@ pub struct SpanChange {
 ///
 /// Compares every schema field: vertices, edges, constraints, hyper-edges,
 /// required edges, NSIDs, variants, orderings, recursion points, usage modes,
-/// spans, and nominal flags.
+/// spans, nominal flags, enrichments, and declared keys and references.
 // Structural diff walks every field of `Schema` in turn; each branch
 // contributes one field to `SchemaDiff` and is naturally co-located.
 #[must_use]
@@ -370,6 +419,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
                 .push(((*edge).clone(), old_pos, new_pos));
         }
     }
+    result.order_changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // --- Recursion Points ---
     diff_recursion_points(old, new, &mut result);
@@ -389,6 +439,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
                 .push(((*edge).clone(), old_mode, new_mode));
         }
     }
+    result.usage_mode_changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // --- Spans ---
     diff_spans(old, new, &mut result);
@@ -420,7 +471,69 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         &mut result.modified_policies,
     );
 
+    // --- Declarations ---
+    diff_keys(old, new, &mut result);
+    diff_references(old, new, &mut result);
+
     result
+}
+
+/// Diff the keys two schemas declare, matching them by `(vertex, key id)`.
+fn diff_keys(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let index = |schema: &Schema| -> BTreeMap<(String, String), Key> {
+        schema
+            .declarations
+            .keys
+            .iter()
+            .flat_map(|(vertex, keys)| {
+                keys.iter()
+                    .map(move |key| ((vertex.to_string(), key.id.to_string()), key.clone()))
+            })
+            .collect()
+    };
+    let old_keys = index(old);
+    let new_keys = index(new);
+
+    for ((vertex, id), key) in &new_keys {
+        match old_keys.get(&(vertex.clone(), id.clone())) {
+            None => result.added_keys.push((vertex.clone(), key.clone())),
+            Some(previous) if previous != key => result.modified_keys.push(KeyChange {
+                vertex_id: vertex.clone(),
+                old: previous.clone(),
+                new: key.clone(),
+            }),
+            Some(_) => {}
+        }
+    }
+    for ((vertex, id), key) in &old_keys {
+        if !new_keys.contains_key(&(vertex.clone(), id.clone())) {
+            result.removed_keys.push((vertex.clone(), key.clone()));
+        }
+    }
+}
+
+/// Diff the references two schemas declare, matching them by id.
+fn diff_references(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let old_refs = &old.declarations.references;
+    let new_refs = &new.declarations.references;
+    for (id, reference) in new_refs {
+        match old_refs.get(id) {
+            None => result.added_references.push(reference.clone()),
+            Some(previous) if previous != reference => {
+                result.modified_references.push(ReferenceChange {
+                    id: id.to_string(),
+                    old: previous.clone(),
+                    new: reference.clone(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    for (id, reference) in old_refs {
+        if !new_refs.contains_key(id) {
+            result.removed_references.push(reference.clone());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +573,9 @@ fn diff_constraints(old: &[Constraint], new: &[Constraint]) -> ConstraintDiff {
         }
     }
 
+    added.sort();
+    removed.sort();
+    changed.sort_by(|a, b| a.sort.cmp(&b.sort));
     ConstraintDiff {
         added,
         removed,
@@ -509,9 +625,9 @@ fn diff_hyper_edges(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             ))
         };
 
-        let mut sig_added = HashMap::new();
-        let mut sig_removed = HashMap::new();
-        let mut sig_changed = HashMap::new();
+        let mut sig_added = BTreeMap::new();
+        let mut sig_removed = BTreeMap::new();
+        let mut sig_changed = BTreeMap::new();
 
         for (label, new_vid) in &new_he.signature {
             match old_he.signature.get(label) {
@@ -562,14 +678,16 @@ fn diff_required(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
             .map(|v| v.iter().collect())
             .unwrap_or_default();
 
-        let added: Vec<Edge> = new_edges
+        let mut added: Vec<Edge> = new_edges
             .difference(&old_edges)
             .map(|e| (*e).clone())
             .collect();
-        let removed: Vec<Edge> = old_edges
+        let mut removed: Vec<Edge> = old_edges
             .difference(&new_edges)
             .map(|e| (*e).clone())
             .collect();
+        added.sort();
+        removed.sort();
 
         if !added.is_empty() {
             result.added_required.insert(vid.to_string(), added);
@@ -651,6 +769,9 @@ fn diff_variants(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
         }
     }
 
+    let variant_key = |v: &Variant| (v.parent_vertex.clone(), v.id.clone());
+    result.added_variants.sort_by_key(variant_key);
+    result.removed_variants.sort_by_key(variant_key);
     result
         .modified_variants
         .sort_by(|a, b| (&a.parent_vertex, &a.id).cmp(&(&b.parent_vertex, &b.id)));
@@ -683,6 +804,13 @@ fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
                 .push((id.clone(), old_rp.clone()));
         }
     }
+    result.added_recursion_points.sort_by(|a, b| a.0.cmp(&b.0));
+    result
+        .removed_recursion_points
+        .sort_by(|a, b| a.0.cmp(&b.0));
+    result
+        .modified_recursion_points
+        .sort_by(|a, b| a.mu_id.cmp(&b.mu_id));
 }
 
 /// Diff spans: additions, removals, and left/right changes.
@@ -850,6 +978,12 @@ impl SchemaDiff {
             && self.added_policies.is_empty()
             && self.removed_policies.is_empty()
             && self.modified_policies.is_empty()
+            && self.added_keys.is_empty()
+            && self.removed_keys.is_empty()
+            && self.modified_keys.is_empty()
+            && self.added_references.is_empty()
+            && self.removed_references.is_empty()
+            && self.modified_references.is_empty()
             && self.renamed_vertices.is_empty()
     }
 }
@@ -923,6 +1057,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -1438,7 +1573,7 @@ mod tests {
                 ..Default::default()
             },
             SchemaDiff {
-                modified_constraints: HashMap::from([(
+                modified_constraints: BTreeMap::from([(
                     "a".into(),
                     ConstraintDiff {
                         added: vec![Constraint {
@@ -1463,23 +1598,23 @@ mod tests {
                 modified_hyper_edges: vec![HyperEdgeChange {
                     id: "he".into(),
                     kind_change: None,
-                    signature_added: HashMap::new(),
-                    signature_removed: HashMap::new(),
-                    signature_changed: HashMap::new(),
+                    signature_added: BTreeMap::new(),
+                    signature_removed: BTreeMap::new(),
+                    signature_changed: BTreeMap::new(),
                     parent_label_change: Some(("a".into(), "b".into())),
                 }],
                 ..Default::default()
             },
             SchemaDiff {
-                added_required: HashMap::from([("a".into(), vec![])]),
+                added_required: BTreeMap::from([("a".into(), vec![])]),
                 ..Default::default()
             },
             SchemaDiff {
-                removed_required: HashMap::from([("a".into(), vec![])]),
+                removed_required: BTreeMap::from([("a".into(), vec![])]),
                 ..Default::default()
             },
             SchemaDiff {
-                added_nsids: HashMap::from([("a".into(), "x".into())]),
+                added_nsids: BTreeMap::from([("a".into(), "x".into())]),
                 ..Default::default()
             },
             SchemaDiff {

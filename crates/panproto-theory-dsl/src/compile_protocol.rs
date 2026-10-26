@@ -10,7 +10,7 @@ use std::hash::BuildHasher;
 use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol};
 
-use crate::compile_compose::compile_composition_spec;
+use crate::compile_compose::{ComposedTheory, compile_composition_spec_with_report};
 use crate::compile_theory::compile_theory;
 use crate::document::{ProtocolSpec, TheoryRef};
 use crate::error::TheoryDslError;
@@ -29,17 +29,46 @@ pub fn compile_protocol<S: BuildHasher>(
     resolver: &dyn Fn(&str) -> Option<Theory>,
     local_theories: &HashMap<String, Theory, S>,
 ) -> Result<Protocol, TheoryDslError> {
+    compile_protocol_with_compositions(spec, resolver, local_theories)
+        .map(|compiled| compiled.protocol)
+}
+
+/// A compiled protocol with the compositions its inline composed theory
+/// references built.
+#[derive(Debug, Clone)]
+pub struct CompiledProtocol {
+    /// The protocol.
+    pub protocol: Protocol,
+    /// The composition of each inline composed theory reference, the
+    /// schema theory's first, then the instance theory's.
+    pub compositions: Vec<ComposedTheory>,
+}
+
+/// [`compile_protocol`], also returning each composition an inline
+/// composed theory reference built, with its recipe and step reports.
+///
+/// # Errors
+///
+/// As [`compile_protocol`].
+pub fn compile_protocol_with_compositions<S: BuildHasher>(
+    spec: &ProtocolSpec,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+    local_theories: &HashMap<String, Theory, S>,
+) -> Result<CompiledProtocol, TheoryDslError> {
+    let mut compositions = Vec::new();
     let schema_theory_name = resolve_theory_ref(
         &spec.schema_theory,
         resolver,
         local_theories,
         &spec.protocol,
+        &mut compositions,
     )?;
     let instance_theory_name = resolve_theory_ref(
         &spec.instance_theory,
         resolver,
         local_theories,
         &spec.protocol,
+        &mut compositions,
     )?;
 
     let edge_rules: Vec<EdgeRule> = spec
@@ -52,7 +81,7 @@ pub fn compile_protocol<S: BuildHasher>(
         })
         .collect();
 
-    Ok(Protocol {
+    let protocol = Protocol {
         name: spec.protocol.clone(),
         schema_theory: schema_theory_name,
         instance_theory: instance_theory_name,
@@ -70,6 +99,11 @@ pub fn compile_protocol<S: BuildHasher>(
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
+    };
+    Ok(CompiledProtocol {
+        protocol,
+        compositions,
     })
 }
 
@@ -77,12 +111,14 @@ pub fn compile_protocol<S: BuildHasher>(
 ///
 /// For named refs, returns the name directly.
 /// For inline definitions and compositions, compiles them and
-/// returns the resulting theory name.
+/// returns the resulting theory name; an inline composition is pushed onto
+/// `compositions`.
 fn resolve_theory_ref<S: BuildHasher>(
     theory_ref: &TheoryRef,
     resolver: &dyn Fn(&str) -> Option<Theory>,
     local_theories: &HashMap<String, Theory, S>,
     protocol_name: &str,
+    compositions: &mut Vec<ComposedTheory>,
 ) -> Result<String, TheoryDslError> {
     match theory_ref {
         TheoryRef::Named(name) => {
@@ -101,8 +137,10 @@ fn resolve_theory_ref<S: BuildHasher>(
             Ok(theory.name.to_string())
         }
         TheoryRef::Composed(spec) => {
-            let (theory, _) = compile_composition_spec(spec, resolver, local_theories)?;
-            Ok(theory.name.to_string())
+            let composed = compile_composition_spec_with_report(spec, resolver, local_theories)?;
+            let name = composed.theory.name.to_string();
+            compositions.push(composed);
+            Ok(name)
         }
     }
 }

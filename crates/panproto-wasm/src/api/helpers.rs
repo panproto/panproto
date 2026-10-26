@@ -21,6 +21,60 @@ use crate::slab::{self, Resource};
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Decode one tree complement handed in from the host as `MessagePack`,
+/// with the shape, format, envelope-version and trailing-byte checks every
+/// complement import makes.
+///
+/// `what` names the argument in the error.
+pub fn decode_complement(bytes: &[u8], what: &str) -> Result<lens::Complement, WasmError> {
+    use inst::identity::{AnyComplement, ComplementShape, Encoding};
+    match inst::identity::decode_complement(bytes, Encoding::MsgpackNamed, ComplementShape::WType)
+        .map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("{what}: {e}"),
+    })? {
+        AnyComplement::WType(complement) => Ok(*complement),
+        AnyComplement::Functor(_) => Err(WasmError::DeserializationFailed {
+            reason: format!(
+                "{what}: decoded a table complement where a tree complement was required"
+            ),
+        }),
+        AnyComplement::Resolution(_) => Err(WasmError::DeserializationFailed {
+            reason: format!(
+                "{what}: decoded a resolution complement where a tree complement was required"
+            ),
+        }),
+    }
+}
+
+/// Decode a `MessagePack` list of tree complements, one per record, with
+/// the checks [`decode_complement`] makes applied to every element.
+///
+/// `what` names the argument in the error.
+pub fn decode_complements(bytes: &[u8], what: &str) -> Result<Vec<lens::Complement>, WasmError> {
+    use inst::identity::{AnyComplement, ComplementShape, Encoding};
+    let decoded =
+        inst::identity::decode_complements(bytes, Encoding::MsgpackNamed, ComplementShape::WType)
+            .map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("{what}: {e}"),
+        })?;
+    decoded
+        .into_iter()
+        .map(|decoded| match decoded {
+            AnyComplement::WType(complement) => Ok(*complement),
+            AnyComplement::Functor(_) => Err(WasmError::DeserializationFailed {
+                reason: format!(
+                    "{what}: decoded a table complement where a tree complement was required"
+                ),
+            }),
+            AnyComplement::Resolution(_) => Err(WasmError::DeserializationFailed {
+                reason: format!(
+                    "{what}: decoded a resolution complement where a tree complement was required"
+                ),
+            }),
+        })
+        .collect()
+}
+
 /// Infer a suitable root vertex from a schema for JSON parsing.
 ///
 /// Consults the schema's declared entry vertices via
@@ -531,73 +585,12 @@ pub(super) fn builtin_protocol_names() -> Vec<String> {
 }
 
 /// Look up a built-in protocol by name.
+///
+/// Resolves through `panproto_core::protocols::registry`, so every spelling
+/// the registry accepts reaches the protocol: the canonical name
+/// (`rss-atom`), its underscore form (`rss_atom`), and each alias.
 pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schema::Protocol> {
-    Some(match name {
-        // annotation
-        "brat" => protocols::annotation::brat::protocol(),
-        "conllu" => protocols::annotation::conllu::protocol(),
-        "naf" => protocols::annotation::naf::protocol(),
-        "uima" => protocols::annotation::uima::protocol(),
-        "folia" => protocols::annotation::folia::protocol(),
-        "tei" => protocols::annotation::tei::protocol(),
-        "timeml" => protocols::annotation::timeml::protocol(),
-        "elan" => protocols::annotation::elan::protocol(),
-        "iso_space" => protocols::annotation::iso_space::protocol(),
-        "paula" => protocols::annotation::paula::protocol(),
-        "laf_graf" => protocols::annotation::laf_graf::protocol(),
-        "decomp" => protocols::annotation::decomp::protocol(),
-        "ucca" => protocols::annotation::ucca::protocol(),
-        "fovea" => protocols::annotation::fovea::protocol(),
-        "bead" => protocols::annotation::bead::protocol(),
-        "web_annotation" => protocols::annotation::web_annotation::protocol(),
-        "amr" => protocols::annotation::amr::protocol(),
-        "concrete" => protocols::annotation::concrete::protocol(),
-        "nif" => protocols::annotation::nif::protocol(),
-        // api
-        "openapi" => protocols::api::openapi::protocol(),
-        "asyncapi" => protocols::api::asyncapi::protocol(),
-        "jsonapi" => protocols::api::jsonapi::protocol(),
-        "raml" => protocols::api::raml::protocol(),
-        "graphql" => protocols::api::graphql::protocol(),
-        // config
-        "cloudformation" => protocols::config::cloudformation::protocol(),
-        "ansible" => protocols::config::ansible::protocol(),
-        "k8s_crd" => protocols::config::k8s_crd::protocol(),
-        // data_schema
-        "cddl" => protocols::data_schema::cddl::protocol(),
-        "bson" => protocols::data_schema::bson::protocol(),
-        "json-schema" => protocols::data_schema::json_schema::protocol(),
-        // data_science
-        "dataframe" => protocols::data_science::dataframe::protocol(),
-        "parquet" => protocols::data_science::parquet::protocol(),
-        "arrow" => protocols::data_science::arrow::protocol(),
-        // database
-        "mongodb" => protocols::database::mongodb::protocol(),
-        "dynamodb" => protocols::database::dynamodb::protocol(),
-        "cassandra" => protocols::database::cassandra::protocol(),
-        "neo4j" => protocols::database::neo4j::protocol(),
-        "redis" => protocols::database::redis::protocol(),
-        "sql" => protocols::database::sql::protocol(),
-        // domain
-        "geojson" => protocols::domain::geojson::protocol(),
-        "fhir" => protocols::domain::fhir::protocol(),
-        "rss_atom" => protocols::domain::rss_atom::protocol(),
-        "vcard_ical" => protocols::domain::vcard_ical::protocol(),
-        "swift_mt" => protocols::domain::swift_mt::protocol(),
-        "edi_x12" => protocols::domain::edi_x12::protocol(),
-        // serialization
-        "avro" => protocols::serialization::avro::protocol(),
-        "flatbuffers" => protocols::serialization::flatbuffers::protocol(),
-        "asn1" => protocols::serialization::asn1::protocol(),
-        "bond" => protocols::serialization::bond::protocol(),
-        "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
-        "protobuf" => protocols::serialization::protobuf::protocol(),
-        // web_document
-        "atproto" => protocols::web_document::atproto::protocol(),
-        "docx" => protocols::web_document::docx::protocol(),
-        "odf" => protocols::web_document::odf::protocol(),
-        _ => return None,
-    })
+    protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
 /// Build a minimal `Schema` from a `CompiledMigration`'s surviving
@@ -665,6 +658,7 @@ pub(super) fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_cor
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -726,6 +720,12 @@ pub(super) fn compose_compiled(
     }
 }
 
+/// The protocol `schema` names: a built-in one when the name is recognized,
+/// else a default spec carrying the name.
+pub(super) fn protocol_of(schema: &Schema) -> panproto_core::schema::Protocol {
+    lookup_builtin_protocol(&schema.protocol).unwrap_or_else(|| default_protocol(&schema.protocol))
+}
+
 /// Build a default protocol spec with the given name.
 ///
 /// Used as a fallback when the schema's protocol name does not match any
@@ -738,7 +738,7 @@ pub(super) fn default_protocol(name: &str) -> panproto_core::schema::Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "record".into()],
         constraint_sorts: vec![],
-        ..panproto_core::schema::Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -786,56 +786,59 @@ pub(super) fn compute_diff(
     old: &panproto_core::schema::Schema,
     new: &panproto_core::schema::Schema,
 ) -> SchemaDiff {
-    let mut diff = SchemaDiff::default();
+    // The schemas' tables are hash maps, whose enumeration order their hash
+    // keys decide. Every list below is built from sorted keys, so the diff,
+    // and the bytes it encodes to, are a function of the two schemas alone.
+    let mut old_ids: Vec<_> = old.vertices.keys().collect();
+    let mut new_ids: Vec<_> = new.vertices.keys().collect();
+    old_ids.sort_unstable();
+    new_ids.sort_unstable();
+    let mut old_edges: Vec<_> = old.edges.keys().collect();
+    let mut new_edges: Vec<_> = new.edges.keys().collect();
+    old_edges.sort_unstable();
+    new_edges.sort_unstable();
 
-    for id in new.vertices.keys() {
-        if !old.vertices.contains_key(id) {
-            diff.added_vertices.push(id.to_string());
-        }
-    }
-    for id in old.vertices.keys() {
-        if !new.vertices.contains_key(id) {
-            diff.removed_vertices.push(id.to_string());
-        }
-    }
+    let edge_diff = |edge: &panproto_core::schema::Edge| EdgeDiff {
+        src: edge.src.to_string(),
+        tgt: edge.tgt.to_string(),
+        kind: edge.kind.to_string(),
+        name: edge.name.as_ref().map(ToString::to_string),
+    };
 
-    for (id, new_v) in &new.vertices {
-        if let Some(old_v) = old.vertices.get(id) {
-            if old_v.kind != new_v.kind {
-                diff.kind_changes.push(KindChange {
+    SchemaDiff {
+        added_vertices: new_ids
+            .iter()
+            .filter(|id| !old.vertices.contains_key(**id))
+            .map(ToString::to_string)
+            .collect(),
+        removed_vertices: old_ids
+            .iter()
+            .filter(|id| !new.vertices.contains_key(**id))
+            .map(ToString::to_string)
+            .collect(),
+        added_edges: new_edges
+            .iter()
+            .filter(|edge| !old.edges.contains_key(**edge))
+            .map(|edge| edge_diff(edge))
+            .collect(),
+        removed_edges: old_edges
+            .iter()
+            .filter(|edge| !new.edges.contains_key(**edge))
+            .map(|edge| edge_diff(edge))
+            .collect(),
+        kind_changes: new_ids
+            .iter()
+            .filter_map(|id| {
+                let old_v = old.vertices.get(*id)?;
+                let new_v = &new.vertices[*id];
+                (old_v.kind != new_v.kind).then(|| KindChange {
                     vertex: id.to_string(),
                     old_kind: old_v.kind.to_string(),
                     new_kind: new_v.kind.to_string(),
-                });
-            }
-        }
+                })
+            })
+            .collect(),
     }
-
-    for edge in new.edges.keys() {
-        if !old.edges.contains_key(edge) {
-            diff.added_edges.push(EdgeDiff {
-                src: edge.src.to_string(),
-                tgt: edge.tgt.to_string(),
-                kind: edge.kind.to_string(),
-                name: edge.name.as_ref().map(ToString::to_string),
-            });
-        }
-    }
-    for edge in old.edges.keys() {
-        if !new.edges.contains_key(edge) {
-            diff.removed_edges.push(EdgeDiff {
-                src: edge.src.to_string(),
-                tgt: edge.tgt.to_string(),
-                kind: edge.kind.to_string(),
-                name: edge.name.as_ref().map(ToString::to_string),
-            });
-        }
-    }
-
-    diff.added_vertices.sort();
-    diff.removed_vertices.sort();
-
-    diff
 }
 
 /// Evaluate a GAT term recursively using a variable environment and theory.
@@ -1074,7 +1077,10 @@ fn execute_query_against_schema(
             reason: format!("instance: {e}"),
         })?;
 
-    let matches = inst::execute_query(&query, &instance, schema);
+    let matches =
+        inst::execute_query(&query, &instance, schema).map_err(|e| WasmError::ExprEvalFailed {
+            reason: format!("query: {e}"),
+        })?;
 
     // Convert QueryMatch results to a serializable form.
     let results: Vec<serde_json::Value> = matches

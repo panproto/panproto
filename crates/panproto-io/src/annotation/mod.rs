@@ -19,7 +19,8 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     // sentinels, and line endings verbatim, splicing only edited cells.
     registry.register(ByteTabularCodec::new("conllu", "rows", b'\t', Some(b'#')));
 
-    // Line-based (AMR PENMAN notation represented as TSV)
+    // Line-based (AMR PENMAN notation represented as TSV). Both builds read
+    // rows into `amr_graph` and refuse a schema that does not declare it.
     #[cfg(feature = "tree-sitter")]
     {
         use crate::unified_codec::UnifiedCodec;
@@ -27,7 +28,8 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     }
     #[cfg(not(feature = "tree-sitter"))]
     {
-        registry.register(ByteTabularCodec::new("amr", "amr_graph", b'\t', None));
+        registry
+            .register(ByteTabularCodec::new("amr", "amr_graph", b'\t', None).with_schema_entry());
     }
 
     #[cfg(feature = "tree-sitter")]

@@ -12,6 +12,7 @@ use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use crate::error::SchemaError;
+use crate::keys::{Key, Reference, SchemaDeclarations};
 use crate::protocol::Protocol;
 use crate::schema::{CoercionSpec, Constraint, Edge, HyperEdge, Schema, Vertex};
 use panproto_expr::Expr;
@@ -43,6 +44,8 @@ pub struct SchemaBuilder {
     policies: HashMap<Name, Expr>,
     entries: Vec<Name>,
     entries_seen: FxHashSet<Name>,
+    declarations: SchemaDeclarations,
+    conflict: Option<SchemaError>,
 }
 
 impl SchemaBuilder {
@@ -65,6 +68,8 @@ impl SchemaBuilder {
             policies: HashMap::new(),
             entries: Vec::new(),
             entries_seen: FxHashSet::default(),
+            declarations: SchemaDeclarations::default(),
+            conflict: None,
         }
     }
 
@@ -326,6 +331,36 @@ impl SchemaBuilder {
         self
     }
 
+    /// Declare a key on `vertex`.
+    ///
+    /// Keys are not checked against the schema here; use
+    /// [`validate`](crate::validate()) for that. Declaring an equal key
+    /// twice is a no-op. Declaring a different key with the id of one
+    /// already on `vertex` makes [`Self::build`] fail with
+    /// [`SchemaError::KeyConflict`].
+    #[must_use]
+    pub fn key(mut self, vertex: &str, key: Key) -> Self {
+        if let Err(conflict) = self.declarations.merge_key(Name::from(vertex), key) {
+            self.conflict.get_or_insert(conflict);
+        }
+        self
+    }
+
+    /// Declare a reference.
+    ///
+    /// References are not checked against the schema here; use
+    /// [`validate`](crate::validate()) for that. Declaring an equal
+    /// reference twice is a no-op. Declaring a different reference with the
+    /// id of one already declared makes [`Self::build`] fail with
+    /// [`SchemaError::ReferenceConflict`].
+    #[must_use]
+    pub fn reference(mut self, reference: Reference) -> Self {
+        if let Err(conflict) = self.declarations.merge_reference(reference) {
+            self.conflict.get_or_insert(conflict);
+        }
+        self
+    }
+
     /// Build an [`AbstractSchema`](crate::AbstractSchema), enforcing
     /// the no-layout-fibre invariant.
     ///
@@ -363,10 +398,17 @@ impl SchemaBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`SchemaError::EmptySchema`] if no vertices were added.
+    /// Returns [`SchemaError::EmptySchema`] if no vertices were added,
+    /// [`SchemaError::UnknownEntryVertex`] if an entry names no vertex, and
+    /// the first [`SchemaError::KeyConflict`] or
+    /// [`SchemaError::ReferenceConflict`] recorded by [`Self::key`] or
+    /// [`Self::reference`].
     pub fn build(self) -> Result<Schema, SchemaError> {
         if self.vertices.is_empty() {
             return Err(SchemaError::EmptySchema);
+        }
+        if let Some(conflict) = self.conflict {
+            return Err(conflict);
         }
 
         // Well-pointedness: every declared entry must be a vertex of the
@@ -426,6 +468,7 @@ impl SchemaBuilder {
             outgoing,
             incoming,
             between,
+            declarations: self.declarations,
         })
     }
 }
@@ -479,7 +522,7 @@ mod tests {
                 "minimum".to_owned(),
                 "maximum".to_owned(),
             ],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

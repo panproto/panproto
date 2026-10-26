@@ -8,8 +8,8 @@
 # Usage:
 #   ./bootstrap/fetch-bindist.sh [version]
 #
-# version defaults to the @VERSION@ string baked into this script by
-# the release process. For local development against an in-tree
+# version defaults to the version declared by panproto.cabal. For local
+# development against an in-tree
 # `cargo build -p panproto-c --release`, use `dev-link.sh` instead.
 #
 # After this script runs, the resulting libpanproto_c.{a,so,dylib,lib},
@@ -22,7 +22,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HASKELL_DIR="$(pwd)"
 
-VERSION="${1:-v0.72.0}"
+PACKAGE_VERSION="$(awk '$1 == "version:" { print $2; exit }' panproto.cabal)"
+if [ -z "$PACKAGE_VERSION" ]; then
+    echo "panproto.cabal has no package version" >&2
+    exit 1
+fi
+VERSION="${1:-v$PACKAGE_VERSION}"
 DEST="$HASKELL_DIR/.panproto-c"
 
 # Detect target.

@@ -687,6 +687,7 @@ pub fn cmd_lens_apply(
         }
         compiled
             .instantiate(&schema, &protocol)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to instantiate compiled lens artifact at schema")?
     } else if let Ok(chain) = serde_json::from_value::<lens::ProtolensChain>(lens_value.clone()) {
@@ -917,6 +918,7 @@ pub fn cmd_lens_compose(
             .wrap_err("failed to generate second lens")?;
 
         let composed = lens::compose(&result_a.lens, &result_b.lens)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to compose lenses")?;
 

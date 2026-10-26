@@ -840,7 +840,7 @@ export type BuiltinOp =
   | 'DefaultVal' | 'Clamp' | 'TruncateStr'
   | 'IntToFloat' | 'FloatToInt' | 'IntToStr' | 'FloatToStr' | 'StrToInt' | 'StrToFloat'
   | 'TypeOf' | 'IsNull' | 'IsList'
-  | 'Edge' | 'Children' | 'HasEdge' | 'EdgeCount' | 'Anchor';
+  | 'Edge' | 'Children' | 'HasEdge' | 'EdgeCount' | 'Anchor' | 'Edges';
 
 /** Coverage report from dry-run migration. */
 export interface CoverageReport {

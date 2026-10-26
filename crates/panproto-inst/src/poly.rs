@@ -16,7 +16,9 @@ use panproto_schema::Edge;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::complement::Complement;
+use crate::identity::IdentityCarrier;
 use crate::metadata::Node;
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
     CompiledMigration, TransformContext, WInstance, apply_field_transforms,
@@ -102,8 +104,10 @@ pub fn fiber_with_predicate(
                 return false;
             };
             let mut env = build_env_from_extra_fields(&node.extra_fields);
-            if let Some(FieldPresence::Present(ref v)) = node.value {
-                env = env.extend(std::sync::Arc::from("_value"), value_to_expr_literal(v));
+            if let Some(FieldPresence::Present(ref v)) = node.value
+                && let Ok(lit) = value_to_expr_literal(v)
+            {
+                env = env.extend(std::sync::Arc::from("_value"), lit);
             }
             env = env.extend(
                 std::sync::Arc::from("_anchor"),
@@ -176,7 +180,9 @@ pub fn join(
 ///
 /// Like `wtype_restrict` but also returns a [`Complement`] recording all
 /// dropped nodes and their nearest surviving ancestors. This complement
-/// is needed for [`fiber_at_node`] and for backward data migration.
+/// is needed for [`fiber_at_node`] and for backward data migration. It is
+/// stamped with the identity of the lens `src_schema`, `tgt_schema` and
+/// `migration` denote.
 ///
 /// # Errors
 ///
@@ -184,7 +190,7 @@ pub fn join(
 /// pruned or edge resolution fails during ancestor contraction.
 pub fn restrict_with_complement(
     instance: &WInstance,
-    _src_schema: &panproto_schema::Schema,
+    src_schema: &panproto_schema::Schema,
     tgt_schema: &panproto_schema::Schema,
     migration: &CompiledMigration,
 ) -> Result<(WInstance, Complement), crate::error::RestrictError> {
@@ -238,7 +244,10 @@ pub fn restrict_with_complement(
     surviving_set.insert(instance.root);
     queue.push_back((instance.root, None));
 
-    // BFS: visit each node, tracking nearest surviving ancestor
+    // BFS: visit each node, tracking nearest surviving ancestor. The child
+    // index the transforms read through is built once, so binding a node's
+    // children costs its own arcs, not a scan of every arc.
+    let children = crate::wtype::TreeChildren::new(instance);
     while let Some((current_id, ancestor_id)) = queue.pop_front() {
         let child_ancestor = if surviving_set.contains(&current_id) {
             Some(current_id)
@@ -247,6 +256,7 @@ pub fn restrict_with_complement(
         };
         restrict_bfs_step(
             instance,
+            &children,
             tgt_schema,
             migration,
             current_id,
@@ -285,6 +295,15 @@ pub fn restrict_with_complement(
         instance.root,
         new_schema_root,
     );
+    complement.stamp(
+        crate::identity::lens_identity(
+            src_schema,
+            tgt_schema,
+            migration,
+            crate::identity::ComplementShape::WType,
+        ),
+        src_schema,
+    );
     Ok((restricted, complement))
 }
 
@@ -292,6 +311,7 @@ pub fn restrict_with_complement(
 #[allow(clippy::too_many_arguments)]
 fn restrict_bfs_step(
     instance: &WInstance,
+    children: &crate::wtype::TreeChildren<'_>,
     tgt_schema: &panproto_schema::Schema,
     migration: &CompiledMigration,
     current_id: u32,
@@ -340,7 +360,12 @@ fn restrict_bfs_step(
                 complement
                     .original_extra_fields
                     .insert(child_id, child_node.extra_fields.clone());
-                let ctx = TransformContext::new(None, instance, child_id, &child_transforms);
+                let ctx = TransformContext::bound(
+                    None,
+                    children,
+                    crate::wtype::InstanceRef::Tree(instance, child_id),
+                    &crate::wtype::transform_demand(&child_transforms),
+                );
                 apply_field_transforms(&mut new_node, &child_transforms, &ctx)?;
             }
             new_nodes.insert(child_id, new_node.clone());
@@ -449,7 +474,10 @@ pub fn fiber_at_node(
 /// # Errors
 ///
 /// Returns [`InstError::NodeNotFound`](crate::error::InstError::NodeNotFound)
-/// if an enrichment references a base node ID that does not exist.
+/// if an enrichment references a base node ID that does not exist, and
+/// [`InstError::NodeIdsExhausted`](crate::error::InstError::NodeIdsExhausted)
+/// when no node id below `u32::MAX` above every base node is left for an
+/// enrichment node.
 pub fn section(
     base: &WInstance,
     projection: &CompiledMigration,
@@ -464,7 +492,7 @@ pub fn section(
 
     // Step 1: copy base nodes, remapping anchors back to source schema
     let mut nodes: HashMap<u32, Node> = HashMap::new();
-    let mut next_id: u32 = base.nodes.keys().max().copied().unwrap_or(0) + 1;
+    let mut fresh = IdAllocator::from_source(IdRange::FULL, base.nodes.keys().copied());
 
     for (&id, node) in &base.nodes {
         let mut new_node = node.clone();
@@ -500,8 +528,7 @@ pub fn section(
             ));
         }
 
-        let enrichment_id = next_id;
-        next_id += 1;
+        let enrichment_id = fresh.allocate().map_err(|e| e.whole_state(IdKind::Node))?;
 
         let mut new_node = Node::new(enrichment_id, enrichment.anchor.clone());
         if let Some(value) = enrichment.value {
@@ -555,7 +582,6 @@ fn extract_subinstance(source: &WInstance, node_ids: &[u32]) -> WInstance {
 mod tests {
     use super::*;
     use crate::value::Value;
-    use crate::wtype::wtype_restrict;
     use panproto_schema::Edge;
 
     /// Build a simple test instance: root with two annotation children.
@@ -842,7 +868,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            edges: HashMap::new(),
+            edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -861,6 +887,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between,
+            ..Default::default()
         }
     }
 
@@ -953,6 +980,18 @@ mod tests {
 
         // Dropped arcs: the arc from doc -> annotation
         assert_eq!(complement.dropped_arcs.len(), 1);
+
+        // The complement names the lens its three inputs denote.
+        let expected = crate::identity::lens_identity(
+            &src_schema,
+            &tgt_schema,
+            &migration,
+            crate::identity::ComplementShape::WType,
+        );
+        assert_eq!(
+            crate::identity::identity_status(&complement, &expected, &src_schema),
+            Ok(crate::identity::IdentityStatus::Verified)
+        );
     }
 
     #[test]
@@ -1035,8 +1074,12 @@ mod tests {
         assert_eq!(section_inst.nodes.len(), 3);
 
         // Restricting the section back should match the base
-        let restricted =
-            wtype_restrict(&section_inst, &src_schema, &tgt_schema, &migration).unwrap();
+        let restricted = crate::wtype::wtype_restrict_with_plan(
+            &section_inst,
+            &crate::RestrictPlan::compile(&src_schema, &tgt_schema, &migration).unwrap(),
+        )
+        .unwrap()
+        .0;
         assert_eq!(restricted.nodes.len(), base.nodes.len());
 
         // Verify anchors match: both should have doc and text

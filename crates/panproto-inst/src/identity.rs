@@ -1,0 +1,2885 @@
+//! Durable identity for schemas, compiled lenses and the complements they
+//! produce.
+//!
+//! A complement is only meaningful against the lens that produced it: `put`
+//! reassembles a source from a view and a complement, and a complement
+//! taken under one lens and handed to another reassembles garbage without
+//! any error. This module gives every lens a content identity and every
+//! complement a record of the lens it came from.
+//!
+//! # Digests
+//!
+//! A [`Digest`] is a 32-byte blake3 key derivation. Each kind of object is
+//! hashed under its own context string, so digests of different kinds never
+//! collide by construction:
+//!
+//! | context                       | input                                        |
+//! |-------------------------------|----------------------------------------------|
+//! | [`SCHEMA_CONTEXT`]            | [`panproto_schema::canonical_bytes`]         |
+//! | [`LENS_CONTEXT`]              | both schema digests, then [`canonical_compiled_bytes`] |
+//! | [`GRAPH_INSTANCE_CONTEXT`], [`TABLE_INSTANCE_CONTEXT`], [`TREE_INSTANCE_CONTEXT`] | the canonical bytes of an instance of each shape |
+//! | [`VCS_GRAPH_DATASET_CONTEXT`], [`VCS_GRAPH_COMPLEMENT_CONTEXT`], [`VCS_GRAPH_EDIT_LOG_CONTEXT`], [`VCS_TABLE_DATASET_CONTEXT`], [`VCS_TABLE_COMPLEMENT_CONTEXT`], [`VCS_TABLE_EDIT_LOG_CONTEXT`] | VCS objects |
+//! | [`GRAPH_DELTA_CONTEXT`], [`TABLE_DELTA_CONTEXT`], [`TREE_EDIT_CONTEXT`] | normalized edits |
+//! | [`VALIDATION_PLAN_CONTEXT`], [`VALIDATION_REPORT_CONTEXT`] | validation plans and reports |
+//! | [`SEGMENT_CONTEXT`], [`SEGMENT_COMPLEMENT_CONTEXT`], [`SEGMENT_CROSS_CONTEXT`], [`SEGMENT_TASK_CONTEXT`], [`MANIFEST_LEAF_CONTEXT`], [`MANIFEST_NODE_CONTEXT`], [`MANIFEST_CONTEXT`], [`RUN_JOURNAL_CONTEXT`] | segmented execution |
+//! | [`RESOLUTION_CONTEXT`]        | a resolution's protocol, kind, schemas and spec digest |
+//! | [`RESOLUTION_SPEC_CONTEXT`]   | every field of a resolution provider's spec  |
+//! | [`RESOLUTION_EXTERNAL_TEXT_CONTEXT`], [`RESOLUTION_TOKEN_BOUNDARIES_CONTEXT`], [`RESOLUTION_OCCURRENCE_CONTEXT`] | the external bytes, token boundaries and their combination one resolved occurrence used |
+//! | [`THEORY_CONTEXT`], [`COMPOSITION_CONTEXT`] | [`panproto_schema::canonical_theory_bytes`], [`panproto_schema::canonical_composition_bytes`] (defined in [`panproto_schema::canonical_theory`]) |
+//!
+//! Every context is a constant string: no id, count or range ever appears
+//! in one, so a context names a kind of object and never an object.
+//!
+//! # Canonical sinks
+//!
+//! Canonical bytes are written through a [`CanonicalSink`]: either a
+//! [`CanonicalWriter`] that collects them, or a [`DigestHasher`] that hashes
+//! them as they arrive, so a digest over a long record stream needs no
+//! buffer. [`CanonicalSink::value`] is the one encoding of an instance
+//! [`Value`]; every canonical instance encoding writes values through it.
+//!
+//! A context string names the version of its encoding. Any change to
+//! `canonical_bytes`, to [`canonical_compiled_bytes`], or to an envelope
+//! field bumps the context version and [`IDENTITY_ENVELOPE_VERSION`]
+//! together.
+//!
+//! # Envelopes and status
+//!
+//! An [`IdentityEnvelope`] names the source schema, the target schema, the
+//! compiled lens and the complement format. `get` stamps one on every
+//! complement it produces. When a complement comes back to `put`, its
+//! [`IdentityStatus`] is decided from the envelope, the legacy fingerprint
+//! and whether the complement is empty (see [`identity_status`]), and an
+//! [`IdentityPolicy`] decides whether that status is accepted
+//! ([`IdentityPolicy::admit`]).
+//!
+//! # Legacy complements
+//!
+//! Complements written before envelopes existed carry only a 64-bit
+//! fingerprint of the source schema, computed with the standard library's
+//! `DefaultHasher`. That hasher wrote the edge count as a native-width
+//! `usize`, so the fingerprint differs between 64-bit hosts and wasm32.
+//! [`legacy_schema_fingerprint`] reimplements it at either width without
+//! depending on the standard library's hasher, whose algorithm is not
+//! guaranteed across Rust releases.
+
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
+
+use panproto_expr::{Expr, Literal, Pattern};
+use panproto_gat::{CoercionClass, Name};
+use panproto_schema::{
+    CanonicalWriter, Cardinality, Edge, InstanceShapeKind, OffsetUnit, OnUnresolved, PathSyntax,
+    RefSource, RefTextSource, Reference, ResolveMode, Schema,
+};
+use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::complement::Complement;
+use crate::resolution_complement::{
+    ResolutionComplement, ResolutionKind, ResolutionSpec, ResolutionTextId, ResolutionValueSite,
+};
+use crate::table_complement::TableComplement;
+use crate::value::{FieldPresence, Value};
+use crate::wtype::{
+    CaseBranch, CompiledMigration, FieldTransform, TermAssignment, TermBranch, TermScope,
+};
+
+// ---------------------------------------------------------------------------
+// Contexts.
+// ---------------------------------------------------------------------------
+
+/// The blake3 key-derivation context for a schema's identity. Its input is
+/// [`panproto_schema::canonical_bytes`].
+pub const SCHEMA_CONTEXT: &str = "panproto 2026-09 schema identity v2";
+
+/// The blake3 key-derivation context for a compiled lens's identity. Its
+/// input is the source schema digest, the target schema digest and
+/// [`canonical_compiled_bytes`], concatenated.
+pub const LENS_CONTEXT: &str = "panproto 2026-09 compiled lens identity v1";
+
+/// The blake3 key-derivation context for a graph instance's content digest.
+pub const GRAPH_INSTANCE_CONTEXT: &str = "panproto 2026-09 graph instance v1";
+
+/// The blake3 key-derivation context for a VCS graph data set object.
+pub const VCS_GRAPH_DATASET_CONTEXT: &str = "panproto 2026-09 vcs graph_dataset v1";
+
+/// The blake3 key-derivation context for a VCS graph complement object.
+pub const VCS_GRAPH_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 vcs graph_complement v1";
+
+/// The blake3 key-derivation context for a VCS graph edit log object.
+pub const VCS_GRAPH_EDIT_LOG_CONTEXT: &str = "panproto 2026-09 vcs graph_editlog v1";
+
+/// The version of the [`IdentityEnvelope`] layout.
+pub const IDENTITY_ENVELOPE_VERSION: u16 = 2;
+
+/// The version of the tree ([`ComplementShape::WType`]) complement format.
+pub const TREE_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the graph ([`ComplementShape::Graph`]) complement format.
+pub const GRAPH_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the table ([`ComplementShape::Functor`]) complement
+/// format.
+pub const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the resolution ([`ComplementShape::Resolution`])
+/// complement format.
+pub const RESOLUTION_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The blake3 key-derivation context for a table instance's content digest.
+pub const TABLE_INSTANCE_CONTEXT: &str = "panproto 2026-09 table instance v1";
+
+/// The blake3 key-derivation context for a VCS table data set object.
+pub const VCS_TABLE_DATASET_CONTEXT: &str = "panproto 2026-09 vcs table_dataset v1";
+
+/// The blake3 key-derivation context for a VCS table complement object.
+pub const VCS_TABLE_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 vcs table_complement v1";
+
+/// The blake3 key-derivation context for a VCS table edit log object.
+pub const VCS_TABLE_EDIT_LOG_CONTEXT: &str = "panproto 2026-09 vcs table_editlog v1";
+
+/// The blake3 key-derivation context for a tree instance's content digest.
+///
+/// Its input is a function of the tree alone: a header of the node, arc and
+/// fan counts, node records in ascending id, arc records in arc order and fan
+/// records in their canonical record order. No edge id of a graph embedding
+/// appears in it, so two equal trees have one digest whatever their
+/// embeddings.
+pub const TREE_INSTANCE_CONTEXT: &str = "panproto 2026-09 tree instance v1";
+
+/// The blake3 key-derivation context for a normalized graph delta.
+pub const GRAPH_DELTA_CONTEXT: &str = "panproto 2026-09 graph delta v1";
+
+/// The blake3 key-derivation context for a normalized table delta.
+pub const TABLE_DELTA_CONTEXT: &str = "panproto 2026-09 table delta v1";
+
+/// The blake3 key-derivation context for a normalized tree edit.
+pub const TREE_EDIT_CONTEXT: &str = "panproto 2026-09 tree edit v1";
+
+/// The blake3 key-derivation context for a compiled validation plan.
+pub const VALIDATION_PLAN_CONTEXT: &str = "panproto 2026-09 validation plan v1";
+
+/// The blake3 key-derivation context for a validation report.
+pub const VALIDATION_REPORT_CONTEXT: &str = "panproto 2026-09 validation report v1";
+
+/// The blake3 key-derivation context for the canonical bytes of one
+/// instance segment.
+pub const SEGMENT_CONTEXT: &str = "panproto 2026-09 instance segment v1";
+
+/// The blake3 key-derivation context for the canonical bytes of one
+/// complement segment.
+pub const SEGMENT_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 complement segment v1";
+
+/// The blake3 key-derivation context for the references that cross from one
+/// segment into another.
+pub const SEGMENT_CROSS_CONTEXT: &str = "panproto 2026-09 segment cross references v1";
+
+/// The blake3 key-derivation context for the artifact of one segmented task.
+pub const SEGMENT_TASK_CONTEXT: &str = "panproto 2026-09 segment task artifact v1";
+
+/// The blake3 key-derivation context for a leaf of a segment manifest's
+/// Merkle tree.
+pub const MANIFEST_LEAF_CONTEXT: &str = "panproto 2026-09 segment manifest leaf v1";
+
+/// The blake3 key-derivation context for an inner node of a segment
+/// manifest's Merkle tree.
+pub const MANIFEST_NODE_CONTEXT: &str = "panproto 2026-09 segment manifest node v1";
+
+/// The blake3 key-derivation context for a whole segment manifest.
+pub const MANIFEST_CONTEXT: &str = "panproto 2026-09 segment manifest v1";
+
+/// The blake3 key-derivation context for a segmented run's journal.
+pub const RUN_JOURNAL_CONTEXT: &str = "panproto 2026-09 segment run journal v1";
+
+/// The blake3 key-derivation context for a segment's edge id digest: the
+/// segment's owned edge ids, ascending, each as four little-endian bytes.
+pub const SEGMENT_EDGE_IDS_CONTEXT: &str = "panproto 2026-09 segment edge ids v1";
+
+/// The version of the canonical segment layout.
+pub const SEGMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the segment manifest layout.
+pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
+
+/// The blake3 key-derivation context for a resolution's identity: the
+/// protocol, the resolution kind, the syntactic and semantic schema digests
+/// and the digest of the provider's spec.
+pub const RESOLUTION_CONTEXT: &str = "panproto 2026-09 resolution identity v1";
+
+/// The blake3 key-derivation context for a provider's canonical resolution
+/// specification.
+pub const RESOLUTION_SPEC_CONTEXT: &str = "panproto 2026-09 resolution spec v1";
+
+/// The blake3 key-derivation context for the external text one resolved
+/// occurrence loaded: the key value and the exact bytes the store returned.
+pub const RESOLUTION_EXTERNAL_TEXT_CONTEXT: &str = "panproto 2026-10 resolution external text v1";
+
+/// The blake3 key-derivation context for the token boundaries one resolved
+/// occurrence used: the text identity and the boundary vector the provider
+/// returned.
+pub const RESOLUTION_TOKEN_BOUNDARIES_CONTEXT: &str =
+    "panproto 2026-10 resolution token boundaries v1";
+
+/// The blake3 key-derivation context that combines the external-text and
+/// token-boundary digests of one resolved occurrence into the single digest
+/// its complement records.
+pub const RESOLUTION_OCCURRENCE_CONTEXT: &str = "panproto 2026-10 resolution occurrence context v1";
+
+/// The theory and theory-composition contexts. They are defined beside
+/// their encoders in [`panproto_schema::canonical_theory`] and re-exported
+/// here so that every identity context is reachable from this module.
+pub use panproto_schema::{COMPOSITION_CONTEXT, THEORY_CONTEXT};
+
+// ---------------------------------------------------------------------------
+// Digest.
+// ---------------------------------------------------------------------------
+
+/// A 32-byte content digest.
+///
+/// Rendered as 64 lowercase hex characters by [`Display`](fmt::Display) and
+/// parsed back by [`FromStr`]. On the wire it is a hex string in
+/// human-readable formats (JSON, Python) and a byte string otherwise
+/// (msgpack `bin`, CBOR major type 2). Deserialization accepts any of a hex
+/// string, 32 bytes, or a sequence of 32 integers, whatever the format.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Digest(pub [u8; 32]);
+
+impl Digest {
+    /// Derive a digest from `input` under a blake3 key-derivation `context`.
+    #[must_use]
+    pub fn derive(context: &str, input: &[u8]) -> Self {
+        Self(blake3::derive_key(context, input))
+    }
+
+    /// The 64-character lowercase hex rendering.
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        self.to_string()
+    }
+
+    /// A streaming hasher under a blake3 key-derivation `context`.
+    ///
+    /// Feeding it bytes and finalizing gives the digest
+    /// [`derive`](Self::derive) gives for the same bytes at once, so a
+    /// digest over a long stream of records needs no buffer. The context is
+    /// `'static` because a context names a kind of object and is always one
+    /// of this module's constants, never a string built at run time.
+    ///
+    /// ```
+    /// use panproto_inst::identity::{Digest, GRAPH_INSTANCE_CONTEXT};
+    ///
+    /// let mut h = Digest::hasher(GRAPH_INSTANCE_CONTEXT);
+    /// h.update(b"ab");
+    /// h.update(b"c");
+    /// assert_eq!(h.finalize(), Digest::derive(GRAPH_INSTANCE_CONTEXT, b"abc"));
+    /// ```
+    #[must_use]
+    pub fn hasher(context: &'static str) -> DigestHasher {
+        DigestHasher(blake3::Hasher::new_derive_key(context))
+    }
+}
+
+/// A streaming blake3 key derivation, made by [`Digest::hasher`].
+///
+/// It is a [`CanonicalSink`], so canonical records can be written straight
+/// into it.
+#[derive(Clone, Debug)]
+pub struct DigestHasher(blake3::Hasher);
+
+impl DigestHasher {
+    /// Feed `bytes` to the hasher.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// The digest of every byte fed so far. The hasher is left as it was,
+    /// so more bytes may follow.
+    #[must_use]
+    pub fn finalize(&self) -> Digest {
+        Digest(*self.0.finalize().as_bytes())
+    }
+}
+
+impl fmt::Display for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Digest({self})")
+    }
+}
+
+/// A string that is not 64 hex characters.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("a digest is 64 hex characters, got {0:?}")]
+pub struct DigestParseError(pub String);
+
+impl FromStr for Digest {
+    type Err = DigestParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = s.as_bytes();
+        if bytes.len() != 64 {
+            return Err(DigestParseError(s.to_owned()));
+        }
+        let nibble = |c: u8| -> Option<u8> {
+            match c {
+                b'0'..=b'9' => Some(c - b'0'),
+                b'a'..=b'f' => Some(c - b'a' + 10),
+                b'A'..=b'F' => Some(c - b'A' + 10),
+                _ => None,
+            }
+        };
+        let mut out = [0u8; 32];
+        for (slot, pair) in out.iter_mut().zip(bytes.chunks_exact(2)) {
+            let (Some(hi), Some(lo)) = (nibble(pair[0]), nibble(pair[1])) else {
+                return Err(DigestParseError(s.to_owned()));
+            };
+            *slot = (hi << 4) | lo;
+        }
+        Ok(Self(out))
+    }
+}
+
+impl Serialize for Digest {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            serializer.serialize_bytes(&self.0)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Digest {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct DigestVisitor;
+
+        impl<'de> Visitor<'de> for DigestVisitor {
+            type Value = Digest;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a 64-character hex string, 32 bytes, or 32 integers")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Digest, E> {
+                v.parse().map_err(E::custom)
+            }
+
+            fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Digest, E> {
+                <[u8; 32]>::try_from(v)
+                    .map(Digest)
+                    .map_err(|_| E::invalid_length(v.len(), &self))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Digest, A::Error> {
+                let mut out = [0u8; 32];
+                for (i, slot) in out.iter_mut().enumerate() {
+                    *slot = seq
+                        .next_element()?
+                        .ok_or_else(|| de::Error::invalid_length(i, &self))?;
+                }
+                if seq.next_element::<IgnoredAny>()?.is_some() {
+                    return Err(de::Error::invalid_length(33, &self));
+                }
+                Ok(Digest(out))
+            }
+        }
+
+        deserializer.deserialize_any(DigestVisitor)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical sinks.
+// ---------------------------------------------------------------------------
+
+/// A destination for canonical bytes.
+///
+/// One method is required, [`write`](Self::write), an unprefixed append.
+/// Every encoder is a default method over it and writes exactly the bytes
+/// the method of the same name on [`CanonicalWriter`] writes: integers
+/// little-endian, floats as their IEEE-754 bit pattern, every
+/// variable-length run behind a `u64` length, every sum behind a one-byte
+/// discriminant. [`value`](Self::value) adds the encoding of an instance
+/// [`Value`], which `panproto-schema` cannot see.
+///
+/// [`CanonicalWriter`] collects the bytes and [`DigestHasher`] hashes them
+/// as they arrive, so one record encoder serves both a byte string and a
+/// streaming digest.
+///
+/// ```
+/// use panproto_inst::Value;
+/// use panproto_inst::identity::{CanonicalSink, Digest, GRAPH_INSTANCE_CONTEXT};
+/// use panproto_schema::CanonicalWriter;
+///
+/// fn record<S: CanonicalSink + ?Sized>(sink: &mut S) {
+///     sink.u32(7);
+///     sink.value(&Value::Str("x".into()));
+/// }
+///
+/// let mut bytes = CanonicalWriter::new();
+/// record(&mut bytes);
+/// let mut hasher = Digest::hasher(GRAPH_INSTANCE_CONTEXT);
+/// record(&mut hasher);
+/// assert_eq!(
+///     hasher.finalize(),
+///     Digest::derive(GRAPH_INSTANCE_CONTEXT, bytes.as_bytes())
+/// );
+/// ```
+pub trait CanonicalSink {
+    /// Append `bytes` as they are, with no length prefix.
+    fn write(&mut self, bytes: &[u8]);
+
+    /// Write a length (or count) as eight little-endian bytes.
+    fn len(&mut self, len: usize) {
+        let wide = u64::try_from(len).unwrap_or(u64::MAX);
+        self.write(&wide.to_le_bytes());
+    }
+
+    /// Write a one-byte discriminant.
+    fn tag(&mut self, tag: u8) {
+        self.write(&[tag]);
+    }
+
+    /// Write a boolean as one byte, `0` or `1`.
+    fn bool(&mut self, value: bool) {
+        self.write(&[u8::from(value)]);
+    }
+
+    /// Write a `u32` as four little-endian bytes.
+    fn u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write a `u64` as eight little-endian bytes.
+    fn u64(&mut self, value: u64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write an `i64` as eight little-endian bytes.
+    fn i64(&mut self, value: i64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write an `f64` as the eight little-endian bytes of its bit pattern.
+    fn f64(&mut self, value: f64) {
+        self.write(&value.to_bits().to_le_bytes());
+    }
+
+    /// Write a length-prefixed byte string.
+    fn bytes(&mut self, bytes: &[u8]) {
+        self.len(bytes.len());
+        self.write(bytes);
+    }
+
+    /// Write a length-prefixed UTF-8 string.
+    fn str(&mut self, value: &str) {
+        self.bytes(value.as_bytes());
+    }
+
+    /// Write a length-prefixed [`Name`].
+    fn name(&mut self, name: &Name) {
+        self.str(name.as_ref());
+    }
+
+    /// Write an optional [`Name`] as a presence byte followed by the name.
+    fn opt_name(&mut self, name: Option<&Name>) {
+        match name {
+            None => self.tag(0),
+            Some(value) => {
+                self.tag(1);
+                self.name(value);
+            }
+        }
+    }
+
+    /// Write a schema edge: source, target, kind, optional label.
+    fn edge(&mut self, edge: &Edge) {
+        self.name(&edge.src);
+        self.name(&edge.tgt);
+        self.name(&edge.kind);
+        self.opt_name(edge.name.as_ref());
+    }
+
+    /// Write an expression, discriminant first, as
+    /// [`CanonicalWriter::expr`] does.
+    fn expr(&mut self, expr: &Expr) {
+        let mut w = CanonicalWriter::new();
+        w.expr(expr);
+        self.write(w.as_bytes());
+    }
+
+    /// Write an expression literal, discriminant first, as
+    /// [`CanonicalWriter::literal`] does.
+    fn literal(&mut self, literal: &Literal) {
+        let mut w = CanonicalWriter::new();
+        w.literal(literal);
+        self.write(w.as_bytes());
+    }
+
+    /// Write a match pattern, discriminant first, as
+    /// [`CanonicalWriter::pattern`] does.
+    fn pattern(&mut self, pattern: &Pattern) {
+        let mut w = CanonicalWriter::new();
+        w.pattern(pattern);
+        self.write(w.as_bytes());
+    }
+
+    /// Write an instance [`Value`]: a one-byte tag, then its payload.
+    ///
+    /// | tag | variant       | payload                                   |
+    /// |-----|---------------|-------------------------------------------|
+    /// | 0   | `Bool`        | one byte                                  |
+    /// | 1   | `Int`         | `i64`                                     |
+    /// | 2   | `Float`       | `f64` bits                                |
+    /// | 3   | `Str`         | string                                    |
+    /// | 4   | `Bytes`       | byte string                               |
+    /// | 5   | `CidLink`     | string                                    |
+    /// | 6   | `Blob`        | `ref_`, `mime` strings, `size` as `u64`   |
+    /// | 7   | `Token`       | string                                    |
+    /// | 8   | `Null`        | nothing                                   |
+    /// | 9   | `Opaque`      | `type_` string, then the field map        |
+    /// | 10  | `Unknown`     | the field map                             |
+    /// | 11  | `List`        | count, then each item                     |
+    /// | 12  | `LabeledNull` | `u64`                                     |
+    /// | 13  | `Decimal`     | `DecimalValue::canonical_bytes`           |
+    /// | 14  | `BigInt`      | `BigIntValue::canonical_bytes`            |
+    /// | 15  | `Temporal`    | `Temporal::canonical_bytes`               |
+    ///
+    /// A field map is its entry count, then each key and value in ascending
+    /// key order. This is the only encoding of a value in canonical
+    /// instance bytes.
+    fn value(&mut self, value: &Value) {
+        match value {
+            Value::Bool(b) => {
+                self.tag(0);
+                self.bool(*b);
+            }
+            Value::Int(i) => {
+                self.tag(1);
+                self.i64(*i);
+            }
+            Value::Float(f) => {
+                self.tag(2);
+                self.f64(*f);
+            }
+            Value::Str(s) => {
+                self.tag(3);
+                self.str(s);
+            }
+            Value::Bytes(b) => {
+                self.tag(4);
+                self.bytes(b);
+            }
+            Value::CidLink(s) => {
+                self.tag(5);
+                self.str(s);
+            }
+            Value::Blob { ref_, mime, size } => {
+                self.tag(6);
+                self.str(ref_);
+                self.str(mime);
+                self.u64(*size);
+            }
+            Value::Token(s) => {
+                self.tag(7);
+                self.str(s);
+            }
+            Value::Null => self.tag(8),
+            Value::Opaque { type_, fields } => {
+                self.tag(9);
+                self.str(type_);
+                sink_value_map(self, fields);
+            }
+            Value::Unknown(fields) => {
+                self.tag(10);
+                sink_value_map(self, fields);
+            }
+            Value::List(items) => {
+                self.tag(11);
+                self.len(items.len());
+                for item in items {
+                    self.value(item);
+                }
+            }
+            Value::LabeledNull(id) => {
+                self.tag(12);
+                self.u64(*id);
+            }
+            Value::Decimal(d) => {
+                self.tag(13);
+                self.write(&d.canonical_bytes());
+            }
+            Value::BigInt(b) => {
+                self.tag(14);
+                self.write(&b.canonical_bytes());
+            }
+            Value::Temporal(t) => {
+                self.tag(15);
+                self.write(&t.canonical_bytes());
+            }
+        }
+    }
+}
+
+/// Write a string-keyed map of values into `sink`: its entry count, then
+/// each key and value in ascending key order.
+fn sink_value_map<W: CanonicalSink + ?Sized, S>(sink: &mut W, map: &HashMap<String, Value, S>) {
+    let entries = sorted(map);
+    sink.len(entries.len());
+    for (key, value) in entries {
+        sink.str(key);
+        sink.value(value);
+    }
+}
+
+impl CanonicalSink for CanonicalWriter {
+    fn write(&mut self, bytes: &[u8]) {
+        self.raw(bytes);
+    }
+}
+
+impl CanonicalSink for DigestHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        self.update(bytes);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Schema and lens digests.
+// ---------------------------------------------------------------------------
+
+/// The identity of a schema: [`SCHEMA_CONTEXT`] over its canonical bytes.
+#[must_use]
+pub fn schema_digest(schema: &Schema) -> Digest {
+    Digest::derive(SCHEMA_CONTEXT, &panproto_schema::canonical_bytes(schema))
+}
+
+/// The identity of a compiled lens: [`LENS_CONTEXT`] over the source schema
+/// digest, the target schema digest and [`canonical_compiled_bytes`].
+#[must_use]
+pub fn lens_digest(src: &Schema, tgt: &Schema, compiled: &CompiledMigration) -> Digest {
+    lens_digest_over(&schema_digest(src), &schema_digest(tgt), compiled)
+}
+
+/// The identity of every semantic input carried by a [`ResolutionSpec`].
+///
+/// The semantic schema contributes its canonical schema digest. All other
+/// fields are encoded in declaration order, with ordered collections in
+/// their stored order and sum types behind fixed discriminants.
+#[must_use]
+pub fn resolution_spec_digest(spec: &ResolutionSpec) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_SPEC_CONTEXT);
+    hasher.tag(resolution_kind_tag(spec.kind));
+    hasher.name(&spec.provider.name);
+    hasher.u32(u32::from(spec.provider.version));
+    hasher.write(&schema_digest(&spec.semantic_schema).0);
+    hasher.len(spec.protocol_references.len());
+    for (name, reference) in &spec.protocol_references {
+        hasher.name(name);
+        write_reference(&mut hasher, reference);
+    }
+    hasher.len(spec.structural_edges.len());
+    for edge in &spec.structural_edges {
+        hasher.edge(edge);
+    }
+    hasher.len(spec.reference_writers.len());
+    for (edge, reference) in &spec.reference_writers {
+        hasher.edge(edge);
+        hasher.name(reference);
+    }
+    hasher.len(spec.context_requirements.len());
+    for requirement in &spec.context_requirements {
+        hasher.tag(match requirement {
+            crate::ResolutionContextKind::ExternalText => 0,
+            crate::ResolutionContextKind::TokenBoundaries => 1,
+        });
+    }
+    match &spec.assembly {
+        None => hasher.tag(0),
+        Some(plan) => {
+            hasher.tag(1);
+            hasher.name(&plan.grammar);
+            hasher.u32(u32::from(plan.version));
+        }
+    }
+    hasher.finalize()
+}
+
+/// The identity of a compiled resolution.
+///
+/// `protocol` is the registry's canonical protocol name. The two schema
+/// arguments are already-computed schema digests and `spec` is the result of
+/// [`resolution_spec_digest`].
+#[must_use]
+pub fn resolution_digest(
+    protocol: &str,
+    kind: ResolutionKind,
+    syntactic: &Digest,
+    semantic: &Digest,
+    spec: &Digest,
+) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_CONTEXT);
+    hasher.str(protocol);
+    hasher.tag(resolution_kind_tag(kind));
+    hasher.write(&syntactic.0);
+    hasher.write(&semantic.0);
+    hasher.write(&spec.0);
+    hasher.finalize()
+}
+
+/// The envelope stamped on complements produced by one resolution.
+#[must_use]
+pub fn resolution_identity(
+    protocol: &str,
+    syntactic: &Schema,
+    spec: &ResolutionSpec,
+) -> IdentityEnvelope {
+    let source_schema = schema_digest(syntactic);
+    let target_schema = schema_digest(&spec.semantic_schema);
+    let spec_digest = resolution_spec_digest(spec);
+    IdentityEnvelope {
+        version: IDENTITY_ENVELOPE_VERSION,
+        source_schema,
+        target_schema,
+        lens: resolution_digest(
+            protocol,
+            spec.kind,
+            &source_schema,
+            &target_schema,
+            &spec_digest,
+        ),
+        complement_format: ComplementShape::Resolution.current_format(),
+    }
+}
+
+/// The digest of the external text one occurrence loaded: the canonical
+/// encoding of the key value, then the length and bytes the store returned.
+///
+/// The digest is computed from the key and bytes themselves, never taken
+/// from the store, so a store cannot vouch for content it did not return.
+#[must_use]
+pub fn resolution_external_text_digest(key: &Value, bytes: &[u8]) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_EXTERNAL_TEXT_CONTEXT);
+    hasher.value(key);
+    hasher.bytes(bytes);
+    hasher.finalize()
+}
+
+/// The digest of the token boundaries one occurrence used: the text
+/// identity, then the boundary count and each boundary.
+#[must_use]
+pub fn resolution_token_boundaries_digest(text: &ResolutionTextId, boundaries: &[u64]) -> Digest {
+    let mut hasher = Digest::hasher(RESOLUTION_TOKEN_BOUNDARIES_CONTEXT);
+    write_text_id(&mut hasher, text);
+    hasher.len(boundaries.len());
+    for boundary in boundaries {
+        hasher.u64(*boundary);
+    }
+    hasher.finalize()
+}
+
+/// The single context digest a complement records for one occurrence, or
+/// `None` when it used neither external text nor token boundaries.
+///
+/// Each component is written behind a presence tag, so an occurrence that
+/// used only external text and one that used only token boundaries never
+/// share a digest.
+#[must_use]
+pub fn resolution_context_digest(
+    external_text: Option<&Digest>,
+    token_boundaries: Option<&Digest>,
+) -> Option<Digest> {
+    if external_text.is_none() && token_boundaries.is_none() {
+        return None;
+    }
+    let mut hasher = Digest::hasher(RESOLUTION_OCCURRENCE_CONTEXT);
+    for component in [external_text, token_boundaries] {
+        match component {
+            None => hasher.tag(0),
+            Some(digest) => {
+                hasher.tag(1);
+                hasher.write(&digest.0);
+            }
+        }
+    }
+    Some(hasher.finalize())
+}
+
+fn write_view_ref<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &crate::ViewRef) {
+    match reference {
+        crate::ViewRef::Node(id) => {
+            sink.tag(0);
+            sink.u32(*id);
+        }
+        crate::ViewRef::Edge(id) => {
+            sink.tag(1);
+            sink.u32(id.0);
+        }
+        crate::ViewRef::Arc { parent, child } => {
+            sink.tag(2);
+            sink.u32(*parent);
+            sink.u32(*child);
+        }
+        crate::ViewRef::Row(id) => {
+            sink.tag(3);
+            sink.u32(id.0);
+        }
+        crate::ViewRef::Pair { edge, src, tgt } => {
+            sink.tag(4);
+            sink.edge(edge);
+            sink.u32(src.0);
+            sink.u32(tgt.0);
+        }
+    }
+}
+
+fn write_text_id<S: CanonicalSink + ?Sized>(sink: &mut S, text: &ResolutionTextId) {
+    let site = match text {
+        ResolutionTextId::Local(site) => {
+            sink.tag(0);
+            site
+        }
+        ResolutionTextId::ExternalKey(site) => {
+            sink.tag(1);
+            site
+        }
+    };
+    match site {
+        ResolutionValueSite::Own(holder) => {
+            sink.tag(0);
+            write_view_ref(sink, holder);
+        }
+        ResolutionValueSite::Field { holder, field } => {
+            sink.tag(1);
+            write_view_ref(sink, holder);
+            sink.str(field);
+        }
+    }
+}
+
+const fn resolution_kind_tag(kind: ResolutionKind) -> u8 {
+    match kind {
+        ResolutionKind::TreeToGraph => 0,
+        ResolutionKind::TableToGraph => 1,
+        ResolutionKind::TreeToTable => 2,
+        ResolutionKind::TableToTree => 3,
+    }
+}
+
+fn write_path<S: CanonicalSink + ?Sized>(sink: &mut S, path: &[Edge]) {
+    sink.len(path.len());
+    for edge in path {
+        sink.edge(edge);
+    }
+}
+
+fn write_path_syntax<S: CanonicalSink + ?Sized>(sink: &mut S, syntax: &PathSyntax) {
+    match syntax {
+        PathSyntax::JsonPointer => sink.tag(0),
+        PathSyntax::XPath => sink.tag(1),
+        PathSyntax::Uri { base } => {
+            sink.tag(2);
+            match base {
+                None => sink.tag(0),
+                Some(path) => {
+                    sink.tag(1);
+                    write_path(sink, path);
+                }
+            }
+        }
+        PathSyntax::IdRef => sink.tag(3),
+    }
+}
+
+fn write_reference<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Reference) {
+    sink.name(&reference.id);
+    sink.name(&reference.holder);
+    match &reference.source {
+        RefSource::KeyValue { parts } => {
+            sink.tag(0);
+            sink.len(parts.len());
+            for path in parts {
+                write_path(sink, path);
+            }
+        }
+        RefSource::Path { field, syntax } => {
+            sink.tag(1);
+            write_path(sink, field);
+            write_path_syntax(sink, syntax);
+        }
+        RefSource::Standoff {
+            text,
+            start,
+            end,
+            unit,
+            end_inclusive,
+        } => {
+            sink.tag(2);
+            match text {
+                RefTextSource::Local(path) => {
+                    sink.tag(0);
+                    write_path(sink, path);
+                }
+                RefTextSource::External(path) => {
+                    sink.tag(1);
+                    write_path(sink, path);
+                }
+            }
+            write_path(sink, start);
+            write_path(sink, end);
+            sink.tag(match unit {
+                OffsetUnit::Byte => 0,
+                OffsetUnit::Utf8Char => 1,
+                OffsetUnit::Utf16 => 2,
+                OffsetUnit::Token => 3,
+            });
+            sink.bool(*end_inclusive);
+        }
+        RefSource::Variable { field, binder_key } => {
+            sink.tag(3);
+            write_path(sink, field);
+            sink.name(binder_key);
+        }
+    }
+    sink.name(&reference.target_vertex);
+    sink.opt_name(reference.target_key.as_ref());
+    match &reference.edge {
+        None => sink.tag(0),
+        Some(edge) => {
+            sink.tag(1);
+            sink.edge(edge);
+        }
+    }
+    sink.tag(match reference.cardinality {
+        Cardinality::One => 0,
+        Cardinality::Many => 1,
+    });
+    sink.bool(reference.nullable);
+    sink.tag(match reference.on_unresolved {
+        OnUnresolved::Error => 0,
+        OnUnresolved::Complement => 1,
+    });
+    sink.tag(match reference.mode {
+        ResolveMode::AddEdge => 0,
+        ResolveMode::Redirect => 1,
+    });
+}
+
+/// [`lens_digest`] from schema digests already in hand.
+fn lens_digest_over(src: &Digest, tgt: &Digest, compiled: &CompiledMigration) -> Digest {
+    let mut hasher = blake3::Hasher::new_derive_key(LENS_CONTEXT);
+    hasher.update(&src.0);
+    hasher.update(&tgt.0);
+    hasher.update(&canonical_compiled_bytes(compiled));
+    Digest(*hasher.finalize().as_bytes())
+}
+
+/// A total, deterministic byte encoding of a [`CompiledMigration`].
+///
+/// Written with [`CanonicalWriter`], in the same form as
+/// [`panproto_schema::canonical_bytes`]: every field in declaration order
+/// and always present, every map and set at every nesting level in
+/// ascending key order behind its length, every `Vec` in stored order
+/// behind its length, every sum behind a one-byte discriminant, and every
+/// float by its bit pattern. Equal migrations give equal bytes in any
+/// process; migrations that differ in any field give different bytes.
+#[must_use]
+pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
+    // Destructured without `..`, so a field added to `CompiledMigration`
+    // fails to compile here until it is given an encoding.
+    let CompiledMigration {
+        surviving_verts,
+        surviving_edges,
+        vertex_remap,
+        edge_remap,
+        resolver,
+        hyper_resolver,
+        field_transforms,
+        conditional_survival,
+        op_term_assignments,
+        expansion_path,
+    } = compiled;
+    let mut w = CanonicalWriter::new();
+
+    // 1. surviving_verts
+    let mut verts: Vec<&Name> = surviving_verts.iter().collect();
+    verts.sort();
+    w.len(verts.len());
+    for v in verts {
+        w.name(v);
+    }
+
+    // 2. surviving_edges
+    let mut edges: Vec<_> = surviving_edges.iter().collect();
+    edges.sort();
+    w.len(edges.len());
+    for e in edges {
+        w.edge(e);
+    }
+
+    // 3. vertex_remap
+    let vertex_remap = sorted(vertex_remap);
+    w.len(vertex_remap.len());
+    for (src, tgt) in vertex_remap {
+        w.name(src);
+        w.name(tgt);
+    }
+
+    // 4. edge_remap
+    let edge_remap = sorted(edge_remap);
+    w.len(edge_remap.len());
+    for (src, tgt) in edge_remap {
+        w.edge(src);
+        w.edge(tgt);
+    }
+
+    // 5. resolver
+    let resolver = sorted(resolver);
+    w.len(resolver.len());
+    for ((src, tgt), edge) in resolver {
+        w.name(src);
+        w.name(tgt);
+        w.edge(edge);
+    }
+
+    // 6. hyper_resolver
+    let hyper_resolver = sorted(hyper_resolver);
+    w.len(hyper_resolver.len());
+    for ((hyper_edge, labels), (target, label_remap)) in hyper_resolver {
+        w.name(hyper_edge);
+        write_names(&mut w, labels);
+        w.name(target);
+        let label_remap = sorted(label_remap);
+        w.len(label_remap.len());
+        for (from, to) in label_remap {
+            w.name(from);
+            w.name(to);
+        }
+    }
+
+    // 7. field_transforms
+    let field_transforms = sorted(field_transforms);
+    w.len(field_transforms.len());
+    for (anchor, transforms) in field_transforms {
+        w.name(anchor);
+        w.len(transforms.len());
+        for t in transforms {
+            write_field_transform(&mut w, t);
+        }
+    }
+
+    // 8. conditional_survival
+    let conditional_survival = sorted(conditional_survival);
+    w.len(conditional_survival.len());
+    for (anchor, predicate) in conditional_survival {
+        w.name(anchor);
+        w.expr(predicate);
+    }
+
+    // 9. op_term_assignments
+    let op_term_assignments = sorted(op_term_assignments);
+    w.len(op_term_assignments.len());
+    for (anchor, assignments) in op_term_assignments {
+        w.name(anchor);
+        w.len(assignments.len());
+        for a in assignments {
+            write_term_assignment(&mut w, a);
+        }
+    }
+
+    // 10. expansion_path
+    let expansion_path = sorted(expansion_path);
+    w.len(expansion_path.len());
+    for ((src, tgt), path) in expansion_path {
+        w.name(src);
+        w.name(tgt);
+        write_names(&mut w, path);
+    }
+
+    w.into_bytes()
+}
+
+/// A map's entries in ascending key order.
+fn sorted<K: Ord, V, S>(map: &HashMap<K, V, S>) -> Vec<(&K, &V)> {
+    let mut items: Vec<(&K, &V)> = map.iter().collect();
+    items.sort_by(|a, b| a.0.cmp(b.0));
+    items
+}
+
+fn write_names(w: &mut CanonicalWriter, names: &[Name]) {
+    w.len(names.len());
+    for n in names {
+        w.name(n);
+    }
+}
+
+fn write_strings(w: &mut CanonicalWriter, strings: &[String]) {
+    w.len(strings.len());
+    for s in strings {
+        w.str(s);
+    }
+}
+
+fn write_opt_expr(w: &mut CanonicalWriter, expr: Option<&panproto_expr::Expr>) {
+    match expr {
+        None => w.tag(0),
+        Some(e) => {
+            w.tag(1);
+            w.expr(e);
+        }
+    }
+}
+
+/// A coercion class as its index in [`CoercionClass::all`], the enum's
+/// authoritative variant order. `CoercionClass` is `#[non_exhaustive]`, so
+/// this is the one total spelling of it available outside its crate.
+fn write_coercion_class(w: &mut CanonicalWriter, class: CoercionClass) {
+    let index = CoercionClass::all()
+        .iter()
+        .position(|c| *c == class)
+        .and_then(|i| u8::try_from(i).ok())
+        .unwrap_or(u8::MAX);
+    w.tag(index);
+}
+
+fn write_rename_map(w: &mut CanonicalWriter, map: &HashMap<String, Option<String>>) {
+    let entries = sorted(map);
+    w.len(entries.len());
+    for (from, to) in entries {
+        w.str(from);
+        match to {
+            None => w.tag(0),
+            Some(to) => {
+                w.tag(1);
+                w.str(to);
+            }
+        }
+    }
+}
+
+/// Write a [`Value`], discriminant first: [`CanonicalSink::value`].
+pub fn write_value<W: CanonicalSink + ?Sized>(w: &mut W, value: &Value) {
+    w.value(value);
+}
+
+/// Write a string-keyed map of values in ascending key order, each value by
+/// [`CanonicalSink::value`].
+pub fn write_value_map<W: CanonicalSink + ?Sized, S>(w: &mut W, map: &HashMap<String, Value, S>) {
+    sink_value_map(w, map);
+}
+
+/// Write a [`FieldPresence`], discriminant first.
+pub fn write_field_presence(w: &mut CanonicalWriter, presence: &FieldPresence) {
+    match presence {
+        FieldPresence::Present(v) => {
+            w.tag(0);
+            write_value(w, v);
+        }
+        FieldPresence::Null => w.tag(1),
+        FieldPresence::Absent => w.tag(2),
+    }
+}
+
+/// Write a [`FieldTransform`], discriminant first.
+pub fn write_field_transform(w: &mut CanonicalWriter, transform: &FieldTransform) {
+    match transform {
+        FieldTransform::RenameField { old_key, new_key } => {
+            w.tag(0);
+            w.str(old_key);
+            w.str(new_key);
+        }
+        FieldTransform::DropField { key } => {
+            w.tag(1);
+            w.str(key);
+        }
+        FieldTransform::AddField { key, value } => {
+            w.tag(2);
+            w.str(key);
+            write_value(w, value);
+        }
+        FieldTransform::KeepFields { keys } => {
+            w.tag(3);
+            write_strings(w, keys);
+        }
+        FieldTransform::ApplyExpr {
+            key,
+            expr,
+            inverse,
+            coercion_class,
+        } => {
+            w.tag(4);
+            w.str(key);
+            w.expr(expr);
+            write_opt_expr(w, inverse.as_ref());
+            write_coercion_class(w, *coercion_class);
+        }
+        FieldTransform::PathTransform { path, inner } => {
+            w.tag(5);
+            write_strings(w, path);
+            write_field_transform(w, inner);
+        }
+        FieldTransform::ComputeField {
+            target_key,
+            expr,
+            inverse,
+            coercion_class,
+        } => {
+            w.tag(6);
+            w.str(target_key);
+            w.expr(expr);
+            write_opt_expr(w, inverse.as_ref());
+            write_coercion_class(w, *coercion_class);
+        }
+        FieldTransform::Case { branches } => {
+            w.tag(7);
+            w.len(branches.len());
+            for branch in branches {
+                write_case_branch(w, branch);
+            }
+        }
+        FieldTransform::MapReferences { field, rename_map } => {
+            w.tag(8);
+            w.str(field);
+            write_rename_map(w, rename_map);
+        }
+    }
+}
+
+/// Write a [`CaseBranch`]: its predicate, then its transforms.
+pub fn write_case_branch(w: &mut CanonicalWriter, branch: &CaseBranch) {
+    let CaseBranch {
+        predicate,
+        transforms,
+    } = branch;
+    w.expr(predicate);
+    w.len(transforms.len());
+    for t in transforms {
+        write_field_transform(w, t);
+    }
+}
+
+/// Write a [`TermScope`] as a one-byte discriminant.
+pub fn write_term_scope(w: &mut CanonicalWriter, scope: &TermScope) {
+    match scope {
+        TermScope::Field => w.tag(0),
+        TermScope::Row => w.tag(1),
+    }
+}
+
+/// Write a [`TermAssignment`], discriminant first.
+pub fn write_term_assignment(w: &mut CanonicalWriter, assignment: &TermAssignment) {
+    match assignment {
+        TermAssignment::Compute {
+            target,
+            scope,
+            term,
+            inverse,
+            coercion_class,
+        } => {
+            w.tag(0);
+            w.str(target);
+            write_term_scope(w, scope);
+            w.expr(term);
+            write_opt_expr(w, inverse.as_ref());
+            write_coercion_class(w, *coercion_class);
+        }
+        TermAssignment::Rename { old, new } => {
+            w.tag(1);
+            w.str(old);
+            w.str(new);
+        }
+        TermAssignment::Drop { key } => {
+            w.tag(2);
+            w.str(key);
+        }
+        TermAssignment::Default { key, value } => {
+            w.tag(3);
+            w.str(key);
+            write_value(w, value);
+        }
+        TermAssignment::Keep { keys } => {
+            w.tag(4);
+            write_strings(w, keys);
+        }
+        TermAssignment::MapReferences { field, rename_map } => {
+            w.tag(5);
+            w.str(field);
+            write_rename_map(w, rename_map);
+        }
+        TermAssignment::AtPath { path, inner } => {
+            w.tag(6);
+            write_strings(w, path);
+            write_term_assignment(w, inner);
+        }
+        TermAssignment::Case { branches } => {
+            w.tag(7);
+            w.len(branches.len());
+            for branch in branches {
+                write_term_branch(w, branch);
+            }
+        }
+    }
+}
+
+/// Write a [`TermBranch`]: its predicate, then its assignments.
+pub fn write_term_branch(w: &mut CanonicalWriter, branch: &TermBranch) {
+    let TermBranch {
+        predicate,
+        assignments,
+    } = branch;
+    w.expr(predicate);
+    w.len(assignments.len());
+    for a in assignments {
+        write_term_assignment(w, a);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Complement formats and the envelope.
+// ---------------------------------------------------------------------------
+
+/// The kind of complement: the shape of instance it belongs to, or a
+/// resolution.
+///
+/// Serialized by the lowercase names `"wtype"`, `"functor"`, `"graph"` and
+/// `"resolution"`, the names complements, the VCS and the CLI already use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ComplementShape {
+    /// A tree ([`WInstance`](crate::WInstance)) complement,
+    /// [`Complement`].
+    WType,
+    /// A graph ([`GInstance`](crate::GInstance)) complement.
+    Graph,
+    /// A table ([`FInstance`](crate::FInstance)) complement.
+    Functor,
+    /// The complement of a resolution, which turns a format's syntactic
+    /// instance into its semantic one by resolving the references the
+    /// schema declares.
+    Resolution,
+}
+
+impl ComplementShape {
+    /// Every complement kind, in declaration order.
+    pub const ALL: [Self; 4] = [Self::WType, Self::Graph, Self::Functor, Self::Resolution];
+
+    /// The current format of this shape's complement.
+    #[must_use]
+    pub const fn current_format(self) -> ComplementFormat {
+        ComplementFormat {
+            shape: self,
+            version: match self {
+                Self::WType => TREE_COMPLEMENT_FORMAT_VERSION,
+                Self::Graph => GRAPH_COMPLEMENT_FORMAT_VERSION,
+                Self::Functor => FUNCTOR_COMPLEMENT_FORMAT_VERSION,
+                Self::Resolution => RESOLUTION_COMPLEMENT_FORMAT_VERSION,
+            },
+        }
+    }
+
+    /// The instance shape a complement of this kind belongs to, or `None`
+    /// for a resolution, whose syntactic and semantic instances may each be
+    /// of any shape.
+    ///
+    /// ```
+    /// use panproto_inst::{ComplementShape, InstanceShapeKind};
+    ///
+    /// assert_eq!(ComplementShape::Functor.instance_shape(), Some(InstanceShapeKind::Table));
+    /// assert_eq!(ComplementShape::Resolution.instance_shape(), None);
+    /// ```
+    #[must_use]
+    pub const fn instance_shape(self) -> Option<InstanceShapeKind> {
+        match self {
+            Self::WType => Some(InstanceShapeKind::Tree),
+            Self::Functor => Some(InstanceShapeKind::Table),
+            Self::Graph => Some(InstanceShapeKind::Graph),
+            Self::Resolution => None,
+        }
+    }
+}
+
+/// The instance shape a complement belongs to: `WType` is a tree, `Functor`
+/// a table and `Graph` a graph. A resolution complement belongs to no one
+/// instance shape, so converting [`ComplementShape::Resolution`] fails and
+/// gives it back.
+///
+/// ```
+/// use panproto_inst::{ComplementShape, InstanceShapeKind};
+///
+/// assert_eq!(InstanceShapeKind::try_from(ComplementShape::WType), Ok(InstanceShapeKind::Tree));
+/// assert_eq!(
+///     InstanceShapeKind::try_from(ComplementShape::Resolution),
+///     Err(ComplementShape::Resolution)
+/// );
+/// ```
+impl TryFrom<ComplementShape> for InstanceShapeKind {
+    type Error = ComplementShape;
+
+    fn try_from(shape: ComplementShape) -> Result<Self, Self::Error> {
+        shape.instance_shape().ok_or(shape)
+    }
+}
+
+impl fmt::Display for ComplementShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::WType => "wtype",
+            Self::Graph => "graph",
+            Self::Functor => "functor",
+            Self::Resolution => "resolution",
+        })
+    }
+}
+
+/// A complement's shape and the version of that shape's wire layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ComplementFormat {
+    /// The instance shape.
+    pub shape: ComplementShape,
+    /// The layout version.
+    pub version: u16,
+}
+
+impl fmt::Display for ComplementFormat {
+    /// Rendered as `shape/version`, e.g. `wtype/1`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.shape, self.version)
+    }
+}
+
+/// The record a complement carries of the lens that produced it.
+///
+/// Serialized with its fields in declaration order. Deserialization reads
+/// `version` first and refuses any version other than
+/// [`IDENTITY_ENVELOPE_VERSION`] without decoding the rest, so a future
+/// envelope with more fields is reported as unsupported rather than as a
+/// malformed complement.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct IdentityEnvelope {
+    /// The envelope layout version, [`IDENTITY_ENVELOPE_VERSION`].
+    pub version: u16,
+    /// The source schema's [`schema_digest`].
+    pub source_schema: Digest,
+    /// The target schema's [`schema_digest`].
+    pub target_schema: Digest,
+    /// The compiled lens's [`lens_digest`].
+    pub lens: Digest,
+    /// The complement's shape and layout version.
+    pub complement_format: ComplementFormat,
+}
+
+thread_local! {
+    /// The envelope version most recently refused by
+    /// [`IdentityEnvelope`]'s deserializer on this thread.
+    ///
+    /// serde reports a deserializer's error as a message, so the version a
+    /// refused envelope carried would otherwise be lost by the time the
+    /// error reaches [`decode_complement`]. The deserializer records it
+    /// here and `decode_complement` reads it back to report
+    /// [`IdentityError::UnsupportedEnvelopeVersion`].
+    static REFUSED_ENVELOPE_VERSION: Cell<Option<u16>> = const { Cell::new(None) };
+}
+
+impl IdentityEnvelope {
+    const FIELDS: &'static [&'static str] = &[
+        "version",
+        "source_schema",
+        "target_schema",
+        "lens",
+        "complement_format",
+    ];
+
+    /// The envelope of a compiled lens producing complements of `shape`.
+    #[must_use]
+    pub fn for_parts(
+        src: &Schema,
+        tgt: &Schema,
+        compiled: &CompiledMigration,
+        shape: ComplementShape,
+    ) -> Self {
+        let source_schema = schema_digest(src);
+        let target_schema = schema_digest(tgt);
+        let lens = lens_digest_over(&source_schema, &target_schema, compiled);
+        Self {
+            version: IDENTITY_ENVELOPE_VERSION,
+            source_schema,
+            target_schema,
+            lens,
+            complement_format: shape.current_format(),
+        }
+    }
+
+    /// The first field on which `self` (the expected envelope) and `found`
+    /// differ, or `None` when every field agrees.
+    ///
+    /// A differing layout `version` is reported first, as
+    /// [`IdentityError::UnsupportedEnvelopeVersion`] naming `found`'s
+    /// version; any other differing field as an [`IdentityError::Mismatch`].
+    #[must_use]
+    pub fn mismatch(&self, found: &Self) -> Option<IdentityError> {
+        if self.version != found.version {
+            return Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: found.version,
+            });
+        }
+        let digest = |field, a: &Digest, b: &Digest| {
+            (a != b).then(|| IdentityError::Mismatch {
+                field,
+                expected: a.to_hex(),
+                found: b.to_hex(),
+            })
+        };
+        digest(
+            IdentityField::SourceSchema,
+            &self.source_schema,
+            &found.source_schema,
+        )
+        .or_else(|| {
+            digest(
+                IdentityField::TargetSchema,
+                &self.target_schema,
+                &found.target_schema,
+            )
+        })
+        .or_else(|| digest(IdentityField::Lens, &self.lens, &found.lens))
+        .or_else(|| {
+            (self.complement_format != found.complement_format).then(|| IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: self.complement_format.to_string(),
+                found: found.complement_format.to_string(),
+            })
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for IdentityEnvelope {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        fn refuse<E: de::Error>(found: u16) -> E {
+            REFUSED_ENVELOPE_VERSION.with(|slot| slot.set(Some(found)));
+            E::custom(format!(
+                "unsupported identity envelope version {found} (this build reads version \
+                 {IDENTITY_ENVELOPE_VERSION})"
+            ))
+        }
+
+        struct EnvelopeVisitor;
+
+        impl<'de> Visitor<'de> for EnvelopeVisitor {
+            type Value = IdentityEnvelope;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an identity envelope")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let version: u16 = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                if version != IDENTITY_ENVELOPE_VERSION {
+                    return Err(refuse(version));
+                }
+                let source_schema = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let target_schema = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let lens = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                let complement_format = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(4, &self))?;
+                Ok(IdentityEnvelope {
+                    version,
+                    source_schema,
+                    target_schema,
+                    lens,
+                    complement_format,
+                })
+            }
+
+            /// A map's keys may come in any order (a JSON object read back
+            /// through a sorted map puts `lens` before `version`), so every
+            /// other field is held undecoded until the version is known.
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut version = None;
+                let mut held: Vec<(String, ciborium::Value)> = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "version" {
+                        let v: u16 = map.next_value()?;
+                        if v != IDENTITY_ENVELOPE_VERSION {
+                            return Err(refuse(v));
+                        }
+                        version = Some(v);
+                    } else if Self::FIELD_NAMES.contains(&key.as_str()) {
+                        held.push((key, map.next_value()?));
+                    } else {
+                        map.next_value::<IgnoredAny>()?;
+                    }
+                }
+                let version = version.ok_or_else(|| de::Error::missing_field("version"))?;
+
+                let mut take = |name: &'static str| -> Result<ciborium::Value, A::Error> {
+                    let at = held
+                        .iter()
+                        .position(|(k, _)| k == name)
+                        .ok_or_else(|| de::Error::missing_field(name))?;
+                    Ok(held.swap_remove(at).1)
+                };
+                let source_schema: Digest = held_field("source_schema", &take("source_schema")?)?;
+                let target_schema: Digest = held_field("target_schema", &take("target_schema")?)?;
+                let lens: Digest = held_field("lens", &take("lens")?)?;
+                let complement_format: ComplementFormat =
+                    held_field("complement_format", &take("complement_format")?)?;
+                Ok(IdentityEnvelope {
+                    version,
+                    source_schema,
+                    target_schema,
+                    lens,
+                    complement_format,
+                })
+            }
+        }
+
+        impl EnvelopeVisitor {
+            const FIELD_NAMES: &'static [&'static str] = &[
+                "source_schema",
+                "target_schema",
+                "lens",
+                "complement_format",
+            ];
+        }
+
+        deserializer.deserialize_struct("IdentityEnvelope", Self::FIELDS, EnvelopeVisitor)
+    }
+}
+
+/// Decode one held envelope field.
+fn held_field<T: de::DeserializeOwned, E: de::Error>(
+    name: &str,
+    value: &ciborium::Value,
+) -> Result<T, E> {
+    value
+        .deserialized()
+        .map_err(|e| E::custom(format!("{name}: {e}")))
+}
+
+/// The envelope of a compiled lens producing complements of `shape`.
+///
+/// Pure: computed from the two schemas and the compiled migration alone.
+#[must_use]
+pub fn lens_identity(
+    src: &Schema,
+    tgt: &Schema,
+    compiled: &CompiledMigration,
+    shape: ComplementShape,
+) -> IdentityEnvelope {
+    IdentityEnvelope::for_parts(src, tgt, compiled, shape)
+}
+
+// ---------------------------------------------------------------------------
+// Status, policy and errors.
+// ---------------------------------------------------------------------------
+
+/// A field of an [`IdentityEnvelope`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityField {
+    /// The source schema digest.
+    SourceSchema,
+    /// The target schema digest.
+    TargetSchema,
+    /// The compiled lens digest.
+    Lens,
+    /// The complement format.
+    Format,
+}
+
+impl fmt::Display for IdentityField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::SourceSchema => "source_schema",
+            Self::TargetSchema => "target_schema",
+            Self::Lens => "lens",
+            Self::Format => "format",
+        })
+    }
+}
+
+/// The pointer width a legacy fingerprint was computed at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LegacyWidth {
+    /// A 64-bit host: the edge count hashed as eight bytes.
+    Bits64,
+    /// wasm32: the edge count hashed as four bytes.
+    Bits32,
+}
+
+/// How a complement is bound to a lens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityStatus {
+    /// The complement carries an envelope equal to the lens's.
+    Verified,
+    /// The complement carries no envelope, only a legacy fingerprint, and
+    /// that fingerprint matches the lens's source schema at `width`.
+    Legacy {
+        /// The complement's fingerprint.
+        fingerprint: u64,
+        /// The pointer width at which it matched.
+        width: LegacyWidth,
+    },
+    /// The complement carries neither an envelope nor a fingerprint.
+    Unbound,
+}
+
+/// Which [`IdentityStatus`]es a caller accepts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityPolicy {
+    /// Accept [`IdentityStatus::Verified`], and
+    /// [`IdentityStatus::Unbound`] only for an empty complement.
+    Strict,
+    /// Also accept [`IdentityStatus::Legacy`].
+    #[default]
+    AllowLegacy,
+}
+
+impl IdentityPolicy {
+    /// Whether this policy accepts `status` for a complement that is
+    /// (`complement_is_empty`) or is not empty.
+    ///
+    /// A non-empty [`IdentityStatus::Unbound`] complement is refused under
+    /// every policy: it carries data and no record of where the data came
+    /// from, so accepting it would let any stripped complement through.
+    ///
+    /// # Errors
+    ///
+    /// [`IdentityError::UnboundComplement`] for a non-empty unbound
+    /// complement; [`IdentityError::LegacyComplementRejected`] with
+    /// [`LegacyRejectReason::PolicyStrict`] for a legacy complement under
+    /// [`Self::Strict`].
+    pub const fn admit(
+        self,
+        status: &IdentityStatus,
+        complement_is_empty: bool,
+    ) -> Result<(), IdentityError> {
+        match (status, self) {
+            (IdentityStatus::Verified, _) | (IdentityStatus::Legacy { .. }, Self::AllowLegacy) => {
+                Ok(())
+            }
+            (IdentityStatus::Legacy { .. }, Self::Strict) => {
+                Err(IdentityError::LegacyComplementRejected {
+                    reason: LegacyRejectReason::PolicyStrict,
+                })
+            }
+            (IdentityStatus::Unbound, _) => {
+                if complement_is_empty {
+                    Ok(())
+                } else {
+                    Err(IdentityError::UnboundComplement)
+                }
+            }
+        }
+    }
+}
+
+/// Why a legacy complement was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LegacyRejectReason {
+    /// The policy was [`IdentityPolicy::Strict`].
+    PolicyStrict,
+    /// It was to be combined with a complement that carries an envelope.
+    MixedWithVerified,
+    /// Its fingerprint matches neither width of the expected schema's, or
+    /// the other legacy complement's.
+    FingerprintMismatch,
+}
+
+impl fmt::Display for LegacyRejectReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::PolicyStrict => "the policy is strict",
+            Self::MixedWithVerified => {
+                "it cannot be combined with a complement that has an envelope"
+            }
+            Self::FingerprintMismatch => "its fingerprint does not match",
+        })
+    }
+}
+
+/// Why a complement's identity was refused.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityError {
+    /// The complement's envelope differs from the expected one in `field`.
+    /// Digests are rendered as hex, formats as `shape/version`.
+    #[error("identity mismatch on {field}: expected {expected}, found {found}")]
+    Mismatch {
+        /// The first differing field.
+        field: IdentityField,
+        /// The expected value.
+        expected: String,
+        /// The complement's value.
+        found: String,
+    },
+    /// A legacy complement was refused.
+    #[error("legacy complement rejected: {reason}")]
+    LegacyComplementRejected {
+        /// Why.
+        reason: LegacyRejectReason,
+    },
+    /// The complement carries data but neither an envelope nor a
+    /// fingerprint, so nothing binds it to a lens.
+    #[error("the complement carries data but no identity, so it cannot be bound to this lens")]
+    UnboundComplement,
+    /// The complement's envelope has a layout version this build does not
+    /// read.
+    #[error(
+        "unsupported identity envelope version {found} (this build reads version {IDENTITY_ENVELOPE_VERSION})"
+    )]
+    UnsupportedEnvelopeVersion {
+        /// The version found.
+        found: u16,
+    },
+    /// The bytes decode as neither complement shape.
+    #[error("undecodable complement: {0}")]
+    Undecodable(String),
+}
+
+// ---------------------------------------------------------------------------
+// Legacy fingerprint.
+// ---------------------------------------------------------------------------
+
+/// The source-schema fingerprint complements carried before envelopes.
+///
+/// A frozen reimplementation of that algorithm: SipHash-1-3 with keys
+/// `(0, 0)` over each vertex name in ascending order, each written as its
+/// UTF-8 bytes followed by `0xFF`, then the edge count as a little-endian
+/// integer of `width` bytes. The `SipHash` is implemented here rather than
+/// taken from the standard library, whose hasher is not guaranteed to stay
+/// the same across Rust releases.
+#[must_use]
+pub fn legacy_schema_fingerprint(schema: &Schema, width: LegacyWidth) -> u64 {
+    let mut names: Vec<&str> = schema.vertices.keys().map(AsRef::as_ref).collect();
+    names.sort_unstable();
+    let mut message = Vec::new();
+    for name in names {
+        message.extend_from_slice(name.as_bytes());
+        message.push(0xFF);
+    }
+    let edges = schema.edges.len();
+    match width {
+        LegacyWidth::Bits64 => {
+            message.extend_from_slice(&u64::try_from(edges).unwrap_or(u64::MAX).to_le_bytes());
+        }
+        LegacyWidth::Bits32 => {
+            message.extend_from_slice(&u32::try_from(edges).unwrap_or(u32::MAX).to_le_bytes());
+        }
+    }
+    siphash13_zero_key(&message)
+}
+
+/// The width at which `fingerprint` is the legacy fingerprint of `schema`,
+/// trying 64-bit first.
+#[must_use]
+pub fn legacy_width_matching(schema: &Schema, fingerprint: u64) -> Option<LegacyWidth> {
+    [LegacyWidth::Bits64, LegacyWidth::Bits32]
+        .into_iter()
+        .find(|&w| legacy_schema_fingerprint(schema, w) == fingerprint)
+}
+
+/// SipHash-1-3 of `message` with both keys zero.
+fn siphash13_zero_key(message: &[u8]) -> u64 {
+    struct State([u64; 4]);
+
+    impl State {
+        const fn round(&mut self) {
+            let v = &mut self.0;
+            v[0] = v[0].wrapping_add(v[1]);
+            v[1] = v[1].rotate_left(13);
+            v[1] ^= v[0];
+            v[0] = v[0].rotate_left(32);
+            v[2] = v[2].wrapping_add(v[3]);
+            v[3] = v[3].rotate_left(16);
+            v[3] ^= v[2];
+            v[0] = v[0].wrapping_add(v[3]);
+            v[3] = v[3].rotate_left(21);
+            v[3] ^= v[0];
+            v[2] = v[2].wrapping_add(v[1]);
+            v[1] = v[1].rotate_left(17);
+            v[1] ^= v[2];
+            v[2] = v[2].rotate_left(32);
+        }
+
+        const fn absorb(&mut self, m: u64) {
+            self.0[3] ^= m;
+            self.round();
+            self.0[0] ^= m;
+        }
+    }
+
+    let mut state = State([
+        0x736f_6d65_7073_6575,
+        0x646f_7261_6e64_6f6d,
+        0x6c79_6765_6e65_7261,
+        0x7465_6462_7974_6573,
+    ]);
+    let mut chunks = message.chunks_exact(8);
+    for chunk in &mut chunks {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(chunk);
+        state.absorb(u64::from_le_bytes(word));
+    }
+    let mut tail = [0u8; 8];
+    let rest = chunks.remainder();
+    tail[..rest.len()].copy_from_slice(rest);
+    // The message length modulo 256 in the top byte, as SipHash specifies.
+    let length_byte = u64::from(u8::try_from(message.len() & 0xFF).unwrap_or(0));
+    state.absorb(u64::from_le_bytes(tail) | (length_byte << 56));
+    state.0[2] ^= 0xFF;
+    for _ in 0..3 {
+        state.round();
+    }
+    state.0[0] ^ state.0[1] ^ state.0[2] ^ state.0[3]
+}
+
+// ---------------------------------------------------------------------------
+// Complements that carry an identity.
+// ---------------------------------------------------------------------------
+
+/// A complement type that records the lens it came from.
+///
+/// Every complement shape implements this, and the status, policy and
+/// composition rules below are written once against it.
+pub trait IdentityCarrier {
+    /// The shape of instance this complement belongs to.
+    const SHAPE: ComplementShape;
+
+    /// The complement's envelope, if it carries one.
+    fn identity(&self) -> Option<&IdentityEnvelope>;
+
+    /// Replace the complement's envelope.
+    fn set_identity(&mut self, envelope: Option<IdentityEnvelope>);
+
+    /// The complement's legacy fingerprint, `0` when it has none. A shape
+    /// with no legacy form always returns `0`.
+    fn legacy_fingerprint(&self) -> u64;
+
+    /// Write the legacy fingerprint alongside a new envelope. A shape with
+    /// no legacy form ignores it.
+    fn set_legacy_fingerprint(&mut self, fingerprint: u64);
+
+    /// Whether the complement records nothing at all, bookkeeping included.
+    /// The envelope and the fingerprint do not count.
+    fn records_nothing(&self) -> bool;
+
+    /// Stamp the complement as produced by the lens `envelope` names, whose
+    /// source schema is `source`.
+    ///
+    /// The legacy fingerprint is written too, at 64-bit width, so a reader
+    /// that predates envelopes keeps its fingerprint check.
+    fn stamp(&mut self, envelope: IdentityEnvelope, source: &Schema) {
+        self.set_legacy_fingerprint(legacy_schema_fingerprint(source, LegacyWidth::Bits64));
+        self.set_identity(Some(envelope));
+    }
+}
+
+/// The [`IdentityStatus`] of `complement` against the lens whose envelope is
+/// `expected` and whose source schema is `source`.
+///
+/// A total function of the complement's envelope, its legacy fingerprint and
+/// the expected identity:
+///
+/// | envelope | fingerprint | status |
+/// |----------|-------------|--------|
+/// | `Some(e)`, `e` equal to `expected` | any | `Verified` |
+/// | `Some(e)`, `e` differing | any | error `Mismatch` on the first differing field |
+/// | `None` | `≠ 0`, matching `source` at some width | `Legacy` with that width |
+/// | `None` | `≠ 0`, matching at neither width | error `LegacyComplementRejected(FingerprintMismatch)` |
+/// | `None` | `0` | `Unbound` |
+///
+/// Whether an `Unbound` complement is acceptable depends on whether it is
+/// empty, which [`IdentityPolicy::admit`] decides.
+///
+/// # Errors
+///
+/// As in the table.
+pub fn identity_status<C: IdentityCarrier + ?Sized>(
+    complement: &C,
+    expected: &IdentityEnvelope,
+    source: &Schema,
+) -> Result<IdentityStatus, IdentityError> {
+    if let Some(found) = complement.identity() {
+        return expected
+            .mismatch(found)
+            .map_or(Ok(IdentityStatus::Verified), Err);
+    }
+    match complement.legacy_fingerprint() {
+        0 => Ok(IdentityStatus::Unbound),
+        fingerprint => legacy_width_matching(source, fingerprint)
+            .map(|width| IdentityStatus::Legacy { fingerprint, width })
+            .ok_or(IdentityError::LegacyComplementRejected {
+                reason: LegacyRejectReason::FingerprintMismatch,
+            }),
+    }
+}
+
+/// The identity of the composite of two complements of the same lens: its
+/// envelope and its legacy fingerprint.
+///
+/// | left | right | result |
+/// |------|-------|--------|
+/// | non-empty unbound | any | error `UnboundComplement`, and symmetrically |
+/// | empty unbound | `x` | `x` (the empty unbound complement is the unit), and symmetrically |
+/// | `Some(a)` | `Some(b)` | `Some(a)` if `a == b`, else error `Mismatch` |
+/// | `Some(_)` | legacy | error `LegacyComplementRejected(MixedWithVerified)`, and symmetrically |
+/// | legacy `f` | legacy `g` | legacy `f` if `f == g`, else error `LegacyComplementRejected(FingerprintMismatch)` |
+///
+/// # Errors
+///
+/// As in the table.
+pub fn compose_identities<C: IdentityCarrier + ?Sized>(
+    left: &C,
+    right: &C,
+) -> Result<(Option<IdentityEnvelope>, u64), IdentityError> {
+    let unbound = |c: &C| c.identity().is_none() && c.legacy_fingerprint() == 0;
+    if (unbound(left) && !left.records_nothing()) || (unbound(right) && !right.records_nothing()) {
+        return Err(IdentityError::UnboundComplement);
+    }
+    let fingerprint = |a: u64, b: u64| match (a, b) {
+        (0, x) | (x, 0) => Ok(x),
+        (x, y) if x == y => Ok(x),
+        _ => Err(IdentityError::LegacyComplementRejected {
+            reason: LegacyRejectReason::FingerprintMismatch,
+        }),
+    };
+    if unbound(left) {
+        return Ok((right.identity().cloned(), right.legacy_fingerprint()));
+    }
+    if unbound(right) {
+        return Ok((left.identity().cloned(), left.legacy_fingerprint()));
+    }
+    match (left.identity(), right.identity()) {
+        (Some(a), Some(b)) => match a.mismatch(b) {
+            Some(err) => Err(err),
+            None => Ok((
+                Some(a.clone()),
+                fingerprint(left.legacy_fingerprint(), right.legacy_fingerprint())?,
+            )),
+        },
+        (Some(_), None) | (None, Some(_)) => Err(IdentityError::LegacyComplementRejected {
+            reason: LegacyRejectReason::MixedWithVerified,
+        }),
+        (None, None) => Ok((
+            None,
+            fingerprint(left.legacy_fingerprint(), right.legacy_fingerprint())?,
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decoding.
+// ---------------------------------------------------------------------------
+
+/// A wire encoding of a complement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Encoding {
+    /// msgpack with structs as arrays (`rmp_serde::to_vec`), the VCS form.
+    MsgpackPositional,
+    /// msgpack with structs as maps (`rmp_serde::to_vec_named`), the
+    /// WASM/TS form.
+    MsgpackNamed,
+    /// CBOR, the C ABI form.
+    Cbor,
+    /// JSON.
+    Json,
+}
+
+/// A decoded complement, of whichever [`ComplementShape`] this build has a
+/// complement type for.
+#[derive(Clone, Debug)]
+pub enum AnyComplement {
+    /// A tree complement.
+    WType(Box<Complement>),
+    /// A table complement.
+    Functor(Box<TableComplement>),
+    /// A reference-resolution complement.
+    Resolution(Box<ResolutionComplement>),
+}
+
+impl AnyComplement {
+    /// The complement's shape.
+    #[must_use]
+    pub const fn shape(&self) -> ComplementShape {
+        match self {
+            Self::WType(_) => ComplementShape::WType,
+            Self::Functor(_) => ComplementShape::Functor,
+            Self::Resolution(_) => ComplementShape::Resolution,
+        }
+    }
+
+    /// The complement's envelope, if it carries one.
+    #[must_use]
+    pub fn identity(&self) -> Option<&IdentityEnvelope> {
+        match self {
+            Self::WType(c) => c.identity.as_ref(),
+            Self::Functor(c) => c.identity.as_ref(),
+            Self::Resolution(c) => c.identity.as_ref(),
+        }
+    }
+}
+
+fn decode_as<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    encoding: Encoding,
+) -> Result<T, String> {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let (value, name): (T, &str) = match encoding {
+        Encoding::MsgpackPositional | Encoding::MsgpackNamed => {
+            let mut de = rmp_serde::Deserializer::new(&mut cursor);
+            (
+                T::deserialize(&mut de).map_err(|e| e.to_string())?,
+                "msgpack",
+            )
+        }
+        Encoding::Cbor => (
+            ciborium::de::from_reader(&mut cursor).map_err(|e| e.to_string())?,
+            "CBOR",
+        ),
+        // `from_slice` already refuses anything but whitespace after the
+        // value, so the whole input counts as consumed.
+        Encoding::Json => {
+            let value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+            cursor.set_position(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+            (value, "JSON")
+        }
+    };
+    let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
+    if consumed < bytes.len() {
+        return Err(format!(
+            "{} trailing byte(s) after the {name} value",
+            bytes.len() - consumed
+        ));
+    }
+    Ok(value)
+}
+
+/// Decode `bytes` as a complement of `shape`, or explain why not.
+///
+/// Returns `None` for a shape this build has no complement type for.
+fn decode_shape(
+    bytes: &[u8],
+    encoding: Encoding,
+    shape: ComplementShape,
+) -> Option<Result<AnyComplement, String>> {
+    match shape {
+        ComplementShape::WType => Some(
+            decode_as::<Complement>(bytes, encoding).map(|c| AnyComplement::WType(Box::new(c))),
+        ),
+        ComplementShape::Functor => Some(
+            decode_as::<TableComplement>(bytes, encoding)
+                .map(|c| AnyComplement::Functor(Box::new(c))),
+        ),
+        ComplementShape::Resolution => Some(
+            decode_as::<ResolutionComplement>(bytes, encoding)
+                .map(|c| AnyComplement::Resolution(Box::new(c))),
+        ),
+        ComplementShape::Graph => None,
+    }
+}
+
+/// Decode `bytes` as a sequence of complements of `shape`, or explain why
+/// not.
+///
+/// Returns `None` for a shape this build has no complement type for.
+fn decode_shape_seq(
+    bytes: &[u8],
+    encoding: Encoding,
+    shape: ComplementShape,
+) -> Option<Result<Vec<AnyComplement>, String>> {
+    match shape {
+        ComplementShape::WType => Some(decode_as::<Vec<Complement>>(bytes, encoding).map(|cs| {
+            cs.into_iter()
+                .map(|c| AnyComplement::WType(Box::new(c)))
+                .collect()
+        })),
+        ComplementShape::Functor => Some(decode_as::<Vec<TableComplement>>(bytes, encoding).map(
+            |cs| {
+                cs.into_iter()
+                    .map(|c| AnyComplement::Functor(Box::new(c)))
+                    .collect()
+            },
+        )),
+        ComplementShape::Resolution => Some(
+            decode_as::<Vec<ResolutionComplement>>(bytes, encoding).map(|cs| {
+                cs.into_iter()
+                    .map(|c| AnyComplement::Resolution(Box::new(c)))
+                    .collect()
+            }),
+        ),
+        ComplementShape::Graph => None,
+    }
+}
+
+/// The format a decoded complement of `shape` declares: its envelope's, or
+/// the shape's current one when it carries no envelope.
+fn declared_format(decoded: &AnyComplement, shape: ComplementShape) -> ComplementFormat {
+    decoded
+        .identity()
+        .map_or_else(|| shape.current_format(), |e| e.complement_format)
+}
+
+/// A decoder for one value of type `T` holding complements of a given
+/// shape: `None` when this build has no complement type for the shape,
+/// else the value or why it did not decode.
+type ShapeDecoder<T> = fn(&[u8], Encoding, ComplementShape) -> Option<Result<T, String>>;
+
+/// The checks [`decode_complement`] and [`decode_complements`] share, over
+/// a decoder for one value (`T`) of a given shape and the complements that
+/// value holds.
+fn decode_checked<T>(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+    decode: ShapeDecoder<T>,
+    complements: fn(&T) -> &[AnyComplement],
+) -> Result<T, IdentityError> {
+    REFUSED_ENVELOPE_VERSION.with(|slot| slot.set(None));
+    let refused = || REFUSED_ENVELOPE_VERSION.with(Cell::take);
+
+    let first = decode(bytes, encoding, expected);
+    if let Some(Ok(decoded)) = first {
+        let wanted = expected.current_format();
+        if let Some(format) = complements(&decoded)
+            .iter()
+            .map(|c| declared_format(c, expected))
+            .find(|format| *format != wanted)
+        {
+            return Err(IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: wanted.to_string(),
+                found: format.to_string(),
+            });
+        }
+        return Ok(decoded);
+    }
+    if let Some(found) = refused() {
+        return Err(IdentityError::UnsupportedEnvelopeVersion { found });
+    }
+
+    // The bytes are not a complement of the expected shape. If they are one
+    // of another shape, that is a format mismatch naming the first such
+    // shape in declaration order; otherwise every attempt failed.
+    let mut reasons = vec![reason(expected, first)];
+    for other in ComplementShape::ALL {
+        if other == expected {
+            continue;
+        }
+        match decode(bytes, encoding, other) {
+            Some(Ok(decoded)) => {
+                let found = complements(&decoded)
+                    .first()
+                    .map_or_else(|| other.current_format(), |c| declared_format(c, other));
+                return Err(IdentityError::Mismatch {
+                    field: IdentityField::Format,
+                    expected: expected.current_format().to_string(),
+                    found: found.to_string(),
+                });
+            }
+            attempt => {
+                if let Some(found) = refused() {
+                    return Err(IdentityError::UnsupportedEnvelopeVersion { found });
+                }
+                reasons.push(reason(other, attempt));
+            }
+        }
+    }
+    Err(IdentityError::Undecodable(reasons.join("; ")))
+}
+
+/// Why a decode attempt as `shape` did not give a complement of that shape.
+fn reason<T>(shape: ComplementShape, attempt: Option<Result<T, String>>) -> String {
+    match attempt {
+        Some(Err(e)) => format!("as {shape}: {e}"),
+        Some(Ok(_)) => format!("as {shape}: decoded"),
+        None => format!("as {shape}: this build has no {shape} complement type"),
+    }
+}
+
+/// Decode a complement read from outside the process.
+///
+/// Decodes `bytes` as a complement of the `expected` shape. If that fails
+/// and the bytes decode as a complement of another shape in
+/// [`ComplementShape::ALL`] instead, the error is a
+/// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
+/// complement whose envelope names a different format is refused the same
+/// way. An envelope whose layout version this build does not read gives
+/// [`IdentityError::UnsupportedEnvelopeVersion`]. Bytes left over after the
+/// complement are refused.
+///
+/// Every path that takes a complement from bytes or from a host-language
+/// value goes through this function, or through [`decode_complements`] for
+/// a sequence of them.
+///
+/// # Errors
+///
+/// As above, or [`IdentityError::Undecodable`] when the bytes decode as a
+/// complement of no shape in [`ComplementShape::ALL`]; its message gives
+/// the reason for each shape tried.
+pub fn decode_complement(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<AnyComplement, IdentityError> {
+    decode_checked(
+        bytes,
+        encoding,
+        expected,
+        decode_shape,
+        std::slice::from_ref,
+    )
+}
+
+/// Decode a sequence of complements read from outside the process, as
+/// stored one per record alongside a data set.
+///
+/// The checks are [`decode_complement`]'s, applied to the sequence: it
+/// must decode whole as complements of the `expected` shape, and every
+/// element's envelope must name that shape's current format.
+///
+/// # Errors
+///
+/// As [`decode_complement`].
+pub fn decode_complements(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<Vec<AnyComplement>, IdentityError> {
+    decode_checked(bytes, encoding, expected, decode_shape_seq, Vec::as_slice)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::hash::Hasher;
+
+    use panproto_expr::{Expr, Literal};
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+    use super::*;
+
+    fn schema(extra_vertex: Option<&str>) -> Schema {
+        let protocol = Protocol::default();
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("post", "object", None)
+            .unwrap()
+            .vertex("post.text", "string", None)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap();
+        if let Some(v) = extra_vertex {
+            builder = builder.vertex(v, "string", None).unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    fn envelope() -> IdentityEnvelope {
+        let s = schema(None);
+        lens_identity(
+            &s,
+            &s,
+            &CompiledMigration::default(),
+            ComplementShape::WType,
+        )
+    }
+
+    /// A value that serializes as a byte string.
+    struct Bytes<'a>(&'a [u8]);
+
+    impl Serialize for Bytes<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            s.serialize_bytes(self.0)
+        }
+    }
+
+    #[test]
+    fn a_digest_is_hex_in_json_and_bytes_in_msgpack_and_cbor() {
+        let d = Digest([0xab; 32]);
+        let json = serde_json::to_string(&d).unwrap();
+        assert_eq!(json, format!("\"{}\"", "ab".repeat(32)));
+        assert_eq!(serde_json::from_str::<Digest>(&json).unwrap(), d);
+
+        let msgpack = rmp_serde::to_vec(&d).unwrap();
+        assert_eq!(&msgpack[..2], &[0xc4, 32], "msgpack bin8 of 32 bytes");
+        assert_eq!(rmp_serde::from_slice::<Digest>(&msgpack).unwrap(), d);
+
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&d, &mut cbor).unwrap();
+        assert_eq!(&cbor[..2], &[0x58, 32], "CBOR major type 2, 32 bytes");
+        assert_eq!(
+            ciborium::de::from_reader::<Digest, _>(cbor.as_slice()).unwrap(),
+            d
+        );
+
+        // A 32-integer sequence, the default serde form of `[u8; 32]`, and
+        // a hex string inside a binary format are both accepted.
+        let seq = rmp_serde::to_vec(&vec![0xabu8; 32]).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Digest>(&seq).unwrap(), d);
+        let hex_in_msgpack = rmp_serde::to_vec(&"ab".repeat(32)).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Digest>(&hex_in_msgpack).unwrap(), d);
+    }
+
+    #[test]
+    fn a_digest_of_the_wrong_length_is_refused() {
+        assert!(serde_json::from_str::<Digest>("\"abcd\"").is_err());
+        assert!(
+            rmp_serde::from_slice::<Digest>(&rmp_serde::to_vec(&vec![1u8; 31]).unwrap()).is_err()
+        );
+        assert!(
+            rmp_serde::from_slice::<Digest>(&rmp_serde::to_vec(&vec![1u8; 33]).unwrap()).is_err()
+        );
+        let bytes31 = rmp_serde::to_vec(&Bytes(&[1u8; 31])).unwrap();
+        assert!(rmp_serde::from_slice::<Digest>(&bytes31).is_err());
+        assert!("zz".repeat(32).parse::<Digest>().is_err());
+        assert!(rmp_serde::from_slice::<Digest>(&rmp_serde::to_vec(&7u8).unwrap()).is_err());
+    }
+
+    #[test]
+    fn an_envelope_round_trips_in_every_encoding() {
+        let e = envelope();
+        assert_eq!(
+            rmp_serde::from_slice::<IdentityEnvelope>(&rmp_serde::to_vec(&e).unwrap()).unwrap(),
+            e
+        );
+        assert_eq!(
+            rmp_serde::from_slice::<IdentityEnvelope>(&rmp_serde::to_vec_named(&e).unwrap())
+                .unwrap(),
+            e
+        );
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["complement_format"]["shape"], "wtype");
+        assert_eq!(serde_json::from_value::<IdentityEnvelope>(json).unwrap(), e);
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&e, &mut cbor).unwrap();
+        assert_eq!(
+            ciborium::de::from_reader::<IdentityEnvelope, _>(cbor.as_slice()).unwrap(),
+            e
+        );
+    }
+
+    #[test]
+    fn an_envelope_of_another_version_is_refused_before_the_rest_is_read() {
+        // The next version with a tail this build cannot decode at all.
+        let next = IDENTITY_ENVELOPE_VERSION + 1;
+        let positional = rmp_serde::to_vec(&(next, "not a digest", 7u8)).unwrap();
+        let err = rmp_serde::from_slice::<IdentityEnvelope>(&positional).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains(&format!("unsupported identity envelope version {next}")),
+            "{err}"
+        );
+
+        let named = serde_json::json!({"version": 3, "source_schema": false});
+        let err = serde_json::from_value::<IdentityEnvelope>(named).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unsupported identity envelope version 3"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_legacy_fingerprint_is_the_standard_hasher_at_native_width() {
+        for extra in [
+            None,
+            Some("a"),
+            Some("zzz.long.vertex.name.over.eight.bytes"),
+        ] {
+            let s = schema(extra);
+            let mut std_hasher = std::collections::hash_map::DefaultHasher::new();
+            let mut names: Vec<&str> = s.vertices.keys().map(AsRef::as_ref).collect();
+            names.sort_unstable();
+            for n in &names {
+                std::hash::Hash::hash(n, &mut std_hasher);
+            }
+            std::hash::Hash::hash(&s.edges.len(), &mut std_hasher);
+            assert_eq!(
+                legacy_schema_fingerprint(&s, LegacyWidth::Bits64),
+                std_hasher.finish()
+            );
+            assert_ne!(
+                legacy_schema_fingerprint(&s, LegacyWidth::Bits64),
+                legacy_schema_fingerprint(&s, LegacyWidth::Bits32)
+            );
+        }
+    }
+
+    #[test]
+    fn siphash_matches_the_standard_hasher_on_every_tail_length() {
+        for len in 0..40u8 {
+            let message: Vec<u8> = (0..len).collect();
+            let mut std_hasher = std::collections::hash_map::DefaultHasher::new();
+            std_hasher.write(&message);
+            assert_eq!(
+                siphash13_zero_key(&message),
+                std_hasher.finish(),
+                "len {len}"
+            );
+        }
+    }
+
+    fn rich_migration() -> CompiledMigration {
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("b".into()),
+        };
+        let mut m = CompiledMigration::default();
+        for v in ["a", "b", "c", "d", "e"] {
+            m.surviving_verts.insert(v.into());
+            m.vertex_remap
+                .insert(v.into(), format!("t.{v}").as_str().into());
+        }
+        m.surviving_edges.insert(edge.clone());
+        m.edge_remap.insert(edge.clone(), edge.clone());
+        m.resolver.insert(("a".into(), "b".into()), edge);
+        m.hyper_resolver.insert(
+            ("h".into(), vec!["x".into(), "y".into()]),
+            (
+                "h2".into(),
+                [("x".into(), "x2".into()), ("y".into(), "y2".into())]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        m.field_transforms.insert(
+            "a".into(),
+            vec![
+                FieldTransform::RenameField {
+                    old_key: "o".into(),
+                    new_key: "n".into(),
+                },
+                FieldTransform::MapReferences {
+                    field: "refs".into(),
+                    rename_map: [("p".into(), Some("q".into())), ("r".into(), None)]
+                        .into_iter()
+                        .collect(),
+                },
+                FieldTransform::AddField {
+                    key: "k".into(),
+                    value: Value::Unknown(
+                        [("u".into(), Value::Float(-0.0)), ("v".into(), Value::Null)]
+                            .into_iter()
+                            .collect(),
+                    ),
+                },
+            ],
+        );
+        m.conditional_survival
+            .insert("b".into(), Expr::Lit(Literal::Bool(true)));
+        m.op_term_assignments.insert(
+            "c".into(),
+            vec![TermAssignment::Compute {
+                target: "t".into(),
+                scope: TermScope::Row,
+                term: Expr::Var("x".into()),
+                inverse: None,
+                coercion_class: CoercionClass::Projection,
+            }],
+        );
+        m.expansion_path
+            .insert(("a".into(), "b".into()), vec!["i1".into(), "i2".into()]);
+        m
+    }
+
+    #[test]
+    fn the_compiled_encoding_ignores_hash_seeds() {
+        let baseline = canonical_compiled_bytes(&rich_migration());
+        for _ in 0..50 {
+            assert_eq!(canonical_compiled_bytes(&rich_migration()), baseline);
+        }
+    }
+
+    /// The compiled encoding of a migration that reaches every field and
+    /// several value tags, pinned by its blake3 hash and its lens digest, so
+    /// that a change to how values or compiled fields are written shows up
+    /// here before it reaches a stored complement.
+    #[test]
+    fn the_compiled_encoding_is_pinned() {
+        let bytes = canonical_compiled_bytes(&rich_migration());
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            "d874316e8b8bf7b408ea4bfea5d55b459a9ae058b0a2bebab723e875ce0539f5",
+            "canonical_compiled_bytes moved"
+        );
+        let s = schema(None);
+        assert_eq!(
+            lens_digest(&s, &s, &rich_migration()).to_hex(),
+            "8216d519f8b0dbc38841032dc195a56b93c2c550ac01010342c5ed678081f835",
+            "lens_digest moved"
+        );
+    }
+
+    type Edit = fn(&mut CompiledMigration);
+
+    #[test]
+    fn every_compiled_field_reaches_the_encoding() {
+        let base = canonical_compiled_bytes(&rich_migration());
+        let edits: [(&str, Edit); 11] = [
+            ("surviving_verts", |m| {
+                m.surviving_verts.insert("z".into());
+            }),
+            ("surviving_edges", |m| m.surviving_edges.clear()),
+            ("vertex_remap", |m| {
+                m.vertex_remap.insert("a".into(), "other".into());
+            }),
+            ("edge_remap", |m| m.edge_remap.clear()),
+            ("resolver", |m| m.resolver.clear()),
+            ("hyper_resolver", |m| m.hyper_resolver.clear()),
+            ("field_transforms order", |m| {
+                if let Some(ts) = m.field_transforms.get_mut("a") {
+                    ts.reverse();
+                }
+            }),
+            ("conditional_survival", |m| {
+                m.conditional_survival
+                    .insert("b".into(), Expr::Lit(Literal::Bool(false)));
+            }),
+            ("op_term_assignments", |m| m.op_term_assignments.clear()),
+            ("expansion_path", |m| m.expansion_path.clear()),
+            ("a float's sign", |m| {
+                if let Some(ts) = m.field_transforms.get_mut("a") {
+                    ts[2] = FieldTransform::AddField {
+                        key: "k".into(),
+                        value: Value::Unknown(
+                            [("u".into(), Value::Float(0.0)), ("v".into(), Value::Null)]
+                                .into_iter()
+                                .collect(),
+                        ),
+                    };
+                }
+            }),
+        ];
+        for (what, edit) in edits {
+            let mut m = rich_migration();
+            edit(&mut m);
+            assert_ne!(canonical_compiled_bytes(&m), base, "{what} was invisible");
+        }
+    }
+
+    #[test]
+    fn schema_and_lens_digests_use_their_contexts() {
+        let s = schema(None);
+        assert_eq!(
+            schema_digest(&s).0,
+            blake3::derive_key(SCHEMA_CONTEXT, &panproto_schema::canonical_bytes(&s))
+        );
+        let m = CompiledMigration::default();
+        let e = lens_identity(&s, &s, &m, ComplementShape::Graph);
+        assert_eq!(e.lens, lens_digest(&s, &s, &m));
+        assert_eq!(e.complement_format.to_string(), "graph/1");
+        assert_ne!(e.lens, e.source_schema);
+    }
+
+    #[test]
+    fn a_mismatch_names_the_first_differing_field() {
+        let e = envelope();
+        let mut other = e.clone();
+        other.lens = Digest([0; 32]);
+        other.complement_format = ComplementShape::Graph.current_format();
+        assert_eq!(
+            e.mismatch(&other),
+            Some(IdentityError::Mismatch {
+                field: IdentityField::Lens,
+                expected: e.lens.to_hex(),
+                found: "00".repeat(32),
+            })
+        );
+        other.lens = e.lens;
+        assert_eq!(
+            e.mismatch(&other),
+            Some(IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: "wtype/1".into(),
+                found: "graph/1".into(),
+            })
+        );
+        assert!(e.mismatch(&e).is_none());
+    }
+
+    #[test]
+    fn decoding_reports_a_foreign_format_and_an_unsupported_envelope() {
+        let mut c = Complement::empty();
+        let mut e = envelope();
+        e.complement_format = ComplementShape::Graph.current_format();
+        c.identity = Some(e);
+        let bytes = serde_json::to_vec(&c).unwrap();
+        assert!(matches!(
+            decode_complement(&bytes, Encoding::Json, ComplementShape::WType),
+            Err(IdentityError::Mismatch {
+                field: IdentityField::Format,
+                ..
+            })
+        ));
+
+        let mut value = serde_json::to_value(&c).unwrap();
+        value["identity"]["version"] = serde_json::json!(9);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert_eq!(
+            decode_complement(&bytes, Encoding::Json, ComplementShape::WType).unwrap_err(),
+            IdentityError::UnsupportedEnvelopeVersion { found: 9 }
+        );
+
+        assert!(matches!(
+            decode_complement(b"not a complement", Encoding::Json, ComplementShape::WType),
+            Err(IdentityError::Undecodable(_))
+        ));
+    }
+
+    #[test]
+    fn decoding_reports_a_tree_complement_where_a_graph_one_was_expected() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        for (encoding, bytes) in [
+            (Encoding::Json, serde_json::to_vec(&c).unwrap()),
+            (Encoding::MsgpackNamed, rmp_serde::to_vec_named(&c).unwrap()),
+        ] {
+            assert_eq!(
+                decode_complement(&bytes, encoding, ComplementShape::Graph).unwrap_err(),
+                IdentityError::Mismatch {
+                    field: IdentityField::Format,
+                    expected: "graph/1".into(),
+                    found: "wtype/1".into(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_bytes_are_undecodable_in_every_encoding() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&c, &mut cbor).unwrap();
+        for (encoding, mut bytes) in [
+            (Encoding::MsgpackPositional, rmp_serde::to_vec(&c).unwrap()),
+            (Encoding::MsgpackNamed, rmp_serde::to_vec_named(&c).unwrap()),
+            (Encoding::Cbor, cbor),
+            (Encoding::Json, serde_json::to_vec(&c).unwrap()),
+        ] {
+            assert!(
+                decode_complement(&bytes, encoding, ComplementShape::WType).is_ok(),
+                "{encoding:?} without trailing bytes"
+            );
+            bytes.push(0);
+            assert!(
+                matches!(
+                    decode_complement(&bytes, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sequence_of_complements_is_checked_like_one() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let seq = vec![c.clone(), c.clone()];
+        for (encoding, bytes) in [
+            (
+                Encoding::MsgpackPositional,
+                rmp_serde::to_vec(&seq).unwrap(),
+            ),
+            (
+                Encoding::MsgpackNamed,
+                rmp_serde::to_vec_named(&seq).unwrap(),
+            ),
+            (Encoding::Json, serde_json::to_vec(&seq).unwrap()),
+        ] {
+            let decoded = decode_complements(&bytes, encoding, ComplementShape::WType).unwrap();
+            assert_eq!(decoded.len(), 2, "{encoding:?}");
+            assert!(decoded.iter().all(|d| d.identity() == c.identity.as_ref()));
+
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(
+                matches!(
+                    decode_complements(&trailing, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte after the sequence"
+            );
+        }
+
+        // One foreign element refuses the whole sequence.
+        let mut foreign = c.clone();
+        let mut e = envelope();
+        e.complement_format = ComplementShape::Graph.current_format();
+        foreign.identity = Some(e);
+        let bytes = rmp_serde::to_vec(&vec![c.clone(), foreign]).unwrap();
+        assert_eq!(
+            decode_complements(&bytes, Encoding::MsgpackPositional, ComplementShape::WType)
+                .unwrap_err(),
+            IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: "wtype/1".into(),
+                found: "graph/1".into(),
+            }
+        );
+
+        // An unsupported envelope layout anywhere in the sequence is named.
+        let mut value = serde_json::to_value(&seq).unwrap();
+        value[1]["identity"]["version"] = serde_json::json!(9);
+        assert_eq!(
+            decode_complements(
+                &serde_json::to_vec(&value).unwrap(),
+                Encoding::Json,
+                ComplementShape::WType
+            )
+            .unwrap_err(),
+            IdentityError::UnsupportedEnvelopeVersion { found: 9 }
+        );
+
+        // A single complement is not a sequence of them.
+        assert!(matches!(
+            decode_complements(
+                &rmp_serde::to_vec(&c).unwrap(),
+                Encoding::MsgpackPositional,
+                ComplementShape::WType
+            ),
+            Err(IdentityError::Undecodable(_))
+        ));
+    }
+
+    #[test]
+    fn a_mismatch_compares_the_envelope_version() {
+        let e = envelope();
+        let mut other = e.clone();
+        other.version = IDENTITY_ENVELOPE_VERSION + 1;
+        assert_eq!(
+            e.mismatch(&other),
+            Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: IDENTITY_ENVELOPE_VERSION + 1
+            })
+        );
+    }
+}

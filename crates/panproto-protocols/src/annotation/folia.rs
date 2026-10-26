@@ -19,7 +19,7 @@ use crate::theories;
 /// Returns the `FoLiA` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "folia".into(),
         schema_theory: "ThFoliaSchema".into(),
         instance_theory: "ThFoliaInstance".into(),
@@ -89,8 +89,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `FoLiA`.
@@ -104,6 +106,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_folia(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

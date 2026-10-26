@@ -377,7 +377,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "string".into(), "boolean".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -519,7 +519,17 @@ mod tests {
             "diff_to_lens must compile the default into executable get behavior"
         );
 
-        let lifted = panproto_mig::lift_wtype(&lens.compiled, &old, &new, &source).unwrap();
+        let lifted = panproto_mig::lift_wtype(
+            &lens.compiled,
+            &old,
+            &new,
+            &source,
+            panproto_inst::BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+        .unwrap();
         assert_eq!(
             panproto_inst::to_json(&new, &lifted),
             serde_json::json!({"active": true, "name": "Ada"}),

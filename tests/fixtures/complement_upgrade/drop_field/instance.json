@@ -1,0 +1,87 @@
+{
+  "arcs": [
+    [
+      0,
+      1,
+      {
+        "kind": "prop",
+        "name": "text",
+        "src": "post",
+        "tgt": "post.text"
+      }
+    ],
+    [
+      0,
+      2,
+      {
+        "kind": "prop",
+        "name": "subtitle",
+        "src": "post",
+        "tgt": "post.subtitle"
+      }
+    ]
+  ],
+  "children_map": {
+    "0": [
+      1,
+      2
+    ]
+  },
+  "fans": [],
+  "nodes": {
+    "0": {
+      "anchor": "post",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "$type": {
+          "Str": "app.test.post"
+        }
+      },
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    "1": {
+      "anchor": "post.text",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "hello"
+        }
+      }
+    },
+    "2": {
+      "anchor": "post.subtitle",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "world"
+        }
+      }
+    }
+  },
+  "parent_map": {
+    "1": 0,
+    "2": 0
+  },
+  "root": 0,
+  "schema_root": "post"
+}

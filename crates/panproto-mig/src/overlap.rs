@@ -55,7 +55,7 @@ use crate::hom_search::{SearchOptions, find_span};
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 ///
 /// // Neither schema embeds wholly in the other: each has a property the other
@@ -108,7 +108,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

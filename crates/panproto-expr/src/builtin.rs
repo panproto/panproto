@@ -2,20 +2,60 @@
 //!
 //! Each builtin is a pure function from `&[Literal]` to `Result<Literal, ExprError>`.
 //! Type checking is done at evaluation time; arguments must have the expected types.
+//!
+//! A NaN that a builtin computes is the canonical quiet NaN,
+//! [`CANONICAL_NAN`] (bits `0x7ff8000000000000`): IEEE 754 arithmetic leaves
+//! the sign and payload of a NaN result to the platform, and negation and
+//! absolute value change a NaN's sign, so the builtins that compute a float
+//! (`Add`, `Sub`, `Mul`, `Div`, `Neg`, `Abs`, `Clamp` and `DecimalToFloat`)
+//! return the canonical NaN in place of any NaN result, and two computed
+//! NaNs are equal bit for bit. `StrToFloat` reads a NaN spelling as a
+//! lexeme is read under a float kind: one written with a leading minus
+//! gives [`NEGATIVE_CANONICAL_NAN`] (bits `0xfff8000000000000`), every other
+//! NaN spelling [`CANONICAL_NAN`], whatever bits the platform's parser
+//! gives. A builtin that returns an argument or an element as it is (`Head`,
+//! a field access, a branch) passes a NaN along with its bits.
 
 use std::sync::Arc;
 
+use std::cmp::Ordering;
+
 use crate::error::ExprError;
+use crate::exact::{CANONICAL_NAN, DecimalValue, NEGATIVE_CANONICAL_NAN};
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
 
-/// Safely convert a float to i64, returning an error for NaN, infinity, or out-of-range values.
-fn float_to_i64(f: f64) -> Result<Literal, ExprError> {
-    if !f.is_finite() {
-        return Err(ExprError::FloatNotRepresentable(format!("{f}")));
+/// `x`, or [`CANONICAL_NAN`] when `x` is a NaN: the float a builtin that
+/// computes `x` returns.
+const fn canonical_float(x: f64) -> f64 {
+    if x.is_nan() { CANONICAL_NAN } else { x }
+}
+
+/// The float `StrToFloat` returns for the text `s`, which the platform's
+/// parser read as `x`: `x` itself unless it is a NaN, and for a NaN
+/// spelling [`NEGATIVE_CANONICAL_NAN`] when `s` is written with a leading
+/// minus and [`CANONICAL_NAN`] otherwise, as a NaN lexeme is read under a
+/// float kind.
+fn read_nan_by_sign(s: &str, x: f64) -> f64 {
+    match (x.is_nan(), s.starts_with('-')) {
+        (false, _) => x,
+        (true, true) => NEGATIVE_CANONICAL_NAN,
+        (true, false) => CANONICAL_NAN,
     }
-    #[allow(clippy::cast_precision_loss)]
-    if f < i64::MIN as f64 || f > i64::MAX as f64 {
+}
+
+/// 2^63, the least float above `i64::MAX`; -2^63 is `i64::MIN` exactly.
+const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+
+/// Convert a float to i64 by truncation toward zero, returning an error for
+/// NaN, infinity, or a value whose truncation lies outside `i64`.
+///
+/// The range is [-2^63, 2^63), compared exactly: both bounds are binary64
+/// values, so a float is in range iff it is at least -2^63 and below 2^63,
+/// and its truncation then lies in `i64` and `as` is exact on it. 2^63
+/// itself is refused rather than saturated to `i64::MAX`.
+fn float_to_i64(f: f64) -> Result<Literal, ExprError> {
+    if !(-TWO_POW_63..TWO_POW_63).contains(&f) {
         return Err(ExprError::FloatNotRepresentable(format!("{f}")));
     }
     #[allow(clippy::cast_possible_truncation)]
@@ -49,7 +89,15 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Abs
         | BuiltinOp::Floor
         | BuiltinOp::Ceil
-        | BuiltinOp::Round => apply_arithmetic(op, args),
+        | BuiltinOp::Round => {
+            if let Some(exact) = args.iter().find(|a| is_exact(a)) {
+                return Err(ExprError::ExactArithmetic {
+                    op: format!("{op:?}"),
+                    operand: exact.type_name().into(),
+                });
+            }
+            apply_arithmetic(op, args)
+        }
 
         // --- Comparison ---
         BuiltinOp::Eq
@@ -106,6 +154,11 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
 
         // --- Type inspection ---
         BuiltinOp::TypeOf | BuiltinOp::IsNull | BuiltinOp::IsList => apply_inspection(op, args),
+
+        // --- Exact values ---
+        BuiltinOp::ToString | BuiltinOp::ParseDecimal | BuiltinOp::DecimalToFloat => {
+            apply_exact(op, &args[0])
+        }
         // Graph traversal builtins read an instance, which this evaluator
         // does not hold. Answering `null` would make "no such edge" and "no
         // graph was consulted" indistinguishable, so the caller is told
@@ -115,7 +168,8 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Children
         | BuiltinOp::HasEdge
         | BuiltinOp::EdgeCount
-        | BuiltinOp::Anchor => Err(ExprError::NoInstanceContext {
+        | BuiltinOp::Anchor
+        | BuiltinOp::Edges => Err(ExprError::NoInstanceContext {
             op: format!("{op:?}"),
         }),
     }
@@ -128,35 +182,37 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         BuiltinOp::Sub => numeric_binop(&args[0], &args[1], i64::checked_sub, |a, b| a - b),
         BuiltinOp::Mul => numeric_binop(&args[0], &args[1], i64::checked_mul, |a, b| a * b),
         BuiltinOp::Div => {
-            let is_zero = match (&args[0], &args[1]) {
-                (_, Literal::Int(0)) => true,
-                (_, Literal::Float(b)) if *b == 0.0 => true,
-                _ => false,
-            };
+            // An ill-typed operand is refused before a zero divisor is: only
+            // a division of two numbers can divide by zero.
+            let numeric = |x: &Literal| matches!(x, Literal::Int(_) | Literal::Float(_));
+            let is_zero = numeric(&args[0])
+                && match &args[1] {
+                    Literal::Int(0) => true,
+                    Literal::Float(b) => *b == 0.0,
+                    _ => false,
+                };
             if is_zero {
                 Err(ExprError::DivisionByZero)
             } else {
                 numeric_binop(&args[0], &args[1], i64::checked_div, |a, b| a / b)
             }
         }
-        // `i64::MIN % -1` overflows, so the remainder is taken through
-        // `checked_rem` like every other integer operation here.
         BuiltinOp::Mod => match (&args[0], &args[1]) {
             (Literal::Int(_), Literal::Int(0)) => Err(ExprError::DivisionByZero),
-            (Literal::Int(a), Literal::Int(b)) => a
-                .checked_rem(*b)
-                .map(Literal::Int)
-                .ok_or(ExprError::Overflow),
+            // The truncated remainder is below |b| in magnitude, so it is
+            // always an `i64`; only i64::MIN by -1 wraps, and its remainder
+            // is exactly 0.
+            (Literal::Int(a), Literal::Int(b)) => Ok(Literal::Int(a.wrapping_rem(*b))),
             _ => Err(type_err("int", &args[0])),
         },
         BuiltinOp::Neg => match &args[0] {
             Literal::Int(n) => n.checked_neg().map(Literal::Int).ok_or(ExprError::Overflow),
-            Literal::Float(f) => Ok(Literal::Float(-f)),
+            Literal::Float(f) => Ok(Literal::Float(canonical_float(-f))),
             other => Err(type_err("int|float", other)),
         },
         BuiltinOp::Abs => match &args[0] {
             Literal::Int(n) => n.checked_abs().map(Literal::Int).ok_or(ExprError::Overflow),
-            Literal::Float(f) => Ok(Literal::Float(f.abs())),
+            Literal::Float(f) => Ok(Literal::Float(canonical_float(f.abs()))),
             other => Err(type_err("int|float", other)),
         },
         BuiltinOp::Floor => match &args[0] {
@@ -168,7 +224,7 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
             other => Err(type_err("float", other)),
         },
         BuiltinOp::Round => match &args[0] {
-            Literal::Float(f) => float_to_i64(f.round()),
+            Literal::Float(f) => float_to_i64(f.round_ties_even()),
             other => Err(type_err("float", other)),
         },
         _ => Err(ExprError::InternalDispatch {
@@ -180,8 +236,8 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
 /// Comparison operations.
 fn apply_comparison(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
-        BuiltinOp::Eq => Ok(Literal::Bool(args[0] == args[1])),
-        BuiltinOp::Neq => Ok(Literal::Bool(args[0] != args[1])),
+        BuiltinOp::Eq => Ok(Literal::Bool(same_value(&args[0], &args[1]))),
+        BuiltinOp::Neq => Ok(Literal::Bool(!same_value(&args[0], &args[1]))),
         BuiltinOp::Lt => compare(&args[0], &args[1], std::cmp::Ordering::is_lt),
         BuiltinOp::Lte => compare(&args[0], &args[1], std::cmp::Ordering::is_le),
         BuiltinOp::Gt => compare(&args[0], &args[1], std::cmp::Ordering::is_gt),
@@ -291,7 +347,9 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
         // rather than against a flattened string.
         BuiltinOp::Contains => match (&args[0], &args[1]) {
             (Literal::Str(s), Literal::Str(substr)) => Ok(Literal::Bool(s.contains(&**substr))),
-            (Literal::List(items), needle) => Ok(Literal::Bool(items.iter().any(|i| i == needle))),
+            (Literal::List(items), needle) => Ok(Literal::Bool(
+                items.iter().any(|item| same_value(item, needle)),
+            )),
             _ => Err(type_err("(string, string) or (list, any)", &args[0])),
         },
         _ => Err(ExprError::InternalDispatch {
@@ -359,30 +417,32 @@ fn apply_record(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
         BuiltinOp::MergeRecords => match (&args[0], &args[1]) {
             (Literal::Record(a), Literal::Record(b)) => {
-                let mut merged = a.clone();
-                for (k, v) in b {
-                    if let Some(existing) = merged.iter_mut().find(|(ek, _)| ek == k) {
-                        existing.1 = v.clone();
-                    } else {
-                        merged.push((Arc::clone(k), v.clone()));
-                    }
-                }
-                Ok(Literal::Record(merged))
+                let mut merged = record_view(a);
+                merged.extend(record_view(b));
+                Ok(Literal::Record(
+                    merged
+                        .into_values()
+                        .map(|(k, v)| (Arc::clone(k), v.clone()))
+                        .collect(),
+                ))
             }
             (Literal::Record(_), other) | (other, _) => Err(type_err("record", other)),
         },
         BuiltinOp::Keys => match &args[0] {
             Literal::Record(fields) => Ok(Literal::List(
-                fields
-                    .iter()
-                    .map(|(k, _)| Literal::Str(k.to_string()))
+                record_view(fields)
+                    .into_keys()
+                    .map(|k| Literal::Str(k.to_owned()))
                     .collect(),
             )),
             other => Err(type_err("record", other)),
         },
         BuiltinOp::Values => match &args[0] {
             Literal::Record(fields) => Ok(Literal::List(
-                fields.iter().map(|(_, v)| v.clone()).collect(),
+                record_view(fields)
+                    .into_values()
+                    .map(|(_, v)| v.clone())
+                    .collect(),
             )),
             other => Err(type_err("record", other)),
         },
@@ -430,14 +490,13 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
             other => Err(type_err("string", other)),
         },
         BuiltinOp::StrToFloat => match &args[0] {
-            Literal::Str(s) => {
-                s.parse::<f64>()
-                    .map(Literal::Float)
-                    .map_err(|_| ExprError::ParseError {
-                        value: s.clone(),
-                        target_type: "float".into(),
-                    })
-            }
+            Literal::Str(s) => s
+                .parse::<f64>()
+                .map(|x| Literal::Float(read_nan_by_sign(s, x)))
+                .map_err(|_| ExprError::ParseError {
+                    value: s.clone(),
+                    target_type: "float".into(),
+                }),
             other => Err(type_err("string", other)),
         },
         _ => Err(ExprError::InternalDispatch {
@@ -474,13 +533,16 @@ fn apply_utility(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> 
                 Ok(Literal::Int((*x).clamp(*lo, *hi)))
             }
             (Literal::Float(x), Literal::Float(lo), Literal::Float(hi)) if lo <= hi => {
-                Ok(Literal::Float(x.clamp(*lo, *hi)))
+                Ok(Literal::Float(canonical_float(x.clamp(*lo, *hi))))
             }
-            (Literal::Int(_), Literal::Int(_), Literal::Int(_))
-            | (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
+            (Literal::Int(_), Literal::Int(_), Literal::Int(_)) => Err(ExprError::TypeError {
+                expected: "clamp requires min <= max".into(),
+                got: "min > max".into(),
+            }),
+            (Literal::Float(_), Literal::Float(_), Literal::Float(_)) => {
                 Err(ExprError::TypeError {
                     expected: "clamp requires min <= max".into(),
-                    got: "min > max".into(),
+                    got: "unordered or reversed bounds".into(),
                 })
             }
             _ => Err(type_err(
@@ -522,11 +584,17 @@ fn numeric_binop(
         (Literal::Int(x), Literal::Int(y)) => {
             int_op(*x, *y).map(Literal::Int).ok_or(ExprError::Overflow)
         }
-        (Literal::Float(x), Literal::Float(y)) => Ok(Literal::Float(float_op(*x, *y))),
+        (Literal::Float(x), Literal::Float(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x, *y))))
+        }
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Int(x), Literal::Float(y)) => Ok(Literal::Float(float_op(*x as f64, *y))),
+        (Literal::Int(x), Literal::Float(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x as f64, *y))))
+        }
         #[allow(clippy::cast_precision_loss)]
-        (Literal::Float(x), Literal::Int(y)) => Ok(Literal::Float(float_op(*x, *y as f64))),
+        (Literal::Float(x), Literal::Int(y)) => {
+            Ok(Literal::Float(canonical_float(float_op(*x, *y as f64))))
+        }
         _ => Err(type_err("int|float", a)),
     }
 }
@@ -537,6 +605,9 @@ fn compare(
     b: &Literal,
     pred: fn(std::cmp::Ordering) -> bool,
 ) -> Result<Literal, ExprError> {
+    if let Some(ord) = compare_exact(a, b) {
+        return ord.map(|o| Literal::Bool(pred(o)));
+    }
     let ord = match (a, b) {
         (Literal::Int(x), Literal::Int(y)) => x.cmp(y),
         (Literal::Float(x), Literal::Float(y)) => x.total_cmp(y),
@@ -545,14 +616,137 @@ fn compare(
         #[allow(clippy::cast_precision_loss)]
         (Literal::Float(x), Literal::Int(y)) => x.total_cmp(&(*y as f64)),
         (Literal::Str(x), Literal::Str(y)) => x.cmp(y),
-        _ => {
-            return Err(ExprError::TypeError {
-                expected: "comparable types (int, float, or string)".into(),
-                got: format!("({}, {})", a.type_name(), b.type_name()),
-            });
-        }
+        _ => return Err(type_err("comparable values", a)),
     };
     Ok(Literal::Bool(pred(ord)))
+}
+
+/// Whether `lit` is one of the exact literals arithmetic is not defined
+/// on.
+const fn is_exact(lit: &Literal) -> bool {
+    matches!(
+        lit,
+        Literal::Decimal(_) | Literal::BigInt(_) | Literal::Temporal(_)
+    )
+}
+
+/// `lit` as an exact finite decimal, when it is an integer or a finite
+/// decimal. A special decimal (an infinity or a NaN) is not ordered against
+/// a number, so it gives `None`, and a comparison that needs it as a number
+/// is refused with a typed error.
+fn as_decimal(lit: &Literal) -> Option<DecimalValue> {
+    match lit {
+        Literal::Int(n) => Some(DecimalValue::from_i64(*n)),
+        Literal::BigInt(b) => {
+            DecimalValue::new(b.negative, b.significand.clone(), b.zeros.clone()).ok()
+        }
+        Literal::Decimal(d) => d.is_finite().then(|| d.clone()),
+        _ => None,
+    }
+}
+
+/// The ordering of two literals when at least one is exact: integers and
+/// decimals compare as numbers, exactly; two temporals compare in time when
+/// they are of one form and both local or both zoned. `None` when neither
+/// is exact, so the ordinary comparison applies.
+fn compare_exact(a: &Literal, b: &Literal) -> Option<Result<Ordering, ExprError>> {
+    if !is_exact(a) && !is_exact(b) {
+        return None;
+    }
+    let incomparable = || ExprError::TypeError {
+        expected: "int|bigint|finite decimal, or comparable temporals".into(),
+        got: "incomparable exact values".into(),
+    };
+    Some(match (a, b) {
+        (Literal::BigInt(x), Literal::BigInt(y)) => Ok(x.cmp_numeric(y)),
+        (Literal::BigInt(x), Literal::Int(y)) => Ok(x.cmp_i64(*y)),
+        (Literal::Int(x), Literal::BigInt(y)) => Ok(y.cmp_i64(*x).reverse()),
+        (Literal::Temporal(x), Literal::Temporal(y)) => {
+            x.cmp_chronological(y).ok_or_else(|| ExprError::TypeError {
+                expected: "temporals of one comparable form".into(),
+                got: "incomparable temporals".into(),
+            })
+        }
+        _ => match (as_decimal(a), as_decimal(b)) {
+            (Some(x), Some(y)) => Ok(x.cmp_numeric(&y)),
+            _ => Err(incomparable()),
+        },
+    })
+}
+
+/// The exact-value builtins: `to_string`, `parse_decimal` and
+/// `decimal_to_float`.
+fn apply_exact(op: BuiltinOp, arg: &Literal) -> Result<Literal, ExprError> {
+    match op {
+        BuiltinOp::ToString => match arg {
+            Literal::Bool(_)
+            | Literal::Int(_)
+            | Literal::Float(_)
+            | Literal::Decimal(_)
+            | Literal::BigInt(_)
+            | Literal::Temporal(_) => Ok(Literal::Str(arg.to_string())),
+            Literal::Str(s) => Ok(Literal::Str(s.clone())),
+            other => Err(type_err(
+                "bool|int|float|string|decimal|bigint|temporal",
+                other,
+            )),
+        },
+        BuiltinOp::ParseDecimal => {
+            match arg {
+                Literal::Str(s) => DecimalValue::parse(s).map(Literal::Decimal).map_err(|_| {
+                    ExprError::ParseError {
+                        value: s.clone(),
+                        target_type: "decimal".into(),
+                    }
+                }),
+                Literal::Decimal(d) => Ok(Literal::Decimal(d.clone())),
+                Literal::Int(_) | Literal::BigInt(_) => as_decimal(arg)
+                    .map(Literal::Decimal)
+                    .ok_or_else(|| type_err("string|int|bigint|decimal", arg)),
+                other => Err(type_err("string|int|bigint|decimal", other)),
+            }
+        }
+        BuiltinOp::DecimalToFloat => match arg {
+            Literal::Decimal(d) => Ok(Literal::Float(canonical_float(d.to_f64()))),
+            Literal::BigInt(b) => Ok(Literal::Float(canonical_float(b.to_f64()))),
+            other => Err(type_err("decimal|bigint", other)),
+        },
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
+    }
+}
+
+/// A record's fields as a map from names, in name order: a later field of a
+/// name replaces an earlier one, so a record is the map its fields define.
+/// Each entry keeps the name as the record holds it.
+pub fn record_view(
+    fields: &[(Arc<str>, Literal)],
+) -> std::collections::BTreeMap<&str, (&Arc<str>, &Literal)> {
+    fields
+        .iter()
+        .map(|(name, value)| (&**name, (name, value)))
+        .collect()
+}
+
+/// Representation equality of two values, the meaning of `Eq`: equal
+/// variants with equal contents, a float by its bits, a list item by item and
+/// a record as the map of its fields ([`record_view`]), so field order and
+/// replaced fields do not count.
+pub fn same_value(a: &Literal, b: &Literal) -> bool {
+    match (a, b) {
+        (Literal::List(x), Literal::List(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q))
+        }
+        (Literal::Record(x), Literal::Record(y)) => {
+            let (x, y) = (record_view(x), record_view(y));
+            x.len() == y.len()
+                && x.iter()
+                    .zip(&y)
+                    .all(|((kx, (_, vx)), (ky, (_, vy)))| kx == ky && same_value(vx, vy))
+        }
+        _ => a == b,
+    }
 }
 
 fn type_err(expected: &str, got: &Literal) -> ExprError {
@@ -577,6 +771,21 @@ mod tests {
     fn add_int_float_promotion() {
         let result = apply_builtin(BuiltinOp::Add, &[Literal::Int(2), Literal::Float(1.5)]);
         assert_eq!(result.unwrap(), Literal::Float(3.5));
+    }
+
+    #[test]
+    fn numeric_binary_operations_cover_every_promotion_direction() {
+        for (args, expected) in [
+            ([Literal::Int(2), Literal::Int(3)], Literal::Int(5)),
+            (
+                [Literal::Float(2.0), Literal::Float(3.5)],
+                Literal::Float(5.5),
+            ),
+            ([Literal::Int(2), Literal::Float(3.5)], Literal::Float(5.5)),
+            ([Literal::Float(2.5), Literal::Int(3)], Literal::Float(5.5)),
+        ] {
+            assert_eq!(apply_builtin(BuiltinOp::Add, &args).unwrap(), expected);
+        }
     }
 
     #[test]
@@ -655,6 +864,70 @@ mod tests {
     }
 
     #[test]
+    fn float_computations_canonicalize_nan_but_parsing_keeps_its_written_sign() {
+        let payload_nan = f64::from_bits(0xfff8_0000_0000_1234);
+        for op in [BuiltinOp::Neg, BuiltinOp::Abs] {
+            let Literal::Float(value) = apply_builtin(op, &[Literal::Float(payload_nan)]).unwrap()
+            else {
+                panic!("{op:?} did not return a float")
+            };
+            assert_eq!(value.to_bits(), CANONICAL_NAN.to_bits(), "{op:?}");
+        }
+
+        for (text, bits) in [
+            ("NaN", CANONICAL_NAN.to_bits()),
+            ("+NaN", CANONICAL_NAN.to_bits()),
+            ("-NaN", NEGATIVE_CANONICAL_NAN.to_bits()),
+            ("1.25", 1.25_f64.to_bits()),
+        ] {
+            let Literal::Float(value) =
+                apply_builtin(BuiltinOp::StrToFloat, &[Literal::Str(text.into())]).unwrap()
+            else {
+                panic!("str_to_float did not return a float")
+            };
+            assert_eq!(value.to_bits(), bits, "{text}");
+        }
+
+        let Literal::Float(clamped) = apply_builtin(
+            BuiltinOp::Clamp,
+            &[
+                Literal::Float(payload_nan),
+                Literal::Float(-1.0),
+                Literal::Float(1.0),
+            ],
+        )
+        .unwrap() else {
+            panic!("float clamp did not return a float")
+        };
+        assert_eq!(clamped.to_bits(), CANONICAL_NAN.to_bits());
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[Literal::Int(7), Literal::Int(0), Literal::Int(5)]
+            ),
+            Ok(Literal::Int(5))
+        ));
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[Literal::Int(7), Literal::Int(5), Literal::Int(0)]
+            ),
+            Err(ExprError::TypeError { .. })
+        ));
+        assert!(matches!(
+            apply_builtin(
+                BuiltinOp::Clamp,
+                &[
+                    Literal::Float(7.0),
+                    Literal::Float(5.0),
+                    Literal::Float(0.0)
+                ]
+            ),
+            Err(ExprError::TypeError { .. })
+        ));
+    }
+
+    #[test]
     fn misrouted_op_returns_internal_dispatch_error() {
         // Calling a category handler with an op outside its category
         // returns an error rather than panicking. `Add` is arithmetic,
@@ -663,6 +936,16 @@ mod tests {
         assert!(matches!(
             result,
             Err(ExprError::InternalDispatch { ref op }) if op == "Add"
+        ));
+    }
+
+    #[test]
+    fn float_to_int_reaches_both_ends_of_i64_but_not_beyond() {
+        const TWO_63: f64 = 9_223_372_036_854_775_808.0;
+        assert!(apply_builtin(BuiltinOp::FloatToInt, &[Literal::Float(TWO_63)]).is_err());
+        assert!(matches!(
+            apply_builtin(BuiltinOp::FloatToInt, &[Literal::Float(-TWO_63)]),
+            Ok(Literal::Int(i64::MIN))
         ));
     }
 }

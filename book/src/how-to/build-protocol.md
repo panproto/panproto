@@ -61,7 +61,7 @@ pub fn protocol() -> Protocol {
         name: "my_proto".into(),
         schema_theory: "ThMyProtoSchema".into(),
         instance_theory: "ThMyProtoInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

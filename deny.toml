@@ -64,6 +64,9 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# A path dependency without a version is allowed only as a dev-dependency or
+# from an unpublished crate; cargo strips such dev-dependencies on publish.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

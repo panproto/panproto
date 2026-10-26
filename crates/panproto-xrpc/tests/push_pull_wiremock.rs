@@ -156,7 +156,7 @@ async fn a_substituted_object_is_refused() {
     let requested = sample_object();
     let substituted = Object::Protocol(Box::new(Protocol {
         name: "substituted".into(),
-        ..Protocol::default()
+        ..Default::default()
     }));
     assert_ne!(
         rmp_serde::to_vec(&requested).expect("encode requested"),

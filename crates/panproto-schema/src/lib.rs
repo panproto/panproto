@@ -22,26 +22,43 @@
 mod abstract_schema;
 mod builder;
 pub mod canonical;
+pub mod canonical_theory;
 mod colimit;
+pub mod constraint_semantics;
 pub mod equivalence;
 mod error;
 pub mod induce;
+pub mod keys;
 mod morphism;
 mod normalize;
 mod protocol;
 mod schema;
 pub mod serde_helpers;
+pub mod shape_kind;
 mod validate;
+pub mod value_kinds;
 
 pub use abstract_schema::{
     AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
 };
 pub use builder::SchemaBuilder;
-pub use canonical::{canonical_bytes, canonical_digest};
-pub use colimit::{SchemaOverlap, schema_pushout};
+pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
+pub use canonical_theory::{
+    COMPOSITION_CONTEXT, THEORY_CONTEXT, canonical_composition_bytes, canonical_theory_bytes,
+    composition_digest, theory_digest,
+};
+pub use colimit::{SchemaOverlap, schema_pushout, schema_pushout_with_report};
+pub use constraint_semantics::{
+    ConstraintSemantics, ConstraintValue, ConstraintValueError, ConstraintValueReason, LengthUnit,
+    ValueParameter,
+};
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
-pub use induce::{induce, induce_on_vertices};
+pub use induce::{induce, induce_on_vertices, induce_with_report};
+pub use keys::{
+    Cardinality, DeclarationReport, Key, KeyPart, KeyRefError, KeyRole, KeyScope, OffsetUnit,
+    OnUnresolved, PathSyntax, RefSource, RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
@@ -49,4 +66,6 @@ pub use schema::{
     CoercionSpec, Constraint, Edge, HyperEdge, Ordering, RecursionPoint, Schema, Span, UsageMode,
     Variant, Vertex, primary_entry,
 };
+pub use shape_kind::InstanceShapeKind;
 pub use validate::validate;
+pub use value_kinds::{BytesText, ScalarKind, ValueSpec};

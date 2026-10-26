@@ -253,8 +253,13 @@ def check_package_json(path: Path, expected: str) -> list[Mismatch]:
     return []
 
 
-# Cabal files have a fixed-form `version: X.Y.Z` line at top level.
+# Cabal files have a fixed-form `version: X.Y.Z` line at top level and a
+# `source-repository this` tag that must name the same release.
 CABAL_VERSION = re.compile(r"^version:\s*(\S+)\s*$", re.MULTILINE)
+CABAL_THIS_TAG = re.compile(
+    r"^source-repository this\n(?:^[ \t].*\n)*?^[ \t]+tag:\s*(\S+)\s*$",
+    re.MULTILINE,
+)
 
 
 def check_cabal(path: Path, expected: str) -> list[Mismatch]:
@@ -271,17 +276,37 @@ def check_cabal(path: Path, expected: str) -> list[Mismatch]:
                 expected=expected,
             )
         ]
+    out: list[Mismatch] = []
     found = m.group(1)
     if found != expected:
-        return [
+        out.append(
             Mismatch(
                 path=path,
                 field="version:",
                 found=found,
                 expected=expected,
             )
-        ]
-    return []
+        )
+    tag = CABAL_THIS_TAG.search(text)
+    if tag is None:
+        out.append(
+            Mismatch(
+                path=path,
+                field="source-repository this tag:",
+                found="<missing>",
+                expected=f"v{expected}",
+            )
+        )
+    elif tag.group(1) != f"v{expected}":
+        out.append(
+            Mismatch(
+                path=path,
+                field="source-repository this tag:",
+                found=tag.group(1),
+                expected=f"v{expected}",
+            )
+        )
+    return out
 
 
 def check_companion_pyprojects(expected: str) -> list[Mismatch]:

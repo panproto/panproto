@@ -25,10 +25,29 @@ use std::collections::HashMap;
 use panproto_gat::{CoercionClass, Name};
 use panproto_inst::value::Value;
 use panproto_inst::{
-    CompiledMigration, FieldTransform, WInstance, parse_json, to_json, wtype_restrict,
+    BoundaryProtocols, CompiledMigration, FieldTransform, RestrictError, WInstance, parse_json,
+    to_json, wtype_restrict,
 };
 use panproto_schema::{Edge, Schema, Vertex};
 use smallvec::SmallVec;
+
+fn restrict(
+    instance: &WInstance,
+    schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<WInstance, RestrictError> {
+    let protocol = panproto_protocols::atproto::protocol();
+    wtype_restrict(
+        instance,
+        schema,
+        schema,
+        migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+}
 
 /// Build a schema from vertex specs and edges.
 fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
@@ -80,6 +99,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -129,8 +149,7 @@ fn run_transform(transform: FieldTransform) -> serde_json::Value {
         expansion_path: HashMap::new(),
     };
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
     to_json(&schema, &restricted)
 }
 
@@ -247,8 +266,7 @@ fn transforms_compose_over_containers() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
     let out = to_json(&schema, &restricted);
 
     assert_eq!(out["nums"], serde_json::json!([10, 20, 30]));
@@ -300,7 +318,7 @@ fn a_failing_transform_reports_rather_than_no_opping() {
         expansion_path: HashMap::new(),
     };
 
-    let err = wtype_restrict(&instance, &schema, &schema, &migration)
+    let err = restrict(&instance, &schema, &migration)
         .expect_err("an unevaluable transform must fail the restrict");
     let msg = err.to_string();
     assert!(
@@ -344,8 +362,7 @@ fn membership_predicate_reads_a_list_field() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
     let out = to_json(&schema, &restricted);
     assert_eq!(
         out["matched"],

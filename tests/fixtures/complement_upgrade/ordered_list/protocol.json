@@ -1,0 +1,23 @@
+{
+  "constraint_sorts": [],
+  "edge_rules": [],
+  "has_causal": false,
+  "has_coercions": false,
+  "has_coproducts": false,
+  "has_defaults": false,
+  "has_mergers": false,
+  "has_order": false,
+  "has_policies": false,
+  "has_recursion": false,
+  "instance_composition": null,
+  "instance_theory": "ThWType",
+  "name": "test",
+  "nominal_identity": false,
+  "obj_kinds": [
+    "object",
+    "string",
+    "record"
+  ],
+  "schema_composition": null,
+  "schema_theory": "ThGraph"
+}

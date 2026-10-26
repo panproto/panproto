@@ -264,7 +264,7 @@ pub struct FoundMorphism {
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 ///
 /// let old = SchemaBuilder::new(&protocol)
@@ -641,7 +641,7 @@ pub fn morphism_to_migration(found: &FoundMorphism) -> crate::Migration {
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 /// let src = SchemaBuilder::new(&protocol)
 ///     .vertex("root", "object", None::<&str>)?
@@ -852,7 +852,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

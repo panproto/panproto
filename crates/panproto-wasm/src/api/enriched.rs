@@ -443,8 +443,16 @@ pub fn migration_coverage(
     let mut failed = 0u64;
     let mut errors: Vec<String> = Vec::new();
 
+    let (src_protocol, tgt_protocol) = (
+        super::helpers::protocol_of(&src_schema),
+        super::helpers::protocol_of(&tgt_schema),
+    );
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &src_protocol,
+        tgt: &tgt_protocol,
+    };
     for (i, instance) in instances.iter().enumerate() {
-        match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance) {
+        match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance, protocols) {
             Ok(_) => succeeded += 1,
             Err(e) => {
                 failed += 1;

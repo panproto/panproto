@@ -24,7 +24,7 @@ fn open_schema() -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("doc", "object", None)
@@ -116,10 +116,10 @@ fn text_and_cdata_in_one_element_concatenate() {
     );
 }
 
-/// Whitespace between elements is layout, not a value.
+/// A leaf's whitespace-only character data is significant content.
 #[test]
-fn whitespace_only_content_is_not_a_value() {
-    assert_eq!(root_text("<doc>\n   \n</doc>"), None);
+fn whitespace_only_leaf_content_is_a_value() {
+    assert_eq!(root_text("<doc>\n   \n</doc>").as_deref(), Some("\n   \n"));
 }
 
 /// Text belonging to one element must not leak into the next, which is

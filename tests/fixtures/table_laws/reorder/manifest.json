@@ -1,0 +1,1 @@
+{"format_version":3,"mutation":"reorder","expected":"shape_cannot_express","observation":{"ran":0,"shape_cannot_express":4,"no_candidate":0,"in_domain":0,"in_domain_ok":0,"negative":0,"negative_ok":0},"refusal":null,"certificates":[]}

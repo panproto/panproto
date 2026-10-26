@@ -22,7 +22,7 @@ use crate::theories;
 /// Instance theory: `ThWType`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "json-schema".into(),
         schema_theory: "ThJsonSchemaSchema".into(),
         instance_theory: "ThJsonSchemaInstance".into(),
@@ -52,12 +52,16 @@ pub fn protocol() -> Protocol {
             "enum".into(),
             "const".into(),
             "additionalProperties".into(),
+            "items".into(),
+            "additionalItems".into(),
         ],
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for JSON Schema with a theory registry.
@@ -91,16 +95,39 @@ pub fn parse_json_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
 /// The vertex-id prefix for a document, and the `$id` other documents
 /// address it by.
 ///
-/// A document's identity is its `$id`, which is what a cross-document
-/// `$ref` names. A document without one is addressed as `root` when it
-/// is alone and `doc{i}` otherwise, so ids stay unique and a
-/// single-document parse keeps the `root:` prefix it has always had.
+/// A document's identity is its `$id` or, in a document of draft-04 or
+/// earlier without one, its `id`, which is what a cross-document `$ref`
+/// names. Only those drafts have an `id` keyword: in a document that
+/// declares a later `$schema`, `id` is an unknown keyword, and a
+/// document that declares none is read as the drafts that had one.
+///
+/// An empty fragment is no part of the identity: `http://x.test/s#`, as
+/// draft-06 and draft-07 documents write it, is `http://x.test/s`, so a
+/// ref `http://x.test/s#/definitions/a` is a pointer into it. An
+/// identity that is nothing but an empty fragment (`#`), or empty,
+/// names no document, so the document has none. A document without an
+/// identity is addressed as `root` when it is alone and `doc{i}`
+/// otherwise, so ids stay unique and a single-document parse keeps the
+/// `root:` prefix it has always had.
 fn document_identity(
     json: &serde_json::Value,
     index: usize,
     count: usize,
 ) -> (String, Option<&str>) {
-    let declared = json.get("$id").and_then(serde_json::Value::as_str);
+    let has_id_keyword = json
+        .get("$schema")
+        .and_then(serde_json::Value::as_str)
+        .is_none_or(|dialect| dialect.contains("draft-04") || dialect.contains("draft-03"));
+    let declared = json
+        .get("$id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            json.get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|_| has_id_keyword)
+        })
+        .map(|id| id.strip_suffix('#').unwrap_or(id))
+        .filter(|id| !id.is_empty());
     let prefix = match declared {
         Some(id) => id.to_owned(),
         None if count == 1 => "root".to_owned(),
@@ -137,9 +164,10 @@ fn document_identity(
 /// Returns [`ProtocolError::Parse`] if two documents declare the same
 /// `$id`, or a construction error from the schema builder.
 pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::all_in_key_order(docs);
+    let docs = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
-    let mut counter: usize = 0;
 
     // Pass 1, over the whole bundle: map every reference spelling to the
     // vertex id it names, before walking any body. A definition's vertex
@@ -183,7 +211,9 @@ pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, Pr
 
     // Pass 2: walk each document. Every in-bundle ref target is already
     // in `defs_map`, so the placeholder path is never taken for one.
-    for (json, (prefix, _)) in docs.iter().zip(&identities) {
+    let mut counter: usize = 0;
+    let mut refs = Vec::new();
+    for (json, (prefix, declared)) in docs.iter().zip(&identities) {
         let mut local = defs_map.clone();
         for defs_key in &["$defs", "definitions"] {
             if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
@@ -198,11 +228,21 @@ pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, Pr
             }
         }
 
+        let mut walker = Walker {
+            counter,
+            defs_map: &local,
+            doc: json,
+            id: *declared,
+            pointers: HashMap::new(),
+            refs: Vec::new(),
+            pointer_refs: Vec::new(),
+        };
         for defs_key in &["$defs", "definitions"] {
             if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
                 for (def_name, def_schema) in defs {
                     let def_id = format!("{prefix}:{defs_key}/{def_name}");
-                    builder = walk_schema(builder, def_schema, &def_id, &mut counter, &local)?;
+                    let pointer = format!("#/{defs_key}/{}", pointer_token(def_name));
+                    builder = walker.walk(builder, def_schema, &def_id, &pointer)?;
                     // Each named definition is an entry (basepoint) so a
                     // lens or migration can root at it, mirroring how
                     // `bson`/`cddl` declare their top-level rules.
@@ -211,48 +251,464 @@ pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, Pr
             }
         }
 
-        builder = walk_schema(builder, json, prefix, &mut counter, &local)?;
+        builder = walker.walk(builder, json, prefix, "#")?;
         builder = builder.entry(prefix);
+        builder = walker.resolve_pointer_refs(builder)?;
+        counter = walker.counter;
+        refs.append(&mut walker.refs);
+    }
+    // Every vertex of every document exists now, so each in-bundle ref
+    // edge has its target.
+    for (src, tgt, name) in &refs {
+        builder = builder.edge(src, tgt, "ref", Some(name))?;
     }
 
     let schema = builder.build()?;
     Ok(schema)
 }
 
-/// Recursively walk a JSON Schema object.
-#[allow(clippy::too_many_lines)]
-fn walk_schema(
+/// The state one walk over a bundle carries: the counter that keeps
+/// anonymous vertex ids unique, the map from `$ref` spellings to
+/// definition vertices, and the `ref` edges to in-bundle definitions.
+///
+/// A `ref` edge to a definition is recorded rather than added when it is
+/// met, because its target need not be walked yet: a definition may
+/// reference one declared after it, and a document's body may reference
+/// a definition of a later document. The bundle parse adds them once
+/// every document is walked.
+///
+/// A `$ref` that is a JSON pointer into its own document
+/// (`#/definitions/a/properties/b`, or `#` for the root) lands on the
+/// vertex walked for the subschema it points at, once the document is
+/// walked; one pointing at something that is not a walked subschema gets
+/// a placeholder, as an unresolvable ref does. The pointer may be
+/// written against the document's own `$id`
+/// (`https://x.test/s.json#/definitions/a`, or the bare `$id` for the
+/// root), and, being a URI fragment, may percent-encode its characters
+/// (`#/definitions/c%20d`).
+struct Walker<'a> {
+    counter: usize,
+    defs_map: &'a HashMap<String, String>,
+    /// The document being walked.
+    doc: &'a serde_json::Value,
+    /// The document's declared `$id`.
+    id: Option<&'a str>,
+    /// The JSON pointer (`#/...`) of each walked subschema of the
+    /// document, to its vertex.
+    pointers: HashMap<String, String>,
+    /// `(source, definition vertex, ref spelling)` for each ref edge.
+    refs: Vec<(String, String, String)>,
+    /// `(source, pointer, ref spelling)` for each ref into the document
+    /// itself.
+    pointer_refs: Vec<(String, String, String)>,
+}
+
+/// A JSON object key escaped as a JSON pointer reference token.
+fn pointer_token(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
+}
+
+/// A URI fragment with its `%XX` escapes decoded, or the fragment as it
+/// is when the decoded bytes are not UTF-8.
+fn percent_decode(fragment: &str) -> String {
+    let bytes = fragment.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| fragment.to_owned())
+}
+
+impl Walker<'_> {
+    /// Add the ref edge of each `$ref` into the document just walked.
+    fn resolve_pointer_refs(
+        &mut self,
+        mut builder: SchemaBuilder,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        for (src, pointer, spelling) in std::mem::take(&mut self.pointer_refs) {
+            if let Some(target) = self.pointers.get(&pointer) {
+                builder = builder.edge(&src, target, "ref", Some(&spelling))?;
+            } else {
+                self.counter += 1;
+                let ref_id = format!("{src}:ref{}", self.counter);
+                builder = builder.vertex(&ref_id, "object", None)?;
+                builder = builder.edge(&src, &ref_id, "ref", Some(&spelling))?;
+            }
+        }
+        Ok(builder)
+    }
+
+    /// The pointer, as `#/...` with its percent escapes decoded, that a
+    /// `$ref` into this document names: a bare fragment, or a fragment
+    /// (or nothing, for the root) after the document's own `$id`. `None`
+    /// for a ref to anything else.
+    fn local_pointer(&self, ref_str: &str) -> Option<String> {
+        if let Some(fragment) = ref_str.strip_prefix('#') {
+            return Some(format!("#{}", percent_decode(fragment)));
+        }
+        let after = ref_str.strip_prefix(self.id?)?;
+        let fragment = if after.is_empty() {
+            after
+        } else {
+            after.strip_prefix('#')?
+        };
+        Some(format!("#{}", percent_decode(fragment)))
+    }
+
+    /// Record the `ref` edge of the `$ref` `ref_str` on `current_id`: to a
+    /// definition, to the subschema a pointer into this document names,
+    /// or to a placeholder vertex for a ref the bundle cannot resolve.
+    fn reference(
+        &mut self,
+        mut builder: SchemaBuilder,
+        current_id: &str,
+        ref_str: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let local = self.local_pointer(ref_str);
+        let definition = self
+            .defs_map
+            .get(ref_str)
+            .or_else(|| local.as_ref().and_then(|p| self.defs_map.get(p)));
+        if let Some(def_vertex_id) = definition {
+            self.refs.push((
+                current_id.to_owned(),
+                def_vertex_id.clone(),
+                ref_str.to_owned(),
+            ));
+        } else if let Some(pointer) = local.filter(|p| self.doc.pointer(&p[1..]).is_some()) {
+            self.pointer_refs
+                .push((current_id.to_owned(), pointer, ref_str.to_owned()));
+        } else {
+            self.counter += 1;
+            let ref_id = format!("{current_id}:ref{}", self.counter);
+            builder = builder.vertex(&ref_id, "object", None)?;
+            builder = builder.edge(current_id, &ref_id, "ref", Some(ref_str))?;
+        }
+        Ok(builder)
+    }
+
+    /// Recursively walk a JSON Schema object.
+    ///
+    /// Structural keywords apply to the instances of one JSON type:
+    /// `properties`, `patternProperties` and `additionalProperties` to
+    /// objects, `items` to arrays. On a schema whose `type` is a list,
+    /// they hang off the list's variant of that type, so
+    /// `{"type": ["object", "null"], "properties": {...}}` gives its
+    /// properties to the `object` variant. A schema with no `type` admits
+    /// every instance, so each of its keywords applies (see
+    /// [`type_vertices`]). On a schema that admits no instance of the
+    /// keyword's type (`{"type": "string", "items": ...}`) the keyword
+    /// constrains nothing, as JSON Schema validation defines it, and adds
+    /// no vertex.
+    fn walk(
+        &mut self,
+        mut builder: SchemaBuilder,
+        schema: &serde_json::Value,
+        current_id: &str,
+        pointer: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        self.pointers
+            .insert(pointer.to_owned(), current_id.to_owned());
+        let (b, object_holder, array_holder) = type_vertices(builder, schema, current_id)?;
+        builder = constraints(b, schema, current_id);
+
+        if let Some(holder) = object_holder.as_deref() {
+            builder = self.walk_object_keywords(builder, schema, current_id, pointer, holder)?;
+        }
+
+        if let Some(holder) = array_holder.as_deref() {
+            builder = self.walk_array_keywords(builder, schema, current_id, pointer, holder)?;
+        }
+
+        // Handle allOf / oneOf / anyOf as union-like structures.
+        for combiner in &["allOf", "oneOf", "anyOf"] {
+            if let Some(arr) = schema.get(*combiner).and_then(serde_json::Value::as_array) {
+                for (i, sub_schema) in arr.iter().enumerate() {
+                    let sub_id = format!("{current_id}:{combiner}{i}");
+                    let sub_pointer = format!("{pointer}/{combiner}/{i}");
+                    builder = self.walk(builder, sub_schema, &sub_id, &sub_pointer)?;
+                    builder = builder.edge(current_id, &sub_id, "variant", Some(combiner))?;
+                }
+            }
+        }
+
+        // Handle `not`: recurse into the schema, creating a vertex with kind "not".
+        if let Some(not_schema) = schema.get("not") {
+            self.counter += 1;
+            let not_id = format!("{current_id}:not{}", self.counter);
+            builder = builder.vertex(&not_id, "not", None)?;
+            // Walk the negated schema as a child of the not vertex.
+            let negated_id = format!("{not_id}:negated");
+            builder = self.walk(builder, not_schema, &negated_id, &format!("{pointer}/not"))?;
+            builder = builder.edge(&not_id, &negated_id, "variant", Some("not"))?;
+            builder = builder.edge(current_id, &not_id, "variant", Some("not"))?;
+        }
+
+        builder = self.walk_conditional(builder, schema, current_id, pointer)?;
+
+        // Handle $ref: resolve to a definition vertex or create a ref vertex.
+        if let Some(ref_str) = schema.get("$ref").and_then(serde_json::Value::as_str) {
+            builder = self.reference(builder, current_id, ref_str)?;
+        }
+
+        Ok(builder)
+    }
+
+    /// Walk `if`/`then`/`else`, a vertex for each conditional branch.
+    fn walk_conditional(
+        &mut self,
+        mut builder: SchemaBuilder,
+        schema: &serde_json::Value,
+        current_id: &str,
+        pointer: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let Some(if_schema) = schema.get("if") else {
+            return Ok(builder);
+        };
+        self.counter += 1;
+        let n = self.counter;
+        let if_id = format!("{current_id}:if{n}");
+        builder = builder.vertex(&if_id, "if", None)?;
+        let if_cond_id = format!("{if_id}:cond");
+        builder = self.walk(builder, if_schema, &if_cond_id, &format!("{pointer}/if"))?;
+        builder = builder.edge(&if_id, &if_cond_id, "variant", Some("condition"))?;
+        builder = builder.edge(current_id, &if_id, "variant", Some("if"))?;
+
+        if let Some(then_schema) = schema.get("then") {
+            let then_id = format!("{current_id}:then{n}");
+            builder = builder.vertex(&then_id, "then", None)?;
+            let then_body_id = format!("{then_id}:body");
+            let then_pointer = format!("{pointer}/then");
+            builder = self.walk(builder, then_schema, &then_body_id, &then_pointer)?;
+            builder = builder.edge(&then_id, &then_body_id, "variant", Some("body"))?;
+            builder = builder.edge(current_id, &then_id, "variant", Some("then"))?;
+        }
+
+        if let Some(else_schema) = schema.get("else") {
+            let else_id = format!("{current_id}:else{n}");
+            builder = builder.vertex(&else_id, "else", None)?;
+            let else_body_id = format!("{else_id}:body");
+            let else_pointer = format!("{pointer}/else");
+            builder = self.walk(builder, else_schema, &else_body_id, &else_pointer)?;
+            builder = builder.edge(&else_id, &else_body_id, "variant", Some("body"))?;
+            builder = builder.edge(current_id, &else_id, "variant", Some("else"))?;
+        }
+        Ok(builder)
+    }
+
+    /// Walk `items`, `prefixItems` and `additionalItems`, hanging each
+    /// item off `holder`, the vertex of the schema's array instances.
+    ///
+    /// A single `items` schema is the one anonymous `items` edge of a
+    /// list (or, beside `prefixItems`, of the items past the prefix). A
+    /// draft-07 tuple (`items` as an array of schemas) gives each position
+    /// an `items` edge named by its index, and `additionalItems` an
+    /// `items` edge of that name to the schema of the items past them. A
+    /// 2020-12 tuple (`prefixItems`) gives position `i` an `items` edge
+    /// named `prefixItems/i`, so that emit writes each keyword back.
+    ///
+    /// A boolean `items` or `additionalItems` is not a schema of items:
+    /// `false`, which admits no item there, is a constraint of that name
+    /// on `holder`, and `true`, which admits any, is the default and adds
+    /// nothing.
+    fn walk_array_keywords(
+        &mut self,
+        mut builder: SchemaBuilder,
+        schema: &serde_json::Value,
+        current_id: &str,
+        pointer: &str,
+        holder: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        match schema.get("items") {
+            Some(serde_json::Value::Array(tuple)) => {
+                for (i, item) in tuple.iter().enumerate() {
+                    let item_id = format!("{current_id}:items{i}");
+                    let item_pointer = format!("{pointer}/items/{i}");
+                    builder = self.walk(builder, item, &item_id, &item_pointer)?;
+                    builder = builder.edge(holder, &item_id, "items", Some(&i.to_string()))?;
+                }
+            }
+            Some(serde_json::Value::Bool(false)) => {
+                builder = builder.constraint(holder, "items", "false");
+            }
+            Some(serde_json::Value::Bool(true)) | None => {}
+            Some(items) => {
+                let items_id = format!("{current_id}:items");
+                builder = self.walk(builder, items, &items_id, &format!("{pointer}/items"))?;
+                builder = builder.edge(holder, &items_id, "items", None)?;
+            }
+        }
+        if let Some(serde_json::Value::Array(tuple)) = schema.get("prefixItems") {
+            for (i, item) in tuple.iter().enumerate() {
+                let item_id = format!("{current_id}:prefixItems{i}");
+                let item_pointer = format!("{pointer}/prefixItems/{i}");
+                builder = self.walk(builder, item, &item_id, &item_pointer)?;
+                builder =
+                    builder.edge(holder, &item_id, "items", Some(&format!("prefixItems/{i}")))?;
+            }
+        }
+        match schema.get("additionalItems") {
+            Some(additional @ serde_json::Value::Object(_)) => {
+                let add_id = format!("{current_id}:additionalItems");
+                let add_pointer = format!("{pointer}/additionalItems");
+                builder = self.walk(builder, additional, &add_id, &add_pointer)?;
+                builder = builder.edge(holder, &add_id, "items", Some("additionalItems"))?;
+            }
+            Some(serde_json::Value::Bool(false)) => {
+                builder = builder.constraint(holder, "additionalItems", "false");
+            }
+            _ => {}
+        }
+        Ok(builder)
+    }
+
+    /// Walk `properties`, `patternProperties` and `additionalProperties`,
+    /// hanging each property off `holder`, the vertex of the schema's
+    /// object instances. Property vertex ids stay rooted at `current_id`,
+    /// the schema's own vertex.
+    fn walk_object_keywords(
+        &mut self,
+        mut builder: SchemaBuilder,
+        schema: &serde_json::Value,
+        current_id: &str,
+        pointer: &str,
+        holder: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        if let Some(properties) = schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (prop_name, prop_schema) in properties {
+                let prop_id = format!("{current_id}.{prop_name}");
+                let prop_pointer = format!("{pointer}/properties/{}", pointer_token(prop_name));
+                builder = self.walk(builder, prop_schema, &prop_id, &prop_pointer)?;
+                builder = builder.edge(holder, &prop_id, "prop", Some(prop_name))?;
+            }
+        }
+
+        if let Some(pattern_props) = schema
+            .get("patternProperties")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (pattern, prop_schema) in pattern_props {
+                self.counter += 1;
+                let prop_id = format!("{current_id}:patternProp{}", self.counter);
+                let prop_pointer =
+                    format!("{pointer}/patternProperties/{}", pointer_token(pattern));
+                builder = self.walk(builder, prop_schema, &prop_id, &prop_pointer)?;
+                builder = builder.edge(holder, &prop_id, "pattern-prop", Some(pattern))?;
+            }
+        }
+
+        if let Some(additional) = schema.get("additionalProperties") {
+            match additional {
+                serde_json::Value::Bool(false) => {
+                    builder = builder.constraint(holder, "additionalProperties", "false");
+                }
+                serde_json::Value::Object(_) => {
+                    self.counter += 1;
+                    let add_id = format!("{current_id}:additionalProperties{}", self.counter);
+                    let add_pointer = format!("{pointer}/additionalProperties");
+                    builder = self.walk(builder, additional, &add_id, &add_pointer)?;
+                    builder =
+                        builder.edge(holder, &add_id, "prop", Some("additionalProperties"))?;
+                }
+                // true is the default; no constraint needed for other variants.
+                _ => {}
+            }
+        }
+
+        Ok(builder)
+    }
+}
+
+/// The structural keywords that apply to array instances.
+const ARRAY_KEYWORDS: [&str; 3] = ["items", "prefixItems", "additionalItems"];
+
+/// The structural keywords that apply to object instances.
+const OBJECT_KEYWORDS: [&str; 3] = ["properties", "patternProperties", "additionalProperties"];
+
+/// The vertex for a schema's `type`, and the vertices that carry its
+/// object keywords and its array keywords when it admits such instances.
+///
+/// A `type` list becomes a `union` vertex with one `variant` per listed
+/// type, and the keywords go to the variant of their type.
+///
+/// A schema with no `type` admits every instance, so its kind follows
+/// from the structural keywords it carries: with array keywords only it
+/// is an `array`; with both array and object keywords it is a `union` of
+/// an `object` variant and an `array` variant, each holding its
+/// keywords; otherwise it is an `object`.
+fn type_vertices(
     mut builder: SchemaBuilder,
     schema: &serde_json::Value,
     current_id: &str,
-    counter: &mut usize,
-    defs_map: &HashMap<String, String>,
-) -> Result<SchemaBuilder, ProtocolError> {
-    // Handle `type` as array (e.g., `["string", "null"]`): create a union-like vertex.
-    let type_val = schema.get("type");
-    let kind = if let Some(serde_json::Value::Array(types)) = type_val {
-        // Union of types: create a union vertex and sub-vertices for each type.
+) -> Result<(SchemaBuilder, Option<String>, Option<String>), ProtocolError> {
+    if let Some(serde_json::Value::Array(types)) = schema.get("type") {
         builder = builder.vertex(current_id, "union", None)?;
+        let mut object_holder = None;
+        let mut array_holder = None;
         for (i, t) in types.iter().enumerate() {
             if let Some(t_str) = t.as_str() {
                 let sub_id = format!("{current_id}:type{i}");
                 let sub_kind = json_type_to_kind(t_str);
                 builder = builder.vertex(&sub_id, &sub_kind, None)?;
                 builder = builder.edge(current_id, &sub_id, "variant", Some(t_str))?;
+                match sub_kind.as_str() {
+                    "object" if object_holder.is_none() => object_holder = Some(sub_id),
+                    "array" if array_holder.is_none() => array_holder = Some(sub_id),
+                    _ => {}
+                }
             }
         }
-        None // vertex already created
-    } else {
-        let type_str = type_val
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("object");
-        let kind = json_type_to_kind(type_str);
-        builder = builder.vertex(current_id, &kind, None)?;
-        Some(kind)
+        return Ok((builder, object_holder, array_holder));
+    }
+    let has = |keywords: &[&str]| keywords.iter().any(|k| schema.get(*k).is_some());
+    let type_str = match schema.get("type").and_then(serde_json::Value::as_str) {
+        Some(declared) => declared,
+        None if has(&ARRAY_KEYWORDS) && has(&OBJECT_KEYWORDS) => {
+            builder = builder.vertex(current_id, "union", None)?;
+            let object_id = format!("{current_id}:object");
+            let array_id = format!("{current_id}:array");
+            for (variant, sub_id) in [("object", &object_id), ("array", &array_id)] {
+                builder = builder.vertex(sub_id, variant, None)?;
+                builder = builder.edge(current_id, sub_id, "variant", Some(variant))?;
+            }
+            return Ok((builder, Some(object_id), Some(array_id)));
+        }
+        None if has(&ARRAY_KEYWORDS) => "array",
+        None => "object",
     };
-    let _ = kind; // used above for vertex creation
+    let kind = json_type_to_kind(type_str);
+    builder = builder.vertex(current_id, &kind, None)?;
+    let own = Some(current_id.to_owned());
+    Ok(match kind.as_str() {
+        "object" => (builder, own, None),
+        "array" => (builder, None, own),
+        _ => (builder, None, None),
+    })
+}
 
-    // Add constraints.
+/// Record a schema's validation keywords as constraints on its vertex.
+fn constraints(
+    mut builder: SchemaBuilder,
+    schema: &serde_json::Value,
+    current_id: &str,
+) -> SchemaBuilder {
     let constraint_fields = [
         "minLength",
         "maxLength",
@@ -272,7 +728,6 @@ fn walk_schema(
         }
     }
 
-    // Handle enum constraint.
     if let Some(enum_val) = schema.get("enum").and_then(serde_json::Value::as_array) {
         let vals: Vec<String> = enum_val
             .iter()
@@ -281,7 +736,6 @@ fn walk_schema(
         builder = builder.constraint(current_id, "enum", &vals.join(","));
     }
 
-    // Handle const constraint.
     if let Some(const_val) = schema.get("const") {
         let val_str = match const_val {
             serde_json::Value::String(s) => s.clone(),
@@ -289,122 +743,7 @@ fn walk_schema(
         };
         builder = builder.constraint(current_id, "const", &val_str);
     }
-
-    // Handle properties (object type).
-    if let Some(properties) = schema
-        .get("properties")
-        .and_then(serde_json::Value::as_object)
-    {
-        for (prop_name, prop_schema) in properties {
-            let prop_id = format!("{current_id}.{prop_name}");
-            builder = walk_schema(builder, prop_schema, &prop_id, counter, defs_map)?;
-            builder = builder.edge(current_id, &prop_id, "prop", Some(prop_name))?;
-        }
-    }
-
-    // Handle patternProperties.
-    if let Some(pattern_props) = schema
-        .get("patternProperties")
-        .and_then(serde_json::Value::as_object)
-    {
-        for (pattern, prop_schema) in pattern_props {
-            *counter += 1;
-            let prop_id = format!("{current_id}:patternProp{counter}");
-            builder = walk_schema(builder, prop_schema, &prop_id, counter, defs_map)?;
-            builder = builder.edge(current_id, &prop_id, "pattern-prop", Some(pattern))?;
-        }
-    }
-
-    // Handle additionalProperties.
-    if let Some(additional) = schema.get("additionalProperties") {
-        match additional {
-            serde_json::Value::Bool(false) => {
-                builder = builder.constraint(current_id, "additionalProperties", "false");
-            }
-            serde_json::Value::Object(_) => {
-                *counter += 1;
-                let add_id = format!("{current_id}:additionalProperties{counter}");
-                builder = walk_schema(builder, additional, &add_id, counter, defs_map)?;
-                builder =
-                    builder.edge(current_id, &add_id, "prop", Some("additionalProperties"))?;
-            }
-            // true is the default; no constraint needed for other variants.
-            _ => {}
-        }
-    }
-
-    // Handle items (array type).
-    if let Some(items) = schema.get("items") {
-        let items_id = format!("{current_id}:items");
-        builder = walk_schema(builder, items, &items_id, counter, defs_map)?;
-        builder = builder.edge(current_id, &items_id, "items", None)?;
-    }
-
-    // Handle allOf / oneOf / anyOf as union-like structures.
-    for combiner in &["allOf", "oneOf", "anyOf"] {
-        if let Some(arr) = schema.get(*combiner).and_then(serde_json::Value::as_array) {
-            for (i, sub_schema) in arr.iter().enumerate() {
-                let sub_id = format!("{current_id}:{combiner}{i}");
-                builder = walk_schema(builder, sub_schema, &sub_id, counter, defs_map)?;
-                builder = builder.edge(current_id, &sub_id, "variant", Some(combiner))?;
-            }
-        }
-    }
-
-    // Handle `not`: recurse into the schema, creating a vertex with kind "not".
-    if let Some(not_schema) = schema.get("not") {
-        *counter += 1;
-        let not_id = format!("{current_id}:not{counter}");
-        builder = builder.vertex(&not_id, "not", None)?;
-        // Walk the negated schema as a child of the not vertex.
-        let negated_id = format!("{not_id}:negated");
-        builder = walk_schema(builder, not_schema, &negated_id, counter, defs_map)?;
-        builder = builder.edge(&not_id, &negated_id, "variant", Some("not"))?;
-        builder = builder.edge(current_id, &not_id, "variant", Some("not"))?;
-    }
-
-    // Handle `if`/`then`/`else`: create vertices for each conditional branch.
-    if let Some(if_schema) = schema.get("if") {
-        *counter += 1;
-        let if_id = format!("{current_id}:if{counter}");
-        builder = builder.vertex(&if_id, "if", None)?;
-        let if_cond_id = format!("{if_id}:cond");
-        builder = walk_schema(builder, if_schema, &if_cond_id, counter, defs_map)?;
-        builder = builder.edge(&if_id, &if_cond_id, "variant", Some("condition"))?;
-        builder = builder.edge(current_id, &if_id, "variant", Some("if"))?;
-
-        if let Some(then_schema) = schema.get("then") {
-            let then_id = format!("{current_id}:then{counter}");
-            builder = builder.vertex(&then_id, "then", None)?;
-            let then_body_id = format!("{then_id}:body");
-            builder = walk_schema(builder, then_schema, &then_body_id, counter, defs_map)?;
-            builder = builder.edge(&then_id, &then_body_id, "variant", Some("body"))?;
-            builder = builder.edge(current_id, &then_id, "variant", Some("then"))?;
-        }
-
-        if let Some(else_schema) = schema.get("else") {
-            let else_id = format!("{current_id}:else{counter}");
-            builder = builder.vertex(&else_id, "else", None)?;
-            let else_body_id = format!("{else_id}:body");
-            builder = walk_schema(builder, else_schema, &else_body_id, counter, defs_map)?;
-            builder = builder.edge(&else_id, &else_body_id, "variant", Some("body"))?;
-            builder = builder.edge(current_id, &else_id, "variant", Some("else"))?;
-        }
-    }
-
-    // Handle $ref: resolve to a definition vertex or create a ref vertex.
-    if let Some(ref_str) = schema.get("$ref").and_then(serde_json::Value::as_str) {
-        if let Some(def_vertex_id) = defs_map.get(ref_str) {
-            builder = builder.edge(current_id, def_vertex_id, "ref", Some(ref_str))?;
-        } else {
-            *counter += 1;
-            let ref_id = format!("{current_id}:ref{counter}");
-            builder = builder.vertex(&ref_id, "object", None)?;
-            builder = builder.edge(current_id, &ref_id, "ref", Some(ref_str))?;
-        }
-    }
-
-    Ok(builder)
+    builder
 }
 
 /// Map JSON Schema type to vertex kind.
@@ -442,13 +781,33 @@ fn kind_to_json_type(kind: &str) -> &'static str {
 ///
 /// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
 pub fn emit_json_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    // The root vertex is "root".
-    let root = schema
-        .vertices
-        .get("root")
+    let root = document_root(schema)
+        .and_then(|id| schema.vertices.get(id))
         .ok_or_else(|| ProtocolError::Emit("no root vertex found".into()))?;
 
     emit_json_schema_vertex(schema, root)
+}
+
+/// The vertex of a parsed document's root schema.
+///
+/// That is `root` for a document without an identity. A document with
+/// one names its root by it, so the root is the first entry that is not
+/// a definition: the parse declares each named definition
+/// (`<identity>:$defs/<name>` or `<identity>:definitions/<name>`) as an
+/// entry, and the root, whose id is the identity, after them.
+fn document_root(schema: &Schema) -> Option<&str> {
+    if schema.vertices.contains_key("root") {
+        return Some("root");
+    }
+    let entries = &schema.entries;
+    entries.iter().map(AsRef::as_ref).find(|entry: &&str| {
+        !entries.iter().any(|root| {
+            entry
+                .strip_prefix(root.as_ref() as &str)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|rest| rest.starts_with("$defs/") || rest.starts_with("definitions/"))
+        })
+    })
 }
 
 /// Emit a single vertex as a JSON Schema value.
@@ -505,9 +864,9 @@ fn emit_json_schema_vertex(
             "const" => {
                 obj.insert("const".to_string(), serde_json::json!(c.value));
             }
-            "additionalProperties" => {
+            "additionalProperties" | "items" | "additionalItems" => {
                 if c.value == "false" {
-                    obj.insert("additionalProperties".to_string(), serde_json::json!(false));
+                    obj.insert(c.sort.to_string(), serde_json::json!(false));
                 }
             }
             _ => {
@@ -537,12 +896,7 @@ fn emit_json_schema_vertex(
         }
     }
 
-    // Handle items (array type).
-    let items = children_by_edge(schema, &vertex.id, "items");
-    if let Some((_, items_vertex)) = items.first() {
-        let items_val = emit_json_schema_vertex(schema, items_vertex)?;
-        obj.insert("items".to_string(), items_val);
-    }
+    emit_items(schema, vertex, &mut obj)?;
 
     // Handle variant edges for oneOf/anyOf/allOf.
     let variants = children_by_edge(schema, &vertex.id, "variant");
@@ -560,6 +914,47 @@ fn emit_json_schema_vertex(
     }
 
     Ok(serde_json::Value::Object(obj))
+}
+
+/// Emit the array keywords of `vertex` into `obj`: the anonymous `items`
+/// edge is `items` as one schema, edges named by an index are the
+/// positions of a draft-07 `items` tuple, edges named `prefixItems/i`
+/// the positions of a 2020-12 `prefixItems`, and the edge named
+/// `additionalItems` is the schema of the items past a draft-07 tuple.
+fn emit_items(
+    schema: &Schema,
+    vertex: &panproto_schema::Vertex,
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ProtocolError> {
+    let mut tuple: Vec<(usize, serde_json::Value)> = Vec::new();
+    let mut prefix: Vec<(usize, serde_json::Value)> = Vec::new();
+    for (edge, item_vertex) in crate::emit::children_by_edge(schema, &vertex.id, "items") {
+        let item_val = emit_json_schema_vertex(schema, item_vertex)?;
+        match edge.name.as_deref() {
+            None => {
+                obj.insert("items".to_string(), item_val);
+            }
+            Some("additionalItems") => {
+                obj.insert("additionalItems".to_string(), item_val);
+            }
+            Some(name) => match name.strip_prefix("prefixItems/") {
+                Some(position) => {
+                    prefix.push((position.parse().unwrap_or(usize::MAX), item_val));
+                }
+                None => tuple.push((name.parse().unwrap_or(usize::MAX), item_val)),
+            },
+        }
+    }
+    for (keyword, mut positions) in [("items", tuple), ("prefixItems", prefix)] {
+        if !positions.is_empty() {
+            positions.sort_by_key(|(index, _)| *index);
+            obj.insert(
+                keyword.to_string(),
+                serde_json::Value::Array(positions.into_iter().map(|(_, v)| v).collect()),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Well-formedness rules for JSON Schema edges.
@@ -672,5 +1067,30 @@ mod tests {
         assert!(schema.is_some_and(|s| s.has_vertex("root")));
         assert!(schema.is_some_and(|s| s.has_vertex("root.name")));
         assert!(schema.is_some_and(|s| s.has_vertex("root.age")));
+    }
+
+    #[test]
+    fn emit_schema_keeps_a_tuple() {
+        let schema_json = serde_json::json!({
+            "type": "array",
+            "items": [{ "type": "string" }, { "type": "integer" }],
+            "additionalItems": { "type": "boolean" }
+        });
+        let parsed = parse_json_schema(&schema_json);
+        let emitted = parsed.as_ref().ok().map(emit_json_schema);
+        let Some(Ok(emitted)) = emitted else {
+            panic!("the tuple parses and emits: {parsed:?}");
+        };
+        assert_eq!(emitted["items"][0]["type"], "string");
+        assert_eq!(emitted["items"][1]["type"], "integer");
+        assert_eq!(emitted["additionalItems"]["type"], "boolean");
+    }
+
+    #[test]
+    fn percent_escapes_decode() {
+        assert_eq!(percent_decode("/definitions/c%20d"), "/definitions/c d");
+        assert_eq!(percent_decode("/a%2"), "/a%2");
+        assert_eq!(percent_decode("/%E2%82%AC"), "/\u{20ac}");
+        assert_eq!(percent_decode("/%FF"), "/%FF");
     }
 }

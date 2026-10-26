@@ -18,8 +18,9 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::unwrap_used)]
 
+use panproto_gat::CheckStatus;
 use panproto_inst::{parse_json, validate_wtype};
-use panproto_protocols::web_document::atproto::parse_lexicon;
+use panproto_protocols::web_document::atproto::{parse_lexicon, protocol};
 use panproto_schema::primary_entry;
 
 fn lexicon() -> serde_json::Value {
@@ -53,8 +54,8 @@ fn lexicon() -> serde_json::Value {
 
 /// A canonical post without a `reply` must validate against the
 /// lexicon's main record: absence of an optional ref sub-object is
-/// well-formed, so the required-edge predicate at the root anchor
-/// reports no violations.
+/// well-formed, so validation under the atproto protocol passes with no
+/// diagnostics.
 #[test]
 fn canonical_post_without_reply_validates() {
     let schema = parse_lexicon(&lexicon()).expect("parse lexicon");
@@ -66,11 +67,13 @@ fn canonical_post_without_reply_validates() {
     });
 
     let instance = parse_json(&schema, root.as_ref(), &input).expect("parse instance");
-    let errors = validate_wtype(&schema, &instance);
+    let report = validate_wtype(&instance, &schema, &protocol());
     assert!(
-        errors.is_empty(),
-        "expected zero validation errors, got {errors:?}"
+        report.diagnostics.is_empty(),
+        "expected zero diagnostics, got {:?}",
+        report.diagnostics
     );
+    assert_eq!(report.status, CheckStatus::Passed, "{report:?}");
 }
 
 /// Primary entry must be the record vertex, not the `#replyRef`

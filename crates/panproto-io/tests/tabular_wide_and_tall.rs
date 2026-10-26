@@ -21,7 +21,7 @@ fn tabular_schema() -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("rows", "object", None)
@@ -86,8 +86,11 @@ fn a_row_wider_than_the_old_stride_edits_the_right_cell() {
         .expect("parse");
 
     let mut mutated = instance;
-    let rows = mutated.tables.get_mut("rows").expect("rows table");
-    rows[0].insert("c10000".to_owned(), Value::Str("EDITED".to_owned()));
+    let first = mutated.table("rows").expect("rows table").ids()[0];
+    mutated
+        .row_mut(first)
+        .expect("row 0")
+        .insert("c10000".to_owned(), Value::Str("EDITED".to_owned()));
 
     let emitted = codec
         .emit_functor_preserving(&schema, &mutated, &complement)
@@ -96,7 +99,11 @@ fn a_row_wider_than_the_old_stride_edits_the_right_cell() {
         .parse_functor_preserving(&schema, &emitted)
         .expect("reparse");
 
-    let out = &reparsed.tables["rows"];
+    let out: Vec<_> = reparsed
+        .rows("rows")
+        .into_iter()
+        .map(|(_, row)| row)
+        .collect();
     assert_eq!(
         out[0]["c10000"],
         Value::Str("EDITED".to_owned()),

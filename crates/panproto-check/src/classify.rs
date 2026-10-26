@@ -44,6 +44,21 @@
 //!   additions non-breaking, removals and modifications breaking.
 //!   [`classify_with_schemas`] layers the schema-level coercion class
 //!   downgrade check on top.
+//! - **Keys**: adding a key on a vertex the old schema has is breaking,
+//!   since every key role constrains its values to be unique; a key on a
+//!   newly added vertex, and a removed key, are non-breaking. A changed key
+//!   is breaking when it can reject what the old key accepted: new parts, a
+//!   stronger role (`Primary` over `Unique` or `Identifier`, the latter two
+//!   not interchangeable), or a wider scope (`Global` over `Document` over
+//!   `Within`, and a different `Within` vertex); otherwise it is a
+//!   non-breaking relaxation.
+//! - **References**: adding a reference whose holder the old schema has is
+//!   breaking when it is non-nullable or fails on an unresolved value, and
+//!   non-breaking otherwise; a removed reference is non-breaking. A changed
+//!   reference is breaking when it tightens `Many` to `One`, nullable to
+//!   non-nullable, or `Complement` to `Error` on unresolved values, or
+//!   changes anything else, and a non-breaking relaxation when it only
+//!   does the inverses.
 //!
 //! The [`classify`] function destructures [`SchemaDiff`] exhaustively so
 //! that a newly added diff field is a compile error until it is given a
@@ -51,11 +66,11 @@
 //! bucket is the conservative fail-closed fallback for any residual
 //! sub-case that has no dedicated variant.
 
-use panproto_schema::Protocol;
+use panproto_schema::{Cardinality, Key, KeyRole, KeyScope, OnUnresolved, Protocol, Reference};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
-use crate::diff::{ConstraintChange, SchemaDiff};
+use crate::diff::{ConstraintChange, KeyChange, ReferenceChange, SchemaDiff};
 
 /// The tri-state compatibility verdict for a [`CompatReport`].
 ///
@@ -353,6 +368,38 @@ pub enum BreakingChange {
         new_id: String,
     },
 
+    /// A key was declared on a vertex the old schema already had, so values
+    /// it accepted may now collide.
+    KeyAdded {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The key ID.
+        key_id: String,
+    },
+
+    /// A key's parts, role or scope changed in a way that can reject values
+    /// the old key accepted.
+    KeyTightened {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The key ID.
+        key_id: String,
+    },
+
+    /// A reference that every existing holder must satisfy was declared:
+    /// non-nullable, or failing on a value that names no target.
+    ReferenceAdded {
+        /// The reference ID.
+        reference_id: String,
+    },
+
+    /// A reference changed in a way that can reject what the old one
+    /// accepted.
+    ReferenceTightened {
+        /// The reference ID.
+        reference_id: String,
+    },
+
     /// A residual, non-empty diff sub-case with no dedicated variant.
     ///
     /// This is the conservative fail-closed bucket: any change routed
@@ -457,6 +504,50 @@ pub enum NonBreakingChange {
         /// The new usage mode.
         new_mode: panproto_schema::UsageMode,
     },
+
+    /// A key was declared on a vertex the new schema adds.
+    KeyAdded {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The key ID.
+        key_id: String,
+    },
+
+    /// A key was removed.
+    KeyRemoved {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The key ID.
+        key_id: String,
+    },
+
+    /// A key changed only in ways that accept everything the old key did.
+    KeyRelaxed {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The key ID.
+        key_id: String,
+    },
+
+    /// A reference was declared that no existing holder must satisfy:
+    /// nullable and keeping unresolved values, or held by a new vertex.
+    ReferenceAdded {
+        /// The reference ID.
+        reference_id: String,
+    },
+
+    /// A reference was removed.
+    ReferenceRemoved {
+        /// The reference ID.
+        reference_id: String,
+    },
+
+    /// A reference changed only in ways that accept everything the old one
+    /// did.
+    ReferenceRelaxed {
+        /// The reference ID.
+        reference_id: String,
+    },
 }
 
 /// Classify a [`SchemaDiff`] into breaking and non-breaking changes.
@@ -516,6 +607,12 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         added_policies,
         removed_policies,
         modified_policies,
+        added_keys,
+        removed_keys,
+        modified_keys,
+        added_references,
+        removed_references,
+        modified_references,
         renamed_vertices,
     } = diff;
 
@@ -812,7 +909,129 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         &mut non_breaking,
     );
 
+    // --- Declarations ---
+    let new_vertices: FxHashSet<&str> = added_vertices.iter().map(String::as_str).collect();
+    classify_keys(
+        added_keys,
+        removed_keys,
+        modified_keys,
+        &new_vertices,
+        &mut breaking,
+        &mut non_breaking,
+    );
+    classify_references(
+        added_references,
+        removed_references,
+        modified_references,
+        &new_vertices,
+        &mut breaking,
+        &mut non_breaking,
+    );
+
     finish_report(breaking, non_breaking)
+}
+
+/// Classify key additions, removals and changes.
+fn classify_keys(
+    added: &[(String, Key)],
+    removed: &[(String, Key)],
+    modified: &[KeyChange],
+    new_vertices: &FxHashSet<&str>,
+    breaking: &mut Vec<BreakingChange>,
+    non_breaking: &mut Vec<NonBreakingChange>,
+) {
+    for (vertex_id, key) in added {
+        let vertex_id = vertex_id.clone();
+        let key_id = key.id.to_string();
+        if new_vertices.contains(vertex_id.as_str()) {
+            non_breaking.push(NonBreakingChange::KeyAdded { vertex_id, key_id });
+        } else {
+            breaking.push(BreakingChange::KeyAdded { vertex_id, key_id });
+        }
+    }
+    for (vertex_id, key) in removed {
+        non_breaking.push(NonBreakingChange::KeyRemoved {
+            vertex_id: vertex_id.clone(),
+            key_id: key.id.to_string(),
+        });
+    }
+    for change in modified {
+        let vertex_id = change.vertex_id.clone();
+        let key_id = change.new.id.to_string();
+        if key_is_tightened(&change.old, &change.new) {
+            breaking.push(BreakingChange::KeyTightened { vertex_id, key_id });
+        } else {
+            non_breaking.push(NonBreakingChange::KeyRelaxed { vertex_id, key_id });
+        }
+    }
+}
+
+/// Whether `new` can reject values `old` accepted.
+fn key_is_tightened(old: &Key, new: &Key) -> bool {
+    let role_rank = |role: &KeyRole| match role {
+        KeyRole::Primary => 2,
+        KeyRole::Unique | KeyRole::Identifier => 1,
+    };
+    let scope_rank = |scope: &KeyScope| match scope {
+        KeyScope::Global => 3,
+        KeyScope::Document => 2,
+        KeyScope::Within(_) => 1,
+    };
+    let parts_changed = old.parts != new.parts;
+    let role_tightened = role_rank(&new.role) > role_rank(&old.role)
+        || (role_rank(&new.role) == role_rank(&old.role) && new.role != old.role);
+    let scope_tightened = scope_rank(&new.scope) > scope_rank(&old.scope)
+        || (scope_rank(&new.scope) == scope_rank(&old.scope) && new.scope != old.scope);
+    parts_changed || role_tightened || scope_tightened
+}
+
+/// Classify reference additions, removals and changes.
+fn classify_references(
+    added: &[Reference],
+    removed: &[Reference],
+    modified: &[ReferenceChange],
+    new_vertices: &FxHashSet<&str>,
+    breaking: &mut Vec<BreakingChange>,
+    non_breaking: &mut Vec<NonBreakingChange>,
+) {
+    for reference in added {
+        let reference_id = reference.id.to_string();
+        let binding = !reference.nullable || reference.on_unresolved == OnUnresolved::Error;
+        if binding && !new_vertices.contains(reference.holder.as_ref()) {
+            breaking.push(BreakingChange::ReferenceAdded { reference_id });
+        } else {
+            non_breaking.push(NonBreakingChange::ReferenceAdded { reference_id });
+        }
+    }
+    for reference in removed {
+        non_breaking.push(NonBreakingChange::ReferenceRemoved {
+            reference_id: reference.id.to_string(),
+        });
+    }
+    for change in modified {
+        let reference_id = change.id.clone();
+        if reference_is_tightened(&change.old, &change.new) {
+            breaking.push(BreakingChange::ReferenceTightened { reference_id });
+        } else {
+            non_breaking.push(NonBreakingChange::ReferenceRelaxed { reference_id });
+        }
+    }
+}
+
+/// Whether `new` can reject what `old` accepted: it tightens cardinality,
+/// nullability or unresolved handling, or changes any other field.
+fn reference_is_tightened(old: &Reference, new: &Reference) -> bool {
+    let many_to_one = old.cardinality == Cardinality::Many && new.cardinality == Cardinality::One;
+    let now_required = old.nullable && !new.nullable;
+    let now_strict =
+        old.on_unresolved == OnUnresolved::Complement && new.on_unresolved == OnUnresolved::Error;
+    let other_change = old.holder != new.holder
+        || old.source != new.source
+        || old.target_vertex != new.target_vertex
+        || old.target_key != new.target_key
+        || old.edge != new.edge
+        || old.mode != new.mode;
+    many_to_one || now_required || now_strict || other_change
 }
 
 /// Classify a schema diff with access to the old and new schemas for
@@ -995,7 +1214,7 @@ mod tests {
         VariantChange,
     };
     use panproto_schema::{Constraint, Edge, EdgeRule, RecursionPoint, UsageMode, Variant};
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn test_protocol() -> Protocol {
         Protocol {
@@ -1009,7 +1228,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -1068,7 +1287,7 @@ mod tests {
     fn classify_added_required_edge_as_breaking() {
         let e = edge("body", "body.text", "prop", Some("text"));
         let diff = SchemaDiff {
-            added_required: HashMap::from([("body".into(), vec![e.clone()])]),
+            added_required: BTreeMap::from([("body".into(), vec![e.clone()])]),
             // An added-and-required edge also shows up as an added edge.
             added_edges: vec![e],
             ..SchemaDiff::default()
@@ -1095,7 +1314,7 @@ mod tests {
     fn classify_removed_required_edge_as_breaking() {
         let e = edge("body", "body.text", "prop", Some("text"));
         let diff = SchemaDiff {
-            removed_required: HashMap::from([("body".into(), vec![e])]),
+            removed_required: BTreeMap::from([("body".into(), vec![e])]),
             ..SchemaDiff::default()
         };
         let report = classify(&diff, &test_protocol());
@@ -1332,7 +1551,7 @@ mod tests {
     #[test]
     fn nsid_add_non_breaking_change_remove_breaking() {
         let added = SchemaDiff {
-            added_nsids: HashMap::from([("a".into(), "com.example.thing".into())]),
+            added_nsids: BTreeMap::from([("a".into(), "com.example.thing".into())]),
             ..SchemaDiff::default()
         };
         assert!(classify(&added, &test_protocol()).compatible);
@@ -1368,9 +1587,9 @@ mod tests {
             modified_hyper_edges: vec![HyperEdgeChange {
                 id: "he1".into(),
                 kind_change: Some(("join".into(), "merge".into())),
-                signature_added: HashMap::new(),
-                signature_removed: HashMap::new(),
-                signature_changed: HashMap::new(),
+                signature_added: BTreeMap::new(),
+                signature_removed: BTreeMap::new(),
+                signature_changed: BTreeMap::new(),
                 parent_label_change: None,
             }],
             ..SchemaDiff::default()
@@ -1566,14 +1785,14 @@ mod tests {
             (
                 "added_required",
                 SchemaDiff {
-                    added_required: HashMap::from([("a".into(), vec![e.clone()])]),
+                    added_required: BTreeMap::from([("a".into(), vec![e.clone()])]),
                     ..SchemaDiff::default()
                 },
             ),
             (
                 "removed_required",
                 SchemaDiff {
-                    removed_required: HashMap::from([("a".into(), vec![e.clone()])]),
+                    removed_required: BTreeMap::from([("a".into(), vec![e.clone()])]),
                     ..SchemaDiff::default()
                 },
             ),
@@ -1708,7 +1927,7 @@ mod tests {
             (
                 "added_nsids",
                 SchemaDiff {
-                    added_nsids: HashMap::from([("a".into(), "x".into())]),
+                    added_nsids: BTreeMap::from([("a".into(), "x".into())]),
                     ..SchemaDiff::default()
                 },
             ),
@@ -1842,6 +2061,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 }

@@ -23,7 +23,7 @@ fn open_schema(protocol_name: &str) -> panproto_schema::Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -32,8 +32,10 @@ fn open_schema(protocol_name: &str) -> panproto_schema::Schema {
         .expect("build schema")
 }
 
-/// Build a minimal open schema for tabular protocols.
-fn tabular_schema(protocol_name: &str) -> panproto_schema::Schema {
+/// Build a minimal schema for a tabular protocol that declares `table`,
+/// the table the codec reads rows into: a codec whose configured table is
+/// not a vertex of the schema refuses to anchor rows outside it.
+fn tabular_schema(protocol_name: &str, table: &str) -> panproto_schema::Schema {
     let proto = Protocol {
         name: protocol_name.into(),
         schema_theory: format!("Th{protocol_name}Schema"),
@@ -41,11 +43,10 @@ fn tabular_schema(protocol_name: &str) -> panproto_schema::Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
-    // Tabular schemas need no vertices; FInstance is schema-independent.
     SchemaBuilder::new(&proto)
-        .vertex("table", "table", None)
+        .vertex(table, "table", None)
         .expect("table vertex")
         .build()
         .expect("build schema")
@@ -143,14 +144,14 @@ macro_rules! tabular_functor_roundtrip {
         #[test]
         fn $name() {
             let reg = registry();
-            let schema = tabular_schema($protocol);
+            let schema = tabular_schema($protocol, $table);
             let input = include_bytes!($fixture);
 
             let instance = reg
                 .parse_functor($protocol, &schema, input)
                 .expect(concat!("parse ", $protocol));
 
-            let rows = instance.tables.get($table).expect(concat!(
+            let rows = instance.table($table).expect(concat!(
                 $protocol,
                 " table '",
                 $table,
@@ -171,7 +172,7 @@ macro_rules! tabular_functor_roundtrip {
                 .parse_functor($protocol, &schema, &emitted)
                 .expect(concat!("re-parse ", $protocol));
 
-            let rows2 = instance2.tables.get($table).expect("re-parsed table");
+            let rows2 = instance2.table($table).expect("re-parsed table");
             assert_eq!(
                 rows.len(),
                 rows2.len(),
@@ -430,7 +431,7 @@ fn roundtrip_conllu() {
     let input = include_bytes!("../fixtures/annotation/sample.conllu");
 
     let (instance, complement) = codec.parse(input).expect("parse conllu");
-    let rows = instance.tables.get("rows").expect("rows table");
+    let rows = instance.table("rows").expect("rows table");
     assert!(
         rows.len() >= 100,
         "Real UD CoNLL-U fixture should have many token rows, got {}",
@@ -597,7 +598,7 @@ fn roundtrip_toml() {
 #[test]
 fn roundtrip_csv() {
     let reg = registry();
-    let schema = tabular_schema("csv");
+    let schema = tabular_schema("csv", "table");
     let input = b"name,age\nAlice,30\nBob,25\n";
 
     let instance = reg.parse_functor("csv", &schema, input).expect("parse csv");
@@ -608,8 +609,8 @@ fn roundtrip_csv() {
         .parse_functor("csv", &schema, &emitted)
         .expect("re-parse csv");
     assert_eq!(
-        instance.tables.len(),
-        reparsed.tables.len(),
+        instance.table_count(),
+        reparsed.table_count(),
         "csv: table count mismatch after round-trip"
     );
 }
@@ -623,7 +624,7 @@ fn all_protocols_report_correct_native_repr() {
     for p in &wtype_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),
-            NativeRepr::WType,
+            NativeRepr::Tree,
             "{p} should be WType"
         );
     }
@@ -633,7 +634,7 @@ fn all_protocols_report_correct_native_repr() {
     for p in &functor_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),
-            NativeRepr::Functor,
+            NativeRepr::Table,
             "{p} should be Functor"
         );
     }
@@ -720,18 +721,15 @@ fn json_nested_arrays_survive_round_trip() {
 #[test]
 fn tsv_header_and_rows_survive_round_trip() {
     let reg = registry();
-    let schema = tabular_schema("amr");
+    let schema = tabular_schema("amr", "amr_graph");
     let input = b"variable\tconcept\nb\tboy\nw\twant-01\n" as &[u8];
     let inst = reg
         .parse_functor("amr", &schema, input)
         .expect("parse should succeed");
-    let rows = inst
-        .tables
-        .get("amr_graph")
-        .expect("amr_graph table present");
+    let rows = inst.rows("amr_graph");
     assert_eq!(rows.len(), 2);
-    let row0 = &rows[0];
-    let row1 = &rows[1];
+    let row0 = rows[0].1;
+    let row1 = rows[1].1;
     let names: std::collections::BTreeSet<&str> = row0.keys().map(String::as_str).collect();
     assert_eq!(
         names,
@@ -752,10 +750,7 @@ fn tsv_header_and_rows_survive_round_trip() {
     let inst2 = reg
         .parse_functor("amr", &schema, &emitted)
         .expect("re-parse should succeed");
-    let rows2 = inst2
-        .tables
-        .get("amr_graph")
-        .expect("re-parsed table present");
+    let rows2 = inst2.rows("amr_graph");
     assert_eq!(
         rows.len(),
         rows2.len(),

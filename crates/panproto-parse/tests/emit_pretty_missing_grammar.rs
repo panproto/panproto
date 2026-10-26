@@ -85,5 +85,6 @@ fn build_minimal_protocol(name: &str) -> panproto_schema::Protocol {
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
     }
 }

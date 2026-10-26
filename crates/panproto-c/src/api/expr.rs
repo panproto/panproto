@@ -183,7 +183,9 @@ pub fn pp_expr_check(
 /// [`Resource::Schema`](crate::handle::Resource) handle. On success,
 /// `out` receives a CBOR-encoded list of match records, each a map with
 /// `node_id`, `anchor`, `value`, and `fields`. Calls
-/// [`inst::execute_query`].
+/// [`inst::execute_query`]; a predicate it refuses before evaluation (a
+/// repeated child name, a structural child that is no tree, a value with no
+/// expression literal) yields [`PpStatus::Operation`].
 ///
 /// The schema handle must resolve to a
 /// [`Resource::Schema`](crate::handle::Resource); a bad handle yields
@@ -204,7 +206,8 @@ pub fn pp_query_execute(
         // The anchoring schema must be a live schema handle.
         let schema = handle::with_resource(schema_handle, handle::Resource::as_schema_arc)?;
 
-        let matches = inst::execute_query(&query, &instance, &schema);
+        let matches = inst::execute_query(&query, &instance, &schema)
+            .map_err(|e| FfiError::Operation(format!("query: {e}")))?;
 
         let results: Vec<serde_json::Value> = matches
             .into_iter()

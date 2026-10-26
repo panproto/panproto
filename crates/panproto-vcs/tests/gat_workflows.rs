@@ -63,6 +63,7 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -839,23 +840,69 @@ fn natural_transformation_vertical_horizontal_compose() -> Result<(), Box<dyn st
 // Test 10: acset_restrict_extend_across_all_shapes
 // ===========================================================================
 
-#[test]
-fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::Error>> {
-    use std::collections::HashSet;
+struct AcsetFixture {
+    protocol: panproto_schema::Protocol,
+    src_schema: Schema,
+    tgt_schema: Schema,
+    compiled: CompiledMigration,
+    name_edge: panproto_schema::Edge,
+}
 
-    // Build source and target schemas.
-    let src_schema = make_schema(&[("person", "object"), ("name", "string")]);
-    let tgt_schema = make_schema(&[("human", "object"), ("label", "string")]);
+fn acset_fixture() -> AcsetFixture {
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-    // Compile a migration (person -> human, name -> label).
+    use panproto_schema::{Edge, Protocol, ScalarKind};
+
+    let protocol = Protocol {
+        name: "test".into(),
+        obj_kinds: vec!["object".into(), "string".into()],
+        value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+        non_value_kinds: BTreeSet::from(["object".to_owned()]),
+        ..Default::default()
+    };
+    let prop = |src: &str, tgt: &str, name: &str| Edge {
+        src: src.into(),
+        tgt: tgt.into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    };
+    let with_edge = |mut schema: Schema, edge: &Edge| {
+        schema.edges.insert(edge.clone(), Name::from("prop"));
+        schema
+            .outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        schema
+            .incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        schema
+            .between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge.clone());
+        schema
+    };
+    let name_edge = prop("person", "name", "name");
+    let label_edge = prop("human", "label", "name");
+    let src_schema = with_edge(
+        make_schema(&[("person", "object"), ("name", "string")]),
+        &name_edge,
+    );
+    let tgt_schema = with_edge(
+        make_schema(&[("human", "object"), ("label", "string")]),
+        &label_edge,
+    );
     let compiled = CompiledMigration {
         surviving_verts: HashSet::from([Name::from("human"), Name::from("label")]),
-        surviving_edges: HashSet::new(),
+        surviving_edges: HashSet::from([label_edge.clone()]),
         vertex_remap: HashMap::from([
             (Name::from("person"), Name::from("human")),
             (Name::from("name"), Name::from("label")),
         ]),
-        edge_remap: HashMap::new(),
+        edge_remap: HashMap::from([(name_edge.clone(), label_edge)]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -863,57 +910,97 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
         op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
+    AcsetFixture {
+        protocol,
+        src_schema,
+        tgt_schema,
+        compiled,
+        name_edge,
+    }
+}
 
-    // --- WInstance ---
+#[test]
+fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::Error>> {
+    use panproto_inst::BoundaryProtocols;
+    use panproto_inst::value::FieldPresence;
+
+    let AcsetFixture {
+        protocol,
+        src_schema,
+        tgt_schema,
+        compiled,
+        name_edge,
+    } = acset_fixture();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+
+    // --- WInstance: a person and its name ---
     let mut nodes = HashMap::new();
     nodes.insert(0, Node::new(0, "person"));
-    nodes.insert(1, Node::new(1, "person"));
-    let w = WInstance::new(nodes, vec![], vec![], 0, Name::from("person"));
+    nodes.insert(
+        1,
+        Node::new(1, "name").with_value(FieldPresence::Present(Value::Str("Alice".into()))),
+    );
+    let w = WInstance::new(
+        nodes,
+        vec![(0, 1, name_edge)],
+        vec![],
+        0,
+        Name::from("person"),
+    );
     assert_eq!(AcsetOps::element_count(&w), 2);
     assert_eq!(AcsetOps::shape_name(&w), "wtype");
 
-    // Extend: remap vertices.
-    let w_ext = AcsetOps::extend(&w, &tgt_schema, &compiled)?;
-    assert_eq!(AcsetOps::element_count(&w_ext), 2);
-    // After extend, nodes should have been remapped to "human".
+    // Restrict: both nodes survive under their images.
+    let w_res = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &compiled, protocols)?;
+    assert_eq!(AcsetOps::element_count(&w_res), 2);
+    assert_eq!(&*w_res.nodes[&0].anchor, "human");
+    assert_eq!(&*w_res.nodes[&1].anchor, "label");
 
-    // --- FInstance ---
+    // Extend: remap vertices.
+    let w_ext = AcsetOps::extend(&w, &src_schema, &tgt_schema, &compiled, protocols)?;
+    assert_eq!(AcsetOps::element_count(&w_ext), 2);
+    assert_eq!(&*w_ext.nodes[&0].anchor, "human");
+
+    // --- FInstance: one person row with its name cell ---
     let mut row = HashMap::new();
-    row.insert("field1".to_string(), Value::Str("Alice".into()));
-    let f = FInstance::new().with_table("person", vec![row]);
+    row.insert("name".to_string(), Value::Str("Alice".into()));
+    let f = FInstance::new().with_table("person", vec![row])?;
     assert_eq!(AcsetOps::element_count(&f), 1);
     assert_eq!(AcsetOps::shape_name(&f), "functor");
 
-    // Restrict: keep only surviving tables.
-    let f_res = AcsetOps::restrict(&f, &src_schema, &tgt_schema, &compiled)?;
-    // After restrict, the "person" table should be remapped to "human".
+    // Restrict: the person table becomes the human table, its name cell the
+    // label cell.
+    let f_res = AcsetOps::restrict(&f, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::shape_name(&f_res), "functor");
+    assert_eq!(f_res.row_count("human"), 1);
 
     // Extend.
-    let f_ext = AcsetOps::extend(&f, &tgt_schema, &compiled)?;
+    let f_ext = AcsetOps::extend(&f, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::shape_name(&f_ext), "functor");
+    assert_eq!(f_ext.row_count("human"), 1);
 
-    // --- GInstance ---
+    // --- GInstance: two persons ---
     let g = GInstance::new()
         .with_node(Node::new(0, "person"))
-        .with_node(Node::new(1, "person"))
-        .with_value(0, Value::Str("Alice".into()))
-        .with_value(1, Value::Str("Bob".into()));
+        .with_node(Node::new(1, "person"));
     assert_eq!(AcsetOps::element_count(&g), 2);
     assert_eq!(AcsetOps::shape_name(&g), "graph");
 
     // Restrict: remap vertices.
-    let g_res = AcsetOps::restrict(&g, &src_schema, &tgt_schema, &compiled)?;
+    let g_res = AcsetOps::restrict(&g, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::element_count(&g_res), 2);
     // Nodes should be remapped to "human".
-    for node in g_res.nodes.values() {
+    for node in g_res.nodes().values() {
         assert_eq!(&*node.anchor, "human");
     }
 
     // Extend.
-    let g_ext = AcsetOps::extend(&g, &tgt_schema, &compiled)?;
+    let g_ext = AcsetOps::extend(&g, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::element_count(&g_ext), 2);
-    for node in g_ext.nodes.values() {
+    for node in g_ext.nodes().values() {
         assert_eq!(&*node.anchor, "human");
     }
     Ok(())

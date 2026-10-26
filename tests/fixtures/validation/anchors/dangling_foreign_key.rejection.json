@@ -1,0 +1,31 @@
+{
+  "name": "anchors/dangling_foreign_key.rejection",
+  "shape": "table",
+  "instance": {
+    "foreign_keys": [
+      [
+        {
+          "kind": "fk",
+          "name": "stars",
+          "src": "film",
+          "tgt": "actor"
+        },
+        [
+          [
+            0,
+            99
+          ]
+        ]
+      ]
+    ],
+    "tables": {
+      "actor": {
+        "1": {}
+      },
+      "film": {
+        "0": {}
+      }
+    }
+  },
+  "error": "foreign key Edge { src: Name(\"film\"), tgt: Name(\"actor\"), kind: Name(\"fk\"), name: Some(Name(\"stars\")) } names row 99, which its endpoint table does not hold"
+}

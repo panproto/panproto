@@ -64,6 +64,9 @@ def test_core_public_symbols_are_reexported() -> None:
         "Constraint",
         "Complement",
         "HyperEdge",
+        # Instance
+        "Instance",
+        "ValidationReport",
         "Protocol",
         # Protocol registry
         "define_protocol",

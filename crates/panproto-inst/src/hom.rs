@@ -19,7 +19,7 @@ use smallvec::SmallVec;
 use crate::error::InstError;
 use crate::metadata::Node;
 use crate::value::Value;
-use crate::wtype::{CompiledMigration, WInstance, wtype_restrict};
+use crate::wtype::{CompiledMigration, WInstance};
 
 /// Construct the internal hom schema `[S, T]`.
 ///
@@ -108,6 +108,7 @@ pub fn hom_schema(source: &Schema, target: &Schema) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -331,7 +332,10 @@ pub fn eval_hom(
         expansion_path: HashMap::new(),
     };
 
-    wtype_restrict(source_instance, source_schema, target_schema, &compiled)
+    let plan = crate::restrict_plan::RestrictPlan::compile(source_schema, target_schema, &compiled)
+        .map_err(|e| InstError::EvalHom(e.to_string()))?;
+    crate::wtype::wtype_restrict_with_plan(source_instance, &plan)
+        .map(|(view, _)| view)
         .map_err(|e| InstError::EvalHom(e.to_string()))
 }
 
@@ -519,6 +523,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -647,7 +652,10 @@ mod tests {
         );
 
         // Compare with direct wtype_restrict.
-        let direct = wtype_restrict(&src_instance, &source, &target, &compiled).unwrap();
+        let plan = crate::RestrictPlan::compile(&source, &target, &compiled).unwrap();
+        let direct = crate::wtype_restrict_with_plan(&src_instance, &plan)
+            .unwrap()
+            .0;
         assert_eq!(result.node_count(), direct.node_count());
         assert_eq!(result.arc_count(), direct.arc_count());
 

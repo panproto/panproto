@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 70ff57a144b5787c285ad9fd0fcaf3b95068b8e81bbf9898fe6d6c05d9ec3300 # shrinks to h = GInstance { nodes: {100: Node { id: 100, anchor: Name("item"), value: None, discriminator: None, extra_fields: {}, position: None, shape: Plain, annotations: {} }, 0: Node { id: 0, anchor: Name("rel"), value: None, discriminator: None, extra_fields: {}, position: None, shape: HyperEdge, annotations: {} }}, edges: {EdgeId(0): GEdge { src: 0, tgt: 100, edge: Edge { src: Name("rel"), tgt: Name("item"), kind: Name("hyper_parent"), name: None }, position: Some(0) }}, out_index: {0: [EdgeId(0)]}, in_index: {100: [EdgeId(0)]}, edge_ids: IdAllocator { range: IdRange { lo: 0, hi: 4294967295 }, floor: 1 }, edge_order: {0} }

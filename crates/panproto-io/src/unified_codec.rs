@@ -22,11 +22,15 @@ use panproto_parse::registry::AstParser;
 use panproto_schema::Schema;
 
 use crate::cst_extract::{
-    CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_toml_cst,
-    extract_xml_cst, extract_yaml_cst, inject_json_cst, inject_tabular_cst, inject_toml_cst,
-    inject_xml_cst, inject_yaml_cst,
+    CstCodecError, CstComplement, FormatKind, extract_json_cst_with_protocol,
+    extract_tabular_cst_with_protocol, extract_toml_cst_with_protocol,
+    extract_xml_cst_with_protocol, extract_yaml_cst_with_protocol, inject_json_cst_with_protocol,
+    inject_tabular_cst_with_protocol, inject_toml_cst_with_protocol, inject_xml_cst_with_protocol,
+    inject_yaml_cst_with_protocol,
 };
 use crate::error::{EmitInstanceError, ParseInstanceError, UnifiedCodecError};
+use crate::json_codec::{missing_entry_message, resolve_entry_vertex};
+use crate::json_pathway::protocol_definition;
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// A unified codec backed by tree-sitter parsing and CST extraction.
@@ -53,7 +57,7 @@ impl UnifiedCodec {
     /// `panproto-grammars/lang-json`), or [`UnifiedCodecError::ParserInit`]
     /// if the grammar is present but parser initialization fails.
     pub fn json(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Json, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Json, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for an XML-based protocol.
@@ -63,7 +67,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter XML grammar is
     /// unavailable or parser initialization fails.
     pub fn xml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Xml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Xml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a YAML-based protocol.
@@ -73,7 +77,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter YAML grammar is
     /// unavailable or parser initialization fails.
     pub fn yaml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Yaml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Yaml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a TOML-based protocol.
@@ -83,7 +87,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter TOML grammar is
     /// unavailable or parser initialization fails.
     pub fn toml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Toml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Toml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a CSV-based protocol.
@@ -93,7 +97,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter CSV grammar is
     /// unavailable or parser initialization fails.
     pub fn csv(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Csv, NativeRepr::Functor)
+        Self::new(protocol, FormatKind::Csv, NativeRepr::Table)
     }
 
     /// Create a new unified codec for a TSV-based protocol.
@@ -106,7 +110,7 @@ impl UnifiedCodec {
         protocol: impl Into<String>,
         table_vertex: impl Into<String>,
     ) -> Result<Self, UnifiedCodecError> {
-        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Functor)?;
+        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Table)?;
         codec.table_vertex = Some(table_vertex.into());
         Ok(codec)
     }
@@ -170,42 +174,35 @@ impl UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(WInstance, CstComplement), ParseInstanceError> {
-        let cst_schema = self.parse_to_cst(input)?;
-        let root = find_root_vertex(schema).ok_or_else(|| ParseInstanceError::SchemaMismatch {
-            protocol: self.protocol.clone(),
-            message: "schema has no root vertex".into(),
+        let root = resolve_entry_vertex(None, schema).ok_or_else(|| {
+            ParseInstanceError::SchemaMismatch {
+                protocol: self.protocol.clone(),
+                message: missing_entry_message(None, schema),
+            }
         })?;
+        let cst_schema = self.parse_to_cst(input)?;
+        let protocol = protocol_definition(&self.protocol);
 
         let (instance, complement) = match self.format {
-            FormatKind::Json => extract_json_cst(&cst_schema, schema, &root).map_err(|e| {
-                ParseInstanceError::Parse {
-                    protocol: self.protocol.clone(),
-                    message: e.to_string(),
-                }
-            })?,
-            FormatKind::Toml => extract_toml_cst(&cst_schema, schema, &root).map_err(|e| {
-                ParseInstanceError::Parse {
-                    protocol: self.protocol.clone(),
-                    message: e.to_string(),
-                }
-            })?,
-            FormatKind::Xml => extract_xml_cst(&cst_schema, schema, &root).map_err(|e| {
-                ParseInstanceError::Parse {
-                    protocol: self.protocol.clone(),
-                    message: e.to_string(),
-                }
-            })?,
-            FormatKind::Yaml => extract_yaml_cst(&cst_schema, schema, &root).map_err(|e| {
-                ParseInstanceError::Parse {
-                    protocol: self.protocol.clone(),
-                    message: e.to_string(),
-                }
-            })?,
+            FormatKind::Json => {
+                extract_json_cst_with_protocol(&cst_schema, schema, &protocol, root)
+                    .map_err(|error| map_cst_parse_error(error, &self.protocol))?
+            }
+            FormatKind::Toml => {
+                extract_toml_cst_with_protocol(&cst_schema, schema, &protocol, root)
+                    .map_err(|error| map_cst_parse_error(error, &self.protocol))?
+            }
+            FormatKind::Xml => extract_xml_cst_with_protocol(&cst_schema, schema, &protocol, root)
+                .map_err(|error| map_cst_parse_error(error, &self.protocol))?,
+            FormatKind::Yaml => {
+                extract_yaml_cst_with_protocol(&cst_schema, schema, &protocol, root)
+                    .map_err(|error| map_cst_parse_error(error, &self.protocol))?
+            }
             FormatKind::Csv | FormatKind::Tsv => {
                 return Err(ParseInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 });
             }
         };
@@ -228,23 +225,29 @@ impl UnifiedCodec {
         instance: &WInstance,
         complement: &CstComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        let protocol = protocol_definition(&self.protocol);
         let updated_cst = match self.format {
-            FormatKind::Json => inject_json_cst(instance, complement, schema),
-            FormatKind::Toml => inject_toml_cst(instance, complement, schema),
-            FormatKind::Xml => inject_xml_cst(instance, complement, schema),
-            FormatKind::Yaml => inject_yaml_cst(instance, complement, schema),
+            FormatKind::Json => {
+                inject_json_cst_with_protocol(instance, complement, schema, &protocol)
+            }
+            FormatKind::Toml => {
+                inject_toml_cst_with_protocol(instance, complement, schema, &protocol)
+            }
+            FormatKind::Xml => {
+                inject_xml_cst_with_protocol(instance, complement, schema, &protocol)
+            }
+            FormatKind::Yaml => {
+                inject_yaml_cst_with_protocol(instance, complement, schema, &protocol)
+            }
             FormatKind::Csv | FormatKind::Tsv => {
                 return Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 });
             }
         }
-        .map_err(|e| EmitInstanceError::Emit {
-            protocol: self.protocol.clone(),
-            message: e.to_string(),
-        })?;
+        .map_err(|error| map_cst_emit_error(error, &self.protocol))?;
 
         self.lang_parser
             .emit(&updated_cst)
@@ -271,28 +274,31 @@ impl UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(FInstance, CstComplement), ParseInstanceError> {
-        match self.format {
-            FormatKind::Csv | FormatKind::Tsv => {}
+        let complement_format = match self.format {
+            FormatKind::Csv => "csv",
+            FormatKind::Tsv => "tsv",
             _ => {
                 return Err(ParseInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::Functor,
+                    requested: NativeRepr::Table,
                     native: self.native_repr,
                 });
             }
-        }
+        };
+        let table_vertex =
+            resolve_entry_vertex(self.table_vertex.as_deref(), schema).ok_or_else(|| {
+                ParseInstanceError::SchemaMismatch {
+                    protocol: self.protocol.clone(),
+                    message: missing_entry_message(self.table_vertex.as_deref(), schema),
+                }
+            })?;
         let cst_schema = self.parse_to_cst(input)?;
-        let table_vertex = self
-            .table_vertex
-            .clone()
-            .or_else(|| find_root_vertex(schema))
-            .unwrap_or_else(|| "rows".to_string());
-        extract_tabular_cst(&cst_schema, schema, &table_vertex).map_err(|e| {
-            ParseInstanceError::Parse {
-                protocol: self.protocol.clone(),
-                message: e.to_string(),
-            }
-        })
+        let protocol = protocol_definition(&self.protocol);
+        let (instance, mut complement) =
+            extract_tabular_cst_with_protocol(&cst_schema, schema, &protocol, table_vertex)
+                .map_err(|error| map_cst_parse_error(error, &self.protocol))?;
+        complement.format = complement_format.into();
+        Ok((instance, complement))
     }
 
     /// Emit bytes from a tabular (CSV/TSV) `FInstance` using the CST complement
@@ -312,22 +318,43 @@ impl UnifiedCodec {
         instance: &FInstance,
         complement: &CstComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        match self.format {
-            FormatKind::Csv | FormatKind::Tsv => {}
+        let expected_complement_format = match self.format {
+            FormatKind::Csv => "csv",
+            FormatKind::Tsv => "tsv",
             _ => {
                 return Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::Functor,
+                    requested: NativeRepr::Table,
                     native: self.native_repr,
                 });
             }
+        };
+        if complement.format != expected_complement_format {
+            return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                format: expected_complement_format.to_owned(),
+                detail: format!(
+                    "complement format is '{}' rather than '{expected_complement_format}'",
+                    complement.format
+                ),
+            });
         }
-        let updated_cst = inject_tabular_cst(instance, complement, schema).map_err(|e| {
-            EmitInstanceError::Emit {
+        let expected_table = resolve_entry_vertex(self.table_vertex.as_deref(), schema)
+            .ok_or_else(|| EmitInstanceError::Emit {
                 protocol: self.protocol.clone(),
-                message: e.to_string(),
-            }
-        })?;
+                message: missing_entry_message(self.table_vertex.as_deref(), schema),
+            })?;
+        if complement.source_vertex().map(AsRef::as_ref) != Some(expected_table) {
+            return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                format: expected_complement_format.to_owned(),
+                detail: format!(
+                    "complement source table is {:?} rather than codec table '{expected_table}'",
+                    complement.source_vertex().map(AsRef::as_ref)
+                ),
+            });
+        }
+        let protocol = protocol_definition(&self.protocol);
+        let updated_cst = inject_tabular_cst_with_protocol(instance, complement, schema, &protocol)
+            .map_err(|error| map_cst_emit_error(error, &self.protocol))?;
         self.lang_parser
             .emit(&updated_cst)
             .map_err(|e| EmitInstanceError::Emit {
@@ -353,30 +380,55 @@ impl UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<FInstance, ParseInstanceError> {
-        let cst_schema = self.parse_to_cst(input)?;
-        let table_vertex = self
-            .table_vertex
-            .clone()
-            .or_else(|| find_root_vertex(schema))
-            .unwrap_or_else(|| "rows".to_string());
-
-        let (instance, _complement) = extract_tabular_cst(&cst_schema, schema, &table_vertex)
-            .map_err(|e| ParseInstanceError::Parse {
-                protocol: self.protocol.clone(),
-                message: e.to_string(),
+        let table_vertex =
+            resolve_entry_vertex(self.table_vertex.as_deref(), schema).ok_or_else(|| {
+                ParseInstanceError::SchemaMismatch {
+                    protocol: self.protocol.clone(),
+                    message: missing_entry_message(self.table_vertex.as_deref(), schema),
+                }
             })?;
+        let cst_schema = self.parse_to_cst(input)?;
+
+        let protocol = protocol_definition(&self.protocol);
+        let (instance, _complement) =
+            extract_tabular_cst_with_protocol(&cst_schema, schema, &protocol, table_vertex)
+                .map_err(|error| map_cst_parse_error(error, &self.protocol))?;
 
         Ok(instance)
     }
 }
 
-/// Find the first root vertex in a schema (a vertex with no incoming edges).
-fn find_root_vertex(schema: &Schema) -> Option<String> {
-    schema
-        .vertices
-        .values()
-        .find(|v| schema.incoming_edges(&v.id).is_empty())
-        .map(|v| v.id.to_string())
+fn map_cst_parse_error(error: CstCodecError, protocol: &str) -> ParseInstanceError {
+    match error {
+        CstCodecError::Fidelity(errors) => ParseInstanceError::Fidelity(errors),
+        CstCodecError::UnsupportedTaggedContainer {
+            tag,
+            container_kind,
+            byte_offset,
+        } => ParseInstanceError::UnsupportedTaggedContainer {
+            protocol: protocol.to_owned(),
+            tag,
+            container_kind,
+            byte_offset,
+        },
+        other => ParseInstanceError::Parse {
+            protocol: protocol.to_owned(),
+            message: other.to_string(),
+        },
+    }
+}
+
+fn map_cst_emit_error(error: CstCodecError, protocol: &str) -> EmitInstanceError {
+    match error {
+        CstCodecError::Value(error) => EmitInstanceError::Value(error),
+        CstCodecError::UnsupportedStructuralEdit { format, detail } => {
+            EmitInstanceError::UnsupportedStructuralEdit { format, detail }
+        }
+        other => EmitInstanceError::Emit {
+            protocol: protocol.to_owned(),
+            message: other.to_string(),
+        },
+    }
 }
 
 impl InstanceParser for UnifiedCodec {
@@ -388,9 +440,31 @@ impl InstanceParser for UnifiedCodec {
         self.native_repr
     }
 
+    /// Read `input` through the format's complement-free route.
+    ///
+    /// JSON and XML read through their canonical pathway readers, the
+    /// inverses of the canonical emitters [`emit_wtype`] writes with, so
+    /// these protocols read the same instance whether or not the
+    /// `tree-sitter` feature replaces their direct codecs with this one.
+    /// YAML and TOML, which have no direct codec, read through the CST.
+    ///
+    /// [`emit_wtype`]: InstanceEmitter::emit_wtype
     fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
-        let (instance, _complement) = self.parse_wtype_preserving(schema, input)?;
-        Ok(instance)
+        match self.format {
+            FormatKind::Json => {
+                let root = resolve_entry_vertex(None, schema).ok_or_else(|| {
+                    ParseInstanceError::SchemaMismatch {
+                        protocol: self.protocol.clone(),
+                        message: missing_entry_message(None, schema),
+                    }
+                })?;
+                crate::json_pathway::parse_json_bytes(schema, root, input, &self.protocol)
+            }
+            FormatKind::Xml => crate::xml_pathway::parse_xml_bytes(schema, input, &self.protocol),
+            _ => self
+                .parse_wtype_preserving(schema, input)
+                .map(|(instance, _complement)| instance),
+        }
     }
 
     fn parse_functor(
@@ -402,7 +476,7 @@ impl InstanceParser for UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => self.parse_functor_from_cst(schema, input),
             _ => Err(ParseInstanceError::UnsupportedRepresentation {
                 protocol: self.protocol.clone(),
-                requested: NativeRepr::Functor,
+                requested: NativeRepr::Table,
                 native: self.native_repr,
             }),
         }
@@ -423,9 +497,15 @@ impl InstanceEmitter for UnifiedCodec {
         // For format-preserving emission, use `ProtocolCodec::emit_wtype_preserving`
         // which takes an explicit complement argument.
         match self.format {
-            FormatKind::Json | FormatKind::Yaml => {
+            FormatKind::Json => {
                 crate::json_pathway::emit_json_bytes(schema, instance, &self.protocol)
             }
+            FormatKind::Yaml => crate::json_pathway::emit_json_bytes_read_back_by(
+                schema,
+                instance,
+                &self.protocol,
+                crate::json_pathway::TreeReader::Cst,
+            ),
             FormatKind::Toml => {
                 crate::toml_pathway::emit_toml_bytes(schema, instance, &self.protocol)
             }
@@ -433,8 +513,8 @@ impl InstanceEmitter for UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => {
                 Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 })
             }
         }
@@ -452,16 +532,27 @@ impl InstanceEmitter for UnifiedCodec {
                     FormatKind::Tsv => b'\t',
                     _ => b',',
                 };
-                let table_vertex = self
-                    .table_vertex
-                    .clone()
-                    .or_else(|| find_root_vertex(schema))
-                    .unwrap_or_else(|| "rows".to_string());
-                crate::tabular_pathway::emit_tsv(instance, &self.protocol, &table_vertex, delimiter)
+                let table_vertex = resolve_entry_vertex(self.table_vertex.as_deref(), schema)
+                    .ok_or_else(|| EmitInstanceError::Emit {
+                        protocol: self.protocol.clone(),
+                        message: missing_entry_message(self.table_vertex.as_deref(), schema),
+                    })?;
+                crate::tabular_pathway::validate_canonical_tabular_structure(
+                    instance,
+                    table_vertex,
+                    if delimiter == b',' { "csv" } else { "tsv" },
+                )?;
+                crate::tabular_pathway::emit_tsv_with_schema(
+                    schema,
+                    instance,
+                    &self.protocol,
+                    table_vertex,
+                    delimiter,
+                )
             }
             _ => Err(EmitInstanceError::UnsupportedRepresentation {
                 protocol: self.protocol.clone(),
-                requested: NativeRepr::Functor,
+                requested: NativeRepr::Table,
                 native: self.native_repr,
             }),
         }
@@ -474,17 +565,20 @@ mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;
 
-    fn test_schema() -> Schema {
-        let proto = panproto_schema::Protocol {
+    fn test_protocol() -> panproto_schema::Protocol {
+        panproto_schema::Protocol {
             name: "test".into(),
             schema_theory: "ThTestSchema".into(),
             instance_theory: "ThTestInstance".into(),
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "number".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
-        };
-        SchemaBuilder::new(&proto)
+            ..Default::default()
+        }
+    }
+
+    fn test_schema() -> Schema {
+        SchemaBuilder::new(&test_protocol())
             .vertex("root", "object", None)
             .unwrap()
             .vertex("root:name", "string", None)
@@ -518,6 +612,133 @@ mod tests {
         );
     }
 
+    fn open_schema() -> Schema {
+        SchemaBuilder::new(&test_protocol())
+            .vertex("root", "object", None)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    /// A tree's nodes and arcs as sorted renderings of their anchors, values
+    /// and edges, which is the tree up to the numbering of its nodes.
+    fn labelled_tree(tree: &WInstance) -> (Vec<String>, Vec<String>) {
+        let mut nodes = tree
+            .nodes
+            .values()
+            .map(|node| serde_json::to_string(&(&node.anchor, &node.value, &node.shape)).unwrap())
+            .collect::<Vec<_>>();
+        nodes.sort_unstable();
+        let mut arcs = tree
+            .arcs
+            .iter()
+            .map(|(parent, child, edge)| {
+                serde_json::to_string(&(
+                    &tree.nodes[parent].anchor,
+                    edge,
+                    &tree.nodes[child].anchor,
+                    &tree.nodes[child].value,
+                ))
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        arcs.sort_unstable();
+        (nodes, arcs)
+    }
+
+    /// Canonical emission of what `codec` reads under `schema` reads back
+    /// to the same tree, and emitting that again gives the same bytes.
+    fn assert_canonical_emission_reads_back(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        input: &[u8],
+    ) -> WInstance {
+        let instance = codec.parse_wtype(schema, input).unwrap();
+        let emitted = codec.emit_wtype(schema, &instance).unwrap();
+        let reread = codec.parse_wtype(schema, &emitted).unwrap();
+        assert_eq!(
+            labelled_tree(&reread),
+            labelled_tree(&instance),
+            "canonical emission of what this codec reads must read back to the same labelled tree"
+        );
+        assert_eq!(
+            codec.emit_wtype(schema, &reread).unwrap(),
+            emitted,
+            "canonical emission is a fixed point of reading back"
+        );
+        instance
+    }
+
+    #[test]
+    fn complement_free_json_reads_as_the_canonical_reader_does() {
+        let schema = open_schema();
+        let input = br#"{"name": "Alice", "tags": ["a", "b"], "nested": {"n": 1}}"#;
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::json("test").unwrap(),
+            &schema,
+            input,
+        );
+        let canonical =
+            crate::json_pathway::parse_json_bytes(&schema, "root", input, "test").unwrap();
+        assert_eq!(labelled_tree(&instance), labelled_tree(&canonical));
+        assert_eq!(
+            instance.nodes[&instance.root].extra_fields,
+            canonical.nodes[&canonical.root].extra_fields
+        );
+    }
+
+    #[test]
+    fn complement_free_xml_reads_as_the_canonical_reader_does() {
+        let schema = open_schema();
+        let input = br#"<doc lang="en"><text><w id="w1">Hi</w>tail</text><empty/></doc>"#;
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::xml("test").unwrap(),
+            &schema,
+            input,
+        );
+        let canonical = crate::xml_pathway::parse_xml_bytes(&schema, input, "test").unwrap();
+        assert_eq!(labelled_tree(&instance), labelled_tree(&canonical));
+    }
+
+    #[test]
+    fn complement_free_yaml_open_members_read_back_unchanged() {
+        let schema = open_schema();
+        let instance = assert_canonical_emission_reads_back(
+            &UnifiedCodec::yaml("test").unwrap(),
+            &schema,
+            b"name: Alice\ntags:\n  - a\n  - b\nnested:\n  n: 1\n",
+        );
+        assert!(
+            instance
+                .arcs
+                .iter()
+                .any(|(_, _, edge)| !schema.edges.contains_key(edge)),
+            "the YAML reader makes an open mapping's members child nodes"
+        );
+    }
+
+    #[test]
+    fn yaml_open_mapping_fields_that_would_read_back_as_nodes_are_refused() {
+        let codec = UnifiedCodec::yaml("test").unwrap();
+        let schema = open_schema();
+        let mut instance = codec.parse_wtype(&schema, b"{}\n").unwrap();
+        instance
+            .nodes
+            .get_mut(&instance.root)
+            .unwrap()
+            .extra_fields
+            .insert(
+                "name".into(),
+                panproto_inst::value::Value::Str("Alice".into()),
+            );
+
+        let error = codec.emit_wtype(&schema, &instance).unwrap_err();
+        assert!(
+            error.to_string().contains("would reparse as child nodes"),
+            "unexpected error: {error}"
+        );
+    }
+
     #[test]
     fn unified_json_preserves_formatting() {
         let codec = UnifiedCodec::json("test").unwrap();
@@ -535,5 +756,105 @@ mod tests {
             std::str::from_utf8(&emitted).unwrap(),
             "format-preserving emit should reconstruct original formatting"
         );
+    }
+
+    #[test]
+    fn unified_root_selection_is_deterministic() {
+        let schema = SchemaBuilder::new(&test_protocol())
+            .vertex("declared", "object", None)
+            .unwrap()
+            .vertex("configured", "object", None)
+            .unwrap()
+            .entry("declared")
+            .build()
+            .unwrap();
+        let codec = UnifiedCodec::tsv("test", "configured").unwrap();
+        let (instance, complement) = codec
+            .parse_functor_preserving(&schema, b"value\ncell\n")
+            .unwrap();
+
+        assert_eq!(resolve_entry_vertex(None, &schema), Some("declared"));
+        assert_eq!(
+            complement.source_vertex().map(AsRef::as_ref),
+            Some("configured")
+        );
+        assert_eq!(instance.rows("configured").len(), 1);
+        assert!(instance.rows("declared").is_empty());
+
+        let insertion_order_a = SchemaBuilder::new(&test_protocol())
+            .vertex("b", "object", None)
+            .unwrap()
+            .vertex("a", "object", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let insertion_order_b = SchemaBuilder::new(&test_protocol())
+            .vertex("a", "object", None)
+            .unwrap()
+            .vertex("b", "object", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(resolve_entry_vertex(None, &insertion_order_a), Some("a"));
+        assert_eq!(resolve_entry_vertex(None, &insertion_order_b), Some("a"));
+
+        let cyclic = SchemaBuilder::new(&test_protocol())
+            .vertex("b", "object", None)
+            .unwrap()
+            .vertex("a", "object", None)
+            .unwrap()
+            .edge("b", "a", "prop", Some("a"))
+            .unwrap()
+            .edge("a", "b", "prop", Some("b"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(resolve_entry_vertex(None, &cyclic), Some("a"));
+
+        let mut stale = SchemaBuilder::new(&test_protocol())
+            .vertex("a", "object", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        stale.entries = vec!["ghost".into()];
+        assert_eq!(resolve_entry_vertex(None, &stale), None);
+        let refused = UnifiedCodec::json("test")
+            .unwrap()
+            .parse_wtype_preserving(&stale, b"{}");
+        assert!(matches!(
+            refused,
+            Err(ParseInstanceError::SchemaMismatch { ref message, .. })
+                if message == "declared entry vertex 'ghost' is not a vertex of the schema"
+        ));
+    }
+
+    #[test]
+    fn explicit_tsv_rejects_an_empty_schema_before_cst_parsing() {
+        let codec = UnifiedCodec::tsv("test", "configured").unwrap();
+        let result = codec.parse_functor_preserving(&Schema::default(), b"\0\"unterminated");
+
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::SchemaMismatch { ref message, .. })
+                if message.contains("configured") && message.contains("does not exist")
+        ));
+    }
+
+    #[test]
+    fn explicit_tsv_rejects_a_missing_configured_vertex_before_cst_parsing() {
+        let schema = SchemaBuilder::new(&test_protocol())
+            .vertex("declared", "object", None)
+            .unwrap()
+            .entry("declared")
+            .build()
+            .unwrap();
+        let codec = UnifiedCodec::tsv("test", "missing").unwrap();
+        let result = codec.parse_functor_preserving(&schema, b"\0\"unterminated");
+
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::SchemaMismatch { ref message, .. })
+                if message.contains("missing") && message.contains("does not exist")
+        ));
     }
 }

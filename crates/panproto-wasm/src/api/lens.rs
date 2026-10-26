@@ -504,9 +504,11 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
         ))
     })?;
 
-    let composed = lens::compose(&lens1, &lens2).map_err(|e| WasmError::ComposeFailed {
-        reason: e.to_string(),
-    })?;
+    let composed = lens::compose(&lens1, &lens2)
+        .and_then(lens::LensPath::into_single)
+        .map_err(|e| WasmError::ComposeFailed {
+            reason: e.to_string(),
+        })?;
 
     Ok(slab::alloc(Resource::MigrationWithSchemas {
         compiled: composed.compiled,
@@ -523,9 +525,10 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 ///
 /// When `chain` is a handle from [`compile_lens_document`] (a
 /// `CompiledLensDoc`), its ordered stages are instantiated at their running
-/// schemas. A subsequent [`get_record`](crate::get_record) thus applies each
-/// value transform in the field-name frame established by the preceding
-/// structural steps. A plain `ProtolensChain` instantiates unchanged.
+/// schemas and normalized. This single-lens API accepts the result only when
+/// normalization produces one group; callers that need multiple ordered
+/// groups must retain the compiled document until a path-aware API is used.
+/// A plain `ProtolensChain` instantiates unchanged.
 ///
 /// Returns a handle to the resulting compiled lens (stored as
 /// `MigrationWithSchemas`).
@@ -535,17 +538,23 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 /// Returns `JsError` if handles are invalid or instantiation fails.
 #[wasm_bindgen]
 pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
-    let (chain_val, compiled_doc) = slab::with_resource(chain, |r| match r {
+    instantiate_protolens_engine(chain, schema).map_err(Into::into)
+}
+
+fn instantiate_protolens_engine(chain: u32, schema: u32) -> Result<u32, WasmError> {
+    let (chain_val, compiled_doc) = slab::try_get(chain, |r| match r {
         Resource::CompiledLensDoc(compiled) => Ok((None, Some((**compiled).clone()))),
         _ => Ok((Some(slab::as_protolens_chain(r)?.clone()), None)),
     })?;
-    let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let schema_val = slab::try_get(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     let protocol = lookup_builtin_protocol(&schema_val.protocol)
         .unwrap_or_else(|| default_protocol(&schema_val.protocol));
 
     let lens_obj = if let Some(compiled) = compiled_doc {
-        compiled.instantiate(&schema_val, &protocol)
+        compiled
+            .instantiate(&schema_val, &protocol)
+            .and_then(lens::LensPath::into_single)
     } else {
         chain_val
             .ok_or_else(|| WasmError::LensConstructionFailed {
@@ -840,10 +849,7 @@ pub fn symmetric_lens_sync(
             reason: format!("view: {e}"),
         })?;
 
-    let comp: lens::Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let (result_view, _result_complement) = slab::with_resource(sym_lens, |r| {
         let sym = slab::as_symmetric_lens(r)?;
@@ -1496,7 +1502,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let protocol = default_protocol("test");
         let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
             .entry("post")
@@ -1508,7 +1514,7 @@ mod tests {
             .expect("field edge")
             .build()
             .expect("schema builds");
-        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema.clone())));
+        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema)));
         let doc = serde_json::json!({
             "id": "ordered",
             "source": "s",
@@ -1525,35 +1531,17 @@ mod tests {
 
         let chain_handle =
             compile_lens_document(doc.as_bytes(), "json", "post").expect("document compiles");
-        let lens_handle = instantiate_protolens(chain_handle, schema_handle)
-            .expect("ordered document instantiates");
-        let lens_obj = slab::with_resource(lens_handle, |resource| match resource {
-            Resource::MigrationWithSchemas {
-                compiled,
-                src_schema,
-                tgt_schema,
-            } => Ok(lens::Lens {
-                compiled: compiled.clone(),
-                src_schema: (**src_schema).clone(),
-                tgt_schema: (**tgt_schema).clone(),
-            }),
-            _ => Err(WasmError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: "non-migration resource",
-            }),
-        })
-        .expect("lens handle has schemas");
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .expect("source parses");
-        let (view, _) = lens::get(&lens_obj, &source).expect("get succeeds");
-        let json = panproto_core::inst::to_json(&lens_obj.tgt_schema, &view);
+        let error = instantiate_protolens_engine(chain_handle, schema_handle)
+            .expect_err("two normal-form groups are not one lens");
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { ref reason }
+                    if reason.contains("lens path has 2 normal-form groups")
+            ),
+            "{error}"
+        );
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        slab::free(lens_handle);
         slab::free(chain_handle);
         slab::free(schema_handle);
     }

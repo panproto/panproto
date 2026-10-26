@@ -17,13 +17,38 @@ use crate::error::{FfiError, PpStatus};
 use crate::handle;
 use crate::panic::guard;
 
+/// The messages of a validation report that decide its status: none when
+/// it passed, otherwise the message of every required diagnostic, in report
+/// order, then one per required check left undecided.
+fn required_messages(report: &inst::validation::ValidationReport) -> Vec<String> {
+    if report.status == panproto_core::gat::CheckStatus::Passed {
+        return Vec::new();
+    }
+    let required = inst::validation::Requirement::Required;
+    report
+        .diagnostics
+        .iter()
+        .filter(|d| d.requirement == required)
+        .map(ToString::to_string)
+        .chain(
+            report
+                .incomplete
+                .iter()
+                .filter(|i| i.requirement == required)
+                .map(ToString::to_string),
+        )
+        .collect()
+}
+
 /// Validate a W-type instance against a schema.
 ///
 /// `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
 /// handle. `instance` is a CBOR-encoded
 /// `panproto_core::inst::WInstance`. On success, `out` receives a
 /// CBOR-encoded `Vec<String>` of validation messages (empty means
-/// valid). Calls `inst::validate_wtype`.
+/// valid). Calls `inst::validate_wtype` under the schema's protocol (a
+/// built-in one when the name is recognized), and reports the messages of
+/// the entries that decide the report's status.
 ///
 /// The validation pass always returns [`PpStatus::Ok`] when it can run
 /// to completion: individual violations are reported as message
@@ -41,11 +66,9 @@ pub fn pp_inst_validate(
         let inst_value: inst::WInstance = crate::canonical::decode(instance.as_slice())?;
         let messages = handle::with_resource(schema_handle, |r| {
             let schema = r.as_schema()?;
-            let errors: Vec<String> = inst::validate_wtype(schema, &inst_value)
-                .into_iter()
-                .map(|e| format!("{e:?}"))
-                .collect();
-            Ok(errors)
+            let protocol = crate::api::helpers::protocol_for_schema(schema);
+            let report = inst::validate_wtype(&inst_value, schema, &protocol);
+            Ok(required_messages(&report))
         })?;
         let bytes = crate::canonical::encode(&messages)?;
         *out = bytes.into();
@@ -338,6 +361,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

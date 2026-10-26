@@ -95,6 +95,13 @@
   - [Protolens composition](./explanation/semantics/protolens-composition.md)
   - [REPL command language](./explanation/semantics/repl-commands.md)
 
+# Correctness
+
+- [Correctness](./correctness/index.md)
+  - [Values](./correctness/values.md)
+  - [Theories](./correctness/theories.md)
+  - [Kan extensions](./correctness/kan-extensions.md)
+
 ---
 
 [Glossary](./glossary.md)

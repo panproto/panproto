@@ -46,7 +46,7 @@ use crate::theories;
 /// Returns the UIMA/CAS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "uima-cas".into(),
         schema_theory: "ThUimaSchema".into(),
         instance_theory: "ThUimaInstance".into(),
@@ -81,8 +81,10 @@ pub fn protocol() -> Protocol {
             "end".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for UIMA/CAS.
@@ -127,6 +129,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

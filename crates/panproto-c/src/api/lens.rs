@@ -118,11 +118,16 @@ fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, 
 ///
 /// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
 /// that fail to decode in either shape report the failure against the
-/// bytes as they were given.
+/// bytes as they were given. A complement whose envelope names another
+/// format or layout is [`FfiError::Operation`], as
+/// [`canonical::decode_complement`] reports it.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    match canonical::decode(bytes) {
+    match canonical::decode_complement(bytes) {
         Ok(complement) => Ok(complement),
-        Err(err) => {
+        // Only bytes that are not a complement as given can be an older
+        // encoding; a complement refused for its format or envelope is
+        // refused whatever its maps look like.
+        Err(err @ FfiError::Serialization(_)) => {
             let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
                 return Err(err);
             };
@@ -130,8 +135,13 @@ fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiErro
                 return Err(err);
             }
             let normalized = canonical::encode(&value)?;
-            canonical::decode(&normalized).map_err(|_| err)
+            match canonical::decode_complement(&normalized) {
+                Ok(complement) => Ok(complement),
+                Err(FfiError::Serialization(_)) => Err(err),
+                Err(refused) => Err(refused),
+            }
         }
+        Err(err) => Err(err),
     }
 }
 
@@ -463,6 +473,7 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
         })?;
 
         let composed = lens::compose(&lens1, &lens2)
+            .and_then(lens::LensPath::into_single)
             .map_err(|e| FfiError::Operation(format!("compose: {e}")))?;
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
@@ -500,6 +511,7 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
         let lens_obj = if let Some(compiled) = compiled_doc {
             compiled
                 .instantiate(&schema_val, &protocol)
+                .and_then(lens::LensPath::into_single)
                 .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
         } else {
             chain_val
@@ -1063,7 +1075,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let schema = ordered_value_schema();
         let schema_h = schema_handle(&schema);
         let doc = br#"{
@@ -1093,36 +1105,16 @@ mod tests {
         let mut lens_h = u32::MAX;
         assert_eq!(
             pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
-            PpStatus::Ok as i32,
+            PpStatus::Operation as i32,
         );
-
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .unwrap();
-        let source_cbor = canonical::encode(&source).unwrap();
-        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
-            PpStatus::Ok as i32,
+        let error = crate::error::take_last_error().expect("instantiation error");
+        assert!(
+            error.message.contains("lens path has 2 normal-form groups"),
+            "{}",
+            error.message
         );
-        let (view_cbor, _) = split_get_record(&get_out);
-        pp_buf_free(get_out);
-        let view: WInstance = canonical::decode(&view_cbor).unwrap();
-        let target = handle::with_resource(lens_h, |resource| match resource {
-            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
-            other => Err(FfiError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: other.type_name(),
-            }),
-        })
-        .unwrap();
-        let json = panproto_core::inst::to_json(&target, &view);
+        assert_eq!(lens_h, u32::MAX);
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
     }
@@ -1350,6 +1342,36 @@ mod tests {
 
         // Bytes that decode in neither shape are still an error.
         assert!(decode_complement_from_host(b"\xa1\x00\x00").is_err());
+    }
+
+    #[test]
+    fn a_host_complement_naming_another_format_is_refused() {
+        use panproto_core::inst::ComplementShape;
+        let schema = SchemaBuilder::new(&crate::api::helpers::default_protocol("test"))
+            .vertex("post", "record", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let the_lens = lens::auto_generate(
+            &schema,
+            &schema,
+            &protocol_for_schema(&schema),
+            &lens::AutoLensConfig::default(),
+        )
+        .unwrap()
+        .lens;
+        let mut envelope = the_lens.identity(ComplementShape::WType);
+        envelope.complement_format = ComplementShape::Graph.current_format();
+        let mut comp = lens::Complement::empty();
+        comp.identity = Some(envelope);
+
+        let bytes = encode_complement_for_host(&comp).unwrap();
+        match decode_complement_from_host(&bytes) {
+            Err(FfiError::Operation(detail)) => {
+                assert!(detail.contains("graph/1"), "{detail}");
+            }
+            other => panic!("a graph-format complement decoded as a tree one: {other:?}"),
+        }
     }
 
     #[test]

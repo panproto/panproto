@@ -38,6 +38,7 @@ members = [
     "crates/panproto-theory-dsl",
     "crates/panproto-gat-macros",
     "crates/book-doctest-stub",
+    "crates/panproto-reference",
     "tests/integration",
     "xtask",
 ]
@@ -86,8 +87,7 @@ clap = { version = "4.6.0", features = ["derive"] }
 proptest = "1.11.0"
 insta = { version = "1.43", features = ["json", "yaml"] }
 
-# SIMD-accelerated parsing
-simd-json = "0.15"
+# SIMD byte scanning
 memchr = "2.7"
 
 # Project manifest
@@ -130,6 +130,8 @@ panproto-parse = { version = "0.76.1", path = "crates/panproto-parse" }
 panproto-project = { version = "0.76.1", path = "crates/panproto-project" }
 panproto-git = { version = "0.76.1", path = "crates/panproto-git" }
 panproto-xrpc = { version = "0.76.1", path = "crates/panproto-xrpc" }
+# Test-only reference semantics; never published, so it carries no version.
+panproto-reference = { path = "crates/panproto-reference" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

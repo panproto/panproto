@@ -209,7 +209,7 @@ mod tests {
             }],
             obj_kinds: vec!["record".into(), "object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

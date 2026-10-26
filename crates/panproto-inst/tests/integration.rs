@@ -15,8 +15,9 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, FInstance, Fan, FieldPresence, Node, Value, WInstance, anchor_surviving,
-    functor_restrict, parse_json, reconstruct_fans, to_json, validate_wtype, wtype_restrict,
+    CompiledMigration, FInstance, Fan, FieldPresence, Node, RestrictPlan, RowId, Value, WInstance,
+    anchor_surviving, functor_restrict_with_plan, parse_json, reconstruct_fans, to_json,
+    validate_wtype, wtype_restrict_with_plan,
 };
 use panproto_schema::{Edge, HyperEdge, Schema, Vertex};
 use smallvec::smallvec;
@@ -101,6 +102,7 @@ fn simple_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -149,8 +151,12 @@ fn test_3_node_validate_and_round_trip() {
     let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("obj"));
 
     // Validate
-    let errors = validate_wtype(&schema, &inst);
-    assert!(errors.is_empty(), "validation errors: {errors:?}");
+    let report = validate_wtype(&inst, &schema, &panproto_schema::Protocol::default());
+    assert_eq!(
+        report.status,
+        panproto_gat::CheckStatus::Passed,
+        "validation report: {report:?}"
+    );
 
     // Serialize to JSON
     let json_out = to_json(&schema, &inst);
@@ -269,6 +275,7 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         outgoing: outgoing.clone(),
         incoming: incoming.clone(),
         between: between.clone(),
+        ..Default::default()
     };
 
     // Target schema: only post, body, text survive
@@ -333,6 +340,7 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         outgoing: tgt_outgoing,
         incoming: tgt_incoming,
         between: tgt_between,
+        ..Default::default()
     };
 
     (src_schema, tgt_schema)
@@ -512,10 +520,13 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
         expansion_path: HashMap::new(),
     };
 
-    let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration);
+    let result = RestrictPlan::compile(&src_schema, &tgt_schema, &migration)
+        .and_then(|plan| wtype_restrict_with_plan(&inst, &plan));
     assert!(result.is_ok(), "restrict failed: {result:?}");
-    let restricted = result
-        .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, Name::default()));
+    let restricted = result.map_or_else(
+        |_| WInstance::new(HashMap::new(), vec![], vec![], 0, Name::default()),
+        |(view, _)| view,
+    );
     assert_eq!(
         restricted.node_count(),
         3,
@@ -578,6 +589,7 @@ fn test_fan_reconstruction_4_to_3() {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     };
 
     // Build instance with fan
@@ -654,7 +666,7 @@ fn test_fan_reconstruction_4_to_3() {
 // Test 4: Set-valued functor: two tables with FK -> restrict drops one table
 // ---------------------------------------------------------------------------
 #[test]
-fn test_functor_restrict_drops_a_non_surviving_table() {
+fn test_functor_restrict_drops_a_non_surviving_table() -> Result<(), Box<dyn std::error::Error>> {
     let mut users_rows = vec![];
     let mut row1 = HashMap::new();
     row1.insert("id".to_string(), Value::Int(1));
@@ -680,50 +692,110 @@ fn test_functor_restrict_drops_a_non_surviving_table() {
         name: Some("author".into()),
     };
 
+    // Users are rows 0 and 1, the post row 2, authored by user 0.
     let inst = FInstance::new()
-        .with_table("users", users_rows)
-        .with_table("posts", posts_rows)
-        .with_foreign_key(fk_edge, vec![(0, 0)]);
+        .with_table("users", users_rows)?
+        .with_table("posts", posts_rows)?
+        .with_foreign_key(fk_edge, [(RowId(2), RowId(0))])?;
 
     assert_eq!(inst.table_count(), 2);
     assert_eq!(inst.row_count("users"), 2);
     assert_eq!(inst.row_count("posts"), 1);
 
+    // The schemas: tables `users` and `posts` with their columns and the
+    // foreign key, classified by a protocol that declares `record` a table
+    // kind and the column kinds value kinds.
+    let column = |table: &str, name: &str| Edge {
+        src: table.into(),
+        tgt: format!("{table}.{name}").into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    };
+    let protocol = panproto_schema::Protocol {
+        value_kinds: std::collections::BTreeMap::from([
+            (
+                "integer".to_owned(),
+                panproto_schema::ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            ),
+            ("string".to_owned(), panproto_schema::ScalarKind::Str),
+        ]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..panproto_schema::Protocol::default()
+    };
+    let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+    for table in ["users", "posts"] {
+        builder = builder.vertex(table, "record", None)?;
+    }
+    for (table, name, kind) in [
+        ("users", "id", "integer"),
+        ("users", "name", "string"),
+        ("posts", "id", "integer"),
+        ("posts", "title", "string"),
+        ("posts", "author_id", "integer"),
+    ] {
+        builder = builder
+            .vertex(&format!("{table}.{name}"), kind, None)?
+            .edge(table, &format!("{table}.{name}"), "prop", Some(name))?;
+    }
+    let src_schema = builder
+        .edge("posts", "users", "fk", Some("author"))?
+        .build()?;
+    let mut builder =
+        panproto_schema::SchemaBuilder::new(&protocol).vertex("users", "record", None)?;
+    for (name, kind) in [("id", "integer"), ("name", "string")] {
+        builder = builder.vertex(&format!("users.{name}"), kind, None)?.edge(
+            "users",
+            &format!("users.{name}"),
+            "prop",
+            Some(name),
+        )?;
+    }
+    let tgt_schema = builder.build()?;
+
     // Migration: drop "posts", keep "users" only
     let migration = CompiledMigration {
-        surviving_verts: HashSet::from([Name::from("users")]),
-        surviving_edges: HashSet::new(),
-        vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
+        surviving_verts: HashSet::from([
+            Name::from("users"),
+            Name::from("users.id"),
+            Name::from("users.name"),
+        ]),
+        surviving_edges: HashSet::from([column("users", "id"), column("users", "name")]),
+        ..CompiledMigration::default()
     };
 
-    let result = functor_restrict(&inst, &migration);
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let result = RestrictPlan::compile_for_tables(&src_schema, &tgt_schema, &migration, protocols)
+        .and_then(|plan| functor_restrict_with_plan(&inst, &plan));
     assert!(result.is_ok(), "functor_restrict failed: {result:?}");
-    let restricted = result.unwrap_or_else(|_| FInstance::new());
+    let restricted = result.map_or_else(|_| FInstance::new(), |(view, _)| view);
 
     // Verify: only "users" table survives
     assert_eq!(restricted.table_count(), 1, "should have 1 table");
+    assert!(restricted.has_table("users"), "users table should survive");
     assert!(
-        restricted.tables.contains_key("users"),
-        "users table should survive"
-    );
-    assert!(
-        !restricted.tables.contains_key("posts"),
+        !restricted.has_table("posts"),
         "posts table should be dropped"
     );
 
     // Verify: foreign keys dropped (since posts is gone)
-    assert!(
-        restricted.foreign_keys.is_empty(),
+    assert_eq!(
+        restricted.pair_count(),
+        0,
         "foreign keys should be empty after dropping posts"
     );
 
-    // Verify: users data preserved
+    // Verify: users data preserved, under their own row ids
     assert_eq!(restricted.row_count("users"), 2, "users should have 2 rows");
+    assert_eq!(restricted.row_ids(), vec![RowId(0), RowId(1)]);
+    assert_eq!(
+        restricted.row(RowId(1)).and_then(|row| row.get("name")),
+        Some(&Value::Str("Bob".into()))
+    );
+    Ok(())
 }

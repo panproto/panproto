@@ -16,7 +16,9 @@ use panproto_lens::instances_equivalent;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 use panproto_vcs::MemStore;
 use panproto_vcs::ObjectId;
-use panproto_vcs::data_mig::{migrate_backward, migrate_forward, protocol_for_schema};
+use panproto_vcs::data_mig::{
+    ProtocolSources, migrate_backward, migrate_forward, protocol_for_schema,
+};
 use panproto_vcs::hash::hash_schema;
 use panproto_vcs::object::{DataSetObject, Object};
 use panproto_vcs::square::verify_square;
@@ -35,8 +37,22 @@ fn proto() -> Protocol {
         }],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
+}
+
+/// The protocol `schema` names, resolved through the protocol object the
+/// schemas were built under.
+fn resolved(schema: &Schema) -> Protocol {
+    let stored = proto();
+    protocol_for_schema(
+        schema,
+        ProtocolSources {
+            stored: Some(&stored),
+            registered: &HashMap::new(),
+        },
+    )
+    .unwrap()
 }
 
 /// A `Root` object with one string field per name in `fields`.
@@ -95,7 +111,7 @@ proptest! {
 
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
-        let protocol = protocol_for_schema(&src);
+        let protocol = resolved(&src);
         let (replayed, complement) =
             migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
         prop_assert!(
@@ -117,7 +133,7 @@ proptest! {
 
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
-        let protocol = protocol_for_schema(&src);
+        let protocol = resolved(&src);
         let (replayed, complement) =
             migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
         let restored =
@@ -145,14 +161,14 @@ proptest! {
 
         let mut store = MemStore::new();
         let d0 = root_dataset(&mut store, &s0);
-        let p0 = protocol_for_schema(&s0);
+        let p0 = resolved(&s0);
 
         // First square: s0 -> s1.
         let (d1, c1) = migrate_forward(&mut store, d0, &s0, &s1, &p0).unwrap();
         prop_assert!(verify_square(&mut store, d0, d1, c1, &s0, &s1, &p0).is_ok());
 
         // Second square: s1 -> s2.
-        let p1 = protocol_for_schema(&s1);
+        let p1 = resolved(&s1);
         let (d2, c2) = migrate_forward(&mut store, d1, &s1, &s2, &p1).unwrap();
         prop_assert!(verify_square(&mut store, d1, d2, c2, &s1, &s2, &p1).is_ok());
 

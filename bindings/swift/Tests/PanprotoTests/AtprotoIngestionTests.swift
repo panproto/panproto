@@ -79,7 +79,7 @@ struct AtprotoIngestionTests {
         )
 
         #expect(outcome.violations.isEmpty, "the record failed validation: \(outcome.violations)")
-        #expect(outcome.instance.schemaRoot == "app.bsky.feed.post")
+        #expect(outcome.instance.schemaRoot == "app.bsky.feed.post:body")
         #expect(outcome.elementCount == outcome.instance.nodeCount)
 
         let original = try jsonObject(record)

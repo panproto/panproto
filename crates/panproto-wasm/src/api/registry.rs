@@ -68,4 +68,30 @@ mod tests {
             "builtin protocol should decode to bytes"
         );
     }
+
+    /// Every spelling the registry accepts, the canonical name, each alias
+    /// and the underscore form of each, reaches the registry's protocol.
+    #[test]
+    fn every_registry_spelling_reaches_the_registry_protocol() {
+        let mut wrong: Vec<String> = Vec::new();
+        for descriptor in panproto_core::protocols::registry::descriptors() {
+            let expected = (descriptor.protocol)();
+            for spelling in
+                std::iter::once(descriptor.name).chain(descriptor.aliases.iter().copied())
+            {
+                for name in [spelling.to_owned(), spelling.replace('-', "_")] {
+                    // The lookup behind `get_builtin_protocol`, called
+                    // directly: a refusal builds a `JsError`, which needs a
+                    // wasm host.
+                    if lookup_builtin_protocol(&name).as_ref() != Some(&expected) {
+                        wrong.push(name);
+                    }
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "spellings not resolved as the registry does: {wrong:?}"
+        );
+    }
 }

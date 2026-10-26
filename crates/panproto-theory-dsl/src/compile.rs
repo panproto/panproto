@@ -9,14 +9,15 @@
 
 use std::collections::HashMap;
 
-use panproto_gat::Theory;
+use panproto_gat::{CompositionReport, CompositionSpec, Theory};
+use panproto_schema::canonical_theory_bytes;
 
 use crate::compile_class::compile_class;
-use crate::compile_compose::compile_composition;
+use crate::compile_compose::{ComposedTheory, compile_composition_with_report};
 use crate::compile_inductive::compile_inductive;
 use crate::compile_instance::compile_instance;
 use crate::compile_morphism::compile_morphism;
-use crate::compile_protocol::compile_protocol;
+use crate::compile_protocol::compile_protocol_with_compositions;
 use crate::document::{
     BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InductiveSpec, InstanceSpec,
     MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
@@ -166,6 +167,7 @@ fn compile_single_inductive(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -229,6 +231,7 @@ fn compile_single_theory(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -247,6 +250,7 @@ fn compile_single_morphism(
         morphisms,
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -256,18 +260,21 @@ fn compile_single_composition(
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     let local = HashMap::new();
-    let (theory, gat_spec) = compile_composition(body, resolver, &local)?;
-    let name = theory.name.to_string();
+    let composed = compile_composition_with_report(body, resolver, &local)?;
+    let name = composed.theory.name.to_string();
     let mut theories = HashMap::new();
-    theories.insert(name.clone(), theory);
+    theories.insert(name.clone(), composed.theory);
     let mut composition_specs = HashMap::new();
-    composition_specs.insert(name, gat_spec);
+    composition_specs.insert(name.clone(), composed.spec);
+    let mut composition_reports = HashMap::new();
+    composition_reports.insert(name, composed.reports);
     Ok(CompiledTheorySet {
         id: doc_id.to_owned(),
         theories,
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs,
+        composition_reports,
     })
 }
 
@@ -277,16 +284,21 @@ fn compile_single_protocol(
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     let local = HashMap::new();
-    let protocol = compile_protocol(spec, resolver, &local)?;
-    let name = protocol.name.clone();
+    let compiled = compile_protocol_with_compositions(spec, resolver, &local)?;
+    let mut recorded = Compositions::default();
+    for composed in compiled.compositions {
+        recorded.record_inline(composed)?;
+    }
+    let name = compiled.protocol.name.clone();
     let mut protocols = HashMap::new();
-    protocols.insert(name, protocol);
+    protocols.insert(name, compiled.protocol);
     Ok(CompiledTheorySet {
         id: doc_id.to_owned(),
-        theories: HashMap::new(),
+        theories: recorded.theories,
         morphisms: HashMap::new(),
         protocols,
-        composition_specs: HashMap::new(),
+        composition_specs: recorded.specs,
+        composition_reports: recorded.reports,
     })
 }
 
@@ -304,6 +316,7 @@ fn compile_single_class(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -322,6 +335,7 @@ fn compile_single_instance(
         morphisms,
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -330,13 +344,13 @@ fn compile_bundle_inner(
     bundle: &BundleSpec,
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
-    let mut theories: HashMap<String, Theory> = HashMap::new();
+    let mut recorded = Compositions::default();
     let mut morphisms = HashMap::new();
     let mut protocols = HashMap::new();
-    let mut composition_specs = HashMap::new();
 
     // Phase 1: Compile all theories (no intra-bundle dependencies).
     for spec in &bundle.theories {
+        let theories = &mut recorded.theories;
         if theories.contains_key(&spec.theory) {
             return Err(TheoryDslError::Duplicate {
                 kind: "theory".to_owned(),
@@ -352,6 +366,7 @@ fn compile_bundle_inner(
 
     // Phase 2: Compile all compositions (may reference bundle theories).
     for spec in &bundle.compositions {
+        let theories = &recorded.theories;
         if theories.contains_key(&spec.result) {
             return Err(TheoryDslError::Duplicate {
                 kind: "theory (from composition)".to_owned(),
@@ -364,13 +379,13 @@ fn compile_bundle_inner(
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let (theory, gat_spec) = compile_composition(&body, &combined, &theories)?;
-        theories.insert(spec.result.clone(), theory);
-        composition_specs.insert(spec.result.clone(), gat_spec);
+        let composed = compile_composition_with_report(&body, &combined, theories)?;
+        recorded.insert(composed);
     }
 
     // Phase 3: Compile all morphisms (reference theories by name).
     for spec in &bundle.morphisms {
+        let theories = &recorded.theories;
         if morphisms.contains_key(&spec.morphism) {
             return Err(TheoryDslError::Duplicate {
                 kind: "morphism".to_owned(),
@@ -385,7 +400,12 @@ fn compile_bundle_inner(
     }
 
     // Phase 4: Compile all protocols (reference theories by name or inline).
+    // Every protocol sees the theories of phases 1 and 2, and the inline
+    // compositions are recorded once all protocols are compiled, so no
+    // protocol can name another's inline composition, whatever their order.
+    let mut inline = Vec::new();
     for spec in &bundle.protocols {
+        let theories = &recorded.theories;
         if protocols.contains_key(&spec.protocol) {
             return Err(TheoryDslError::Duplicate {
                 kind: "protocol".to_owned(),
@@ -395,17 +415,69 @@ fn compile_bundle_inner(
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let protocol = compile_protocol(spec, &combined, &theories)?;
-        protocols.insert(spec.protocol.clone(), protocol);
+        let compiled = compile_protocol_with_compositions(spec, &combined, theories)?;
+        inline.extend(compiled.compositions);
+        protocols.insert(spec.protocol.clone(), compiled.protocol);
+    }
+    for composed in inline {
+        recorded.record_inline(composed)?;
     }
 
     Ok(CompiledTheorySet {
         id: doc_id.to_owned(),
-        theories,
+        theories: recorded.theories,
         morphisms,
         protocols,
-        composition_specs,
+        composition_specs: recorded.specs,
+        composition_reports: recorded.reports,
     })
+}
+
+/// The theories a document compiles, with the recipe and the step reports
+/// of each composed one, keyed by theory name.
+#[derive(Default)]
+struct Compositions {
+    theories: HashMap<String, Theory>,
+    specs: HashMap<String, CompositionSpec>,
+    reports: HashMap<String, Vec<CompositionReport>>,
+}
+
+impl Compositions {
+    /// Record `composed` under its theory's name.
+    fn insert(&mut self, composed: ComposedTheory) {
+        let name = composed.theory.name.to_string();
+        self.theories.insert(name.clone(), composed.theory);
+        self.specs.insert(name.clone(), composed.spec);
+        self.reports.insert(name, composed.reports);
+    }
+
+    /// Record `composed`, the composition of an inline composed theory
+    /// reference of a protocol, under its theory's name.
+    ///
+    /// A name already recorded is kept when its theory has the same
+    /// canonical bytes as `composed`'s and its step reports are equal (the
+    /// same composition named again), and is refused otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`TheoryDslError::Duplicate`] when the name is recorded with another
+    /// theory or other reports, or as a theory that is not a composition.
+    fn record_inline(&mut self, composed: ComposedTheory) -> Result<(), TheoryDslError> {
+        let name = composed.theory.name.to_string();
+        let Some(existing) = self.theories.get(&name) else {
+            self.insert(composed);
+            return Ok(());
+        };
+        if canonical_theory_bytes(existing) == canonical_theory_bytes(&composed.theory)
+            && self.reports.get(&name) == Some(&composed.reports)
+        {
+            return Ok(());
+        }
+        Err(TheoryDslError::Duplicate {
+            kind: "theory (from composition)".to_owned(),
+            name,
+        })
+    }
 }
 
 #[cfg(test)]

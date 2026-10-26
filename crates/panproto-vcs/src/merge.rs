@@ -1803,6 +1803,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         mergers,
         defaults,
         policies,
+        ..Default::default()
     };
 
     // Derive migrations.
@@ -3271,6 +3272,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

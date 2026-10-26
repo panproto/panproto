@@ -4,8 +4,8 @@
 //!
 //! Every schema migration is a lens with a `get` direction (= restrict,
 //! projecting data forward) and a `put` direction (= restore from
-//! complement, bringing modifications back). The lens laws (`GetPut`
-//! and `PutGet`) guarantee round-trip fidelity.
+//! complement, bringing modifications back). The strict law gate checks
+//! `GetPut`, `PutGet`, totality, `PutTwice`, and presentation congruence.
 //!
 //! This crate provides:
 //!
@@ -17,7 +17,7 @@
 //! - **[`ProtolensChain`]**: Composable sequence of protolenses.
 //! - **[`auto_generate`]**: Automatic protolens generation from two schemas.
 //! - **[`compose()`]**: Compose two lenses sequentially.
-//! - **[`check_laws`]**: Verify `GetPut` and `PutGet` on a test instance.
+//! - **[`check_laws`]**: Run the five strict gates on a test instance.
 //!
 //! The mathematical foundations are based on asymmetric lenses with
 //! complement (Diskin et al., 2011), GAT-based protolenses (natural
@@ -37,6 +37,7 @@ pub mod cost;
 mod default_synthesis;
 pub mod derived;
 pub mod diff_to_protolens;
+pub mod dispatch;
 pub mod edit_error;
 pub mod edit_laws;
 pub mod edit_lens;
@@ -45,39 +46,75 @@ pub mod edit_provenance;
 pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
-pub mod graph;
+pub mod graph_lens;
+pub mod graph_protolens;
+pub mod graph_symmetric;
 pub mod hint;
+pub mod identity;
 pub mod laws;
 pub mod layout_complement;
+pub mod lens_graph;
+pub mod lens_path;
+pub mod lens_shape;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
 pub mod symbolic;
 pub mod symmetric;
+pub mod table_lens;
+pub mod table_protolens;
+pub mod table_shape;
+pub mod table_symmetric;
 
 // Re-exports for convenience.
-pub use asymmetric::{Complement, ComplementCompose, get, put, put_without_complement};
+pub use asymmetric::{
+    Complement, ComplementCompose, get, put, put_checked, put_without_complement,
+};
 pub use auto_lens::{
     AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,
-    auto_generate_candidates_with_hints, auto_generate_with_hints,
+    auto_generate_candidates_with_hints, auto_generate_graph, auto_generate_table,
+    auto_generate_with_hints,
 };
 pub use candidate::{CandidateStep, LensCandidate};
 pub use complement_type::{
-    CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
-    complement_spec_at,
+    CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, GraphComplementSpec,
+    GraphResidueKind, TableComplementSpec, TableResidueKind, chain_complement_spec,
+    complement_spec_at, graph_chain_complement_spec, graph_complement_spec_at,
+    table_chain_complement_spec, table_complement_spec_at,
 };
 pub use compose::compose;
 pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
 pub use derived::{DerivedFiber, DerivedMap, collect_derived_fields};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
+pub use dispatch::{
+    graph_complement_to_table, graph_complement_to_tree, graph_get_via_table, graph_get_via_tree,
+    graph_put_via_table, graph_put_via_tree, table_complement_to_graph, tree_complement_to_graph,
+};
 pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
-pub use error::{LawViolation, LensError};
-pub use graph::LensGraph;
-pub use laws::{check_get_put, check_laws, check_put_get, instances_equivalent};
+pub use error::{LawViolation, LensError, NotTableComplementReason, NotTreeComplementReason};
+pub use graph_lens::{
+    AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
+    SequentialGraphLens,
+};
+pub use graph_protolens::AppliedGraphProtolens;
+pub use identity::ComplementIdentity;
+pub use laws::{
+    FamilyReport, LawReport, LawShape, LensClassification, Mutation, MutationCases,
+    NegativeMutationCase, SkipReason, SmallScope, check_congruence, check_congruence_for_shape,
+    check_get_put, check_get_put_for_shape, check_laws, check_laws_exhaustive, check_laws_report,
+    check_locality, check_locality_for_shape, check_put_get, check_put_get_for_shape,
+    check_put_injectivity, check_put_injectivity_for_shape, check_put_put, check_put_twice,
+    check_put_twice_for_shape, check_totality, check_totality_for_shape, check_weak_put_get,
+    check_weak_put_get_for_shape, instances_equivalent,
+};
+pub use lens_graph::LensGraph;
+pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};
+pub use lens_shape::{GraphShape, LensShape, TreeShape};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
+pub use panproto_inst::{ErrorDetail, PutDomainError};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
     apply_to_fleet, combinators, elementary, horizontal_compose as protolens_horizontal,
@@ -91,6 +128,9 @@ pub use symbolic::{
     simplify_steps,
 };
 pub use symmetric::{CoherenceViolation, SymmetricLens};
+pub use table_protolens::AppliedTableProtolens;
+pub use table_shape::{TableContext, TableShape};
+pub use table_symmetric::TableSymmetricContext;
 
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;
@@ -123,25 +163,43 @@ impl Lens {
     /// Whether this lens is an **isomorphism**, so that its complement is
     /// terminal and a source is determined by its view alone.
     ///
-    /// A lens with complement decomposes its source as `S ≅ V × C`. It is
-    /// invertible on the nose exactly when `C ≅ 1`, since `S ≅ V × 1 ≅ V`.
-    /// Three things must hold for that, and each corresponds to one way the
-    /// complement acquires residue:
+    /// A lens with complement decomposes its source as `S ≅ image(get) × C`.
+    /// It is invertible on the whole target on the nose when `C ≅ 1` and
+    /// `get` is onto: every complement `get` produces has trivial residue
+    /// ([`Complement::residue_is_trivial`](panproto_inst::Complement::residue_is_trivial)),
+    /// and every target coordinate has a source preimage.
+    /// Survival is read as `get` reads it, through the vertex remap, so an
+    /// injective rename is not a drop. The certified conditions are:
     ///
-    /// 1. Every source vertex survives, so no node's data is set aside.
-    /// 2. Every source edge survives, up to renaming. A renamed edge is
-    ///    recorded in `edge_remap` and appears in `surviving_edges` under
-    ///    both spellings, so relabeling costs nothing.
-    /// 3. Every value-level transform is invertible, i.e. the composite
-    ///    [`coercion_class`](Self::coercion_class) is
-    ///    [`Iso`](panproto_gat::CoercionClass::Iso). A `Retraction`,
-    ///    `Projection`, or `Opaque` transform is not injective, so the
-    ///    fibre over a view value is not a point and the source cannot be
-    ///    recovered from it.
+    /// 1. Every source vertex survives, and none survives only under a
+    ///    predicate, so no node's data is set aside.
+    /// 2. The vertex map is bijective: no two source vertices share an image
+    ///    and every target vertex has a source preimage.
+    /// 3. The compiled restrict plan keeps every source edge as exactly one
+    ///    target edge, no two source edges share an image, and every target
+    ///    edge has a source preimage.
+    /// 4. Neither schema declares hyper-edges. A valid zero-child fan is
+    ///    currently tree-complement residue even under the identity lens.
+    /// 5. Neither schema imposes a required-cell or key-uniqueness
+    ///    obligation. Tree get does not validate its input, while tree put
+    ///    validates the restored source, so such a declaration would make
+    ///    the apparent identity partial on the advertised carrier.
+    /// 6. The migration has no value transforms or op-to-term assignments.
+    ///    This conservative boundary does not trust a declared
+    ///    [`Iso`](panproto_gat::CoercionClass::Iso) or an unchecked pair of
+    ///    expressions: if a transform changes a value, `get` records the old
+    ///    value as residue. Scalar and child-scalar `ApplyExpr` transforms are
+    ///    therefore outside this fragment.
+    ///
+    /// This classifies bijective lenses whose complement is `Unit`. That class
+    /// is narrower than isomorphism in the category of lenses: `false` names
+    /// an obstruction to complement-free put, not the absence of an inverse
+    /// lens, and does not decide whether the lens is forgetful.
     ///
     /// This is a *static* property of the lens, so it holds for every
-    /// source or for none. It is the precondition of
-    /// [`put_without_complement`], and
+    /// source or for none. It is exactly the test
+    /// [`put_without_complement`] makes before it reconstructs a source,
+    /// so the two agree on every lens, and
     /// [`obstruction_to_isomorphism`](Self::obstruction_to_isomorphism)
     /// names the first condition that fails.
     #[must_use]
@@ -149,49 +207,23 @@ impl Lens {
         self.obstruction_to_isomorphism().is_none()
     }
 
-    /// The first reason this lens is not an isomorphism, or `None` when it
-    /// is one. See [`is_isomorphism`](Self::is_isomorphism).
+    /// The first obstruction to complement-free put, or `None` when the lens
+    /// is bijective with complement `Unit`.
+    ///
+    /// This is narrower than isomorphism in the category of lenses. A result
+    /// does not prove the absence of an inverse lens and does not decide
+    /// whether the lens is forgetful. See
+    /// [`is_isomorphism`](Self::is_isomorphism).
     #[must_use]
     pub fn obstruction_to_isomorphism(&self) -> Option<String> {
-        let dropped_vertex = self
-            .src_schema
-            .vertices
-            .keys()
-            .find(|v| !self.compiled.surviving_verts.contains(*v));
-        if let Some(v) = dropped_vertex {
-            return Some(format!(
-                "vertex `{v}` does not survive, so its data is set aside in the complement"
-            ));
-        }
-
-        let dropped_edge = self
-            .src_schema
-            .edges
-            .keys()
-            .find(|e| !self.compiled.surviving_edges.contains(*e));
-        if let Some(e) = dropped_edge {
-            return Some(format!(
-                "edge `{}` -> `{}` does not survive, so the arcs over it are set aside in the \
-                 complement",
-                e.src, e.tgt
-            ));
-        }
-
-        let class = self.coercion_class();
-        if !matches!(class, panproto_gat::CoercionClass::Iso) {
-            return Some(format!(
-                "a value transform is classified `{class:?}`, which is not injective, so a view \
-                 value does not determine the source value it came from"
-            ));
-        }
-
-        None
+        asymmetric::obstruction_to_tree_isomorphism(self)
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashMap;
+    use std::fmt::Debug;
 
     use panproto_gat::Name;
     use panproto_inst::value::{FieldPresence, Value};
@@ -200,6 +232,48 @@ pub(crate) mod tests {
     use smallvec::SmallVec;
 
     use crate::Lens;
+
+    pub trait TestUnwrap {
+        type Value;
+
+        fn test_unwrap(self, context: &str) -> Self::Value;
+    }
+
+    impl<T, E: Debug> TestUnwrap for Result<T, E> {
+        type Value = T;
+
+        fn test_unwrap(self, context: &str) -> T {
+            match self {
+                Ok(value) => value,
+                Err(error) => panic!("{context}: {error:?}"),
+            }
+        }
+    }
+
+    impl<T> TestUnwrap for Option<T> {
+        type Value = T;
+
+        fn test_unwrap(self, context: &str) -> T {
+            self.unwrap_or_else(|| panic!("{context}"))
+        }
+    }
+
+    pub trait TestUnwrapErr {
+        type Error;
+
+        fn test_unwrap_err(self, context: &str) -> Self::Error;
+    }
+
+    impl<T, E> TestUnwrapErr for Result<T, E> {
+        type Error = E;
+
+        fn test_unwrap_err(self, context: &str) -> E {
+            match self {
+                Err(error) => error,
+                Ok(_) => panic!("{context}"),
+            }
+        }
+    }
 
     /// Build a 3-vertex schema: `post:body` (object) with two children
     /// `post:body.text` (string) and `post:body.createdAt` (string).
@@ -299,6 +373,7 @@ pub(crate) mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -532,10 +607,12 @@ pub(crate) mod tests {
         let composed = crate::compose(&l1, &l2).unwrap_or_else(|e| panic!("compose failed: {e}"));
         let instance = three_node_instance();
 
-        let result = crate::check_laws(&composed, &instance);
-        assert!(
-            result.is_ok(),
-            "composed identity lenses should satisfy laws: {result:?}"
-        );
+        let (view, complement) = composed
+            .get(&instance)
+            .unwrap_or_else(|error| panic!("path get failed: {error}"));
+        let restored = composed
+            .put(&view, &complement)
+            .unwrap_or_else(|error| panic!("path put failed: {error}"));
+        assert!(crate::instances_equivalent(&restored, &instance));
     }
 }

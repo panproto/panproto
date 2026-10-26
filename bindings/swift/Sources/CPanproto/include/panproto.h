@@ -624,7 +624,9 @@ pp_graph_preferred_path (
 /** \brief
  *  Free a handle, marking its slab slot reusable.
  *
- *  Double-free is safe: a freed slot stays freed.
+ *  Freeing an out-of-range or already-free handle is a no-op. A freed
+ *  handle may be handed out again by a later allocation, so a handle must
+ *  not be freed after its owner has freed it once.
  */
 int32_t
 pp_handle_free (
@@ -855,7 +857,9 @@ pp_inst_to_json (
  *  handle. `instance` is a CBOR-encoded
  *  `panproto_core::inst::WInstance`. On success, `out` receives a
  *  CBOR-encoded `Vec<String>` of validation messages (empty means
- *  valid). Calls `inst::validate_wtype`.
+ *  valid). Calls `inst::validate_wtype` under the schema's protocol (a
+ *  built-in one when the name is recognized), and reports the messages of
+ *  the entries that decide the report's status.
  *
  *  The validation pass always returns [`PpStatus::Ok`] when it can run
  *  to completion: individual violations are reported as message
@@ -1196,7 +1200,10 @@ pp_mig_compile (
  *  `m1` and `m2` are migration handles (either
  *  [`Resource::Migration`](crate::handle::Resource) or
  *  `MigrationWithSchemas`). On success, `out_handle` receives a fresh
- *  [`Resource::Migration`](crate::handle::Resource) handle. Calls
+ *  migration handle. When both operands carry their schemas, the result
+ *  retains the first source and second target schemas so later lifts can
+ *  validate both exact boundaries; otherwise the result is a bare
+ *  [`Resource::Migration`](crate::handle::Resource). Calls
  *  [`crate::api::helpers::compose_compiled`].
  */
 int32_t
@@ -1424,7 +1431,9 @@ pp_protolens_instantiate (
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded list of match records, each a map with
  *  `node_id`, `anchor`, `value`, and `fields`. Calls
- *  [`inst::execute_query`].
+ *  [`inst::execute_query`]; a predicate it refuses before evaluation (a
+ *  repeated child name, a structural child that is no tree, a value with no
+ *  expression literal) yields [`PpStatus::Operation`].
  *
  *  The schema handle must resolve to a
  *  [`Resource::Schema`](crate::handle::Resource); a bad handle yields

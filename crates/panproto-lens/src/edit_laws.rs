@@ -211,6 +211,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 
@@ -667,6 +668,7 @@ mod functor_laws {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 

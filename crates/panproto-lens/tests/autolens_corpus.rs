@@ -154,7 +154,7 @@ fn generic_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

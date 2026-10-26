@@ -48,6 +48,13 @@ pub enum NodeShape {
     /// end tags so `<p>x<em>y</em>z</p>` round-trips with text and
     /// element children interleaved in source order.
     XmlTextSegment,
+    /// Node reifies a hyper-edge fan in a graph instance.
+    ///
+    /// Its anchor is the hyper-edge id, not a schema vertex. It has one
+    /// `hyper_parent` edge to the fan's parent and one `hyper_label` edge,
+    /// named by the label, to each labelled child. See
+    /// [`reify_fans`](crate::reify_fans).
+    HyperEdge,
 }
 
 /// A node in a W-type instance tree.
@@ -257,6 +264,15 @@ mod tests {
         assert_eq!(node.position, None);
         assert_eq!(node.shape, NodeShape::Plain);
         assert!(node.annotations.is_empty());
+    }
+
+    #[test]
+    fn a_hyper_edge_shape_is_written_in_snake_case() {
+        let node = Node::new(0, "fk").with_shape(NodeShape::HyperEdge);
+        let json = serde_json::to_string(&node).expect("serialize fan node");
+        assert!(json.contains(r#""kind":"hyper_edge""#), "{json}");
+        let back: Node = serde_json::from_str(&json).expect("read the node back");
+        assert_eq!(back.shape, NodeShape::HyperEdge);
     }
 
     #[test]

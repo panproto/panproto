@@ -26,7 +26,7 @@ fn registry_preserving_round_trip_is_byte_equal() {
         name: "demo".into(),
         schema_theory: "ThDemoSchema".into(),
         instance_theory: "ThDemoInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     let schema = SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -77,7 +77,7 @@ fn default_registry_wires_preserving_text_format_codecs() {
             name: protocol.into(),
             schema_theory: format!("Th{protocol}Schema"),
             instance_theory: format!("Th{protocol}Instance"),
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("root", "object", None)
@@ -105,7 +105,7 @@ fn default_registry_wires_preserving_text_format_codecs() {
 }
 
 /// The `csv` protocol is likewise wired into the default registry, as a
-/// format-preserving functor codec (`Functor` native representation).
+/// format-preserving table codec (`Table` native representation).
 #[cfg(feature = "tree-sitter")]
 #[test]
 fn default_registry_registers_csv_as_functor() {
@@ -113,7 +113,7 @@ fn default_registry_registers_csv_as_functor() {
     let registry = panproto_io::default_registry();
     assert_eq!(
         registry.native_repr("csv").expect("csv registered"),
-        NativeRepr::Functor,
+        NativeRepr::Table,
         "csv should register as a functor codec"
     );
 }
@@ -131,7 +131,7 @@ fn registry_preserving_falls_back_to_canonical_without_feature() {
         schema_theory: "ThDemoSchema".into(),
         instance_theory: "ThDemoInstance".into(),
         obj_kinds: vec!["object".into(), "string".into()],
-        ..Protocol::default()
+        ..Default::default()
     };
     let schema = SchemaBuilder::new(&proto)
         .vertex("root", "object", None)

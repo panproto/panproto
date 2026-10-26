@@ -245,6 +245,7 @@ mod tests {
             outgoing: std::collections::HashMap::new(),
             incoming: std::collections::HashMap::new(),
             between: std::collections::HashMap::new(),
+            ..Default::default()
         }
     }
 

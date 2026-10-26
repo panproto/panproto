@@ -441,7 +441,7 @@ mod required_tiebreak_tests {
             }],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -655,7 +655,7 @@ mod constraint_compat_tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec!["format".into(), "knownValues".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

@@ -11,7 +11,8 @@ use std::str::FromStr;
 
 use panproto_mig::Migration;
 use panproto_schema::{
-    Constraint, Edge, HyperEdge, RecursionPoint, Schema, Span, UsageMode, Variant, Vertex,
+    Constraint, Edge, HyperEdge, Key, RecursionPoint, Reference, Schema, Span, UsageMode, Variant,
+    Vertex,
 };
 use serde::{Deserialize, Serialize};
 
@@ -142,13 +143,13 @@ struct CanonicalCoercionSpec {
 
 /// Canonical schema with `BTreeMap` fields, sorted `Vec`s, and no precomputed indices.
 ///
-/// This form covers 17 of the [`Schema`]'s 21 fields. It omits `entries` and
+/// This form covers 18 of the [`Schema`]'s 22 fields. It omits `entries` and
 /// the three derived adjacency indices (`outgoing`, `incoming`, `between`),
 /// so two schemas that differ only in their pointing hash to the same
 /// [`ObjectId`].
 ///
 /// The other canonical form in the tree is
-/// [`panproto_schema::canonical_bytes`], which covers all 21 fields,
+/// [`panproto_schema::canonical_bytes`], which covers all 22 fields,
 /// `entries` included, and therefore separates schemas this one identifies.
 /// Both choices are deliberate: for the VCS a change of pointing is not a
 /// change of schema content, whereas for a span apex the pointing is part of
@@ -174,6 +175,41 @@ struct CanonicalSchema {
     mergers: BTreeMap<String, panproto_expr::Expr>,
     defaults: BTreeMap<String, panproto_expr::Expr>,
     policies: BTreeMap<String, panproto_expr::Expr>,
+    /// The keys and references the schema declares, present only when it
+    /// declares at least one. Omitting the element when both maps are empty
+    /// keeps the positional encoding, and so the object id, of every schema
+    /// that declares nothing exactly what it was before declarations
+    /// existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decls: Option<CanonicalDeclarations>,
+}
+
+/// The declarations of a schema: keys per vertex and references per id.
+type CanonicalDeclarations = (BTreeMap<String, Vec<Key>>, BTreeMap<String, Reference>);
+
+/// The canonical declarations of a schema, or `None` when it declares
+/// nothing. Each key list is written in ascending key id order.
+fn canonical_declarations(s: &Schema) -> Option<CanonicalDeclarations> {
+    if s.declarations.is_empty() {
+        return None;
+    }
+    let keys = s
+        .declarations
+        .keys
+        .iter()
+        .map(|(vertex, keys)| {
+            let mut sorted = keys.clone();
+            sorted.sort_by(|a, b| a.id.cmp(&b.id));
+            (vertex.to_string(), sorted)
+        })
+        .collect();
+    let references = s
+        .declarations
+        .references
+        .iter()
+        .map(|(id, reference)| (id.to_string(), reference.clone()))
+        .collect();
+    Some((keys, references))
 }
 
 impl From<&Schema> for CanonicalSchema {
@@ -276,6 +312,7 @@ impl From<&Schema> for CanonicalSchema {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.clone()))
                 .collect(),
+            decls: canonical_declarations(s),
         }
     }
 }
@@ -808,7 +845,73 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
+    }
+
+    fn keyed_fixture() -> Schema {
+        let column = Edge {
+            src: "film".into(),
+            tgt: "film.id".into(),
+            kind: "column".into(),
+            name: Some("id".into()),
+        };
+        make_schema(&[("film", "table"), ("film.id", "integer")], &[column])
+    }
+
+    fn film_key(role: panproto_schema::KeyRole) -> panproto_schema::Key {
+        panproto_schema::Key {
+            id: "pk".into(),
+            parts: vec![panproto_schema::KeyPart::Path(vec![Edge {
+                src: "film".into(),
+                tgt: "film.id".into(),
+                kind: "column".into(),
+                name: Some("id".into()),
+            }])],
+            role,
+            scope: panproto_schema::KeyScope::Document,
+        }
+    }
+
+    /// The object id `hash_schema` gave `keyed_fixture` in 0.74, whose
+    /// `CanonicalSchema` had no declarations field. A schema that declares
+    /// nothing keeps it.
+    const RELEASED_FIXTURE_ID: &str =
+        "cec3ecb6cef68118fc1dc4894ee330c8a47c26aac13b1485ae906099b4bdb71d";
+
+    #[test]
+    fn a_schema_without_decls_keeps_its_released_id() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            hash_schema(&keyed_fixture())?.to_string(),
+            RELEASED_FIXTURE_ID
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schemas_differing_only_in_one_key_decl_hash_apart() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let bare = keyed_fixture();
+        let mut primary = keyed_fixture();
+        primary.declarations.keys.insert(
+            "film".into(),
+            vec![film_key(panproto_schema::KeyRole::Primary)],
+        );
+        let mut unique = keyed_fixture();
+        unique.declarations.keys.insert(
+            "film".into(),
+            vec![film_key(panproto_schema::KeyRole::Unique)],
+        );
+
+        let ids = [
+            hash_schema(&bare)?,
+            hash_schema(&primary)?,
+            hash_schema(&unique)?,
+        ];
+        assert_ne!(ids[0], ids[1], "a declared key changes the id");
+        assert_ne!(ids[1], ids[2], "the key's role is part of the id");
+        assert_ne!(ids[0], ids[2]);
+        Ok(())
     }
 
     #[test]

@@ -45,7 +45,7 @@ fn protocol() -> Protocol {
         }],
         obj_kinds: vec!["object".to_owned(), "string".to_owned()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -204,10 +204,15 @@ fn dump() -> String {
         arcs.sort();
         format!("{arcs:?}")
     };
-    let pi = panproto_mig::lift_wtype(&compiled, &old, &new, &record(&old))
+    let proto = protocol();
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &proto,
+        tgt: &proto,
+    };
+    let pi = panproto_mig::lift_wtype(&compiled, &old, &new, &record(&old), protocols)
         .map_or_else(|e| format!("Err({e})"), |i| describe(&i));
     let _ = writeln!(out, "restrict-lifted record arcs = {pi}");
-    let sigma = panproto_mig::lift_wtype_sigma(&compiled, &new, &record(&old))
+    let sigma = panproto_mig::lift_wtype_sigma(&compiled, &old, &new, &record(&old), protocols)
         .map_or_else(|e| format!("Err({e})"), |i| describe(&i));
     let _ = writeln!(out, "sigma-lifted record arcs = {sigma}");
 

@@ -41,7 +41,7 @@ source-repository this
     type:     git
     location: https://github.com/panproto/panproto.git
     subdir:   bindings/haskell
-    tag:      v0.43.0
+    tag:      v0.76.1
 
 flag rust
     description: Enable the FFI backend (links against libpanproto_c).
