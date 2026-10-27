@@ -45,8 +45,12 @@ fn fan_graph(extra: &[(u32, GEdge)]) -> Graph {
     g
 }
 
-const fn none(_: &str) -> Option<String> {
-    None
+const fn none(_: &str) -> encode::ParentNameRule {
+    encode::ParentNameRule::Any
+}
+
+const fn unnamed(_: &str) -> encode::ParentNameRule {
+    encode::ParentNameRule::Exact(None)
 }
 
 #[test]
@@ -114,8 +118,11 @@ fn every_other_malformed_graph_has_its_own_reason() {
     );
     let mut misnamed = fan_graph(&[]);
     misnamed.edges.get_mut(&1).unwrap().label.name = Some("p".into());
+    // Without a schema, the parent-edge name is deliberately unconstrained.
+    assert!(encode::graph_to_tree(&misnamed, 0, &none).is_ok());
+    // An explicit exact-unnamed policy remains independently observable.
     assert_eq!(
-        encode::graph_to_tree(&misnamed, 0, &none),
+        encode::graph_to_tree(&misnamed, 0, &unnamed),
         Err(NotATree::FanLabel { edge: 1 })
     );
     // Under a schema declaring `h` with parent label `p`, the named parent

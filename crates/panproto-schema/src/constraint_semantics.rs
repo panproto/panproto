@@ -82,6 +82,11 @@ pub enum ConstraintSemantics {
     /// A parameter of value coercion (`precision`, `scale`, `max_length`,
     /// `with_time_zone`, `int_bits`, `unsigned`); no check.
     ValueParameter,
+    /// The value's lexical form must belong to the space selected by the
+    /// datatype named at the constraint's edge argument.
+    LexicalSpace,
+    /// A non-asserting format annotation from the named format family.
+    AnnotatedFormat(Name),
 }
 
 /// The unit a length constraint counts.
@@ -123,8 +128,11 @@ impl ConstraintSemantics {
     ///   values in their exact kind, which the bound's text alone does not
     ///   fix.
     /// - [`RequiredValue`](Self::RequiredValue) reads `true` or `false`.
-    /// - [`Format`](Self::Format) reads a non-empty format name, paired
-    ///   with the format family the meaning names.
+    /// - [`Format`](Self::Format) and
+    ///   [`AnnotatedFormat`](Self::AnnotatedFormat) read a non-empty format
+    ///   name, paired with the format family the meaning names.
+    /// - [`LexicalSpace`](Self::LexicalSpace) reads the non-empty name of the
+    ///   edge whose value selects the lexical space.
     /// - [`Acyclic`](Self::Acyclic) reads a non-empty edge name, the name
     ///   of the self-edge whose instances must form no cycle.
     /// - [`ValueParameter`](Self::ValueParameter) reads the parameter that
@@ -168,12 +176,16 @@ impl ConstraintSemantics {
                 "false" => Ok(ConstraintValue::Required(false)),
                 _ => Err(fail(ConstraintValueReason::NotABool)),
             },
-            Self::Format(family) => {
+            Self::Format(family) | Self::AnnotatedFormat(family) => {
                 non_empty(value).map_err(fail)?;
                 Ok(ConstraintValue::Format {
                     family: family.clone(),
                     format: Name::from(value),
                 })
+            }
+            Self::LexicalSpace => {
+                non_empty(value).map_err(fail)?;
+                Ok(ConstraintValue::LexicalSpace(Name::from(value)))
             }
             Self::Acyclic => {
                 non_empty(value).map_err(fail)?;
@@ -218,6 +230,8 @@ pub enum ConstraintValue {
     },
     /// The name of the self-edge whose instances form no cycle.
     Acyclic(Name),
+    /// The edge whose value selects the lexical space.
+    LexicalSpace(Name),
     /// A parameter of value coercion.
     Parameter(ValueParameter),
 }
@@ -423,6 +437,8 @@ mod tests {
             ConstraintSemantics::Acyclic,
             ConstraintSemantics::External,
             ConstraintSemantics::ValueParameter,
+            ConstraintSemantics::LexicalSpace,
+            ConstraintSemantics::AnnotatedFormat(Name::from("annotation")),
         ];
         for s in &all {
             match s {
@@ -440,7 +456,9 @@ mod tests {
                 | ConstraintSemantics::RequiredValue
                 | ConstraintSemantics::Acyclic
                 | ConstraintSemantics::External
-                | ConstraintSemantics::ValueParameter => {}
+                | ConstraintSemantics::ValueParameter
+                | ConstraintSemantics::LexicalSpace
+                | ConstraintSemantics::AnnotatedFormat(_) => {}
             }
         }
         all

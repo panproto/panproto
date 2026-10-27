@@ -1018,6 +1018,7 @@ mod subset_tests {
                 parts: vec![KeyPart::Position { within }],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
         let plan = ValidationPlan::compile(

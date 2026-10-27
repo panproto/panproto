@@ -185,7 +185,7 @@ pub mod edit {
         ///
         /// The first [`Mismatch`] in element order.
         ///
-        /// Book anchors: `L-edits-3`.
+        /// Book anchors: `L-edits-3`, `L-edits-7`.
         pub fn compose(&self, next: &Self) -> Result<Self, Mismatch<S::Elem, S::Key>> {
             for delta in [self, next] {
                 if let Some((element, _)) = delta
@@ -226,15 +226,15 @@ pub mod edit {
     fn fold_back<S: DeltaSpace>(
         r: &S::Payload,
         attrs: &BTreeMap<S::Key, (S::Val, S::Val)>,
-    ) -> Option<S::Payload> {
+    ) -> Result<S::Payload, S::Key> {
         let mut p = r.clone();
         for (k, (o, n)) in attrs {
             if S::read(&p, k).as_ref() != Some(n) {
-                return None;
+                return Err(k.clone());
             }
-            p = S::write(&p, k, o)?;
+            p = S::write(&p, k, o).ok_or_else(|| k.clone())?;
         }
-        Some(p)
+        Ok(p)
     }
 
     fn fold_forward<S: DeltaSpace>(
@@ -308,11 +308,12 @@ pub mod edit {
                 fold_forward::<S>(&after, &changes).map_err(Mismatch::Attr)?,
             ),
             (Action::Attrs(changes), Action::Del(seen)) => {
-                Action::Del(fold_back::<S>(&seen, &changes).ok_or_else(mismatch)?)
+                Action::Del(fold_back::<S>(&seen, &changes).map_err(Mismatch::Attr)?)
             }
-            (Action::Attrs(changes), Action::Repl(seen, then)) => {
-                Action::Repl(fold_back::<S>(&seen, &changes).ok_or_else(mismatch)?, then)
-            }
+            (Action::Attrs(changes), Action::Repl(seen, then)) => Action::Repl(
+                fold_back::<S>(&seen, &changes).map_err(Mismatch::Attr)?,
+                then,
+            ),
             (Action::Attrs(m1), Action::Attrs(m2)) => {
                 let mut out = m1;
                 for (key, (o2, n2)) in m2 {
@@ -2731,7 +2732,7 @@ pub mod edit {
     /// Definition: Every conflict between two deltas, sorted; they are independent iff
     /// there is none.
     ///
-    /// Book anchors: `L-edits-4`.
+    /// Book anchors: `L-edits-1`.
     #[must_use]
     pub fn independence(a: &GraphDelta, b: &GraphDelta) -> Vec<EditConflict> {
         let mut out = BTreeSet::new();
@@ -2816,7 +2817,7 @@ pub mod edit {
     /// Definition: A conflict is benign exactly for two deletes of equal payloads, two updates
     /// to equal new values, or two adds of equal payloads.
     ///
-    /// Book anchors: `L-edits-4`.
+    /// Book anchors: `L-edits-1`.
     #[must_use]
     pub fn is_benign(c: &EditConflict, a: &GraphDelta, b: &GraphDelta) -> bool {
         match c {
@@ -2840,7 +2841,7 @@ pub mod edit {
     ///
     /// The first conflict when they are not independent.
     ///
-    /// Book anchors: `L-edits-4`.
+    /// Book anchors: `L-edits-1`.
     pub fn merge(a: &GraphDelta, b: &GraphDelta) -> Result<GraphDelta, EditConflict> {
         if let Some(c) = independence(a, b).into_iter().next() {
             return Err(c);
@@ -2849,6 +2850,10 @@ pub mod edit {
         out.del.extend(b.del.clone());
         out.add.extend(b.add.clone());
         out.attrs.extend(b.attrs.clone());
+        out.attrs.retain(|key, (old, new)| {
+            let owner = GraphSpace::owner(key);
+            !out.del.contains_key(&owner) && !out.add.contains_key(&owner) && old != new
+        });
         Ok(out)
     }
 
@@ -3543,6 +3548,8 @@ pub mod edit {
     /// Definition: Canonical graph-delta bytes: five part counts followed by
     /// deleted nodes, deleted edges, added nodes, added edges and attribute
     /// changes in ascending key order.
+    ///
+    /// Book anchors: `L-edits-4`.
     #[must_use]
     pub fn canonical_graph_delta_bytes(delta: &GraphDelta) -> Option<Vec<u8>> {
         let del_nodes: BTreeMap<_, _> = delta
@@ -3628,6 +3635,8 @@ pub mod edit {
 
     /// Definition: Canonical table-delta bytes: six part counts followed by
     /// row, pair, cell and table parts in ascending key order.
+    ///
+    /// Book anchors: `L-edits-4`.
     #[must_use]
     pub fn canonical_table_delta_bytes(delta: &TableDelta) -> Option<Vec<u8>> {
         let del_rows: BTreeMap<_, _> = delta
@@ -3739,6 +3748,8 @@ pub mod edit {
     /// Definition: Canonical bytes of a tree edit's flattened, identity-free
     /// sequence normal form. Defined only when every inserted or produced
     /// node is filed under its own id and every value is well formed.
+    ///
+    /// Book anchors: `L-edits-4`.
     #[must_use]
     pub fn canonical_tree_edit_bytes(edit: &TreeEdit) -> Option<Vec<u8>> {
         let steps = edit.steps();

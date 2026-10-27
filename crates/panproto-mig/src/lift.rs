@@ -1468,6 +1468,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![column("w", "name")])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         );
         schema.declarations.insert_reference(Reference {
@@ -1483,6 +1484,10 @@ mod tests {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         });
         schema
     }

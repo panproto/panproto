@@ -203,6 +203,11 @@ pub struct RefOccurrence {
 pub enum UnresolvedReason {
     /// No target matched.
     Dangling,
+    /// A present guard value selected no declaration in its group.
+    Unselected {
+        /// Exact unmatched guard value.
+        value: Value,
+    },
     /// More than one target matched.
     Ambiguous {
         /// Matching candidates, in ascending order.
@@ -509,7 +514,7 @@ mod tests {
 
     use panproto_schema::{
         Cardinality, Edge, OffsetUnit, OnUnresolved, PathSyntax, RefSource, RefTextSource,
-        Reference, ResolveMode, Schema,
+        Reference, ResolveMode, Schema, UriBase,
     };
     use serde::Serialize;
     use serde::de::DeserializeOwned;
@@ -559,6 +564,10 @@ mod tests {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         }
     }
 
@@ -834,8 +843,14 @@ mod tests {
             candidates: vec![ViewRef::Node(1)],
         };
         assert_eq!(
-            serde_json::to_string(&[UnresolvedReason::Dangling, unresolved])?,
-            r#"["dangling",{"ambiguous":{"candidates":[{"node":1}]}}]"#
+            serde_json::to_string(&[
+                UnresolvedReason::Dangling,
+                UnresolvedReason::Unselected {
+                    value: Value::Int(7),
+                },
+                unresolved,
+            ])?,
+            r#"["dangling",{"unselected":{"value":{"Int":7}}},{"ambiguous":{"candidates":[{"node":1}]}}]"#
         );
         let key = DefinitionKey {
             reference: "r".into(),
@@ -948,6 +963,9 @@ mod tests {
             end: Vec::new(),
             unit: OffsetUnit::Byte,
             end_inclusive: false,
+            end_form: Default::default(),
+            origin: 0,
+            fragments: None,
         };
         let mut with = spec();
         with.protocol_references
@@ -1052,12 +1070,14 @@ mod tests {
         let syntaxes = [
             PathSyntax::JsonPointer,
             PathSyntax::XPath,
-            PathSyntax::Uri { base: None },
             PathSyntax::Uri {
-                base: Some(Vec::new()),
+                base: UriBase::Absolute,
             },
             PathSyntax::Uri {
-                base: Some(vec![label()]),
+                base: UriBase::Field(Vec::new()),
+            },
+            PathSyntax::Uri {
+                base: UriBase::Field(vec![label()]),
             },
             PathSyntax::IdRef,
         ];
@@ -1075,6 +1095,7 @@ mod tests {
             sources.push(RefSource::Variable {
                 field: field.clone(),
                 binder_key: "k".into(),
+                binding: Default::default(),
             });
             for text in [
                 RefTextSource::Local(field.clone()),
@@ -1086,6 +1107,9 @@ mod tests {
                     end: Vec::new(),
                     unit: OffsetUnit::Byte,
                     end_inclusive: false,
+                    end_form: Default::default(),
+                    origin: 0,
+                    fragments: None,
                 });
             }
             sources.push(RefSource::Standoff {
@@ -1094,6 +1118,9 @@ mod tests {
                 end: Vec::new(),
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             });
             sources.push(RefSource::Standoff {
                 text: RefTextSource::Local(Vec::new()),
@@ -1101,6 +1128,9 @@ mod tests {
                 end: field.clone(),
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             });
         }
         assert_eq!(sources.len(), 48);

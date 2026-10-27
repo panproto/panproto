@@ -18,6 +18,7 @@ use crate::functor::FInstance;
 use crate::ginstance::GInstance;
 use crate::graph_edit::{AttrKey, GraphDelta, GraphEdit};
 use crate::identity::{CanonicalSink, Digest};
+use crate::key::{KeyingError, canonical_key_bytes};
 use crate::table_delta::TableDelta;
 use crate::table_edit::TableEdit;
 use crate::tree_edit::TreeEdit;
@@ -117,17 +118,6 @@ pub fn key_values(view: InstanceView<'_>, element: &ViewRef, key: &Key) -> Optio
         .collect()
 }
 
-/// The canonical bytes of a key value: each part's value through
-/// [`CanonicalSink::value`], behind the part count.
-pub fn key_bytes(values: &[Value]) -> Vec<u8> {
-    let mut w = panproto_schema::CanonicalWriter::new();
-    w.len(values.len());
-    for v in values {
-        w.value(v);
-    }
-    w.into_bytes()
-}
-
 /// The scope element of `element` under `scope`: for `Within(vertex)`, the
 /// nearest node anchored at `vertex` reached backwards along in-edges (the
 /// least such node when several are equally near), else `None`. Document
@@ -176,7 +166,12 @@ pub struct KeyIndex {
 
 impl KeyIndex {
     /// Index the elements of `vertex` by `key`, scoped when `scoped`.
-    pub(crate) fn build(view: InstanceView<'_>, vertex: &Name, key: &Key, scoped: bool) -> Self {
+    pub(crate) fn build(
+        view: InstanceView<'_>,
+        vertex: &Name,
+        key: &Key,
+        scoped: bool,
+    ) -> Result<Self, KeyingError> {
         let mut index = Self::default();
         for element in view.anchored(vertex) {
             let Some(values) = key_values(view, &element, key) else {
@@ -192,7 +187,7 @@ impl KeyIndex {
             } else {
                 None
             };
-            let bytes = key_bytes(&values);
+            let bytes = canonical_key_bytes(key, &values)?;
             index
                 .by_value
                 .entry(bytes.clone())
@@ -205,7 +200,7 @@ impl KeyIndex {
                 .push(element.clone());
             index.values.insert(element, values);
         }
-        index
+        Ok(index)
     }
 }
 

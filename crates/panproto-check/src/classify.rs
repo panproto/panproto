@@ -44,14 +44,16 @@
 //!   additions non-breaking, removals and modifications breaking.
 //!   [`classify_with_schemas`] layers the schema-level coercion class
 //!   downgrade check on top.
-//! - **Keys**: adding a key on a vertex the old schema has is breaking,
-//!   since every key role constrains its values to be unique; a key on a
-//!   newly added vertex, and a removed key, are non-breaking. A changed key
-//!   is breaking when it can reject what the old key accepted: new parts, a
-//!   stronger role (`Primary` over `Unique` or `Identifier`, the latter two
-//!   not interchangeable), or a wider scope (`Global` over `Document` over
-//!   `Within`, and a different `Within` vertex); otherwise it is a
-//!   non-breaking relaxation.
+//! - **Keys**: adding a primary, unique, or identifier key on a vertex the
+//!   old schema has is breaking because it adds a uniqueness constraint.
+//!   Adding a sort key or index is non-breaking because neither role rejects
+//!   instances. A key on a newly added vertex, and a removed key, are also
+//!   non-breaking. A changed key is breaking when it has new parts, any
+//!   different role, a wider scope (`Global` over `Document` over `Within`,
+//!   and a different `Within` vertex), or a changed equality declaration;
+//!   otherwise it is a non-breaking relaxation. Role changes fail closed
+//!   because the roles impose different uniqueness, ordering, identity, and
+//!   resolution contracts.
 //! - **References**: adding a reference whose holder the old schema has is
 //!   breaking when it is non-nullable or fails on an unresolved value, and
 //!   non-breaking otherwise; a removed reference is non-breaking. A changed
@@ -59,6 +61,9 @@
 //!   non-nullable, or `Complement` to `Error` on unresolved values, or
 //!   changes anything else, and a non-breaking relaxation when it only
 //!   does the inverses.
+//! - **Target sets**: additions are breaking and removals non-breaking. A
+//!   changed target set is breaking when its scope changes or it gains a
+//!   member, and is a non-breaking relaxation otherwise.
 //!
 //! The [`classify`] function destructures [`SchemaDiff`] exhaustively so
 //! that a newly added diff field is a compile error until it is given a
@@ -66,11 +71,13 @@
 //! bucket is the conservative fail-closed fallback for any residual
 //! sub-case that has no dedicated variant.
 
-use panproto_schema::{Cardinality, Key, KeyRole, KeyScope, OnUnresolved, Protocol, Reference};
+use panproto_schema::{
+    Cardinality, Key, KeyRole, KeyScope, OnUnresolved, Protocol, Reference, TargetSet,
+};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
-use crate::diff::{ConstraintChange, KeyChange, ReferenceChange, SchemaDiff};
+use crate::diff::{ConstraintChange, KeyChange, ReferenceChange, SchemaDiff, TargetSetChange};
 
 /// The tri-state compatibility verdict for a [`CompatReport`].
 ///
@@ -377,8 +384,8 @@ pub enum BreakingChange {
         key_id: String,
     },
 
-    /// A key's parts, role or scope changed in a way that can reject values
-    /// the old key accepted.
+    /// A key's parts, role, scope, or equality changed in a way that can
+    /// reject values the old key accepted.
     KeyTightened {
         /// The keyed vertex ID.
         vertex_id: String,
@@ -398,6 +405,19 @@ pub enum BreakingChange {
     ReferenceTightened {
         /// The reference ID.
         reference_id: String,
+    },
+
+    /// A target set was declared, which may admit new reference targets that
+    /// existing consumers do not recognise.
+    TargetSetAdded {
+        /// The target-set ID.
+        set_id: String,
+    },
+
+    /// A target set changed scope or gained a member.
+    TargetSetTightened {
+        /// The target-set ID.
+        set_id: String,
     },
 
     /// A residual, non-empty diff sub-case with no dedicated variant.
@@ -548,6 +568,18 @@ pub enum NonBreakingChange {
         /// The reference ID.
         reference_id: String,
     },
+
+    /// A target set was removed.
+    TargetSetRemoved {
+        /// The target-set ID.
+        set_id: String,
+    },
+
+    /// A target set lost members without changing scope.
+    TargetSetRelaxed {
+        /// The target-set ID.
+        set_id: String,
+    },
 }
 
 /// Classify a [`SchemaDiff`] into breaking and non-breaking changes.
@@ -583,6 +615,7 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         added_nsids,
         removed_nsids,
         changed_nsids,
+        entry_change,
         added_variants,
         removed_variants,
         modified_variants,
@@ -613,6 +646,9 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         added_references,
         removed_references,
         modified_references,
+        added_target_sets,
+        removed_target_sets,
+        modified_target_sets,
         renamed_vertices,
     } = diff;
 
@@ -673,6 +709,15 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         }
         non_breaking.push(NonBreakingChange::AddedVertex {
             vertex_id: v.clone(),
+        });
+    }
+
+    // Entry-point changes alter the admitted root family. The finite
+    // declaration oracle specifies no directional relaxation, so fail closed.
+    if entry_change.is_some() {
+        breaking.push(BreakingChange::UnclassifiedChange {
+            category: "entries".to_owned(),
+            count: 1,
         });
     }
 
@@ -927,6 +972,13 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         &mut breaking,
         &mut non_breaking,
     );
+    classify_target_sets(
+        added_target_sets,
+        removed_target_sets,
+        modified_target_sets,
+        &mut breaking,
+        &mut non_breaking,
+    );
 
     finish_report(breaking, non_breaking)
 }
@@ -943,7 +995,9 @@ fn classify_keys(
     for (vertex_id, key) in added {
         let vertex_id = vertex_id.clone();
         let key_id = key.id.to_string();
-        if new_vertices.contains(vertex_id.as_str()) {
+        if new_vertices.contains(vertex_id.as_str())
+            || matches!(key.role, KeyRole::SortKey | KeyRole::Index)
+        {
             non_breaking.push(NonBreakingChange::KeyAdded { vertex_id, key_id });
         } else {
             breaking.push(BreakingChange::KeyAdded { vertex_id, key_id });
@@ -968,21 +1022,17 @@ fn classify_keys(
 
 /// Whether `new` can reject values `old` accepted.
 fn key_is_tightened(old: &Key, new: &Key) -> bool {
-    let role_rank = |role: &KeyRole| match role {
-        KeyRole::Primary => 2,
-        KeyRole::Unique | KeyRole::Identifier => 1,
-    };
     let scope_rank = |scope: &KeyScope| match scope {
         KeyScope::Global => 3,
         KeyScope::Document => 2,
         KeyScope::Within(_) => 1,
     };
     let parts_changed = old.parts != new.parts;
-    let role_tightened = role_rank(&new.role) > role_rank(&old.role)
-        || (role_rank(&new.role) == role_rank(&old.role) && new.role != old.role);
+    let role_changed = old.role != new.role;
     let scope_tightened = scope_rank(&new.scope) > scope_rank(&old.scope)
         || (scope_rank(&new.scope) == scope_rank(&old.scope) && new.scope != old.scope);
-    parts_changed || role_tightened || scope_tightened
+    let equality_changed = old.equality != new.equality;
+    parts_changed || role_changed || scope_tightened || equality_changed
 }
 
 /// Classify reference additions, removals and changes.
@@ -1026,12 +1076,54 @@ fn reference_is_tightened(old: &Reference, new: &Reference) -> bool {
     let now_strict =
         old.on_unresolved == OnUnresolved::Complement && new.on_unresolved == OnUnresolved::Error;
     let other_change = old.holder != new.holder
+        || old.id != new.id
         || old.source != new.source
         || old.target_vertex != new.target_vertex
         || old.target_key != new.target_key
         || old.edge != new.edge
-        || old.mode != new.mode;
+        || old.mode != new.mode
+        || old.guard != new.guard
+        || old.null_match != new.null_match
+        || old.null_vertex != new.null_vertex
+        || old.scope_via != new.scope_via;
     many_to_one || now_required || now_strict || other_change
+}
+
+/// Classify target-set additions, removals and changes.
+fn classify_target_sets(
+    added: &[(String, TargetSet)],
+    removed: &[(String, TargetSet)],
+    modified: &[TargetSetChange],
+    breaking: &mut Vec<BreakingChange>,
+    non_breaking: &mut Vec<NonBreakingChange>,
+) {
+    for (set_id, _) in added {
+        breaking.push(BreakingChange::TargetSetAdded {
+            set_id: set_id.clone(),
+        });
+    }
+    for (set_id, _) in removed {
+        non_breaking.push(NonBreakingChange::TargetSetRemoved {
+            set_id: set_id.clone(),
+        });
+    }
+    for change in modified {
+        let tightened = change.old.scope != change.new.scope
+            || change
+                .new
+                .members
+                .iter()
+                .any(|member| !change.old.members.contains(member));
+        if tightened {
+            breaking.push(BreakingChange::TargetSetTightened {
+                set_id: change.id.clone(),
+            });
+        } else {
+            non_breaking.push(NonBreakingChange::TargetSetRelaxed {
+                set_id: change.id.clone(),
+            });
+        }
+    }
 }
 
 /// Classify a schema diff with access to the old and new schemas for

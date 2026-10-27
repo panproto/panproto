@@ -3,7 +3,7 @@
 //! These recognizers are intentionally defined in the reference crate rather
 //! than shared with production.  The simple formats follow their grammars
 //! directly; the CID recognizer decodes the canonical lowercase-base32 body
-//! and then checks the ATProto data model's blessed CID envelope.
+//! and then checks the `ATProto` data model's blessed CID envelope.
 
 const HANDLE_LIMIT: usize = 253;
 const LABEL_LIMIT: usize = 63;
@@ -299,9 +299,8 @@ fn language(text: &str) -> bool {
 const CID_BASE32: &[u8] = b"abcdefghijklmnopqrstuvwxyz234567";
 
 fn cid(text: &str) -> bool {
-    let body = match text.strip_prefix('b') {
-        Some(body) => body,
-        None => return false,
+    let Some(body) = text.strip_prefix('b') else {
+        return false;
     };
     decode_canonical_base32(body).is_some_and(|bytes| blessed_cid(&bytes))
 }

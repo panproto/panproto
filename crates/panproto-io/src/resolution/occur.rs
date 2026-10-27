@@ -13,16 +13,18 @@ use panproto_gat::Name;
 use panproto_inst::identity::{
     resolution_context_digest, resolution_external_text_digest, resolution_token_boundaries_digest,
 };
-use panproto_inst::resolution_complement::{ResolutionSpan, ResolutionTextId};
+use panproto_inst::key::{KeyingError, canonical_key_bytes};
+use panproto_inst::resolution_complement::{ResolutionSpan, ResolutionTextId, ResolutionValueSite};
 use panproto_inst::{
     AnyInstance, Digest, FidelityReason, ResolutionProviderId, Value, ValueFidelityError, ViewRef,
 };
 use panproto_schema::{
-    Cardinality, Edge, OffsetUnit, OnUnresolved, RefTextSource, Reference, ScalarKind,
+    Cardinality, Edge, NullMatch, OffsetUnit, OnUnresolved, RefTextSource, Reference, ScalarKind,
+    SpanEnd, VariableBinding,
 };
 
 use super::compile::{CompiledRef, RefForm};
-use super::error::{ResolutionFeature, ResolveError};
+use super::error::{KeyEqualityReason, ResolutionFeature, ResolveError};
 use super::source::{KeyIndex, ScopeOf, Source, key_bytes};
 use super::standoff::{self, UnitFailure};
 use super::{ResolutionProvider, ResolveContext};
@@ -52,11 +54,15 @@ pub enum Lookup {
         scope: ScopeOf,
         /// The canonical bytes of the name.
         bytes: Vec<u8>,
+        /// Which matching preceding definition binds this occurrence.
+        binding: VariableBinding,
     },
     /// Candidates a provider resolved a path to, ascending.
     Candidates(Vec<ViewRef>),
     /// A materialized span.
     Span(ResolutionSpan),
+    /// A guarded declaration group for which no guard was selected.
+    Unselected(Value),
 }
 
 /// One occurrence of a reference at a holder.
@@ -77,7 +83,7 @@ pub struct Occurrence<'r> {
 }
 
 /// How one occurrence resolved.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     /// It names exactly this element (or span key).
     Resolved(ViewRef),
@@ -89,6 +95,28 @@ pub enum Outcome {
     Dangling,
     /// It names several elements, ascending.
     Ambiguous(Vec<ViewRef>),
+    /// No declaration in a guarded group matched this exact value.
+    Unselected(Value),
+}
+
+enum GuardAction {
+    Read,
+    Skip,
+    Unselected(Value),
+}
+
+/// The stable identity of a local or externally loaded resolution text.
+///
+/// The resource key and loaded bytes are context, not identity: two loads at
+/// the same field keep one identity and are distinguished by their recorded
+/// context digest.
+#[must_use]
+pub const fn text_identity(site: ResolutionValueSite, external: bool) -> ResolutionTextId {
+    if external {
+        ResolutionTextId::ExternalKey(site)
+    } else {
+        ResolutionTextId::Local(site)
+    }
 }
 
 /// The literal of a key tuple: the value itself for one part, a list of
@@ -103,12 +131,12 @@ pub fn tuple_literal(values: &[Value]) -> Value {
 
 /// The values of one reference part read as a sequence: a list value
 /// contributes its items, any other value itself.
-fn sequence(values: Vec<&Value>) -> Vec<Value> {
+fn sequence(values: Vec<Value>) -> Vec<Value> {
     values
         .into_iter()
         .flat_map(|value| match value {
-            Value::List(items) => items.clone(),
-            other => vec![other.clone()],
+            Value::List(items) => items,
+            other => vec![other],
         })
         .collect()
 }
@@ -124,7 +152,7 @@ fn len_u64(len: usize) -> u64 {
 fn tuples(
     reference: &Reference,
     holder: &ViewRef,
-    parts: Vec<Vec<&Value>>,
+    parts: Vec<Vec<Value>>,
 ) -> Result<Vec<Vec<Value>>, ResolveError> {
     let mismatch = |lengths: Vec<u64>| ResolveError::ReferenceCardinalityMismatch {
         reference: reference.id.clone(),
@@ -141,12 +169,7 @@ fn tuples(
             if lengths.iter().any(|length| *length != 1) {
                 return Err(mismatch(lengths));
             }
-            Ok(vec![
-                parts
-                    .into_iter()
-                    .flat_map(|part| part.into_iter().cloned())
-                    .collect(),
-            ])
+            Ok(vec![parts.into_iter().flatten().collect()])
         }
         Cardinality::Many => {
             let sequences: Vec<Vec<Value>> = parts.into_iter().map(sequence).collect();
@@ -174,6 +197,8 @@ struct Declared<'d> {
     end: &'d [Edge],
     unit: &'d OffsetUnit,
     end_inclusive: bool,
+    end_form: SpanEnd,
+    origin: u64,
 }
 
 /// The context every occurrence evaluation reads.
@@ -209,7 +234,18 @@ impl Reader<'_, '_> {
             if skip.contains(&(holder.clone(), compiled.reference.id.clone())) {
                 continue;
             }
-            occurrences.extend(self.read_at(compiled, &holder)?);
+            match self.guard_action(references, skip, compiled, &holder) {
+                GuardAction::Read => occurrences.extend(self.read_at(compiled, &holder)?),
+                GuardAction::Skip => {}
+                GuardAction::Unselected(value) => occurrences.push(Occurrence {
+                    holder,
+                    compiled,
+                    index: 0,
+                    literal: value.clone(),
+                    context: None,
+                    lookup: Lookup::Unselected(value),
+                }),
+            }
         }
         Ok(occurrences)
     }
@@ -221,12 +257,73 @@ impl Reader<'_, '_> {
         references: &'r BTreeMap<Name, CompiledRef>,
     ) -> Vec<(ViewRef, &'r CompiledRef, ResolveError)> {
         let mut failures = Vec::new();
+        let skip = Skipped::new();
         for (holder, compiled) in self.holders(references) {
-            if let Err(error) = self.read_at(compiled, &holder) {
+            if matches!(
+                self.guard_action(references, &skip, compiled, &holder),
+                GuardAction::Read
+            ) && let Err(error) = self.read_at(compiled, &holder)
+            {
                 failures.push((holder, compiled, error));
             }
         }
         failures
+    }
+
+    fn guard_action(
+        &self,
+        references: &BTreeMap<Name, CompiledRef>,
+        skip: &Skipped,
+        compiled: &CompiledRef,
+        holder: &ViewRef,
+    ) -> GuardAction {
+        let Some(guard) = &compiled.reference.guard else {
+            return GuardAction::Read;
+        };
+        let Some(actual) = self
+            .source
+            .path_sites(holder, &guard.field)
+            .into_iter()
+            .next()
+            .map(|(_, value)| value.clone())
+        else {
+            return GuardAction::Skip;
+        };
+        let in_group = |candidate: &CompiledRef| {
+            candidate.reference.holder == compiled.reference.holder
+                && candidate.reference.source == compiled.reference.source
+                && candidate
+                    .reference
+                    .guard
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.field == guard.field)
+        };
+        if references
+            .values()
+            .filter(|candidate| in_group(candidate))
+            .any(|candidate| {
+                candidate
+                    .reference
+                    .guard
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.equals.canonical_cmp(&actual).is_eq())
+            })
+        {
+            return if guard.equals.canonical_cmp(&actual).is_eq() {
+                GuardAction::Read
+            } else {
+                GuardAction::Skip
+            };
+        }
+        let representative = references
+            .values()
+            .filter(|candidate| in_group(candidate))
+            .find(|candidate| !skip.contains(&(holder.clone(), candidate.reference.id.clone())));
+        if representative.is_some_and(|candidate| candidate.reference.id == compiled.reference.id) {
+            GuardAction::Unselected(actual)
+        } else {
+            GuardAction::Skip
+        }
     }
 
     /// Every holder of every reference, in `(holder, reference)` order.
@@ -252,13 +349,20 @@ impl Reader<'_, '_> {
         let reads = match &compiled.form {
             RefForm::KeyValue { key, parts } => {
                 let paths: Vec<&[Edge]> = parts.iter().map(Vec::as_slice).collect();
-                self.keyed(compiled, holder, key, &paths, false)?
+                self.keyed(compiled, holder, key, &paths, None)?
             }
             RefForm::Variable {
                 key,
                 field,
                 self_binding,
-            } => self.keyed(compiled, holder, key, &[field.as_slice()], *self_binding)?,
+                binding,
+            } => self.keyed(
+                compiled,
+                holder,
+                key,
+                &[field.as_slice()],
+                self_binding.then_some(*binding),
+            )?,
             RefForm::Path { field } => self.paths(compiled, holder, field)?,
             RefForm::Standoff {
                 key,
@@ -267,6 +371,8 @@ impl Reader<'_, '_> {
                 end,
                 unit,
                 end_inclusive,
+                end_form,
+                origin,
             } => {
                 let declaration = Declared {
                     text,
@@ -274,6 +380,8 @@ impl Reader<'_, '_> {
                     end,
                     unit,
                     end_inclusive: *end_inclusive,
+                    end_form: *end_form,
+                    origin: *origin,
                 };
                 self.standoff(compiled, holder, key.as_ref(), &declaration)?
             }
@@ -305,6 +413,12 @@ impl Reader<'_, '_> {
             .collect()
     }
 
+    /// Values reached along one foreign-key part, retaining explicit nulls
+    /// so the declaration's null-matching mode can decide tuple presence.
+    fn key_values(&self, holder: &ViewRef, path: &[Edge]) -> Vec<Value> {
+        self.source.path_values_or_null(holder, path)
+    }
+
     /// The occurrences of a reference looked up by a key: key values, or a
     /// variable's name.
     fn keyed(
@@ -313,27 +427,37 @@ impl Reader<'_, '_> {
         holder: &ViewRef,
         key: &Key,
         paths: &[&[Edge]],
-        self_binding: bool,
+        binding: Option<VariableBinding>,
     ) -> Result<Vec<Read>, ResolveError> {
         let reference = &compiled.reference;
         let scope = self.source.scope_of(holder, &key.scope);
-        let parts = paths.iter().map(|path| self.values(holder, path)).collect();
+        let parts = paths
+            .iter()
+            .map(|path| match reference.cardinality {
+                Cardinality::One => self.key_values(holder, path),
+                Cardinality::Many => self.values(holder, path).into_iter().cloned().collect(),
+            })
+            .collect();
         Ok(tuples(reference, holder, parts)?
             .into_iter()
+            .filter(|values| match reference.null_match {
+                NullMatch::Simple => values.iter().all(|value| *value != Value::Null),
+                NullMatch::Full => values.iter().any(|value| *value != Value::Null),
+            })
             .map(|values| {
-                let lookup = if self_binding {
-                    Lookup::Binding {
-                        scope: scope.clone(),
-                        bytes: key_bytes(&values),
-                    }
-                } else {
-                    Lookup::Key {
+                let lookup = binding.map_or_else(
+                    || Lookup::Key {
                         vertex: reference.target_vertex.clone(),
                         key: key.clone(),
                         scope: scope.clone(),
                         values: values.clone(),
-                    }
-                };
+                    },
+                    |binding| Lookup::Binding {
+                        scope: scope.clone(),
+                        bytes: key_bytes(&values),
+                        binding,
+                    },
+                );
                 (tuple_literal(&values), None, lookup)
             })
             .collect())
@@ -347,21 +471,25 @@ impl Reader<'_, '_> {
         field: &[Edge],
     ) -> Result<Vec<Read>, ResolveError> {
         let reference = &compiled.reference;
-        tuples(reference, holder, vec![self.values(holder, field)])?
-            .into_iter()
-            .map(|values| {
-                let literal = tuple_literal(&values);
-                let resolved = self.provider.resolve_path(
-                    reference,
-                    holder.clone(),
-                    &literal,
-                    self.any,
-                    self.ctx,
-                )?;
-                let candidates = self.typed_candidates(reference, holder, resolved.candidates)?;
-                Ok((literal, resolved.context, Lookup::Candidates(candidates)))
-            })
-            .collect()
+        tuples(
+            reference,
+            holder,
+            vec![self.values(holder, field).into_iter().cloned().collect()],
+        )?
+        .into_iter()
+        .map(|values| {
+            let literal = tuple_literal(&values);
+            let resolved = self.provider.resolve_path(
+                reference,
+                holder.clone(),
+                &literal,
+                self.any,
+                self.ctx,
+            )?;
+            let candidates = self.typed_candidates(reference, holder, resolved.candidates)?;
+            Ok((literal, resolved.context, Lookup::Candidates(candidates)))
+        })
+        .collect()
     }
 
     /// The occurrences of a standoff reference: spans over the holder's one
@@ -378,8 +506,14 @@ impl Reader<'_, '_> {
             reference,
             holder,
             vec![
-                self.values(holder, declared.start),
-                self.values(holder, declared.end),
+                self.values(holder, declared.start)
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+                self.values(holder, declared.end)
+                    .into_iter()
+                    .cloned()
+                    .collect(),
             ],
         )?;
         if pairs.is_empty() {
@@ -390,13 +524,7 @@ impl Reader<'_, '_> {
         pairs
             .into_iter()
             .map(|values| {
-                let (start, end) = text.interval(
-                    reference,
-                    holder,
-                    declared.unit,
-                    declared.end_inclusive,
-                    &values,
-                )?;
+                let (start, end) = text.interval(reference, holder, declared, &values)?;
                 let lookup = match &keyed {
                     None => Lookup::Span(ResolutionSpan {
                         text: text.id.clone(),
@@ -467,6 +595,18 @@ impl Reader<'_, '_> {
         let (path, local) = match source {
             RefTextSource::Local(path) => (path, true),
             RefTextSource::External(path) => (path, false),
+            RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
+                return Err(ResolveError::UnsupportedFeature {
+                    provider: Some(self.provider_id.clone()),
+                    feature: ResolutionFeature::ResolutionState,
+                });
+            }
+            RefTextSource::ExternalUri { .. } => {
+                return Err(ResolveError::UnsupportedFeature {
+                    provider: Some(self.provider_id.clone()),
+                    feature: ResolutionFeature::ExternalText,
+                });
+            }
         };
         let sites = self.source.path_sites(holder, path);
         let [(site, value)] = sites.as_slice() else {
@@ -488,7 +628,7 @@ impl Reader<'_, '_> {
         }
         let (id, bytes, external) = if local {
             (
-                ResolutionTextId::Local(site.clone()),
+                text_identity(site.clone(), false),
                 text_bytes(value, reference)?,
                 None,
             )
@@ -502,11 +642,7 @@ impl Reader<'_, '_> {
                 })?;
             let bytes = store.load(value)?;
             let digest = resolution_external_text_digest(value, &bytes);
-            (
-                ResolutionTextId::ExternalKey(site.clone()),
-                bytes,
-                Some(digest),
-            )
+            (text_identity(site.clone(), true), bytes, Some(digest))
         };
         let (tokens, token_digest) = if matches!(unit, OffsetUnit::Token) {
             let provider =
@@ -551,8 +687,7 @@ impl Text {
         &self,
         reference: &Reference,
         holder: &ViewRef,
-        unit: &OffsetUnit,
-        end_inclusive: bool,
+        declared: &Declared<'_>,
         values: &[Value],
     ) -> Result<(u64, u64), ResolveError> {
         let [start, end] = values else {
@@ -564,34 +699,51 @@ impl Text {
         };
         let start = offset(start, reference)?;
         let end = offset(end, reference)?;
+        let (declared_start, declared_end) =
+            standoff::form_to_offsets(start, end, declared.origin, declared.end_form).map_err(
+                |_| ResolveError::OffsetOutOfRange {
+                    reference: reference.id.clone(),
+                    at: Box::new(holder.clone()),
+                    start,
+                    end,
+                    len: self
+                        .boundaries
+                        .as_ref()
+                        .map_or(0, |boundaries| standoff::unit_len(boundaries)),
+                },
+            )?;
         let boundaries =
             self.boundaries
                 .as_ref()
                 .map_err(|reason| ResolveError::OffsetUnitViolation {
                     reference: reference.id.clone(),
                     at: Box::new(holder.clone()),
-                    unit: unit.clone(),
+                    unit: declared.unit.clone(),
                     offset: start,
                     reason: *reason,
                 })?;
-        standoff::declared_to_bytes(boundaries, start, end, end_inclusive).map_err(
-            |(failure, offset)| match failure {
-                UnitFailure::OutOfRange => ResolveError::OffsetOutOfRange {
-                    reference: reference.id.clone(),
-                    at: Box::new(holder.clone()),
-                    start,
-                    end,
-                    len: standoff::unit_len(boundaries),
-                },
-                UnitFailure::Violation(reason) => ResolveError::OffsetUnitViolation {
-                    reference: reference.id.clone(),
-                    at: Box::new(holder.clone()),
-                    unit: unit.clone(),
-                    offset,
-                    reason,
-                },
-            },
+        standoff::declared_to_bytes(
+            boundaries,
+            declared_start,
+            declared_end,
+            declared.end_inclusive,
         )
+        .map_err(|(failure, offset)| match failure {
+            UnitFailure::OutOfRange => ResolveError::OffsetOutOfRange {
+                reference: reference.id.clone(),
+                at: Box::new(holder.clone()),
+                start,
+                end,
+                len: standoff::unit_len(boundaries),
+            },
+            UnitFailure::Violation(reason) => ResolveError::OffsetUnitViolation {
+                reference: reference.id.clone(),
+                at: Box::new(holder.clone()),
+                unit: declared.unit.clone(),
+                offset,
+                reason,
+            },
+        })
     }
 }
 
@@ -682,8 +834,10 @@ pub fn lexeme(value: &Value) -> String {
 /// in its scope, in document order, is the name's definition, and every
 /// later one resolves to that definition's holder. Path candidates come
 /// from the provider. A materialized span always resolves to its span.
-#[must_use]
-pub fn resolve(source: &Source<'_>, occurrences: &[Occurrence<'_>]) -> Vec<Outcome> {
+pub fn resolve(
+    source: &Source<'_>,
+    occurrences: &[Occurrence<'_>],
+) -> Result<Vec<Outcome>, ResolveError> {
     let mut indexes: BTreeMap<(Name, Name), KeyIndex> = BTreeMap::new();
     let mut outcomes: Vec<Outcome> = Vec::with_capacity(occurrences.len());
     let mut bindings: Vec<usize> = Vec::new();
@@ -703,13 +857,20 @@ pub fn resolve(source: &Source<'_>, occurrences: &[Occurrence<'_>]) -> Vec<Outco
                     ScopeOf::Within(scope) => Some(scope),
                     ScopeOf::Whole | ScopeOf::Outside => None,
                 };
-                let index = indexes
-                    .entry((vertex.clone(), key.id.clone()))
-                    .or_insert_with(|| KeyIndex::build(source, vertex, key));
-                of_candidates(index.lookup(scope, &key_bytes(values)))
+                let index = match indexes.entry((vertex.clone(), key.id.clone())) {
+                    std::collections::btree_map::Entry::Vacant(entry) => entry.insert(
+                        KeyIndex::build(source, vertex, key)
+                            .map_err(|error| key_equality_error(key, error))?,
+                    ),
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                };
+                let bytes = canonical_key_bytes(key, values)
+                    .map_err(|error| key_equality_error(key, error))?;
+                of_candidates(index.lookup(scope, &bytes))
             }
             Lookup::Candidates(candidates) => of_candidates(candidates.clone()),
             Lookup::Span(_) => Outcome::Span,
+            Lookup::Unselected(value) => Outcome::Unselected(value.clone()),
             Lookup::Binding { .. } => {
                 // Decided below, in document order; every binding position
                 // is overwritten there.
@@ -720,7 +881,7 @@ pub fn resolve(source: &Source<'_>, occurrences: &[Occurrence<'_>]) -> Vec<Outco
         outcomes.push(outcome);
     }
     if bindings.is_empty() {
-        return outcomes;
+        return Ok(outcomes);
     }
     let order: BTreeMap<ViewRef, usize> = source
         .document_order()
@@ -739,7 +900,12 @@ pub fn resolve(source: &Source<'_>, occurrences: &[Occurrence<'_>]) -> Vec<Outco
     let mut definitions: BTreeMap<(Name, Option<ViewRef>, Vec<u8>), ViewRef> = BTreeMap::new();
     for position in bindings {
         let occurrence = &occurrences[position];
-        let Lookup::Binding { scope, bytes } = &occurrence.lookup else {
+        let Lookup::Binding {
+            scope,
+            bytes,
+            binding,
+        } = &occurrence.lookup
+        else {
             continue;
         };
         let scope = match scope {
@@ -755,16 +921,37 @@ pub fn resolve(source: &Source<'_>, occurrences: &[Occurrence<'_>]) -> Vec<Outco
             scope,
             bytes.clone(),
         );
-        let defined = definitions.get(&bucket).cloned();
-        outcomes[position] = defined.map_or_else(
-            || {
+        if let Some(defined) = definitions.get(&bucket).cloned() {
+            outcomes[position] = Outcome::Resolved(defined);
+            if matches!(binding, VariableBinding::NearestPreceding) {
                 definitions.insert(bucket, occurrence.holder.clone());
-                Outcome::Definition
-            },
-            Outcome::Resolved,
-        );
+            }
+        } else {
+            definitions.insert(bucket, occurrence.holder.clone());
+            outcomes[position] = Outcome::Definition;
+        }
     }
-    outcomes
+    Ok(outcomes)
+}
+
+fn key_equality_error(key: &Key, error: KeyingError) -> ResolveError {
+    let reason = match error {
+        KeyingError::UnsupportedCollation(collation) => {
+            KeyEqualityReason::UnsupportedCollation(collation)
+        }
+        KeyingError::EqualityArity { expected, found } => {
+            KeyEqualityReason::EqualityArity { expected, found }
+        }
+        KeyingError::InvalidNumericRepresentation { kind } => {
+            KeyEqualityReason::InvalidNumericRepresentation {
+                kind: kind.to_owned(),
+            }
+        }
+    };
+    ResolveError::KeyEquality {
+        key: key.id.clone(),
+        reason,
+    }
 }
 
 fn of_candidates(candidates: Vec<ViewRef>) -> Outcome {
@@ -781,7 +968,10 @@ fn of_candidates(candidates: Vec<ViewRef>) -> Outcome {
 pub fn reported_key(occurrence: &Occurrence<'_>) -> Vec<Value> {
     match &occurrence.lookup {
         Lookup::Key { values, .. } => values.clone(),
-        Lookup::Binding { .. } | Lookup::Candidates(_) | Lookup::Span(_) => {
+        Lookup::Binding { .. }
+        | Lookup::Candidates(_)
+        | Lookup::Span(_)
+        | Lookup::Unselected(_) => {
             vec![occurrence.literal.clone()]
         }
     }

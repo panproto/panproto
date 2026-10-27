@@ -2198,18 +2198,20 @@ pub mod implementation {
             .filter(|id| *id != u32::MAX)
     }
 
-    /// Where a key path's value lives at a holder: a node's own value, or a
-    /// node's field (the field fallback of the last hop).
+    /// Where a key path's value lives, or would be written, at a holder: a
+    /// node's own-value site, or the field fallback of the last hop. A
+    /// present arc or holder determines the site even when its current value
+    /// is absent or null.
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum Site {
         Own(u32),
         Field(u32, String),
     }
 
-    /// The site a key path reads at `n`, as [`keys::path_value`] reads it: the
-    /// first node of the last hop's frontier that has a target along the last
-    /// edge (its first target's own value), else the first frontier node (its
-    /// field named by the last edge).
+    /// The site a key path reads or writes at `n`: the first node of the last
+    /// hop's frontier that has a target along the last edge (its first
+    /// target's own value), else the first frontier node (its field named by
+    /// the last edge).
     fn path_site(g: &Graph, n: u32, path: &[SEdge]) -> Option<Site> {
         let (last, hops) = path.split_last()?;
         let mut frontier = vec![n];
@@ -2233,20 +2235,13 @@ pub mod implementation {
                 .collect();
             if targets.is_empty() {
                 g.nodes
-                    .get(&x)?
-                    .fields
-                    .get(last.column())
-                    .filter(|value| **value != Value::Null)
-                    .map(|_| Site::Field(x, last.column().to_owned()))
+                    .contains_key(&x)
+                    .then(|| Site::Field(x, last.column().to_owned()))
             } else {
-                targets.into_iter().find_map(|target| {
-                    g.nodes
-                        .get(&target)?
-                        .value
-                        .as_ref()
-                        .filter(|value| matches!(value, Presence::Present(v) if *v != Value::Null))
-                        .map(|_| Site::Own(target))
-                })
+                targets
+                    .into_iter()
+                    .find(|target| g.nodes.contains_key(target))
+                    .map(Site::Own)
             }
         })
     }
@@ -2300,9 +2295,11 @@ pub mod implementation {
     /// removed is removed from its holder's sequence, and its fragment is not
     /// restored. The fragments of kept redirected occurrences are restored,
     /// each holder's sequences are written at its key sites (for `One` the one
-    /// tuple or none; for `Many` each part's list), the result is read back as
-    /// the tree with the recorded root, and every written occurrence must
-    /// re-resolve to exactly its target.
+    /// tuple or none; for `Many` each part's list). Those written sites must
+    /// already have the same values in the candidate view because they remain
+    /// visible beside the synthesized resolution edges. The result is read
+    /// back as the tree with the recorded root, and every written occurrence
+    /// must re-resolve to exactly its target.
     ///
     /// # Errors
     ///
@@ -2368,6 +2365,7 @@ pub mod implementation {
                 },
             );
         }
+        verify_visible_sequences(schema, view, comp, &sequences)?;
         restore_fragments(&mut graph, comp, &kept_fragments);
         write_sequences(schema, comp, &mut graph, &sequences)?;
         restore_inline_occurrences(view, comp, &mut graph)?;
@@ -2380,6 +2378,44 @@ pub mod implementation {
         let (check, _) = tree_to_graph(&tree, Some(schema)).map_err(|_| ResolveError::NotATree)?;
         verify_sequences(schema, &check, comp, &sequences)?;
         Ok(tree)
+    }
+
+    /// Require every source representation rewritten by put to agree already
+    /// with the candidate view. Resolution edges and their declared source
+    /// sites are both observable in that view; accepting a stale source site
+    /// would therefore violate `PutGet` even when the edge itself is writable.
+    fn verify_visible_sequences(
+        schema: &Schema,
+        view: &Graph,
+        comp: &ResComplement,
+        sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+    ) -> Result<(), ResolveError> {
+        let mut touched: BTreeSet<(u32, Name)> = comp
+            .resolved
+            .values()
+            .map(|occurrence| (occurrence.holder, occurrence.reference.clone()))
+            .collect();
+        touched.extend(sequences.keys().cloned());
+        let empty = BTreeMap::new();
+        for (holder, reference) in touched {
+            if !view.nodes.contains_key(&holder) {
+                continue;
+            }
+            let mut rewritten = view.clone();
+            write_sequence(
+                schema,
+                &mut rewritten,
+                holder,
+                &reference,
+                sequences
+                    .get(&(holder, reference.clone()))
+                    .unwrap_or(&empty),
+            )?;
+            if rewritten != *view {
+                return Err(unrepresentable(holder, &reference));
+            }
+        }
+        Ok(())
     }
 
     fn target_tuple_for_put(
@@ -3161,6 +3197,236 @@ pub mod implementation {
         })
     }
 
+    /// A finite source in the presentation-sensitive S8 resolution model.
+    ///
+    /// Each name is one target selected by a source occurrence. The carrier
+    /// deliberately forgets production row and edge representations: it is
+    /// the independent mathematical model used to check the five state laws.
+    pub type IndexedSource = BTreeSet<Name>;
+
+    /// A finite resolved view, from presentation edge id to stable target.
+    pub type IndexedView = BTreeMap<u32, Name>;
+
+    /// Stable identities for the synthesized edges of an [`IndexedView`].
+    ///
+    /// The map direction matches the public `SynthIndex`: a numeric carrier
+    /// id is only a presentation of the stable synthesis key. In this bounded
+    /// model the target name is the complete key because each source member
+    /// contributes exactly one occurrence.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct SynthIndex {
+        /// Synthesized resolution edges, by presentation id.
+        pub edges: BTreeMap<u32, Name>,
+    }
+
+    /// A put-domain violation in the bounded S8 resolution model.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ResolveDomainViolation {
+        /// A carrier retained its id but changed the stable key that id names.
+        SynthesizedEdited(u32),
+        /// Two view carriers name the same source member.
+        RepeatedTarget(Name),
+    }
+
+    /// One member of the deterministic finite Single-Step Basis.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SingleStep {
+        /// Add the previously absent target under the least fresh id.
+        Add(Name),
+        /// Delete one synthesized edge.
+        Delete(u32),
+        /// Retarget one synthesized edge.
+        Retarget {
+            /// Presentation id of the synthesized edge.
+            id: u32,
+            /// Stable target selected by the edited edge.
+            target: Name,
+        },
+    }
+
+    /// Reference get for the bounded S8 state carrier.
+    ///
+    /// Source members are traversed in name order and allocated consecutive
+    /// ids from zero. The returned index is intentionally a separate value,
+    /// even though it initially equals the view.
+    #[must_use]
+    pub fn indexed_get(source: &IndexedSource) -> (IndexedView, SynthIndex) {
+        let edges: BTreeMap<u32, Name> = (0u32..).zip(source.iter().cloned()).collect();
+        (edges.clone(), SynthIndex { edges })
+    }
+
+    /// Independently decide the put domain of the bounded S8 carrier.
+    ///
+    /// Violations are complete and deterministic: edited synthesized ids in
+    /// id order, followed by repeated targets in target order. This predicate
+    /// does not call [`indexed_put`] or any production law helper.
+    #[must_use]
+    pub fn check_put_domain(view: &IndexedView, index: &SynthIndex) -> Vec<ResolveDomainViolation> {
+        let mut violations: Vec<ResolveDomainViolation> = view
+            .iter()
+            .filter(|(id, target)| {
+                index
+                    .edges
+                    .get(id)
+                    .is_some_and(|recorded| recorded != *target)
+            })
+            .map(|(id, _)| ResolveDomainViolation::SynthesizedEdited(*id))
+            .collect();
+        let mut seen = BTreeSet::new();
+        let mut repeated = BTreeSet::new();
+        for target in view.values() {
+            if !seen.insert(target.clone()) {
+                repeated.insert(target.clone());
+            }
+        }
+        violations.extend(
+            repeated
+                .into_iter()
+                .map(ResolveDomainViolation::RepeatedTarget),
+        );
+        violations
+    }
+
+    /// Reference put for the bounded S8 state carrier.
+    ///
+    /// # Errors
+    ///
+    /// The complete ordered result of [`check_put_domain`].
+    pub fn indexed_put(
+        view: &IndexedView,
+        index: &SynthIndex,
+    ) -> Result<IndexedSource, Vec<ResolveDomainViolation>> {
+        let violations = check_put_domain(view, index);
+        if violations.is_empty() {
+            Ok(view.values().cloned().collect())
+        } else {
+            Err(violations)
+        }
+    }
+
+    /// Whether two finite views agree modulo their synthesized presentation.
+    ///
+    /// Every carrier must be named by its index, each index must be injective,
+    /// and the two stable-key multisets must be equal. Thus an unindexed new
+    /// carrier and a duplicate key cannot be hidden by presentation erasure.
+    #[must_use]
+    pub fn equivalent(
+        left: &IndexedView,
+        left_index: &SynthIndex,
+        right: &IndexedView,
+        right_index: &SynthIndex,
+    ) -> bool {
+        fn keys(view: &IndexedView, index: &SynthIndex) -> Option<Vec<Name>> {
+            if view.len() != index.edges.len()
+                || view.keys().any(|id| !index.edges.contains_key(id))
+            {
+                return None;
+            }
+            let mut seen = BTreeSet::new();
+            let mut keys = Vec::with_capacity(view.len());
+            for (id, target) in view {
+                let key = index.edges.get(id)?;
+                if key != target || !seen.insert(key.clone()) {
+                    return None;
+                }
+                keys.push(key.clone());
+            }
+            keys.sort();
+            Some(keys)
+        }
+        keys(left, left_index)
+            .zip(keys(right, right_index))
+            .is_some_and(|(left, right)| left == right)
+    }
+
+    /// Transport an index to the presentation used by `view`.
+    ///
+    /// Each stable key is renamed to the unique id under which `view` carries
+    /// it. Keys absent from `view` retain their current presentation so the
+    /// function is total; the put-domain predicate rejects a later collision.
+    #[must_use]
+    pub fn coherent_rekey(index: &SynthIndex, view: &IndexedView) -> SynthIndex {
+        let by_key: BTreeMap<&str, u32> = view
+            .iter()
+            .map(|(id, target)| (target.as_str(), *id))
+            .collect();
+        SynthIndex {
+            edges: index
+                .edges
+                .iter()
+                .map(|(id, key)| {
+                    (
+                        by_key.get(key.as_str()).copied().unwrap_or(*id),
+                        key.clone(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Rename a view and index coherently by an injective id map.
+    #[must_use]
+    pub fn coherent_rename(
+        view: &IndexedView,
+        index: &SynthIndex,
+        renaming: &BTreeMap<u32, u32>,
+    ) -> (IndexedView, SynthIndex) {
+        let rename = |id: &u32| renaming.get(id).copied().unwrap_or(*id);
+        let view = view
+            .iter()
+            .map(|(id, target)| (rename(id), target.clone()))
+            .collect();
+        let edges = index
+            .edges
+            .iter()
+            .map(|(id, key)| (rename(id), key.clone()))
+            .collect();
+        (view, SynthIndex { edges })
+    }
+
+    /// Apply one member of the finite Single-Step Basis.
+    #[must_use]
+    pub fn apply_single_step(view: &IndexedView, step: &SingleStep) -> IndexedView {
+        let mut edited = view.clone();
+        match step {
+            SingleStep::Add(target) => {
+                let Some(fresh) = view
+                    .keys()
+                    .next_back()
+                    .map_or(Some(0), |last| last.checked_add(1))
+                else {
+                    return edited;
+                };
+                edited.insert(fresh, target.clone());
+            }
+            SingleStep::Delete(id) => {
+                edited.remove(id);
+            }
+            SingleStep::Retarget { id, target } => {
+                if edited.contains_key(id) {
+                    edited.insert(*id, target.clone());
+                }
+            }
+        }
+        edited
+    }
+
+    /// The gated `PutTwice` conclusion for one admitted candidate.
+    ///
+    /// This follows the contract literally: put once, get the reconstructed
+    /// source, coherently transport the second index onto the candidate's
+    /// presentation, and put the candidate again. The raw, untransported
+    /// second put is deliberately not used.
+    #[must_use]
+    pub fn gated_put_twice(candidate: &IndexedView, index: &SynthIndex) -> bool {
+        let Ok(once) = indexed_put(candidate, index) else {
+            return false;
+        };
+        let (_again, next) = indexed_get(&once);
+        let transported = coherent_rekey(&next, candidate);
+        indexed_put(candidate, &transported) == Ok(once)
+    }
+
     /// The target a recorded resolution edge reached at get.
     fn view_target(comp: &ResComplement, id: u32) -> Option<u32> {
         comp.targets.get(&id).copied()
@@ -3485,7 +3751,9 @@ pub mod implementation {
 }
 
 pub use self::implementation::{
-    declared_key_equality, get, guarded_partition, index_target, inherited_base, nearest_preceding,
-    preserving_registry, put, rfc3986, standoff_form, standoff_inverse, text_identity,
-    uri_environment,
+    IndexedSource, IndexedView, ResolveDomainViolation, SingleStep, SynthIndex, apply_single_step,
+    check_put_domain, coherent_rekey, coherent_rename, declared_key_equality, equivalent,
+    gated_put_twice, get, guarded_partition, index_target, indexed_get, indexed_put,
+    inherited_base, nearest_preceding, preserving_registry, put, rfc3986, standoff_form,
+    standoff_inverse, text_identity, uri_environment,
 };

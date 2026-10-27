@@ -10,13 +10,9 @@
 //! lexeme exactly.
 
 pub mod coerce;
-mod serde_forms;
-
-use std::cmp::Ordering;
-use std::collections::HashMap;
 
 use panproto_gat::Name;
-use panproto_schema::{CanonicalWriter, ScalarKind};
+use panproto_schema::ScalarKind;
 use serde::{Deserialize, Serialize};
 
 pub use panproto_expr::exact::{
@@ -25,9 +21,7 @@ pub use panproto_expr::exact::{
     OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalLexicalForm, TemporalParseError,
     TemporalYear, TimeFields, WideInt, ZuluCase, binary32_bits,
 };
-pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason};
-
-use crate::identity::CanonicalSink;
+pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason, Value};
 
 /// Field presence in a W-type instance node.
 ///
@@ -42,7 +36,6 @@ pub enum FieldPresence {
     /// The field is absent (not provided).
     Absent,
 }
-
 impl FieldPresence {
     /// Returns `true` if the field is present (not null or absent).
     #[must_use]
@@ -69,199 +62,6 @@ impl FieldPresence {
             Self::Present(v) => Some(v),
             Self::Null | Self::Absent => None,
         }
-    }
-}
-
-/// A concrete data value in an instance.
-///
-/// This is the ADT of *leaf-or-opaque* data carried by a W-type node.
-/// It mirrors the free term algebra of JSON-like values and forms a
-/// faithful round-trip target for any schema-unanchored data that
-/// parses into the instance (e.g. values landing in `extra_fields`).
-///
-/// Category-theoretically, the variants partition into:
-///
-/// - **Primitive atoms** ([`Self::Bool`], [`Self::Int`], [`Self::Float`],
-///   [`Self::Str`], [`Self::Bytes`], [`Self::CidLink`], [`Self::Blob`],
-///   [`Self::Token`], [`Self::Null`], and the exact scalars
-///   [`Self::Decimal`], [`Self::BigInt`], [`Self::Temporal`]) — generators
-///   of the ADT.
-/// - **Records** ([`Self::Opaque`], [`Self::Unknown`]) — finite products
-///   indexed by string field names (heterogeneous, unordered).
-/// - **Lists** ([`Self::List`]) — the free monoid / list object, an
-///   ordered collection with anonymous positions. This is the list
-///   constructor needed to faithfully embed JSON arrays and, more
-///   generally, any ordered-collection leaf value.
-///
-/// The `Unknown` and `List` variants together give the enum closure
-/// under the two fundamental JSON constructors (object and array) so
-/// that values with no schema anchor still round-trip losslessly.
-///
-/// # Serialized form
-///
-/// Variants serialize externally tagged in declaration order, and new
-/// variants are only ever appended, so the variant index of each is fixed.
-/// Two payloads depend on the format. In a human-readable format (JSON,
-/// and the Python and JavaScript object models) a non-finite
-/// [`Self::Float`] is a string, since JSON has no literal for it:
-/// `"Infinity"` or `"-Infinity"` for an infinity, `"NaN"` for
-/// [`CANONICAL_NAN`], `"-NaN"` for [`NEGATIVE_CANONICAL_NAN`], and
-/// `"NaN:0x"` followed by the sixteen lowercase hexadecimal digits of its
-/// bits for every other NaN, so that a NaN reads back with its bits;
-/// msgpack and CBOR keep the native float. [`Self::Bytes`] is written as a byte string (a msgpack bin, a
-/// CBOR byte string, an integer array in JSON) and read from either a byte
-/// string or an integer sequence.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Value {
-    /// Boolean value.
-    Bool(bool),
-    /// 64-bit signed integer.
-    Int(i64),
-    /// 64-bit floating-point number.
-    Float(#[serde(with = "serde_forms::float")] f64),
-    /// UTF-8 string.
-    Str(String),
-    /// Raw bytes.
-    Bytes(#[serde(with = "serde_forms::bytes")] Vec<u8>),
-    /// A content-identifier link (CID).
-    CidLink(String),
-    /// A blob reference.
-    Blob {
-        /// Reference identifier.
-        ref_: String,
-        /// MIME type.
-        mime: String,
-        /// Size in bytes.
-        size: u64,
-    },
-    /// A token (enum variant name).
-    Token(String),
-    /// Explicit null.
-    Null,
-    /// An opaque typed value (protocol-specific extension).
-    Opaque {
-        /// The type identifier.
-        type_: String,
-        /// Opaque fields.
-        #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
-        fields: HashMap<String, Self>,
-    },
-    /// An unknown record value: a finite product of name/value pairs.
-    /// Used for schema-unanchored objects that must round-trip.
-    Unknown(#[serde(with = "panproto_schema::serde_helpers::sorted_map")] HashMap<String, Self>),
-    /// An ordered list of values: the free-monoid list object over
-    /// `Value`. Used for schema-unanchored arrays and for transforms
-    /// that operate on ordered collections carried in `extra_fields`.
-    List(Vec<Self>),
-    /// A labeled null: an existential placeholder carrying a distinct
-    /// identity.
-    ///
-    /// Labeled nulls are introduced by the term-level chase in
-    /// `panproto-mig` when a tuple-generating dependency fires: the
-    /// existentially-quantified positions of its head are filled with
-    /// fresh labeled nulls. Two labeled nulls with the same identity are
-    /// the same unknown value; equality-generating dependencies may merge
-    /// a labeled null with another value (a constant or another null).
-    /// Distinct from [`Self::Null`], which is a concrete (SQL-style) null.
-    LabeledNull(u64),
-    /// An exact decimal number, keeping the scale it was written with.
-    Decimal(DecimalValue),
-    /// An integer outside the range of `i64`. An integer inside it is
-    /// always [`Self::Int`]; build integers through [`Self::integer`] or
-    /// [`Self::parse_integer`] to keep that so.
-    BigInt(BigIntValue),
-    /// A date, time of day, or date-time, with the offset it was written
-    /// with.
-    Temporal(Temporal),
-}
-
-impl Value {
-    /// Returns a human-readable type name for this value.
-    #[must_use]
-    pub const fn type_name(&self) -> &'static str {
-        match self {
-            Self::Bool(_) => "bool",
-            Self::Int(_) => "int",
-            Self::Float(_) => "float",
-            Self::Str(_) => "str",
-            Self::Bytes(_) => "bytes",
-            Self::CidLink(_) => "cid-link",
-            Self::Blob { .. } => "blob",
-            Self::Token(_) => "token",
-            Self::Null => "null",
-            Self::Opaque { .. } => "opaque",
-            Self::Unknown(_) => "unknown",
-            Self::List(_) => "list",
-            Self::LabeledNull(_) => "labeled-null",
-            Self::Decimal(_) => "decimal",
-            Self::BigInt(_) => "bigint",
-            Self::Temporal(_) => "temporal",
-        }
-    }
-
-    /// The value of an exact integer in its one representation:
-    /// [`Self::Int`] when it fits `i64`, else [`Self::BigInt`].
-    #[must_use]
-    pub fn integer(value: ExactInteger) -> Self {
-        match value {
-            ExactInteger::Int(n) => Self::Int(n),
-            ExactInteger::Big(b) => Self::BigInt(b),
-        }
-    }
-
-    /// Read an integer lexeme (an optional sign and ASCII digits) into its
-    /// one representation.
-    ///
-    /// # Errors
-    ///
-    /// [`FidelityReason::NotANumber`] when `text` is not an integer lexeme.
-    pub fn parse_integer(text: &str) -> Result<Self, ExactParseError> {
-        BigIntValue::parse(text).map(Self::integer)
-    }
-
-    /// The canonical bytes of this value: what
-    /// [`CanonicalSink::value`] writes for it.
-    #[must_use]
-    pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut writer = CanonicalWriter::new();
-        writer.value(self);
-        writer.into_bytes()
-    }
-
-    /// The total order of values by their canonical bytes
-    /// ([`Self::canonical_bytes`], compared lexicographically).
-    ///
-    /// Values of different variants order by their tags; values of one
-    /// variant by their payload bytes. The order is total and the same in
-    /// every process, so it can key a sort that must be reproducible; it is
-    /// not a numeric order (use [`DecimalValue::cmp_numeric`] for that).
-    #[must_use]
-    pub fn canonical_cmp(&self, other: &Self) -> Ordering {
-        if std::ptr::eq(self, other) {
-            return Ordering::Equal;
-        }
-        self.canonical_bytes().cmp(&other.canonical_bytes())
-    }
-
-    /// Returns the identity of this value if it is a labeled null.
-    #[must_use]
-    pub const fn as_labeled_null(&self) -> Option<u64> {
-        match self {
-            Self::LabeledNull(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    /// Returns `true` if this value is a labeled null.
-    #[must_use]
-    pub const fn is_labeled_null(&self) -> bool {
-        matches!(self, Self::LabeledNull(_))
-    }
-}
-
-impl From<ExactInteger> for Value {
-    fn from(value: ExactInteger) -> Self {
-        Self::integer(value)
     }
 }
 
@@ -364,6 +164,8 @@ impl From<ExactParseError> for ValueFidelityError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]

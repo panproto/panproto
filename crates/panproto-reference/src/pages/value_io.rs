@@ -24,10 +24,13 @@ pub mod toml {
     //! Exact TOML scalar-route laws.
 
     /// Decimal and big-integer CST token fidelity.
-    /// Definition: This is the manifest-stable name of the referenced operation.
+    /// Definition: An unedited CST re-emits the exact token it received.
     ///
     /// Book anchors: `L-value-io-25`.
-    pub use crate::value_io::toml_scalar as decimal_bigint_cst;
+    #[must_use]
+    pub fn decimal_bigint_cst(source_token: &str, emitted_token: &str) -> bool {
+        source_token == emitted_token
+    }
 }
 
 pub mod implementation {
@@ -94,7 +97,11 @@ pub mod implementation {
 
     fn parse_string(route: Route, text: &str) -> Result<String, ValueIoError> {
         if route == Route::Xml {
-            return crate::xml::expand_entities(text, &std::collections::BTreeMap::new())
+            if text.contains('<') || text.contains("]]>") {
+                return Err(ValueIoError::Malformed);
+            }
+            let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+            return crate::xml::expand_entities(&normalized, &std::collections::BTreeMap::new())
                 .map_err(|_| ValueIoError::Malformed);
         }
         if route == Route::Csv {
@@ -256,6 +263,46 @@ pub mod implementation {
         .map_err(ValueIoError::Fidelity)
     }
 
+    /// Whether `text` is one complete RFC 8259 JSON number token.
+    fn json_number_token(text: &str) -> bool {
+        let bytes = text.as_bytes();
+        let mut index = usize::from(bytes.first() == Some(&b'-'));
+        match bytes.get(index) {
+            Some(b'0') => index += 1,
+            Some(b'1'..=b'9') => {
+                index += 1;
+                while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                    index += 1;
+                }
+            }
+            _ => return false,
+        }
+        if bytes.get(index) == Some(&b'.') {
+            index += 1;
+            let fraction_start = index;
+            while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+            if index == fraction_start {
+                return false;
+            }
+        }
+        if matches!(bytes.get(index), Some(b'e' | b'E')) {
+            index += 1;
+            if matches!(bytes.get(index), Some(b'+' | b'-')) {
+                index += 1;
+            }
+            let exponent_start = index;
+            while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+            if index == exponent_start {
+                return false;
+            }
+        }
+        index == bytes.len()
+    }
+
     /// Definition: Parse one scalar using an independent route grammar and
     /// exact numeric coercion.
     ///
@@ -265,20 +312,43 @@ pub mod implementation {
     ///
     /// Book anchors: `L-value-io-4`.
     pub fn parse(route: Route, bytes: &[u8]) -> Result<Value, ValueIoError> {
-        let raw = std::str::from_utf8(bytes).map_err(|_| ValueIoError::Malformed)?;
+        let raw = std::str::from_utf8(bytes).map_err(|_| {
+            if route == Route::Xml {
+                ValueIoError::Fidelity(FidelityReason::InvalidEncoding)
+            } else {
+                ValueIoError::Malformed
+            }
+        })?;
+        if matches!(route, Route::Json | Route::Toml | Route::Yaml)
+            && raw
+                .chars()
+                .any(|character| matches!(u32::from(character), 0x0..=0x8 | 0xb | 0xc | 0xe..=0x1f))
+        {
+            return Err(ValueIoError::Malformed);
+        }
         let text = if matches!(route, Route::Xml | Route::Csv | Route::Tsv) {
             raw
         } else {
-            raw.trim()
+            raw.trim_matches([' ', '\t', '\r', '\n'])
         };
+        if text.is_empty() && matches!(route, Route::Json | Route::Toml) {
+            return Err(ValueIoError::Malformed);
+        }
         match (route, text) {
             (Route::Json, "null") | (Route::Yaml, "null" | "Null" | "NULL" | "~") => {
                 Ok(Value::Null)
             }
+            (Route::Yaml, "") => Ok(Value::Null),
             (Route::Json | Route::Toml | Route::Yaml, "true") => Ok(Value::Bool(true)),
             (Route::Json | Route::Toml | Route::Yaml, "false") => Ok(Value::Bool(false)),
             (Route::Xml | Route::Csv | Route::Tsv, _) => parse_string(route, text).map(Value::Str),
             (_, value) if value.starts_with('"') => parse_string(route, value).map(Value::Str),
+            (Route::Json, value)
+                if (value.starts_with('[') && value.ends_with(']'))
+                    || (value.starts_with('{') && value.ends_with('}')) =>
+            {
+                Err(ValueIoError::Malformed)
+            }
             (Route::Toml, value)
                 if crate::temporal::parse_union(value)
                     .is_ok_and(|parsed| temporal(Route::Toml, &parsed)) =>
@@ -290,18 +360,43 @@ pub mod implementation {
             (Route::Yaml, value) => {
                 parse_number(route, value).or_else(|_| Ok(Value::Str(value.to_owned())))
             }
-            (_, value) => parse_number(route, value),
+            (Route::Json, value) if json_number_token(value) => parse_number(route, value),
+            (Route::Toml, value)
+                if value.starts_with(['+', '-', '.'])
+                    || value.as_bytes().first().is_some_and(u8::is_ascii_digit) =>
+            {
+                parse_number(route, value)
+            }
+            (Route::Toml, value) if value.starts_with(['i', 'n']) => {
+                parse_number(route, value).map_err(|_| ValueIoError::Malformed)
+            }
+            (Route::Json | Route::Toml, _) => Err(ValueIoError::Malformed),
         }
     }
 
     fn decimal_text(value: &Decimal) -> String {
         match value {
-            Decimal::Finite(value) => format!(
-                "{}{}e{}",
-                if value.negative { "-" } else { "" },
-                value.digits,
-                value.exponent
-            ),
+            Decimal::Finite(value) => {
+                let sign = if value.negative { "-" } else { "" };
+                let digits = value.digits.to_string();
+                let Some(exponent) = value.exponent.to_i64() else {
+                    return format!("{sign}{digits}e{}", value.exponent);
+                };
+                if exponent > 0
+                    || exponent < -i64::try_from(digits.len().saturating_add(6)).unwrap_or(i64::MAX)
+                {
+                    return format!("{sign}{digits}e{exponent}");
+                }
+                let scale = usize::try_from(exponent.unsigned_abs()).unwrap_or(0);
+                if scale == 0 {
+                    format!("{sign}{digits}")
+                } else if scale >= digits.len() {
+                    format!("{sign}0.{}{digits}", "0".repeat(scale - digits.len()))
+                } else {
+                    let (integer, fraction) = digits.split_at(digits.len() - scale);
+                    format!("{sign}{integer}.{fraction}")
+                }
+            }
             Decimal::Infinite { negative } => {
                 if *negative { "-Infinity" } else { "Infinity" }.to_owned()
             }
@@ -533,9 +628,9 @@ pub mod implementation {
                     return false;
                 }
                 let full_date = value.date.is_some_and(|date| {
-                    date.year
-                        .is_some_and(|year| year.width == 4 && !year.negative_zero)
-                        && date.month.is_some()
+                    date.year.is_some_and(|year| {
+                        year.value >= 0 && year.width == 4 && !year.negative_zero
+                    }) && date.month.is_some()
                         && date.day.is_some()
                 });
                 let full_time = value.time.as_ref().is_some_and(|time| {
@@ -640,12 +735,23 @@ pub mod implementation {
         preserve(source, emitted)
     }
 
-    /// Definition: TOML scalar token fidelity.
+    /// Definition: Canonical TOML scalar emission preserves the exact decimal
+    /// or integer representation, independently of the chosen token spelling.
     ///
     /// Book anchors: `L-value-io-11`.
     #[must_use]
     pub fn toml_scalar(source_token: &str, emitted_token: &str) -> bool {
-        source_token == emitted_token
+        let same_decimal = crate::exact::parse_decimal(source_token)
+            .zip(crate::exact::parse_decimal(emitted_token))
+            .is_some_and(|(source, emitted)| source == emitted);
+        let same_integer = crate::exact::parse_numeral(source_token)
+            .and_then(|numeral| crate::exact::integer_of_numeral(&numeral))
+            .zip(
+                crate::exact::parse_numeral(emitted_token)
+                    .and_then(|numeral| crate::exact::integer_of_numeral(&numeral)),
+            )
+            .is_some_and(|(source, emitted)| source == emitted);
+        same_decimal || same_integer
     }
 
     /// XML entity expansion delegates to the bounded XML reference.
@@ -724,6 +830,116 @@ pub mod implementation {
     ///
     /// Book anchors: `L-value-io-21`.
     pub use preserve as preserve_cst;
+
+    #[cfg(test)]
+    mod tests {
+        use super::{FidelityReason, Route, Value, ValueIoError, json_number_token, parse};
+
+        #[test]
+        fn json_number_grammar_precedes_exact_coercion() {
+            for token in ["-", "00", "01", "1.", "1e", "1e+"] {
+                assert!(!json_number_token(token), "token={token:?}");
+                assert_eq!(
+                    parse(Route::Json, token.as_bytes()),
+                    Err(ValueIoError::Malformed),
+                    "token={token:?}"
+                );
+            }
+            for token in ["0", "-0", "1e+2"] {
+                assert!(json_number_token(token), "token={token:?}");
+                assert!(
+                    parse(Route::Json, token.as_bytes()).is_ok(),
+                    "token={token:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn json_structural_values_are_not_scalar_numeric_refusals() {
+            for input in [b"[]".as_slice(), b"{}".as_slice()] {
+                assert_eq!(parse(Route::Json, input), Err(ValueIoError::Malformed));
+            }
+        }
+
+        #[test]
+        fn empty_document_routes_do_not_reach_numeric_coercion() {
+            for route in [Route::Json, Route::Toml] {
+                for input in [b"".as_slice(), b" \t\r\n".as_slice()] {
+                    assert_eq!(parse(route, input), Err(ValueIoError::Malformed));
+                }
+            }
+        }
+
+        #[test]
+        fn yaml_empty_plain_scalar_is_null() {
+            for input in [b"".as_slice(), b" \t\r\n".as_slice()] {
+                assert_eq!(parse(Route::Yaml, input), Ok(super::Value::Null));
+            }
+        }
+
+        #[test]
+        fn invalid_source_bytes_have_route_specific_refusals() {
+            let invalid_utf8 = [0x80];
+            assert_eq!(
+                parse(Route::Xml, &invalid_utf8),
+                Err(ValueIoError::Fidelity(FidelityReason::InvalidEncoding))
+            );
+            for route in [
+                Route::Json,
+                Route::Toml,
+                Route::Yaml,
+                Route::Csv,
+                Route::Tsv,
+            ] {
+                assert_eq!(parse(route, &invalid_utf8), Err(ValueIoError::Malformed));
+            }
+        }
+
+        #[test]
+        fn xml_literal_line_endings_normalize_before_references_expand() {
+            for (input, expected) in [
+                (b"\r".as_slice(), "\n"),
+                (b"\r\n".as_slice(), "\n"),
+                (b"\n".as_slice(), "\n"),
+                (b"&#13;".as_slice(), "\r"),
+            ] {
+                assert_eq!(
+                    parse(Route::Xml, input),
+                    Ok(Value::Str(expected.to_owned())),
+                    "input={input:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn xml_character_data_delimiters_are_distinguished_from_text() {
+            assert_eq!(parse(Route::Xml, b"<"), Err(ValueIoError::Malformed));
+            assert_eq!(parse(Route::Xml, b"]]>"), Err(ValueIoError::Malformed));
+            assert_eq!(parse(Route::Xml, b">"), Ok(Value::Str(">".to_owned())));
+            assert_eq!(parse(Route::Xml, b"&lt;"), Ok(Value::Str("<".to_owned())));
+        }
+
+        #[test]
+        fn document_grammar_refuses_nonlexical_control_and_bare_tokens() {
+            for route in [Route::Json, Route::Toml, Route::Yaml] {
+                for input in [
+                    b"\0".as_slice(),
+                    b"\x0b0".as_slice(),
+                    b"0\x0b".as_slice(),
+                    b"\x0c0".as_slice(),
+                    b"0\x0c".as_slice(),
+                ] {
+                    assert_eq!(
+                        parse(route, input),
+                        Err(ValueIoError::Malformed),
+                        "route={route:?}, input={input:?}"
+                    );
+                }
+            }
+            assert_eq!(parse(Route::Json, b"word"), Err(ValueIoError::Malformed));
+            assert_eq!(parse(Route::Toml, b"word"), Err(ValueIoError::Malformed));
+        }
+    }
 }
 
 pub mod xml {
@@ -751,7 +967,17 @@ pub mod xml {
         Malformed,
     }
 
+    fn xml_10_character(character: char) -> bool {
+        matches!(
+            u32::from(character),
+            0x9 | 0xa | 0xd | 0x20..=0xd7ff | 0xe000..=0xfffd | 0x0001_0000..=0x0010_ffff
+        )
+    }
+
     fn append(output: &mut String, text: &str) -> Result<(), EntityError> {
+        if !text.chars().all(xml_10_character) {
+            return Err(EntityError::Malformed);
+        }
         let new_len = output
             .len()
             .checked_add(text.len())
@@ -897,6 +1123,29 @@ pub mod xml {
     ///
     /// Book anchors: `L-value-io-26`.
     pub use expand_entities as bounded_expansion_cst;
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::BTreeMap;
+
+        use super::{EntityError, expand_entities};
+
+        #[test]
+        fn literal_xml_text_obeys_the_xml_10_character_domain() {
+            for forbidden in ['\0', '\u{1}', '\u{b}', '\u{c}', '\u{fffe}', '\u{ffff}'] {
+                assert_eq!(
+                    expand_entities(&forbidden.to_string(), &BTreeMap::new()),
+                    Err(EntityError::Malformed)
+                );
+            }
+            for admitted in ['\t', '\n', '\r', ' ', '\u{d7ff}', '\u{e000}', '\u{10000}'] {
+                assert_eq!(
+                    expand_entities(&admitted.to_string(), &BTreeMap::new()),
+                    Ok(admitted.to_string())
+                );
+            }
+        }
+    }
 }
 
 pub use self::implementation::*;

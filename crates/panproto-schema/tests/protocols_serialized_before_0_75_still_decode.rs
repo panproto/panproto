@@ -111,6 +111,7 @@ fn declaring_schema() -> Result<Schema, Box<dyn std::error::Error>> {
             parts: vec![KeyPart::Path(vec![id_edge.clone()])],
             role: KeyRole::Primary,
             scope: KeyScope::Document,
+            equality: vec![],
         }],
     );
     declarations.references.insert(
@@ -128,6 +129,10 @@ fn declaring_schema() -> Result<Schema, Box<dyn std::error::Error>> {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         },
     );
     schema.declarations = declarations;

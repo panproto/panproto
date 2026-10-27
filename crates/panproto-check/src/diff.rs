@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
 use panproto_schema::{
-    Constraint, Edge, Key, RecursionPoint, Reference, Schema, UsageMode, Variant,
+    Constraint, Edge, Key, RecursionPoint, Reference, Schema, TargetSet, UsageMode, Variant,
 };
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,11 @@ pub struct SchemaDiff {
     pub removed_nsids: Vec<String>,
     /// NSID mappings that changed: `(vertex_id, old_nsid, new_nsid)`.
     pub changed_nsids: Vec<(String, String, String)>,
+
+    // --- Entries ---
+    /// Ordered entry vertices changed: `(old_entries, new_entries)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_change: Option<(Vec<String>, Vec<String>)>,
 
     // --- Variants ---
     /// Variants added in the new schema.
@@ -151,7 +156,7 @@ pub struct SchemaDiff {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removed_keys: Vec<(String, Key)>,
     /// Keys declared in both schemas, on the same vertex with the same id,
-    /// whose parts, role or scope changed.
+    /// whose parts, role, scope, or equality changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified_keys: Vec<KeyChange>,
     /// References declared in the new schema but not the old, sorted by id.
@@ -163,6 +168,15 @@ pub struct SchemaDiff {
     /// References declared in both schemas with the same id that differ.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified_references: Vec<ReferenceChange>,
+    /// Target sets declared in the new schema but not the old, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_target_sets: Vec<(String, TargetSet)>,
+    /// Target sets declared in the old schema but not the new, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_target_sets: Vec<(String, TargetSet)>,
+    /// Target sets declared in both schemas with the same id that differ.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_target_sets: Vec<TargetSetChange>,
 
     // --- Renames ---
     /// Vertex renames as `(old_id, new_id)` pairs, populated by
@@ -273,7 +287,7 @@ pub struct RecursionPointChange {
 }
 
 /// Records a key, declared on the same vertex with the same id in both
-/// schemas, whose parts, role or scope changed.
+/// schemas, whose parts, role, scope, or equality changed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyChange {
     /// The keyed vertex ID.
@@ -296,6 +310,18 @@ pub struct ReferenceChange {
     pub new: Reference,
 }
 
+/// Records a target set, declared with the same id in both schemas, that
+/// changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetSetChange {
+    /// The target-set ID.
+    pub id: String,
+    /// The target set as the old schema declares it.
+    pub old: TargetSet,
+    /// The target set as the new schema declares it.
+    pub new: TargetSet,
+}
+
 /// Records a span whose left or right vertex changed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanChange {
@@ -310,8 +336,9 @@ pub struct SpanChange {
 /// Compute a structural diff between two schemas.
 ///
 /// Compares every schema field: vertices, edges, constraints, hyper-edges,
-/// required edges, NSIDs, variants, orderings, recursion points, usage modes,
-/// spans, nominal flags, enrichments, and declared keys and references.
+/// required edges, NSIDs, ordered entries, variants, orderings, recursion
+/// points, usage modes, spans, nominal flags, enrichments, and declared keys,
+/// references, and target sets.
 // Structural diff walks every field of `Schema` in turn; each branch
 // contributes one field to `SchemaDiff` and is naturally co-located.
 #[must_use]
@@ -404,6 +431,14 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     // --- NSIDs ---
     diff_nsids(old, new, &mut result);
 
+    // --- Entries ---
+    if old.entries != new.entries {
+        result.entry_change = Some((
+            old.entries.iter().map(ToString::to_string).collect(),
+            new.entries.iter().map(ToString::to_string).collect(),
+        ));
+    }
+
     // --- Variants ---
     diff_variants(old, new, &mut result);
 
@@ -474,6 +509,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     // --- Declarations ---
     diff_keys(old, new, &mut result);
     diff_references(old, new, &mut result);
+    diff_target_sets(old, new, &mut result);
 
     result
 }
@@ -532,6 +568,32 @@ fn diff_references(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
     for (id, reference) in old_refs {
         if !new_refs.contains_key(id) {
             result.removed_references.push(reference.clone());
+        }
+    }
+}
+
+/// Diff the target sets two schemas declare, matching them by id.
+fn diff_target_sets(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let old_sets = &old.declarations.target_sets;
+    let new_sets = &new.declarations.target_sets;
+    for (id, set) in new_sets {
+        match old_sets.get(id) {
+            None => result.added_target_sets.push((id.to_string(), set.clone())),
+            Some(previous) if previous != set => {
+                result.modified_target_sets.push(TargetSetChange {
+                    id: id.to_string(),
+                    old: previous.clone(),
+                    new: set.clone(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    for (id, set) in old_sets {
+        if !new_sets.contains_key(id) {
+            result
+                .removed_target_sets
+                .push((id.to_string(), set.clone()));
         }
     }
 }
@@ -954,6 +1016,7 @@ impl SchemaDiff {
             && self.added_nsids.is_empty()
             && self.removed_nsids.is_empty()
             && self.changed_nsids.is_empty()
+            && self.entry_change.is_none()
             && self.added_variants.is_empty()
             && self.removed_variants.is_empty()
             && self.modified_variants.is_empty()
@@ -984,6 +1047,9 @@ impl SchemaDiff {
             && self.added_references.is_empty()
             && self.removed_references.is_empty()
             && self.modified_references.is_empty()
+            && self.added_target_sets.is_empty()
+            && self.removed_target_sets.is_empty()
+            && self.modified_target_sets.is_empty()
             && self.renamed_vertices.is_empty()
     }
 }
@@ -992,7 +1058,7 @@ impl SchemaDiff {
 mod tests {
     use super::*;
     use panproto_gat::Name;
-    use panproto_schema::{HyperEdge, RecursionPoint, Span, Variant, Vertex};
+    use panproto_schema::{HyperEdge, KeyScope, RecursionPoint, Span, TargetSet, Variant, Vertex};
     use smallvec::SmallVec;
     use std::collections::HashMap;
 
@@ -1366,6 +1432,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn diff_entries_preserves_both_orders() {
+        let schema = || test_schema(&[("a", "object"), ("b", "object")], &[], HashMap::new());
+        let old = test_schema_ext(schema(), |s| {
+            s.entries = vec!["a".into(), "b".into()];
+        });
+        let new = test_schema_ext(schema(), |s| {
+            s.entries = vec!["b".into(), "a".into()];
+        });
+
+        assert_eq!(
+            diff(&old, &new).entry_change,
+            Some((
+                vec!["a".to_owned(), "b".to_owned()],
+                vec!["b".to_owned(), "a".to_owned()]
+            ))
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Variant diff tests
     // -----------------------------------------------------------------------
@@ -1626,6 +1711,10 @@ mod tests {
                 ..Default::default()
             },
             SchemaDiff {
+                entry_change: Some((vec!["a".into()], vec!["b".into()])),
+                ..Default::default()
+            },
+            SchemaDiff {
                 added_variants: vec![Variant {
                     id: "v".into(),
                     parent_vertex: "u".into(),
@@ -1768,6 +1857,40 @@ mod tests {
             },
             SchemaDiff {
                 modified_policies: vec!["a".into()],
+                ..Default::default()
+            },
+            SchemaDiff {
+                added_target_sets: vec![(
+                    "set".into(),
+                    TargetSet {
+                        members: vec![("a".into(), "key".into())],
+                        scope: KeyScope::Document,
+                    },
+                )],
+                ..Default::default()
+            },
+            SchemaDiff {
+                removed_target_sets: vec![(
+                    "set".into(),
+                    TargetSet {
+                        members: vec![("a".into(), "key".into())],
+                        scope: KeyScope::Document,
+                    },
+                )],
+                ..Default::default()
+            },
+            SchemaDiff {
+                modified_target_sets: vec![TargetSetChange {
+                    id: "set".into(),
+                    old: TargetSet {
+                        members: vec![("a".into(), "key".into())],
+                        scope: KeyScope::Document,
+                    },
+                    new: TargetSet {
+                        members: vec![],
+                        scope: KeyScope::Document,
+                    },
+                }],
                 ..Default::default()
             },
             SchemaDiff {

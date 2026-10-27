@@ -43,6 +43,26 @@ pub enum OffsetUnitReason {
     EmptyInclusive,
 }
 
+/// Why a declared key equality cannot be evaluated during resolution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyEqualityReason {
+    /// The declaration names a collation whose kernel is not available.
+    UnsupportedCollation(Name),
+    /// The equality vector or value tuple has the wrong arity.
+    EqualityArity {
+        /// Required number of parts.
+        expected: usize,
+        /// Supplied number of parts.
+        found: usize,
+    },
+    /// A numeric value violates the invariant of its representation.
+    InvalidNumericRepresentation {
+        /// Name of the invalid representation.
+        kind: String,
+    },
+}
+
 /// A serializable instance-shape failure at the resolution boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
@@ -243,6 +263,14 @@ pub enum ResolveError {
         at: Box<ViewRef>,
         /// Length of each part.
         lengths: Vec<u64>,
+    },
+    /// A target key's declared equality cannot be evaluated exactly.
+    #[error("key equality for {key} cannot be evaluated: {reason:?}")]
+    KeyEquality {
+        /// Target key declaration.
+        key: Name,
+        /// Exact refusal reason.
+        reason: KeyEqualityReason,
     },
     /// No provider is registered for a non-native route.
     #[error("no resolution provider for protocol {protocol}")]

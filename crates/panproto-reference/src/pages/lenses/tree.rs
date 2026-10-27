@@ -1581,7 +1581,7 @@ fn native_is_fan(graph: &Graph, node: u32) -> bool {
 fn native_tree_parents(
     graph: &Graph,
     root: u32,
-    parent_name: &dyn Fn(&str) -> Option<Name>,
+    parent_name: &dyn Fn(&str) -> crate::encode::ParentNameRule,
 ) -> Result<BTreeMap<u32, u32>, crate::encode::NotATree> {
     use crate::encode::NotATree;
 
@@ -1595,15 +1595,12 @@ fn native_tree_parents(
             return Err(NotATree::PositionedEdge { edge: *id });
         }
         if native_is_fan(graph, edge.src) {
-            let expected_name = if edge.label.kind == HYPER_PARENT {
-                parent_name(&from.anchor)
-            } else {
-                edge.label.name.clone()
-            };
-            if edge.label.src != from.anchor
-                || edge.label.tgt != to.anchor
-                || edge.label.name != expected_name
-            {
+            let name_matches = edge.label.kind != HYPER_PARENT
+                || match parent_name(&from.anchor) {
+                    crate::encode::ParentNameRule::Any => true,
+                    crate::encode::ParentNameRule::Exact(expected) => edge.label.name == expected,
+                };
+            if edge.label.src != from.anchor || edge.label.tgt != to.anchor || !name_matches {
                 return Err(NotATree::FanLabel { edge: *id });
             }
             continue;
@@ -1692,7 +1689,7 @@ fn native_tree_reachable(
 fn native_tree_form(
     graph: &Graph,
     root: u32,
-    parent_name: &dyn Fn(&str) -> Option<Name>,
+    parent_name: &dyn Fn(&str) -> crate::encode::ParentNameRule,
 ) -> Result<Tree, crate::encode::NotATree> {
     use crate::encode::NotATree;
 
@@ -2050,7 +2047,8 @@ fn native_restore(
         return Err(TreeRestoreError::Domain(errors));
     }
 
-    let parent_name = |hyper: &str| source_parent_name(lens, hyper);
+    let parent_name =
+        |hyper: &str| crate::encode::ParentNameRule::Exact(source_parent_name(lens, hyper));
     let mut tree =
         native_tree_form(&state.restored, view.root, &parent_name).map_err(tree_shape_error)?;
     project_visible_arc_order(&mut tree, view, embedding, complement);

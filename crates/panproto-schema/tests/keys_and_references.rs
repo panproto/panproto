@@ -7,7 +7,7 @@ use panproto_gat::Name;
 use panproto_schema::{
     CanonicalWriter, Cardinality, DeclarationReport, Edge, Key, KeyPart, KeyRefError, KeyRole,
     KeyScope, OffsetUnit, OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource, Reference,
-    ResolveMode, Schema, SchemaBuilder, SchemaDeclarations, SchemaError, SchemaOverlap,
+    ResolveMode, Schema, SchemaBuilder, SchemaDeclarations, SchemaError, SchemaOverlap, UriBase,
     canonical_bytes, induce_on_vertices, schema_pushout,
 };
 use rustc_hash::FxHashSet;
@@ -74,6 +74,7 @@ fn film_key() -> Key {
         ],
         role: KeyRole::Primary,
         scope: KeyScope::Document,
+        equality: vec![],
     }
 }
 
@@ -94,6 +95,10 @@ fn store_reference() -> Reference {
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -240,6 +245,7 @@ fn key_and_reference_types_serialize_in_contract_form() {
         ],
         role: KeyRole::Primary,
         scope: KeyScope::Within(Name::from("a")),
+        equality: vec![],
     };
     assert_eq!(
         json(&key),
@@ -258,7 +264,9 @@ fn key_and_reference_types_serialize_in_contract_form() {
     assert_eq!(json(&PathSyntax::XPath), r#""x_path""#);
     assert_eq!(json(&PathSyntax::IdRef), r#""id_ref""#);
     assert_eq!(
-        json(&PathSyntax::Uri { base: None }),
+        json(&PathSyntax::Uri {
+            base: UriBase::Absolute,
+        }),
         r#"{"uri":{"base":null}}"#
     );
     assert_eq!(json(&OffsetUnit::Byte), r#""byte""#);
@@ -292,7 +300,7 @@ fn reference_sources_serialize_in_contract_form() {
             RefSource::Path {
                 field: vec![e.clone()],
                 syntax: PathSyntax::Uri {
-                    base: Some(vec![e.clone()]),
+                    base: UriBase::Field(vec![e.clone()]),
                 },
             },
             format!(r#"{{"path":{{"field":[{E}],"syntax":{{"uri":{{"base":[{E}]}}}}}}}}"#),
@@ -304,6 +312,9 @@ fn reference_sources_serialize_in_contract_form() {
                 end: vec![],
                 unit: OffsetUnit::Utf16,
                 end_inclusive: true,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             },
             format!(
                 r#"{{"standoff":{{"text":{{"external":[{E}]}},"start":[{E}],"end":[],"unit":"utf16","end_inclusive":true}}}}"#
@@ -313,6 +324,7 @@ fn reference_sources_serialize_in_contract_form() {
             RefSource::Variable {
                 field: vec![],
                 binder_key: Name::from("var"),
+                binding: Default::default(),
             },
             r#"{"variable":{"field":[],"binder_key":"var"}}"#.to_owned(),
         ),
@@ -340,6 +352,10 @@ fn references_and_reports_serialize_in_contract_form() {
         nullable: true,
         on_unresolved: OnUnresolved::Complement,
         mode: ResolveMode::Redirect,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     };
     assert_eq!(
         json(&reference),
@@ -356,6 +372,8 @@ fn references_and_reports_serialize_in_contract_form() {
     let report = DeclarationReport {
         dropped_keys: vec![(Name::from("v"), Name::from("k"))],
         dropped_references: vec![Name::from("r")],
+        dropped_target_set_members: Vec::new(),
+        dropped_target_sets: Vec::new(),
     };
     assert_eq!(
         json(&report),
@@ -382,6 +400,7 @@ fn schema_declarations_keep_keys_sorted_and_unique() {
         parts: vec![],
         role,
         scope: KeyScope::Document,
+        equality: vec![],
     };
     let mut decls = SchemaDeclarations::default();
     assert!(decls.is_empty());
@@ -522,6 +541,7 @@ fn the_builder_records_keys_and_references() {
         )])],
         role: KeyRole::Unique,
         scope: KeyScope::Within(Name::from("doc")),
+        equality: vec![],
     };
     let build = |extra: Option<Key>| {
         let builder = SchemaBuilder::new(&protocol())
@@ -717,6 +737,7 @@ fn validate_reports_position_not_ordered() {
         }],
         role: KeyRole::Unique,
         scope: KeyScope::Within(Name::from("doc")),
+        equality: vec![],
     };
     let found = findings_after(|schema| film_keys(schema).push(position.clone()));
     assert_eq!(
@@ -788,6 +809,7 @@ fn validate_reports_binder_not_identifier() {
     let variable = |binder: &str| RefSource::Variable {
         field: vec![edge("store", "store.film_id", "column", "film_id")],
         binder_key: Name::from(binder),
+        binding: Default::default(),
     };
     let found = findings_after(|schema| {
         let reference = store_ref(schema);
@@ -936,6 +958,7 @@ fn a_reference_to_a_subtype_vertex_does_not_resolve() {
                 parts: vec![KeyPart::Path(vec![edge("node", "node.id", "prop", "id")])],
                 role: KeyRole::Identifier,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         )
         .build()
@@ -961,6 +984,10 @@ fn a_reference_to_a_subtype_vertex_does_not_resolve() {
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     };
 
     schema.declarations.insert_reference(author("node"));
@@ -1047,6 +1074,8 @@ fn unmapped_declarations_are_dropped_and_reported() {
         DeclarationReport {
             dropped_keys: vec![(Name::from("film"), Name::from("pk"))],
             dropped_references: vec![Name::from("store_film")],
+            dropped_target_set_members: Vec::new(),
+            dropped_target_sets: Vec::new(),
         }
     );
 
@@ -1069,6 +1098,7 @@ fn unmapped_declarations_are_dropped_and_reported() {
             parts: vec![],
             role: KeyRole::Unique,
             scope: KeyScope::Document,
+            equality: vec![],
         }],
     );
     let mut collapse = identity_morphism(&twin);
@@ -1105,6 +1135,8 @@ fn induce_and_pushout_report_dropped_declarations() {
         DeclarationReport {
             dropped_keys: vec![(Name::from("film"), Name::from("pk"))],
             dropped_references: vec![Name::from("store_film")],
+            dropped_target_set_members: Vec::new(),
+            dropped_target_sets: Vec::new(),
         }
     );
     // `induce` itself keeps its signature and agrees.
@@ -1215,6 +1247,10 @@ fn plain_reference(id: &str, holder: &str, source: RefSource, target: &str) -> R
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -1224,6 +1260,7 @@ fn plain_key(id: &str, parts: Vec<KeyPart>, role: KeyRole, scope: KeyScope) -> K
         parts,
         role,
         scope,
+        equality: vec![],
     }
 }
 
@@ -1323,6 +1360,9 @@ fn standoff_family() -> Schema {
                 end: vec![prop("ann", "ann.end", "end")],
                 unit: OffsetUnit::Utf8Char,
                 end_inclusive: false,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             },
             "span",
         )
@@ -1357,6 +1397,7 @@ fn penman_family() -> Schema {
             RefSource::Variable {
                 field: vec![prop("concept", "concept.var", "var")],
                 binder_key: Name::from("var"),
+                binding: Default::default(),
             },
             "concept",
         )
@@ -1459,7 +1500,7 @@ fn rdf_family() -> Schema {
             RefSource::Path {
                 field: vec![prop("subject", "subject.knows", "knows")],
                 syntax: PathSyntax::Uri {
-                    base: Some(vec![prop("subject", "subject.base", "base")]),
+                    base: UriBase::Field(vec![prop("subject", "subject.base", "base")]),
                 },
             },
             "subject",
@@ -1591,6 +1632,8 @@ fn induce_drops_a_key_whose_scope_stops_being_an_ancestor() {
         DeclarationReport {
             dropped_keys: vec![(Name::from("film"), Name::from("pk"))],
             dropped_references: vec![Name::from("store_film")],
+            dropped_target_set_members: Vec::new(),
+            dropped_target_sets: Vec::new(),
         }
     );
 }

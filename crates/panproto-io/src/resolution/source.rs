@@ -14,6 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
+use panproto_inst::key::{KeyingError, canonical_key_bytes};
 use panproto_inst::{CanonicalSink, FInstance, FieldPresence, Value, ViewRef, WInstance};
 use panproto_schema::{CanonicalWriter, Edge, Key, KeyPart, KeyScope};
 
@@ -90,6 +91,14 @@ const fn present_value(value: Option<&Value>) -> Option<&Value> {
     match value {
         Some(Value::Null) | None => None,
         Some(value) => Some(value),
+    }
+}
+
+fn value_or_null(value: Option<&FieldPresence>) -> Option<Value> {
+    match value {
+        Some(FieldPresence::Present(value)) => Some(value.clone()),
+        Some(FieldPresence::Null) => Some(Value::Null),
+        Some(FieldPresence::Absent) | None => None,
     }
 }
 
@@ -307,6 +316,62 @@ impl<'a> Source<'a> {
         }
     }
 
+    /// The terminal values reached from `start` along `path`, preserving an
+    /// explicit null while continuing to omit an absent field.
+    ///
+    /// Resolution normally treats null as no value. Foreign-key null matching
+    /// needs the stricter distinction between an explicit null and absence, so
+    /// this reader is kept separate from [`Self::path_sites`].
+    #[must_use]
+    pub fn path_values_or_null(&self, start: &ViewRef, path: &[Edge]) -> Vec<Value> {
+        let own = |at: &ViewRef| match (self, at) {
+            (Self::Tree(source), ViewRef::Node(id)) => source
+                .tree
+                .nodes
+                .get(id)
+                .and_then(|node| value_or_null(node.value.as_ref())),
+            _ => None,
+        };
+        let field = |at: &ViewRef, name: &str| match (self, at) {
+            (Self::Tree(source), ViewRef::Node(id)) => source
+                .tree
+                .nodes
+                .get(id)
+                .and_then(|node| node.extra_fields.get(name).cloned()),
+            (Self::Table(table), ViewRef::Row(id)) => {
+                table.row(*id).and_then(|row| row.get(name).cloned())
+            }
+            _ => None,
+        };
+        let Some((last, hops)) = path.split_last() else {
+            return own(start).into_iter().collect();
+        };
+        let mut frontier = vec![start.clone()];
+        for hop in hops {
+            frontier = frontier
+                .iter()
+                .flat_map(|at| self.out_steps(at))
+                .filter(|step| step.label == hop)
+                .map(|step| step.other)
+                .collect();
+        }
+        let reached: Vec<ViewRef> = frontier
+            .iter()
+            .flat_map(|at| self.out_steps(at))
+            .filter(|step| step.label == last)
+            .map(|step| step.other)
+            .collect();
+        if reached.is_empty() {
+            let name = field_name(last);
+            frontier
+                .into_iter()
+                .filter_map(|holder| field(&holder, &name))
+                .collect()
+        } else {
+            reached.into_iter().filter_map(|at| own(&at)).collect()
+        }
+    }
+
     /// The index of `at` among the targets of the ordered edge `within`
     /// leaving its parent; a row has none.
     #[must_use]
@@ -456,8 +521,11 @@ pub struct KeyIndex {
 
 impl KeyIndex {
     /// Index the elements of `vertex` by `key`.
-    #[must_use]
-    pub fn build(source: &Source<'_>, vertex: &str, key: &Key) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// A declared equality cannot be evaluated exactly.
+    pub fn build(source: &Source<'_>, vertex: &str, key: &Key) -> Result<Self, KeyingError> {
         let mut buckets: BTreeMap<(Option<ViewRef>, Vec<u8>), Vec<ViewRef>> = BTreeMap::new();
         for element in source.elements(vertex) {
             let Some(values) = source.key_values(&element, key) else {
@@ -469,11 +537,11 @@ impl KeyIndex {
                 ScopeOf::Outside => continue,
             };
             buckets
-                .entry((scope, key_bytes(&values)))
+                .entry((scope, canonical_key_bytes(key, &values)?))
                 .or_default()
                 .push(element);
         }
-        Self { buckets }
+        Ok(Self { buckets })
     }
 
     /// The elements of one bucket, ascending.

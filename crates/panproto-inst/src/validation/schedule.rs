@@ -217,12 +217,13 @@ impl<'a> Session<'a> {
             }
             match compiled {
                 Compiled::KeyUnique { vertex, key } => {
-                    if let Some(index) = self.ctx.key_index(vertex, key, true) {
+                    if let Ok(Some(index)) = self.ctx.key_index(vertex, key, true) {
                         keys.insert(check.clone(), KeyIndexState::from(&*index));
                     }
                 }
                 Compiled::Reference { reference, target } => {
-                    if let Some(index) = self.ctx.key_index(&reference.target_vertex, target, true)
+                    if let Ok(Some(index)) =
+                        self.ctx.key_index(&reference.target_vertex, target, true)
                     {
                         references.insert(check.clone(), KeyIndexState::from(&*index));
                     }

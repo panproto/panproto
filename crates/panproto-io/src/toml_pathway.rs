@@ -15,7 +15,10 @@
 use std::collections::{BTreeMap, HashSet};
 
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
-use panproto_inst::value::{CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Value};
+use panproto_inst::value::{
+    CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Offset, OffsetForm, Temporal,
+    TemporalForm, Value, ZuluCase,
+};
 use panproto_inst::{ValueSite, WInstance};
 use panproto_schema::{Protocol, ScalarKind, Schema, ValueSpec};
 
@@ -494,19 +497,7 @@ fn encode_toml_value(
         Value::Float(number) => Ok(toml::Value::Float(*number)),
         Value::Bool(value) => Ok(toml::Value::Boolean(*value)),
         Value::Bytes(bytes) => toml_bytes_value(bytes, spec, site),
-        Value::Temporal(temporal) => temporal
-            .to_string()
-            .parse::<toml::value::Datetime>()
-            .map(toml::Value::Datetime)
-            .map_err(|_| {
-                EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "toml",
-                    EmitValueReason::NotRepresentable,
-                )
-                .into()
-            }),
+        Value::Temporal(temporal) => toml_temporal_value(temporal, site),
         Value::Decimal(number) => raw.marker(number.to_string()),
         Value::BigInt(number) => {
             let token = crate::json_pathway::bigint_lexeme(number, spec.kind == ScalarKind::BigInt)
@@ -582,6 +573,34 @@ fn encode_toml_value(
     }
 }
 
+fn toml_temporal_value(
+    temporal: &Temporal,
+    site: &ValueSite,
+) -> Result<toml::Value, EmitInstanceError> {
+    if !toml_temporal_representable(temporal) {
+        return Err(EmitValueError::new(
+            site.clone(),
+            "temporal",
+            "toml",
+            EmitValueReason::NotRepresentable,
+        )
+        .into());
+    }
+    temporal
+        .to_string()
+        .parse::<toml::value::Datetime>()
+        .map(toml::Value::Datetime)
+        .map_err(|_| {
+            EmitValueError::new(
+                site.clone(),
+                "temporal",
+                "toml",
+                EmitValueReason::NotRepresentable,
+            )
+            .into()
+        })
+}
+
 fn toml_bytes_value(
     bytes: &[u8],
     spec: &ValueSpec,
@@ -605,6 +624,34 @@ fn toml_bytes_value(
         )
     })?;
     Ok(toml::Value::String(text))
+}
+
+fn toml_temporal_representable(value: &Temporal) -> bool {
+    let Some(form) = value.lexical_form() else {
+        return false;
+    };
+    if !value.is_complete() || form.infinity.is_some() {
+        return false;
+    }
+    if matches!(form.kind, TemporalForm::Date | TemporalForm::DateTime) {
+        let text = value.to_string();
+        let bytes = text.as_bytes();
+        if bytes.len() < 5 || !bytes[..4].iter().all(u8::is_ascii_digit) || bytes[4] != b'-' {
+            return false;
+        }
+    }
+    match form.kind {
+        TemporalForm::Date | TemporalForm::Time => form.offset == Offset::Local,
+        TemporalForm::DateTime => matches!(
+            form.offset,
+            Offset::Local
+                | Offset::Zulu(ZuluCase::Upper | ZuluCase::Lower)
+                | Offset::Fixed(_)
+                | Offset::NegZero
+                | Offset::FixedForm(_, OffsetForm::Extended)
+                | Offset::NegZeroForm(OffsetForm::Extended)
+        ),
+    }
 }
 
 /// Whether TOML's scalar spelling reparses to the same typed value.
@@ -631,7 +678,7 @@ pub(crate) fn toml_scalar_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
             };
             coerce(&Lexeme::new(&text, LexClass::String), spec)
         }
-        Value::Temporal(value) => {
+        Value::Temporal(value) if toml_temporal_representable(value) => {
             coerce(&Lexeme::new(&value.to_string(), LexClass::DateTime), spec)
         }
         Value::Decimal(number) => {
@@ -645,7 +692,8 @@ pub(crate) fn toml_scalar_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
             };
             return toml_number_reparses_as(value, &text, spec);
         }
-        Value::Null
+        Value::Temporal(_)
+        | Value::Null
         | Value::CidLink(_)
         | Value::Blob { .. }
         | Value::Opaque { .. }

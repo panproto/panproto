@@ -1215,7 +1215,14 @@
           "references": [
             "panproto_reference::value_io::round_trip"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_decimal_round_trips_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.vf7-emission",
@@ -1229,7 +1236,14 @@
           "references": [
             "panproto_reference::value_io::emit"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_decimal_emission_matches_reference"
+        }
+      ]
         },
         {
           "id": "value-io.vf8-presentation-preservation",
@@ -1243,7 +1257,14 @@
           "references": [
             "panproto_reference::value_io::preserve"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_byte_preservation_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.vf9-reading",
@@ -1257,7 +1278,14 @@
           "references": [
             "panproto_reference::value_io::parse"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_canonical_scalar_parsing_matches_reference"
+        }
+      ]
         },
         {
           "id": "value-io.temporal-route-representability",
@@ -1271,7 +1299,14 @@
           "references": [
             "panproto_reference::value_io::temporal"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "temporal_route_representability_matches_public_emitters"
+        }
+      ]
         },
         {
           "id": "value-io.byte-text-writer-agreement",
@@ -1285,7 +1320,14 @@
           "references": [
             "panproto_reference::value_io::bytes"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_byte_preservation_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.special-decimal-writer-agreement",
@@ -1299,7 +1341,14 @@
           "references": [
             "panproto_reference::value_io::decimal"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_toml_numeric_spellings_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.raw-numeric-lexeme-preservation",
@@ -1327,7 +1376,14 @@
           "references": [
             "panproto_reference::value_io::duplicate_member"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_duplicate_member_refusals_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.encoding-and-bom-preservation",
@@ -1341,7 +1397,14 @@
           "references": [
             "panproto_reference::value_io::encoding"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "canonical_xml_encodings_and_refusals_match_reference_contract"
+        }
+      ]
         },
         {
           "id": "value-io.toml-decimal-bigint-round-trip",
@@ -1355,7 +1418,14 @@
           "references": [
             "panproto_reference::value_io::toml_scalar"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_toml_numeric_spellings_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.xml-entity-bounded-expansion",
@@ -1370,7 +1440,14 @@
             "panproto_reference::value_io::xml_entity",
             "panproto_reference::xml::expand_entities"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_xml_entity_expansion_matches_reference"
+        }
+      ]
         },
         {
           "id": "value-io.xml-byte-round-trip",
@@ -1384,7 +1461,14 @@
           "references": [
             "panproto_reference::value_io::xml_encoding"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "canonical_xml_encodings_and_refusals_match_reference_contract"
+        }
+      ]
         },
         {
           "id": "value-io.tsv-comment-opt-in",
@@ -1398,7 +1482,14 @@
           "references": [
             "panproto_reference::value_io::tsv_comment"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_tabular_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.tabular-missing-token",
@@ -1412,7 +1503,14 @@
           "references": [
             "panproto_reference::value_io::tabular_missing"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_tabular_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.one-column-empty-row-round-trip",
@@ -1426,7 +1524,14 @@
           "references": [
             "panproto_reference::value_io::tabular_empty_row"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_tabular_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.tsv-quote-acceptance",
@@ -1440,7 +1545,14 @@
           "references": [
             "panproto_reference::value_io::tsv_quote"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_tabular_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.xml-expanded-name-function",
@@ -1454,7 +1566,14 @@
           "references": [
             "panproto_reference::value_io::xml_expanded_name"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_xml_expanded_names_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.blob-writer-agreement",
@@ -1468,7 +1587,14 @@
           "references": [
             "panproto_reference::value_io::blob_writer"
           ],
-          "due_gate": "phase3"
+      "due_gate": "phase3",
+      "consumers": [
+        {
+          "crate": "panproto-io",
+          "binary": "panproto-io::reference_value_io",
+          "test": "bounded_byte_preservation_observables_match_reference"
+        }
+      ]
         },
         {
           "id": "value-io.rcm-prop1-cst",
@@ -1948,7 +2074,19 @@
           "references": [
             "panproto_reference::keys::key_value"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "validation_reconstructs_path_keys_in_document_and_global_scopes"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "validation_reconstructs_position_buckets"
+            }
+          ]
         },
         {
           "id": "keys.reference-declarations",
@@ -1962,7 +2100,19 @@
           "references": [
             "panproto_reference::keys::buckets"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "validation_reconstructs_within_buckets_and_outside_cases"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "validation_preserves_both_reference_keying_refusals"
+            }
+          ]
         },
         {
           "id": "keys.canonical-schema-bytes-injective",
@@ -2012,7 +2162,14 @@
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "canonical_declaration_factorization_reconciles_the_exact_carrier"
+            }
+          ]
         },
         {
           "id": "keys.change-classification",
@@ -2038,7 +2195,19 @@
           "references": [
             "panproto_reference::schema::classify_change"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "every_o17_key_change_classifies_through_the_factorization_certificate"
+            },
+            {
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "non_key_classification_axes_match_the_reference"
+            }
+          ]
         },
         {
           "id": "keys.q6",
@@ -2050,9 +2219,22 @@
             }
           ],
           "references": [
-            "panproto_reference::schema::register"
+            "panproto_reference::theory::typecheck_signature",
+            "panproto_reference::theory::compose"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols",
+              "test": "theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks"
+            },
+            {
+              "crate": "panproto-gat",
+              "binary": "panproto-gat::reference_theories",
+              "test": "composition_agrees_with_the_reference_on_every_span"
+            }
+          ]
         },
         {
           "id": "keys.q7",
@@ -2064,9 +2246,21 @@
             }
           ],
           "references": [
-            "panproto_reference::schema::register"
+            "panproto_reference::theory::recompose"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::registration_equivalence",
+              "test": "recompose_of_every_registration_spec_reproduces_its_theory"
+            },
+            {
+              "crate": "panproto-gat",
+              "binary": "panproto-gat::reference_theories",
+              "test": "recipe_replay_agrees_with_the_reference_on_every_recipe"
+            }
+          ]
         },
         {
           "id": "keys.q8",
@@ -2078,9 +2272,27 @@
             }
           ],
           "references": [
-            "panproto_reference::schema::register"
+            "panproto_reference::theory::canonical_theory_bytes",
+            "panproto_reference::theory::canonical_composition_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_theory_canonical",
+              "test": "canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures"
+            },
+            {
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::registration_equivalence",
+              "test": "cross_process::compose_bytes_are_identical_across_processes"
+            },
+            {
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::registration_equivalence",
+              "test": "theory_composition_fixtures_recompose_to_their_bytes_and_digests"
+            }
+          ]
         },
         {
           "id": "keys.equality-kernel-equivalence",
@@ -2098,7 +2310,14 @@
           "references": [
             "panproto_reference::keys::key_equivalence"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "equality_carrier_executes_all_pairs_and_triples"
+            }
+          ]
         },
         {
           "id": "keys.representation-refinement",
@@ -2116,7 +2335,19 @@
           "references": [
             "panproto_reference::keys::representation_refines"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "equality_carrier_executes_all_pairs_and_triples"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "named_collation_has_the_exact_typed_refusal_boundary"
+            }
+          ]
         },
         {
           "id": "keys.equality-declaration-byte-injectivity",
@@ -2134,7 +2365,14 @@
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "extended_declaration_bytes_match_reference_on_every_sum_variant"
+            }
+          ]
         },
         {
           "id": "keys.sort-key-total-preorder",
@@ -2148,7 +2386,14 @@
           "references": [
             "panproto_reference::keys::sort_order"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "sort_preorder_and_adjacent_descent_match_the_reference"
+            }
+          ]
         },
         {
           "id": "keys.sort-key-adjacent-descents",
@@ -2162,7 +2407,14 @@
           "references": [
             "panproto_reference::keys::key_order"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "sort_preorder_and_adjacent_descent_match_the_reference"
+            }
+          ]
         },
         {
           "id": "keys.target-set-declaration",
@@ -2176,7 +2428,14 @@
           "references": [
             "panproto_reference::keys::target_set"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "target_sets_match_on_the_complete_local_predicate"
+            }
+          ]
         },
         {
           "id": "keys.xml-noncdata-equivalence",
@@ -2190,7 +2449,14 @@
           "references": [
             "panproto_reference::keys::xml_noncdata"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "xml_kernel_executes_the_exact_o17_carrier"
+            }
+          ]
         },
         {
           "id": "keys.group-g-declaration-injectivity",
@@ -2204,7 +2470,19 @@
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "extended_declaration_bytes_match_reference_on_every_sum_variant"
+            },
+            {
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "declaration_validation_matches_reference_on_every_common_refusal"
+            }
+          ]
         },
         {
           "id": "keys.index-and-null-match-declarations",
@@ -2216,9 +2494,21 @@
             }
           ],
           "references": [
-            "panproto_reference::keys::index_and_null_match"
+            "panproto_reference::resolution::get"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "composite_foreign_key_null_matching_uses_real_resolution_occurrences"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "index_fields_never_resolve_targets"
+            }
+          ]
         },
         {
           "id": "keys.lexical-space-declaration",
@@ -2230,9 +2520,16 @@
             }
           ],
           "references": [
-            "panproto_reference::keys::lexical_space"
+            "panproto_reference::validation::lexical_space"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "keys.annotated-format-declaration",
@@ -2244,9 +2541,18 @@
             }
           ],
           "references": [
-            "panproto_reference::keys::annotated_format"
+            "panproto_reference::validation::annotated_format_parse",
+            "panproto_reference::validation::annotated_format_advisory",
+            "panproto_reference::validation::format_assertion_acceptance"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
@@ -2270,7 +2576,14 @@
           "references": [
             "panproto_reference::encode::tree_to_graph"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "tree_to_graph_matches_production_on_the_exact_carrier_and_refusals"
+            }
+          ]
         },
         {
           "id": "representation.graph-to-tree-decision",
@@ -2284,7 +2597,14 @@
           "references": [
             "panproto_reference::encode::graph_to_tree"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "graph_to_tree_decision_matches_production_on_the_exact_carrier"
+            }
+          ]
         },
         {
           "id": "representation.reify-round-trip",
@@ -2298,7 +2618,14 @@
           "references": [
             "panproto_reference::encode::reify"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "reification_round_trip_matches_production_on_the_exact_image"
+            }
+          ]
         },
         {
           "id": "representation.canonical-serde",
@@ -2314,7 +2641,14 @@
             "panproto_reference::canonical::decode_table",
             "panproto_reference::canonical::decode_tree"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "canonical_graph_table_and_tree_bytes_decode_to_the_same_values"
+            }
+          ]
         },
         {
           "id": "representation.identity-envelope",
@@ -2328,7 +2662,14 @@
           "references": [
             "panproto_reference::canonical::identity"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "identity_envelope_layout_matches_the_production_manifest_writer"
+            }
+          ]
         },
         {
           "id": "representation.table-to-graph-total",
@@ -2342,7 +2683,14 @@
           "references": [
             "panproto_reference::encode::table_to_graph"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "table_to_graph_matches_production_on_the_exact_carrier_and_refusals"
+            }
+          ]
         },
         {
           "id": "representation.graph-to-table-decision",
@@ -2356,7 +2704,14 @@
           "references": [
             "panproto_reference::encode::graph_to_table"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "graph_to_table_decision_matches_production_on_the_exact_carrier"
+            }
+          ]
         },
         {
           "id": "representation.fan-domain",
@@ -2370,7 +2725,14 @@
           "references": [
             "panproto_reference::fan::violations_at"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_representation",
+              "test": "fan_domain_lists_the_same_ordered_typed_violations"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
@@ -2759,7 +3121,19 @@
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::edge_image"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
+            }
+          ]
         },
         {
           "id": "restrict.c1",
@@ -2773,7 +3147,14 @@
           "references": [
             "panproto_reference::restrict::contraction_plan"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
+            }
+          ]
         },
         {
           "id": "restrict.c2",
@@ -2787,7 +3168,14 @@
           "references": [
             "panproto_reference::restrict::resolve_pair"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "pair_resolution_precedence_and_first_failure_agree"
+            }
+          ]
         },
         {
           "id": "restrict.c3",
@@ -2802,7 +3190,19 @@
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::edge_image"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
+            }
+          ]
         },
         {
           "id": "restrict.tr6",
@@ -2814,9 +3214,16 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
+            }
+          ]
         },
         {
           "id": "restrict.tr7",
@@ -2828,9 +3235,16 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::restrict::column_fates"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "column_fates_are_derived_from_the_same_schema_plan"
+            }
+          ]
         },
         {
           "id": "restrict.tr8",
@@ -2842,9 +3256,16 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::restrict::scalar_child_bindings"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "repeated_child_bindings_agree_and_preserve_order_and_duplicates"
+            }
+          ]
         },
         {
           "id": "restrict.tr9",
@@ -2856,9 +3277,26 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors"
+            }
+          ]
         },
         {
           "id": "restrict.tr10",
@@ -2870,9 +3308,22 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::lens::TreeShape::check_put_domain",
+            "panproto_reference::lens::tree_put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_square_agrees_with_the_reference_exhaustively"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "tree_put_law_certificate"
+            }
+          ]
         },
         {
           "id": "restrict.tr11",
@@ -2884,9 +3335,22 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::lens::check_tree_laws",
+            "panproto_reference::lens::TreeShape::single_step_basis"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "lens_laws_agree_with_the_reference_exhaustively"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_square_agrees_with_the_reference_exhaustively"
+            }
+          ]
         },
         {
           "id": "restrict.tr12",
@@ -2898,9 +3362,37 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::lower",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Lens::get_edit",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Lens::put_edit",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::compose",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::invert",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply",
+            "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
+              "test": "tr12_get_functoriality_replacement_and_minimality_match_the_reference"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
+              "test": "tr12_put_functoriality_minimality_and_source_undo_match_the_reference"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
+              "test": "tr12_state_reading_lowering_has_the_same_typed_refusals"
+            },
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
+              "test": "tr12_late_sequence_refusal_is_atomic_for_reference_and_production"
+            }
+          ]
         },
         {
           "id": "restrict.tr13",
@@ -2912,9 +3404,16 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
+            }
+          ]
         },
         {
           "id": "restrict.reachability",
@@ -2930,49 +3429,23 @@
             }
           ],
           "references": [
-            "panproto_reference::restrict::get"
+            "panproto_reference::restrict::get",
+            "panproto_reference::restrict::realized_pairs_by_walks"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
     },
     "edits": {
-      "inventory_status": "partial",
-      "contract_scope": [
-        {
-          "section": "P.5",
-          "clause": "E.1"
-        },
-        {
-          "section": "P.5",
-          "clause": "E.2"
-        },
-        {
-          "section": "P.5",
-          "clause": "E.3"
-        },
-        {
-          "section": "P.5",
-          "clause": "E.3a"
-        },
-        {
-          "section": "P.5",
-          "clause": "T.5"
-        },
-        {
-          "section": "P.5",
-          "clause": "TR14"
-        },
-        {
-          "section": "decision 9",
-          "clause": "whole decision"
-        },
-        {
-          "section": "P.5",
-          "clause": "edit translation"
-        }
-      ],
+      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/edits.rs",
         "crates/panproto-reference/src/enumerate/edits.rs"
@@ -2988,9 +3461,23 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::apply"
+            "panproto_reference::edit::apply",
+            "panproto_reference::edit::independence",
+            "panproto_reference::edit::merge"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e1_apply_matches_reference_on_every_graph_and_atomic_delta"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e1_independence_and_merge_match_reference_on_every_atomic_pair"
+            }
+          ]
         },
         {
           "id": "edits.e2",
@@ -3002,9 +3489,24 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::Delta::invert"
+            "panproto_reference::edit::Delta::invert",
+            "panproto_reference::edit::invert_table",
+            "panproto_reference::edit::compose_table",
+            "panproto_reference::edit::diff_table"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
+            }
+          ]
         },
         {
           "id": "edits.e3",
@@ -3016,9 +3518,22 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::Delta::compose"
+            "panproto_reference::edit::Delta::compose",
+            "panproto_reference::edit::graph_delta_from_tree_edit"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
+            }
+          ]
         },
         {
           "id": "edits.e3a",
@@ -3034,7 +3549,24 @@
             "panproto_reference::edit::canonical_table_delta_bytes",
             "panproto_reference::edit::canonical_tree_edit_bytes"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e3a_graph_delta_bytes_match_reference_on_every_atomic_delta"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e3a_table_delta_bytes_match_reference_on_every_atomic_delta"
+            },
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence"
+            }
+          ]
         },
         {
           "id": "edits.t5",
@@ -3048,7 +3580,14 @@
           "references": [
             "panproto_reference::edit::apply_table"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
+            }
+          ]
         },
         {
           "id": "edits.tr14",
@@ -3062,7 +3601,14 @@
           "references": [
             "panproto_reference::edit::apply_tree"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
+            }
+          ]
         },
         {
           "id": "edits.replacement-semantics",
@@ -3074,9 +3620,16 @@
             }
           ],
           "references": [
-            "panproto_reference::edit::apply"
+            "panproto_reference::edit::Delta::compose"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "decision_9_delete_then_add_is_replacement_even_for_equal_payloads"
+            }
+          ]
         },
         {
           "id": "edits.translation-square",
@@ -3092,119 +3645,20 @@
             "panproto_reference::edit::get_edit",
             "panproto_reference::edit::put_edit"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_edit_translation",
+              "test": "generic_whole_state_edit_oracles_match_actual_tree_lens_translation"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
     },
     "validation": {
-      "inventory_status": "partial",
-      "contract_scope": [
-        {
-          "section": "V",
-          "clause": "V.1"
-        },
-        {
-          "section": "O12",
-          "clause": "B10(c),(e)"
-        },
-        {
-          "section": "O12",
-          "clause": "B13(c)"
-        },
-        {
-          "section": "O12",
-          "clause": "B14c(b)"
-        },
-        {
-          "section": "O12",
-          "clause": "B14e(c)"
-        },
-        {
-          "section": "O12",
-          "clause": "B15(c)"
-        },
-        {
-          "section": "O12",
-          "clause": "E33"
-        },
-        {
-          "section": "O12",
-          "clause": "E42(c)"
-        },
-        {
-          "section": "O12",
-          "clause": "F45"
-        },
-        {
-          "section": "V",
-          "clause": "V.2"
-        },
-        {
-          "section": "V",
-          "clause": "V.3"
-        },
-        {
-          "section": "V",
-          "clause": "V.4"
-        },
-        {
-          "section": "V",
-          "clause": "V.5"
-        },
-        {
-          "section": "V",
-          "clause": "V.6"
-        },
-        {
-          "section": "V",
-          "clause": "V.7"
-        },
-        {
-          "section": "V",
-          "clause": "V.8"
-        },
-        {
-          "section": "V",
-          "clause": "V.9"
-        },
-        {
-          "section": "V",
-          "clause": "V.10"
-        },
-        {
-          "section": "V",
-          "clause": "V.11"
-        },
-        {
-          "section": "V",
-          "clause": "validation admission policies"
-        },
-        {
-          "section": "O12",
-          "clause": "B14c, B14e and B15"
-        },
-        {
-          "section": "O12",
-          "clause": "E33 and E42(c)"
-        },
-        {
-          "section": "O12",
-          "clause": "F45 law"
-        },
-        {
-          "section": "O12",
-          "clause": "H72(d) law (1)"
-        },
-        {
-          "section": "O12",
-          "clause": "H72(d) law (2)"
-        },
-        {
-          "section": "O12",
-          "clause": "H72(d) law (3)"
-        }
-      ],
+      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/validation.rs",
         "crates/panproto-reference/src/enumerate/validation.rs"
@@ -3256,7 +3710,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v2",
@@ -3304,7 +3765,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v3",
@@ -3352,7 +3820,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v4",
@@ -3368,7 +3843,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v5",
@@ -3384,7 +3866,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v6",
@@ -3400,7 +3889,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v7",
@@ -3416,7 +3912,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v8",
@@ -3432,7 +3935,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v9",
@@ -3448,7 +3958,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v10",
@@ -3464,7 +3981,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.v11",
@@ -3480,7 +4004,14 @@
             "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            }
+          ]
         },
         {
           "id": "validation.admission-policies",
@@ -3494,7 +4025,14 @@
           "references": [
             "panproto_reference::validation::admits"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.key-equality-checks",
@@ -3508,7 +4046,14 @@
           "references": [
             "panproto_reference::validation::key_equality"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.variable-binding-checks",
@@ -3520,9 +4065,17 @@
             }
           ],
           "references": [
+            "panproto_reference::resolution::nearest_preceding",
             "panproto_reference::validation::variable_binding"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
+            }
+          ]
         },
         {
           "id": "validation.guard-target-set-sort-key-checks",
@@ -3536,7 +4089,14 @@
           "references": [
             "panproto_reference::validation::key_forms"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.index-null-match-checks",
@@ -3548,9 +4108,23 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::index_and_null_match"
+            "panproto_reference::resolution::get",
+            "panproto_reference::resolution::index_target",
+            "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "composite_foreign_key_null_matching_uses_real_resolution_occurrences"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "index_fields_never_resolve_targets"
+            }
+          ]
         },
         {
           "id": "validation.lexical-space-advisory",
@@ -3564,7 +4138,14 @@
           "references": [
             "panproto_reference::validation::lexical_space"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.annotated-format-no-assertion-equivalence",
@@ -3578,7 +4159,14 @@
           "references": [
             "panproto_reference::validation::annotated_format_parse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.annotated-format-advisory-exactness",
@@ -3592,7 +4180,14 @@
           "references": [
             "panproto_reference::validation::annotated_format_advisory"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         },
         {
           "id": "validation.format-assertion-acceptance",
@@ -3606,55 +4201,20 @@
           "references": [
             "panproto_reference::validation::format_assertion_acceptance"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
     },
     "segments": {
-      "inventory_status": "partial",
-      "contract_scope": [
-        {
-          "section": "SG",
-          "clause": "SG.1"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.2"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.3"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.6"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.7 types"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.9"
-        },
-        {
-          "section": "S10",
-          "clause": "finite carrier"
-        },
-        {
-          "section": "S10a",
-          "clause": "finite carrier"
-        },
-        {
-          "section": "SG",
-          "clause": "segment execution equals whole-state execution"
-        },
-        {
-          "section": "decision 9",
-          "clause": "allocation floor"
-        }
-      ],
+      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/segments.rs",
         "crates/panproto-reference/src/enumerate/segments.rs"
@@ -3670,9 +4230,16 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::glue"
+            "panproto_reference::segment::partition"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
+            }
+          ]
         },
         {
           "id": "segments.sg2",
@@ -3684,9 +4251,16 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::segmented"
+            "panproto_reference::segment::partition"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
+            }
+          ]
         },
         {
           "id": "segments.sg3",
@@ -3701,7 +4275,14 @@
             "panproto_reference::segment::partition",
             "panproto_reference::segment::glue"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
+            }
+          ]
         },
         {
           "id": "segments.sg6",
@@ -3713,9 +4294,19 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::segmented"
+            "panproto_reference::segment::canonical_manifest_bytes",
+            "panproto_reference::segment::canonical_segment_bytes",
+            "panproto_reference::segment::seal_manifest",
+            "panproto_reference::segment::verify_manifest"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
+            }
+          ]
         },
         {
           "id": "segments.sg7-types",
@@ -3727,9 +4318,18 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::glue"
+            "panproto_reference::segment::canonical_journal_bytes",
+            "panproto_reference::segment::decode_journal_bytes",
+            "panproto_reference::segment::journal_digest"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "storage_vocabulary_journal_layout_matches_the_reference_exactly"
+            }
+          ]
         },
         {
           "id": "segments.sg9",
@@ -3741,9 +4341,17 @@
             }
           ],
           "references": [
+            "panproto_reference::segment::decode_segment_bytes",
             "panproto_reference::segment::partition"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            }
+          ]
         },
         {
           "id": "segments.s10",
@@ -3755,9 +4363,16 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::partition"
+            "panproto_reference::segment::validate_segment_contract"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            }
+          ]
         },
         {
           "id": "segments.s10a",
@@ -3769,9 +4384,16 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::partition"
+            "panproto_reference::segment::validation_view_preflight"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            }
+          ]
         },
         {
           "id": "segments.execution-equivalence",
@@ -3785,7 +4407,14 @@
           "references": [
             "panproto_reference::segment::segmented"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
+            }
+          ]
         },
         {
           "id": "segments.id-floor",
@@ -3799,7 +4428,14 @@
           "references": [
             "panproto_reference::segment::fresh"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "append_floor_and_exhaustion_agree_on_an_independently_counted_carrier"
+            }
+          ]
         }
       ],
       "due_gate": "phase3"
@@ -4443,7 +5079,19 @@
             "panproto_reference::resolution::get",
             "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+            }
+          ]
         },
         {
           "id": "resolution.put-get",
@@ -4518,7 +5166,19 @@
             "panproto_reference::resolution::get",
             "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+            }
+          ]
         },
         {
           "id": "resolution.totality",
@@ -4592,7 +5252,19 @@
           "references": [
             "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+            }
+          ]
         },
         {
           "id": "resolution.congruence",
@@ -4666,7 +5338,19 @@
           "references": [
             "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+            }
+          ]
         },
         {
           "id": "resolution.gated-put-twice",
@@ -4744,7 +5428,19 @@
           "references": [
             "panproto_reference::resolution::put"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+            },
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+            }
+          ]
         },
         {
           "id": "resolution.uri-environment-locality",
@@ -4758,7 +5454,14 @@
           "references": [
             "panproto_reference::resolution::uri_environment"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "uri_environment_uses_only_the_preceding_directive_prefix"
+            }
+          ]
         },
         {
           "id": "resolution.rfc3986-algorithm",
@@ -4772,7 +5475,14 @@
           "references": [
             "panproto_reference::resolution::rfc3986"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "uri_resolution_matches_the_rfc_3986_section_5_4_vectors"
+            }
+          ]
         },
         {
           "id": "resolution.referenced-text-identity",
@@ -4786,7 +5496,14 @@
           "references": [
             "panproto_reference::resolution::text_identity"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "referenced_text_identity_is_field_qualified_and_value_independent"
+            }
+          ]
         },
         {
           "id": "resolution.guarded-occurrence-partition",
@@ -4800,7 +5517,14 @@
           "references": [
             "panproto_reference::resolution::guarded_partition"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "guarded_occurrences_select_the_first_representation_equal_guard"
+            }
+          ]
         },
         {
           "id": "resolution.standoff-form-injectivity",
@@ -4818,7 +5542,14 @@
           "references": [
             "panproto_reference::resolution::standoff_form"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope"
+            }
+          ]
         },
         {
           "id": "resolution.standoff-put-left-inverse",
@@ -4836,7 +5567,14 @@
           "references": [
             "panproto_reference::resolution::standoff_inverse"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope"
+            }
+          ]
         },
         {
           "id": "resolution.index-target-nonresolution",
@@ -4850,7 +5588,14 @@
           "references": [
             "panproto_reference::resolution::index_target"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "index_fields_never_resolve_targets"
+            }
+          ]
         },
         {
           "id": "resolution.inherited-base-locality",
@@ -4864,7 +5609,14 @@
           "references": [
             "panproto_reference::resolution::inherited_base"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "inherited_base_uses_the_nearest_present_ancestor"
+            }
+          ]
         },
         {
           "id": "resolution.declared-key-equality",
@@ -4878,7 +5630,14 @@
           "references": [
             "panproto_reference::resolution::declared_key_equality"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "resolution_uses_the_exact_declared_key_equality_operation"
+            }
+          ]
         },
         {
           "id": "resolution.nearest-preceding-binding",
@@ -4892,7 +5651,14 @@
           "references": [
             "panproto_reference::resolution::nearest_preceding"
           ],
-          "due_gate": "phase3"
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
+            }
+          ]
         },
         {
           "id": "resolution.preserving-registry-product",
@@ -4906,7 +5672,14 @@
           "references": [
             "panproto_reference::resolution::preserving_registry"
           ],
-          "due_gate": "final"
+          "due_gate": "final",
+          "consumers": [
+            {
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "preserving_registry_is_the_ordered_cartesian_product"
+            }
+          ]
         }
       ],
       "due_gate": "phase3",

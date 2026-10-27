@@ -104,6 +104,7 @@ fn plan(features: impl IntoIterator<Item = Feature>) -> ValidationPlan {
                 parts: vec![KeyPart::Path(vec![e_name()])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         );
     }

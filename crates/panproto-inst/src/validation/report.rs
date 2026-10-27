@@ -882,6 +882,20 @@ pub enum IncompleteReason {
         /// What.
         detail: String,
     },
+    /// A declared key uses a text collation validation cannot evaluate.
+    UnsupportedCollation {
+        /// The key whose equality requires the collation.
+        key: Name,
+        /// The unsupported collation.
+        collation: Name,
+    },
+    /// An instance value carries a malformed numeric representation.
+    InvalidKeyRepresentation {
+        /// The key whose value could not be normalized.
+        key: Name,
+        /// The malformed representation kind.
+        kind: String,
+    },
 }
 
 impl fmt::Display for IncompleteReason {
@@ -900,6 +914,12 @@ impl fmt::Display for IncompleteReason {
             Self::NoValidatedBaseline => f.write_str("no validated baseline"),
             Self::OutsideSegment { .. } => f.write_str("not decidable within one segment"),
             Self::Unsupported { detail } => write!(f, "unsupported: {detail}"),
+            Self::UnsupportedCollation { key, collation } => {
+                write!(f, "key {key} requires unsupported collation {collation}")
+            }
+            Self::InvalidKeyRepresentation { key, kind } => {
+                write!(f, "key {key} has an invalid {kind} representation")
+            }
         }
     }
 }
@@ -1670,6 +1690,16 @@ pub fn write_reason<W: CanonicalSink + ?Sized>(w: &mut W, r: &IncompleteReason) 
         IncompleteReason::Unsupported { detail } => {
             w.tag(6);
             w.str(detail);
+        }
+        IncompleteReason::UnsupportedCollation { key, collation } => {
+            w.tag(7);
+            w.name(key);
+            w.name(collation);
+        }
+        IncompleteReason::InvalidKeyRepresentation { key, kind } => {
+            w.tag(8);
+            w.name(key);
+            w.str(kind);
         }
     }
 }

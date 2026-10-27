@@ -260,6 +260,10 @@ fn a_nonnullable_many_reference_does_not_guard_an_fk_lift() {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         },
     );
     let lens = Lens {

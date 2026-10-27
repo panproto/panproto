@@ -91,12 +91,12 @@ fn tree_fan_nodes_use_max_minus_one_but_never_the_reserved_maximum() {
     );
 }
 
-// An embedding's node floor lies strictly above every tree node id, so a
-// tree holding node `u32::MAX` has no graph form even without fans; one
-// below it encodes with the floor at `u32::MAX`, an embedding tree apply
-// accepts.
+// Existing tree nodes are not allocations. A fan-free tree may therefore
+// hold `u32::MAX`; its saturated floor merely prevents a later fresh node.
+// A tree one below it also encodes with the floor at `u32::MAX`, and an
+// embedding tree apply accepts that presentation.
 #[test]
-fn a_tree_node_at_the_reserved_maximum_has_no_graph_form_even_without_fans() {
+fn a_fan_free_tree_preserves_the_reserved_maximum_at_a_saturated_floor() {
     let leaf_edge = SEdge::new("r", "leaf", "prop", Some("leaf"));
     let tree_with = |leaf: u32| Tree {
         nodes: BTreeMap::from([(0, Node::new(0, "r")), (leaf, Node::new(leaf, "leaf"))]),
@@ -104,9 +104,18 @@ fn a_tree_node_at_the_reserved_maximum_has_no_graph_form_even_without_fans() {
         fans: Vec::new(),
         root: 0,
     };
+    let at_max = tree_with(u32::MAX);
+    let (graph, embedding) = encode::tree_to_graph(&at_max, None).unwrap();
+    assert_eq!(graph.nodes, at_max.nodes);
+    assert_eq!(graph.edges.len(), 1);
     assert_eq!(
-        encode::tree_to_graph(&tree_with(u32::MAX), None),
-        Err(TreeEncodeError::NodeIdsExhausted)
+        embedding,
+        encode::TreeEmbedding {
+            arcs: BTreeMap::from([(u32::MAX, 0)]),
+            fans: Vec::new(),
+            next_node: u32::MAX,
+            next_edge: 1,
+        }
     );
     let alone = Tree {
         nodes: BTreeMap::from([(u32::MAX, Node::new(u32::MAX, "r"))]),
@@ -114,9 +123,17 @@ fn a_tree_node_at_the_reserved_maximum_has_no_graph_form_even_without_fans() {
         fans: Vec::new(),
         root: u32::MAX,
     };
+    let (graph, embedding) = encode::tree_to_graph(&alone, None).unwrap();
+    assert_eq!(graph.nodes, alone.nodes);
+    assert!(graph.edges.is_empty());
     assert_eq!(
-        encode::tree_to_graph(&alone, None),
-        Err(TreeEncodeError::NodeIdsExhausted)
+        embedding,
+        encode::TreeEmbedding {
+            arcs: BTreeMap::new(),
+            fans: Vec::new(),
+            next_node: u32::MAX,
+            next_edge: 0,
+        }
     );
 
     let empty = Tree {
@@ -180,7 +197,7 @@ fn a_dangling_edge_endpoint_is_a_typed_refusal_of_the_encoding() {
     );
     let refused = encode::encode_graph(&g, &side);
     assert_eq!(format!("{refused:?}"), "Err(DanglingEdge { edge: 0 })");
-    assert_eq!(encode::graph_to_table(&g), None);
+    assert_eq!(encode::graph_to_table(&g, &schema), None);
 }
 
 #[test]
@@ -195,13 +212,13 @@ fn a_table_round_trips_through_its_graph_and_its_encoding() {
         .insert((SEdge::new("a", "b", "fk", Some("f")), 3, 7));
     let (graph, emb) = encode::table_to_graph(&table).unwrap();
     assert_eq!(emb.len(), 1);
-    assert_eq!(encode::graph_to_table(&graph), Some(table.clone()));
     let schema = Schema::default()
         .vertex("a", "record")
         .vertex("b", "record")
         .vertex("a.x", "int")
         .edge("a", "a.x", "prop", Some("x"))
         .edge("a", "b", "fk", Some("f"));
+    assert_eq!(encode::graph_to_table(&graph, &schema), Some(table.clone()));
     let side_schema = rel::classify(
         &schema,
         &BTreeSet::from(["int".to_owned()]),

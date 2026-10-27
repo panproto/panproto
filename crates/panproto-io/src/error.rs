@@ -115,6 +115,33 @@ pub enum ParseInstanceError {
         message: String,
     },
 
+    /// Parsing exceeded a fixed resource allowance.
+    #[error(
+        "resource limit exceeded for protocol '{protocol}' at byte {byte_offset:?}: {resource} is bounded at {bound}"
+    )]
+    LimitExceeded {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// Stable name of the bounded resource.
+        resource: String,
+        /// The inclusive resource bound.
+        bound: u64,
+        /// Zero-based offset of the construct that exceeded the bound.
+        byte_offset: Option<u64>,
+    },
+
+    /// The input requests a feature that this parser deliberately does not
+    /// evaluate.
+    #[error("unsupported feature for protocol '{protocol}' at byte {byte_offset:?}: {feature}")]
+    UnsupportedFeature {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// Stable description of the unsupported construct.
+        feature: String,
+        /// Zero-based offset of the unsupported construct.
+        byte_offset: Option<u64>,
+    },
+
     /// The parsed data does not conform to the provided schema.
     #[error("schema mismatch for protocol '{protocol}': {message}")]
     SchemaMismatch {

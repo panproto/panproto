@@ -18,8 +18,8 @@ use panproto_inst::{
     validate_graph, validate_table, validate_wtype,
 };
 use panproto_schema::{
-    Constraint, ConstraintSemantics, Edge, HyperEdge, Key, KeyPart, KeyRole, KeyScope, LengthUnit,
-    Protocol, Schema, Vertex,
+    Constraint, ConstraintSemantics, Edge, HyperEdge, Key, KeyEquality, KeyPart, KeyRole, KeyScope,
+    LengthUnit, Protocol, ScalarKind, Schema, SqlCollation, SqlPad, Vertex,
 };
 use proptest::prelude::*;
 use serde::Serialize;
@@ -598,13 +598,21 @@ fn all_reasons() -> Vec<IncompleteReason> {
             ),
         },
         IncompleteReason::Unsupported { detail: "u".into() },
+        IncompleteReason::UnsupportedCollation {
+            key: "k".into(),
+            collation: "locale".into(),
+        },
+        IncompleteReason::InvalidKeyRepresentation {
+            key: "k".into(),
+            kind: "big integer".to_owned(),
+        },
     ]
 }
 
 #[test]
 fn incomplete_reason_round_trips_every_variant() -> TestResult {
     let reasons = all_reasons();
-    assert_eq!(reasons.len(), 7);
+    assert_eq!(reasons.len(), 9);
     for r in &reasons {
         round_trip(r)?;
         assert!(!r.to_string().is_empty());
@@ -944,6 +952,7 @@ fn rich_schema() -> Schema {
                 parts: vec![KeyPart::Path(vec![name])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build()
@@ -1023,6 +1032,10 @@ fn check_kinds_compile_only_for_their_shapes() {
             nullable: true,
             on_unresolved: panproto_schema::OnUnresolved::Error,
             mode: panproto_schema::ResolveMode::AddEdge,
+            guard: None,
+            null_match: panproto_schema::NullMatch::default(),
+            null_vertex: None,
+            scope_via: None,
         });
     let plan = plan(&schema, &p);
     for (key, spec) in plan.checks() {
@@ -1849,6 +1862,173 @@ fn the_listed_formats_are_public_and_each_is_evaluated() {
 }
 
 #[test]
+fn annotated_formats_are_advisory_and_width_formats_use_exact_coercion() {
+    let cases = [
+        ("int8", Value::Int(127), false),
+        ("int8", Value::Int(128), true),
+        ("int32", Value::Int(i64::from(i32::MAX) + 1), true),
+        ("int64", Value::Int(i64::MAX), false),
+        ("float", Value::Float(f64::from(0.5_f32)), false),
+        ("float", Value::Float(0.1), true),
+        ("double", Value::Float(0.1), false),
+        ("uuid", Value::Str("not-a-uuid".into()), true),
+    ];
+    for (format, value, reported) in cases {
+        let schema = S::default()
+            .vertex("value", "any")
+            .constraint("value", "format", format)
+            .build();
+        let protocol = protocol(&[(
+            "format",
+            ConstraintSemantics::AnnotatedFormat("test".into()),
+        )]);
+        let plan = plan(&schema, &protocol);
+        let check = plan
+            .checks()
+            .values()
+            .find(|check| check.key.kind == CheckKind::ValueConstraint)
+            .expect("a recognized advisory format compiles to a check");
+        assert_eq!(check.requirement, Requirement::Advisory, "{format}");
+        let instance = GInstance::new()
+            .with_node(Node::new(0, "value").with_value(FieldPresence::Present(value.clone())));
+        let report = plan.validate_graph(&instance, &unlimited(), &none());
+        assert_eq!(report.status, CheckStatus::Passed, "{format}: {value:?}");
+        assert_eq!(
+            of_kind(&report, CheckKind::ValueConstraint).len(),
+            usize::from(reported),
+            "{format}: {value:?}"
+        );
+        assert!(report.incomplete.is_empty(), "{format}: {value:?}");
+    }
+
+    let schema = S::default()
+        .vertex("value", "any")
+        .constraint("value", "format", "vendor-defined")
+        .build();
+    let protocol = protocol(&[(
+        "format",
+        ConstraintSemantics::AnnotatedFormat("test".into()),
+    )]);
+    let plan = plan(&schema, &protocol);
+    assert!(
+        plan.checks()
+            .keys()
+            .all(|key| !matches!(key.decl, SchemaRef::Constraint { .. }))
+    );
+    assert!(plan.static_findings().is_empty());
+}
+
+#[test]
+fn lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory() {
+    let datatype = prop("literal", "datatype", "datatype");
+    let schema = S::default()
+        .vertex("literal", "string")
+        .vertex("datatype", "string")
+        .edge(&datatype)
+        .constraint("literal", "lexical_space", "datatype")
+        .build();
+    let mut lexical_protocol = protocol(&[("lexical_space", ConstraintSemantics::LexicalSpace)]);
+    lexical_protocol.value_kinds.insert(
+        "integer".to_owned(),
+        ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+    );
+    let lexical_plan = plan(&schema, &lexical_protocol);
+    let check = lexical_plan
+        .checks()
+        .values()
+        .find(|check| check.key.kind == CheckKind::ValueConstraint)
+        .expect("lexical space compiles to a check");
+    assert_eq!(check.requirement, Requirement::Advisory);
+
+    let graph = GInstance::new()
+        .with_node(str_node(0, "literal", "12"))
+        .with_node(str_node(1, "literal", "not-an-integer"))
+        .with_node(str_node(2, "literal", "kept"))
+        .with_node(str_node(3, "literal", "missing-selector"))
+        .with_node(str_node(4, "literal", "non-text-selector"))
+        .with_node(str_node(5, "literal", "multiple-selectors"))
+        .with_node(str_node(10, "datatype", "integer"))
+        .with_node(str_node(11, "datatype", "unknown-datatype"))
+        .with_node(Node::new(12, "datatype").with_value(FieldPresence::Present(Value::Int(1))))
+        .with_node(str_node(13, "datatype", "integer"))
+        .with_node(Node::new(14, "datatype"))
+        .with_edge(0, 10, datatype.clone())
+        .with_edge(1, 10, datatype.clone())
+        .with_edge(2, 11, datatype.clone())
+        .with_edge(4, 12, datatype.clone())
+        .with_edge(5, 13, datatype.clone())
+        .with_edge(5, 14, datatype);
+    let report = lexical_plan.validate_graph(&graph, &unlimited(), &none());
+    assert_eq!(report.status, CheckStatus::Passed);
+    assert_eq!(
+        of_kind(&report, CheckKind::ValueConstraint),
+        vec![(
+            Some(ViewRef::Node(1)),
+            Violation::ValueConstraint {
+                sort: "lexical_space".into(),
+                bound: "integer".to_owned(),
+                value: Some(Value::Str("not-an-integer".to_owned())),
+            }
+        )]
+    );
+    assert!(report.diagnostics[0].verify(&lexical_plan, &graph));
+    assert!(report.incomplete.iter().any(|entry| {
+        entry.subject == Some(ViewRef::Node(2))
+            && entry.requirement == Requirement::Advisory
+            && entry.reason
+                == IncompleteReason::UnsupportedDeclaration {
+                    sort: "unknown-datatype".into(),
+                }
+    }));
+    let unsupported_details: Vec<&str> = report
+        .incomplete
+        .iter()
+        .filter_map(|entry| match &entry.reason {
+            IncompleteReason::Unsupported { detail } => Some(detail.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        unsupported_details,
+        [
+            "lexical-space selector datatype has no value",
+            "lexical-space selector datatype is not text",
+            "lexical-space selector datatype has more than one value",
+        ]
+    );
+}
+
+#[test]
+fn lexical_space_unknown_tag_is_typed_advisory_incomplete() {
+    let schema = S::default()
+        .vertex("literal", "string")
+        .constraint("literal", "lexical_space", "unknown-tag")
+        .build();
+    let unknown_plan = plan(
+        &schema,
+        &protocol(&[("lexical_space", ConstraintSemantics::LexicalSpace)]),
+    );
+    assert_eq!(
+        finding_reasons(&unknown_plan, CheckKind::DeclarationInterpretable),
+        [IncompleteReason::UnsupportedDeclaration {
+            sort: "unknown-tag".into(),
+        }]
+    );
+    assert_eq!(
+        unknown_plan
+            .checks()
+            .values()
+            .find(|check| check.key.kind == CheckKind::ValueConstraint)
+            .expect("the unsupported lexical tag remains an advisory open check")
+            .requirement,
+        Requirement::Advisory
+    );
+}
+
+#[test]
 fn annotation_and_value_parameter_compile_to_no_check() {
     let schema = S::default()
         .vertex("a", "string")
@@ -1883,6 +2063,7 @@ fn schema_well_formed_reports_p4_key_defects() {
                 parts: vec![KeyPart::Path(vec![prop("s", "a", "nope")])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build();
@@ -2359,6 +2540,7 @@ fn keyed_table_schema() -> Schema {
                 parts: vec![KeyPart::Path(vec![id]), KeyPart::Path(vec![lang])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build()
@@ -2442,6 +2624,100 @@ fn keys_compile_to_key_unique_and_primary_parts_to_required_value() {
 }
 
 #[test]
+fn key_unique_uses_declared_numeric_equality() {
+    let schema = S::default()
+        .vertex("item", "number")
+        .key(
+            "item",
+            Key {
+                id: "numeric".into(),
+                parts: vec![KeyPart::Path(Vec::new())],
+                role: KeyRole::Unique,
+                scope: KeyScope::Global,
+                equality: vec![KeyEquality::NumericValue],
+            },
+        )
+        .build();
+    let plan = plan(&schema, &Protocol::default());
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "item").with_value(FieldPresence::Present(Value::Int(1))))
+        .with_node(Node::new(1, "item").with_value(FieldPresence::Present(Value::Float(1.0))));
+    let report = plan.validate_graph(&graph, &unlimited(), &none());
+    assert_eq!(
+        of_kind(&report, CheckKind::KeyUnique),
+        vec![(
+            None,
+            Violation::DuplicateKey {
+                key: vec![(String::new(), Value::Int(1))],
+                elems: vec![ViewRef::Node(0), ViewRef::Node(1)],
+            }
+        )]
+    );
+}
+
+#[test]
+fn unsupported_collation_and_invalid_numeric_keys_are_typed_incomplete() {
+    let key = |id: &str, equality| Key {
+        id: id.into(),
+        parts: vec![KeyPart::Path(Vec::new())],
+        role: KeyRole::Unique,
+        scope: KeyScope::Global,
+        equality: vec![equality],
+    };
+
+    let schema = S::default()
+        .vertex("text", "string")
+        .key(
+            "text",
+            key(
+                "locale-key",
+                KeyEquality::Sql {
+                    collation: SqlCollation::Named("locale".into()),
+                    pad: SqlPad::NoPad,
+                },
+            ),
+        )
+        .build();
+    let locale_plan = plan(&schema, &Protocol::default());
+    let report = locale_plan.validate_graph(
+        &GInstance::new().with_node(str_node(0, "text", "a")),
+        &unlimited(),
+        &none(),
+    );
+    assert_eq!(report.status, CheckStatus::Incomplete);
+    assert!(report.incomplete.iter().any(|entry| {
+        entry.reason
+            == IncompleteReason::UnsupportedCollation {
+                key: "locale-key".into(),
+                collation: "locale".into(),
+            }
+    }));
+
+    let schema = S::default()
+        .vertex("number", "integer")
+        .key("number", key("numeric-key", KeyEquality::NumericValue))
+        .build();
+    let numeric_plan = plan(&schema, &Protocol::default());
+    let malformed = panproto_inst::value::BigIntValue {
+        negative: false,
+        significand: "not-digits".into(),
+        zeros: panproto_inst::value::WideInt::from(0_i64),
+    };
+    let graph = GInstance::new().with_node(
+        Node::new(0, "number").with_value(FieldPresence::Present(Value::BigInt(malformed))),
+    );
+    let report = numeric_plan.validate_graph(&graph, &unlimited(), &none());
+    assert_eq!(report.status, CheckStatus::Incomplete);
+    assert!(report.incomplete.iter().any(|entry| {
+        entry.reason
+            == IncompleteReason::InvalidKeyRepresentation {
+                key: "numeric-key".into(),
+                kind: "big integer".to_owned(),
+            }
+    }));
+}
+
+#[test]
 fn a_key_scoped_within_an_ancestor_is_unique_per_ancestor() {
     let item = prop("list", "item", "item");
     let name = prop("item", "name", "name");
@@ -2458,6 +2734,7 @@ fn a_key_scoped_within_an_ancestor_is_unique_per_ancestor() {
                 parts: vec![KeyPart::Path(vec![name.clone()])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Within("list".into()),
+                equality: vec![],
             },
         )
         .build();
@@ -2513,6 +2790,7 @@ fn referencing_schema(on_unresolved: panproto_schema::OnUnresolved) -> Schema {
                 parts: vec![KeyPart::Path(vec![id])],
                 role: KeyRole::Identifier,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build();
@@ -2531,6 +2809,10 @@ fn referencing_schema(on_unresolved: panproto_schema::OnUnresolved) -> Schema {
             nullable: false,
             on_unresolved,
             mode: panproto_schema::ResolveMode::AddEdge,
+            guard: None,
+            null_match: panproto_schema::NullMatch::default(),
+            null_vertex: None,
+            scope_via: None,
         });
     schema
 }

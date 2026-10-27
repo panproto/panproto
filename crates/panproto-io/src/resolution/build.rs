@@ -16,7 +16,7 @@ use panproto_inst::{
     AnyInstance, EdgeId, FInstance, FieldPresence, GEdge, GInstance, IdAllocator, IdRange, Node,
     TreeShapeReport, Value, ViewRef, WInstance,
 };
-use panproto_schema::{Edge, OffsetUnit, RefTextSource, ResolveMode};
+use panproto_schema::{Cardinality, Edge, OffsetUnit, RefTextSource, ResolveMode};
 
 use super::compile::{CompiledRef, RefForm};
 use super::error::{ResolveDomainError, ResolveError};
@@ -211,6 +211,7 @@ impl Resolution {
                 Err(refusal) => return Err(refusal),
             }
         }
+        written.extend(self.added_occurrences(&canvas, &classified)?);
         refuse(failures)?;
         let first = self.assemble_written(&parts, &written, &vec![0; written.len()])?;
         written.extend(self.rewrites(&parts, &classified, complement, &first, &canvas)?);
@@ -224,6 +225,80 @@ impl Resolution {
             )
         });
         self.choose_forms(&parts, &written, ctx)
+    }
+
+    /// New `AddEdge` occurrences written at holders that already exist in the
+    /// source tree. Their index is the number of retained occurrences at the
+    /// same holder and declaration, so a new Many occurrence appends after
+    /// the exact sequence that remains in the edited view.
+    fn added_occurrences<'r>(
+        &'r self,
+        canvas: &Canvas<'_>,
+        classified: &Classified<'_>,
+    ) -> Result<Vec<Written<'r>>, Refusal> {
+        let mut written = Vec::new();
+        let mut failures = Vec::new();
+        for (carrier, label) in &classified.new_references {
+            let Ok(compiled) = self.writer(*carrier, label) else {
+                continue;
+            };
+            if compiled.reference.mode != ResolveMode::AddEdge {
+                continue;
+            }
+            let Some(edge) = canvas.view.edge(*carrier) else {
+                continue;
+            };
+            let holder_is_writable = classified.elements.contains(&edge.src)
+                && classified.elements.contains(&edge.tgt)
+                && canvas
+                    .view
+                    .node(edge.src)
+                    .is_some_and(|node| node.anchor == compiled.reference.holder);
+            let count = classified
+                .occurrences
+                .values()
+                .filter(|record| {
+                    record.holder == ViewRef::Node(edge.src)
+                        && record.reference == compiled.reference.id
+                })
+                .count();
+            if !holder_is_writable
+                || (compiled.reference.cardinality == Cardinality::One && count != 0)
+            {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(*carrier),
+                    reference: compiled.reference.id.clone(),
+                });
+                continue;
+            }
+            let index = u32::try_from(count).map_err(|_| {
+                Refusal::Operational(ResolveError::IdExhausted {
+                    kind: panproto_inst::segment::IdKind::Edge,
+                })
+            })?;
+            match self.forms(canvas, compiled, edge.src, edge.tgt, None) {
+                Ok(forms) => written.push(Written {
+                    carrier: *carrier,
+                    holder: edge.src,
+                    compiled,
+                    index,
+                    target: edge.tgt,
+                    forms,
+                    // The holder exists already, so assembly writes through
+                    // the same path used for a changed recorded literal.
+                    rewrite: true,
+                }),
+                Err(Refusal::Domain(violations)) => failures.extend(
+                    violations
+                        .into_vec()
+                        .into_iter()
+                        .map(|violation| at_edge(violation, *carrier)),
+                ),
+                Err(refusal) => return Err(refusal),
+            }
+        }
+        refuse(failures)?;
+        Ok(written)
     }
 
     /// Mark recorded spanning edges structural, promote one new edge into
@@ -1291,32 +1366,21 @@ impl Resolution {
             text,
             unit,
             end_inclusive,
+            end_form,
+            origin,
             ..
         } = &compiled.form
         else {
             return Err(unrepresentable(compiled, ViewRef::Node(holder)));
         };
-        let source = Source::tree(base);
-        let (path, local) = match text {
-            RefTextSource::Local(path) => (path, true),
-            RefTextSource::External(path) => (path, false),
-        };
-        let sites = source.path_sites(&ViewRef::Node(holder), path);
-        let [(site, value)] = sites.as_slice() else {
-            return Err(unrepresentable(compiled, ViewRef::Node(holder)));
-        };
-        let id = if local {
-            ResolutionTextId::Local(site.clone())
-        } else {
-            ResolutionTextId::ExternalKey(site.clone())
-        };
+        let (id, local, value) = self.resolution_text_site(compiled, holder, text, base)?;
         if id != span.text {
             return Err(unrepresentable(compiled, ViewRef::Node(holder)));
         }
         let bytes = if local {
             match value {
-                Value::Str(text) => text.as_bytes().to_vec(),
-                Value::Bytes(bytes) => bytes.clone(),
+                Value::Str(text) => text.into_bytes(),
+                Value::Bytes(bytes) => bytes,
                 _ => return Err(unrepresentable(compiled, ViewRef::Node(holder))),
             }
         } else {
@@ -1326,7 +1390,7 @@ impl Resolution {
                     feature: super::ResolutionFeature::ExternalText,
                 })
             })?;
-            store.load(value)?
+            store.load(&value)?
         };
         let tokens = if matches!(unit, OffsetUnit::Token) {
             let provider = ctx.token_boundaries.ok_or_else(|| {
@@ -1361,12 +1425,50 @@ impl Resolution {
         let (start, end) =
             standoff::bytes_to_declared(&boundaries, span.start, span.end, *end_inclusive)
                 .map_err(violation)?;
+        let (start, end) =
+            standoff::offsets_to_form(start, end, *origin, *end_form).map_err(violation)?;
         let int = |offset: u64| {
             i64::try_from(offset)
                 .map(Value::Int)
                 .map_err(|_| violation(standoff::UnitFailure::OutOfRange))
         };
         Ok(Value::List(vec![int(start)?, int(end)?]))
+    }
+
+    fn resolution_text_site(
+        &self,
+        compiled: &CompiledRef,
+        holder: u32,
+        text: &RefTextSource,
+        base: &WInstance,
+    ) -> Result<(ResolutionTextId, bool, Value), Refusal> {
+        let source = Source::tree(base);
+        let (path, local) = match text {
+            RefTextSource::Local(path) => (path, true),
+            RefTextSource::External(path) => (path, false),
+            RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
+                return Err(Refusal::Operational(ResolveError::UnsupportedFeature {
+                    provider: Some(self.spec.provider.clone()),
+                    feature: super::ResolutionFeature::ResolutionState,
+                }));
+            }
+            RefTextSource::ExternalUri { .. } => {
+                return Err(Refusal::Operational(ResolveError::UnsupportedFeature {
+                    provider: Some(self.spec.provider.clone()),
+                    feature: super::ResolutionFeature::ExternalText,
+                }));
+            }
+        };
+        let sites = source.path_sites(&ViewRef::Node(holder), path);
+        let [(site, value)] = sites.as_slice() else {
+            return Err(unrepresentable(compiled, ViewRef::Node(holder)));
+        };
+        let id = if local {
+            ResolutionTextId::Local(site.clone())
+        } else {
+            ResolutionTextId::ExternalKey(site.clone())
+        };
+        Ok((id, local, (*value).clone()))
     }
 }
 

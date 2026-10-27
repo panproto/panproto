@@ -7,10 +7,9 @@ pub mod theory {
     //! A theory holds sorts with parameters, operations with dependent inputs
     //! and outputs, equations, directed equations and conflict policies; terms
     //! are variables, applications, case analyses, holes and local bindings.
-    //! The expression-language parts of a directed equation (its
-    //! implementation and inverse) and of a policy (its strategy) are carried
-    //! as opaque text: composition transports them unchanged and compares them
-    //! for equality, and never evaluates them.
+    //! The expression-language parts of a directed equation and conflict
+    //! policy are independent syntax carriers. Composition transports them
+    //! unchanged and compares them for equality; it never evaluates them.
 
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,6 +17,202 @@ pub mod theory {
 
     /// A name.
     pub type Name = String;
+
+    /// A primitive value family.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum ValueKind {
+        /// Boolean values.
+        Bool,
+        /// Signed integer values.
+        Int,
+        /// Binary floating-point values.
+        Float,
+        /// UTF-8 strings.
+        Str,
+        /// Byte strings.
+        Bytes,
+        /// Opaque tokens.
+        Token,
+        /// The null value.
+        Null,
+        /// Values of any primitive family.
+        Any,
+        /// Date-time values.
+        DateTime,
+        /// Calendar-date values.
+        Date,
+        /// Time-of-day values.
+        Time,
+        /// Exact decimal values.
+        Decimal,
+        /// UUID values.
+        Uuid,
+    }
+
+    /// A coercion's round-trip class.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum CoercionClass {
+        /// Both round trips hold.
+        Iso,
+        /// The forward map has a left inverse.
+        Retraction,
+        /// The result is deterministically re-derived from the source.
+        Projection,
+        /// No structural round-trip property is declared.
+        Opaque,
+    }
+
+    /// The kind of a sort.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum SortKind {
+        /// A structural sort.
+        #[default]
+        Structural,
+        /// A sort of primitive values.
+        Val(ValueKind),
+        /// A directed coercion between primitive value sorts.
+        Coercion {
+            /// The source primitive family.
+            from: ValueKind,
+            /// The target primitive family.
+            to: ValueKind,
+            /// The coercion's round-trip class.
+            class: CoercionClass,
+        },
+        /// A merger for one primitive value family.
+        Merger(ValueKind),
+    }
+
+    /// A validated temporal literal and its independent canonical bytes.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TemporalLiteral {
+        value: crate::temporal::Temporal,
+        bytes: Vec<u8>,
+    }
+
+    impl TemporalLiteral {
+        /// Build a literal exactly when the temporal carrier is well formed.
+        #[must_use]
+        pub fn new(value: crate::temporal::Temporal) -> Option<Self> {
+            let mut writer = Writer::default();
+            crate::canonical::write_temporal(&mut writer, &value)?;
+            Some(Self {
+                value,
+                bytes: writer.bytes,
+            })
+        }
+
+        /// The temporal value.
+        #[must_use]
+        pub const fn value(&self) -> &crate::temporal::Temporal {
+            &self.value
+        }
+    }
+
+    /// A literal in a directed-equation expression.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Literal {
+        /// A Boolean.
+        Bool(bool),
+        /// A signed 64-bit integer.
+        Int(i64),
+        /// The bits of a binary64 value.
+        Float(u64),
+        /// A UTF-8 string.
+        Str(String),
+        /// A byte string.
+        Bytes(Vec<u8>),
+        /// The null value.
+        Null,
+        /// An ordered record.
+        Record(Vec<(Name, Self)>),
+        /// An ordered list.
+        List(Vec<Self>),
+        /// A lambda closure with its captured environment.
+        Closure {
+            /// The lambda parameter.
+            param: Name,
+            /// The lambda body.
+            body: Box<Expression>,
+            /// The captured environment, in canonical name order.
+            env: BTreeMap<Name, Self>,
+        },
+        /// An exact General Decimal Arithmetic value.
+        Decimal(crate::exact::Decimal),
+        /// An integer outside the signed 64-bit range.
+        BigInt(crate::exact::BigIntValue),
+        /// A validated exact temporal value.
+        Temporal(TemporalLiteral),
+    }
+
+    /// A destructuring pattern.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Pattern {
+        /// Match any value without binding it.
+        Wildcard,
+        /// Bind the matched value.
+        Var(Name),
+        /// Match a literal.
+        Lit(Literal),
+        /// Match record fields in stored order.
+        Record(Vec<(Name, Self)>),
+        /// Match list elements in stored order.
+        List(Vec<Self>),
+        /// Match a tagged constructor and its arguments.
+        Constructor(Name, Vec<Self>),
+    }
+
+    /// The expression carrier used by directed equations and custom policies.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Expression {
+        /// A variable reference.
+        Var(Name),
+        /// A lambda abstraction.
+        Lam(Name, Box<Self>),
+        /// Function application.
+        App(Box<Self>, Box<Self>),
+        /// A literal expression.
+        Lit(Literal),
+        /// Record construction.
+        Record(Vec<(Name, Self)>),
+        /// List construction.
+        List(Vec<Self>),
+        /// Record field access.
+        Field(Box<Self>, Name),
+        /// List indexing.
+        Index(Box<Self>, Box<Self>),
+        /// Pattern matching.
+        Match {
+            /// The expression being matched.
+            scrutinee: Box<Self>,
+            /// Patterns and their result expressions, in trial order.
+            arms: Vec<(Pattern, Self)>,
+        },
+        /// A local binding.
+        Let {
+            /// The bound name.
+            name: Name,
+            /// The expression whose result is bound.
+            value: Box<Self>,
+            /// The expression evaluated with the binding in scope.
+            body: Box<Self>,
+        },
+        /// A built-in operation and its arguments.
+        Builtin(crate::value::BuiltinOp, Vec<Self>),
+    }
+
+    /// A conflict-resolution strategy.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ConflictStrategy {
+        /// Keep the left value.
+        KeepLeft,
+        /// Keep the right value.
+        KeepRight,
+        /// Refuse the conflict.
+        Fail,
+        /// Evaluate an expression to resolve the conflict.
+        Custom(Expression),
+    }
 
     /// One branch of a case analysis: a constructor, one binder per input of
     /// the constructor, and the body in which the binders are bound.
@@ -46,9 +241,8 @@ pub mod theory {
         Let(Name, Box<Self>, Box<Self>),
     }
 
-    /// A directed equation: a named rewrite from `lhs` to `rhs`, with its
-    /// implementation, optional inverse and value kinds as opaque text.
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    /// A directed equation: a named rewrite from `lhs` to `rhs`.
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct DirectedEquation {
         /// Name.
         pub name: Name,
@@ -56,28 +250,27 @@ pub mod theory {
         pub lhs: Term,
         /// The rewrite target.
         pub rhs: Term,
-        /// The implementation (opaque).
-        pub implementation: String,
-        /// The inverse (opaque), if any.
-        pub inverse: Option<String>,
+        /// The implementation.
+        pub implementation: Expression,
+        /// The inverse, if any.
+        pub inverse: Option<Expression>,
         /// The source value kind, if any.
-        pub source_kind: Option<Name>,
+        pub source_kind: Option<ValueKind>,
         /// The target value kind, if any.
-        pub target_kind: Option<Name>,
-        /// The round-trip classification (opaque).
-        pub coercion_class: Name,
+        pub target_kind: Option<ValueKind>,
+        /// The round-trip classification.
+        pub coercion_class: CoercionClass,
     }
 
-    /// A conflict policy: a name, the value kind it applies to and its
-    /// strategy (opaque). It mentions no sort or operation.
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    /// A conflict policy. It mentions no sort or operation.
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Policy {
         /// Name.
         pub name: Name,
         /// The value kind.
-        pub value_kind: Name,
-        /// The strategy (opaque).
-        pub strategy: String,
+        pub value_kind: ValueKind,
+        /// The strategy.
+        pub strategy: ConflictStrategy,
     }
 
     /// A sort expression: a sort name (for a dependent sort, the unapplied
@@ -141,8 +334,8 @@ pub mod theory {
         pub name: Name,
         /// Parameters `(name, sort)` in telescope order.
         pub params: Vec<(Name, SortExpr)>,
-        /// Kind (compared, not interpreted).
-        pub kind: Name,
+        /// Kind.
+        pub kind: SortKind,
         /// The constructors of a closed sort; `None` for an open sort.
         pub constructors: Option<Vec<Name>>,
     }
@@ -1382,9 +1575,9 @@ pub mod theory {
             /// Domain sort.
             sort: Name,
             /// Domain kind.
-            expected: Name,
+            expected: SortKind,
             /// Codomain kind.
-            got: Name,
+            got: SortKind,
         },
         /// One mapped sort parameter has another name-free sort.
         SortParamMismatch {
@@ -2084,7 +2277,7 @@ pub mod theory {
 
     /// A sort's signature by class: arity, kind, constructors by operation
     /// class (as a set; `None` open) and name-free parameter sorts.
-    type SortSignature = (usize, Name, Option<Vec<Name>>, Vec<SortExpr>);
+    type SortSignature = (usize, SortKind, Option<Vec<Name>>, Vec<SortExpr>);
 
     fn sort_signature(
         s: &Sort,
@@ -2104,7 +2297,7 @@ pub mod theory {
             mapped.dedup();
             mapped
         });
-        (s.params.len(), s.kind.clone(), constructors, params)
+        (s.params.len(), s.kind, constructors, params)
     }
 
     /// A source term translated along a morphism: an operation with an
@@ -2507,8 +2700,8 @@ pub mod theory {
             if sort.kind != target.kind {
                 return Err(MorphismError::SortKindMismatch {
                     sort: sort.name.clone(),
-                    expected: sort.kind.clone(),
-                    got: target.kind.clone(),
+                    expected: sort.kind,
+                    got: target.kind,
                 });
             }
             let names: Vec<Name> = sort.params.iter().map(|(name, _)| name.clone()).collect();
@@ -3799,7 +3992,7 @@ pub mod theory {
                             (parameter.clone(), rename_sort(sort, &sort_name, &op_name))
                         })
                         .collect(),
-                    kind: sort.kind.clone(),
+                    kind: sort.kind,
                     constructors: sort.constructors.as_ref().map(|constructors| {
                         let mut mapped = constructors
                             .iter()
@@ -4867,9 +5060,9 @@ pub mod theory {
                     alpha(&translated.lhs, &translated.rhs),
                     translated.implementation.clone(),
                     translated.inverse.clone(),
-                    translated.source_kind.clone(),
-                    translated.target_kind.clone(),
-                    translated.coercion_class.clone(),
+                    translated.source_kind,
+                    translated.target_kind,
+                    translated.coercion_class,
                 );
                 let r = SymRef {
                     node: l.clone(),
@@ -4895,7 +5088,7 @@ pub mod theory {
                     node: l.clone(),
                     name: p.name.clone(),
                 };
-                let key = (p.value_kind.clone(), p.strategy.clone());
+                let key = (p.value_kind, p.strategy.clone());
                 items.push((r, key, p.clone()));
             }
         }
@@ -4906,6 +5099,229 @@ pub mod theory {
     pub const THEORY_CONTEXT: &str = "panproto 2026-09 theory identity v1";
     /// Domain separator for canonical composition identities.
     pub const COMPOSITION_CONTEXT: &str = "panproto 2026-09 theory composition v1";
+
+    fn write_value_kind(writer: &mut Writer, kind: ValueKind) {
+        writer.tag(match kind {
+            ValueKind::Bool => 0,
+            ValueKind::Int => 1,
+            ValueKind::Float => 2,
+            ValueKind::Str => 3,
+            ValueKind::Bytes => 4,
+            ValueKind::Token => 5,
+            ValueKind::Null => 6,
+            ValueKind::Any => 7,
+            ValueKind::DateTime => 8,
+            ValueKind::Date => 9,
+            ValueKind::Time => 10,
+            ValueKind::Decimal => 11,
+            ValueKind::Uuid => 12,
+        });
+    }
+
+    fn write_coercion_class(writer: &mut Writer, class: CoercionClass) {
+        writer.tag(match class {
+            CoercionClass::Iso => 0,
+            CoercionClass::Retraction => 1,
+            CoercionClass::Projection => 2,
+            CoercionClass::Opaque => 3,
+        });
+    }
+
+    fn write_sort_kind(writer: &mut Writer, kind: SortKind) {
+        match kind {
+            SortKind::Structural => writer.tag(0),
+            SortKind::Val(value) => {
+                writer.tag(1);
+                write_value_kind(writer, value);
+            }
+            SortKind::Coercion { from, to, class } => {
+                writer.tag(2);
+                write_value_kind(writer, from);
+                write_value_kind(writer, to);
+                write_coercion_class(writer, class);
+            }
+            SortKind::Merger(value) => {
+                writer.tag(3);
+                write_value_kind(writer, value);
+            }
+        }
+    }
+
+    fn write_literal(writer: &mut Writer, literal: &Literal) {
+        match literal {
+            Literal::Bool(value) => {
+                writer.tag(0);
+                writer.tag(u8::from(*value));
+            }
+            Literal::Int(value) => {
+                writer.tag(1);
+                writer.i64(*value);
+            }
+            Literal::Float(bits) => {
+                writer.tag(2);
+                writer.u64(*bits);
+            }
+            Literal::Str(value) => {
+                writer.tag(3);
+                writer.str(value);
+            }
+            Literal::Bytes(value) => {
+                writer.tag(4);
+                writer.raw(value);
+            }
+            Literal::Null => writer.tag(5),
+            Literal::Record(fields) => {
+                writer.tag(6);
+                writer.len(fields.len());
+                for (name, value) in fields {
+                    writer.str(name);
+                    write_literal(writer, value);
+                }
+            }
+            Literal::List(items) => {
+                writer.tag(7);
+                writer.len(items.len());
+                for item in items {
+                    write_literal(writer, item);
+                }
+            }
+            Literal::Closure { param, body, env } => {
+                writer.tag(8);
+                writer.str(param);
+                write_expression(writer, body);
+                writer.len(env.len());
+                for (name, value) in env {
+                    writer.str(name);
+                    write_literal(writer, value);
+                }
+            }
+            Literal::Decimal(value) => {
+                writer.tag(9);
+                crate::canonical::write_decimal(writer, value);
+            }
+            Literal::BigInt(value) => {
+                writer.tag(10);
+                crate::canonical::write_bigint(writer, value);
+            }
+            Literal::Temporal(value) => {
+                writer.tag(11);
+                writer.bytes.extend_from_slice(&value.bytes);
+            }
+        }
+    }
+
+    fn write_pattern(writer: &mut Writer, pattern: &Pattern) {
+        match pattern {
+            Pattern::Wildcard => writer.tag(0),
+            Pattern::Var(name) => {
+                writer.tag(1);
+                writer.str(name);
+            }
+            Pattern::Lit(literal) => {
+                writer.tag(2);
+                write_literal(writer, literal);
+            }
+            Pattern::Record(fields) => {
+                writer.tag(3);
+                writer.len(fields.len());
+                for (name, pattern) in fields {
+                    writer.str(name);
+                    write_pattern(writer, pattern);
+                }
+            }
+            Pattern::List(items) => {
+                writer.tag(4);
+                writer.len(items.len());
+                for item in items {
+                    write_pattern(writer, item);
+                }
+            }
+            Pattern::Constructor(tag, arguments) => {
+                writer.tag(5);
+                writer.str(tag);
+                writer.len(arguments.len());
+                for argument in arguments {
+                    write_pattern(writer, argument);
+                }
+            }
+        }
+    }
+
+    fn write_expression(writer: &mut Writer, expression: &Expression) {
+        match expression {
+            Expression::Var(name) => {
+                writer.tag(0);
+                writer.str(name);
+            }
+            Expression::Lam(parameter, body) => {
+                writer.tag(1);
+                writer.str(parameter);
+                write_expression(writer, body);
+            }
+            Expression::App(function, argument) => {
+                writer.tag(2);
+                write_expression(writer, function);
+                write_expression(writer, argument);
+            }
+            Expression::Lit(literal) => {
+                writer.tag(3);
+                write_literal(writer, literal);
+            }
+            Expression::Record(fields) => {
+                writer.tag(4);
+                writer.len(fields.len());
+                for (name, value) in fields {
+                    writer.str(name);
+                    write_expression(writer, value);
+                }
+            }
+            Expression::List(items) => {
+                writer.tag(5);
+                writer.len(items.len());
+                for item in items {
+                    write_expression(writer, item);
+                }
+            }
+            Expression::Field(base, field) => {
+                writer.tag(6);
+                write_expression(writer, base);
+                writer.str(field);
+            }
+            Expression::Index(base, index) => {
+                writer.tag(7);
+                write_expression(writer, base);
+                write_expression(writer, index);
+            }
+            Expression::Match { scrutinee, arms } => {
+                writer.tag(8);
+                write_expression(writer, scrutinee);
+                writer.len(arms.len());
+                for (pattern, body) in arms {
+                    write_pattern(writer, pattern);
+                    write_expression(writer, body);
+                }
+            }
+            Expression::Let { name, value, body } => {
+                writer.tag(9);
+                writer.str(name);
+                write_expression(writer, value);
+                write_expression(writer, body);
+            }
+            Expression::Builtin(operation, arguments) => {
+                writer.tag(10);
+                let name = if *operation == crate::value::BuiltinOp::Ne {
+                    "Neq".to_owned()
+                } else {
+                    format!("{operation:?}")
+                };
+                writer.str(&name);
+                writer.len(arguments.len());
+                for argument in arguments {
+                    write_expression(writer, argument);
+                }
+            }
+        }
+    }
 
     fn write_term(writer: &mut Writer, term: &Term) {
         match term {
@@ -4950,10 +5366,6 @@ pub mod theory {
     fn write_sort_expr(writer: &mut Writer, sort: &SortExpr) {
         match sort {
             SortExpr::Name(name) => {
-                writer.tag(0);
-                writer.str(name);
-            }
-            SortExpr::App(name, arguments) if arguments.is_empty() => {
                 writer.tag(0);
                 writer.str(name);
             }
@@ -5064,6 +5476,105 @@ pub mod theory {
         }
     }
 
+    fn write_by_name<T>(
+        writer: &mut Writer,
+        items: &[T],
+        name: impl Fn(&T) -> &str,
+        write: impl Fn(&mut Writer, &T),
+    ) {
+        let mut encoded = items
+            .iter()
+            .map(|item| {
+                let mut element = Writer::default();
+                write(&mut element, item);
+                (name(item), element.bytes)
+            })
+            .collect::<Vec<_>>();
+        encoded.sort();
+        writer.len(encoded.len());
+        for (_, bytes) in encoded {
+            writer.bytes.extend_from_slice(&bytes);
+        }
+    }
+
+    fn write_sort(writer: &mut Writer, sort: &Sort) {
+        writer.str(&sort.name);
+        writer.len(sort.params.len());
+        for (name, parameter_sort) in &sort.params {
+            writer.str(name);
+            write_sort_expr(writer, parameter_sort);
+        }
+        write_sort_kind(writer, sort.kind);
+        match &sort.constructors {
+            None => writer.tag(0),
+            Some(constructors) => {
+                writer.tag(1);
+                writer.len(constructors.len());
+                for constructor in constructors {
+                    writer.str(constructor);
+                }
+            }
+        }
+    }
+
+    fn write_operation(writer: &mut Writer, operation: &Op) {
+        writer.str(&operation.name);
+        writer.len(operation.inputs.len());
+        for (name, sort, implicit) in &operation.inputs {
+            writer.str(name);
+            write_sort_expr(writer, sort);
+            writer.tag(match implicit {
+                Implicit::No => 0,
+                Implicit::Yes => 1,
+            });
+        }
+        write_sort_expr(writer, &operation.output);
+    }
+
+    fn write_equation(writer: &mut Writer, equation: &Equation) {
+        writer.str(&equation.name);
+        write_term(writer, &equation.lhs);
+        write_term(writer, &equation.rhs);
+    }
+
+    fn write_directed_equation(writer: &mut Writer, equation: &DirectedEquation) {
+        writer.str(&equation.name);
+        write_term(writer, &equation.lhs);
+        write_term(writer, &equation.rhs);
+        write_expression(writer, &equation.implementation);
+        match &equation.inverse {
+            None => writer.tag(0),
+            Some(inverse) => {
+                writer.tag(1);
+                write_expression(writer, inverse);
+            }
+        }
+        for kind in [equation.source_kind, equation.target_kind] {
+            match kind {
+                None => writer.tag(0),
+                Some(kind) => {
+                    writer.tag(1);
+                    write_value_kind(writer, kind);
+                }
+            }
+        }
+        write_coercion_class(writer, equation.coercion_class);
+    }
+
+    fn write_policy(writer: &mut Writer, policy: &Policy) {
+        writer.str(&policy.name);
+        write_value_kind(writer, policy.value_kind);
+        match &policy.strategy {
+            ConflictStrategy::KeepLeft => writer.tag(0),
+            ConflictStrategy::KeepRight => writer.tag(1),
+            ConflictStrategy::Fail => writer.tag(2),
+            ConflictStrategy::Custom(expression) => {
+                writer.tag(3);
+                write_expression(writer, expression);
+            }
+        }
+    }
+
     /// Canonical, order-insensitive bytes of a theory. Every sum is tagged,
     /// every sequence is length-prefixed, and declaration vectors are sorted
     /// by name before encoding.
@@ -5075,73 +5586,31 @@ pub mod theory {
         for parent in &theory.extends {
             writer.str(parent);
         }
-        let mut sorts = theory.sorts.iter().collect::<Vec<_>>();
-        sorts.sort_by_key(|sort| &sort.name);
-        writer.len(sorts.len());
-        for sort in sorts {
-            writer.str(&sort.name);
-            writer.len(sort.params.len());
-            for (name, parameter_sort) in &sort.params {
-                writer.str(name);
-                write_sort_expr(&mut writer, parameter_sort);
-            }
-            writer.str(&sort.kind);
-            match &sort.constructors {
-                None => writer.tag(0),
-                Some(constructors) => {
-                    writer.tag(1);
-                    writer.len(constructors.len());
-                    for constructor in constructors {
-                        writer.str(constructor);
-                    }
-                }
-            }
-        }
-        let mut operations = theory.ops.iter().collect::<Vec<_>>();
-        operations.sort_by_key(|operation| &operation.name);
-        writer.len(operations.len());
-        for operation in operations {
-            writer.str(&operation.name);
-            writer.len(operation.inputs.len());
-            for (name, sort, implicit) in &operation.inputs {
-                writer.str(name);
-                write_sort_expr(&mut writer, sort);
-                writer.tag(match implicit {
-                    Implicit::No => 0,
-                    Implicit::Yes => 1,
-                });
-            }
-            write_sort_expr(&mut writer, &operation.output);
-        }
-        let mut equations = theory.eqs.iter().collect::<Vec<_>>();
-        equations.sort_by_key(|equation| &equation.name);
-        writer.len(equations.len());
-        for equation in equations {
-            writer.str(&equation.name);
-            write_term(&mut writer, &equation.lhs);
-            write_term(&mut writer, &equation.rhs);
-        }
-        let mut directed = theory.directed_eqs.iter().collect::<Vec<_>>();
-        directed.sort_by_key(|equation| &equation.name);
-        writer.len(directed.len());
-        for equation in directed {
-            writer.str(&equation.name);
-            write_term(&mut writer, &equation.lhs);
-            write_term(&mut writer, &equation.rhs);
-            writer.str(&equation.implementation);
-            writer.opt_name(equation.inverse.as_deref());
-            writer.opt_name(equation.source_kind.as_deref());
-            writer.opt_name(equation.target_kind.as_deref());
-            writer.str(&equation.coercion_class);
-        }
-        let mut policies = theory.policies.iter().collect::<Vec<_>>();
-        policies.sort_by_key(|policy| &policy.name);
-        writer.len(policies.len());
-        for policy in policies {
-            writer.str(&policy.name);
-            writer.str(&policy.value_kind);
-            writer.str(&policy.strategy);
-        }
+        write_by_name(&mut writer, &theory.sorts, |sort| &sort.name, write_sort);
+        write_by_name(
+            &mut writer,
+            &theory.ops,
+            |operation| &operation.name,
+            write_operation,
+        );
+        write_by_name(
+            &mut writer,
+            &theory.eqs,
+            |equation| &equation.name,
+            write_equation,
+        );
+        write_by_name(
+            &mut writer,
+            &theory.directed_eqs,
+            |equation| &equation.name,
+            write_directed_equation,
+        );
+        write_by_name(
+            &mut writer,
+            &theory.policies,
+            |policy| &policy.name,
+            write_policy,
+        );
         writer.bytes
     }
 
@@ -5149,19 +5618,20 @@ pub mod theory {
     #[must_use]
     pub fn canonical_composition_bytes(composition: &Composition) -> Vec<u8> {
         let mut writer = Writer::default();
-        writer.raw(&canonical_theory_bytes(&composition.theory));
+        writer
+            .bytes
+            .extend_from_slice(&canonical_theory_bytes(&composition.theory));
         writer.len(composition.inclusions.len());
         for inclusion in &composition.inclusions {
             write_morphism(&mut writer, inclusion);
         }
-        for (tag, map) in [
-            (0, &composition.provenance.sorts),
-            (1, &composition.provenance.ops),
-            (2, &composition.provenance.eqs),
-            (3, &composition.provenance.directed_eqs),
-            (4, &composition.provenance.policies),
+        for map in [
+            &composition.provenance.sorts,
+            &composition.provenance.ops,
+            &composition.provenance.eqs,
+            &composition.provenance.directed_eqs,
+            &composition.provenance.policies,
         ] {
-            writer.tag(tag);
             writer.len(map.len());
             for (source, image) in map {
                 write_symref(&mut writer, source);
@@ -5310,7 +5780,7 @@ pub mod theory {
             Sort {
                 name: name.to_owned(),
                 params: Vec::new(),
-                kind: "structural".to_owned(),
+                kind: SortKind::Structural,
                 constructors: None,
             }
         }
@@ -6363,11 +6833,11 @@ pub mod theory {
                 name: name.to_owned(),
                 lhs,
                 rhs,
-                implementation: "impl".to_owned(),
+                implementation: Expression::Var("impl".to_owned()),
                 inverse: None,
                 source_kind: None,
                 target_kind: None,
-                coercion_class: "Iso".to_owned(),
+                coercion_class: CoercionClass::Iso,
             }
         }
 
@@ -7237,7 +7707,7 @@ pub mod theory {
             let declaration = |param: SortExpr| Sort {
                 name: "W".to_owned(),
                 params: vec![("x".to_owned(), param)],
-                kind: "structural".to_owned(),
+                kind: SortKind::Structural,
                 constructors: None,
             };
             let diagram = scope::sort_class_pair(

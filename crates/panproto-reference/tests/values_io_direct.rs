@@ -252,6 +252,7 @@ fn i2_tabular_empty_row_paths_require_one_column_and_an_empty_line() {
 fn i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
     assert!(value_io::toml_scalar("1.50", "1.50"));
     assert!(!value_io::toml_scalar("1.50", "1.5"));
+    assert!(value_io::toml_scalar("0e-1", "0.0"));
     assert!(toml::decimal_bigint_cst(
         "9223372036854775808",
         "9223372036854775808"
@@ -260,6 +261,7 @@ fn i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
         "9223372036854775808",
         "922337203685477580"
     ));
+    assert!(!toml::decimal_bigint_cst("0e-1", "0.0"));
 }
 
 #[test]

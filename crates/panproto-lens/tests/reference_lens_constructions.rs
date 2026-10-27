@@ -788,6 +788,7 @@ fn graph_only_witnesses() -> Vec<(&'static str, ObstructionClass, Lens)> {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let unconstrained_keyed_schema = plain_schema(&["a"], &[]);
@@ -1733,6 +1734,7 @@ fn tree_validation_obstructions_are_operational() -> usize {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let keyed_lens = identity_lens(&keyed_schema);
@@ -2084,6 +2086,7 @@ fn table_validation_classifier_boundaries_are_operational() -> usize {
             ])],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let keyed_lens = identity_lens(&keyed);

@@ -58,6 +58,8 @@ pub mod instance;
 pub mod instance_env;
 /// First-class instance homomorphisms (morphisms of instances over a schema).
 pub mod instance_hom;
+/// Declared key equality, ordering, and declaration predicates.
+pub mod key;
 pub mod locality;
 /// Metadata types for instance nodes.
 pub mod metadata;
@@ -169,6 +171,7 @@ pub use identity::{
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
 pub use instance_hom::{FInstanceHom, GInstanceHom, HomError, WInstanceHom};
+pub use key::KeyingError;
 pub use metadata::{Node, NodeShape};
 pub use migration_functor::{EntityFunctor, MigrationFunctor};
 pub use panproto_schema::InstanceShapeKind;

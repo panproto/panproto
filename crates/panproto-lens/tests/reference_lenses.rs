@@ -38,6 +38,9 @@ use panproto_reference::enumerate::lenses::{
     path_law_case_count_certificate, protolens_instance_count_certificate,
     protolens_schema_case_count_certificate, tree_put_law_case_count_certificate,
 };
+use panproto_reference::enumerate::restrict_and_contraction::{
+    TreeFloorCase, TreeRestrictCase, TreeRoute, tree_restrict_cases,
+};
 use panproto_reference::harness::{Disagreement, agree};
 use panproto_reference::lens::{GraphLens as RefGraphLens, LensError as RefLensError};
 use panproto_reference::migration::Migration as RefMigration;
@@ -1706,6 +1709,7 @@ fn assert_graph_duplicate_key_domain_family() -> u16 {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let keyed_migration = reference_carrier_migration(&reference_keyed);
@@ -3978,6 +3982,339 @@ fn reference_tree_residue(
         synthesized: complement.synthesized_nodes.clone(),
         floor: complement.floor.0,
     }
+}
+
+fn tree_synth_index_pair() -> Pair {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "c", "prop", Some("expand"));
+    let target = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    let mut migration = RefMigration {
+        surviving_verts: ["a", "c", "d"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    migration
+        .expansion_path
+        .insert(("a".to_owned(), "c".to_owned()), vec!["b".to_owned()]);
+    Pair::new(source, target, migration)
+}
+
+fn tree_synth_source(case: &TreeRestrictCase) -> RefTree {
+    let root = match case.floor {
+        TreeFloorCase::Gapped => 2,
+        _ => 0,
+    };
+    let mut ids = match case.floor {
+        TreeFloorCase::Compact => (1..=case.routes.len())
+            .map(|id| u32::try_from(id).unwrap())
+            .collect::<Vec<_>>(),
+        TreeFloorCase::Gapped => (0..case.routes.len())
+            .map(|index| 10 + u32::try_from(index).unwrap() * 3)
+            .collect(),
+        TreeFloorCase::LastFree | TreeFloorCase::Saturated | TreeFloorCase::AlreadyMax => (1
+            ..=case.routes.len())
+            .map(|id| u32::try_from(id).unwrap())
+            .collect(),
+    };
+    match case.floor {
+        TreeFloorCase::LastFree => *ids.last_mut().unwrap() = u32::MAX - 2,
+        TreeFloorCase::Saturated => *ids.last_mut().unwrap() = u32::MAX - 1,
+        TreeFloorCase::AlreadyMax => *ids.last_mut().unwrap() = u32::MAX,
+        TreeFloorCase::Compact | TreeFloorCase::Gapped => {}
+    }
+    let mut source = RefTree {
+        nodes: BTreeMap::from([(root, RefNode::new(root, "a"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root,
+    };
+    for (&id, route) in ids.iter().zip(&case.routes) {
+        let (anchor, edge) = match route {
+            TreeRoute::Keep => ("d", RefSEdge::new("a", "d", "prop", Some("keep"))),
+            TreeRoute::Expand => ("c", RefSEdge::new("a", "c", "prop", Some("expand"))),
+        };
+        source.nodes.insert(id, RefNode::new(id, anchor));
+        source.arcs.push((root, id, edge));
+    }
+    source
+}
+
+fn assert_tree_synth_success(
+    pair: &Pair,
+    label: &str,
+    reference_source: &RefTree,
+    expected_view: &RefTree,
+    expected_complement: &RefComplement,
+    actual_view: &panproto_inst::WInstance,
+    actual_complement: &panproto_inst::Complement,
+) -> BTreeSet<&'static str> {
+    assert_eq!(&ref_tree(actual_view), expected_view, "{label}");
+    let production_source = prod_tree(reference_source);
+    let (source_graph, source_embedding) =
+        GInstance::from_wtype_embedded(&production_source, Some(&pair.production.src_schema))
+            .unwrap();
+    let (graph_view, graph_complement) = graph_lens::get(&pair.production, &source_graph).unwrap();
+    let (tree_from_graph, view_embedding) = graph_view
+        .to_wtype_embedded(&pair.production.tgt_schema)
+        .unwrap();
+    assert_eq!(
+        ref_tree(&tree_from_graph),
+        ref_tree(actual_view),
+        "graph/tree view for {label}"
+    );
+    let converted_complement = panproto_lens::tree_complement_to_graph(
+        &pair.production,
+        &source_graph,
+        &graph_view,
+        actual_complement,
+        &source_embedding,
+        &view_embedding,
+    )
+    .unwrap();
+    assert_eq!(
+        ref_complement(&converted_complement),
+        ref_complement(&graph_complement),
+        "converted graph complement for {label}"
+    );
+    assert_eq!(
+        converted_complement.identity, graph_complement.identity,
+        "converted graph identity for {label}"
+    );
+    assert_eq!(
+        ref_complement(&converted_complement),
+        without_identity(expected_complement),
+        "converted reference complement for {label}"
+    );
+    let tree_index = converted_complement.synth_index();
+    let graph_index = graph_complement.synth_index();
+    assert_eq!(tree_index, graph_index, "full synth index for {label}");
+    assert_eq!(
+        tree_index
+            .nodes
+            .iter()
+            .map(|(id, key)| (*id, ref_synth_key(key)))
+            .collect::<BTreeMap<_, _>>(),
+        expected_complement.synthesized_nodes,
+        "synthesized nodes for {label}"
+    );
+    assert_eq!(
+        tree_index
+            .edges
+            .iter()
+            .map(|(id, key)| (id.0, ref_synth_key(key)))
+            .collect::<BTreeMap<_, _>>(),
+        expected_complement.synthesized_edges,
+        "synthesized edges for {label}"
+    );
+    assert_eq!(
+        graph_complement.id_floor,
+        IdFloor {
+            node: expected_complement.floor.0,
+            edge: expected_complement.floor.1,
+        },
+        "graph floors for {label}"
+    );
+    assert_eq!(
+        (actual_complement.id_floor, source_embedding.next_edge),
+        expected_complement.floor,
+        "tree node floor and source-embedding edge floor for {label}"
+    );
+    tree_index
+        .nodes
+        .values()
+        .chain(tree_index.edges.values())
+        .filter_map(|key| match key {
+            SynthKey::Contract { .. } => Some("contract"),
+            SynthKey::Expand { .. } => Some("expand"),
+            SynthKey::ContractExpand { .. } => Some("contract-expand"),
+            SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. } => None,
+        })
+        .collect()
+}
+
+fn tree_synth_case_succeeds(
+    pair: &Pair,
+    reference: &RefGraphLens<'_>,
+    case: &TreeRestrictCase,
+) -> bool {
+    let reference_source = tree_synth_source(case);
+    let production_source = prod_tree(&reference_source);
+    let expected = panproto_reference::lens::tree_get(reference, &reference_source)
+        .expect("the carrier tree has a graph form");
+    let actual = panproto_lens::get(&pair.production, &production_source);
+    match (expected, actual) {
+        (Ok((expected_view, expected_complement, _)), Ok((actual_view, actual_complement))) => {
+            let label = format!("{case:?}");
+            let _ = assert_tree_synth_success(
+                pair,
+                &label,
+                &reference_source,
+                &expected_view,
+                &expected_complement,
+                &actual_view,
+                &actual_complement,
+            );
+            true
+        }
+        (
+            Err(RefRestrictError::At {
+                error: EngineError::IdsExhausted { nodes: true },
+                ..
+            }),
+            Err(LensError::Restrict(RestrictError::IdsExhausted {
+                kind: panproto_inst::segment::IdKind::Node,
+            })),
+        ) => false,
+        (expected, actual) => {
+            panic!("tree synthesis mismatch for {case:?}: {expected:?} / {actual:?}")
+        }
+    }
+}
+
+fn contraction_synth_pair(expand: bool) -> Pair {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("x", "record")
+        .vertex("c", "record")
+        .edge("a", "x", "prop", Some("ax"))
+        .edge("x", "c", "prop", Some("xc"));
+    let target = if expand {
+        RefSchema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("c", "record")
+            .edge("a", "b", "prop", Some("ab"))
+            .edge("b", "c", "prop", Some("bc"))
+    } else {
+        RefSchema::default()
+            .vertex("a", "record")
+            .vertex("c", "record")
+            .edge("a", "c", "prop", Some("ac"))
+    };
+    let mut migration = RefMigration {
+        surviving_verts: ["a", "c"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    if expand {
+        migration
+            .expansion_path
+            .insert(("a".to_owned(), "c".to_owned()), vec!["b".to_owned()]);
+    }
+    Pair::new(source, target, migration)
+}
+
+fn contraction_synth_source(floor: TreeFloorCase) -> RefTree {
+    let [root, interior, target] = match floor {
+        TreeFloorCase::Compact => [0, 1, 2],
+        TreeFloorCase::Gapped => [2, 10, 20],
+        TreeFloorCase::LastFree => [0, 1, u32::MAX - 2],
+        TreeFloorCase::Saturated | TreeFloorCase::AlreadyMax => {
+            panic!("requested a refusing floor for a successful synthesis witness")
+        }
+    };
+    RefTree {
+        nodes: BTreeMap::from([
+            (root, RefNode::new(root, "a")),
+            (interior, RefNode::new(interior, "x")),
+            (target, RefNode::new(target, "c")),
+        ]),
+        arcs: vec![
+            (root, interior, RefSEdge::new("a", "x", "prop", Some("ax"))),
+            (
+                interior,
+                target,
+                RefSEdge::new("x", "c", "prop", Some("xc")),
+            ),
+        ],
+        fans: Vec::new(),
+        root,
+    }
+}
+
+fn tree_synth_variants(pair: &Pair, source: &RefTree, label: &str) -> BTreeSet<&'static str> {
+    pair.with_reference(|reference| {
+        let reference = reference.expect("the structural synthesis lens compiles");
+        let (expected_view, expected_complement, _) =
+            panproto_reference::lens::tree_get(reference, source)
+                .expect("the source has a graph form")
+                .expect("the structural synthesis succeeds");
+        let (actual_view, actual_complement) =
+            panproto_lens::get(&pair.production, &prod_tree(source))
+                .expect("production structural synthesis succeeds");
+        assert_tree_synth_success(
+            pair,
+            label,
+            source,
+            &expected_view,
+            &expected_complement,
+            &actual_view,
+            &actual_complement,
+        )
+    })
+}
+
+#[test]
+fn tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier() {
+    let pair = tree_synth_index_pair();
+    let cases = tree_restrict_cases();
+
+    pair.with_reference(|reference| {
+        let reference = reference.expect("the release tree lens compiles");
+        let mut successful = 0usize;
+        for case in &cases {
+            if tree_synth_case_succeeds(&pair, reference, case) {
+                successful += 1;
+            }
+        }
+        assert_eq!(cases.len(), 70);
+        assert_eq!(successful, 43);
+        assert_eq!(cases.len() - successful, 27);
+    });
+}
+
+#[test]
+fn tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors() {
+    let expansion_pair = tree_synth_index_pair();
+    let expansion_source = tree_synth_source(&TreeRestrictCase {
+        routes: vec![TreeRoute::Expand],
+        floor: TreeFloorCase::Compact,
+    });
+    let mut variants = tree_synth_variants(&expansion_pair, &expansion_source, "direct expansion");
+
+    let contract_pair = contraction_synth_pair(false);
+    variants.extend(tree_synth_variants(
+        &contract_pair,
+        &contraction_synth_source(TreeFloorCase::Compact),
+        "direct contraction",
+    ));
+
+    let contract_expand_pair = contraction_synth_pair(true);
+    for floor in [
+        TreeFloorCase::Compact,
+        TreeFloorCase::Gapped,
+        TreeFloorCase::LastFree,
+    ] {
+        variants.extend(tree_synth_variants(
+            &contract_expand_pair,
+            &contraction_synth_source(floor),
+            &format!("contract expansion at {floor:?}"),
+        ));
+    }
+    assert_eq!(
+        variants,
+        BTreeSet::from(["contract", "contract-expand", "expand"])
+    );
 }
 
 /// Tree get on both sides, with `GetPut`: the view, the mapped residue and

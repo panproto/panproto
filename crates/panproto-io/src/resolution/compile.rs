@@ -13,7 +13,7 @@ use panproto_gat::Name;
 use panproto_inst::{ResolutionContextKind, ResolutionKind, ResolutionSpec};
 use panproto_schema::{
     Edge, InstanceShapeKind, Key, KeyRefError, KeyScope, OffsetUnit, Protocol, RefSource,
-    RefTextSource, Reference, ResolveMode, Schema, ValidationError,
+    RefTextSource, Reference, ResolveMode, Schema, SpanEnd, ValidationError, VariableBinding,
 };
 
 use super::ResolutionProvider;
@@ -42,6 +42,8 @@ pub enum RefForm {
         field: Vec<Edge>,
         /// Whether the holder binds its own variable.
         self_binding: bool,
+        /// Which matching preceding definition binds an occurrence.
+        binding: VariableBinding,
     },
     /// A path the provider resolves.
     Path {
@@ -64,6 +66,10 @@ pub enum RefForm {
         unit: OffsetUnit,
         /// Whether the end offset is inclusive.
         end_inclusive: bool,
+        /// Whether the second written coordinate is an offset or a length.
+        end_form: SpanEnd,
+        /// The origin added to written coordinates.
+        origin: u64,
     },
 }
 
@@ -168,7 +174,10 @@ pub fn compile(
                 feature: ResolutionFeature::ReferenceWriter,
             });
         }
-        forms.insert(name.clone(), compile_reference(syntactic, reference)?);
+        forms.insert(
+            name.clone(),
+            compile_reference(syntactic, reference, Some(&spec.provider))?,
+        );
     }
     check_writers(&spec, &references, resolving)?;
     check_context(&spec, &references)?;
@@ -347,8 +356,13 @@ fn check_edge_sets(syntactic: &Schema, semantic: &Schema) -> Result<(), ResolveE
 }
 
 /// Fix one reference's key and form.
-fn compile_reference(schema: &Schema, reference: &Reference) -> Result<CompiledRef, ResolveError> {
+fn compile_reference(
+    schema: &Schema,
+    reference: &Reference,
+    provider: Option<&panproto_inst::ResolutionProviderId>,
+) -> Result<CompiledRef, ResolveError> {
     let declarations = &schema.declarations;
+    check_supported_reference(schema, reference, provider)?;
     let arity = |expected: usize, found: usize| {
         ResolveError::Schema(KeyRefError::ArityMismatch {
             reference: reference.id.clone(),
@@ -379,7 +393,11 @@ fn compile_reference(schema: &Schema, reference: &Reference) -> Result<CompiledR
                 parts: parts.clone(),
             }
         }
-        RefSource::Variable { field, binder_key } => {
+        RefSource::Variable {
+            field,
+            binder_key,
+            binding,
+        } => {
             let key = named(binder_key)?;
             if key.parts.len() != 1 {
                 return Err(arity(key.parts.len(), 1));
@@ -390,6 +408,7 @@ fn compile_reference(schema: &Schema, reference: &Reference) -> Result<CompiledR
                 key,
                 field: field.clone(),
                 self_binding,
+                binding: *binding,
             }
         }
         RefSource::Path { field, .. } => RefForm::Path {
@@ -401,6 +420,9 @@ fn compile_reference(schema: &Schema, reference: &Reference) -> Result<CompiledR
             end,
             unit,
             end_inclusive,
+            end_form,
+            origin,
+            ..
         } => {
             let key = match &reference.target_key {
                 None => None,
@@ -419,13 +441,58 @@ fn compile_reference(schema: &Schema, reference: &Reference) -> Result<CompiledR
                 end: end.clone(),
                 unit: unit.clone(),
                 end_inclusive: *end_inclusive,
+                end_form: *end_form,
+                origin: *origin,
             }
         }
+        RefSource::Inline { .. } => unreachable!("inline references are refused above"),
     };
     Ok(CompiledRef {
         reference: reference.clone(),
         form,
     })
+}
+
+fn check_supported_reference(
+    schema: &Schema,
+    reference: &Reference,
+    provider: Option<&panproto_inst::ResolutionProviderId>,
+) -> Result<(), ResolveError> {
+    let declarations = &schema.declarations;
+    let unsupported = |feature| ResolveError::UnsupportedFeature {
+        provider: provider.cloned(),
+        feature,
+    };
+    if reference.null_vertex.is_some()
+        || reference.scope_via.is_some()
+        || declarations.target_set(&reference.target_vertex).is_some()
+        || matches!(reference.source, RefSource::Inline { .. })
+    {
+        return Err(unsupported(ResolutionFeature::ResolutionState));
+    }
+    match &reference.source {
+        RefSource::Standoff {
+            text, fragments, ..
+        } => {
+            if fragments.is_some() {
+                return Err(unsupported(ResolutionFeature::ResolutionState));
+            }
+            match text {
+                RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
+                    return Err(unsupported(ResolutionFeature::ResolutionState));
+                }
+                RefTextSource::ExternalUri { .. } => {
+                    return Err(unsupported(ResolutionFeature::ExternalText));
+                }
+                RefTextSource::Local(_) | RefTextSource::External(_) => {}
+            }
+        }
+        RefSource::KeyValue { .. }
+        | RefSource::Path { .. }
+        | RefSource::Variable { .. }
+        | RefSource::Inline { .. } => {}
+    }
+    Ok(())
 }
 
 /// The key of a reference whose holder names its target by no parts: every
@@ -436,6 +503,7 @@ fn empty_key() -> Key {
         parts: Vec::new(),
         role: panproto_schema::KeyRole::Unique,
         scope: KeyScope::Document,
+        equality: vec![],
     }
 }
 
@@ -473,6 +541,10 @@ mod tests {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         }
     }
 
@@ -482,6 +554,7 @@ mod tests {
             parts,
             role: KeyRole::Identifier,
             scope: KeyScope::Document,
+            equality: vec![],
         }
     }
 
@@ -503,7 +576,7 @@ mod tests {
             RefSource::KeyValue { parts: Vec::new() },
             None,
         );
-        let compiled = compile_reference(&schema, &empty)?;
+        let compiled = compile_reference(&schema, &empty, None)?;
         assert!(matches!(
             compiled.form,
             RefForm::KeyValue { key, parts }
@@ -522,7 +595,7 @@ mod tests {
             None,
         );
         assert!(matches!(
-            compile_reference(&schema, &nonempty),
+            compile_reference(&schema, &nonempty, None),
             Err(ResolveError::Schema(KeyRefError::ArityMismatch {
                 expected: 0,
                 found: 1,
@@ -552,10 +625,11 @@ mod tests {
                 RefSource::Variable {
                     field,
                     binder_key: "binder".into(),
+                    binding: Default::default(),
                 },
                 None,
             );
-            let compiled = compile_reference(&schema, &variable)?;
+            let compiled = compile_reference(&schema, &variable, None)?;
             assert!(matches!(
                 compiled.form,
                 RefForm::Variable { self_binding, .. } if self_binding == expected
@@ -585,10 +659,13 @@ mod tests {
                 end: vec![path("end")],
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             },
             Some("interval"),
         );
-        let compiled = compile_reference(&schema, &standoff)?;
+        let compiled = compile_reference(&schema, &standoff, None)?;
         assert!(matches!(
             compiled.form,
             RefForm::Standoff { key: Some(key), .. } if key.parts.len() == 2
@@ -604,7 +681,7 @@ mod tests {
             None,
         );
         assert!(matches!(
-            compile_reference(&Schema::default(), &path_reference)?.form,
+            compile_reference(&Schema::default(), &path_reference, None)?.form,
             RefForm::Path { .. }
         ));
         Ok(())

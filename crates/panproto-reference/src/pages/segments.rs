@@ -3008,8 +3008,7 @@ pub mod segment {
     }
     fn write_boundary(w: &mut Canonical, boundary: &Boundary) {
         w.len(boundary.ghosts.len());
-        for (id, ghost) in &boundary.ghosts {
-            w.u32(*id);
+        for ghost in boundary.ghosts.values() {
             w.u32(ghost.node);
             w.u32(ghost.owner.0);
             w.string(&ghost.anchor);
@@ -3343,36 +3342,40 @@ pub mod segment {
         match segment {
             AnySegment::Graph(value) => {
                 w.len(value.nodes.len());
-                w.len(value.edges.len());
-                let mut body = Writer::default();
                 for node in value.nodes.values() {
+                    let mut body = Writer::default();
                     write_node(&mut body, node).ok_or_else(|| {
                         decode_error(ArtifactKind::Segment, "noncanonical graph node")
                     })?;
+                    w.0.extend(body.bytes);
                 }
+                w.len(value.edges.len());
                 for (id, edge) in &value.edges {
+                    let mut body = Writer::default();
                     write_graph_edge(&mut body, *id, edge);
+                    w.0.extend(body.bytes);
                 }
-                w.0.extend(body.bytes);
                 write_boundary(&mut w, &value.boundary);
             }
             AnySegment::Table(value) => {
                 w.len(value.rows.len());
-                w.len(value.pairs.len());
-                let mut body = Writer::default();
                 for (id, (table, cells)) in &value.rows {
+                    let mut body = Writer::default();
                     body.u32(*id);
                     body.str(table);
                     write_map(&mut body, cells).ok_or_else(|| {
                         decode_error(ArtifactKind::Segment, "noncanonical table row")
                     })?;
+                    w.0.extend(body.bytes);
                 }
+                w.len(value.pairs.len());
                 for (edge, source, target) in &value.pairs {
+                    let mut body = Writer::default();
                     body.edge(edge);
                     body.u32(*source);
                     body.u32(*target);
+                    w.0.extend(body.bytes);
                 }
-                w.0.extend(body.bytes);
                 write_boundary(&mut w, &value.boundary);
             }
             AnySegment::Tree(value) => {
@@ -3383,21 +3386,23 @@ pub mod segment {
                     }
                 }
                 w.len(value.nodes.len());
-                w.len(value.arcs.len());
-                w.len(value.fans.len());
-                let mut body = Writer::default();
                 for node in value.nodes.values() {
+                    let mut body = Writer::default();
                     write_node(&mut body, node).ok_or_else(|| {
                         decode_error(ArtifactKind::Segment, "noncanonical tree node")
                     })?;
+                    w.0.extend(body.bytes);
                 }
+                w.len(value.arcs.len());
                 for (id, (parent, child, edge)) in &value.arcs {
+                    let mut body = Writer::default();
                     body.u32(*id);
                     body.u32(*parent);
                     body.u32(*child);
                     body.edge(edge);
+                    w.0.extend(body.bytes);
                 }
-                w.0.extend(body.bytes);
+                w.len(value.fans.len());
                 let mut canonical_fans: Vec<_> = value.fans.iter().collect();
                 canonical_fans.sort_by_key(|fan| fan.node);
                 for fan in canonical_fans {
@@ -3480,14 +3485,14 @@ pub mod segment {
     fn read_boundary(reader: &mut Reader<'_>) -> Option<Boundary> {
         let mut ghosts = BTreeMap::new();
         for _ in 0..reader.count()? {
-            let key = reader.u32()?;
-            if ghosts.keys().next_back().is_some_and(|old| *old >= key) {
+            let node = reader.u32()?;
+            if ghosts.keys().next_back().is_some_and(|old| *old >= node) {
                 return None;
             }
             ghosts.insert(
-                key,
+                node,
                 Ghost {
-                    node: reader.u32()?,
+                    node,
                     owner: SegmentId(reader.u32()?),
                     anchor: reader.str()?,
                 },
@@ -3879,7 +3884,7 @@ pub mod segment {
     }
 
     fn read_graph_segment(reader: &mut Reader<'_>, id: SegmentId) -> Option<AnySegment> {
-        let (node_count, edge_count) = (reader.count()?, reader.count()?);
+        let node_count = reader.count()?;
         let mut nodes = BTreeMap::new();
         for _ in 0..node_count {
             let node = read_node(reader)?;
@@ -3888,6 +3893,7 @@ pub mod segment {
             }
             nodes.insert(node.id, node);
         }
+        let edge_count = reader.count()?;
         let mut edges = BTreeMap::new();
         for _ in 0..edge_count {
             let (edge_id, edge) = read_graph_edge(reader)?;
@@ -3905,7 +3911,7 @@ pub mod segment {
     }
 
     fn read_table_segment(reader: &mut Reader<'_>, id: SegmentId) -> Option<AnySegment> {
-        let (row_count, pair_count) = (reader.count()?, reader.count()?);
+        let row_count = reader.count()?;
         let mut rows = BTreeMap::new();
         for _ in 0..row_count {
             let row = reader.u32()?;
@@ -3914,6 +3920,7 @@ pub mod segment {
             }
             rows.insert(row, (reader.str()?, read_map(reader)?));
         }
+        let pair_count = reader.count()?;
         let mut pairs = BTreeSet::new();
         for _ in 0..pair_count {
             let pair = (reader.edge()?, reader.u32()?, reader.u32()?);
@@ -3941,8 +3948,7 @@ pub mod segment {
             })
         };
         let (root, next_node, next_edge) = (optional()?, optional()?, optional()?);
-        let (node_count, arc_count, fan_count) =
-            (reader.count()?, reader.count()?, reader.count()?);
+        let node_count = reader.count()?;
         let mut nodes = BTreeMap::new();
         for _ in 0..node_count {
             let node = read_node(reader)?;
@@ -3951,6 +3957,7 @@ pub mod segment {
             }
             nodes.insert(node.id, node);
         }
+        let arc_count = reader.count()?;
         let mut arcs = BTreeMap::new();
         for _ in 0..arc_count {
             let edge = reader.u32()?;
@@ -3959,6 +3966,7 @@ pub mod segment {
             }
             arcs.insert(edge, (reader.u32()?, reader.u32()?, reader.edge()?));
         }
+        let fan_count = reader.count()?;
         let mut fans = Vec::with_capacity(fan_count);
         let mut previous_fan_node = None;
         let mut ordinals = BTreeSet::new();
@@ -4202,10 +4210,47 @@ pub mod segment {
             .collect()
     }
 
+    fn payload_bytes(segment: &AnySegment) -> Result<u64, SegmentError> {
+        fn write_node_payload(bytes: &mut Writer, node: &Node) -> Result<(), SegmentError> {
+            if let Some(Presence::Present(value)) = &node.value {
+                write_value(bytes, value).ok_or_else(|| {
+                    decode_error(ArtifactKind::Segment, "noncanonical node value")
+                })?;
+            }
+            write_map(bytes, &node.fields)
+                .ok_or_else(|| decode_error(ArtifactKind::Segment, "noncanonical node fields"))?;
+            write_map(bytes, &node.annotations).ok_or_else(|| {
+                decode_error(ArtifactKind::Segment, "noncanonical node annotations")
+            })?;
+            Ok(())
+        }
+
+        let mut bytes = Writer::default();
+        match segment {
+            AnySegment::Graph(value) => {
+                for node in value.nodes.values() {
+                    write_node_payload(&mut bytes, node)?;
+                }
+            }
+            AnySegment::Tree(value) => {
+                for node in value.nodes.values() {
+                    write_node_payload(&mut bytes, node)?;
+                }
+            }
+            AnySegment::Table(value) => {
+                for (_, row) in value.rows.values() {
+                    write_map(&mut bytes, row).ok_or_else(|| {
+                        decode_error(ArtifactKind::Segment, "noncanonical table row")
+                    })?;
+                }
+            }
+        }
+        Ok(u64::try_from(bytes.bytes.len()).unwrap_or(u64::MAX))
+    }
+
     fn segment_summary(
         segment: &AnySegment,
         p: &Partition,
-        schema: Digest,
     ) -> Result<SegmentSummary, SegmentError> {
         let edge_ids: Vec<_> = owned_edges(segment)
             .into_iter()
@@ -4213,7 +4258,6 @@ pub mod segment {
             .collect();
         let (nodes, edges, fans, max_node) = segment_shape_counts(segment);
         let range_max = range_maxima(&edge_ids, p);
-        let bytes = canonical_segment_bytes(segment, schema, p)?;
         Ok(SegmentSummary {
             stats: SegmentStats {
                 segment: segment.segment(),
@@ -4222,7 +4266,7 @@ pub mod segment {
                 fans: u64::try_from(fans).unwrap_or(u64::MAX),
                 ghosts: u64::try_from(segment.boundary().ghosts.len()).unwrap_or(u64::MAX),
                 in_stubs: u64::try_from(segment.boundary().in_stubs.len()).unwrap_or(u64::MAX),
-                payload_bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+                payload_bytes: payload_bytes(segment)?,
             },
             max_node,
             max_edge: edge_ids.into_iter().max(),
@@ -4373,7 +4417,7 @@ pub mod segment {
         }
         w.len(manifest.segments.len());
         for record in &manifest.segments {
-            w.bytes(&record_bytes(record));
+            w.0.extend(record_bytes(record));
         }
         w.digest(manifest.root);
         w.bool(manifest.instance_digest.is_some());
@@ -4415,26 +4459,24 @@ pub mod segment {
         Some(values)
     }
 
-    fn read_record(bytes: &[u8]) -> Option<SegmentRecord> {
-        let mut reader = Reader::new(bytes);
+    fn read_record(reader: &mut Reader<'_>) -> Option<SegmentRecord> {
         let id = SegmentId(reader.u32()?);
         let nodes = (0..reader.count()?)
-            .map(|_| read_range(&mut reader))
+            .map(|_| read_range(reader))
             .collect::<Option<Vec<_>>>()?;
-        let record = SegmentRecord {
+        Some(SegmentRecord {
             id,
             nodes,
-            alloc_nodes: read_opt_range(&mut reader).ok()?,
-            alloc_edges: read_opt_range(&mut reader).ok()?,
-            stats: read_stats(&mut reader)?,
-            max_node: read_opt_u32(&mut reader).ok()?,
-            max_edge: read_opt_u32(&mut reader).ok()?,
-            edge_ids: read_digest(&mut reader)?,
-            content: read_digest(&mut reader)?,
-            cross_out: read_digest_map(&mut reader)?,
-            cross_in: read_digest_map(&mut reader)?,
-        };
-        reader.done().then_some(record)
+            alloc_nodes: read_opt_range(reader).ok()?,
+            alloc_edges: read_opt_range(reader).ok()?,
+            stats: read_stats(reader)?,
+            max_node: read_opt_u32(reader).ok()?,
+            max_edge: read_opt_u32(reader).ok()?,
+            edge_ids: read_digest(reader)?,
+            content: read_digest(reader)?,
+            cross_out: read_digest_map(reader)?,
+            cross_in: read_digest_map(reader)?,
+        })
     }
 
     fn read_envelope(reader: &mut Reader<'_>) -> Option<IdentityEnvelope> {
@@ -4520,9 +4562,7 @@ pub mod segment {
             .ok_or_else(|| decode_error(ArtifactKind::Manifest, "malformed record count"))?;
         let mut segments = Vec::with_capacity(count);
         for position in 0..count {
-            let record = reader
-                .raw()
-                .and_then(|record| read_record(&record))
+            let record = read_record(&mut reader)
                 .ok_or_else(|| decode_error(ArtifactKind::Manifest, "malformed segment record"))?;
             let expected = SegmentId(u32::try_from(position).unwrap_or(u32::MAX));
             if record.id != expected {
@@ -4982,8 +5022,10 @@ pub mod segment {
                 .map(|map| {
                     map.into_iter()
                         .map(|(segment, records)| {
-                            let bytes = records.into_values().flatten().collect::<Vec<_>>();
-                            (segment, Digest::derive(SEGMENT_CROSS_CONTEXT, &bytes))
+                            let mut bytes = Canonical::default();
+                            bytes.len(records.len());
+                            bytes.0.extend(records.into_values().flatten());
+                            (segment, Digest::derive(SEGMENT_CROSS_CONTEXT, &bytes.0))
                         })
                         .collect()
                 })
@@ -5031,7 +5073,7 @@ pub mod segment {
                         segment: segment.segment(),
                         defect: PartitionDefect::UnknownSegment,
                     })?;
-            let summary = segment_summary(segment, p, schema)?;
+            let summary = segment_summary(segment, p)?;
             let bytes = canonical_segment_bytes(segment, schema, p)?;
             let mut ids: Vec<_> = owned_edges(segment)
                 .into_iter()
@@ -5183,7 +5225,7 @@ pub mod segment {
                 segment: segment.segment(),
                 defect: PartitionDefect::UnknownSegment,
             })?;
-        let summary = segment_summary(segment, &p, manifest.schema)?;
+        let summary = segment_summary(segment, &p)?;
         if summary.stats != record.stats
             || summary.max_node != record.max_node
             || summary.max_edge != record.max_edge
@@ -6113,7 +6155,7 @@ pub mod segment {
             let bytes = segment
                 .canonical_bytes(&spec.schema, p)
                 .map_err(PipelineStop::Failed)?;
-            let summary = segment_summary(segment, p, spec.schema).map_err(PipelineStop::Failed)?;
+            let summary = segment_summary(segment, p).map_err(PipelineStop::Failed)?;
             let estimate = MemoryModel::estimate(&summary.stats);
             peak = peak.max(estimate);
             if estimate > budget.working_set {

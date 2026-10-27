@@ -32,8 +32,10 @@
 //! ## What it covers, and how that differs from the VCS content hash
 //!
 //! [`canonical_bytes`] covers **all twenty-two** [`Schema`] fields, `entries`
-//! included, and writes the last of them, `declarations`, as two fields: the
-//! `keys` map, then the `references` map. `panproto_vcs::hash::CanonicalSchema`
+//! included, and writes the last of them, `declarations`, with the legacy
+//! `keys` map followed by the `references` map. A nonempty target-set map is
+//! an optional trailing extension; its absence preserves the established
+//! declaration bytes. `panproto_vcs::hash::CanonicalSchema`
 //! covers eighteen: it omits `entries` and the three derived adjacency
 //! indices. The consequence is the
 //! one that matters in practice: two schemas that differ only in their
@@ -80,8 +82,9 @@ use panproto_gat::Name;
 use smallvec::SmallVec;
 
 use crate::keys::{
-    Cardinality, Key, KeyPart, KeyRole, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource,
-    RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+    Cardinality, Key, KeyEquality, KeyPart, KeyRole, KeyScope, NullMatch, NumericPrimitive,
+    OffsetUnit, OnUnresolved, PathSyntax, RefSource, RefTextSource, Reference, ResolveMode,
+    SchemaDeclarations, SpanEnd, SqlCollation, SqlPad, UriBase, UriJoin, VariableBinding,
 };
 use crate::schema::{
     CoercionSpec, Constraint, Edge, HyperEdge, Schema, UsageMode, Variant, Vertex,
@@ -325,7 +328,10 @@ fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
     }
 }
 
-/// Fields 22 and 23: the declared keys, then the declared references.
+/// Field 22: declarations, whose legacy body is keys then references.
+///
+/// Nonempty target sets use an optional trailing extension, so declarations
+/// with no target set retain their established bytes.
 ///
 /// Both maps are written in ascending key order and each vertex's keys in
 /// ascending key id order. Every field of [`Key`], [`KeyPart`], [`Reference`]
@@ -350,6 +356,21 @@ fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclaration
         out.name(id);
         push_reference(out, reference);
     }
+
+    // Optional declaration extension. Absence is the exact legacy byte form.
+    if !declarations.target_sets.is_empty() {
+        out.tag(0xff);
+        out.len(declarations.target_sets.len());
+        for (id, set) in &declarations.target_sets {
+            out.name(id);
+            out.len(set.members.len());
+            for (vertex, key) in &set.members {
+                out.name(vertex);
+                out.name(key);
+            }
+            push_key_scope(out, &set.scope);
+        }
+    }
 }
 
 /// Write a key: id, parts, role, scope.
@@ -368,18 +389,71 @@ fn push_key(out: &mut CanonicalWriter, key: &Key) {
             }
         }
     }
-    out.tag(match key.role {
+    let role = match key.role {
         KeyRole::Primary => 0,
         KeyRole::Unique => 1,
         KeyRole::Identifier => 2,
+        KeyRole::SortKey => 3,
+        KeyRole::Index => 4,
+    };
+    out.tag(if key.equality.is_empty() {
+        role
+    } else {
+        role | 0x80
     });
-    match &key.scope {
+    push_key_scope(out, &key.scope);
+    if !key.equality.is_empty() {
+        out.len(key.equality.len());
+        for equality in &key.equality {
+            push_key_equality(out, equality);
+        }
+    }
+}
+
+/// Write a key scope behind its discriminant.
+fn push_key_scope(out: &mut CanonicalWriter, scope: &KeyScope) {
+    match scope {
         KeyScope::Document => out.tag(0),
         KeyScope::Global => out.tag(1),
         KeyScope::Within(ancestor) => {
             out.tag(2);
             out.name(ancestor);
         }
+    }
+}
+
+/// Write one per-part key equality declaration.
+fn push_key_equality(out: &mut CanonicalWriter, equality: &KeyEquality) {
+    match equality {
+        KeyEquality::Representation => out.tag(0),
+        KeyEquality::NumericValue => out.tag(1),
+        KeyEquality::NumericValueWithinKind(primitive) => {
+            out.tag(2);
+            match primitive {
+                NumericPrimitive::Decimal => out.tag(0),
+                NumericPrimitive::Float(width) => {
+                    out.tag(1);
+                    out.tag(*width);
+                }
+                NumericPrimitive::Any => out.tag(2),
+            }
+        }
+        KeyEquality::Sql { collation, pad } => {
+            out.tag(3);
+            match collation {
+                SqlCollation::Binary => out.tag(0),
+                SqlCollation::AsciiCaseInsensitive => out.tag(1),
+                SqlCollation::Named(name) => {
+                    out.tag(2);
+                    out.name(name);
+                }
+            }
+            out.tag(match pad {
+                SqlPad::NoPad => 0,
+                SqlPad::PadSpace => 1,
+            });
+        }
+        KeyEquality::XmlNonCdata => out.tag(4),
     }
 }
 
@@ -410,6 +484,43 @@ fn push_reference(out: &mut CanonicalWriter, reference: &Reference) {
         ResolveMode::AddEdge => 0,
         ResolveMode::Redirect => 1,
     });
+    push_reference_extensions(out, reference);
+}
+
+/// Write the optional reference extension envelope.
+fn push_reference_extensions(out: &mut CanonicalWriter, reference: &Reference) {
+    let extended = reference.guard.is_some()
+        || reference.null_match != NullMatch::Simple
+        || reference.null_vertex.is_some()
+        || reference.scope_via.is_some();
+    if !extended {
+        return;
+    }
+    out.tag(0xff);
+    match &reference.guard {
+        None => out.tag(0),
+        Some(guard) => {
+            out.tag(1);
+            push_edges(out, &guard.field);
+            out.raw(&guard.equals.canonical_bytes());
+        }
+    }
+    out.tag(match reference.null_match {
+        NullMatch::Simple => 0,
+        NullMatch::Full => 1,
+    });
+    out.opt_name(reference.null_vertex.as_ref());
+    match &reference.scope_via {
+        None => out.tag(0),
+        Some(via) => {
+            out.tag(1);
+            out.name(&via.ancestor);
+            out.len(via.hops.len());
+            for hop in &via.hops {
+                out.name(hop);
+            }
+        }
+    }
 }
 
 /// Write a reference source behind its discriminant.
@@ -430,13 +541,7 @@ fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
                 PathSyntax::XPath => out.tag(1),
                 PathSyntax::Uri { base } => {
                     out.tag(2);
-                    match base {
-                        None => out.tag(0),
-                        Some(base) => {
-                            out.tag(1);
-                            push_edges(out, base);
-                        }
-                    }
+                    push_uri_base(out, base);
                 }
                 PathSyntax::IdRef => out.tag(3),
             }
@@ -447,18 +552,12 @@ fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
             end,
             unit,
             end_inclusive,
+            end_form,
+            origin,
+            fragments,
         } => {
             out.tag(2);
-            match text {
-                RefTextSource::Local(path) => {
-                    out.tag(0);
-                    push_edges(out, path);
-                }
-                RefTextSource::External(path) => {
-                    out.tag(1);
-                    push_edges(out, path);
-                }
-            }
+            push_ref_text_source(out, text);
             push_edges(out, start);
             push_edges(out, end);
             out.tag(match unit {
@@ -468,11 +567,113 @@ fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
                 OffsetUnit::Token => 3,
             });
             out.bool(*end_inclusive);
+            if *end_form != SpanEnd::Offset || *origin != 0 || fragments.is_some() {
+                out.tag(0xff);
+                out.tag(match end_form {
+                    SpanEnd::Offset => 0,
+                    SpanEnd::Length => 1,
+                });
+                out.u64(*origin);
+                match fragments {
+                    None => out.tag(0),
+                    Some(edge) => {
+                        out.tag(1);
+                        out.edge(edge);
+                    }
+                }
+            }
         }
-        RefSource::Variable { field, binder_key } => {
+        RefSource::Variable {
+            field,
+            binder_key,
+            binding,
+        } => {
             out.tag(3);
             push_edges(out, field);
             out.name(binder_key);
+            if *binding != VariableBinding::FirstDefines {
+                out.tag(0xff);
+                out.tag(match binding {
+                    VariableBinding::FirstDefines => 0,
+                    VariableBinding::NearestPreceding => 1,
+                });
+            }
+        }
+        RefSource::Inline { field } => {
+            out.tag(4);
+            push_edges(out, field);
+        }
+    }
+}
+
+/// Write a URI base while retaining the legacy `None` and `Some(path)` tags.
+fn push_uri_base(out: &mut CanonicalWriter, base: &UriBase) {
+    match base {
+        UriBase::Absolute => out.tag(0),
+        UriBase::Field(field) => {
+            out.tag(1);
+            push_edges(out, field);
+        }
+        UriBase::Positional { base, prefix } => {
+            out.tag(2);
+            out.opt_name(base.as_ref());
+            out.opt_name(prefix.as_ref());
+        }
+        UriBase::Ancestor {
+            ancestor,
+            field,
+            join,
+        } => {
+            out.tag(3);
+            out.name(ancestor);
+            push_edges(out, field);
+            out.tag(match join {
+                UriJoin::Rfc3986 => 0,
+                UriJoin::FhirServiceBase => 1,
+            });
+        }
+        UriBase::Inherited { field } => {
+            out.tag(4);
+            push_edges(out, field);
+        }
+    }
+}
+
+/// Write a standoff text source behind stable discriminants.
+fn push_ref_text_source(out: &mut CanonicalWriter, source: &RefTextSource) {
+    match source {
+        RefTextSource::Local(path) => {
+            out.tag(0);
+            push_edges(out, path);
+        }
+        RefTextSource::External(path) => {
+            out.tag(1);
+            push_edges(out, path);
+        }
+        RefTextSource::Referenced {
+            reference,
+            text,
+            external,
+        } => {
+            out.tag(2);
+            out.name(reference);
+            push_edges(out, text);
+            match external {
+                None => out.tag(0),
+                Some(path) => {
+                    out.tag(1);
+                    push_edges(out, path);
+                }
+            }
+        }
+        RefTextSource::Span { reference } => {
+            out.tag(3);
+            out.name(reference);
+        }
+        RefTextSource::ExternalUri { field, base } => {
+            out.tag(4);
+            push_edges(out, field);
+            push_uri_base(out, base);
         }
     }
 }

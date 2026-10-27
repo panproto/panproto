@@ -275,6 +275,10 @@ fn reference_for(edge: &Edge, cardinality: Cardinality, nullable: bool) -> Refer
         nullable,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -1566,6 +1570,7 @@ fn requiredness_and_keys_are_the_only_cell_domain_constraints() {
             parts: vec![KeyPart::Path(vec![column("t", "a")])],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let lens = identity(&schema);
@@ -1675,6 +1680,7 @@ fn table_classifier_ignores_validation_results_that_put_does_not_map() {
             parts: vec![KeyPart::Position { within: parent }],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let position_lens = identity(&position_schema);
@@ -1697,6 +1703,7 @@ fn table_classifier_ignores_validation_results_that_put_does_not_map() {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let empty_path_lens = identity(&empty_path_schema);
@@ -1719,6 +1726,7 @@ fn a_primary_key_column_is_required() {
             parts: vec![KeyPart::Path(vec![column("t", "a")])],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let lens = identity(&schema);
@@ -1747,12 +1755,14 @@ fn duplicate_key_ties_break_on_column_and_canonical_value_bytes() {
                 parts: vec![KeyPart::Path(vec![column("t", "b")])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
             Key {
                 id: "by-a".into(),
                 parts: vec![KeyPart::Path(vec![column("t", "a")])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         ],
     );

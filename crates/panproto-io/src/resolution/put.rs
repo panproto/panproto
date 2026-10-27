@@ -459,6 +459,10 @@ mod tests {
                 nullable: false,
                 on_unresolved: OnUnresolved::Error,
                 mode: ResolveMode::AddEdge,
+                guard: None,
+                null_match: Default::default(),
+                null_vertex: None,
+                scope_via: None,
             },
             form: RefForm::KeyValue {
                 key: Key {
@@ -466,6 +470,7 @@ mod tests {
                     parts: Vec::new(),
                     role: KeyRole::Unique,
                     scope: KeyScope::Document,
+                    equality: vec![],
                 },
                 parts: Vec::new(),
             },

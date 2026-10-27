@@ -124,7 +124,7 @@ impl Resolution {
             ctx,
         };
         let occurrences = reader.read(&self.compiled, skip)?;
-        let outcomes = resolve(source, &occurrences);
+        let outcomes = resolve(source, &occurrences)?;
         admit(occurrences, outcomes, options.lenient)
     }
 
@@ -236,7 +236,7 @@ impl Resolution {
                     record_definition(&mut complement, occurrence, holder);
                     continue;
                 }
-                Outcome::Dangling | Outcome::Ambiguous(_) => {
+                Outcome::Dangling | Outcome::Ambiguous(_) | Outcome::Unselected(_) => {
                     record_unresolved(&mut complement, occurrence, outcome);
                     continue;
                 }
@@ -284,7 +284,7 @@ impl Resolution {
                     record_definition(&mut complement, occurrence, holder.0);
                     continue;
                 }
-                Outcome::Dangling | Outcome::Ambiguous(_) => {
+                Outcome::Dangling | Outcome::Ambiguous(_) | Outcome::Unselected(_) => {
                     record_unresolved(&mut complement, occurrence, outcome);
                     continue;
                 }
@@ -508,7 +508,13 @@ fn record_unresolved(
         Outcome::Ambiguous(candidates) => UnresolvedReason::Ambiguous {
             candidates: candidates.clone(),
         },
-        _ => UnresolvedReason::Dangling,
+        Outcome::Unselected(value) => UnresolvedReason::Unselected {
+            value: value.clone(),
+        },
+        Outcome::Dangling => UnresolvedReason::Dangling,
+        Outcome::Resolved(_) | Outcome::Span | Outcome::Definition => {
+            unreachable!("only unresolved outcomes are recorded")
+        }
     };
     complement.unresolved.push(UnresolvedRef {
         holder: occurrence.holder.clone(),

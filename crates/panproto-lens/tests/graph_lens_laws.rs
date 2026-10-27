@@ -786,6 +786,7 @@ fn graph_put_domain_reports_duplicate_keys_and_missing_required_cells() {
             parts: vec![KeyPart::Path(vec![relation()])],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let keyed_lens = identity_lens(&keyed_schema);
@@ -949,6 +950,7 @@ fn duplicate_key_errors(role: KeyRole, scope: KeyScope) -> Vec<PutDomainError> {
             parts: vec![KeyPart::Path(Vec::new())],
             role,
             scope,
+            equality: vec![],
         }],
     );
     let lens = identity_lens(&keyed_schema);
@@ -994,6 +996,7 @@ fn a_within_key_is_unique_under_its_ancestor() {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Unique,
             scope: KeyScope::Within("p".into()),
+            equality: vec![],
         }],
     );
     let lens = identity_lens(&keyed_schema);

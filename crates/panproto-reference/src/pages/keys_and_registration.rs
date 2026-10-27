@@ -385,13 +385,13 @@ pub mod keys {
         Ok(writer.bytes)
     }
 
-    /// Definition: Normalize XML non-CDATA whitespace: replace XML whitespace by U+0020,
-    /// collapse runs, and trim both ends.
+    /// Definition: Normalize XML non-CDATA whitespace after XML attribute processing: collapse
+    /// U+0020 runs and trim U+0020 at both ends.
     ///
     /// Book anchors: `L-keys-and-registration-14`.
     #[must_use]
     pub fn xml_noncdata(text: &str) -> String {
-        text.split([' ', '\t', '\r', '\n'])
+        text.split(' ')
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(" ")
@@ -1145,6 +1145,11 @@ pub mod schema {
             /// Target-set id that also names a vertex.
             set: Name,
         },
+        /// A target set has no member key.
+        EmptyTargetSet {
+            /// Empty target-set id.
+            set: Name,
+        },
         /// A target-set member is absent, repeated, or differs in arity,
         /// equality, or scope from the other members.
         TargetSetMemberMismatch {
@@ -1355,6 +1360,10 @@ pub mod schema {
         for (id, set) in &schema.target_sets {
             if schema.vertices.contains_key(id) {
                 errors.push(DeclarationError::TargetSetNameClash { set: id.clone() });
+            }
+            if set.members.is_empty() {
+                errors.push(DeclarationError::EmptyTargetSet { set: id.clone() });
+                continue;
             }
             let mut members = BTreeSet::new();
             let mut signature: Option<(usize, Vec<KeyEquality>)> = None;
@@ -1959,13 +1968,16 @@ pub mod schema {
                 binder_key,
                 binding,
             } => {
-                writer.tag(2);
+                writer.tag(3);
                 write_edges(writer, field.iter().cloned());
                 writer.str(binder_key);
-                writer.tag(match binding {
-                    VariableBinding::FirstDefines => 0,
-                    VariableBinding::NearestPreceding => 1,
-                });
+                if *binding != VariableBinding::FirstDefines {
+                    writer.tag(0xff);
+                    writer.tag(match binding {
+                        VariableBinding::FirstDefines => 0,
+                        VariableBinding::NearestPreceding => 1,
+                    });
+                }
             }
             RefSource::Standoff {
                 text,
@@ -1977,7 +1989,7 @@ pub mod schema {
                 origin,
                 fragments,
             } => {
-                writer.tag(3);
+                writer.tag(2);
                 write_text_source(writer, text);
                 write_edges(writer, start.iter().cloned());
                 write_edges(writer, end.iter().cloned());
@@ -1988,16 +2000,19 @@ pub mod schema {
                     OffsetUnit::Token => 3,
                 });
                 writer.tag(u8::from(*end_inclusive));
-                writer.tag(match end_form {
-                    SpanEnd::Offset => 0,
-                    SpanEnd::Length => 1,
-                });
-                writer.u64(*origin);
-                match fragments {
-                    None => writer.tag(0),
-                    Some(edge) => {
-                        writer.tag(1);
-                        writer.edge(edge);
+                if *end_form != SpanEnd::Offset || *origin != 0 || fragments.is_some() {
+                    writer.tag(0xff);
+                    writer.tag(match end_form {
+                        SpanEnd::Offset => 0,
+                        SpanEnd::Length => 1,
+                    });
+                    writer.u64(*origin);
+                    match fragments {
+                        None => writer.tag(0),
+                        Some(edge) => {
+                            writer.tag(1);
+                            writer.edge(edge);
+                        }
                     }
                 }
             }
@@ -2020,7 +2035,9 @@ pub mod schema {
                 Some(guard) => {
                     writer.tag(1);
                     write_edges(writer, guard.field.iter().cloned());
-                    writer.raw(&crate::canonical::value_bytes(&guard.equals).unwrap_or_default());
+                    writer.bytes.extend_from_slice(
+                        &crate::canonical::value_bytes(&guard.equals).unwrap_or_default(),
+                    );
                 }
             }
             writer.tag(match reference.null_match {
@@ -2141,11 +2158,6 @@ pub mod schema {
     }
 
     fn key_is_tightened(old: &Key, new: &Key) -> bool {
-        let role_rank = |role: &KeyRole| match role {
-            KeyRole::Primary => 2,
-            KeyRole::Unique | KeyRole::Identifier => 1,
-            KeyRole::SortKey | KeyRole::Index => 0,
-        };
         let scope_rank = |scope: &KeyScope| match scope {
             KeyScope::Global => 3,
             KeyScope::Document => 2,
@@ -2153,8 +2165,7 @@ pub mod schema {
         };
         old.parts != new.parts
             || old.equality != new.equality
-            || role_rank(&new.role) > role_rank(&old.role)
-            || (role_rank(&new.role) == role_rank(&old.role) && new.role != old.role)
+            || old.role != new.role
             || scope_rank(&new.scope) > scope_rank(&old.scope)
             || (scope_rank(&new.scope) == scope_rank(&old.scope) && new.scope != old.scope)
     }
@@ -2190,12 +2201,14 @@ pub mod schema {
 
     /// Definition: Classify key and reference changes by backward compatibility.
     ///
-    /// Adding a key on an existing vertex is breaking and removing one is a
-    /// relaxation. A changed key is breaking exactly when it adds or changes
-    /// parts, strengthens its role, widens its scope, or moves between two
-    /// distinct `Within` scopes. Reference changes follow the corresponding
-    /// cardinality, nullability and unresolved-value rules. Changes elsewhere
-    /// in this finite carrier fail closed as breaking.
+    /// Adding a primary, unique, or identifier key on an existing vertex is
+    /// breaking; adding a sort key or index is a relaxation because neither
+    /// admits fewer instances. Removing any key is a relaxation. A changed key
+    /// is breaking exactly when it adds or changes parts, changes role, widens
+    /// its scope, or moves between two distinct `Within` scopes. Reference
+    /// changes follow the corresponding cardinality, nullability and
+    /// unresolved-value rules. Changes elsewhere in this finite carrier fail
+    /// closed as breaking.
     ///
     /// Book anchors: `L-keys-and-registration-4`.
     #[must_use]
@@ -2205,9 +2218,14 @@ pub mod schema {
         }
         let before_keys = keyed_keys(before);
         let after_keys = keyed_keys(after);
-        let added_key_breaks = after_keys
-            .keys()
-            .any(|key| !before_keys.contains_key(key) && before.vertices.contains_key(key.0));
+        let added_key_breaks = after_keys.iter().any(|(key, declaration)| {
+            !before_keys.contains_key(key)
+                && before.vertices.contains_key(key.0)
+                && matches!(
+                    declaration.role,
+                    KeyRole::Primary | KeyRole::Unique | KeyRole::Identifier
+                )
+        });
         let changed_key_breaks = before_keys.iter().any(|(key, old)| {
             after_keys
                 .get(key)

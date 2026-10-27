@@ -69,6 +69,7 @@ fn schema() -> Result<(panproto_schema::Schema, Protocol), Box<dyn std::error::E
                 parts: vec![KeyPart::Path(Vec::new())],
                 role: KeyRole::Unique,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .hyper_edge(
@@ -1505,6 +1506,7 @@ fn primary_key_required_value_excludes_incoming_property_sources() -> TestResult
                 parts: vec![KeyPart::Path(Vec::new())],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build()?;
@@ -2220,6 +2222,7 @@ fn path_primary_required_value_is_non_local_at_a_segment_boundary() -> TestResul
                 parts: vec![KeyPart::Path(vec![remote_value.clone()])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build()?;
@@ -2295,6 +2298,7 @@ fn static_key_errors_precede_non_local_position_unknowns() -> TestResult {
                 parts: vec![KeyPart::Position { within }],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         )
         .build()?;

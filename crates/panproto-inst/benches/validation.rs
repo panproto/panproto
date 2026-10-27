@@ -121,6 +121,7 @@ fn indexed_fixture(size: u32) -> (Arc<ValidationPlan>, GInstance, GraphEdit, Ext
             parts: vec![KeyPart::Path(vec![id.clone()])],
             role: KeyRole::Primary,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     schema.declarations.insert_reference(Reference {
@@ -136,6 +137,10 @@ fn indexed_fixture(size: u32) -> (Arc<ValidationPlan>, GInstance, GraphEdit, Ext
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     let options = ValidationOptions {
         external: BTreeMap::from([(

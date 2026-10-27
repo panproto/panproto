@@ -5650,6 +5650,7 @@ mod rewritten_schemas_are_seed_independent {
                 ],
                 role: KeyRole::Unique,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
 

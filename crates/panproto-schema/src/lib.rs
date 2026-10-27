@@ -56,8 +56,10 @@ pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
 pub use induce::{induce, induce_on_vertices, induce_with_report};
 pub use keys::{
-    Cardinality, DeclarationReport, Key, KeyPart, KeyRefError, KeyRole, KeyScope, OffsetUnit,
-    OnUnresolved, PathSyntax, RefSource, RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+    Cardinality, DeclarationReport, Key, KeyEquality, KeyPart, KeyRefError, KeyRole, KeyScope,
+    NullMatch, NumericPrimitive, OffsetUnit, OnUnresolved, PathSyntax, RefGuard, RefSource,
+    RefTextSource, Reference, ResolveMode, SchemaDeclarations, ScopeVia, SpanEnd, SqlCollation,
+    SqlPad, TargetSet, UriBase, UriJoin, VariableBinding,
 };
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;

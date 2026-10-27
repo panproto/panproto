@@ -12,7 +12,7 @@ fn sort(n: &str) -> Sort {
     Sort {
         name: n.into(),
         params: vec![],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     }
 }
@@ -47,7 +47,7 @@ fn a_dependent_sort_application_is_typed_against_its_parameters() {
             ("a".into(), SortExpr::Name("Ob".into())),
             ("b".into(), SortExpr::Name("Ob".into())),
         ],
-        kind: "s".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     t.ops.push(Op {
@@ -81,7 +81,7 @@ fn nested_sort_arguments_are_recursively_typechecked() {
     t.sorts.push(Sort {
         name: "Indexed".into(),
         params: vec![("d".into(), SortExpr::Name("D".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     t.ops.extend([
@@ -107,7 +107,7 @@ fn signature_sort_dependencies_ignore_declaration_vector_order_but_reject_cycles
     let dependent = Sort {
         name: "Y".into(),
         params: vec![("x".into(), SortExpr::Name("X".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     };
     let base = sort("X");
@@ -124,13 +124,13 @@ fn signature_sort_dependencies_ignore_declaration_vector_order_but_reject_cycles
             Sort {
                 name: "X".into(),
                 params: vec![("y".into(), SortExpr::Name("Y".into()))],
-                kind: "structural".into(),
+                kind: theory::SortKind::Structural,
                 constructors: None,
             },
             Sort {
                 name: "Y".into(),
                 params: vec![("x".into(), SortExpr::Name("X".into()))],
-                kind: "structural".into(),
+                kind: theory::SortKind::Structural,
                 constructors: None,
             },
         ],
@@ -194,7 +194,7 @@ fn signature_defects_preserve_declaration_order_and_full_payloads() {
     payloads.sorts.push(Sort {
         name: "D".into(),
         params: vec![("p".into(), SortExpr::Name("X".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     payloads
@@ -238,7 +238,7 @@ fn signature_defects_preserve_declaration_order_and_full_payloads() {
     exact_arity.sorts.push(Sort {
         name: "Indexed".into(),
         params: vec![("d".into(), SortExpr::Name("D".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     exact_arity.ops.push(op("f", &[("x", "A")], "D"));
@@ -271,7 +271,7 @@ fn implicit_arguments_are_inferred_from_explicit_arguments() {
     implicit.sorts.push(Sort {
         name: "Tm".into(),
         params: vec![("a".into(), SortExpr::Name("Ty".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     implicit.ops.push(Op {
@@ -310,7 +310,7 @@ fn dependent_sort_arguments_compare_up_to_alpha_equivalence() {
         Sort {
             name: "Y".into(),
             params: vec![("p".into(), SortExpr::Name("X".into()))],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: None,
         },
         Sort {
@@ -329,7 +329,7 @@ fn dependent_sort_arguments_compare_up_to_alpha_equivalence() {
                     ),
                 ),
             ],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: None,
         },
     ]);
@@ -364,7 +364,7 @@ fn holes_are_typed_but_open_case_results_are_rejected() {
     term_forms.sorts.push(Sort {
         name: "D".into(),
         params: vec![("p".into(), SortExpr::Name("?hole".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     term_forms.ops.push(op("c", &[], "X"));
@@ -377,7 +377,7 @@ fn holes_are_typed_but_open_case_results_are_rejected() {
     term_forms.sorts.push(Sort {
         name: "DX".into(),
         params: vec![("p".into(), SortExpr::Name("X".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     term_forms.ops.push(Op {
@@ -414,7 +414,7 @@ fn duplicate_lookup_uses_the_last_declaration() {
             Sort {
                 name: "X".into(),
                 params: vec![("p".into(), SortExpr::Name("X".into()))],
-                kind: "structural".into(),
+                kind: theory::SortKind::Structural,
                 constructors: None,
             },
         ],
@@ -447,7 +447,7 @@ fn indexed_case_theory() -> Theory {
         Sort {
             name: "Vec".into(),
             params: vec![("n".into(), SortExpr::Name("Nat".into()))],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: Some(vec!["nil".into(), "cons".into()]),
         },
         Sort {
@@ -459,13 +459,13 @@ fn indexed_case_theory() -> Theory {
                     SortExpr::App("Vec".into(), vec![Term::Var("n".into())]),
                 ),
             ],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: None,
         },
         Sort {
             name: "Box".into(),
             params: vec![("n".into(), SortExpr::Name("Nat".into()))],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: None,
         },
     ]);
@@ -562,7 +562,7 @@ fn equation_implicit_metavariables_are_scoped_per_application() {
     node.sorts.push(Sort {
         name: "Tm".into(),
         params: vec![("a".into(), SortExpr::Name("Ty".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     node.ops.push(Op {
@@ -595,7 +595,7 @@ fn equation_cases_are_checked_against_the_refined_result_motive() {
     node.sorts.push(Sort {
         name: "Vec".into(),
         params: vec![("n".into(), SortExpr::Name("Nat".into()))],
-        kind: "structural".into(),
+        kind: theory::SortKind::Structural,
         constructors: Some(vec!["nil".into(), "cons".into()]),
     });
     node.ops.extend([
@@ -840,7 +840,7 @@ fn endpoint_validation_precedes_node_typing_and_filters_only_truly_open_sorts() 
         sorts: vec![Sort {
             name: "X".into(),
             params: vec![("x".into(), SortExpr::Name("X".into()))],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: None,
         }],
         ..Theory::default()
@@ -922,7 +922,7 @@ fn a_leg_sending_a_sort_to_one_of_another_arity_is_refused() {
     a.sorts.push(Sort {
         name: "D".into(),
         params: vec![("x".into(), SortExpr::Name("P".into()))],
-        kind: "s".into(),
+        kind: theory::SortKind::Structural,
         constructors: None,
     });
     let b = th("B", &["P", "E"]);
@@ -1253,19 +1253,23 @@ fn directed(name: &str, implementation: &str) -> theory::DirectedEquation {
         name: name.into(),
         lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
         rhs: Term::Var("x".into()),
-        implementation: implementation.into(),
+        implementation: theory::Expression::Var(implementation.into()),
         inverse: None,
         source_kind: None,
         target_kind: None,
-        coercion_class: "iso".into(),
+        coercion_class: theory::CoercionClass::Iso,
     }
 }
 
 fn policy(name: &str, strategy: &str) -> theory::Policy {
     theory::Policy {
         name: name.into(),
-        value_kind: "str".into(),
-        strategy: strategy.into(),
+        value_kind: theory::ValueKind::Str,
+        strategy: match strategy {
+            "keep_left" | "same" => theory::ConflictStrategy::KeepLeft,
+            "keep_right" | "different" => theory::ConflictStrategy::KeepRight,
+            _ => theory::ConflictStrategy::Custom(theory::Expression::Var(strategy.into())),
+        },
     }
 }
 
@@ -1346,7 +1350,7 @@ fn case_terms_translate_their_constructors_and_compare_up_to_binder_names() {
         t.sorts.push(Sort {
             name: "B".into(),
             params: vec![],
-            kind: "structural".into(),
+            kind: theory::SortKind::Structural,
             constructors: Some(cs.iter().map(|c| (*c).to_owned()).collect()),
         });
         for c in cs {
@@ -1560,11 +1564,11 @@ fn morphism_equation_rewriting() {
             name: "idempotent".into(),
             lhs: Term::App("f".into(), vec![Term::Var("x".into())]),
             rhs: Term::Var("x".into()),
-            implementation: String::new(),
+            implementation: theory::Expression::Var(String::new()),
             inverse: None,
             source_kind: None,
             target_kind: None,
-            coercion_class: String::new(),
+            coercion_class: theory::CoercionClass::Iso,
         });
     let mut rewrite_morphism = id_on(&[("A", "A")]);
     rewrite_morphism
@@ -1735,7 +1739,7 @@ fn replay_preserves_base_parents_ignores_version_and_clones_dependent_interfaces
             Sort {
                 name: "D".into(),
                 params: vec![("p".into(), SortExpr::Name("X".into()))],
-                kind: "structural".into(),
+                kind: theory::SortKind::Structural,
                 constructors: None,
             },
         ],

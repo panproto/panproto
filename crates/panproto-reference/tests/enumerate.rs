@@ -276,6 +276,10 @@ fn fan_free_form(g: &Graph) -> (Vec<(u32, Node)>, Vec<String>) {
 fn enumerate_tables_and_check_their_bytes_are_injective() {
     let cols = BTreeMap::from([("t", vec!["c"]), ("u", vec![])]);
     let rel = [SEdge::new("t", "u", "fk", Some("f"))];
+    let schema = Schema::default()
+        .vertex("t", "record")
+        .vertex("u", "record")
+        .edge("t", "u", "fk", Some("f"));
     let ts = en::tables(&["t", "u"], &cols, &[Value::Int(0), Value::Null], &rel, 2);
     report(
         "tables",
@@ -290,7 +294,7 @@ fn enumerate_tables_and_check_their_bytes_are_injective() {
         assert_eq!(canonical::decode_table(&b).as_ref(), Some(t));
         assert!(seen.insert(b));
         let (g, _) = encode::table_to_graph(t).unwrap();
-        assert_eq!(encode::graph_to_table(&g).as_ref(), Some(t));
+        assert_eq!(encode::graph_to_table(&g, &schema).as_ref(), Some(t));
     }
 }
 

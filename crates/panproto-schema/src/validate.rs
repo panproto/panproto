@@ -12,13 +12,14 @@
 //! an incomplete check of every validation report of the plan, never a
 //! failed one, since a schema problem says nothing about the instance.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use panproto_gat::Name;
 
 use crate::error::ValidationError;
 use crate::keys::{
-    Key, KeyPart, KeyRefError, KeyRole, KeyScope, PathSyntax, RefSource, RefTextSource, Reference,
+    Cardinality, Key, KeyEquality, KeyPart, KeyRefError, KeyRole, KeyScope, PathSyntax, RefSource,
+    RefTextSource, Reference, ResolveMode, SpanEnd, UriBase, VariableBinding,
 };
 use crate::protocol::Protocol;
 use crate::schema::{Edge, Schema};
@@ -174,7 +175,7 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
 }
 
 /// Every well-formedness violation of the schema's key and reference
-/// declarations, keys first (by vertex, then key), then references (by id).
+/// declarations: keys, target sets, references, then cross-reference groups.
 fn declaration_errors(schema: &Schema, protocol: &Protocol) -> Vec<KeyRefError> {
     let mut errors = Vec::new();
     let ancestry = Ancestry::new(schema);
@@ -199,10 +200,24 @@ fn declaration_errors(schema: &Schema, protocol: &Protocol) -> Vec<KeyRefError> 
         }
     }
 
+    target_set_errors(schema, &mut errors);
+
     let shapes_differ = protocol.syntactic_shape != protocol.semantic_shape;
+    let mut guards = Vec::new();
+    let mut binder_modes: BTreeMap<(Name, Name), Vec<(Name, VariableBinding)>> = BTreeMap::new();
     for reference in schema.declarations.references.values() {
-        reference_errors(schema, reference, shapes_differ, &mut errors);
+        reference_errors(
+            schema,
+            reference,
+            shapes_differ,
+            &ancestry,
+            &mut guards,
+            &mut binder_modes,
+            &mut errors,
+        );
     }
+    binder_mode_errors(schema, binder_modes, &mut errors);
+    guard_errors(&guards, &mut errors);
 
     errors
 }
@@ -215,6 +230,14 @@ fn key_errors(
     ancestry: &Ancestry<'_>,
     errors: &mut Vec<KeyRefError>,
 ) {
+    if !key.equality.is_empty() && key.equality.len() != key.parts.len() {
+        errors.push(KeyRefError::EqualityArity {
+            vertex: vertex.clone(),
+            key: key.id.clone(),
+            expected: key.parts.len(),
+            found: key.equality.len(),
+        });
+    }
     for part in &key.parts {
         match part {
             KeyPart::Path(path) => check_path(schema, vertex, path, errors),
@@ -245,17 +268,135 @@ fn key_errors(
             });
         }
     }
+    if key.role == KeyRole::SortKey {
+        let ordered = match &key.scope {
+            KeyScope::Within(container) => {
+                let carriers: Vec<_> = schema
+                    .edges
+                    .keys()
+                    .filter(|edge| edge.src == *container && edge.tgt == *vertex)
+                    .collect();
+                carriers.len() == 1 && schema.orderings.contains_key(carriers[0])
+            }
+            KeyScope::Document | KeyScope::Global => false,
+        };
+        if !ordered {
+            errors.push(KeyRefError::SortKeyNotOrdered {
+                key: key.id.clone(),
+                vertex: vertex.clone(),
+            });
+        }
+    }
 }
 
+fn expanded_equalities(key: &Key) -> Option<Vec<KeyEquality>> {
+    if key.equality.is_empty() {
+        Some(vec![KeyEquality::Representation; key.parts.len()])
+    } else if key.equality.len() == key.parts.len() {
+        Some(key.equality.clone())
+    } else {
+        None
+    }
+}
+
+fn target_set_errors(schema: &Schema, errors: &mut Vec<KeyRefError>) {
+    for (set_id, set) in &schema.declarations.target_sets {
+        if schema.vertices.contains_key(set_id) {
+            errors.push(KeyRefError::TargetSetNameClash {
+                set: set_id.clone(),
+            });
+        }
+        if set.members.is_empty() {
+            errors.push(KeyRefError::EmptyTargetSet {
+                set: set_id.clone(),
+            });
+            continue;
+        }
+        let mut seen = BTreeSet::new();
+        let mut signature: Option<(usize, Vec<KeyEquality>)> = None;
+        for (vertex, key_id) in &set.members {
+            let member = schema.declarations.key(vertex, key_id);
+            let this = member.and_then(|key| {
+                expanded_equalities(key).map(|equality| (key.parts.len(), equality))
+            });
+            let valid = member.is_some_and(|key| key.scope == set.scope)
+                && seen.insert((vertex, key_id))
+                && this.is_some()
+                && signature
+                    .as_ref()
+                    .is_none_or(|expected| this.as_ref() == Some(expected));
+            if signature.is_none() {
+                signature = this;
+            }
+            if !valid {
+                errors.push(KeyRefError::TargetSetMemberMismatch {
+                    set: set_id.clone(),
+                    vertex: vertex.clone(),
+                    key: key_id.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn target_members<'a>(schema: &'a Schema, reference: &'a Reference) -> Vec<(&'a Name, &'a Key)> {
+    if let Some(set) = schema.declarations.target_set(&reference.target_vertex) {
+        return set
+            .members
+            .iter()
+            .filter_map(|(vertex, key_id)| {
+                schema
+                    .declarations
+                    .key(vertex, key_id)
+                    .map(|key| (vertex, key))
+            })
+            .collect();
+    }
+    let key = match &reference.source {
+        RefSource::Variable { binder_key, .. } => schema
+            .declarations
+            .key(&reference.target_vertex, binder_key),
+        _ => reference.target_key.as_ref().map_or_else(
+            || {
+                schema
+                    .declarations
+                    .keys_of(&reference.target_vertex)
+                    .iter()
+                    .find(|key| key.role == KeyRole::Primary)
+            },
+            |key_id| schema.declarations.key(&reference.target_vertex, key_id),
+        ),
+    };
+    key.map_or_else(Vec::new, |key| vec![(&reference.target_vertex, key)])
+}
+
+type GuardDeclaration<'a> = (
+    &'a Name,
+    &'a RefSource,
+    &'a [Edge],
+    &'a Name,
+    &'a panproto_expr::Value,
+);
+
 /// The violations of one reference.
-fn reference_errors(
-    schema: &Schema,
-    reference: &Reference,
+// Keeping the source, edge, text, scope, and group checks together makes the
+// full declaration predicate auditable against `KeyRefError`.
+#[allow(clippy::too_many_lines)]
+fn reference_errors<'a>(
+    schema: &'a Schema,
+    reference: &'a Reference,
     shapes_differ: bool,
+    ancestry: &Ancestry<'a>,
+    guards: &mut Vec<GuardDeclaration<'a>>,
+    binder_modes: &mut BTreeMap<(Name, Name), Vec<(Name, VariableBinding)>>,
     errors: &mut Vec<KeyRefError>,
 ) {
     let holder_known = schema.vertices.contains_key(&reference.holder);
-    let target_known = schema.vertices.contains_key(&reference.target_vertex);
+    let targets_set = schema
+        .declarations
+        .target_set(&reference.target_vertex)
+        .is_some();
+    let target_known = targets_set || schema.vertices.contains_key(&reference.target_vertex);
     if !holder_known {
         errors.push(KeyRefError::UnknownVertex {
             vertex: reference.holder.clone(),
@@ -270,30 +411,62 @@ fn reference_errors(
         return;
     }
 
+    if let Some(null_vertex) = &reference.null_vertex
+        && !schema.vertices.contains_key(null_vertex)
+    {
+        errors.push(KeyRefError::UnknownVertex {
+            vertex: null_vertex.clone(),
+        });
+    }
+
     let declarations = &schema.declarations;
-    let target = reference.target_vertex.as_ref();
-    if let Some(id) = &reference.target_key {
-        if declarations.key(target, id).is_none() {
-            errors.push(KeyRefError::UnknownTargetKey {
+    if targets_set {
+        if reference.target_key.is_some() {
+            errors.push(KeyRefError::TargetSetHasKey {
                 reference: reference.id.clone(),
-                key: id.clone(),
             });
         }
+    } else if let Some(id) = &reference.target_key
+        && declarations.key(&reference.target_vertex, id).is_none()
+    {
+        errors.push(KeyRefError::UnknownTargetKey {
+            reference: reference.id.clone(),
+            key: id.clone(),
+        });
+    }
+
+    let targets = target_members(schema, reference);
+    if let Some((_, key)) = targets.first()
+        && matches!(key.role, KeyRole::SortKey | KeyRole::Index)
+    {
+        errors.push(KeyRefError::KeyNotResolvable {
+            reference: reference.id.clone(),
+            key: key.id.clone(),
+        });
     }
 
     for path in source_paths(&reference.source) {
         check_path(schema, &reference.holder, path, errors);
     }
+    if let Some(guard) = &reference.guard {
+        check_path(schema, &reference.holder, &guard.field, errors);
+        guards.push((
+            &reference.holder,
+            &reference.source,
+            &guard.field,
+            &reference.id,
+            &guard.equals,
+        ));
+    }
     match &reference.source {
         RefSource::KeyValue { parts } => {
-            let unknown_named_key = reference
-                .target_key
-                .as_ref()
-                .is_some_and(|id| declarations.key(target, id).is_none());
+            let unknown_named_key = !targets_set
+                && reference
+                    .target_key
+                    .as_ref()
+                    .is_some_and(|id| declarations.key(&reference.target_vertex, id).is_none());
             if !unknown_named_key {
-                let expected = declarations
-                    .resolving_key(reference)
-                    .map_or(0, |key| key.parts.len());
+                let expected = targets.first().map_or(0, |(_, key)| key.parts.len());
                 if expected != parts.len() {
                     errors.push(KeyRefError::ArityMismatch {
                         reference: reference.id.clone(),
@@ -303,24 +476,81 @@ fn reference_errors(
                 }
             }
         }
-        RefSource::Variable { binder_key, .. } => match declarations.key(target, binder_key) {
-            None => errors.push(KeyRefError::UnknownTargetKey {
-                reference: reference.id.clone(),
-                key: binder_key.clone(),
-            }),
-            Some(key) if key.role != KeyRole::Identifier => {
-                errors.push(KeyRefError::BinderNotIdentifier {
+        RefSource::Variable {
+            binder_key,
+            binding,
+            ..
+        } => {
+            match declarations.key(&reference.target_vertex, binder_key) {
+                None => errors.push(KeyRefError::UnknownTargetKey {
                     reference: reference.id.clone(),
                     key: binder_key.clone(),
+                }),
+                Some(key) if key.role != KeyRole::Identifier => {
+                    errors.push(KeyRefError::BinderNotIdentifier {
+                        reference: reference.id.clone(),
+                        key: binder_key.clone(),
+                    });
+                }
+                Some(_) => {}
+            }
+            binder_modes
+                .entry((reference.target_vertex.clone(), binder_key.clone()))
+                .or_default()
+                .push((reference.id.clone(), *binding));
+        }
+        RefSource::Inline { .. } => {
+            if reference.mode != ResolveMode::Redirect {
+                errors.push(KeyRefError::InlineRequiresRedirect {
+                    reference: reference.id.clone(),
                 });
             }
-            Some(_) => {}
-        },
-        RefSource::Path { .. } | RefSource::Standoff { .. } => {}
+            if !targets_set {
+                errors.push(KeyRefError::InlineRequiresTargetSet {
+                    reference: reference.id.clone(),
+                });
+            }
+        }
+        RefSource::Standoff {
+            end_inclusive,
+            end_form,
+            fragments,
+            ..
+        } => {
+            if *end_form == SpanEnd::Length && *end_inclusive {
+                errors.push(KeyRefError::LengthInclusive {
+                    reference: reference.id.clone(),
+                });
+            }
+            if let Some(edge) = fragments
+                && (reference.cardinality != Cardinality::Many
+                    || edge.src != reference.holder
+                    || !schema.orderings.contains_key(edge))
+            {
+                errors.push(KeyRefError::InvalidFragments {
+                    reference: reference.id.clone(),
+                });
+            }
+        }
+        RefSource::Path { .. } => {}
     }
 
     if let Some(edge) = &reference.edge {
-        if edge.src != reference.holder || edge.tgt != reference.target_vertex {
+        if let Some(set) = declarations.target_set(&reference.target_vertex) {
+            let valid = edge.src == reference.holder
+                && edge.tgt == reference.target_vertex
+                && set.members.iter().all(|(vertex, _)| {
+                    let mut member = edge.clone();
+                    member.tgt.clone_from(vertex);
+                    schema.edges.contains_key(&member)
+                });
+            if !valid {
+                errors.push(KeyRefError::EdgeMismatch {
+                    reference: reference.id.clone(),
+                    edge: edge.clone(),
+                });
+            }
+        } else if edge.src != reference.holder || edge.tgt != reference.target_vertex {
             errors.push(KeyRefError::EdgeMismatch {
                 reference: reference.id.clone(),
                 edge: edge.clone(),
@@ -336,6 +566,230 @@ fn reference_errors(
             reference: reference.id.clone(),
         });
     }
+
+    validate_text_reference(schema, reference, errors);
+    validate_scope_via(schema, reference, ancestry, errors);
+}
+
+fn binder_mode_errors(
+    schema: &Schema,
+    binder_modes: BTreeMap<(Name, Name), Vec<(Name, VariableBinding)>>,
+    errors: &mut Vec<KeyRefError>,
+) {
+    for ((vertex, key), uses) in binder_modes {
+        let has_first = uses
+            .iter()
+            .any(|(_, mode)| *mode == VariableBinding::FirstDefines);
+        let has_nearest = uses
+            .iter()
+            .any(|(_, mode)| *mode == VariableBinding::NearestPreceding);
+        let targeted_elsewhere = schema.declarations.references.values().any(|reference| {
+            let directly_targets =
+                reference.target_vertex == vertex && reference.target_key.as_ref() == Some(&key);
+            let targets_through_set = schema
+                .declarations
+                .target_set(&reference.target_vertex)
+                .is_some_and(|set| {
+                    set.members.iter().any(|(member_vertex, member_key)| {
+                        member_vertex == &vertex && member_key == &key
+                    })
+                });
+            (directly_targets || targets_through_set)
+                && !matches!(
+                    &reference.source,
+                    RefSource::Variable { binder_key, .. } if binder_key == &key
+                )
+        });
+        if (has_first && has_nearest) || targeted_elsewhere {
+            errors.push(KeyRefError::BinderModeConflict {
+                key,
+                references: uses.into_iter().map(|(id, _)| id).collect(),
+            });
+        }
+    }
+}
+
+fn guard_errors(guards: &[GuardDeclaration<'_>], errors: &mut Vec<KeyRefError>) {
+    for (index, (holder, source, field, _, _)) in guards.iter().enumerate() {
+        if guards[..index].iter().any(
+            |(candidate_holder, candidate_source, candidate_field, _, _)| {
+                candidate_holder == holder && candidate_source == source && candidate_field == field
+            },
+        ) {
+            continue;
+        }
+        let group: Vec<_> = guards
+            .iter()
+            .filter(
+                |(candidate_holder, candidate_source, candidate_field, _, _)| {
+                    candidate_holder == holder
+                        && candidate_source == source
+                        && candidate_field == field
+                },
+            )
+            .map(|(_, _, _, id, value)| (*id, *value))
+            .collect();
+        let duplicates: Vec<Name> = group
+            .iter()
+            .filter(|(_, value)| {
+                group
+                    .iter()
+                    .filter(|(_, other)| value.canonical_cmp(other).is_eq())
+                    .count()
+                    > 1
+            })
+            .map(|(id, _)| (*id).clone())
+            .collect();
+        if !duplicates.is_empty() {
+            errors.push(KeyRefError::DuplicateGuard {
+                references: duplicates,
+            });
+        }
+    }
+}
+
+fn validate_text_reference(schema: &Schema, reference: &Reference, errors: &mut Vec<KeyRefError>) {
+    let RefSource::Standoff { text, .. } = &reference.source else {
+        return;
+    };
+    let named = match text {
+        RefTextSource::Referenced {
+            reference: named, ..
+        }
+        | RefTextSource::Span { reference: named } => named,
+        RefTextSource::Local(_)
+        | RefTextSource::External(_)
+        | RefTextSource::ExternalUri { .. } => return,
+    };
+    let mut valid = schema
+        .declarations
+        .references
+        .get(named)
+        .is_some_and(|other| {
+            if other.holder != reference.holder || other.cardinality != Cardinality::One {
+                return false;
+            }
+            match text {
+                RefTextSource::Referenced { text, external, .. } => {
+                    if !matches!(
+                        other.source,
+                        RefSource::KeyValue { .. }
+                            | RefSource::Path { .. }
+                            | RefSource::Variable { .. }
+                    ) || schema
+                        .declarations
+                        .target_set(&other.target_vertex)
+                        .is_some()
+                    {
+                        return false;
+                    }
+                    let mut findings = Vec::new();
+                    check_path(schema, &other.target_vertex, text, &mut findings);
+                    if let Some(external) = external {
+                        check_path(schema, &other.target_vertex, external, &mut findings);
+                    }
+                    findings.is_empty()
+                }
+                RefTextSource::Span { .. } => matches!(
+                    other.source,
+                    RefSource::Standoff {
+                        fragments: None,
+                        ..
+                    }
+                ),
+                RefTextSource::Local(_)
+                | RefTextSource::External(_)
+                | RefTextSource::ExternalUri { .. } => true,
+            }
+        });
+    valid &= !text_chain_reaches(schema, named, &reference.id, &mut BTreeSet::new());
+    if !valid {
+        errors.push(KeyRefError::TextReferenceInvalid {
+            reference: reference.id.clone(),
+            text_reference: named.clone(),
+        });
+    }
+}
+
+fn text_chain_reaches(
+    schema: &Schema,
+    at: &Name,
+    target: &Name,
+    seen: &mut BTreeSet<Name>,
+) -> bool {
+    if at == target {
+        return true;
+    }
+    if !seen.insert(at.clone()) {
+        return false;
+    }
+    let Some(RefSource::Standoff { text, .. }) = schema
+        .declarations
+        .references
+        .get(at)
+        .map(|reference| &reference.source)
+    else {
+        return false;
+    };
+    match text {
+        RefTextSource::Referenced { reference, .. } | RefTextSource::Span { reference } => {
+            text_chain_reaches(schema, reference, target, seen)
+        }
+        RefTextSource::Local(_)
+        | RefTextSource::External(_)
+        | RefTextSource::ExternalUri { .. } => false,
+    }
+}
+
+fn validate_scope_via(
+    schema: &Schema,
+    reference: &Reference,
+    ancestry: &Ancestry<'_>,
+    errors: &mut Vec<KeyRefError>,
+) {
+    let Some(via) = &reference.scope_via else {
+        return;
+    };
+    let expected_scope = schema
+        .declarations
+        .target_set(&reference.target_vertex)
+        .map(|set| &set.scope)
+        .or_else(|| {
+            target_members(schema, reference)
+                .first()
+                .map(|(_, key)| &key.scope)
+        });
+    let Some(KeyScope::Within(scope_vertex)) = expected_scope else {
+        errors.push(KeyRefError::ScopeViaInvalid {
+            reference: reference.id.clone(),
+        });
+        return;
+    };
+    let mut vertex = &via.ancestor;
+    let mut seen = BTreeSet::new();
+    let mut valid = !via.hops.is_empty()
+        && schema.vertices.contains_key(&via.ancestor)
+        && ancestry.is_proper_ancestor(&via.ancestor, &reference.holder);
+    for hop in &via.hops {
+        let Some(declaration) = schema.declarations.references.get(hop) else {
+            valid = false;
+            break;
+        };
+        valid &= seen.insert(hop)
+            && declaration.holder == *vertex
+            && declaration.cardinality == Cardinality::One
+            && schema
+                .declarations
+                .target_set(&declaration.target_vertex)
+                .is_none();
+        vertex = &declaration.target_vertex;
+    }
+    valid &= vertex == scope_vertex;
+    if !valid {
+        errors.push(KeyRefError::ScopeViaInvalid {
+            reference: reference.id.clone(),
+        });
+    }
 }
 
 /// Every edge path a reference source reads, each rooted at the holder.
@@ -344,20 +798,42 @@ fn source_paths(source: &RefSource) -> Vec<&[Edge]> {
         RefSource::KeyValue { parts } => parts.iter().map(Vec::as_slice).collect(),
         RefSource::Path { field, syntax } => {
             let mut paths = vec![field.as_slice()];
-            if let PathSyntax::Uri { base: Some(base) } = syntax {
+            if let PathSyntax::Uri {
+                base: UriBase::Field(base),
+            } = syntax
+            {
                 paths.push(base.as_slice());
             }
             paths
         }
         RefSource::Standoff {
-            text, start, end, ..
+            text,
+            start,
+            end,
+            fragments,
+            ..
         } => {
-            let text = match text {
-                RefTextSource::Local(path) | RefTextSource::External(path) => path.as_slice(),
-            };
-            vec![text, start.as_slice(), end.as_slice()]
+            let mut paths = vec![start.as_slice(), end.as_slice()];
+            match text {
+                RefTextSource::Local(path) | RefTextSource::External(path) => {
+                    paths.push(path.as_slice());
+                }
+                RefTextSource::ExternalUri { field, base } => {
+                    paths.push(field.as_slice());
+                    if let UriBase::Field(base) = base {
+                        paths.push(base.as_slice());
+                    }
+                }
+                RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {}
+            }
+            if let Some(edge) = fragments {
+                paths.push(std::slice::from_ref(edge));
+            }
+            paths
         }
-        RefSource::Variable { field, .. } => vec![field.as_slice()],
+        RefSource::Variable { field, .. } | RefSource::Inline { field } => {
+            vec![field.as_slice()]
+        }
     }
 }
 

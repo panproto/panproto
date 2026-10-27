@@ -27,6 +27,7 @@ pub mod limits;
 mod literal;
 mod subst;
 pub mod typecheck;
+mod value;
 
 pub use builtin::apply_builtin;
 pub use env::Env;
@@ -40,3 +41,4 @@ pub use expr::{BuiltinOp, Expr, ExprType, Pattern};
 pub use limits::{Budget, LimitExceeded, Resource, ResourceLimits};
 pub use literal::Literal;
 pub use subst::{free_vars, pattern_vars, substitute};
+pub use value::Value;

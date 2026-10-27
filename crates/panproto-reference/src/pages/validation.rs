@@ -2018,9 +2018,9 @@ pub mod implementation {
             Error::EqualityArity { vertex, key, .. }
             | Error::DuplicateKeyId { vertex, key }
             | Error::SortKeyNotOrdered { vertex, key } => key_dependents(schema, vertex, key),
-            Error::TargetSetNameClash { set } | Error::TargetSetMemberMismatch { set, .. } => {
-                target_set(set)
-            }
+            Error::TargetSetNameClash { set }
+            | Error::EmptyTargetSet { set }
+            | Error::TargetSetMemberMismatch { set, .. } => target_set(set),
             Error::DuplicateGuard { references } | Error::BinderModeConflict { references, .. } => {
                 references.iter().flat_map(|id| reference(id)).collect()
             }

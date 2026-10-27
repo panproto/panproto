@@ -69,5 +69,12 @@ The table lists each page of this part with the commit at which its blocks were 
 | Page | Laws | Audited commit |
 |---|---|---|
 | [Values](./values.md) | 41 | pending |
-| [Theories](theories.md) | 8 | 788489cb |
+| [Value I/O](./value-io.md) | 31 | pending |
+| [Theories](./theories.md) | 8 | pending |
+| [Keys and registration](./keys-and-registration.md) | 18 | pending |
+| [Instance representation](./representation.md) | 8 | pending |
 | [Kan extensions](./kan-extensions.md) | 12 | pending |
+| [Restriction and contraction](./restrict-and-contraction.md) | 13 | pending |
+| [Edits](./edits.md) | 8 | pending |
+| [Lenses](./lenses.md) | 20 | pending |
+| [Reference resolution](./resolution.md) | 16 | pending |

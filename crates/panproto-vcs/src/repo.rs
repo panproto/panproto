@@ -3206,6 +3206,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![name_edge.clone()])],
                 role: KeyRole::Primary,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         );
         schema.declarations.insert_reference(Reference {
@@ -3221,6 +3222,10 @@ mod tests {
             nullable: true,
             on_unresolved: OnUnresolved::Complement,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         });
         let present = |s: &str| {
             panproto_inst::value::FieldPresence::Present(panproto_inst::Value::Str(s.into()))

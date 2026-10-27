@@ -89,6 +89,7 @@ fn schema() -> Schema {
             parts: vec![KeyPart::Path(vec![e_key()])],
             role: KeyRole::Unique,
             scope: KeyScope::Within("map".into()),
+            equality: vec![],
         },
     );
     schema
@@ -730,6 +731,10 @@ fn schema_with_references() -> Schema {
         nullable: true,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     schema
 }

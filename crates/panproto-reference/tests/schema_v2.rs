@@ -15,8 +15,8 @@ use panproto_reference::model::{GEdge, Graph, Node, NodeShape, SEdge};
 use panproto_reference::num::Nat;
 use panproto_reference::resolution::{rfc3986, standoff_form, standoff_inverse};
 use panproto_reference::schema::{
-    Change, Key, KeyPart, KeyRole, KeyScope, Registration, Schema, TargetSet, canonical_bytes,
-    classify_change, register, validate_declarations,
+    Change, DeclarationError, Key, KeyPart, KeyRole, KeyScope, Registration, Schema, TargetSet,
+    canonical_bytes, classify_change, register, validate_declarations,
 };
 use panproto_reference::temporal::{
     Offset, OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalKind, TemporalParseError,
@@ -257,7 +257,7 @@ fn registration_requires_closed_replayable_theories_and_is_byte_idempotent() {
         sorts: vec![Sort {
             name: "Vertex".into(),
             params: vec![],
-            kind: "structural".into(),
+            kind: panproto_reference::theory::SortKind::Structural,
             constructors: None,
         }],
         ..Theory::default()
@@ -378,6 +378,20 @@ fn target_sets_require_distinct_compatible_declared_keys() {
     assert_eq!(validate_declarations(&schema), Ok(()));
     schema.target_sets.get_mut("ids").unwrap().members[1].1 = "missing".into();
     assert!(validate_declarations(&schema).is_err());
+
+    schema.target_sets.insert(
+        "empty".into(),
+        TargetSet {
+            members: Vec::new(),
+            scope: KeyScope::Document,
+        },
+    );
+    assert!(matches!(
+        validate_declarations(&schema),
+        Err(errors) if errors.contains(&DeclarationError::EmptyTargetSet {
+            set: "empty".into(),
+        })
+    ));
 }
 
 #[test]

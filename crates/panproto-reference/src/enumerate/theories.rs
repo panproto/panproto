@@ -22,9 +22,9 @@
 
 use crate::schema::Schema;
 use crate::theory::{
-    CaseBranch, ClashPolicy, ComposeOptions, CompositionMode, CompositionSpec, CompositionStep,
-    Equation, Implicit, Morphism, Op, OpImage, RecipeEdge, RecipeOpImage, Sort, SortExpr, Term,
-    Theory, TheoryDiagram,
+    CaseBranch, ClashPolicy, CoercionClass, ComposeOptions, CompositionMode, CompositionSpec,
+    CompositionStep, ConflictStrategy, Equation, Expression, Implicit, Morphism, Op, OpImage,
+    RecipeEdge, RecipeOpImage, Sort, SortExpr, SortKind, Term, Theory, TheoryDiagram, ValueKind,
 };
 
 /// Every two-object schema with one kind, one edge name and at most one edge.
@@ -46,9 +46,9 @@ pub fn subsets<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
 }
 
 /// The kind of a structural sort.
-pub const STRUCTURAL: &str = "structural";
+pub const STRUCTURAL: SortKind = SortKind::Structural;
 /// The kind of a value sort.
-pub const VALUE: &str = "value";
+pub const VALUE: SortKind = SortKind::Val(ValueKind::Str);
 /// The name of every theory the scopes build.
 pub const THEORY_NAME: &str = "Th";
 
@@ -158,7 +158,7 @@ impl SortShape {
             sorts.push(Sort {
                 name: "A".to_owned(),
                 params: Vec::new(),
-                kind: if self.a_value { VALUE } else { STRUCTURAL }.to_owned(),
+                kind: if self.a_value { VALUE } else { STRUCTURAL },
                 constructors: self.a_closed.then(|| {
                     ops.iter()
                         .filter(|op| op.output.head() == "A")
@@ -175,7 +175,7 @@ impl SortShape {
                 } else {
                     Vec::new()
                 },
-                kind: STRUCTURAL.to_owned(),
+                kind: STRUCTURAL,
                 constructors: None,
             });
         }
@@ -286,7 +286,7 @@ pub fn raw_sort_lists() -> Vec<Vec<Sort>> {
         params: param
             .map(|(p, s)| vec![(p.to_owned(), SortExpr::Name(s.to_owned()))])
             .unwrap_or_default(),
-        kind: STRUCTURAL.to_owned(),
+        kind: STRUCTURAL,
         constructors: None,
     };
     vec![
@@ -366,7 +366,7 @@ fn duplicate_symbol_theories() -> Vec<Theory> {
     let a = || Sort {
         name: "A".to_owned(),
         params: Vec::new(),
-        kind: STRUCTURAL.to_owned(),
+        kind: STRUCTURAL,
         constructors: None,
     };
     let constant = || Op {
@@ -390,16 +390,16 @@ fn duplicate_symbol_theories() -> Vec<Theory> {
         name: "d".to_owned(),
         lhs: c(),
         rhs: c(),
-        implementation: "x".to_owned(),
+        implementation: Expression::Var("x".to_owned()),
         inverse: None,
         source_kind: None,
         target_kind: None,
-        coercion_class: "Iso".to_owned(),
+        coercion_class: CoercionClass::Iso,
     };
     let policy = || Policy {
         name: "q".to_owned(),
-        value_kind: "Str".to_owned(),
-        strategy: "KeepLeft".to_owned(),
+        value_kind: ValueKind::Str,
+        strategy: ConflictStrategy::KeepLeft,
     };
     vec![
         Theory {
@@ -635,7 +635,7 @@ pub fn recipes(left: &Theory, right: &Theory) -> Vec<CompositionSpec> {
         sorts: vec![Sort {
             name: "A".to_owned(),
             params: Vec::new(),
-            kind: STRUCTURAL.to_owned(),
+            kind: STRUCTURAL,
             constructors: None,
         }],
         ..Theory::default()
@@ -699,7 +699,7 @@ fn declare(name: &str, params: Vec<(&str, SortExpr)>, constructors: Option<&[&st
     Sort {
         name: name.to_owned(),
         params: params.into_iter().map(|(p, s)| (p.to_owned(), s)).collect(),
-        kind: STRUCTURAL.to_owned(),
+        kind: STRUCTURAL,
         constructors: constructors.map(|cs| cs.iter().map(|c| (*c).to_owned()).collect()),
     }
 }
@@ -1500,7 +1500,7 @@ fn render_class_sort_declaration(
                 )
             })
             .collect(),
-        kind: if value_kind { VALUE } else { STRUCTURAL }.to_owned(),
+        kind: if value_kind { VALUE } else { STRUCTURAL },
         constructors: closed.then(|| vec!["a".to_owned()]),
     }
 }
@@ -1557,7 +1557,7 @@ fn scoped_binder_sorts() -> Vec<Sort> {
     let declaration = |params| Sort {
         name: "W".to_owned(),
         params,
-        kind: STRUCTURAL.to_owned(),
+        kind: STRUCTURAL,
         constructors: None,
     };
     let param = |name: &str, sort| (name.to_owned(), sort);
@@ -1598,7 +1598,7 @@ pub fn class_sort_capture_witnesses() -> [[Sort; 3]; 4] {
     let declaration = |params| Sort {
         name: "W".to_owned(),
         params,
-        kind: STRUCTURAL.to_owned(),
+        kind: STRUCTURAL,
         constructors: None,
     };
     let dependent_declaration = |term| {
@@ -1827,10 +1827,10 @@ fn sort_mismatch_span(left: Sort, right: Sort) -> TheoryDiagram {
 /// each sort-class refusal detail: arity, parameter sort, kind and closure.
 #[must_use]
 pub fn sort_mismatch_spans() -> Vec<TheoryDiagram> {
-    let open = |params, kind: &str| Sort {
+    let open = |params, kind: SortKind| Sort {
         name: "W".to_owned(),
         params,
-        kind: kind.to_owned(),
+        kind,
         constructors: None,
     };
     vec![
@@ -1851,7 +1851,7 @@ pub fn sort_mismatch_spans() -> Vec<TheoryDiagram> {
             Sort {
                 name: "W".to_owned(),
                 params: Vec::new(),
-                kind: STRUCTURAL.to_owned(),
+                kind: STRUCTURAL,
                 constructors: Some(vec!["k".to_owned()]),
             },
         ),

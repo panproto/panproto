@@ -48,6 +48,7 @@ mod put;
 mod rekey;
 mod source;
 mod standoff;
+mod uri;
 mod verify;
 
 use std::collections::BTreeMap;
@@ -61,10 +62,15 @@ use panproto_inst::{IdentityEnvelope, InstanceShapeKind};
 use panproto_schema::{Protocol, RefSource, Reference, Schema};
 
 pub use self::error::{
-    AssemblyDomainReason, OffsetUnitReason, ResolutionFeature, ResolutionInstanceError,
-    ResolveDomainError, ResolveError,
+    AssemblyDomainReason, KeyEqualityReason, OffsetUnitReason, ResolutionFeature,
+    ResolutionInstanceError, ResolveDomainError, ResolveError,
 };
 pub use self::laws::{ResolutionLawReport, ResolutionLawViolation, check_resolution_laws};
+pub use self::occur::text_identity as resolution_text_identity;
+pub use self::standoff::{
+    form_to_offsets as decode_standoff_form, offsets_to_form as encode_standoff_form,
+};
+pub use self::uri::{fold_uri_environment, resolve_inherited_uri_base, resolve_uri_reference};
 pub use panproto_inst::resolution_complement::{
     AnyInstance, AssemblyPlanId, AssemblyResidue, AssemblyTrace, DefinitionKey, RedirectedArc,
     RedirectedAttachment, RedirectedFragment, RefOccurrence, ResolutionComplement,
@@ -309,9 +315,10 @@ pub trait ResolutionProvider: Send + Sync {
 fn unsupported_path(provider: ResolutionProviderId, reference: &Reference) -> ResolveError {
     let syntax = match &reference.source {
         RefSource::Path { syntax, .. } => syntax.clone(),
-        RefSource::KeyValue { .. } | RefSource::Standoff { .. } | RefSource::Variable { .. } => {
-            panproto_schema::PathSyntax::IdRef
-        }
+        RefSource::KeyValue { .. }
+        | RefSource::Standoff { .. }
+        | RefSource::Variable { .. }
+        | RefSource::Inline { .. } => panproto_schema::PathSyntax::IdRef,
     };
     ResolveError::UnsupportedFeature {
         provider: Some(provider),

@@ -71,8 +71,9 @@ use std::str::FromStr;
 use panproto_expr::{Expr, Literal, Pattern};
 use panproto_gat::{CoercionClass, Name};
 use panproto_schema::{
-    CanonicalWriter, Cardinality, Edge, InstanceShapeKind, OffsetUnit, OnUnresolved, PathSyntax,
-    RefSource, RefTextSource, Reference, ResolveMode, Schema,
+    CanonicalWriter, Cardinality, Edge, InstanceShapeKind, NullMatch, OffsetUnit, OnUnresolved,
+    PathSyntax, RefSource, RefTextSource, Reference, ResolveMode, Schema, SpanEnd, UriBase,
+    UriJoin, VariableBinding,
 };
 use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -410,8 +411,8 @@ impl<'de> Deserialize<'de> for Digest {
 /// the method of the same name on [`CanonicalWriter`] writes: integers
 /// little-endian, floats as their IEEE-754 bit pattern, every
 /// variable-length run behind a `u64` length, every sum behind a one-byte
-/// discriminant. [`value`](Self::value) adds the encoding of an instance
-/// [`Value`], which `panproto-schema` cannot see.
+/// discriminant. [`value`](Self::value) delegates to the shared value
+/// carrier's canonical encoder.
 ///
 /// [`CanonicalWriter`] collects the bytes and [`DigestHasher`] hashes them
 /// as they arrive, so one record encoder serves both a byte string and a
@@ -560,75 +561,7 @@ pub trait CanonicalSink {
     /// key order. This is the only encoding of a value in canonical
     /// instance bytes.
     fn value(&mut self, value: &Value) {
-        match value {
-            Value::Bool(b) => {
-                self.tag(0);
-                self.bool(*b);
-            }
-            Value::Int(i) => {
-                self.tag(1);
-                self.i64(*i);
-            }
-            Value::Float(f) => {
-                self.tag(2);
-                self.f64(*f);
-            }
-            Value::Str(s) => {
-                self.tag(3);
-                self.str(s);
-            }
-            Value::Bytes(b) => {
-                self.tag(4);
-                self.bytes(b);
-            }
-            Value::CidLink(s) => {
-                self.tag(5);
-                self.str(s);
-            }
-            Value::Blob { ref_, mime, size } => {
-                self.tag(6);
-                self.str(ref_);
-                self.str(mime);
-                self.u64(*size);
-            }
-            Value::Token(s) => {
-                self.tag(7);
-                self.str(s);
-            }
-            Value::Null => self.tag(8),
-            Value::Opaque { type_, fields } => {
-                self.tag(9);
-                self.str(type_);
-                sink_value_map(self, fields);
-            }
-            Value::Unknown(fields) => {
-                self.tag(10);
-                sink_value_map(self, fields);
-            }
-            Value::List(items) => {
-                self.tag(11);
-                self.len(items.len());
-                for item in items {
-                    self.value(item);
-                }
-            }
-            Value::LabeledNull(id) => {
-                self.tag(12);
-                self.u64(*id);
-            }
-            Value::Decimal(d) => {
-                self.tag(13);
-                self.write(&d.canonical_bytes());
-            }
-            Value::BigInt(b) => {
-                self.tag(14);
-                self.write(&b.canonical_bytes());
-            }
-            Value::Temporal(t) => {
-                self.tag(15);
-                self.write(&t.canonical_bytes());
-            }
-        }
+        self.write(&value.canonical_bytes());
     }
 }
 
@@ -890,7 +823,63 @@ fn write_path_syntax<S: CanonicalSink + ?Sized>(sink: &mut S, syntax: &PathSynta
         PathSyntax::XPath => sink.tag(1),
         PathSyntax::Uri { base } => {
             sink.tag(2);
-            match base {
+            write_uri_base(sink, base);
+        }
+        PathSyntax::IdRef => sink.tag(3),
+    }
+}
+
+fn write_uri_base<S: CanonicalSink + ?Sized>(sink: &mut S, base: &UriBase) {
+    match base {
+        UriBase::Absolute => sink.tag(0),
+        UriBase::Field(path) => {
+            sink.tag(1);
+            write_path(sink, path);
+        }
+        UriBase::Positional { base, prefix } => {
+            sink.tag(2);
+            sink.opt_name(base.as_ref());
+            sink.opt_name(prefix.as_ref());
+        }
+        UriBase::Ancestor {
+            ancestor,
+            field,
+            join,
+        } => {
+            sink.tag(3);
+            sink.name(ancestor);
+            write_path(sink, field);
+            sink.tag(match join {
+                UriJoin::Rfc3986 => 0,
+                UriJoin::FhirServiceBase => 1,
+            });
+        }
+        UriBase::Inherited { field } => {
+            sink.tag(4);
+            write_path(sink, field);
+        }
+    }
+}
+
+fn write_ref_text_source<S: CanonicalSink + ?Sized>(sink: &mut S, source: &RefTextSource) {
+    match source {
+        RefTextSource::Local(path) => {
+            sink.tag(0);
+            write_path(sink, path);
+        }
+        RefTextSource::External(path) => {
+            sink.tag(1);
+            write_path(sink, path);
+        }
+        RefTextSource::Referenced {
+            reference,
+            text,
+            external,
+        } => {
+            sink.tag(2);
+            sink.name(reference);
+            write_path(sink, text);
+            match external {
                 None => sink.tag(0),
                 Some(path) => {
                     sink.tag(1);
@@ -898,7 +887,15 @@ fn write_path_syntax<S: CanonicalSink + ?Sized>(sink: &mut S, syntax: &PathSynta
                 }
             }
         }
-        PathSyntax::IdRef => sink.tag(3),
+        RefTextSource::Span { reference } => {
+            sink.tag(3);
+            sink.name(reference);
+        }
+        RefTextSource::ExternalUri { field, base } => {
+            sink.tag(4);
+            write_path(sink, field);
+            write_uri_base(sink, base);
+        }
     }
 }
 
@@ -924,18 +921,12 @@ fn write_reference<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Referenc
             end,
             unit,
             end_inclusive,
+            end_form,
+            origin,
+            fragments,
         } => {
             sink.tag(2);
-            match text {
-                RefTextSource::Local(path) => {
-                    sink.tag(0);
-                    write_path(sink, path);
-                }
-                RefTextSource::External(path) => {
-                    sink.tag(1);
-                    write_path(sink, path);
-                }
-            }
+            write_ref_text_source(sink, text);
             write_path(sink, start);
             write_path(sink, end);
             sink.tag(match unit {
@@ -945,11 +936,41 @@ fn write_reference<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Referenc
                 OffsetUnit::Token => 3,
             });
             sink.bool(*end_inclusive);
+            if *end_form != SpanEnd::Offset || *origin != 0 || fragments.is_some() {
+                sink.tag(0xff);
+                sink.tag(match end_form {
+                    SpanEnd::Offset => 0,
+                    SpanEnd::Length => 1,
+                });
+                sink.u64(*origin);
+                match fragments {
+                    None => sink.tag(0),
+                    Some(edge) => {
+                        sink.tag(1);
+                        sink.edge(edge);
+                    }
+                }
+            }
         }
-        RefSource::Variable { field, binder_key } => {
+        RefSource::Variable {
+            field,
+            binder_key,
+            binding,
+        } => {
             sink.tag(3);
             write_path(sink, field);
             sink.name(binder_key);
+            if *binding != VariableBinding::FirstDefines {
+                sink.tag(0xff);
+                sink.tag(match binding {
+                    VariableBinding::FirstDefines => 0,
+                    VariableBinding::NearestPreceding => 1,
+                });
+            }
+        }
+        RefSource::Inline { field } => {
+            sink.tag(4);
+            write_path(sink, field);
         }
     }
     sink.name(&reference.target_vertex);
@@ -974,6 +995,43 @@ fn write_reference<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Referenc
         ResolveMode::AddEdge => 0,
         ResolveMode::Redirect => 1,
     });
+    write_reference_extensions(sink, reference);
+}
+
+fn write_reference_extensions<S: CanonicalSink + ?Sized>(sink: &mut S, reference: &Reference) {
+    let extended = reference.guard.is_some()
+        || reference.null_match != NullMatch::Simple
+        || reference.null_vertex.is_some()
+        || reference.scope_via.is_some();
+    if !extended {
+        return;
+    }
+
+    sink.tag(0xff);
+    match &reference.guard {
+        None => sink.tag(0),
+        Some(guard) => {
+            sink.tag(1);
+            write_path(sink, &guard.field);
+            sink.value(&guard.equals);
+        }
+    }
+    sink.tag(match reference.null_match {
+        NullMatch::Simple => 0,
+        NullMatch::Full => 1,
+    });
+    sink.opt_name(reference.null_vertex.as_ref());
+    match &reference.scope_via {
+        None => sink.tag(0),
+        Some(via) => {
+            sink.tag(1);
+            sink.name(&via.ancestor);
+            sink.len(via.hops.len());
+            for hop in &via.hops {
+                sink.name(hop);
+            }
+        }
+    }
 }
 
 /// [`lens_digest`] from schema digests already in hand.

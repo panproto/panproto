@@ -31,21 +31,87 @@ mod convert {
 
     use super::{Arc, BTreeMap, HashMap, r};
     use panproto_gat as p;
+    use panproto_reference::{exact as rx, num::Nat, temporal as rt, value as rv};
 
-    /// The reference name of a production sort kind.
-    pub fn kind_name(kind: &p::SortKind) -> String {
+    const fn value_kind(kind: r::ValueKind) -> p::ValueKind {
         match kind {
-            p::SortKind::Structural => super::scope::STRUCTURAL.to_owned(),
-            p::SortKind::Val(p::ValueKind::Str) => super::scope::VALUE.to_owned(),
-            other => format!("{other:?}"),
+            r::ValueKind::Bool => p::ValueKind::Bool,
+            r::ValueKind::Int => p::ValueKind::Int,
+            r::ValueKind::Float => p::ValueKind::Float,
+            r::ValueKind::Str => p::ValueKind::Str,
+            r::ValueKind::Bytes => p::ValueKind::Bytes,
+            r::ValueKind::Token => p::ValueKind::Token,
+            r::ValueKind::Null => p::ValueKind::Null,
+            r::ValueKind::Any => p::ValueKind::Any,
+            r::ValueKind::DateTime => p::ValueKind::DateTime,
+            r::ValueKind::Date => p::ValueKind::Date,
+            r::ValueKind::Time => p::ValueKind::Time,
+            r::ValueKind::Decimal => p::ValueKind::Decimal,
+            r::ValueKind::Uuid => p::ValueKind::Uuid,
         }
     }
 
-    fn kind(name: &str) -> p::SortKind {
-        if name == super::scope::VALUE {
-            p::SortKind::Val(p::ValueKind::Str)
-        } else {
-            p::SortKind::Structural
+    const fn back_value_kind(kind: p::ValueKind) -> r::ValueKind {
+        match kind {
+            p::ValueKind::Bool => r::ValueKind::Bool,
+            p::ValueKind::Int => r::ValueKind::Int,
+            p::ValueKind::Float => r::ValueKind::Float,
+            p::ValueKind::Str => r::ValueKind::Str,
+            p::ValueKind::Bytes => r::ValueKind::Bytes,
+            p::ValueKind::Token => r::ValueKind::Token,
+            p::ValueKind::Null => r::ValueKind::Null,
+            p::ValueKind::Any => r::ValueKind::Any,
+            p::ValueKind::DateTime => r::ValueKind::DateTime,
+            p::ValueKind::Date => r::ValueKind::Date,
+            p::ValueKind::Time => r::ValueKind::Time,
+            p::ValueKind::Decimal => r::ValueKind::Decimal,
+            p::ValueKind::Uuid => r::ValueKind::Uuid,
+        }
+    }
+
+    const fn coercion_class(class: r::CoercionClass) -> p::CoercionClass {
+        match class {
+            r::CoercionClass::Iso => p::CoercionClass::Iso,
+            r::CoercionClass::Retraction => p::CoercionClass::Retraction,
+            r::CoercionClass::Projection => p::CoercionClass::Projection,
+            r::CoercionClass::Opaque => p::CoercionClass::Opaque,
+        }
+    }
+
+    fn back_coercion_class(class: p::CoercionClass) -> r::CoercionClass {
+        match class {
+            p::CoercionClass::Iso => r::CoercionClass::Iso,
+            p::CoercionClass::Retraction => r::CoercionClass::Retraction,
+            p::CoercionClass::Projection => r::CoercionClass::Projection,
+            p::CoercionClass::Opaque => r::CoercionClass::Opaque,
+            _ => panic!("unknown production coercion class: {class:?}"),
+        }
+    }
+
+    fn kind(kind: r::SortKind) -> p::SortKind {
+        match kind {
+            r::SortKind::Structural => p::SortKind::Structural,
+            r::SortKind::Val(value) => p::SortKind::Val(value_kind(value)),
+            r::SortKind::Coercion { from, to, class } => p::SortKind::Coercion {
+                from: value_kind(from),
+                to: value_kind(to),
+                class: coercion_class(class),
+            },
+            r::SortKind::Merger(value) => p::SortKind::Merger(value_kind(value)),
+        }
+    }
+
+    /// The independent reference image of a production sort kind.
+    pub fn back_kind(kind: &p::SortKind) -> r::SortKind {
+        match kind {
+            p::SortKind::Structural => r::SortKind::Structural,
+            p::SortKind::Val(value) => r::SortKind::Val(back_value_kind(*value)),
+            p::SortKind::Coercion { from, to, class } => r::SortKind::Coercion {
+                from: back_value_kind(*from),
+                to: back_value_kind(*to),
+                class: back_coercion_class(*class),
+            },
+            p::SortKind::Merger(value) => r::SortKind::Merger(back_value_kind(*value)),
         }
     }
 
@@ -139,49 +205,377 @@ mod convert {
         }
     }
 
-    fn expr(text: &str) -> panproto_expr::Expr {
-        panproto_expr::Expr::Var(Arc::from(text))
+    macro_rules! builtin_conversions {
+        ($( $production:ident => $reference:ident ),+ $(,)?) => {
+            const fn builtin(operation: rv::BuiltinOp) -> panproto_expr::BuiltinOp {
+                match operation {
+                    $(rv::BuiltinOp::$reference => panproto_expr::BuiltinOp::$production,)+
+                }
+            }
+
+            const fn back_builtin(operation: panproto_expr::BuiltinOp) -> rv::BuiltinOp {
+                match operation {
+                    $(panproto_expr::BuiltinOp::$production => rv::BuiltinOp::$reference,)+
+                }
+            }
+        };
     }
 
-    fn back_expr(e: &panproto_expr::Expr) -> String {
-        match e {
-            panproto_expr::Expr::Var(text) => text.to_string(),
-            other => format!("{other:?}"),
+    builtin_conversions! {
+        Add => Add,
+        Sub => Sub,
+        Mul => Mul,
+        Div => Div,
+        Mod => Mod,
+        Neg => Neg,
+        Abs => Abs,
+        Floor => Floor,
+        Ceil => Ceil,
+        Round => Round,
+        Eq => Eq,
+        Neq => Ne,
+        Lt => Lt,
+        Lte => Lte,
+        Gt => Gt,
+        Gte => Gte,
+        And => And,
+        Or => Or,
+        Not => Not,
+        Concat => Concat,
+        Len => Len,
+        Slice => Slice,
+        Upper => Upper,
+        Lower => Lower,
+        Trim => Trim,
+        Split => Split,
+        Join => Join,
+        Replace => Replace,
+        Contains => Contains,
+        Map => Map,
+        Filter => Filter,
+        Fold => Fold,
+        Append => Append,
+        Head => Head,
+        Tail => Tail,
+        Reverse => Reverse,
+        FlatMap => FlatMap,
+        Length => Length,
+        Range => Range,
+        MergeRecords => MergeRecords,
+        Keys => Keys,
+        Values => Values,
+        HasField => HasField,
+        DefaultVal => DefaultVal,
+        Clamp => Clamp,
+        TruncateStr => TruncateStr,
+        IntToFloat => IntToFloat,
+        FloatToInt => FloatToInt,
+        IntToStr => IntToStr,
+        FloatToStr => FloatToStr,
+        StrToInt => StrToInt,
+        StrToFloat => StrToFloat,
+        TypeOf => TypeOf,
+        IsNull => IsNull,
+        IsList => IsList,
+        Edge => Edge,
+        Children => Children,
+        HasEdge => HasEdge,
+        EdgeCount => EdgeCount,
+        Anchor => Anchor,
+        Edges => Edges,
+        ToString => ToString,
+        ParseDecimal => ParseDecimal,
+        DecimalToFloat => DecimalToFloat,
+    }
+
+    fn decimal(value: &rx::Decimal) -> panproto_expr::exact::DecimalValue {
+        use panproto_expr::exact::{DecimalClass, DecimalValue, WideInt};
+        match value {
+            rx::Decimal::Finite(value) => DecimalValue {
+                negative: value.negative,
+                digits: value.digits.to_string(),
+                exponent: WideInt::parse_canonical(&value.exponent.to_string())
+                    .expect("reference decimal exponent is canonical"),
+                class: DecimalClass::Finite,
+            },
+            rx::Decimal::Infinite { negative } => DecimalValue {
+                negative: *negative,
+                digits: "0".to_owned(),
+                exponent: WideInt::zero(),
+                class: DecimalClass::Infinite,
+            },
+            rx::Decimal::NaN {
+                negative,
+                signalling,
+                payload,
+            } => DecimalValue {
+                negative: *negative,
+                digits: "0".to_owned(),
+                exponent: WideInt::zero(),
+                class: DecimalClass::NaN {
+                    signalling: *signalling,
+                    payload: payload.to_string(),
+                },
+            },
         }
     }
 
-    fn value_kind(name: &str) -> p::ValueKind {
-        p::ValueKind::all()
-            .iter()
-            .copied()
-            .find(|k| format!("{k:?}") == name)
-            .unwrap_or(p::ValueKind::Any)
+    fn back_decimal(value: &panproto_expr::exact::DecimalValue) -> rx::Decimal {
+        rx::parse_decimal(&value.to_string()).expect("production decimal display is canonical")
     }
 
-    fn coercion_class(name: &str) -> p::CoercionClass {
-        match name {
-            "Retraction" => p::CoercionClass::Retraction,
-            "Projection" => p::CoercionClass::Projection,
-            "Opaque" => p::CoercionClass::Opaque,
-            _ => p::CoercionClass::Iso,
+    fn big_int(value: &rx::BigIntValue) -> panproto_expr::exact::BigIntValue {
+        panproto_expr::exact::BigIntValue {
+            negative: value.negative,
+            significand: value.significand.to_string(),
+            zeros: panproto_expr::exact::WideInt::parse_canonical(&value.zeros.to_string())
+                .expect("reference trailing-zero count is canonical"),
         }
     }
 
-    fn strategy(text: &str) -> p::ConflictStrategy {
-        match text {
-            "KeepLeft" => p::ConflictStrategy::KeepLeft,
-            "KeepRight" => p::ConflictStrategy::KeepRight,
-            "Fail" => p::ConflictStrategy::Fail,
-            other => p::ConflictStrategy::Custom(expr(other)),
+    fn back_big_int(value: &panproto_expr::exact::BigIntValue) -> rx::BigIntValue {
+        rx::BigIntValue {
+            negative: value.negative,
+            significand: Nat::parse(&value.significand)
+                .expect("production bigint significand is canonical"),
+            zeros: Nat::parse(value.zeros.magnitude())
+                .expect("production bigint zero count is canonical"),
         }
     }
 
-    fn back_strategy(s: &p::ConflictStrategy) -> String {
-        match s {
-            p::ConflictStrategy::KeepLeft => "KeepLeft".to_owned(),
-            p::ConflictStrategy::KeepRight => "KeepRight".to_owned(),
-            p::ConflictStrategy::Fail => "Fail".to_owned(),
-            p::ConflictStrategy::Custom(e) => back_expr(e),
+    fn temporal(value: &r::TemporalLiteral) -> panproto_expr::exact::Temporal {
+        panproto_expr::exact::Temporal::parse(&value.value().to_string())
+            .expect("reference temporal display is accepted by production")
+    }
+
+    fn back_temporal(value: &panproto_expr::exact::Temporal) -> r::TemporalLiteral {
+        let reference = rt::parse_any(&value.to_string())
+            .expect("production temporal display is accepted by the reference");
+        r::TemporalLiteral::new(reference).expect("parsed reference temporal is well formed")
+    }
+
+    fn literal(value: &r::Literal) -> panproto_expr::Literal {
+        match value {
+            r::Literal::Bool(value) => panproto_expr::Literal::Bool(*value),
+            r::Literal::Int(value) => panproto_expr::Literal::Int(*value),
+            r::Literal::Float(bits) => panproto_expr::Literal::Float(f64::from_bits(*bits)),
+            r::Literal::Str(value) => panproto_expr::Literal::Str(value.clone()),
+            r::Literal::Bytes(value) => panproto_expr::Literal::Bytes(value.clone()),
+            r::Literal::Null => panproto_expr::Literal::Null,
+            r::Literal::Record(fields) => panproto_expr::Literal::Record(
+                fields
+                    .iter()
+                    .map(|(name, value)| (Arc::from(name.as_str()), literal(value)))
+                    .collect(),
+            ),
+            r::Literal::List(items) => {
+                panproto_expr::Literal::List(items.iter().map(literal).collect())
+            }
+            r::Literal::Closure { param, body, env } => {
+                let env = env
+                    .iter()
+                    .fold(panproto_expr::Env::new(), |scope, (name, value)| {
+                        scope.extend(Arc::from(name.as_str()), literal(value))
+                    });
+                panproto_expr::Literal::Closure {
+                    param: Arc::from(param.as_str()),
+                    body: Box::new(expression(body)),
+                    env,
+                }
+            }
+            r::Literal::Decimal(value) => panproto_expr::Literal::Decimal(decimal(value)),
+            r::Literal::BigInt(value) => panproto_expr::Literal::BigInt(big_int(value)),
+            r::Literal::Temporal(value) => panproto_expr::Literal::Temporal(temporal(value)),
+        }
+    }
+
+    fn back_literal(value: &panproto_expr::Literal) -> r::Literal {
+        match value {
+            panproto_expr::Literal::Bool(value) => r::Literal::Bool(*value),
+            panproto_expr::Literal::Int(value) => r::Literal::Int(*value),
+            panproto_expr::Literal::Float(value) => r::Literal::Float(value.to_bits()),
+            panproto_expr::Literal::Str(value) => r::Literal::Str(value.clone()),
+            panproto_expr::Literal::Bytes(value) => r::Literal::Bytes(value.clone()),
+            panproto_expr::Literal::Null => r::Literal::Null,
+            panproto_expr::Literal::Record(fields) => r::Literal::Record(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), back_literal(value)))
+                    .collect(),
+            ),
+            panproto_expr::Literal::List(items) => {
+                r::Literal::List(items.iter().map(back_literal).collect())
+            }
+            panproto_expr::Literal::Closure { param, body, env } => r::Literal::Closure {
+                param: param.to_string(),
+                body: Box::new(back_expression(body)),
+                env: env
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), back_literal(value)))
+                    .collect(),
+            },
+            panproto_expr::Literal::Decimal(value) => r::Literal::Decimal(back_decimal(value)),
+            panproto_expr::Literal::BigInt(value) => r::Literal::BigInt(back_big_int(value)),
+            panproto_expr::Literal::Temporal(value) => r::Literal::Temporal(back_temporal(value)),
+        }
+    }
+
+    fn pattern(pattern: &r::Pattern) -> panproto_expr::Pattern {
+        match pattern {
+            r::Pattern::Wildcard => panproto_expr::Pattern::Wildcard,
+            r::Pattern::Var(name) => panproto_expr::Pattern::Var(Arc::from(name.as_str())),
+            r::Pattern::Lit(value) => panproto_expr::Pattern::Lit(literal(value)),
+            r::Pattern::Record(fields) => panproto_expr::Pattern::Record(
+                fields
+                    .iter()
+                    .map(|(name, pattern)| (Arc::from(name.as_str()), self::pattern(pattern)))
+                    .collect(),
+            ),
+            r::Pattern::List(items) => {
+                panproto_expr::Pattern::List(items.iter().map(self::pattern).collect())
+            }
+            r::Pattern::Constructor(name, items) => panproto_expr::Pattern::Constructor(
+                Arc::from(name.as_str()),
+                items.iter().map(self::pattern).collect(),
+            ),
+        }
+    }
+
+    fn back_pattern(pattern: &panproto_expr::Pattern) -> r::Pattern {
+        match pattern {
+            panproto_expr::Pattern::Wildcard => r::Pattern::Wildcard,
+            panproto_expr::Pattern::Var(name) => r::Pattern::Var(name.to_string()),
+            panproto_expr::Pattern::Lit(value) => r::Pattern::Lit(back_literal(value)),
+            panproto_expr::Pattern::Record(fields) => r::Pattern::Record(
+                fields
+                    .iter()
+                    .map(|(name, pattern)| (name.to_string(), self::back_pattern(pattern)))
+                    .collect(),
+            ),
+            panproto_expr::Pattern::List(items) => {
+                r::Pattern::List(items.iter().map(self::back_pattern).collect())
+            }
+            panproto_expr::Pattern::Constructor(name, items) => r::Pattern::Constructor(
+                name.to_string(),
+                items.iter().map(self::back_pattern).collect(),
+            ),
+        }
+    }
+
+    fn expression(expression: &r::Expression) -> panproto_expr::Expr {
+        match expression {
+            r::Expression::Var(name) => panproto_expr::Expr::Var(Arc::from(name.as_str())),
+            r::Expression::Lam(name, body) => {
+                panproto_expr::Expr::Lam(Arc::from(name.as_str()), Box::new(self::expression(body)))
+            }
+            r::Expression::App(function, argument) => panproto_expr::Expr::App(
+                Box::new(self::expression(function)),
+                Box::new(self::expression(argument)),
+            ),
+            r::Expression::Lit(value) => panproto_expr::Expr::Lit(literal(value)),
+            r::Expression::Record(fields) => panproto_expr::Expr::Record(
+                fields
+                    .iter()
+                    .map(|(name, value)| (Arc::from(name.as_str()), self::expression(value)))
+                    .collect(),
+            ),
+            r::Expression::List(items) => {
+                panproto_expr::Expr::List(items.iter().map(self::expression).collect())
+            }
+            r::Expression::Field(base, field) => panproto_expr::Expr::Field(
+                Box::new(self::expression(base)),
+                Arc::from(field.as_str()),
+            ),
+            r::Expression::Index(base, index) => panproto_expr::Expr::Index(
+                Box::new(self::expression(base)),
+                Box::new(self::expression(index)),
+            ),
+            r::Expression::Match { scrutinee, arms } => panproto_expr::Expr::Match {
+                scrutinee: Box::new(self::expression(scrutinee)),
+                arms: arms
+                    .iter()
+                    .map(|(pattern, body)| (self::pattern(pattern), self::expression(body)))
+                    .collect(),
+            },
+            r::Expression::Let { name, value, body } => panproto_expr::Expr::Let {
+                name: Arc::from(name.as_str()),
+                value: Box::new(self::expression(value)),
+                body: Box::new(self::expression(body)),
+            },
+            r::Expression::Builtin(operation, arguments) => panproto_expr::Expr::Builtin(
+                builtin(*operation),
+                arguments.iter().map(self::expression).collect(),
+            ),
+        }
+    }
+
+    fn back_expression(expression: &panproto_expr::Expr) -> r::Expression {
+        match expression {
+            panproto_expr::Expr::Var(name) => r::Expression::Var(name.to_string()),
+            panproto_expr::Expr::Lam(name, body) => {
+                r::Expression::Lam(name.to_string(), Box::new(self::back_expression(body)))
+            }
+            panproto_expr::Expr::App(function, argument) => r::Expression::App(
+                Box::new(self::back_expression(function)),
+                Box::new(self::back_expression(argument)),
+            ),
+            panproto_expr::Expr::Lit(value) => r::Expression::Lit(back_literal(value)),
+            panproto_expr::Expr::Record(fields) => r::Expression::Record(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), self::back_expression(value)))
+                    .collect(),
+            ),
+            panproto_expr::Expr::List(items) => {
+                r::Expression::List(items.iter().map(self::back_expression).collect())
+            }
+            panproto_expr::Expr::Field(base, field) => {
+                r::Expression::Field(Box::new(self::back_expression(base)), field.to_string())
+            }
+            panproto_expr::Expr::Index(base, index) => r::Expression::Index(
+                Box::new(self::back_expression(base)),
+                Box::new(self::back_expression(index)),
+            ),
+            panproto_expr::Expr::Match { scrutinee, arms } => r::Expression::Match {
+                scrutinee: Box::new(self::back_expression(scrutinee)),
+                arms: arms
+                    .iter()
+                    .map(|(pattern, body)| {
+                        (self::back_pattern(pattern), self::back_expression(body))
+                    })
+                    .collect(),
+            },
+            panproto_expr::Expr::Let { name, value, body } => r::Expression::Let {
+                name: name.to_string(),
+                value: Box::new(self::back_expression(value)),
+                body: Box::new(self::back_expression(body)),
+            },
+            panproto_expr::Expr::Builtin(operation, arguments) => r::Expression::Builtin(
+                back_builtin(*operation),
+                arguments.iter().map(self::back_expression).collect(),
+            ),
+        }
+    }
+
+    fn convert_strategy(strategy: &r::ConflictStrategy) -> p::ConflictStrategy {
+        match strategy {
+            r::ConflictStrategy::KeepLeft => p::ConflictStrategy::KeepLeft,
+            r::ConflictStrategy::KeepRight => p::ConflictStrategy::KeepRight,
+            r::ConflictStrategy::Fail => p::ConflictStrategy::Fail,
+            r::ConflictStrategy::Custom(expression) => {
+                p::ConflictStrategy::Custom(self::expression(expression))
+            }
+        }
+    }
+
+    fn back_strategy(strategy: &p::ConflictStrategy) -> r::ConflictStrategy {
+        match strategy {
+            p::ConflictStrategy::KeepLeft => r::ConflictStrategy::KeepLeft,
+            p::ConflictStrategy::KeepRight => r::ConflictStrategy::KeepRight,
+            p::ConflictStrategy::Fail => r::ConflictStrategy::Fail,
+            p::ConflictStrategy::Custom(expression) => {
+                r::ConflictStrategy::Custom(back_expression(expression))
+            }
         }
     }
 
@@ -198,7 +592,7 @@ mod convert {
                         .iter()
                         .map(|(n, e)| p::SortParam::new(n.as_str(), sort_expr(e)))
                         .collect(),
-                    kind: kind(&s.kind),
+                    kind: kind(s.kind),
                     closure: s.constructors.as_ref().map_or(p::SortClosure::Open, |cs| {
                         p::SortClosure::Closed(cs.iter().map(|c| Arc::from(c.as_str())).collect())
                     }),
@@ -227,19 +621,19 @@ mod convert {
                     name: Arc::from(d.name.as_str()),
                     lhs: term(&d.lhs),
                     rhs: term(&d.rhs),
-                    impl_term: expr(&d.implementation),
-                    inverse: d.inverse.as_deref().map(expr),
-                    source_kind: d.source_kind.as_deref().map(value_kind),
-                    target_kind: d.target_kind.as_deref().map(value_kind),
-                    coercion_class: coercion_class(&d.coercion_class),
+                    impl_term: expression(&d.implementation),
+                    inverse: d.inverse.as_ref().map(expression),
+                    source_kind: d.source_kind.map(value_kind),
+                    target_kind: d.target_kind.map(value_kind),
+                    coercion_class: coercion_class(d.coercion_class),
                 })
                 .collect(),
             t.policies
                 .iter()
                 .map(|q| p::ConflictPolicy {
                     name: Arc::from(q.name.as_str()),
-                    value_kind: value_kind(&q.value_kind),
-                    strategy: strategy(&q.strategy),
+                    value_kind: value_kind(q.value_kind),
+                    strategy: convert_strategy(&q.strategy),
                 })
                 .collect(),
         )
@@ -259,7 +653,7 @@ mod convert {
                         .iter()
                         .map(|q| (q.name.to_string(), back_sort_expr(&q.sort)))
                         .collect(),
-                    kind: kind_name(&s.kind),
+                    kind: back_kind(&s.kind),
                     constructors: match &s.closure {
                         p::SortClosure::Open => None,
                         p::SortClosure::Closed(cs) => {
@@ -297,11 +691,11 @@ mod convert {
                     name: d.name.to_string(),
                     lhs: back_term(&d.lhs),
                     rhs: back_term(&d.rhs),
-                    implementation: back_expr(&d.impl_term),
-                    inverse: d.inverse.as_ref().map(back_expr),
-                    source_kind: d.source_kind.map(|k| format!("{k:?}")),
-                    target_kind: d.target_kind.map(|k| format!("{k:?}")),
-                    coercion_class: format!("{:?}", d.coercion_class),
+                    implementation: back_expression(&d.impl_term),
+                    inverse: d.inverse.as_ref().map(back_expression),
+                    source_kind: d.source_kind.map(back_value_kind),
+                    target_kind: d.target_kind.map(back_value_kind),
+                    coercion_class: back_coercion_class(d.coercion_class),
                 })
                 .collect(),
             policies: t
@@ -309,7 +703,7 @@ mod convert {
                 .iter()
                 .map(|q| r::Policy {
                     name: q.name.to_string(),
-                    value_kind: format!("{:?}", q.value_kind),
+                    value_kind: back_value_kind(q.value_kind),
                     strategy: back_strategy(&q.strategy),
                 })
                 .collect(),
@@ -709,8 +1103,8 @@ mod convert {
                 got,
             } => M::SortKindMismatch {
                 sort: sort.clone(),
-                expected: kind_name(expected),
-                got: kind_name(got),
+                expected: back_kind(expected),
+                got: back_kind(got),
             },
             p::GatError::SortParamMismatch {
                 sort,
@@ -2385,7 +2779,7 @@ mod outside_scope {
         r::Sort {
             name: name.to_owned(),
             params: params.into_iter().map(|(p, s)| (p.to_owned(), s)).collect(),
-            kind: "structural".to_owned(),
+            kind: r::SortKind::Structural,
             constructors: None,
         }
     }
@@ -2430,11 +2824,11 @@ mod outside_scope {
             name: name.to_owned(),
             lhs,
             rhs,
-            implementation: implementation.to_owned(),
+            implementation: r::Expression::Var(implementation.to_owned()),
             inverse: None,
             source_kind: None,
             target_kind: None,
-            coercion_class: "Iso".to_owned(),
+            coercion_class: r::CoercionClass::Iso,
         }
     }
 

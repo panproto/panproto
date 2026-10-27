@@ -11,8 +11,8 @@ use std::str::FromStr;
 
 use panproto_mig::Migration;
 use panproto_schema::{
-    Constraint, Edge, HyperEdge, Key, RecursionPoint, Reference, Schema, Span, UsageMode, Variant,
-    Vertex,
+    Constraint, Edge, HyperEdge, Key, RecursionPoint, Reference, Schema, Span, TargetSet,
+    UsageMode, Variant, Vertex,
 };
 use serde::{Deserialize, Serialize};
 
@@ -175,17 +175,44 @@ struct CanonicalSchema {
     mergers: BTreeMap<String, panproto_expr::Expr>,
     defaults: BTreeMap<String, panproto_expr::Expr>,
     policies: BTreeMap<String, panproto_expr::Expr>,
-    /// The keys and references the schema declares, present only when it
-    /// declares at least one. Omitting the element when both maps are empty
-    /// keeps the positional encoding, and so the object id, of every schema
-    /// that declares nothing exactly what it was before declarations
-    /// existed.
+    /// The keys, references, and optional target sets the schema declares.
+    /// Omitting the element when all declaration maps are empty keeps the
+    /// positional encoding, and so the object id, of every schema that
+    /// declares nothing exactly what it was before declarations existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     decls: Option<CanonicalDeclarations>,
 }
 
-/// The declarations of a schema: keys per vertex and references per id.
-type CanonicalDeclarations = (BTreeMap<String, Vec<Key>>, BTreeMap<String, Reference>);
+/// The pre-target-set declaration shape.
+type LegacyDeclarations = (BTreeMap<String, Vec<Key>>, BTreeMap<String, Reference>);
+
+/// The declaration shape used when a schema declares a target set.
+type ExtendedDeclarations = (
+    BTreeMap<String, Vec<Key>>,
+    BTreeMap<String, Reference>,
+    BTreeMap<String, TargetSet>,
+);
+
+/// Canonical declaration bytes with a backwards-compatible extension.
+///
+/// The variants are not serialized. Instead, each delegates directly to its
+/// tuple so schemas without target sets keep their exact pre-extension bytes.
+enum CanonicalDeclarations {
+    Legacy(LegacyDeclarations),
+    Extended(ExtendedDeclarations),
+}
+
+impl Serialize for CanonicalDeclarations {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Legacy(declarations) => declarations.serialize(serializer),
+            Self::Extended(declarations) => declarations.serialize(serializer),
+        }
+    }
+}
 
 /// The canonical declarations of a schema, or `None` when it declares
 /// nothing. Each key list is written in ascending key id order.
@@ -209,7 +236,21 @@ fn canonical_declarations(s: &Schema) -> Option<CanonicalDeclarations> {
         .iter()
         .map(|(id, reference)| (id.to_string(), reference.clone()))
         .collect();
-    Some((keys, references))
+    if s.declarations.target_sets.is_empty() {
+        Some(CanonicalDeclarations::Legacy((keys, references)))
+    } else {
+        let target_sets = s
+            .declarations
+            .target_sets
+            .iter()
+            .map(|(id, target_set)| (id.to_string(), target_set.clone()))
+            .collect();
+        Some(CanonicalDeclarations::Extended((
+            keys,
+            references,
+            target_sets,
+        )))
+    }
 }
 
 impl From<&Schema> for CanonicalSchema {
@@ -786,7 +827,12 @@ fn messagepack_enum_payload<'a>(bytes: &'a [u8], expected_variant: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use panproto_schema::Vertex;
+    use panproto_expr::Value;
+    use panproto_schema::{
+        Cardinality, KeyEquality, NullMatch, NumericPrimitive, OffsetUnit, OnUnresolved,
+        PathSyntax, RefGuard, RefSource, RefTextSource, ResolveMode, ScopeVia, SpanEnd,
+        SqlCollation, SqlPad, TargetSet, UriBase, UriJoin, VariableBinding, Vertex,
+    };
     use smallvec::SmallVec;
     use std::collections::HashMap;
 
@@ -870,7 +916,77 @@ mod tests {
             }])],
             role,
             scope: panproto_schema::KeyScope::Document,
+            equality: vec![],
         }
+    }
+
+    fn film_id_edge() -> Edge {
+        Edge {
+            src: "film".into(),
+            tgt: "film.id".into(),
+            kind: "column".into(),
+            name: Some("id".into()),
+        }
+    }
+
+    fn reference(id: &str, source: RefSource) -> Reference {
+        Reference {
+            id: id.into(),
+            holder: "film".into(),
+            source,
+            target_vertex: "film".into(),
+            target_key: Some("pk".into()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        }
+    }
+
+    fn standoff(text: RefTextSource) -> RefSource {
+        RefSource::Standoff {
+            text,
+            start: vec![film_id_edge()],
+            end: vec![film_id_edge()],
+            unit: OffsetUnit::Utf8Char,
+            end_inclusive: false,
+            end_form: SpanEnd::Offset,
+            origin: 0,
+            fragments: None,
+        }
+    }
+
+    fn path(base: UriBase) -> RefSource {
+        RefSource::Path {
+            field: vec![film_id_edge()],
+            syntax: PathSyntax::Uri { base },
+        }
+    }
+
+    fn with_key_equality(equality: KeyEquality) -> Schema {
+        let mut schema = keyed_fixture();
+        let mut key = film_key(panproto_schema::KeyRole::Primary);
+        key.equality = vec![equality];
+        schema.declarations.keys.insert("film".into(), vec![key]);
+        schema
+    }
+
+    fn with_reference(source: RefSource) -> Schema {
+        let mut schema = keyed_fixture();
+        schema.declarations.keys.insert(
+            "film".into(),
+            vec![film_key(panproto_schema::KeyRole::Primary)],
+        );
+        schema
+            .declarations
+            .references
+            .insert("ref".into(), reference("ref", source));
+        schema
     }
 
     /// The object id `hash_schema` gave `keyed_fixture` in 0.74, whose
@@ -911,6 +1027,324 @@ mod tests {
         assert_ne!(ids[0], ids[1], "a declared key changes the id");
         assert_ne!(ids[1], ids[2], "the key's role is part of the id");
         assert_ne!(ids[0], ids[2]);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_default_declarations_keep_their_pre_extension_bytes_and_id()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut schema = keyed_fixture();
+        schema.declarations.keys.insert(
+            "film".into(),
+            vec![film_key(panproto_schema::KeyRole::Primary)],
+        );
+        schema
+            .declarations
+            .references
+            .insert("path".into(), reference("path", path(UriBase::Absolute)));
+        schema.declarations.references.insert(
+            "standoff".into(),
+            reference("standoff", standoff(RefTextSource::Local(vec![]))),
+        );
+        schema.declarations.references.insert(
+            "variable".into(),
+            reference(
+                "variable",
+                RefSource::Variable {
+                    field: vec![film_id_edge()],
+                    binder_key: "pk".into(),
+                    binding: VariableBinding::FirstDefines,
+                },
+            ),
+        );
+
+        let declarations = canonical_declarations(&schema).ok_or("missing declarations")?;
+        let CanonicalDeclarations::Legacy((keys, references)) = declarations else {
+            return Err("legacy declarations used the extended carrier".into());
+        };
+        assert_eq!(
+            rmp_serde::to_vec(&CanonicalDeclarations::Legacy((
+                keys.clone(),
+                references.clone(),
+            )))?,
+            rmp_serde::to_vec(&(keys, references))?,
+            "the legacy branch must add no variant tag or tuple element"
+        );
+        assert_eq!(
+            hash_schema(&schema)?.to_string(),
+            "b5068a3174485e6b2989a8a554fdf1c238216a138b5f7310bb3ff4445eb38f66"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn every_new_declaration_form_changes_the_object_id() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut cases = vec![
+            (
+                "explicit-representation",
+                with_key_equality(KeyEquality::Representation),
+            ),
+            (
+                "numeric-value",
+                with_key_equality(KeyEquality::NumericValue),
+            ),
+            (
+                "numeric-within-decimal",
+                with_key_equality(KeyEquality::NumericValueWithinKind(
+                    NumericPrimitive::Decimal,
+                )),
+            ),
+            (
+                "numeric-within-float",
+                with_key_equality(KeyEquality::NumericValueWithinKind(
+                    NumericPrimitive::Float(64),
+                )),
+            ),
+            (
+                "numeric-within-any",
+                with_key_equality(KeyEquality::NumericValueWithinKind(NumericPrimitive::Any)),
+            ),
+            (
+                "sql-binary",
+                with_key_equality(KeyEquality::Sql {
+                    collation: SqlCollation::Binary,
+                    pad: SqlPad::NoPad,
+                }),
+            ),
+            (
+                "sql-ascii-fold",
+                with_key_equality(KeyEquality::Sql {
+                    collation: SqlCollation::AsciiCaseInsensitive,
+                    pad: SqlPad::NoPad,
+                }),
+            ),
+            (
+                "sql-named",
+                with_key_equality(KeyEquality::Sql {
+                    collation: SqlCollation::Named("locale".into()),
+                    pad: SqlPad::NoPad,
+                }),
+            ),
+            (
+                "sql-pad-space",
+                with_key_equality(KeyEquality::Sql {
+                    collation: SqlCollation::Binary,
+                    pad: SqlPad::PadSpace,
+                }),
+            ),
+            ("xml-noncdata", with_key_equality(KeyEquality::XmlNonCdata)),
+            (
+                "uri-field",
+                with_reference(path(UriBase::Field(vec![film_id_edge()]))),
+            ),
+            (
+                "uri-positional",
+                with_reference(path(UriBase::Positional {
+                    base: Some("base".into()),
+                    prefix: Some("prefix".into()),
+                })),
+            ),
+            (
+                "uri-ancestor-rfc3986",
+                with_reference(path(UriBase::Ancestor {
+                    ancestor: "document".into(),
+                    field: vec![film_id_edge()],
+                    join: UriJoin::Rfc3986,
+                })),
+            ),
+            (
+                "uri-ancestor-fhir",
+                with_reference(path(UriBase::Ancestor {
+                    ancestor: "document".into(),
+                    field: vec![film_id_edge()],
+                    join: UriJoin::FhirServiceBase,
+                })),
+            ),
+            (
+                "uri-inherited",
+                with_reference(path(UriBase::Inherited {
+                    field: vec![film_id_edge()],
+                })),
+            ),
+            (
+                "variable-nearest",
+                with_reference(RefSource::Variable {
+                    field: vec![film_id_edge()],
+                    binder_key: "pk".into(),
+                    binding: VariableBinding::NearestPreceding,
+                }),
+            ),
+            (
+                "standoff-external",
+                with_reference(standoff(RefTextSource::External(vec![film_id_edge()]))),
+            ),
+            (
+                "standoff-referenced",
+                with_reference(standoff(RefTextSource::Referenced {
+                    reference: "text-ref".into(),
+                    text: vec![film_id_edge()],
+                    external: None,
+                })),
+            ),
+            (
+                "standoff-referenced-external",
+                with_reference(standoff(RefTextSource::Referenced {
+                    reference: "text-ref".into(),
+                    text: vec![film_id_edge()],
+                    external: Some(vec![film_id_edge()]),
+                })),
+            ),
+            (
+                "standoff-span",
+                with_reference(standoff(RefTextSource::Span {
+                    reference: "outer".into(),
+                })),
+            ),
+            (
+                "standoff-external-uri",
+                with_reference(standoff(RefTextSource::ExternalUri {
+                    field: vec![film_id_edge()],
+                    base: UriBase::Field(vec![film_id_edge()]),
+                })),
+            ),
+        ];
+
+        let mut end_form_schema = with_reference(standoff(RefTextSource::Local(vec![])));
+        let RefSource::Standoff { end_form, .. } = &mut end_form_schema
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing standoff reference")?
+            .source
+        else {
+            return Err("expected a standoff reference".into());
+        };
+        *end_form = SpanEnd::Length;
+        cases.push(("standoff-length", end_form_schema));
+
+        let mut origin = with_reference(standoff(RefTextSource::Local(vec![])));
+        let RefSource::Standoff { origin: value, .. } = &mut origin
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing standoff reference")?
+            .source
+        else {
+            return Err("expected a standoff reference".into());
+        };
+        *value = 1;
+        cases.push(("standoff-origin", origin));
+
+        let mut fragments = with_reference(standoff(RefTextSource::Local(vec![])));
+        let RefSource::Standoff {
+            fragments: value, ..
+        } = &mut fragments
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing standoff reference")?
+            .source
+        else {
+            return Err("expected a standoff reference".into());
+        };
+        *value = Some(film_id_edge());
+        cases.push(("standoff-fragments", fragments));
+
+        let mut guard = with_reference(RefSource::KeyValue { parts: vec![] });
+        guard
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing guarded reference")?
+            .guard = Some(RefGuard {
+            field: vec![film_id_edge()],
+            equals: Value::Float(f64::from_bits(0x7ff8_0000_0000_0001)),
+        });
+        cases.push(("reference-guard", guard));
+
+        let mut null_match = with_reference(RefSource::KeyValue { parts: vec![] });
+        null_match
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing null-matched reference")?
+            .null_match = NullMatch::Full;
+        cases.push(("reference-null-match", null_match));
+
+        let mut null_vertex = with_reference(RefSource::KeyValue { parts: vec![] });
+        null_vertex
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing null-vertex reference")?
+            .null_vertex = Some("null".into());
+        cases.push(("reference-null-vertex", null_vertex));
+
+        let mut scope_via = with_reference(RefSource::KeyValue { parts: vec![] });
+        scope_via
+            .declarations
+            .references
+            .get_mut("ref")
+            .ok_or("missing scoped reference")?
+            .scope_via = Some(ScopeVia {
+            ancestor: "document".into(),
+            hops: vec!["parent".into()],
+        });
+        cases.push(("reference-scope-via", scope_via));
+
+        let mut target_set = keyed_fixture();
+        target_set.declarations.target_sets.insert(
+            "polymorphic".into(),
+            TargetSet {
+                members: vec![("film".into(), "pk".into())],
+                scope: panproto_schema::KeyScope::Document,
+            },
+        );
+        cases.push(("target-set", target_set));
+
+        let mut default_key = keyed_fixture();
+        default_key.declarations.keys.insert(
+            "film".into(),
+            vec![film_key(panproto_schema::KeyRole::Primary)],
+        );
+        let baselines = [
+            ("no-declaration", keyed_fixture()),
+            ("default-key", default_key),
+            ("absolute-uri", with_reference(path(UriBase::Absolute))),
+            (
+                "first-defines-variable",
+                with_reference(RefSource::Variable {
+                    field: vec![film_id_edge()],
+                    binder_key: "pk".into(),
+                    binding: VariableBinding::FirstDefines,
+                }),
+            ),
+            (
+                "default-standoff",
+                with_reference(standoff(RefTextSource::Local(vec![]))),
+            ),
+            (
+                "default-reference",
+                with_reference(RefSource::KeyValue { parts: vec![] }),
+            ),
+        ];
+        let mut seen = BTreeMap::new();
+        for (label, schema) in baselines {
+            let id = hash_schema(&schema)?;
+            assert!(
+                seen.insert(id, label).is_none(),
+                "{label} collided with another legacy-default form"
+            );
+        }
+        for (label, schema) in cases {
+            let id = hash_schema(&schema)?;
+            assert!(
+                seen.insert(id, label).is_none(),
+                "{label} collided with another declaration form"
+            );
+        }
         Ok(())
     }
 

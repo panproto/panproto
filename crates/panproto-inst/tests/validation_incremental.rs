@@ -258,6 +258,7 @@ fn mixed_table_plan() -> Arc<ValidationPlan> {
             ],
             role: KeyRole::Primary,
             scope: KeyScope::Within("doc".into()),
+            equality: vec![],
         },
     );
     let options = ValidationOptions {
@@ -313,6 +314,7 @@ fn nan_key_plan() -> Arc<ValidationPlan> {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Unique,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     Arc::new(ValidationPlan::compile(
@@ -1535,6 +1537,7 @@ fn distant_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
             parts: vec![KeyPart::Path(vec![id.clone()])],
             role: KeyRole::Identifier,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     schema.declarations.insert_reference(Reference {
@@ -1550,6 +1553,10 @@ fn distant_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     let plan = Arc::new(ValidationPlan::compile(
         &schema,
@@ -1663,6 +1670,7 @@ fn position_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
             }],
             role: KeyRole::Primary,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     schema.declarations.insert_reference(Reference {
@@ -1678,6 +1686,10 @@ fn position_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     let plan = Arc::new(ValidationPlan::compile(
         &schema,
@@ -1768,6 +1780,7 @@ fn changing_node_shape_reruns_references_to_the_changed_target() -> TestResult {
             parts: vec![KeyPart::Path(Vec::new())],
             role: KeyRole::Identifier,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     schema.declarations.insert_reference(Reference {
@@ -1783,6 +1796,10 @@ fn changing_node_shape_reruns_references_to_the_changed_target() -> TestResult {
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     let plan = Arc::new(ValidationPlan::compile(
         &schema,
@@ -1937,6 +1954,7 @@ fn key_required_value_locality_distinguishes_own_and_remote_parts() {
                 parts: vec![part],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
     }
@@ -2002,6 +2020,7 @@ fn changing_a_primary_key_leaf_reruns_the_required_holder() -> TestResult {
             parts: vec![KeyPart::Path(vec![key_edge.clone()])],
             role: KeyRole::Primary,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     let plan = Arc::new(ValidationPlan::compile(
@@ -5125,6 +5144,7 @@ fn bounded_schema() -> Case {
             parts: vec![KeyPart::Path(vec![e_name()])],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         },
     );
     Case {

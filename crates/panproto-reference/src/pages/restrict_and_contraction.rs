@@ -576,6 +576,286 @@ pub mod restrict {
         Ok(out)
     }
 
+    /// The contraction plan computed by bounded explicit walk enumeration.
+    ///
+    /// This is deliberately separate from [`contraction_plan`]'s two-sided
+    /// reachability algorithm. For a finite schema, every edge which lies on
+    /// an admissible walk lies on one of length at most `2 * |V| - 1`: take a
+    /// simple prefix to that edge and a simple suffix after it. Enumerating to
+    /// that bound therefore gives an independent oracle for the pair domain
+    /// and every region edge. Cycle detection is likewise performed by an
+    /// explicit closed-walk search rather than by source elimination.
+    ///
+    /// This operation assumes declaration-valid schemas. Unlike
+    /// [`contraction_plan`], it retains unresolved pair resolutions as data
+    /// and does not repeat the caller's coherence checks.
+    #[must_use]
+    pub fn contraction_plan_by_walks(
+        src: &Schema,
+        tgt: &Schema,
+        migration: &Migration,
+    ) -> BTreeMap<(Name, Name), PlannedPair> {
+        let endpoints: BTreeSet<Name> = src
+            .vertices
+            .keys()
+            .filter(|vertex| migration.survives(vertex))
+            .cloned()
+            .collect();
+        let interior: BTreeSet<Name> = src
+            .vertices
+            .keys()
+            .filter(|vertex| !migration.survives(vertex) || migration.conditional.contains(*vertex))
+            .cloned()
+            .collect();
+        let max_edges = src.vertices.len().saturating_mul(2).saturating_sub(1);
+        let mut out = BTreeMap::new();
+        for start in &endpoints {
+            for end in &endpoints {
+                let mut region = BTreeSet::new();
+                let mut path = Vec::new();
+                enumerate_admissible_walks(
+                    src,
+                    start,
+                    end,
+                    &interior,
+                    max_edges,
+                    &mut path,
+                    &mut region,
+                );
+                if region.is_empty() {
+                    continue;
+                }
+                let target = (
+                    migration.vertex_image(start).to_owned(),
+                    migration.vertex_image(end).to_owned(),
+                );
+                let bounded = !contains_interior_closed_walk(&region, &interior);
+                let resolution = resolve_pair(tgt, migration, &target.0, &target.1);
+                out.insert(
+                    (start.clone(), end.clone()),
+                    PlannedPair {
+                        target,
+                        region,
+                        bounded,
+                        resolution,
+                    },
+                );
+            }
+        }
+        out
+    }
+
+    fn enumerate_admissible_walks(
+        schema: &Schema,
+        current: &str,
+        end: &str,
+        interior: &BTreeSet<Name>,
+        max_edges: usize,
+        path: &mut Vec<SEdge>,
+        region: &mut BTreeSet<SEdge>,
+    ) {
+        if path.len() >= max_edges {
+            return;
+        }
+        for edge in schema.edges.iter().filter(|edge| edge.src == current) {
+            path.push(edge.clone());
+            if edge.tgt == end && path.len() >= 2 {
+                region.extend(path.iter().cloned());
+            }
+            if interior.contains(&edge.tgt) {
+                enumerate_admissible_walks(
+                    schema, &edge.tgt, end, interior, max_edges, path, region,
+                );
+            }
+            path.pop();
+        }
+    }
+
+    fn contains_interior_closed_walk(region: &BTreeSet<SEdge>, interior: &BTreeSet<Name>) -> bool {
+        interior.iter().any(|start| {
+            let mut path = BTreeSet::from([start.clone()]);
+            closed_walk_from(region, interior, start, start, &mut path)
+        })
+    }
+
+    fn closed_walk_from(
+        region: &BTreeSet<SEdge>,
+        interior: &BTreeSet<Name>,
+        start: &str,
+        current: &str,
+        path: &mut BTreeSet<Name>,
+    ) -> bool {
+        for edge in region
+            .iter()
+            .filter(|edge| edge.src == current && interior.contains(&edge.tgt))
+        {
+            if edge.tgt == start {
+                return true;
+            }
+            if path.insert(edge.tgt.clone()) {
+                if closed_walk_from(region, interior, start, &edge.tgt, path) {
+                    return true;
+                }
+                path.remove(&edge.tgt);
+            }
+        }
+        false
+    }
+
+    /// Surviving node pairs joined by a walk through at least one dropped
+    /// non-fan node, computed by explicit bounded walk enumeration.
+    ///
+    /// A simple witness is enough for reachability, so no walk needs more
+    /// edges than the graph has nodes. This is the independent finite oracle
+    /// for graph get's breadth-first realized-pair search.
+    #[must_use]
+    pub fn realized_pairs_by_walks(
+        graph: &Graph,
+        surviving: &BTreeSet<u32>,
+    ) -> BTreeSet<(u32, u32)> {
+        let mut oracle = RealizedWalkOracle {
+            graph,
+            surviving,
+            pairs: BTreeSet::new(),
+        };
+        for &start in surviving {
+            let mut path = BTreeSet::from([start]);
+            oracle.visit(start, start, false, &mut path);
+        }
+        oracle.pairs
+    }
+
+    struct RealizedWalkOracle<'a> {
+        graph: &'a Graph,
+        surviving: &'a BTreeSet<u32>,
+        pairs: BTreeSet<(u32, u32)>,
+    }
+
+    impl RealizedWalkOracle<'_> {
+        fn visit(
+            &mut self,
+            start: u32,
+            current: u32,
+            crossed_dropped: bool,
+            path: &mut BTreeSet<u32>,
+        ) {
+            let next: Vec<u32> = self
+                .graph
+                .edges
+                .values()
+                .filter(|edge| edge.src == current && !is_fan_kind(&edge.label.kind))
+                .map(|edge| edge.tgt)
+                .collect();
+            for target in next {
+                if self.surviving.contains(&target) {
+                    if crossed_dropped {
+                        self.pairs.insert((start, target));
+                    }
+                    continue;
+                }
+                if is_fan_node(self.graph, target) || !path.insert(target) {
+                    continue;
+                }
+                self.visit(start, target, true, path);
+                path.remove(&target);
+            }
+        }
+    }
+
+    /// Scalar child bindings of a reference tree in source arc order.
+    ///
+    /// Self loops do not bind children. A repeated column binds one list,
+    /// retaining duplicates and the order of the corresponding arcs.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-7`.
+    #[must_use]
+    pub fn scalar_child_bindings(
+        tree: &crate::model::Tree,
+        parent: u32,
+    ) -> BTreeMap<String, Value> {
+        let mut grouped: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        let mut multiplicity: BTreeMap<String, usize> = BTreeMap::new();
+        for (source, target, edge) in &tree.arcs {
+            if *source != parent || source == target {
+                continue;
+            }
+            let column = edge.column().to_owned();
+            *multiplicity.entry(column.clone()).or_default() += 1;
+            if let Some(Node {
+                value: Some(Presence::Present(value)),
+                ..
+            }) = tree.nodes.get(target)
+            {
+                grouped.entry(column).or_default().push(value.clone());
+            }
+        }
+        multiplicity
+            .into_iter()
+            .filter_map(|(column, count)| {
+                let mut values = grouped.remove(&column).unwrap_or_default();
+                if count >= 2 {
+                    Some((column, Value::List(values)))
+                } else {
+                    values.pop().map(|value| (column, value))
+                }
+            })
+            .collect()
+    }
+
+    /// The fate of one relational column derived from the schema edge image.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum ColumnFate {
+        /// The source column has no target attribute image.
+        Drop(String),
+        /// The target attribute uses a different column name.
+        Rename(String, String),
+    }
+
+    /// Derive column fates from a compiled schema plan.
+    ///
+    /// `source_columns` and `target_columns` are the relational
+    /// interpretation's attribute-edge-to-column maps. Columns kept under
+    /// their own name have no entry. The computation never inspects an
+    /// instance label.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-6`.
+    #[must_use]
+    pub fn column_fates(
+        plan: &Plan,
+        migration: &Migration,
+        source_columns: &BTreeMap<SEdge, String>,
+        target_columns: &BTreeMap<SEdge, String>,
+    ) -> BTreeMap<Name, Vec<ColumnFate>> {
+        let mut out: BTreeMap<Name, Vec<ColumnFate>> = BTreeMap::new();
+        let mut columns: Vec<_> = source_columns.iter().collect();
+        columns.sort_by(|(left_edge, left_column), (right_edge, right_column)| {
+            left_column
+                .cmp(right_column)
+                .then_with(|| left_edge.cmp(right_edge))
+        });
+        for (edge, column) in columns {
+            if !migration.survives(&edge.src) {
+                continue;
+            }
+            let kept = plan.fates.get(edge).and_then(|fate| match fate {
+                EdgeFate::Keep(image)
+                    if image.src == migration.vertex_image(&edge.src)
+                        && target_columns.contains_key(image) =>
+                {
+                    target_columns.get(image)
+                }
+                _ => None,
+            });
+            let fate = match kept {
+                Some(target) if target == column => continue,
+                Some(target) => ColumnFate::Rename(column.clone(), target.clone()),
+                None => ColumnFate::Drop(column.clone()),
+            };
+            out.entry(edge.src.clone()).or_default().push(fate);
+        }
+        out
+    }
+
     /// Compile the plan: source declarations, target declarations, the edge
     /// image, then the contraction plan.
     ///
@@ -1723,6 +2003,464 @@ pub mod restrict {
         run.allocate()?;
         run.record();
         Ok((run.view, run.c))
+    }
+}
+
+/// Independent finite carrier for the tree edit-lens laws.
+///
+/// This model intentionally does not call [`restrict::get`] and does not
+/// reuse panproto's edit types. It describes a rooted tree whose editable
+/// children are leaves. Each leaf carries its parent, visibility class, and
+/// payload, so a projection lens can keep visible leaves and retain hidden
+/// leaves in its complement. The carrier is small, but its delta algebra has
+/// the full replacement distinction required by DESIGN E.1: insertion then
+/// deletion cancels, whereas deletion then insertion is a replacement even
+/// when the two payloads agree.
+pub mod tree_edit_lens {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Whether the projection lens exposes a leaf.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum Visibility {
+        /// The leaf occurs in the view.
+        Visible,
+        /// The leaf occurs only in the complement.
+        Hidden,
+    }
+
+    /// One editable leaf of the finite tree carrier.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Leaf {
+        /// Stable leaf id.
+        pub id: u32,
+        /// Stable parent id.
+        pub parent: u32,
+        /// Projection class.
+        pub visibility: Visibility,
+        /// Finite payload coordinate.
+        pub payload: u8,
+    }
+
+    /// A finite rooted tree, represented by its editable leaves.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct Tree {
+        leaves: BTreeMap<u32, Leaf>,
+    }
+
+    impl Tree {
+        /// Build a tree, refusing duplicate ids.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Refusal::Duplicate`] at the first duplicate id.
+        pub fn new(leaves: impl IntoIterator<Item = Leaf>) -> Result<Self, Refusal> {
+            let mut out = BTreeMap::new();
+            for leaf in leaves {
+                let id = leaf.id;
+                if out.insert(id, leaf).is_some() {
+                    return Err(Refusal::Duplicate { id });
+                }
+            }
+            Ok(Self { leaves: out })
+        }
+
+        /// The leaves, by stable id.
+        #[must_use]
+        pub const fn leaves(&self) -> &BTreeMap<u32, Leaf> {
+            &self.leaves
+        }
+    }
+
+    /// One state-reading tree edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Atom {
+        /// Insert a leaf whose id must be free.
+        Insert(Leaf),
+        /// Delete the leaf currently carrying `id`.
+        Delete {
+            /// Stable leaf id.
+            id: u32,
+        },
+    }
+
+    /// The canonical action on one stable id.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Change {
+        /// Add a previously absent leaf.
+        Add(Leaf),
+        /// Delete this exact leaf.
+        Delete(Leaf),
+        /// Replace one exact leaf by another under the same id.
+        Replace {
+            /// Payload before the replacement.
+            old: Leaf,
+            /// Payload after the replacement.
+            new: Leaf,
+        },
+    }
+
+    impl Change {
+        const fn before(&self) -> Option<&Leaf> {
+            match self {
+                Self::Add(_) => None,
+                Self::Delete(old) | Self::Replace { old, .. } => Some(old),
+            }
+        }
+
+        const fn after(&self) -> Option<&Leaf> {
+            match self {
+                Self::Delete(_) => None,
+                Self::Add(new) | Self::Replace { new, .. } => Some(new),
+            }
+        }
+
+        fn invert(&self) -> Self {
+            match self {
+                Self::Add(new) => Self::Delete(new.clone()),
+                Self::Delete(old) => Self::Add(old.clone()),
+                Self::Replace { old, new } => Self::Replace {
+                    old: new.clone(),
+                    new: old.clone(),
+                },
+            }
+        }
+    }
+
+    /// A canonical per-id tree delta.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct Delta {
+        changes: BTreeMap<u32, Change>,
+    }
+
+    impl Delta {
+        /// The unit delta.
+        #[must_use]
+        pub const fn identity() -> Self {
+            Self {
+                changes: BTreeMap::new(),
+            }
+        }
+
+        /// A singleton delta.
+        #[must_use]
+        pub fn singleton(change: Change) -> Self {
+            let id = match &change {
+                Change::Add(leaf) | Change::Delete(leaf) => leaf.id,
+                Change::Replace { old, new } => {
+                    debug_assert_eq!(old.id, new.id);
+                    old.id
+                }
+            };
+            Self {
+                changes: BTreeMap::from([(id, change)]),
+            }
+        }
+
+        /// The changes, in id order.
+        #[must_use]
+        pub const fn changes(&self) -> &BTreeMap<u32, Change> {
+            &self.changes
+        }
+
+        /// Whether this is the unit delta.
+        #[must_use]
+        pub fn is_identity(&self) -> bool {
+            self.changes.is_empty()
+        }
+
+        /// Every id mentioned by the delta.
+        #[must_use]
+        pub fn touched(&self) -> BTreeSet<u32> {
+            self.changes.keys().copied().collect()
+        }
+
+        /// The exact inverse delta.
+        ///
+        /// Book anchors: `L-restrict-and-contraction-11`.
+        #[must_use]
+        pub fn invert(&self) -> Self {
+            Self {
+                changes: self
+                    .changes
+                    .iter()
+                    .map(|(&id, change)| (id, change.invert()))
+                    .collect(),
+            }
+        }
+
+        /// Compose two canonical deltas from left to right.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Refusal::Mismatch`] when the second delta does not read
+        /// the exact state left by the first. In particular, an add followed
+        /// by a matching delete cancels, while a delete followed by an add is
+        /// retained as a replacement.
+        ///
+        /// Book anchors: `L-restrict-and-contraction-11`.
+        pub fn compose(&self, next: &Self) -> Result<Self, Refusal> {
+            let mut out = self.changes.clone();
+            for (&id, right) in &next.changes {
+                let Some(left) = out.remove(&id) else {
+                    out.insert(id, right.clone());
+                    continue;
+                };
+                if left.after() != right.before() {
+                    return Err(Refusal::Mismatch { id });
+                }
+                match (left.before().cloned(), right.after().cloned()) {
+                    (None, None) => {}
+                    (None, Some(new)) => {
+                        out.insert(id, Change::Add(new));
+                    }
+                    (Some(old), None) => {
+                        out.insert(id, Change::Delete(old));
+                    }
+                    (Some(old), Some(new)) => {
+                        out.insert(id, Change::Replace { old, new });
+                    }
+                }
+            }
+            Ok(Self { changes: out })
+        }
+
+        /// Apply the delta atomically.
+        ///
+        /// # Errors
+        ///
+        /// Returns the least-id missing, duplicate, or stale refusal and does
+        /// not mutate `tree` on refusal.
+        ///
+        /// Book anchors: `L-restrict-and-contraction-11`.
+        pub fn apply(&self, tree: &mut Tree) -> Result<(), Refusal> {
+            for (&id, change) in &self.changes {
+                match change {
+                    Change::Add(_) if tree.leaves.contains_key(&id) => {
+                        return Err(Refusal::Duplicate { id });
+                    }
+                    Change::Delete(old) | Change::Replace { old, .. } => {
+                        let Some(found) = tree.leaves.get(&id) else {
+                            return Err(Refusal::Missing { id });
+                        };
+                        if found != old {
+                            return Err(Refusal::Stale { id });
+                        }
+                    }
+                    Change::Add(_) => {}
+                }
+            }
+            let mut after = tree.clone();
+            for (&id, change) in &self.changes {
+                match change {
+                    Change::Add(new) | Change::Replace { new, .. } => {
+                        after.leaves.insert(id, new.clone());
+                    }
+                    Change::Delete(_) => {
+                        after.leaves.remove(&id);
+                    }
+                }
+            }
+            *tree = after;
+            Ok(())
+        }
+    }
+
+    /// A typed refusal of the finite reference carrier.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Refusal {
+        /// A deletion or replacement names no leaf.
+        Missing {
+            /// Missing id.
+            id: u32,
+        },
+        /// An insertion reuses an occupied id.
+        Duplicate {
+            /// Occupied id.
+            id: u32,
+        },
+        /// A deletion or replacement carries the wrong old payload.
+        Stale {
+            /// Stale id.
+            id: u32,
+        },
+        /// Two deltas disagree at their shared boundary.
+        Mismatch {
+            /// Mismatching id.
+            id: u32,
+        },
+        /// A put edit names a leaf outside the projection's view.
+        OutsideView {
+            /// Hidden id.
+            id: u32,
+        },
+    }
+
+    /// Lower a word of state-reading tree edits to one canonical delta.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first typed refusal. Each atom reads the state left by its
+    /// predecessors, independently of the canonical composition algorithm.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-11`.
+    pub fn lower(tree: &Tree, word: &[Atom]) -> Result<Delta, Refusal> {
+        let mut state = tree.clone();
+        let mut net = Delta::identity();
+        for atom in word {
+            let step = match atom {
+                Atom::Insert(leaf) => {
+                    if state.leaves.contains_key(&leaf.id) {
+                        return Err(Refusal::Duplicate { id: leaf.id });
+                    }
+                    Delta::singleton(Change::Add(leaf.clone()))
+                }
+                Atom::Delete { id } => {
+                    let Some(old) = state.leaves.get(id).cloned() else {
+                        return Err(Refusal::Missing { id: *id });
+                    };
+                    Delta::singleton(Change::Delete(old))
+                }
+            };
+            step.apply(&mut state)?;
+            net = net.compose(&step)?;
+        }
+        Ok(net)
+    }
+
+    /// The residue of the projection lens.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct Complement {
+        hidden: BTreeMap<u32, Leaf>,
+    }
+
+    impl Complement {
+        /// Hidden leaves, by stable id.
+        #[must_use]
+        pub const fn hidden(&self) -> &BTreeMap<u32, Leaf> {
+            &self.hidden
+        }
+    }
+
+    /// A lens on the finite tree carrier.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Lens {
+        /// Keep both visibility classes.
+        Identity,
+        /// Keep exactly [`Visibility::Visible`].
+        Projection,
+    }
+
+    impl Lens {
+        fn keeps(self, leaf: &Leaf) -> bool {
+            self == Self::Identity || leaf.visibility == Visibility::Visible
+        }
+
+        /// Split a source into its view and complement.
+        #[must_use]
+        pub fn initialize(self, source: &Tree) -> (Tree, Complement) {
+            let mut view = BTreeMap::new();
+            let mut hidden = BTreeMap::new();
+            for (&id, leaf) in &source.leaves {
+                if self.keeps(leaf) {
+                    view.insert(id, leaf.clone());
+                } else {
+                    hidden.insert(id, leaf.clone());
+                }
+            }
+            (Tree { leaves: view }, Complement { hidden })
+        }
+
+        /// Translate a canonical source delta and thread the complement.
+        ///
+        /// # Errors
+        ///
+        /// Returns a typed complement-state refusal if the source delta's
+        /// hidden boundary does not match the current residue.
+        ///
+        /// Book anchors: `L-restrict-and-contraction-11`.
+        pub fn get_edit(
+            self,
+            delta: &Delta,
+            complement: &mut Complement,
+        ) -> Result<Delta, Refusal> {
+            if self == Self::Identity {
+                return Ok(delta.clone());
+            }
+            let mut staged = complement.clone();
+            let mut translated = Delta::identity();
+            for (&id, change) in delta.changes() {
+                let old = change.before().cloned();
+                let new = change.after().cloned();
+                if let Some(old) = &old
+                    && !self.keeps(old)
+                {
+                    match staged.hidden.get(&id) {
+                        None => return Err(Refusal::Missing { id }),
+                        Some(found) if found != old => return Err(Refusal::Stale { id }),
+                        Some(_) => {
+                            staged.hidden.remove(&id);
+                        }
+                    }
+                }
+                if let Some(new) = &new
+                    && !self.keeps(new)
+                    && staged.hidden.insert(id, new.clone()).is_some()
+                {
+                    return Err(Refusal::Duplicate { id });
+                }
+                let visible = match (
+                    old.filter(|leaf| self.keeps(leaf)),
+                    new.filter(|leaf| self.keeps(leaf)),
+                ) {
+                    (None, None) => continue,
+                    (None, Some(new)) => Change::Add(new),
+                    (Some(old), None) => Change::Delete(old),
+                    (Some(old), Some(new)) => Change::Replace { old, new },
+                };
+                translated = translated.compose(&Delta::singleton(visible))?;
+            }
+            *complement = staged;
+            Ok(translated)
+        }
+
+        /// Translate a canonical view delta toward the source.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Refusal::OutsideView`] for the least id carrying a hidden
+        /// old or new leaf. The finite projection has no cascade from a
+        /// visible leaf to its hidden siblings, so an admitted delta is
+        /// otherwise unchanged and the complement is preserved.
+        ///
+        /// Book anchors: `L-restrict-and-contraction-11`.
+        pub fn put_edit(
+            self,
+            delta: &Delta,
+            _complement: &mut Complement,
+        ) -> Result<Delta, Refusal> {
+            if self == Self::Projection {
+                for (&id, change) in delta.changes() {
+                    if change.before().is_some_and(|leaf| !self.keeps(leaf))
+                        || change.after().is_some_and(|leaf| !self.keeps(leaf))
+                    {
+                        return Err(Refusal::OutsideView { id });
+                    }
+                }
+            }
+            Ok(delta.clone())
+        }
+    }
+
+    /// Check the per-id minimality and replacement-normal-form clauses.
+    ///
+    /// Book anchors: `L-restrict-and-contraction-11`.
+    #[must_use]
+    pub fn is_minimal(input: &Delta, translated: &Delta) -> bool {
+        translated.touched().is_subset(&input.touched())
+            && translated.changes().iter().all(|(&id, change)| {
+                !matches!(change, Change::Replace { .. })
+                    || matches!(input.changes().get(&id), Some(Change::Replace { .. }))
+            })
     }
 }
 

@@ -1139,7 +1139,7 @@ fn value_refuted(ctx: &Context<'_>, d: &Diagnostic, n: &ViewRef) -> bool {
             vertex,
             sort,
             bound,
-            ..
+            test,
         }),
         Violation::ValueConstraint {
             sort: named_sort,
@@ -1156,9 +1156,16 @@ fn value_refuted(ctx: &Context<'_>, d: &Diagnostic, n: &ViewRef) -> bool {
         .iter()
         .any(|(_, presence)| presence.value().is_some_and(|x| same_value(x, value)));
     let bytes = violation_bytes(&d.violation);
+    let bound_matches = match test {
+        super::plan::ValueTest::LexicalSpace { tag, .. } => {
+            super::checks::lexical_bound(ctx, n, tag)
+                .is_ok_and(|actual| actual.as_deref() == Some(named_bound))
+        }
+        _ => named_bound == bound,
+    };
     named
         && named_sort == sort
-        && named_bound == bound
+        && bound_matches
         && evaluate(ctx, &d.check, Some(n))
             .findings
             .iter()
@@ -1634,6 +1641,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![key_edge.clone()])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Within("map".into()),
+                equality: vec![],
             },
         );
         let plan = ValidationPlan::compile(
@@ -1733,6 +1741,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![id_edge.clone()])],
                 role: KeyRole::Identifier,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
         schema.declarations.insert_reference(Reference {
@@ -1748,6 +1757,10 @@ mod tests {
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         });
         (
             ValidationPlan::compile(

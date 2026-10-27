@@ -5,6 +5,7 @@
 //! or fixed-field (EDI X12, SWIFT MT). Produces `FInstance` (set-valued
 //! functor) tables guided by a schema.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use memchr::memchr_iter;
@@ -70,6 +71,170 @@ fn tabular_data_lines(input: &[u8], comment_prefix: Option<u8>) -> Vec<&[u8]> {
         .collect()
 }
 
+struct ParsedCell<'input> {
+    bytes: Cow<'input, [u8]>,
+    source_offset: Option<u64>,
+}
+
+struct CsvRecord<'input> {
+    cells: Vec<ParsedCell<'input>>,
+    source_start: usize,
+    source_end: usize,
+}
+
+fn csv_parse_error(protocol: &str, message: &str) -> ParseInstanceError {
+    ParseInstanceError::Parse {
+        protocol: protocol.to_owned(),
+        message: message.to_owned(),
+    }
+}
+
+fn finish_csv_cell(cells: &mut Vec<ParsedCell<'_>>, bytes: &mut Vec<u8>, source_start: usize) {
+    cells.push(ParsedCell {
+        bytes: Cow::Owned(std::mem::take(bytes)),
+        source_offset: u64::try_from(source_start).ok(),
+    });
+}
+
+fn parse_csv_records<'input>(
+    input: &'input [u8],
+    protocol: &str,
+) -> Result<Vec<CsvRecord<'input>>, ParseInstanceError> {
+    let mut records = Vec::new();
+    let mut cells = Vec::new();
+    let mut cell = Vec::new();
+    let mut record_start = 0;
+    let mut cell_start = 0;
+    let mut index = 0;
+    let mut in_quotes = false;
+    let mut after_quote = false;
+
+    while index < input.len() {
+        let byte = input[index];
+        if in_quotes {
+            if byte != b'"' {
+                cell.push(byte);
+                index += 1;
+            } else if input.get(index + 1) == Some(&b'"') {
+                cell.push(b'"');
+                index += 2;
+            } else {
+                in_quotes = false;
+                after_quote = true;
+                index += 1;
+            }
+            continue;
+        }
+
+        match byte {
+            b',' => {
+                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                index += 1;
+                cell_start = index;
+                after_quote = false;
+            }
+            b'\n' => {
+                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                records.push(CsvRecord {
+                    cells: std::mem::take(&mut cells),
+                    source_start: record_start,
+                    source_end: index,
+                });
+                index += 1;
+                record_start = index;
+                cell_start = index;
+                after_quote = false;
+            }
+            b'\r' if input.get(index + 1) == Some(&b'\n') => {
+                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                records.push(CsvRecord {
+                    cells: std::mem::take(&mut cells),
+                    source_start: record_start,
+                    source_end: index,
+                });
+                index += 2;
+                record_start = index;
+                cell_start = index;
+                after_quote = false;
+            }
+            b'"' if index == cell_start && cell.is_empty() && !after_quote => {
+                in_quotes = true;
+                index += 1;
+            }
+            b'"' => return Err(csv_parse_error(protocol, "misplaced quote in CSV field")),
+            b'\r' => {
+                return Err(csv_parse_error(
+                    protocol,
+                    "bare carriage return in CSV record",
+                ));
+            }
+            _ if after_quote => {
+                return Err(csv_parse_error(
+                    protocol,
+                    "bytes follow the closing quote in a CSV field",
+                ));
+            }
+            _ => {
+                cell.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    if in_quotes {
+        return Err(csv_parse_error(protocol, "unterminated quoted CSV field"));
+    }
+    if cell_start < input.len() || !cells.is_empty() || after_quote {
+        finish_csv_cell(&mut cells, &mut cell, cell_start);
+        records.push(CsvRecord {
+            cells,
+            source_start: record_start,
+            source_end: input.len(),
+        });
+    }
+    Ok(records)
+}
+
+fn tabular_rows<'input>(
+    input: &'input [u8],
+    protocol: &str,
+    delimiter: u8,
+    comment_prefix: Option<u8>,
+) -> Result<Vec<Vec<ParsedCell<'input>>>, ParseInstanceError> {
+    if delimiter == b',' {
+        let mut saw_header = false;
+        return parse_csv_records(input, protocol).map(|records| {
+            records
+                .into_iter()
+                .filter(|record| {
+                    if comment_prefix
+                        .is_some_and(|prefix| input.get(record.source_start) == Some(&prefix))
+                        || (record.source_start == record.source_end && !saw_header)
+                    {
+                        return false;
+                    }
+                    saw_header = true;
+                    true
+                })
+                .map(|record| record.cells)
+                .collect()
+        });
+    }
+
+    Ok(tabular_data_lines(input, comment_prefix)
+        .into_iter()
+        .map(|line| {
+            split_fields(line, delimiter)
+                .into_iter()
+                .map(|field| ParsedCell {
+                    bytes: Cow::Borrowed(field),
+                    source_offset: byte_offset(input, field),
+                })
+                .collect()
+        })
+        .collect())
+}
+
 /// Parse tab-separated data into an `FInstance`.
 ///
 /// Assumes the first non-comment, non-blank line is a header row defining
@@ -98,23 +263,16 @@ pub fn parse_tsv(
         });
     }
     let protocol_definition = crate::json_pathway::protocol_definition(protocol);
-    let data_lines = tabular_data_lines(input, comment_prefix);
+    let data_rows = tabular_rows(input, protocol, delimiter, comment_prefix)?;
 
-    if data_lines.is_empty() {
+    if data_rows.is_empty() {
         return Ok(FInstance::new());
     }
 
     // First data line is header.
-    let header_fields = split_fields(data_lines[0], delimiter);
-    if delimiter == b',' && header_fields.iter().any(|field| field.contains(&b'"')) {
-        return Err(ParseInstanceError::Parse {
-            protocol: protocol.to_owned(),
-            message: "quoted CSV syntax requires the preserving CSV parser".to_owned(),
-        });
-    }
-    let headers = header_fields
+    let headers = data_rows[0]
         .iter()
-        .map(|field| parse_utf8_field(field, protocol))
+        .map(|field| parse_utf8_field(field.bytes.as_ref(), protocol))
         .collect::<Result<Vec<_>, _>>()?;
     let mut distinct_headers = HashSet::with_capacity(headers.len());
     if let Some(duplicate) = headers
@@ -130,11 +288,10 @@ pub fn parse_tsv(
     // Remaining lines are data rows.
     let mut rows: Vec<HashMap<String, Value>> = Vec::new();
     let mut fidelity = Vec::new();
-    for (row_idx, line) in data_lines[1..].iter().enumerate() {
-        if line.is_empty() && headers.len() != 1 {
+    for (row_idx, fields) in data_rows[1..].iter().enumerate() {
+        if fields.len() == 1 && fields[0].bytes.is_empty() && headers.len() != 1 {
             continue;
         }
-        let fields = split_fields(line, delimiter);
         if fields.len() != headers.len() {
             return Err(ParseInstanceError::Parse {
                 protocol: protocol.to_owned(),
@@ -146,19 +303,10 @@ pub fn parse_tsv(
                 ),
             });
         }
-        if delimiter == b',' && fields.iter().any(|field| field.contains(&b'"')) {
-            return Err(ParseInstanceError::Parse {
-                protocol: protocol.to_owned(),
-                message: format!(
-                    "quoted CSV syntax in data row {} requires the preserving CSV parser",
-                    row_idx + 1
-                ),
-            });
-        }
         let mut row = HashMap::new();
         for (field, col_name) in fields.iter().zip(&headers) {
             let col_name = col_name.clone();
-            let text = parse_utf8_field(field, protocol)?;
+            let text = parse_utf8_field(field.bytes.as_ref(), protocol)?;
             let (vertex, spec) = cell_spec(schema, &protocol_definition, table_vertex, &col_name);
             match crate::json_pathway::coerce_exact_lexeme(
                 &Lexeme::new(&text, LexClass::String),
@@ -168,7 +316,7 @@ pub fn parse_tsv(
                     row.insert(col_name, value);
                 }
                 Err(error) => {
-                    fidelity.push(error.at(ValueSite::new(vertex, byte_offset(input, field))));
+                    fidelity.push(error.at(ValueSite::new(vertex, field.source_offset)));
                 }
             }
         }
@@ -1366,18 +1514,58 @@ mod tests {
     }
 
     #[test]
-    fn canonical_delimited_parse_refuses_short_rows_quotes_and_line_delimiters() {
+    fn canonical_csv_decodes_strict_doubled_quote_fields() {
+        for (input, expected) in [
+            (b"value\n\"\"\n".as_slice(), ""),
+            (b"value\n\"a,b\"\n".as_slice(), "a,b"),
+            (b"value\n\"a\"\"b\"\n".as_slice(), "a\"b"),
+            (b"value\n\"a\nb\"\n".as_slice(), "a\nb"),
+            (b"value\n\"a\r\nb\"\n".as_slice(), "a\r\nb"),
+        ] {
+            let parsed = parse_tsv(&Schema::default(), input, "csv", "rows", b',', None)
+                .expect("valid quoted CSV field");
+            assert_eq!(
+                parsed
+                    .rows("rows")
+                    .first()
+                    .and_then(|(_, row)| row.get("value")),
+                Some(&Value::Str(expected.to_owned())),
+                "input={input:?}"
+            );
+        }
+
+        let parsed = parse_tsv(
+            &Schema::default(),
+            b"left,right\n\"x,y\",z\n",
+            "csv",
+            "rows",
+            b',',
+            None,
+        )
+        .expect("quoted delimiter stays in one field");
+        let (_, row) = parsed.rows("rows")[0];
+        assert_eq!(row.get("left"), Some(&Value::Str("x,y".to_owned())));
+        assert_eq!(row.get("right"), Some(&Value::Str("z".to_owned())));
+    }
+
+    #[test]
+    fn canonical_csv_refuses_malformed_quotes_and_wrong_field_counts() {
         for input in [
-            b"a,b\nonly-a\n".as_slice(),
-            b"x\n\"abc\"\n".as_slice(),
-            b"x\n\"a,b\"\n".as_slice(),
-            b"\"x\"\nvalue\n".as_slice(),
+            b"value\n\"abc\n".as_slice(),
+            b"value\na\"b\n".as_slice(),
+            b"value\n\"a\"x\n".as_slice(),
+            b"left,right\n\"x,y\"\n".as_slice(),
+            b"left,right\nonly-left\n".as_slice(),
         ] {
             assert!(matches!(
                 parse_tsv(&Schema::default(), input, "csv", "rows", b',', None),
                 Err(ParseInstanceError::Parse { .. })
             ));
         }
+    }
+
+    #[test]
+    fn canonical_delimited_parse_refuses_line_delimiters_as_field_delimiters() {
         assert!(matches!(
             parse_tsv(
                 &Schema::default(),

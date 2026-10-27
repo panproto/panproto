@@ -6455,6 +6455,7 @@ mod tests {
                 parts: vec![KeyPart::Path(Vec::new())],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
+                equality: vec![],
             });
         let reference = panproto_schema::Reference {
             id: "required-ref".into(),
@@ -6469,6 +6470,10 @@ mod tests {
             nullable: false,
             on_unresolved: panproto_schema::OnUnresolved::Error,
             mode: panproto_schema::ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         };
         schema
             .declarations
@@ -9412,6 +9417,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![pa.clone(), ab.clone()])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
+                equality: vec![],
             }],
         );
         let mut target_schema = graph_schema(&["p", "a", "b"], &[pa.clone(), ab.clone()])?;
@@ -10115,6 +10121,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![target_edge])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
+                equality: vec![],
             }],
         );
         variants.push(keyed);

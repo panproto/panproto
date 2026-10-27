@@ -174,6 +174,7 @@ fn prod_schema(schema: &panproto_reference::schema::Schema) -> Schema {
                     parts: Vec::new(),
                     role: panproto_schema::KeyRole::Primary,
                     scope: panproto_schema::KeyScope::Document,
+                    equality: vec![],
                 })
                 .collect(),
         );

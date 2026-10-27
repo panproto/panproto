@@ -13,6 +13,7 @@ use crate::NotTreeReason;
 use crate::error::InstError;
 use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::wtype::WInstance;
+use crate::wtype_check;
 
 /// Insert a tree's nodes into an empty graph, checking that each is filed
 /// under its own id, and refuse reserved vocabulary among them.
@@ -31,15 +32,6 @@ fn tree_nodes(tree: &WInstance) -> Result<GInstance, InstError> {
         graph.insert_node(node.clone())?;
     }
     Ok(graph)
-}
-
-/// Refuse a tree whose graph form would hold reserved fan vocabulary
-/// outside its fans: a node of the fan shape, or an arc of a reserved kind.
-fn refuse_reserved(graph: &GInstance) -> Result<(), InstError> {
-    match reify::reserved_vocabulary(graph) {
-        Some((node, reason)) => Err(InstError::MalformedFan { node, reason }),
-        None => Ok(()),
-    }
 }
 
 /// Refuse a second arc into one child: the embedding records one arc per
@@ -86,8 +78,8 @@ impl GInstance {
     /// another id, [`InstError::DanglingEdge`] when an arc or a fan names a
     /// node the tree does not hold, [`InstError::NotATree`] with
     /// [`NotTreeReason::MultipleParents`] when two arcs enter one child,
-    /// [`InstError::MalformedFan`] when a node has the fan shape or an arc
-    /// has a reserved fan kind, and [`InstError::NodeIdsExhausted`] or
+    /// [`InstError::ReservedVocabulary`] when a node has the fan shape or an
+    /// arc has a reserved fan kind, and [`InstError::NodeIdsExhausted`] or
     /// [`InstError::EdgeIdsExhausted`] when no id below `u32::MAX` is left
     /// for an arc, a fan node or a fan edge. A tree holding the node id
     /// `u32::MAX` embeds with `next_node` at `u32::MAX`.
@@ -96,18 +88,24 @@ impl GInstance {
         schema: Option<&Schema>,
     ) -> Result<(Self, TreeEmbedding), InstError> {
         let mut graph = tree_nodes(tree)?;
+        wtype_check::check_reserved_vocabulary(tree)?;
         let mut edges = IdAllocator::new(IdRange::FULL);
-        let mut arc_ids = Vec::with_capacity(tree.arcs.len());
-        for (src, tgt, edge) in &tree.arcs {
-            let id = EdgeId(edges.allocate().map_err(|e| e.whole_state(IdKind::Edge))?);
-            graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
-            arc_ids.push((*tgt, id));
-        }
-        refuse_reserved(&graph)?;
         let mut embedding = TreeEmbedding::default();
-        for (child, id) in arc_ids {
-            refuse_second_parent(&embedding, child, id)?;
-            embedding.arcs.insert(child, id);
+        for (src, tgt, edge) in &tree.arcs {
+            let candidate = EdgeId(edges.floor());
+            for endpoint in [*src, *tgt] {
+                if !tree.nodes.contains_key(&endpoint) {
+                    return Err(InstError::DanglingEdge {
+                        edge: candidate,
+                        endpoint,
+                    });
+                }
+            }
+            refuse_second_parent(&embedding, *tgt, candidate)?;
+            let id = EdgeId(edges.allocate().map_err(|e| e.whole_state(IdKind::Edge))?);
+            debug_assert_eq!(id, candidate);
+            graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
+            embedding.arcs.insert(*tgt, id);
         }
         let mut nodes = IdAllocator::from_source(IdRange::FULL, tree.nodes.keys().copied());
         let (graph, fans) = reify::reify_into(graph, &tree.fans, schema, &mut nodes, &mut edges)?;
@@ -160,6 +158,7 @@ impl GInstance {
         schema: Option<&Schema>,
     ) -> Result<Self, InstError> {
         let mut graph = tree_nodes(tree)?;
+        wtype_check::check_reserved_vocabulary(tree)?;
         for (src, tgt, edge) in &tree.arcs {
             let id = *embedding.arcs.get(tgt).ok_or(InstError::DanglingArc {
                 src: *src,
@@ -167,7 +166,6 @@ impl GInstance {
             })?;
             graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
         }
-        refuse_reserved(&graph)?;
         let unfit = |node: u32| InstError::NotATree {
             reason: NotTreeReason::FanNotRepresentable { node },
         };

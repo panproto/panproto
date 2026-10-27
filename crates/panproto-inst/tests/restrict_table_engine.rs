@@ -1865,6 +1865,7 @@ fn the_default_protocol_declares_the_leaf_edges_alone() {
                     parts: vec![],
                     role: panproto_schema::KeyRole::Primary,
                     scope: panproto_schema::KeyScope::Document,
+                    equality: vec![],
                 },
             )
         })

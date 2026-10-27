@@ -8,7 +8,7 @@
 //! when it lies at a unit boundary of that text; one past the last unit is
 //! the text's length. Every other offset is refused, never clamped.
 
-use panproto_schema::OffsetUnit;
+use panproto_schema::{OffsetUnit, SpanEnd};
 
 use super::error::OffsetUnitReason;
 
@@ -20,6 +20,66 @@ pub enum UnitFailure {
     /// The offset is inside a unit, or the text cannot be counted in the
     /// unit.
     Violation(OffsetUnitReason),
+}
+
+/// Decode the two written coordinates of a standoff declaration into
+/// zero-origin, exclusive-end offsets in its declared unit.
+///
+/// An offset form shifts both coordinates by `origin`. A length form shifts
+/// only its start and adds the written length with checked arithmetic.
+///
+/// # Errors
+///
+/// [`UnitFailure::OutOfRange`] when an origin subtraction or length addition
+/// underflows or overflows, or when an offset-form start lies after its end.
+pub fn form_to_offsets(
+    written_start: u64,
+    written_end: u64,
+    origin: u64,
+    end_form: SpanEnd,
+) -> Result<(u64, u64), UnitFailure> {
+    let start = written_start
+        .checked_sub(origin)
+        .ok_or(UnitFailure::OutOfRange)?;
+    let end = match end_form {
+        SpanEnd::Offset => written_end
+            .checked_sub(origin)
+            .ok_or(UnitFailure::OutOfRange)?,
+        SpanEnd::Length => start
+            .checked_add(written_end)
+            .ok_or(UnitFailure::OutOfRange)?,
+    };
+    if start > end {
+        return Err(UnitFailure::OutOfRange);
+    }
+    Ok((start, end))
+}
+
+/// Encode zero-origin, exclusive-end offsets in one declaration's written
+/// coordinate form.
+///
+/// This is the left inverse of [`form_to_offsets`] on every representable
+/// pair.
+///
+/// # Errors
+///
+/// [`UnitFailure::OutOfRange`] when the interval is reversed or adding the
+/// origin overflows.
+pub fn offsets_to_form(
+    start: u64,
+    end: u64,
+    origin: u64,
+    end_form: SpanEnd,
+) -> Result<(u64, u64), UnitFailure> {
+    if start > end {
+        return Err(UnitFailure::OutOfRange);
+    }
+    let written_start = start.checked_add(origin).ok_or(UnitFailure::OutOfRange)?;
+    let written_end = match end_form {
+        SpanEnd::Offset => end.checked_add(origin).ok_or(UnitFailure::OutOfRange)?,
+        SpanEnd::Length => end - start,
+    };
+    Ok((written_start, written_end))
 }
 
 /// The byte offsets at which each unit of `text` begins, followed by the

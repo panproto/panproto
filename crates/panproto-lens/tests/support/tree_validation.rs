@@ -170,6 +170,7 @@ fn duplicate_key_after_edit_values(
             parts: vec![KeyPart::Path(vec![key_field])],
             role: KeyRole::Primary,
             scope: KeyScope::Global,
+            equality: vec![],
         }],
     );
     let lens = identity_lens(&schema);

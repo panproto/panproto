@@ -434,8 +434,9 @@ pub mod encode {
     ///
     /// [`TreeEncodeError`] for reserved vocabulary, a second parent, a
     /// dangling arc or fan, or exhausted node or edge ids. The id `u32::MAX`
-    /// is reserved and is never allocated; a tree holding node `u32::MAX`
-    /// leaves no node floor above it and is refused as `NodeIdsExhausted`.
+    /// is reserved and is never allocated. A tree may already hold that id,
+    /// but adding a fan at the resulting saturated floor is refused as
+    /// `NodeIdsExhausted`.
     ///
     /// Book anchors: `L-representation-1`.
     pub fn tree_to_graph(
@@ -472,12 +473,11 @@ pub mod encode {
             );
             emb.arcs.insert(*c, edge_id);
         }
-        let mut next_node = match t.nodes.keys().next_back() {
-            Some(last) => last
-                .checked_add(1)
-                .ok_or(TreeEncodeError::NodeIdsExhausted)?,
-            None => 0,
-        };
+        let mut next_node = t
+            .nodes
+            .keys()
+            .next_back()
+            .map_or(0, |last| last.saturating_add(1));
         for f in &t.fans {
             let id = take_id(&mut next_node, TreeEncodeError::NodeIdsExhausted)?;
             let parent_name = schema
@@ -597,14 +597,34 @@ pub mod encode {
         },
     }
 
-    /// The parent-edge names of a schema's hyper-edges, as [`tree_to_graph`]
-    /// writes them: the hyper-edge's parent label when the schema declares the
-    /// hyper-edge, else none.
-    pub fn schema_parent_name(schema: Option<&Schema>) -> impl Fn(&str) -> Option<Name> + '_ {
+    /// The constraint on a fan's parent-edge name when reading a graph as a
+    /// tree.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ParentNameRule {
+        /// No schema constrains the optional edge name.
+        Any,
+        /// The edge must carry this exact optional name.
+        Exact(Option<Name>),
+    }
+
+    /// The parent-edge name rules of a schema's hyper-edges, as
+    /// [`tree_to_graph`] writes them.
+    ///
+    /// [`ParentNameRule::Any`] means that no schema constrains the name, while
+    /// [`ParentNameRule::Exact`] requires its exact optional name. Thus a
+    /// schema-free read accepts either a named or unnamed parent edge. Under a
+    /// schema, a declared hyper-edge requires its parent label and an
+    /// undeclared one requires no parent label.
+    pub fn schema_parent_name(schema: Option<&Schema>) -> impl Fn(&str) -> ParentNameRule + '_ {
         move |hyper: &str| {
-            schema
-                .and_then(|s| s.hyper_edges.get(hyper))
-                .map(|h| h.parent_label.clone())
+            schema.map_or(ParentNameRule::Any, |schema| {
+                ParentNameRule::Exact(
+                    schema
+                        .hyper_edges
+                        .get(hyper)
+                        .map(|edge| edge.parent_label.clone()),
+                )
+            })
         }
     }
 
@@ -613,7 +633,7 @@ pub mod encode {
         g: &Graph,
         root: u32,
         is_fan: &dyn Fn(u32) -> bool,
-        parent_name: &dyn Fn(&str) -> Option<Name>,
+        parent_name: &dyn Fn(&str) -> ParentNameRule,
     ) -> Result<BTreeMap<u32, u32>, NotATree> {
         let mut parent: BTreeMap<u32, u32> = BTreeMap::new();
         for (id, e) in &g.edges {
@@ -625,15 +645,12 @@ pub mod encode {
                 return Err(NotATree::PositionedEdge { edge });
             }
             if is_fan(e.src) {
-                let expected_name = if e.label.kind == HYPER_PARENT {
-                    parent_name(&from.anchor)
-                } else {
-                    e.label.name.clone()
-                };
-                if e.label.src != from.anchor
-                    || e.label.tgt != to.anchor
-                    || e.label.name != expected_name
-                {
+                let name_matches = e.label.kind != HYPER_PARENT
+                    || match parent_name(&from.anchor) {
+                        ParentNameRule::Any => true,
+                        ParentNameRule::Exact(expected) => e.label.name == expected,
+                    };
+                if e.label.src != from.anchor || e.label.tgt != to.anchor || !name_matches {
                     return Err(NotATree::FanLabel { edge });
                 }
                 continue;
@@ -661,8 +678,11 @@ pub mod encode {
     /// node that is no fan node; every edge joins two nodes and has no
     /// position; an edge out of a fan node (a node of the hyper-edge shape) is
     /// labelled from the fan's anchor to the anchor of its target, a parent
-    /// edge named by `parent_name` of the fan's anchor (as [`tree_to_graph`]
-    /// names it under the same schema, [`schema_parent_name`]); every other
+    /// edge named by the exact optional name returned by `parent_name` of the
+    /// fan's anchor, or unconstrained when it returns
+    /// [`ParentNameRule::Any`] (as
+    /// [`tree_to_graph`] names it under the same schema,
+    /// [`schema_parent_name`]); every other
     /// edge is an arc: of no reserved kind, into a node that is neither a fan
     /// node nor the root, and the only arc into its target; every fan node
     /// carries no data and is a well-formed fan ([`crate::fan::violations_at`],
@@ -680,7 +700,7 @@ pub mod encode {
     pub fn graph_to_tree(
         g: &Graph,
         root: u32,
-        parent_name: &dyn Fn(&str) -> Option<Name>,
+        parent_name: &dyn Fn(&str) -> ParentNameRule,
     ) -> Result<Tree, NotATree> {
         let is_fan = |n: u32| {
             g.nodes
@@ -844,12 +864,17 @@ pub mod encode {
 
     /// Definition: The table form of a table-shaped graph.
     ///
-    /// Every node a plain row (no value, discriminator, position, annotations or non-plain shape),
-    /// every edge unpositioned, no two edges with one label and endpoints. `None` otherwise.
+    /// Every node is a plain row (no value, discriminator, position,
+    /// annotations, non-plain shape or nested cell). Every edge is
+    /// unpositioned, declared by `schema`, coherent with the anchors at its
+    /// endpoints, and unique for its label and endpoints. An edge declared by
+    /// a cardinality-one reference has at most one lift from each source row;
+    /// if that reference is also non-nullable, every row of its source table
+    /// has a lift. `None` otherwise.
     ///
     /// Book anchors: `L-representation-7`.
     #[must_use]
-    pub fn graph_to_table(g: &Graph) -> Option<Table> {
+    pub fn graph_to_table(g: &Graph, schema: &Schema) -> Option<Table> {
         if !g.well_formed() {
             return None;
         }
@@ -860,14 +885,45 @@ pub mod encode {
                 && n.position.is_none()
                 && n.annotations.is_empty()
                 && n.shape == NodeShape::Plain;
-            if !plain {
+            let flat = n.fields.values().all(|value| {
+                !matches!(
+                    value,
+                    crate::value::Value::Unknown(_) | crate::value::Value::List(_)
+                )
+            });
+            if !plain || !flat {
                 return None;
             }
             t.rows.insert(*id, (n.anchor.clone(), n.fields.clone()));
         }
+        let mut lifts: BTreeMap<(u32, SEdge), usize> = BTreeMap::new();
         for e in g.edges.values() {
-            if e.position.is_some() || !t.pairs.insert((e.label.clone(), e.src, e.tgt)) {
+            let endpoints_match = g.nodes.get(&e.src).map(|n| &n.anchor) == Some(&e.label.src)
+                && g.nodes.get(&e.tgt).map(|n| &n.anchor) == Some(&e.label.tgt);
+            if e.position.is_some()
+                || !schema.edges.contains(&e.label)
+                || !endpoints_match
+                || !t.pairs.insert((e.label.clone(), e.src, e.tgt))
+            {
                 return None;
+            }
+            *lifts.entry((e.src, e.label.clone())).or_default() += 1;
+        }
+        for reference in schema.references.values() {
+            let Some(edge) = &reference.edge else {
+                continue;
+            };
+            if reference.cardinality != crate::schema::Cardinality::One {
+                continue;
+            }
+            for (id, (anchor, _)) in &t.rows {
+                if anchor != &edge.src {
+                    continue;
+                }
+                let count = lifts.get(&(*id, edge.clone())).copied().unwrap_or(0);
+                if count > 1 || (!reference.nullable && count == 0) {
+                    return None;
+                }
             }
         }
         Some(t)
@@ -875,7 +931,11 @@ pub mod encode {
 
     #[cfg(test)]
     mod allocation_tests {
-        use super::{TableEncodeError, TreeEncodeError, take_id};
+        use std::collections::BTreeMap;
+
+        use crate::model::{Fan, Node, Tree};
+
+        use super::{TableEncodeError, TreeEncodeError, take_id, tree_to_graph};
 
         fn table_exhausted() -> TableEncodeError {
             TableEncodeError::EdgeIdsExhausted {
@@ -902,6 +962,35 @@ pub mod encode {
             assert_eq!(
                 take_id(&mut edges, table_exhausted()),
                 Err(table_exhausted())
+            );
+        }
+
+        #[test]
+        fn tree_at_the_saturated_node_floor_only_refuses_required_allocation() {
+            let node = Node::new(u32::MAX, "a");
+            let tree = Tree {
+                nodes: BTreeMap::from([(u32::MAX, node)]),
+                arcs: Vec::new(),
+                fans: Vec::new(),
+                root: u32::MAX,
+            };
+
+            let (graph, embedding) =
+                tree_to_graph(&tree, None).expect("fan-free tree needs no allocation");
+            assert_eq!(graph.nodes, tree.nodes);
+            assert_eq!(embedding.next_node, u32::MAX);
+
+            let with_fan = Tree {
+                fans: vec![Fan {
+                    parent: u32::MAX,
+                    hyper_edge: "h".into(),
+                    children: BTreeMap::new(),
+                }],
+                ..tree
+            };
+            assert_eq!(
+                tree_to_graph(&with_fan, None),
+                Err(TreeEncodeError::NodeIdsExhausted)
             );
         }
     }

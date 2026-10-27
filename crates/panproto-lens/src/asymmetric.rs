@@ -3313,6 +3313,7 @@ mod tests {
                     parts: vec![KeyPart::Path(Vec::new())],
                     role: KeyRole::Unique,
                     scope: KeyScope::Global,
+                    equality: vec![],
                 }],
             );
             let lens = identity_lens(&schema);

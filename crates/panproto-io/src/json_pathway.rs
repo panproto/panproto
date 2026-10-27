@@ -177,11 +177,26 @@ pub(crate) fn coerce_exact_lexeme(
 #[derive(Debug)]
 enum RawJson<'a> {
     Null,
-    Bool { value: bool, offset: usize },
-    Number { lexeme: &'a str, offset: usize },
-    String { value: String, offset: usize },
-    Array(Vec<Self>),
-    Object(Vec<(String, Self)>),
+    Bool {
+        value: bool,
+        offset: usize,
+    },
+    Number {
+        lexeme: &'a str,
+        offset: usize,
+    },
+    String {
+        value: String,
+        offset: usize,
+    },
+    Array {
+        values: Vec<Self>,
+        offset: usize,
+    },
+    Object {
+        fields: Vec<(String, Self)>,
+        offset: usize,
+    },
 }
 
 /// Where a refused JSON string token goes wrong, relative to the token.
@@ -562,12 +577,13 @@ impl<'a> RawJsonParser<'a> {
     }
 
     fn array(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
+        let offset = self.pos;
         self.pos += 1;
         self.whitespace();
         let mut values = Vec::new();
         if self.input.get(self.pos) == Some(&b']') {
             self.pos += 1;
-            return Ok(RawJson::Array(values));
+            return Ok(RawJson::Array { values, offset });
         }
         loop {
             values.push(self.value(depth)?);
@@ -576,7 +592,7 @@ impl<'a> RawJsonParser<'a> {
                 Some(b',') => self.pos += 1,
                 Some(b']') => {
                     self.pos += 1;
-                    return Ok(RawJson::Array(values));
+                    return Ok(RawJson::Array { values, offset });
                 }
                 _ => return Err(format!("expected ',' or ']' at byte {}", self.pos)),
             }
@@ -584,13 +600,14 @@ impl<'a> RawJsonParser<'a> {
     }
 
     fn object(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
+        let offset = self.pos;
         self.pos += 1;
         self.whitespace();
         let mut fields = Vec::new();
         let mut seen = HashSet::new();
         if self.input.get(self.pos) == Some(&b'}') {
             self.pos += 1;
-            return Ok(RawJson::Object(fields));
+            return Ok(RawJson::Object { fields, offset });
         }
         loop {
             self.whitespace();
@@ -613,7 +630,7 @@ impl<'a> RawJsonParser<'a> {
                 Some(b',') => self.pos += 1,
                 Some(b'}') => {
                     self.pos += 1;
-                    return Ok(RawJson::Object(fields));
+                    return Ok(RawJson::Object { fields, offset });
                 }
                 _ => return Err(format!("expected ',' or '}}' at byte {}", self.pos)),
             }
@@ -689,7 +706,7 @@ pub fn parse_json_bytes(
         &raw,
         root_id,
         &mut state,
-    );
+    )?;
     if !state.fidelity.is_empty() {
         state
             .fidelity
@@ -855,10 +872,31 @@ fn walk_raw_json(
     raw: &RawJson<'_>,
     node_id: u32,
     state: &mut BuildState,
-) {
+) -> Result<(), ParseInstanceError> {
+    let anchor = resolve_transparent_indirection(schema, vertex);
+    let scalar_kind = schema
+        .vertices
+        .get(anchor)
+        .filter(|declaration| protocol.value_kinds.contains_key(declaration.kind.as_str()));
+    let structural_value = match raw {
+        RawJson::Array { offset, .. } => Some(("array", *offset)),
+        RawJson::Object { offset, .. } => Some(("object", *offset)),
+        RawJson::Null | RawJson::Bool { .. } | RawJson::Number { .. } | RawJson::String { .. } => {
+            None
+        }
+    };
+    if let (Some(declaration), Some((shape, offset))) = (scalar_kind, structural_value) {
+        return Err(ParseInstanceError::SchemaMismatch {
+            protocol: protocol.name.clone(),
+            message: format!(
+                "JSON {shape} at byte {offset} cannot populate scalar vertex '{anchor}' of kind '{}'",
+                declaration.kind
+            ),
+        });
+    }
+
     match raw {
-        RawJson::Object(fields) => {
-            let anchor = resolve_transparent_indirection(schema, vertex);
+        RawJson::Object { fields, .. } => {
             let mut node = Node::new(node_id, anchor);
             if let Some(RawJson::String { value, .. }) = fields
                 .iter()
@@ -878,7 +916,7 @@ fn walk_raw_json(
                     continue;
                 };
                 let child_id = state.alloc_id();
-                walk_raw_json(schema, protocol, &edge.tgt, child, child_id, state);
+                walk_raw_json(schema, protocol, &edge.tgt, child, child_id, state)?;
                 state.arcs.push((node_id, child_id, edge));
             }
             for (key, value) in fields {
@@ -890,7 +928,7 @@ fn walk_raw_json(
             }
             state.nodes.insert(node_id, node);
         }
-        RawJson::Array(items) => {
+        RawJson::Array { values, .. } => {
             let mut node = Node::new(node_id, vertex);
             node.shape = NodeShape::List;
             state.nodes.insert(node_id, node);
@@ -900,9 +938,9 @@ fn walk_raw_json(
                 .find(|edge| edge.name.is_none())
                 .cloned();
             if let Some(edge) = edge {
-                for item in items {
+                for item in values {
                     let child_id = state.alloc_id();
-                    walk_raw_json(schema, protocol, &edge.tgt, item, child_id, state);
+                    walk_raw_json(schema, protocol, &edge.tgt, item, child_id, state)?;
                     state.arcs.push((node_id, child_id, edge.clone()));
                 }
             } else {
@@ -913,9 +951,9 @@ fn walk_raw_json(
                     kind: "item".into(),
                     name: Some("item".into()),
                 };
-                for item in items {
+                for item in values {
                     let child_id = state.alloc_id();
-                    walk_raw_json(schema, protocol, &child_anchor, item, child_id, state);
+                    walk_raw_json(schema, protocol, &child_anchor, item, child_id, state)?;
                     state.arcs.push((node_id, child_id, edge.clone()));
                 }
             }
@@ -928,6 +966,7 @@ fn walk_raw_json(
                 .insert(node_id, Node::new(node_id, vertex).with_value(presence));
         }
     }
+    Ok(())
 }
 
 fn raw_scalar(
@@ -959,7 +998,7 @@ fn raw_scalar(
             spec,
             state,
         ),
-        RawJson::Array(_) | RawJson::Object(_) => {
+        RawJson::Array { .. } | RawJson::Object { .. } => {
             FieldPresence::Present(raw_to_value(raw, vertex, state))
         }
     }
@@ -1001,13 +1040,13 @@ fn raw_to_value(raw: &RawJson<'_>, vertex: &str, state: &mut BuildState) -> Valu
             }
         }
         RawJson::String { value, .. } => Value::Str(value.clone()),
-        RawJson::Array(items) => Value::List(
-            items
+        RawJson::Array { values, .. } => Value::List(
+            values
                 .iter()
                 .map(|item| raw_to_value(item, vertex, state))
                 .collect(),
         ),
-        RawJson::Object(fields) => {
+        RawJson::Object { fields, .. } => {
             let values = fields
                 .iter()
                 .map(|(key, value)| (key.clone(), raw_to_value(value, vertex, state)))
@@ -1907,6 +1946,15 @@ fn write_json_value_at_depth(
         Value::Decimal(value) => output.extend_from_slice(value.to_string().as_bytes()),
         Value::BigInt(value) => write_json_bigint(value, spec, site, output)?,
         Value::Temporal(temporal) => {
+            if !temporal.is_complete() {
+                return Err(EmitValueError::new(
+                    site.clone(),
+                    value.type_name(),
+                    "json",
+                    EmitValueReason::NotRepresentable,
+                )
+                .into());
+            }
             write_json_string(&temporal.to_string(), output)?;
         }
         Value::LabeledNull(_) => {
@@ -2067,11 +2115,11 @@ fn json_float_text(value: f64) -> String {
 
 pub(crate) fn encode_bytes(bytes: &[u8], encoding: &BytesText) -> Option<String> {
     match encoding {
-        BytesText::Base64 => Some(encode_base64(
+        BytesText::Base64 | BytesText::Base64Padded => Some(encode_base64(
             bytes,
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
         )),
-        BytesText::Base64Url => Some(encode_base64(
+        BytesText::Base64Url | BytesText::Base64UrlPadded => Some(encode_base64(
             bytes,
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
         )),
@@ -2084,6 +2132,7 @@ pub(crate) fn encode_bytes(bytes: &[u8], encoding: &BytesText) -> Option<String>
             Some(result)
         }
         BytesText::Raw => std::str::from_utf8(bytes).ok().map(ToOwned::to_owned),
+        BytesText::Latin1 => Some(bytes.iter().copied().map(char::from).collect()),
     }
 }
 
@@ -2184,6 +2233,19 @@ mod tests {
             .expect("build")
     }
 
+    fn cassandra_scalar_schema() -> Schema {
+        let protocol = panproto_protocols::database::cassandra::protocol();
+        SchemaBuilder::new(&protocol)
+            .vertex("root", "table", None)
+            .expect("root")
+            .vertex("value", "text", None)
+            .expect("scalar value")
+            .edge("root", "value", "prop", Some("value"))
+            .expect("value edge")
+            .build()
+            .expect("build")
+    }
+
     fn number_schema() -> Schema {
         let proto = panproto_schema::Protocol {
             name: "test".into(),
@@ -2235,6 +2297,29 @@ mod tests {
         let input = b"not valid json {{{";
         let result = parse_json_bytes(&schema, "root", input, "test");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn structural_json_values_are_refused_at_declared_scalar_sites() {
+        let schema = cassandra_scalar_schema();
+        for (input, shape, offset) in [
+            (br#"{"value":[]}"#.as_slice(), "array", 9),
+            (br#"{"value": {}}"#.as_slice(), "object", 10),
+        ] {
+            let error = parse_json_bytes(&schema, "root", input, "cassandra")
+                .expect_err("a structural value cannot populate a scalar vertex");
+            assert!(matches!(
+                error,
+                ParseInstanceError::SchemaMismatch { protocol, message }
+                    if protocol == "cassandra"
+                        && message == format!(
+                            "JSON {shape} at byte {offset} cannot populate scalar vertex 'value' of kind 'text'"
+                        )
+            ));
+        }
+
+        parse_json_bytes(&schema, "root", br#"{"value":"scalar"}"#, "cassandra")
+            .expect("a scalar remains valid at the same declared site");
     }
 
     #[test]
@@ -3153,6 +3238,22 @@ mod tests {
         assert_eq!(
             encode_bytes(&[0xff, 0xee], &BytesText::Base64Url).as_deref(),
             Some("_-4=")
+        );
+        assert_eq!(
+            encode_bytes(&[0xff, 0xee], &BytesText::Base64Padded).as_deref(),
+            Some("/+4=")
+        );
+        assert_eq!(
+            encode_bytes(&[0xff, 0xee], &BytesText::Base64UrlPadded).as_deref(),
+            Some("_-4=")
+        );
+    }
+
+    #[test]
+    fn latin1_encoder_maps_each_byte_to_its_code_point() {
+        assert_eq!(
+            encode_bytes(&[0x00, 0x7f, 0x80, 0xff], &BytesText::Latin1).as_deref(),
+            Some("\0\u{7f}\u{80}ÿ")
         );
     }
 

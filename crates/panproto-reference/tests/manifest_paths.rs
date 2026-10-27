@@ -37,7 +37,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
             counts[index] += 1;
             counts
         });
-    assert_eq!(status_counts, [9, 3, 21]);
+    assert_eq!(status_counts, [12, 0, 21]);
 
     let laws: Vec<_> = manifest
         .pages
@@ -59,7 +59,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        331
+        359
     );
 
     for page in manifest.pages.values().filter(|page| {
@@ -87,15 +87,15 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .flat_map(|law| &law.references)
         .cloned()
         .collect();
-    assert_eq!(partial_laws.len(), 38);
+    assert_eq!(partial_laws.len(), 0);
     assert_eq!(
         partial_laws
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        65,
+        0,
     );
-    assert_eq!(partial_paths.len(), 27);
+    assert_eq!(partial_paths.len(), 0);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -105,8 +105,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 192);
-    assert_eq!(documented.len(), 192);
+    assert_eq!(expected.len(), 218);
+    assert_eq!(documented.len(), 218);
     assert_eq!(documented, expected);
 }
 
@@ -231,7 +231,10 @@ fn validation_law_to_public_path_incidences_are_exact() {
         ),
         (
             "validation.variable-binding-checks".to_owned(),
-            vec!["panproto_reference::validation::variable_binding".to_owned()],
+            vec![
+                "panproto_reference::resolution::nearest_preceding".to_owned(),
+                "panproto_reference::validation::variable_binding".to_owned(),
+            ],
         ),
         (
             "validation.guard-target-set-sort-key-checks".to_owned(),
@@ -239,7 +242,11 @@ fn validation_law_to_public_path_incidences_are_exact() {
         ),
         (
             "validation.index-null-match-checks".to_owned(),
-            vec!["panproto_reference::validation::index_and_null_match".to_owned()],
+            vec![
+                "panproto_reference::resolution::get".to_owned(),
+                "panproto_reference::resolution::index_target".to_owned(),
+                "panproto_reference::resolution::put".to_owned(),
+            ],
         ),
         (
             "validation.lexical-space-advisory".to_owned(),
@@ -270,6 +277,6 @@ fn validation_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        42,
+        45,
     );
 }

@@ -1519,6 +1519,27 @@ impl Temporal {
         }
     }
 
+    /// Whether the value is a finite full date, full time, or full date-time.
+    ///
+    /// Reduced-precision, front-truncated, and infinite forms are admitted by
+    /// the exact temporal carrier but are not complete.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        let Some(form) = self.lexical_form() else {
+            return false;
+        };
+        let full_date = form
+            .date_shape
+            .is_none_or(|(year, month, day)| year && month && day);
+        let full_time = form
+            .time_shape
+            .is_none_or(|(hour, minute, second)| hour && minute && second);
+        form.infinity.is_none()
+            && full_date
+            && full_time
+            && (form.date_shape.is_some() || form.time_shape.is_some())
+    }
+
     /// The offset the value was written with; `None` for a date.
     #[must_use]
     pub const fn offset(&self) -> Option<Offset> {

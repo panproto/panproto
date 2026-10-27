@@ -390,6 +390,7 @@ mod tests {
                 parts: vec![KeyPart::Path(vec![name])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
         s
@@ -567,6 +568,7 @@ mod tests {
                 }],
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
         let plan =

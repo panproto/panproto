@@ -84,6 +84,7 @@ fn reference_plan() -> Arc<ValidationPlan> {
             parts: vec![KeyPart::Path(vec![name])],
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         },
     );
     schema.declarations.insert_reference(Reference {
@@ -99,6 +100,10 @@ fn reference_plan() -> Arc<ValidationPlan> {
         nullable: true,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     });
     Arc::new(ValidationPlan::compile(
         &schema,

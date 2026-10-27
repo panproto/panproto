@@ -314,6 +314,7 @@ fn key(id: &str, parts: Vec<Edge>, role: KeyRole, scope: KeyScope) -> Key {
         parts: parts.into_iter().map(|e| KeyPart::Path(vec![e])).collect(),
         role,
         scope,
+        equality: vec![],
     }
 }
 
@@ -341,6 +342,10 @@ fn reference(
         nullable,
         on_unresolved,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 

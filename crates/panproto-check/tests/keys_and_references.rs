@@ -56,6 +56,7 @@ fn film_key(role: KeyRole, scope: KeyScope) -> Key {
         parts: vec![KeyPart::Path(vec![column("film", "id")])],
         role,
         scope,
+        equality: vec![],
     }
 }
 
@@ -73,6 +74,10 @@ fn store_film(cardinality: Cardinality, nullable: bool, on_unresolved: OnUnresol
         nullable,
         on_unresolved,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -165,6 +170,10 @@ fn key_changes_are_classified() {
         vertex_id: "film".to_owned(),
         key_id: "pk".to_owned(),
     };
+    let key_added_nonbreaking = || NonBreakingChange::KeyAdded {
+        vertex_id: "film".to_owned(),
+        key_id: "pk".to_owned(),
+    };
     let bare = with(&[], &[]);
 
     // Adding a primary, unique or identifier key is breaking; removing one
@@ -172,6 +181,17 @@ fn key_changes_are_classified() {
     for role in [KeyRole::Primary, KeyRole::Unique, KeyRole::Identifier] {
         let keyed = with(&[film_key(role, KeyScope::Document)], &[]);
         assert_eq!(verdict(&bare, &keyed), (vec![key_added()], vec![]));
+        assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
+    }
+
+    // Sort keys and indexes do not impose an instance-admission obligation.
+    // Adding or removing either role is therefore nonbreaking.
+    for role in [KeyRole::SortKey, KeyRole::Index] {
+        let keyed = with(&[film_key(role, KeyScope::Document)], &[]);
+        assert_eq!(
+            verdict(&bare, &keyed),
+            (vec![], vec![key_added_nonbreaking()])
+        );
         assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
     }
 
@@ -192,6 +212,7 @@ fn key_changes_are_classified() {
             parts: vec![],
             role: KeyRole::Primary,
             scope: KeyScope::Document,
+            equality: vec![],
         },
     );
     let (breaking, non_breaking) = verdict(&bare, &grown);
@@ -201,8 +222,9 @@ fn key_changes_are_classified() {
         key_id: "pk".to_owned(),
     }));
 
-    // Strengthening the role or widening the scope is breaking, and the
-    // inverse is a relaxation.
+    // Every role-to-role change fails closed in both directions because the
+    // roles impose different uniqueness, ordering, identity, and resolution
+    // contracts.
     let tightened = || BreakingChange::KeyTightened {
         vertex_id: "film".to_owned(),
         key_id: "pk".to_owned(),
@@ -211,11 +233,26 @@ fn key_changes_are_classified() {
         vertex_id: "film".to_owned(),
         key_id: "pk".to_owned(),
     };
+    let roles = [
+        KeyRole::Primary,
+        KeyRole::Unique,
+        KeyRole::Identifier,
+        KeyRole::SortKey,
+        KeyRole::Index,
+    ];
+    for old_role in &roles {
+        for new_role in &roles {
+            if old_role == new_role {
+                continue;
+            }
+            let old = with(&[film_key(old_role.clone(), KeyScope::Document)], &[]);
+            let new = with(&[film_key(new_role.clone(), KeyScope::Document)], &[]);
+            assert_eq!(verdict(&old, &new), (vec![tightened()], vec![]));
+        }
+    }
+
+    // Widening a scope is breaking, and narrowing one is a relaxation.
     let pairs = [
-        (
-            film_key(KeyRole::Unique, KeyScope::Document),
-            film_key(KeyRole::Primary, KeyScope::Document),
-        ),
         (
             film_key(KeyRole::Unique, KeyScope::Document),
             film_key(KeyRole::Unique, KeyScope::Global),
@@ -232,7 +269,7 @@ fn key_changes_are_classified() {
         assert_eq!(verdict(&stricter, &looser), (vec![], vec![relaxed()]));
     }
 
-    // New parts, or swapping unique for identifier, may reject either way.
+    // Changing the part sequence may reject values in either direction.
     let mut reparted = film_key(KeyRole::Unique, KeyScope::Document);
     reparted.parts.clear();
     let unique = with(&[film_key(KeyRole::Unique, KeyScope::Document)], &[]);
@@ -240,8 +277,6 @@ fn key_changes_are_classified() {
         verdict(&unique, &with(&[reparted], &[])),
         (vec![tightened()], vec![])
     );
-    let identifier = with(&[film_key(KeyRole::Identifier, KeyScope::Document)], &[]);
-    assert_eq!(verdict(&unique, &identifier), (vec![tightened()], vec![]));
 }
 
 #[test]

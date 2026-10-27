@@ -11,12 +11,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, InstanceShapeKind, Schema};
+use panproto_schema::value_kinds::NumeralDialect;
+use panproto_schema::{Edge, InstanceShapeKind, ScalarKind, Schema, ValueSpec};
 
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, FanDomain, GInstance};
+use crate::key::{KeyingError, canonical_key_bytes};
 use crate::metadata::NodeShape;
-use crate::value::{FieldPresence, Value};
+use crate::value::{FieldPresence, Value, ValueSite};
 use crate::view_ref::{RowId, ViewRef};
 use crate::wtype::WInstance;
 
@@ -859,7 +861,7 @@ use super::report::{
     CheckKey, CheckKind, Diagnostic, EndpointSide, FanRecord, IncompleteReason, Requirement,
     SchemaRef, SourceLocation, Violation,
 };
-use super::state::{KeyIndex, key_bytes, part_name, part_value, path_values, scope_of};
+use super::state::{KeyIndex, part_name, part_value, path_values, scope_of};
 use crate::attributes::kind_accepts;
 use crate::fan_violation::FanViolation;
 
@@ -1004,7 +1006,7 @@ impl<'a> Context<'a> {
         vertex: &Name,
         key: &panproto_schema::Key,
         scoped: bool,
-    ) -> Option<Rc<KeyIndex>> {
+    ) -> Result<Option<Rc<KeyIndex>>, KeyingError> {
         let cached = self
             .indexes
             .borrow()
@@ -1012,14 +1014,14 @@ impl<'a> Context<'a> {
             .find(|entry| entry.scoped == scoped && entry.vertex == *vertex && entry.key == *key)
             .map(|entry| (Rc::clone(&entry.index), Rc::clone(&entry.reads)));
         if let Some((index, reads)) = cached {
-            return record_read_set(&reads).then_some(index);
+            return Ok(record_read_set(&reads).then_some(index));
         }
         if active_trace_is_bounded() {
-            let index = KeyIndex::build(self.view, vertex, key, scoped);
-            return (!trace_overflowed()).then(|| Rc::new(index));
+            let index = KeyIndex::build(self.view, vertex, key, scoped)?;
+            return Ok((!trace_overflowed()).then(|| Rc::new(index)));
         }
         let (index, reads) = traced(|| KeyIndex::build(self.view, vertex, key, scoped));
-        let (index, reads) = (Rc::new(index), Rc::new(reads));
+        let (index, reads) = (Rc::new(index?), Rc::new(reads));
         self.indexes.borrow_mut().push(CachedIndex {
             vertex: vertex.clone(),
             key: key.clone(),
@@ -1027,7 +1029,7 @@ impl<'a> Context<'a> {
             index: Rc::clone(&index),
             reads: Rc::clone(&reads),
         });
-        record_read_set(&reads).then_some(index)
+        Ok(record_read_set(&reads).then_some(index))
     }
 }
 
@@ -1547,8 +1549,17 @@ fn discover_local(
             let _ = view.out_edges(node);
         }
         (CheckKind::ValueConstraint, Some(node)) => {
-            if let Compiled::Value { vertex, .. } = compiled {
+            if let Compiled::Value { vertex, test, .. } = compiled {
                 let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
+                if let ValueTest::LexicalSpace { tag, .. } = test {
+                    for edge in view
+                        .out_edges(node)
+                        .into_iter()
+                        .filter(|edge| edge.label == tag)
+                    {
+                        let _ = view.own_value(&edge.tgt);
+                    }
+                }
             }
         }
         (CheckKind::RequiredValue, Some(node)) => {
@@ -1960,11 +1971,57 @@ fn value_constraint(
     test: &ValueTest,
 ) -> Outcome {
     let mut out = Outcome::default();
+    let lexical = if let ValueTest::LexicalSpace { tag, kinds } = test {
+        match lexical_bound(ctx, n, tag) {
+            Ok(Some(datatype)) => match kinds.get(&datatype) {
+                Some(kind) => {
+                    let spec = lexical_spec(&datatype, kind.clone());
+                    Some(Ok((datatype, spec)))
+                }
+                None => Some(Err(IncompleteReason::UnsupportedDeclaration {
+                    sort: datatype.into(),
+                })),
+            },
+            Ok(None) => Some(Err(IncompleteReason::Unsupported {
+                detail: format!(
+                    "lexical-space selector {} has no value",
+                    tag.name.as_deref().unwrap_or("")
+                ),
+            })),
+            Err(reason) => Some(Err(reason)),
+        }
+    } else {
+        None
+    };
     for (_, presence) in ctx.view.value_sites_at(&ctx.plan.schema, vertex, n) {
         let Some(value) = presence.value() else {
             continue;
         };
-        match value_passes(test, value) {
+        if let Some(lexical) = &lexical {
+            match lexical {
+                Ok((datatype, spec)) => {
+                    if crate::value::coerce::coerce_value(
+                        value,
+                        spec,
+                        ValueSite::new(vertex.clone(), None),
+                    )
+                    .is_err()
+                    {
+                        out.findings.push(Finding::new(
+                            vec![n.clone()],
+                            Violation::ValueConstraint {
+                                sort: sort.clone(),
+                                bound: datatype.clone(),
+                                value: Some(value.clone()),
+                            },
+                        ));
+                    }
+                }
+                Err(reason) => out.incomplete.push(reason.clone()),
+            }
+            continue;
+        }
+        match value_passes(test, value, vertex) {
             Ok(true) => {}
             Ok(false) => out.findings.push(Finding::new(
                 vec![n.clone()],
@@ -1980,6 +2037,50 @@ fn value_constraint(
         }
     }
     out
+}
+
+fn lexical_spec(datatype: &str, kind: ScalarKind) -> ValueSpec {
+    let mut spec = ValueSpec::new(kind);
+    if datatype.starts_with("http://www.w3.org/2001/XMLSchema#") {
+        spec.numeral = Some(NumeralDialect::Xsd);
+    }
+    spec
+}
+
+/// The one textual datatype selected from `subject` through `tag`.
+pub(super) fn lexical_bound(
+    ctx: &Context<'_>,
+    subject: &ViewRef,
+    tag: &Edge,
+) -> Result<Option<String>, IncompleteReason> {
+    let targets: Vec<ViewRef> = ctx
+        .view
+        .out_edges(subject)
+        .into_iter()
+        .filter(|edge| edge.label == tag)
+        .map(|edge| edge.tgt)
+        .collect();
+    match targets.as_slice() {
+        [] => Ok(None),
+        [target] => match ctx.view.own_value(target).value() {
+            None => Ok(None),
+            Some(Value::Str(value) | Value::Token(value) | Value::CidLink(value)) => {
+                Ok(Some(value.clone()))
+            }
+            Some(_) => Err(IncompleteReason::Unsupported {
+                detail: format!(
+                    "lexical-space selector {} is not text",
+                    tag.name.as_deref().unwrap_or("")
+                ),
+            }),
+        },
+        _ => Err(IncompleteReason::Unsupported {
+            detail: format!(
+                "lexical-space selector {} has more than one value",
+                tag.name.as_deref().unwrap_or("")
+            ),
+        }),
+    }
 }
 
 /// The length of a value in `unit`: a string's (or token's) characters,
@@ -2123,7 +2224,7 @@ fn format_matches(
 
 /// Whether `value` passes `test`; `Err` when the test cannot be applied to
 /// a value of its kind.
-fn value_passes(test: &ValueTest, value: &Value) -> Result<bool, String> {
+fn value_passes(test: &ValueTest, value: &Value, vertex: &Name) -> Result<bool, String> {
     match test {
         ValueTest::Length { unit, limit, upper } => {
             let n = value_length(value, unit).ok_or_else(|| {
@@ -2151,6 +2252,15 @@ fn value_passes(test: &ValueTest, value: &Value) -> Result<bool, String> {
             )),
         },
         ValueTest::Format { format, rules } => format_matches(*format, *rules, value),
+        ValueTest::Coercible(spec) => Ok(crate::value::coerce::coerce_value(
+            value,
+            spec,
+            ValueSite::new(vertex.clone(), None),
+        )
+        .is_ok()),
+        ValueTest::LexicalSpace { .. } => {
+            Err("a lexical-space check requires its value-selected datatype".to_owned())
+        }
     }
 }
 
@@ -2260,14 +2370,37 @@ fn has_position_part(key: &panproto_schema::Key) -> Option<&panproto_schema::Key
         .find(|p| matches!(p, panproto_schema::KeyPart::Position { .. }))
 }
 
+fn keying_incomplete(key: &panproto_schema::Key, error: KeyingError) -> IncompleteReason {
+    match error {
+        KeyingError::UnsupportedCollation(collation) => IncompleteReason::UnsupportedCollation {
+            key: key.id.clone(),
+            collation,
+        },
+        KeyingError::EqualityArity { expected, found } => IncompleteReason::IllFormedDeclaration {
+            detail: format!(
+                "key {} has {found} equality declarations for {expected} parts",
+                key.id
+            ),
+        },
+        KeyingError::InvalidNumericRepresentation { kind } => {
+            IncompleteReason::InvalidKeyRepresentation {
+                key: key.id.clone(),
+                kind: kind.to_owned(),
+            }
+        }
+    }
+}
+
 fn key_unique(ctx: &Context<'_>, vertex: &Name, key: &panproto_schema::Key) -> Outcome {
     if matches!(ctx.view, InstanceView::Table(_))
         && let Some(part) = has_position_part(key)
     {
         return Outcome::undecided(position_in_table(part));
     }
-    let Some(index) = ctx.key_index(vertex, key, true) else {
-        return Outcome::default();
+    let index = match ctx.key_index(vertex, key, true) {
+        Ok(Some(index)) => index,
+        Ok(None) => return Outcome::default(),
+        Err(error) => return Outcome::undecided(keying_incomplete(key, error)),
     };
     let mut out = Outcome::default();
     if let panproto_schema::KeyScope::Within(scope) = &key.scope {
@@ -2369,15 +2502,17 @@ fn candidates(
     holder: &ViewRef,
     reference: &panproto_schema::Reference,
     target: &panproto_schema::Key,
-    key: &[Value],
-) -> Vec<ViewRef> {
+    values: &[Value],
+) -> Result<Vec<ViewRef>, KeyingError> {
     let scope = scope_of(ctx.view, holder, &target.scope);
     if trace_overflowed() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    ctx.key_index(&reference.target_vertex, target, true)
-        .and_then(|index| index.buckets.get(&(scope, key_bytes(key))).cloned())
-        .unwrap_or_default()
+    let bytes = canonical_key_bytes(target, values)?;
+    Ok(ctx
+        .key_index(&reference.target_vertex, target, true)?
+        .and_then(|index| index.buckets.get(&(scope, bytes)).cloned())
+        .unwrap_or_default())
 }
 
 fn reference_resolves(
@@ -2392,7 +2527,10 @@ fn reference_resolves(
     };
     let mut out = Outcome::default();
     for key in keys {
-        let candidates = candidates(ctx, holder, reference, target, &key);
+        let candidates = match candidates(ctx, holder, reference, target, &key) {
+            Ok(candidates) => candidates,
+            Err(error) => return Outcome::undecided(keying_incomplete(target, error)),
+        };
         match candidates.len() {
             1 => {}
             0 => out.findings.push(Finding::new(
@@ -2731,29 +2869,58 @@ mod tests {
             parts: Vec::new(),
             role: KeyRole::Unique,
             scope: KeyScope::Global,
+            equality: vec![],
         };
         let other_key = Key {
             id: "other".into(),
             ..key.clone()
         };
 
-        assert!(ctx.key_index(&a, &key, true).is_some());
-        assert!(ctx.key_index(&a, &key, true).is_some());
+        assert!(
+            ctx.key_index(&a, &key, true)
+                .expect("representation key is computable")
+                .is_some()
+        );
+        assert!(
+            ctx.key_index(&a, &key, true)
+                .expect("cached representation key is computable")
+                .is_some()
+        );
         assert_eq!(ctx.indexes.borrow().len(), 1);
-        assert!(ctx.key_index(&a, &key, false).is_some());
-        assert!(ctx.key_index(&b, &key, true).is_some());
-        assert!(ctx.key_index(&a, &other_key, true).is_some());
+        assert!(
+            ctx.key_index(&a, &key, false)
+                .expect("unscoped representation key is computable")
+                .is_some()
+        );
+        assert!(
+            ctx.key_index(&b, &key, true)
+                .expect("second representation key is computable")
+                .is_some()
+        );
+        assert!(
+            ctx.key_index(&a, &other_key, true)
+                .expect("other representation key is computable")
+                .is_some()
+        );
         assert_eq!(ctx.indexes.borrow().len(), 4);
 
         let bounded = Context::new(&plan, InstanceView::Graph(&graph), &external);
         let (index, trace) = traced_bounded(8, || bounded.key_index(&a, &key, true));
-        assert!(index.is_some());
+        assert!(
+            index
+                .expect("bounded representation key is computable")
+                .is_some()
+        );
         assert!(!trace.overflowed);
         assert!(bounded.indexes.borrow().is_empty());
 
         let overflowed = Context::new(&plan, InstanceView::Graph(&graph), &external);
         let (index, trace) = traced_bounded(0, || overflowed.key_index(&a, &key, true));
-        assert!(index.is_none());
+        assert!(
+            index
+                .expect("overflow precedes representation keying")
+                .is_none()
+        );
         assert!(trace.overflowed);
         assert!(overflowed.indexes.borrow().is_empty());
     }

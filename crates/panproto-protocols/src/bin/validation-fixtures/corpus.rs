@@ -440,6 +440,7 @@ impl S {
                     .collect(),
                 role,
                 scope: KeyScope::Global,
+                equality: vec![],
             },
         );
         self
@@ -1880,6 +1881,10 @@ fn reference(
         nullable,
         on_unresolved,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -2202,6 +2207,7 @@ fn map_in_map() -> (Schema, Edge, Edge, Edge) {
             parts: vec![KeyPart::Path(vec![key.clone()])],
             role: KeyRole::Unique,
             scope: KeyScope::Within("map".into()),
+            equality: vec![],
         },
     );
     (schema, entries, value, key)

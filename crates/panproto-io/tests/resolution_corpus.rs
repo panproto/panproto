@@ -238,6 +238,10 @@ fn reference(
         nullable: false,
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: Default::default(),
+        null_vertex: None,
+        scope_via: None,
     }
 }
 
@@ -247,6 +251,7 @@ fn key(id: &str, parts: Vec<KeyPart>, role: KeyRole, scope: KeyScope) -> Key {
         parts,
         role,
         scope,
+        equality: vec![],
     }
 }
 
@@ -1123,6 +1128,7 @@ fn aliases_schema(alter: impl FnOnce(&mut Reference)) -> Aliases {
         RefSource::Variable {
             field: Vec::new(),
             binder_key: "anchor".into(),
+            binding: Default::default(),
         },
         "node",
         alias_of.clone(),
@@ -1404,6 +1410,7 @@ fn variables_schema() -> Variables {
         RefSource::Variable {
             field: vec![var.clone()],
             binder_key: "var".into(),
+            binding: Default::default(),
         },
         "concept",
         reentrancy.clone(),
@@ -2593,6 +2600,9 @@ fn notes_schema(declarations: &[Standoff]) -> Notes {
                 end: vec![prop("note", "offset", declaration.end)],
                 unit: declaration.unit.clone(),
                 end_inclusive: declaration.end_inclusive,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             },
             "span",
             label.clone(),
@@ -3762,6 +3772,9 @@ fn orders_schema(many: bool) -> Orders {
                 end: vec![prop("order", "num", "end")],
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
+                end_form: Default::default(),
+                origin: 0,
+                fragments: None,
             },
             "span",
             label.clone(),

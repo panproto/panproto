@@ -550,6 +550,7 @@ mod tests {
                 parts: vec![KeyPart::Path(Vec::new())],
                 role: KeyRole::Primary,
                 scope: KeyScope::Global,
+                equality: vec![],
             }],
         );
     }
@@ -703,6 +704,10 @@ mod tests {
                 nullable: false,
                 on_unresolved: OnUnresolved::Error,
                 mode: ResolveMode::AddEdge,
+                guard: None,
+                null_match: Default::default(),
+                null_vertex: None,
+                scope_via: None,
             },
         );
         let rel = RelSchema::new(&s, &protocol(&["string"], &["record"]))?;

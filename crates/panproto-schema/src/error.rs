@@ -134,6 +134,13 @@ pub enum SchemaError {
         /// The reference id declared twice.
         reference: Name,
     },
+
+    /// Two target-set declarations with the same id disagree.
+    #[error("conflicting declarations of target set {set}")]
+    TargetSetConflict {
+        /// The target-set id declared twice.
+        set: Name,
+    },
 }
 
 /// An error found during schema validation against a protocol.

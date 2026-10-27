@@ -7,7 +7,9 @@
 //! quantifiers executable. [`c8_scope_status`] records that distinction as
 //! data.
 
-use crate::edit::{AttrKey, GElem, GraphDelta};
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::edit::{AttrKey, GElem, GraphDelta, TElem, TKey, TPayload, TVal, TableDelta};
 use crate::model::{Graph, NodeShape, SEdge};
 use crate::value::Value;
 
@@ -328,4 +330,181 @@ pub fn graph_delta_sequences() -> Vec<Vec<GraphDeltaCase>> {
 #[must_use]
 pub const fn graph_delta_sequences_count_certificate() -> u64 {
     1 + 25 + 25 * 25 + 25 * 25 * 25
+}
+
+/// Every labelled table in the release carrier.
+///
+/// There are zero to three rows, with ids `0..n`, all in table `a`. Each
+/// row independently has no `f` cell or `f = 0`. There is either no
+/// foreign-key pair or exactly one pair over the `n^2` ordered endpoints,
+/// under the single label `a -e-> a`.
+#[must_use]
+pub fn tables() -> Vec<crate::model::Table> {
+    let edge = SEdge::new("a", "a", "e", None);
+    let mut out = Vec::new();
+    for n in 0..=3u32 {
+        for mask in 0..(1u32 << n) {
+            let rows: BTreeMap<_, _> = (0..n)
+                .map(|id| {
+                    let cells = if (mask & (1 << id)) != 0 {
+                        BTreeMap::from([("f".to_owned(), Value::Int(0))])
+                    } else {
+                        BTreeMap::default()
+                    };
+                    (id, ("a".to_owned(), cells))
+                })
+                .collect();
+            out.push(crate::model::Table {
+                rows: rows.clone(),
+                pairs: BTreeSet::default(),
+            });
+            for src in 0..n {
+                for tgt in 0..n {
+                    out.push(crate::model::Table {
+                        rows: rows.clone(),
+                        pairs: std::iter::once((edge.clone(), src, tgt)).collect(),
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`tables`]:
+/// `sum_(n=0)^3 2^n (1 + n^2) = 105`.
+#[must_use]
+pub const fn tables_count_certificate() -> u64 {
+    1 + 4 + 20 + 80
+}
+
+/// Every atomic table delta over one labelled row, pair and cell.
+#[must_use]
+pub fn table_deltas() -> Vec<TableDelta> {
+    let mut out = vec![TableDelta::identity()];
+    for cells in [
+        BTreeMap::new(),
+        BTreeMap::from([("f".to_owned(), Value::Int(0))]),
+    ] {
+        let payload = TPayload::Row("a".to_owned(), cells);
+        let mut delete = TableDelta::identity();
+        delete.del.insert(TElem::Row(0), payload.clone());
+        out.push(delete);
+        let mut add = TableDelta::identity();
+        add.add.insert(TElem::Row(0), payload);
+        out.push(add);
+    }
+    let pair = TElem::Pair(SEdge::new("a", "a", "e", None), 0, 0);
+    let mut delete_pair = TableDelta::identity();
+    delete_pair.del.insert(pair.clone(), TPayload::Pair);
+    out.push(delete_pair);
+    let mut add_pair = TableDelta::identity();
+    add_pair.add.insert(pair, TPayload::Pair);
+    out.push(add_pair);
+    for (old, new) in [(None, Some(Value::Int(0))), (Some(Value::Int(0)), None)] {
+        let mut cell = TableDelta::identity();
+        cell.attrs.insert(
+            TKey::Cell(0, "f".to_owned()),
+            (TVal::Cell(old), TVal::Cell(new)),
+        );
+        out.push(cell);
+    }
+    for (old, new) in [("a", "b"), ("b", "a")] {
+        let mut table = TableDelta::identity();
+        table.attrs.insert(
+            TKey::Table(0),
+            (TVal::Table(old.to_owned()), TVal::Table(new.to_owned())),
+        );
+        out.push(table);
+    }
+    out
+}
+
+/// Independent count of [`table_deltas`]: identity, two row payloads in
+/// both directions, one pair in both directions, one cell in both
+/// directions and one table name in both directions.
+#[must_use]
+pub const fn table_deltas_count_certificate() -> u64 {
+    1 + 2 * 2 + 2 + 2 + 2
+}
+
+/// Every word of at most three atomic table deltas.
+#[must_use]
+pub fn table_delta_sequences() -> Vec<Vec<TableDelta>> {
+    super::sequences(&table_deltas(), 3)
+}
+
+/// Independent count of [`table_delta_sequences`]:
+/// `1 + 11 + 11^2 + 11^3 = 1,464`.
+#[must_use]
+pub const fn table_delta_sequences_count_certificate() -> u64 {
+    1 + 11 + 11 * 11 + 11 * 11 * 11
+}
+
+/// The direction in which a named edit-translation carrier case runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditTranslationDirection {
+    /// Translate an edit on the source through `get`.
+    Get,
+    /// Translate an edit on the view through `put`.
+    Put,
+}
+
+/// One named edit in the finite projection-lens translation carrier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditTranslationCase {
+    /// Stable diagnostic name for the case.
+    pub name: &'static str,
+    /// Which whole-state square the case exercises.
+    pub direction: EditTranslationDirection,
+    /// The tree edit lowered to the graph delta passed to the oracle.
+    pub edit: crate::edit::TreeEdit,
+}
+
+/// The five edits in the named projection-lens translation carrier.
+///
+/// The source is a root with one retained leaf and one hidden leaf. The get
+/// cases contain identity and deletion of each kind of leaf. The put cases
+/// contain identity and deletion of the retained leaf. Together they
+/// distinguish an observable edit from an edit absorbed into the complement
+/// in the forward direction and check residue restoration in the backward
+/// direction.
+#[must_use]
+pub fn edit_translation_cases() -> Vec<EditTranslationCase> {
+    use crate::edit::TreeEdit;
+
+    vec![
+        EditTranslationCase {
+            name: "get-identity",
+            direction: EditTranslationDirection::Get,
+            edit: TreeEdit::Identity,
+        },
+        EditTranslationCase {
+            name: "get-delete-visible",
+            direction: EditTranslationDirection::Get,
+            edit: TreeEdit::DeleteNode { id: 1 },
+        },
+        EditTranslationCase {
+            name: "get-delete-hidden",
+            direction: EditTranslationDirection::Get,
+            edit: TreeEdit::DeleteNode { id: 2 },
+        },
+        EditTranslationCase {
+            name: "put-identity",
+            direction: EditTranslationDirection::Put,
+            edit: TreeEdit::Identity,
+        },
+        EditTranslationCase {
+            name: "put-delete-visible",
+            direction: EditTranslationDirection::Put,
+            edit: TreeEdit::DeleteNode { id: 1 },
+        },
+    ]
+}
+
+/// Independent count of [`edit_translation_cases`]: three get cases and two
+/// put cases.
+#[must_use]
+pub const fn edit_translation_cases_count_certificate() -> u64 {
+    3 + 2
 }

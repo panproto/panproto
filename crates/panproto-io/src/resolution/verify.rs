@@ -463,12 +463,6 @@ impl Resolution {
         regotten: &GInstance,
         diff: Diff,
     ) -> ResolveDomainError {
-        let record_of = |complement: &ResolutionComplement, id: EdgeId| -> Option<RefOccurrence> {
-            complement
-                .occurrences
-                .get(&ViewRef::Edge(id))
-                .and_then(|records| records.first().cloned())
-        };
         match diff {
             Diff::LeftNode(id) => {
                 if complement.span_nodes.contains_key(&id) {
@@ -498,74 +492,98 @@ impl Resolution {
                     )
                 },
             ),
-            Diff::LeftEdge { id, target_only } => match record_of(complement, id) {
-                // A recorded occurrence that put writes (a redirect's) and
-                // that resolves elsewhere is a reference its writer cannot
-                // write; one whose literal the view holds (an adding
-                // reference's) names another target than its own literal,
-                // a synthesized edge edited apart from its key.
-                Some(record) if target_only && self.writes(&record.reference) => {
+            Diff::LeftEdge { id, target_only } => {
+                self.left_edge_violation(view, complement, recomplement, id, target_only)
+            }
+            Diff::RightEdge(id) => right_edge_violation(view, complement, recomplement, id),
+        }
+    }
+
+    fn left_edge_violation(
+        &self,
+        view: &GInstance,
+        complement: &ResolutionComplement,
+        recomplement: &ResolutionComplement,
+        id: EdgeId,
+        target_only: bool,
+    ) -> ResolveDomainError {
+        match record_of(complement, id) {
+            // A recorded redirect that resolves elsewhere cannot be written;
+            // an adding occurrence with another target changed its key.
+            Some(record) if target_only && self.writes(&record.reference) => {
+                ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(id),
+                    reference: record.reference,
+                }
+            }
+            Some(_) if target_only => ResolveDomainError::SynthesizedEdited {
+                carrier: ViewRef::Edge(id),
+            },
+            Some(record) => {
+                let produced = recomplement.occurrences.values().flatten().any(|again| {
+                    again.holder == record.holder
+                        && again.reference == record.reference
+                        && again.index == record.index
+                });
+                if produced {
+                    ResolveDomainError::SynthesizedEdited {
+                        carrier: ViewRef::Edge(id),
+                    }
+                } else {
                     ResolveDomainError::UnrepresentableReference {
                         carrier: ViewRef::Edge(id),
                         reference: record.reference,
                     }
                 }
-                Some(_) if target_only => ResolveDomainError::SynthesizedEdited {
+            }
+            None => match view.edge(id).map(|edge| self.writer(id, &edge.edge)) {
+                Some(Ok(writer)) => ResolveDomainError::UnrepresentableReference {
                     carrier: ViewRef::Edge(id),
+                    reference: writer.reference.id.clone(),
                 },
-                Some(record) => {
-                    let produced = recomplement.occurrences.values().flatten().any(|again| {
-                        again.holder == record.holder
-                            && again.reference == record.reference
-                            && again.index == record.index
-                    });
-                    if produced {
-                        ResolveDomainError::SynthesizedEdited {
-                            carrier: ViewRef::Edge(id),
-                        }
-                    } else {
-                        ResolveDomainError::UnrepresentableReference {
-                            carrier: ViewRef::Edge(id),
-                            reference: record.reference,
-                        }
-                    }
-                }
-                None => match view.edge(id).map(|edge| self.writer(id, &edge.edge)) {
-                    Some(Ok(writer)) => ResolveDomainError::UnrepresentableReference {
-                        carrier: ViewRef::Edge(id),
-                        reference: writer.reference.id.clone(),
-                    },
-                    Some(Err(violation)) => violation,
-                    None => ResolveDomainError::NoPlacement {
-                        carrier: ViewRef::Edge(id),
-                    },
-                },
-            },
-            Diff::RightEdge(id) => match record_of(recomplement, id) {
-                Some(record) => {
-                    let removed = complement.occurrences.iter().find(|(carrier, records)| {
-                        matches!(carrier, ViewRef::Edge(old) if view.edge(*old).is_none())
-                            && records.iter().any(|old| {
-                                old.holder == record.holder
-                                    && old.reference == record.reference
-                                    && old.index == record.index
-                            })
-                    });
-                    match removed {
-                        Some((carrier, _)) => ResolveDomainError::SynthesizedEdited {
-                            carrier: carrier.clone(),
-                        },
-                        None => ResolveDomainError::UnrepresentableReference {
-                            carrier: view_carrier(&record.holder),
-                            reference: record.reference,
-                        },
-                    }
-                }
+                Some(Err(violation)) => violation,
                 None => ResolveDomainError::NoPlacement {
                     carrier: ViewRef::Edge(id),
                 },
             },
         }
+    }
+}
+
+fn record_of(complement: &ResolutionComplement, id: EdgeId) -> Option<RefOccurrence> {
+    complement
+        .occurrences
+        .get(&ViewRef::Edge(id))
+        .and_then(|records| records.first().cloned())
+}
+
+fn right_edge_violation(
+    view: &GInstance,
+    complement: &ResolutionComplement,
+    recomplement: &ResolutionComplement,
+    id: EdgeId,
+) -> ResolveDomainError {
+    let Some(record) = record_of(recomplement, id) else {
+        return ResolveDomainError::NoPlacement {
+            carrier: ViewRef::Edge(id),
+        };
+    };
+    let removed = complement.occurrences.iter().find(|(carrier, records)| {
+        matches!(carrier, ViewRef::Edge(old) if view.edge(*old).is_none())
+            && records.iter().any(|old| {
+                old.holder == record.holder
+                    && old.reference == record.reference
+                    && old.index == record.index
+            })
+    });
+    match removed {
+        Some((carrier, _)) => ResolveDomainError::SynthesizedEdited {
+            carrier: carrier.clone(),
+        },
+        None => ResolveDomainError::UnrepresentableReference {
+            carrier: view_carrier(&record.holder),
+            reference: record.reference,
+        },
     }
 }
 
@@ -789,6 +807,7 @@ fn read_violation(
         | ResolveError::Identity(_)
         | ResolveError::UnsupportedKind { .. }
         | ResolveError::ReferenceConflict { .. }
+        | ResolveError::KeyEquality { .. }
         | ResolveError::ProviderUnavailable { .. }
         | ResolveError::UnsupportedFeature { .. }
         | ResolveError::ContextMismatch { .. }
@@ -846,6 +865,10 @@ fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef) -> bool {
         && a.index == b.index
         && match (&a.reason, &b.reason) {
             (UnresolvedReason::Dangling, UnresolvedReason::Dangling) => true,
+            (
+                UnresolvedReason::Unselected { value: x },
+                UnresolvedReason::Unselected { value: y },
+            ) => x.canonical_cmp(y).is_eq(),
             (
                 UnresolvedReason::Ambiguous { candidates: x },
                 UnresolvedReason::Ambiguous { candidates: y },
@@ -906,7 +929,7 @@ impl Resolution {
                 continue;
             };
             for &edge in view.in_edges(span_node) {
-                let Some((reference, unit, end_inclusive)) = complement
+                let Some((reference, unit, end_inclusive, end_form, origin)) = complement
                     .occurrences
                     .get(&ViewRef::Edge(edge))
                     .and_then(|records| records.first())
@@ -915,8 +938,16 @@ impl Resolution {
                         RefForm::Standoff {
                             unit,
                             end_inclusive,
+                            end_form,
+                            origin,
                             ..
-                        } => Some((&compiled.reference.id, unit, *end_inclusive)),
+                        } => Some((
+                            &compiled.reference.id,
+                            unit,
+                            *end_inclusive,
+                            *end_form,
+                            *origin,
+                        )),
                         _ => None,
                     })
                 else {
@@ -945,12 +976,13 @@ impl Resolution {
                 let failure = super::standoff::unit_boundaries(&bytes, unit, tokens.as_deref())
                     .map_err(super::standoff::UnitFailure::Violation)
                     .and_then(|boundaries| {
-                        super::standoff::bytes_to_declared(
+                        let offsets = super::standoff::bytes_to_declared(
                             &boundaries,
                             span.start,
                             span.end,
                             end_inclusive,
-                        )
+                        )?;
+                        super::standoff::offsets_to_form(offsets.0, offsets.1, origin, end_form)
                     })
                     .err();
                 match failure {

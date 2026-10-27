@@ -931,6 +931,7 @@ mod tests {
                 parts: Vec::new(),
                 role: KeyRole::Primary,
                 scope: KeyScope::Document,
+                equality: vec![],
             },
         );
         variants.push(("declarations", declarations));

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use panproto_gat::Name;
 use panproto_schema::{
     ConstraintSemantics, ConstraintValue, Edge, InstanceShapeKind, Key, LengthUnit, Protocol,
-    Reference, Schema,
+    Reference, ScalarKind, Schema, ValueSpec,
 };
 use serde::{Deserialize, Serialize};
 
@@ -767,10 +767,21 @@ pub(super) enum ValueTest {
         format: ValueFormat,
         rules: FormatRules,
     },
+    /// Exact coercibility to the kind named by an advisory width format.
+    Coercible(ValueSpec),
+    /// Coercibility to the kind selected by the value at `tag`.
+    LexicalSpace {
+        tag: Edge,
+        kinds: BTreeMap<String, ScalarKind>,
+    },
 }
 
 /// What evaluating one compiled check needs, beyond its [`CheckSpec`].
 #[derive(Clone, Debug)]
+// The reference form owns the full declaration and resolving key so a plan
+// remains independent of its input schema's borrow lifetime. Boxing it would
+// add fallible allocation and indirection to every reference evaluation.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Compiled {
     /// A structural check with no parameters.
     Structural,
@@ -1235,20 +1246,49 @@ impl Builder<'_> {
             return;
         }
         let key = CheckKey::new(constraint_kind(&semantics), decl);
+        let default = if matches!(
+            &semantics,
+            ConstraintSemantics::LexicalSpace | ConstraintSemantics::AnnotatedFormat(_)
+        ) {
+            Requirement::Advisory
+        } else {
+            Requirement::Required
+        };
         let value = match semantics.parse_value(&constraint.sort, &constraint.value) {
             Ok(value) => value,
             Err(e) => {
-                self.add(key.clone(), Compiled::Structural, Some(semantics), anchors);
+                self.add_on(
+                    key.clone(),
+                    Compiled::Structural,
+                    Some(semantics),
+                    anchors,
+                    &ALL_SHAPES,
+                    default,
+                );
                 self.ill_formed(e.to_string(), &[key]);
                 return;
             }
         };
         let compiled = self.compile_constraint(vertex, constraint, &semantics, value);
         match compiled {
-            Ok(Some(compiled)) => self.add(key, compiled, Some(semantics), anchors),
+            Ok(Some(compiled)) => self.add_on(
+                key,
+                compiled,
+                Some(semantics),
+                anchors,
+                &ALL_SHAPES,
+                default,
+            ),
             Ok(None) => {}
             Err(reason) => {
-                self.add(key.clone(), Compiled::Structural, Some(semantics), anchors);
+                self.add_on(
+                    key.clone(),
+                    Compiled::Structural,
+                    Some(semantics),
+                    anchors,
+                    &ALL_SHAPES,
+                    default,
+                );
                 self.finding(CheckKind::DeclarationInterpretable, &reason, &[key]);
             }
         }
@@ -1257,6 +1297,7 @@ impl Builder<'_> {
     /// The compiled form of one constraint whose value reads under its
     /// meaning: `Ok(None)` when it compiles to no check, `Err` with the
     /// static finding when it cannot be evaluated.
+    #[allow(clippy::too_many_lines)]
     fn compile_constraint(
         &self,
         vertex: &Name,
@@ -1325,6 +1366,42 @@ impl Builder<'_> {
                     },
                 )
             }
+            (ConstraintSemantics::LexicalSpace, ConstraintValue::LexicalSpace(tag)) => {
+                let mut edges: Vec<Edge> = self
+                    .schema
+                    .edges
+                    .keys()
+                    .filter(|edge| edge.src == *vertex && edge.name.as_ref() == Some(&tag))
+                    .cloned()
+                    .collect();
+                edges.sort();
+                match edges.as_slice() {
+                    [edge] => value_check(ValueTest::LexicalSpace {
+                        tag: edge.clone(),
+                        kinds: self.protocol.value_kinds.clone(),
+                    }),
+                    [] => Err(R::UnsupportedDeclaration { sort: tag }),
+                    _ => Err(ill(format!(
+                        "{} = {tag:?} names more than one edge leaving {vertex}",
+                        constraint.sort
+                    ))),
+                }
+            }
+            (
+                ConstraintSemantics::AnnotatedFormat(_),
+                ConstraintValue::Format { family, format },
+            ) => ValueFormat::named(&format).map_or_else(
+                || {
+                    annotated_width_spec(&format)
+                        .map_or_else(|| Ok(None), |spec| value_check(ValueTest::Coercible(spec)))
+                },
+                |format| {
+                    value_check(ValueTest::Format {
+                        format,
+                        rules: FormatRules::of_family(&family),
+                    })
+                },
+            ),
             (
                 ConstraintSemantics::MinOutDegree | ConstraintSemantics::MaxOutDegree,
                 ConstraintValue::Degree(n),
@@ -1369,6 +1446,35 @@ impl Builder<'_> {
             ))),
         }
     }
+}
+
+/// The exact scalar kind selected by a recognized advisory width format.
+///
+/// The schema's `type` remains the value's kind. This spec is only the
+/// predicate used by the advisory format check.
+fn annotated_width_spec(format: &str) -> Option<ValueSpec> {
+    let kind = match format {
+        "int8" => ScalarKind::Int {
+            bits: 8,
+            signed: true,
+        },
+        "int16" => ScalarKind::Int {
+            bits: 16,
+            signed: true,
+        },
+        "int" | "int32" => ScalarKind::Int {
+            bits: 32,
+            signed: true,
+        },
+        "long" | "int64" => ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+        "float" => ScalarKind::Float { bits: 32 },
+        "double" => ScalarKind::Float { bits: 64 },
+        _ => return None,
+    };
+    Some(ValueSpec::new(kind))
 }
 
 impl Builder<'_> {
@@ -1566,6 +1672,9 @@ impl Builder<'_> {
 
     /// The compiled checks a schema well-formedness error makes
     /// uninterpretable.
+    // Keeping this exhaustive match together makes the dependency assigned
+    // to each schema error auditable against `KeyRefError`.
+    #[allow(clippy::too_many_lines)]
     fn dependents_of(&self, error: &panproto_schema::ValidationError) -> Vec<CheckKey> {
         use panproto_schema::{KeyRefError as E, ValidationError as V};
         let keys_where = |pred: &dyn Fn(&CheckKey) -> bool| -> Vec<CheckKey> {
@@ -1579,6 +1688,25 @@ impl Builder<'_> {
         let ref_decl = |k: &CheckKey, f: &dyn Fn(&Reference) -> bool| match &k.decl {
             SchemaRef::Reference(id) => decls.references.get(id).is_some_and(f),
             _ => false,
+        };
+        let ref_named = |k: &CheckKey, reference: &Name| matches!(&k.decl, SchemaRef::Reference(id) if id == reference);
+        let ref_targets_set =
+            |k: &CheckKey, set: &Name| ref_decl(k, &|reference| &reference.target_vertex == set);
+        let ref_targets_key = |k: &CheckKey, vertex: &Name, key: &Name| {
+            ref_decl(k, &|reference| {
+                let directly = &reference.target_vertex == vertex
+                    && decls
+                        .resolving_key(reference)
+                        .is_some_and(|candidate| &candidate.id == key);
+                let through_set = decls
+                    .target_set(&reference.target_vertex)
+                    .is_some_and(|set| {
+                        set.members.iter().any(|(member_vertex, member_key)| {
+                            member_vertex == vertex && member_key == key
+                        })
+                    });
+                directly || through_set
+            })
         };
         match error {
             V::DanglingRequiredEdge { vertex, .. } => keys_where(
@@ -1596,6 +1724,19 @@ impl Builder<'_> {
                 E::DuplicateKeyId { vertex, key } => keys_where(
                     &|k| matches!(&k.decl, SchemaRef::Key { vertex: v, key: id } if v == vertex && id == key),
                 ),
+                E::EqualityArity { vertex, key, .. } | E::SortKeyNotOrdered { vertex, key } => {
+                    keys_where(&|k| {
+                        key_decl(k, &|v, declaration| v == vertex && &declaration.id == key)
+                            || ref_targets_key(k, vertex, key)
+                    })
+                }
+                E::TargetSetNameClash { set } | E::EmptyTargetSet { set } => {
+                    keys_where(&|k| ref_targets_set(k, set))
+                }
+                E::TargetSetMemberMismatch { set, vertex, key } => keys_where(&|k| {
+                    ref_targets_set(k, set)
+                        || key_decl(k, &|v, declaration| v == vertex && &declaration.id == key)
+                }),
                 E::PathDoesNotResolve { owner, path } => keys_where(&|k| {
                     key_decl(k, &|v, d| {
                         v == owner
@@ -1613,11 +1754,21 @@ impl Builder<'_> {
                     })
                 }),
                 E::UnknownTargetKey { reference, .. }
+                | E::UnknownTarget { reference }
+                | E::KeyNotResolvable { reference, .. }
                 | E::ArityMismatch { reference, .. }
                 | E::BinderNotIdentifier { reference, .. }
+                | E::InlineRequiresRedirect { reference }
+                | E::InlineRequiresTargetSet { reference }
+                | E::LengthInclusive { reference }
+                | E::InvalidFragments { reference }
+                | E::TargetSetHasKey { reference }
+                | E::TextReferenceInvalid { reference, .. }
+                | E::ScopeViaInvalid { reference }
                 | E::EdgeMismatch { reference, .. }
-                | E::EdgeRequired { reference } => {
-                    keys_where(&|k| matches!(&k.decl, SchemaRef::Reference(id) if id == reference))
+                | E::EdgeRequired { reference } => keys_where(&|k| ref_named(k, reference)),
+                E::DuplicateGuard { references } | E::BinderModeConflict { references, .. } => {
+                    keys_where(&|k| references.iter().any(|reference| ref_named(k, reference)))
                 }
                 E::WithinNotAncestor { key, vertex } => keys_where(&|k| {
                     key_decl(k, &|_, d| {
@@ -1793,5 +1944,10 @@ fn write_semantics<W: CanonicalSink + ?Sized>(w: &mut W, semantics: &ConstraintS
         ConstraintSemantics::Acyclic => w.tag(12),
         ConstraintSemantics::External => w.tag(13),
         ConstraintSemantics::ValueParameter => w.tag(14),
+        ConstraintSemantics::LexicalSpace => w.tag(15),
+        ConstraintSemantics::AnnotatedFormat(family) => {
+            w.tag(16);
+            w.name(family);
+        }
     }
 }

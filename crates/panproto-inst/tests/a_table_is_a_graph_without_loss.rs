@@ -72,6 +72,10 @@ fn declaring(nullable: bool) -> Schema {
             nullable,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: Default::default(),
+            null_vertex: None,
+            scope_via: None,
         },
     );
     schema
@@ -560,6 +564,10 @@ fn table_shape_is_linear_in_the_graph() {
                 nullable: false,
                 on_unresolved: OnUnresolved::Error,
                 mode: ResolveMode::AddEdge,
+                guard: None,
+                null_match: Default::default(),
+                null_vertex: None,
+                scope_via: None,
             },
         );
     }
